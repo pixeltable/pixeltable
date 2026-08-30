@@ -11,12 +11,18 @@ from typing import Any
 import pytest
 
 from pixeltable import exceptions as excs
-from pixeltable.config import Config
-from pixeltable.service.project_archive import create_project_archive, database_config
+from pixeltable.catalog import Path as PxtPath
+from pixeltable.config import Config, DatabaseConfig
+from pixeltable.utils.project import create_project_archive
 
 from ..utils import pxt_raises
 
 pytestmark = pytest.mark.local('packaging a project')
+
+
+def local_entry() -> DatabaseConfig | None:
+    """The project's entry for the local database, which selects the files an archive holds."""
+    return Config.get().get_database_config(PxtPath.parse('', allow_empty_path=True))
 
 
 class TestProjectArchive:
@@ -51,9 +57,9 @@ class TestProjectArchive:
             """)
         )
 
-        Config.init(reinit=True)
+        Config.init(reinit=True, project_root=tmp_path)
 
-        archive_path = create_project_archive(tmp_path)
+        archive_path = create_project_archive(tmp_path, local_entry())
 
         with tarfile.open(archive_path, 'r:bz2') as tar:
             members = tar.getnames()
@@ -109,7 +115,7 @@ class TestProjectArchive:
         monkeypatch.chdir(tmp_path)
         Config.init(reinit=True)
 
-        entry = database_config(tmp_path)
+        entry = local_entry()
         assert entry is not None
         assert entry.system_dependencies == ['ffmpeg', 'libpq']
 
@@ -119,7 +125,7 @@ class TestProjectArchive:
         assert tarfile.is_tarfile(archive_path)
         assert archive_path.suffix == '.bz2'
 
-    def test_no_lockfile(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: Any) -> None:
+    def test_no_lockfile(self, init_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: Any) -> None:
         """A project with no lockfile draws a warning and is packaged anyway; a conda environment is not a lockfile."""
         monkeypatch.chdir(tmp_path)
         Config.init(reinit=True)

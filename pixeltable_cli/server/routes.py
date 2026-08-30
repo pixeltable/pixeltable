@@ -162,14 +162,14 @@ def set_cwd(req: Request) -> models.CwdResponse:
 def _require_dir(path: str) -> None:
     """Raise if path does not name an existing directory (reuses the ls tree navigation)."""
     path_obj = Path.parse(path, allow_empty_path=True)
-    _get_dir_children(pxt.get_dir_tree(path_obj.uri), '/'.join(path_obj.components))
+    _get_dir_children(pxt.get_dir_tree(path_obj.uri_str), '/'.join(path_obj.components))
 
 
 def _list_dir(path: str, *, tree: bool, details: bool, counts: bool) -> models.LsResponse:
     # A hosted path (pxt://<org>:<db>/...) lists a remote catalog; split off its catalog-root URI so we
     # fetch that catalog's tree and navigate by the in-catalog remainder. catalog_root is '' for a local path.
     path_obj = Path.parse(path, allow_empty_path=True)
-    db_uri = path_obj.uri
+    db_uri = path_obj.uri_str
     relative_path = '/'.join(path_obj.components)
     full_tree = pxt.get_dir_tree(db_uri)
     nodes = _get_dir_children(full_tree, relative_path)

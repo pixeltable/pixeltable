@@ -127,7 +127,7 @@ class ServiceManagerProxy(ServiceManagerBase):
             instance = self.get(name, base_path)
             if instance is None:
                 raise excs.Error(
-                    excs.ErrorCode.INTERNAL_ERROR, f'Service {name!r} is no longer in {self.catalog_uri.uri}'
+                    excs.ErrorCode.INTERNAL_ERROR, f'Service {name!r} is no longer in {self.catalog_uri.uri_str}'
                 )
             if instance.state is not ServiceInstanceState.STARTING:
                 return instance

@@ -198,7 +198,7 @@ class Path:
             base = f'{base}:{self.version}'
         if self.org is None:
             return base
-        return self.uri if base == '' else f'{self.uri}/{base}'
+        return self.uri_str if base == '' else f'{self.uri_str}/{base}'
 
 
 ROOT_PATH = Path()

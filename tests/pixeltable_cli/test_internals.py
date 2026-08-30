@@ -20,22 +20,21 @@ import signal
 import socket
 import subprocess
 import sys
-import typing
 import urllib.error
 from collections.abc import Callable, Iterator
 from email.message import Message
 from types import ModuleType, SimpleNamespace
-from typing import Any, ClassVar, Self
+from typing import Any, Self
 from unittest.mock import patch
 
 import pydantic
 import pytest
 import requests
-import typing_extensions
 
 from pixeltable import exceptions as excs, metadata
-from pixeltable.catalog import model
-from pixeltable.service import management_client, project_archive as project_archive_module
+from pixeltable.catalog import Path as PxtPath
+from pixeltable.config import Config
+from pixeltable.service import db, management_client
 from pixeltable.service.management_protocol import (
     CreateDbRequest,
     DeleteDbRequest,
@@ -46,12 +45,11 @@ from pixeltable.service.management_protocol import (
     StartDbRequest,
     StopDbRequest,
 )
-from pixeltable.service.project_archive import database_config
 from pixeltable.serving.service_instance import ServiceInstanceState
 from pixeltable.utils.app_module import load_app_module, module_routers, service_spec, services_by_name
 from pixeltable.utils.project import project_fingerprint
-from pixeltable_cli import schema_types as wire, utils
-from pixeltable_cli.client import confirm, hosted, main as client_main, parser as client_parser, utils as client_utils
+from pixeltable_cli import utils
+from pixeltable_cli.client import hosted, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import (
     daemon as daemon_cmd,
     db as db_cmd,
@@ -60,7 +58,7 @@ from pixeltable_cli.client.commands import (
     shell as shell_cmd,
     status as status_cmd,
 )
-from pixeltable_cli.server import bridge, daemon as server_daemon, router as server_router, routes as server_routes
+from pixeltable_cli.server import daemon as server_daemon, router as server_router, routes as server_routes
 from tests.utils import pxt_raises, skip_test_if_not_installed
 
 
@@ -829,35 +827,35 @@ class TestIdentity:
 class TestConfirm:
     def test_force_short_circuits(self) -> None:
         # No TTY, no input - force=True must just return.
-        confirm.confirm_or_exit('drop something?', force=True)
+        client_utils.confirm_or_exit('drop something?', force=True)
 
     def test_no_tty_refuses(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: False)
+        monkeypatch.setattr(client_utils, 'stdin_is_a_tty', lambda: False)
         with pytest.raises(SystemExit) as ei:
-            confirm.confirm_or_exit('drop something?', force=False)
+            client_utils.confirm_or_exit('drop something?', force=False)
         assert ei.value.code == 2
         assert '--force' in capsys.readouterr().err
 
     def test_tty_yes(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: True)
-        monkeypatch.setattr(confirm.sys, 'stdin', io.StringIO('y\n'))
+        monkeypatch.setattr(client_utils, 'stdin_is_a_tty', lambda: True)
+        monkeypatch.setattr(client_utils.sys, 'stdin', io.StringIO('y\n'))
         # Should not raise.
-        confirm.confirm_or_exit('drop something?', force=False)
+        client_utils.confirm_or_exit('drop something?', force=False)
 
     def test_tty_no(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: True)
-        monkeypatch.setattr(confirm.sys, 'stdin', io.StringIO('n\n'))
+        monkeypatch.setattr(client_utils, 'stdin_is_a_tty', lambda: True)
+        monkeypatch.setattr(client_utils.sys, 'stdin', io.StringIO('n\n'))
         with pytest.raises(SystemExit) as ei:
-            confirm.confirm_or_exit('drop something?', force=False, refused_exit_code=3)
+            client_utils.confirm_or_exit('drop something?', force=False, refused_exit_code=3)
         # answering no is refusal, same as the non-tty path
         assert ei.value.code == 3
         assert 'aborted' in capsys.readouterr().err
 
     def test_tty_empty_aborts(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: True)
-        monkeypatch.setattr(confirm.sys, 'stdin', io.StringIO('\n'))
+        monkeypatch.setattr(client_utils, 'stdin_is_a_tty', lambda: True)
+        monkeypatch.setattr(client_utils.sys, 'stdin', io.StringIO('\n'))
         with pytest.raises(SystemExit):
-            confirm.confirm_or_exit('drop something?', force=False)
+            client_utils.confirm_or_exit('drop something?', force=False)
 
     def test_stdin_is_a_tty_posix(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Non-Windows path: isatty() True -> returns True without touching ctypes."""
@@ -866,17 +864,17 @@ class TestConfirm:
             def isatty(self) -> bool:
                 return True
 
-        monkeypatch.setattr(confirm.sys, 'stdin', FakeStdin())
-        monkeypatch.setattr(confirm.sys, 'platform', 'linux')
-        assert confirm.stdin_is_a_tty() is True
+        monkeypatch.setattr(client_utils.sys, 'stdin', FakeStdin())
+        monkeypatch.setattr(client_utils.sys, 'platform', 'linux')
+        assert client_utils.stdin_is_a_tty() is True
 
     def test_stdin_is_a_tty_not_a_tty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class FakeStdin:
             def isatty(self) -> bool:
                 return False
 
-        monkeypatch.setattr(confirm.sys, 'stdin', FakeStdin())
-        assert confirm.stdin_is_a_tty() is False
+        monkeypatch.setattr(client_utils.sys, 'stdin', FakeStdin())
+        assert client_utils.stdin_is_a_tty() is False
 
 
 class TestParser:
@@ -1652,7 +1650,7 @@ class TestHostedCommandHelp:
         ('module', 'argv', 'expected'),
         [
             (db_cmd, ['--help'], ['diff', 'update', 'create', 'list', 'build-image', 'status']),
-            (db_cmd, ['update', '--help'], ['--workers', '--cpu']),
+            (db_cmd, ['update', '--help'], ['--allow-destructive', '--dry-run']),
             (org_cmd, ['--help'], ['list', 'status']),
         ],
     )
@@ -1849,6 +1847,8 @@ class TestHostedServiceManager:
                     'app_module': 'apps.basic',
                     'spec': {'name': name, 'routes': [], 'app_paths': []},
                     'state': state,
+                    # every instance reports the project it loaded
+                    'fingerprint': project_fingerprint(Config.get().project_root, None).model_dump(),
                     **fields,
                 }
 
@@ -1895,7 +1895,7 @@ class TestHostedServiceManager:
         created = api.sent[1]
         assert (created.org, created.db, created.service_name, created.base_path) == ('acme', 'main', 'ingest', 'app')
         assert created.app_module == 'apps.basic'
-        assert created.spec['name'] == 'ingest'
+        assert created.spec.name == 'ingest'
         assert instance.state is ServiceInstanceState.AVAILABLE
 
     def test_start_updates_changed_declaration(self, api: Any, apps: Callable[[str], str]) -> None:
@@ -2001,32 +2001,37 @@ class TestHostedDatabase:
         """Records the key of each stored archive, in place of packaging and uploading one."""
         keys: list[str] = []
 
-        def upload(project_dir: pathlib.Path, org: str, db: str, *, show_progress: bool = False) -> str:
-            keys.append(f'{org}/{db}/project.tar.bz2')
+        def upload(config: Any, db_path: PxtPath, *, show_progress: bool = False) -> str:
+            keys.append(f'{db_path.org}/{db_path.db}/project.tar.bz2')
             return keys[-1]
 
-        monkeypatch.setattr(project_archive_module, 'upload_project_archive', upload)
+        monkeypatch.setattr(db, '_upload_project_archive', upload)
         return keys
 
-    def _project(self, tmp_path: pathlib.Path, entry: str) -> str:
-        """A project declaring one hosted database, returning its config file."""
+    def _project(self, tmp_path: pathlib.Path, entry: str) -> None:
+        """Declare one hosted database in a project at tmp_path, and make it this process's project."""
         (tmp_path / 'app.py').write_text('import pixeltable as pxt\n')
         (tmp_path / 'uv.lock').write_text('version = 1\n')
-        config_file = tmp_path / 'pixeltable.toml'
-        config_file.write_text(f'[[pixeltable.database]]\nname = "pxt://acme:main"\n{entry}')
-        return str(config_file)
+        (tmp_path / 'pixeltable.toml').write_text(f'[[pixeltable.database]]\nname = "pxt://acme:main"\n{entry}')
+        Config.init(reinit=True, project_root=tmp_path)
+
+    def _fingerprint(self, tmp_path: pathlib.Path) -> dict[str, Any]:
+        """The project's fingerprint, in the form GET_DB reports it."""
+        entry = Config.get().get_database_config(PxtPath.parse('pxt://acme:main', allow_empty_path=True))
+        return project_fingerprint(tmp_path, entry).model_dump()
 
     def test_diff_reports_capacity_secrets_and_placement(self, api: Any, tmp_path: pathlib.Path) -> None:
         api.secrets['stale_key'] = 'x'
         api.database['location'] = 'aws/us-east-1'
-        config_file = self._project(
+        self._project(
             tmp_path,
             'cpu = 2.0\nmemory_mb = 256\nworkers = 2\nlocation = "gcp/us-central1"\n'
             '[pixeltable.database.secrets]\nopenai_api_key = "env:OPENAI_API_KEY"\n',
         )
-        plan = bridge.db_diff(config_file, 'pxt://acme:main')
+        api.database['fingerprint'] = self._fingerprint(tmp_path)
+        plan = db.db_diff('pxt://acme:main')
 
-        assert [(op['target'], op['name'], op['severity']) for op in plan['ops']] == [
+        assert [(op.target, op.name, op.severity) for op in plan.ops] == [
             ('capacity', 'cpu', 'additive'),
             ('capacity', 'memory_mb', 'destructive'),
             ('capacity', 'workers', 'additive'),
@@ -2034,130 +2039,135 @@ class TestHostedDatabase:
             ('secret', 'stale_key', 'destructive'),
             ('placement', 'location', 'unsupported'),
         ]
-        # the reported classes are compared and the unreported ones are named, rather than passing as agreement
-        assert plan['not_compared'] == ['image']
-        assert plan['resolution'] == 'unsupported'
-        assert plan['destructive']
+        assert plan.resolution == 'unsupported'
+        assert plan.destructive
 
     def test_diff_reports_agreement(self, api: Any, tmp_path: pathlib.Path) -> None:
-        config_file = self._project(tmp_path, 'cpu = 0.5\nmemory_mb = 512\ndisk_gb = 10\n')
-        plan = bridge.db_diff(config_file, 'pxt://acme:main')
-        assert plan['ops'] == []
-        assert plan['in_agreement']
-        assert plan['resolution'] == 'up_to_date'
+        self._project(tmp_path, 'cpu = 0.5\nmemory_mb = 512\ndisk_gb = 10\n')
+        api.database['fingerprint'] = self._fingerprint(tmp_path)
+        plan = db.db_diff('pxt://acme:main')
+        assert plan.ops == []
+        assert plan.in_agreement
+        assert plan.resolution == 'up_to_date'
+
+    def test_diff_reports_a_database_holding_no_project(self, api: Any, tmp_path: pathlib.Path) -> None:
+        """A database that reports no fingerprint is missing both artifacts, whatever else agrees."""
+        self._project(tmp_path, 'cpu = 0.5\nmemory_mb = 512\ndisk_gb = 10\n')
+        plan = db.db_diff('pxt://acme:main')
+        assert [(op.target, op.name) for op in plan.ops] == [('image', 'image'), ('archive', 'project')]
+        assert plan.summary.rebuild
 
     def test_diff_separates_the_project_from_the_image(self, api: Any, tmp_path: pathlib.Path) -> None:
-        config_file = self._project(tmp_path, '')
-        api.database['fingerprint'] = project_fingerprint(tmp_path, None).model_dump()
+        self._project(tmp_path, '')
+        api.database['fingerprint'] = self._fingerprint(tmp_path)
 
-        # a source edit ships the project; the environment the image holds is untouched
+        # a source edit sends the project again; the environment the image holds is untouched
         (tmp_path / 'app.py').write_text('import pixeltable as pxt  # edited\n')
-        plan = bridge.db_diff(config_file, 'pxt://acme:main')
-        assert [op['target'] for op in plan['ops']] == ['project']
-        assert plan['ops'][0]['description'] == 'the project will be shipped again: app.py changed'
-        assert plan['not_compared'] == []
-        assert not plan['summary']['rebuild']
+        plan = db.db_diff('pxt://acme:main')
+        assert [op.target for op in plan.ops] == ['archive']
+        assert plan.ops[0].description == 'the project will be sent to the database again: app.py changed'
+        assert not plan.summary.rebuild
 
         # a lockfile edit is both: the environment moved, and so did a file the archive holds
         (tmp_path / 'uv.lock').write_text('version = 2\n')
-        plan = bridge.db_diff(config_file, 'pxt://acme:main')
-        assert [op['target'] for op in plan['ops']] == ['image', 'project']
-        assert plan['ops'][0]['description'] == 'the image will be rebuilt: uv.lock changed'
-        assert plan['summary']['rebuild']
+        plan = db.db_diff('pxt://acme:main')
+        assert [op.target for op in plan.ops] == ['image', 'archive']
+        assert plan.ops[0].description == 'the image will be rebuilt: uv.lock changed'
+        assert plan.summary.rebuild
 
     def test_diff_reports_absent_database(self, api: Any, tmp_path: pathlib.Path) -> None:
         api.database = None
-        plan = bridge.db_diff(self._project(tmp_path, 'cpu = 2.0\n'), 'pxt://acme:main')
-        assert plan['resolution'] == 'create'
-        assert not plan['exists']
-        assert plan['state'] is None
+        self._project(tmp_path, 'cpu = 2.0\n')
+        plan = db.db_diff('pxt://acme:main')
+        assert plan.resolution == 'create'
+        assert not plan.exists
+        assert plan.state is None
         # a create subsumes the operations that constitute it
-        assert plan['ops'] == []
+        assert plan.ops == []
 
     def test_update_applies_secrets_then_artifacts_then_capacity(
         self, api: Any, uploaded: list[str], tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv('OPENAI_API_KEY', 'sk-test')
-        config_file = self._project(
+        self._project(
             tmp_path,
             'cpu = 2.0\nsystem_dependencies = ["ffmpeg"]\n'
             '[pixeltable.database.secrets]\nopenai_api_key = "env:OPENAI_API_KEY"\n',
         )
-        api.database['fingerprint'] = project_fingerprint(tmp_path, None).model_dump()
+        api.database['fingerprint'] = self._fingerprint(tmp_path)
         (tmp_path / 'app.py').write_text('import pixeltable as pxt  # edited\n')
 
-        plan = bridge.db_update(config_file, 'pxt://acme:main')
+        plan = db.db_update('pxt://acme:main')
         assert [r.operation_type.value for r in api.sent if r.operation_type.value != 'get_db'] == [
             'list_secrets',
             'set_secret',
-            'build_image',
             'set_project',
             'update_db',
         ]
         assert api.secrets == {'openai_api_key': 'sk-test'}
         # one archive serves both artifacts, so it is stored once
         assert uploaded == ['acme/main/project.tar.bz2']
+        assert api.database['cpu'] == 2.0
+        assert all(op.status == 'applied' for op in plan.ops)
+        assert plan.status == 'applied'
+
+    def test_update_builds_the_image_the_environment_declares(
+        self, api: Any, uploaded: list[str], tmp_path: pathlib.Path
+    ) -> None:
+        self._project(tmp_path, 'system_dependencies = ["ffmpeg"]\n')
+        api.database['fingerprint'] = self._fingerprint(tmp_path)
+        (tmp_path / 'uv.lock').write_text('version = 2\n')
+
+        db.db_update('pxt://acme:main')
         build = next(r for r in api.sent if r.operation_type.value == 'build_image')
-        entry = database_config(tmp_path, 'pxt://acme:main')
+        entry = Config.get().get_database_config(PxtPath.parse('pxt://acme:main', allow_empty_path=True))
         assert build.project_key == 'acme/main/project.tar.bz2'
         assert build.system_dependencies == ['ffmpeg']
         assert build.python_version == project_fingerprint(tmp_path, entry).python_version
         assert build.image_digest == project_fingerprint(tmp_path, entry).image_digest()
         assert build.pxt_md_version == metadata.VERSION
-        assert api.database['cpu'] == 2.0
-        assert all(op['status'] == 'applied' for op in plan['ops'])
-        assert plan['status'] == 'applied'
 
-    def test_update_creates_absent_database(self, api: Any, tmp_path: pathlib.Path) -> None:
+    def test_update_creates_absent_database(self, api: Any, uploaded: list[str], tmp_path: pathlib.Path) -> None:
         api.database = None
-        config_file = self._project(tmp_path, 'cpu = 2.0\nlocation = "aws"\nregion = "us-east-1"\n')
-        bridge.db_update(config_file, 'pxt://acme:main')
+        self._project(tmp_path, 'cpu = 2.0\nlocation = "aws"\nregion = "us-east-1"\n')
+        db.db_update('pxt://acme:main')
         created = next(r for r in api.sent if r.operation_type.value == 'create_db')
         assert (created.org, created.db, created.location, created.region) == ('acme', 'main', 'aws', 'us-east-1')
         assert created.cpu == 2.0
+        # a created database reports no fingerprint, so it is given both artifacts
+        assert [r.operation_type.value for r in api.sent].count('build_image') == 1
+        assert uploaded == ['acme/main/project.tar.bz2']
 
     def test_update_refuses_to_take_capacity_away(self, api: Any, tmp_path: pathlib.Path) -> None:
-        config_file = self._project(tmp_path, 'memory_mb = 256\n')
+        self._project(tmp_path, 'memory_mb = 256\n')
+        api.database['fingerprint'] = self._fingerprint(tmp_path)
         with pytest.raises(excs.Error, match=r'(?s)destructive changes: memory_mb.*--allow-destructive'):
-            bridge.db_update(config_file, 'pxt://acme:main')
+            db.db_update('pxt://acme:main')
         assert api.database['memory_mb'] == 512
 
-        bridge.db_update(config_file, 'pxt://acme:main', allow_destructive=True)
+        db.db_update('pxt://acme:main', allow_destructive=True)
         assert api.database['memory_mb'] == 256
-
-    def test_update_overrides_declared_capacity(self, api: Any, tmp_path: pathlib.Path) -> None:
-        config_file = self._project(tmp_path, 'cpu = 2.0\n')
-        bridge.db_update(config_file, 'pxt://acme:main', overrides={'cpu': 4.0})
-        assert api.database['cpu'] == 4.0
 
     def test_secret_names_environment_variable(
         self, api: Any, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv('OPENAI_API_KEY', raising=False)
-        bound = self._project(tmp_path, '[pixeltable.database.secrets]\nopenai_api_key = "env:OPENAI_API_KEY"\n')
+        self._project(tmp_path, '[pixeltable.database.secrets]\nopenai_api_key = "env:OPENAI_API_KEY"\n')
         with pytest.raises(excs.Error, match='OPENAI_API_KEY, which is not set in the environment'):
-            bridge.db_update(bound, 'pxt://acme:main')
+            db.db_update('pxt://acme:main')
 
-        literal = self._project(tmp_path, '[pixeltable.database.secrets]\nopenai_api_key = "sk-in-the-file"\n')
+        self._project(tmp_path, '[pixeltable.database.secrets]\nopenai_api_key = "sk-in-the-file"\n')
         with pytest.raises(excs.Error, match="write 'env:NAME' to name the environment variable"):
-            bridge.db_update(literal, 'pxt://acme:main')
+            db.db_update('pxt://acme:main')
         assert api.secrets == {}
 
     def test_errors(self, api: Any, tmp_path: pathlib.Path) -> None:
-        config_file = self._project(tmp_path, 'cpu = 2.0\n')
+        self._project(tmp_path, 'cpu = 2.0\n')
         with pytest.raises(excs.Error, match='does not name a hosted database'):
-            bridge.db_diff(config_file, 'my_dir')
+            db.db_diff('my_dir')
 
-        (tmp_path / 'other.toml').write_text('')
-        with pytest.raises(excs.Error, match=r'a project is configured in pixeltable\.toml or pyproject\.toml'):
-            bridge.db_diff(str(tmp_path / 'other.toml'), 'pxt://acme:main')
-
-        # a lone entry configures any target, so a name that addresses none takes a second entry to be an error
-        (tmp_path / 'pixeltable.toml').write_text(
-            '[[pixeltable.database]]\nname = "local"\n[[pixeltable.database]]\nname = "pxt://acme:main"\n'
-        )
-        with pytest.raises(excs.Error, match=r"declares no database 'pxt://acme:other'"):
-            bridge.db_diff(config_file, 'pxt://acme:other')
+        with pytest.raises(excs.Error, match=r'no \[\[pixeltable.database\]\] entry names'):
+            db.db_diff('pxt://acme:other')
 
 
 class TestHostedUriHelpers:
@@ -2307,48 +2317,6 @@ class TestPollState:
     def test_returns_last_read_on_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
         responses: list[Any] = [{'database': {'state': 'PENDING'}}] * 1000
         assert self._poll(responses, monkeypatch, timeout=0.05) == {'state': 'PENDING'}
-
-
-class TestWireTypes:
-    """The CLI's schema types mirror the catalog's diff types under the same names.
-
-    Two identically-named TypedDicts in different modules are unrelated as far as mypy is concerned, so a field
-    renamed on one side would otherwise reach the wire under a name that no longer matches its counterpart.
-    """
-
-    # what the wire adds on its own, and what the catalog keeps to itself
-    WIRE_ONLY: ClassVar[set[str]] = {'destructive', 'status'}
-    CATALOG_ONLY: ClassVar[dict[str, set[str]]] = {
-        'SchemaChangeOp': {'model', 'existing'},
-        'TableDiff': {'tbl_id', 'schema_versions'},
-    }
-
-    @pytest.mark.parametrize('name', ['SchemaChangeOp', 'TableDiff'])
-    def test_fields_match(self, name: str) -> None:
-        catalog_fields = set(typing.get_type_hints(getattr(model, name)))
-        wire_fields = set(typing.get_type_hints(getattr(wire, name)))
-        assert wire_fields - self.WIRE_ONLY == catalog_fields - self.CATALOG_ONLY[name]
-
-    @classmethod
-    def assert_typed_dicts_match(cls, catalog_cls: Any, wire_cls: Any) -> None:
-        """Recursively assert that two TypedDicts have the same structure."""
-        catalog_hints = typing.get_type_hints(catalog_cls)
-        wire_hints = typing.get_type_hints(wire_cls)
-        shared = (set(catalog_hints) & set(wire_hints)) - {'ops'}  # ops holds the mirrored op type on each side
-        for f in shared:
-            if typing_extensions.is_typeddict(catalog_hints[f]) and typing_extensions.is_typeddict(wire_hints[f]):
-                cls.assert_typed_dicts_match(catalog_hints[f], wire_hints[f])
-            else:
-                assert catalog_hints[f] == wire_hints[f]
-
-    @pytest.mark.parametrize('name', ['SchemaChangeOp', 'TableDiff'])
-    def test_shared_fields_have_the_same_type(self, name: str) -> None:
-        catalog_cls = getattr(model, name)
-        wire_cls = getattr(wire, name)
-        self.assert_typed_dicts_match(catalog_cls, wire_cls)
-
-    def test_resolutions_match(self) -> None:
-        assert typing.get_args(wire.DiffResolution) == typing.get_args(model.DiffResolution)
 
 
 class TestDotSegments:

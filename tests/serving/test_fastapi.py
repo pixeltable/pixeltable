@@ -19,6 +19,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.functions.json as pxt_json
 from pixeltable.env import Env
+from pixeltable_cli.types import ServiceSpec
 from tests.utils import (
     CatalogMode,
     get_audio_files,
@@ -373,12 +374,12 @@ class TestFastAPI:
 
         # the service definition the router amounts to, which survives being serialized
         service = router.service_spec(name='scalars')
-        assert service['name'] == 'scalars'
-        assert json.loads(json.dumps(service)) == service
-        specs = {spec['path']: spec for spec in service['routes']}
+        assert service.name == 'scalars'
+        assert ServiceSpec.model_validate(json.loads(service.model_dump_json())) == service
+        specs = {spec.path: spec for spec in service.routes}
         assert specs.keys() == {'/all', '/partial-in', '/partial-out', '/minimal', '/update'}
         # everything the '/update' route was declared with, and nothing else
-        assert specs['/update'] == {
+        assert specs['/update'].model_dump() == {
             'method': 'POST',
             'path': '/update',
             'route_type': 'insert' if route_type == 'insert' else 'compute',
@@ -401,19 +402,19 @@ class TestFastAPI:
             },
             'query': None,
         }
-        assert 'db_connect' not in specs['/update']['export_sql']
-        assert specs['/all']['export_sql']['table'] == 'out_all'
-        assert specs['/partial-in']['inputs'] == ['id', 'str_col', 'int_col']
-        assert specs['/partial-in']['export_sql'] is None
-        assert specs['/partial-out']['outputs'] == ['id', 'str_upper', 'int_plus1']
+        assert specs['/update'].export_sql is not None and 'db_connect' not in specs['/update'].export_sql
+        assert specs['/all'].export_sql is not None and specs['/all'].export_sql['table'] == 'out_all'
+        assert specs['/partial-in'].inputs == ['id', 'str_col', 'int_col']
+        assert specs['/partial-in'].export_sql is None
+        assert specs['/partial-out'].outputs == ['id', 'str_upper', 'int_plus1']
         # the recorded path is one the catalog resolves
-        assert pxt.get_table(specs['/all']['table'])._id == target._id
+        assert specs['/all'].table is not None and pxt.get_table(specs['/all'].table)._id == target._id
         # a router with no name of its own needs one supplied
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='this router has no name'):
             router.service_spec()
 
         # the route resolved the target it names
-        routes = {route.spec['path']: route for route in router._routes}
+        routes = {route.spec.path: route for route in router._routes}
         assert routes['/all'].has_table_target
         assert routes['/all'].tbl is not None and routes['/all'].tbl._id == target._id
 
@@ -1294,19 +1295,19 @@ class TestFastAPI:
 
         # a query route declares a function rather than a table, so it has nothing to bind; entering the
         # client's context runs the startup handlers, which must not refuse a router of query routes alone
-        route = next(route for route in router._routes if route.spec['path'] == '/by-id')
+        route = next(route for route in router._routes if route.spec.path == '/by-id')
         assert not route.has_table_target
         assert (route.tbl, route.model_cls, route.table_path) == (None, None, None)
 
         # a query route names neither a model nor a table: the tables it runs against are internal to by_id
-        spec = next(spec for spec in router.service_spec(name='docs')['routes'] if spec['path'] == '/by-id')
-        assert (spec['route_type'], spec['method']) == ('query', 'POST')
-        assert (spec['model'], spec['table']) == (None, None)
-        assert spec['query'] is not None and spec['query'].endswith('by_id')
-        assert spec['one_row']
+        spec = next(spec for spec in router.service_spec(name='docs').routes if spec.path == '/by-id')
+        assert (spec.route_type, spec.method) == ('query', 'POST')
+        assert (spec.model, spec.table) == (None, None)
+        assert spec.query is not None and spec.query.endswith('by_id')
+        assert spec.one_row
         # the parameters it accepts and the response fields, as frozen at declaration
-        assert spec['inputs'] == ['id']
-        assert spec['outputs'] == ['id', 'text']
+        assert spec.inputs == ['id']
+        assert spec.outputs == ['id', 'text']
         with make_test_client(router):
             pass
 
@@ -2415,9 +2416,9 @@ class TestFastAPI:
             return UplResp(thumb_url=thumb)
 
         # uploads are recorded apart from the plain inputs, and the inputs hold both
-        route = next(route for route in router._routes if route.spec['path'] == '/upl')
-        assert route.spec['uploadfile_inputs'] == (['image'] if use_uploadfile else [])
-        assert route.spec['inputs'] == ['id', 'image']
+        route = next(route for route in router._routes if route.spec.path == '/upl')
+        assert route.spec.uploadfile_inputs == (['image'] if use_uploadfile else [])
+        assert route.spec.inputs == ['id', 'image']
 
         client = make_test_client(router)
 

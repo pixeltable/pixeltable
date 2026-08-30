@@ -8,6 +8,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.catalog.model import schema as schema_verbs
 from pixeltable.config import Config
 from pixeltable.func import Function
 from pixeltable.functions.video import frame_iterator
@@ -632,7 +633,7 @@ class TestBridge:
         schema_file = project_env / 'refusal_schema.py'
         schema_file.write_text(schema_src)
         target = PxtPath('refusal')
-        bridge.schema_update(str(schema_file), target)
+        schema_verbs.schema_update(str(schema_file), target)
 
         # the edited schema goes into a module of its own: a process reads a file once, and picks up an edit
         # by starting again
@@ -641,6 +642,6 @@ class TestBridge:
 
         # dropping a column destroys its data; the refusal tells a CLI user about the flag, not about update_all()
         with pxt_raises(excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE, match='--allow-destructive') as info:
-            bridge.schema_update(str(dropped_file), target)
+            schema_verbs.schema_update(str(dropped_file), target)
         assert 'update_all()' not in info.value.message
         assert 'body' in pxt.get_table('refusal/docs').columns()

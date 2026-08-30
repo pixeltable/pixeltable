@@ -2,20 +2,19 @@
 
 Every scenario drives the CLI the way a user does: a project with a [[pixeltable.database]] entry, and the
 `pxt db` verbs reading and applying it. They need a control plane, so the module is skipped unless the cloud
-environment is configured, and it is marked expensive: creating a database and building an image take
-minutes.
+environment is configured, and it is marked expensive: applying what an entry declares rebuilds an image,
+which takes minutes. They run against the session's hosted database, the one the cloud catalog tests use.
 """
 
 import hashlib
 import json
 import os
 import pathlib
+import shutil
 import socket
 import subprocess
 import time
 import uuid
-from collections.abc import Iterator
-from textwrap import dedent
 from typing import Any
 
 import httpx
@@ -38,31 +37,7 @@ EXIT_CHANGES_PENDING = 2
 
 _REQUEST_TIMEOUT = 30.0
 
-_APP = dedent(
-    '''
-    """An application the hosted database serves."""
-
-    # ruff: noqa: F821  # a model body refers to its own columns by bare name
-
-    from __future__ import annotations
-
-    import pixeltable as pxt
-    import pixeltable.functions as pxtf
-    from pixeltable.serving import FastAPIRouter
-
-    TableModel = pxt.model_base()
-
-
-    class Notes(TableModel, name='notes'):
-        note_id = pxt.Column(type=pxt.Int, primary_key=True)
-        body: pxt.String
-        shouted = pxtf.string.upper(body)
-
-
-    ingest = FastAPIRouter(name='ingest')
-    ingest.add_insert_route(Notes, path='/notes', inputs=[Notes.note_id, Notes.body], outputs=[Notes.shouted])
-    '''
-).lstrip()
+_APP_FILE = 'basic.py'  # the corpus file the project holds, and the pod serves
 
 
 @pytest.fixture(autouse=True)
@@ -73,20 +48,9 @@ def cloud_environment() -> None:
             pytest.skip(f'{name} is not set.')
 
 
-@pytest.fixture(scope='module')
-def hosted_db() -> Iterator[str]:
-    """A hosted database of this module's own: these tests change what a database holds."""
-    uri = f'pxt://pixeltable:pxttest-db-{uuid.uuid4().hex[:16]}'
-    subprocess.run(('pxt', 'db', 'create', uri), text=True, timeout=900, check=True)
-    try:
-        yield uri
-    finally:
-        subprocess.run(('pxt', 'db', 'delete', uri), text=True, timeout=900, check=False)
-
-
 @pytest.fixture
 def project(tmp_path: pathlib.Path) -> pathlib.Path:
-    """A project of the test's own, holding an application file and a lockfile.
+    """A project of the test's own, holding an application file from the corpus and a lockfile.
 
     Outside the session's project, so that the archive holds these files and nothing else: the client hands
     the daemon whichever project the working directory establishes.
@@ -94,18 +58,24 @@ def project(tmp_path: pathlib.Path) -> pathlib.Path:
     root = tmp_path / 'project'
     root.mkdir()
     (root / 'pixeltable.toml').write_text('', encoding='utf-8')
-    (root / 'app.py').write_text(_APP, encoding='utf-8')
+    shutil.copy(pathlib.Path(__file__).parent / 'apps' / _APP_FILE, root / _APP_FILE)
     (root / 'requirements.txt').write_text('pixeltable\n', encoding='utf-8')
     return root
 
 
+def edit_app(project: pathlib.Path, comment: str) -> None:
+    """Append a comment to the project's application file, changing the file and nothing it declares."""
+    with open(project / _APP_FILE, 'a', encoding='utf-8') as f:
+        f.write(f'\n# {comment}\n')
+
+
 @pytest.fixture
-def current_db(cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> str:
+def current_db(cli: PxtRunner, project: pathlib.Path, cloud_db_base_uri: str) -> str:
     """A hosted database holding this project: where most scenarios below start."""
-    declare(cli, project, hosted_db)
-    update(cli, project, hosted_db)
-    assert_in_agreement(cli, project, hosted_db)
-    return hosted_db
+    declare(cli, project, cloud_db_base_uri)
+    update(cli, project, cloud_db_base_uri)
+    assert_in_agreement(cli, project, cloud_db_base_uri)
+    return cloud_db_base_uri
 
 
 def declare(cli: PxtRunner, project: pathlib.Path, db_uri: str, **settings: Any) -> None:
@@ -160,37 +130,37 @@ class TestDb:
         assert plan['ops'] == []
         assert plan['returncode'] == EXIT_CHANGES_PENDING
 
-    def test_first_update_sends_both_artifacts(self, cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> None:
-        """A database that has not been given the project needs the image and the archive both."""
-        declare(cli, project, hosted_db)
+    def test_update_sends_both_artifacts(self, cli: PxtRunner, project: pathlib.Path, cloud_db_base_uri: str) -> None:
+        """A database whose project is not this one needs the image and the archive both."""
+        declare(cli, project, cloud_db_base_uri)
 
-        plan = diff(cli, project, hosted_db)
+        plan = diff(cli, project, cloud_db_base_uri)
         assert plan['resolution'] == 'update_additive'
         assert [op['name'] for op in ops_on(plan, 'image')] == ['image']
         assert [op['name'] for op in ops_on(plan, 'archive')] == ['project']
         assert plan['summary']['rebuild']
         assert plan['returncode'] == EXIT_CHANGES_PENDING
 
-        applied = update(cli, project, hosted_db)
+        applied = update(cli, project, cloud_db_base_uri)
         assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
-        assert_in_agreement(cli, project, hosted_db)
+        assert_in_agreement(cli, project, cloud_db_base_uri)
 
-    def test_status_and_list_report_the_database(self, cli: PxtRunner, hosted_db: str) -> None:
-        name = hosted_db.rsplit(':', 1)[-1]
-        status = cli('db', 'status', hosted_db, '--json').json
+    def test_status_and_list_report_the_database(self, cli: PxtRunner, cloud_db_base_uri: str) -> None:
+        name = cloud_db_base_uri.rsplit(':', 1)[-1]
+        status = cli('db', 'status', cloud_db_base_uri, '--json').json
         assert status['state'] == 'AVAILABLE', status
         listed = cli('db', 'list', 'pxt://pixeltable', '--json').json
         assert name in [entry['db_name'] for entry in listed], listed
 
     def test_source_edit_sends_the_project(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
         """An edit to a source file moves the archive alone: the environment it runs in is unchanged."""
-        (project / 'app.py').write_text(f'{_APP}\n# an edit that changes no dependency\n', encoding='utf-8')
+        edit_app(project, 'an edit that changes no dependency')
 
         plan = diff(cli, project, current_db)
         assert ops_on(plan, 'image') == []
         [op] = ops_on(plan, 'archive')
         assert op['severity'] == 'additive'
-        assert 'app.py changed' in op['description'], op['description']
+        assert f'{_APP_FILE} changed' in op['description'], op['description']
         assert not plan['summary']['rebuild']
 
         applied = update(cli, project, current_db)
@@ -220,7 +190,7 @@ class TestDb:
         (project / 'notes' / 'scratch.txt').write_text('not part of the project\n', encoding='utf-8')
         assert_in_agreement(cli, project, current_db)
 
-        (project / 'app.py').write_text(f'{_APP}\n# an edit to a file the entry selects\n', encoding='utf-8')
+        edit_app(project, 'an edit to a file the entry selects')
         assert ops_on(diff(cli, project, current_db), 'archive') != []
 
     def test_secret_is_set_and_deleting_it_is_destructive(
@@ -286,7 +256,7 @@ class TestDb:
         assert ops_on(diff(cli, project, current_db), 'placement') != []
 
     def test_dry_run_applies_nothing(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
-        (project / 'app.py').write_text(f'{_APP}\n# an edit no update applies\n', encoding='utf-8')
+        edit_app(project, 'an edit no update applies')
 
         planned = update(cli, project, current_db, '-n')
         assert planned['returncode'] == EXIT_CHANGES_PENDING
@@ -300,8 +270,8 @@ class TestDb:
         assert all(op['status'] == 'applied' for op in ops), ops
         assert_in_agreement(cli, project, current_db)
 
-    def test_errors(self, cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> None:
-        declare(cli, project, hosted_db)
+    def test_errors(self, cli: PxtRunner, project: pathlib.Path, cloud_db_base_uri: str) -> None:
+        declare(cli, project, cloud_db_base_uri)
 
         not_a_uri = cli('db', 'diff', 'my_dir', cwd=project, check=False)
         assert 'URI must be pxt://org:db' in not_a_uri.stderr, not_a_uri.stderr
@@ -323,7 +293,7 @@ class TestPod:
     def test_pod_serves_the_project_the_database_holds(
         self, cli: PxtRunner, project: pathlib.Path, current_db: str, tmp_path: pathlib.Path
     ) -> None:
-        app_file = str(project / 'app.py')
+        app_file = str(project / _APP_FILE)
         cli('schema', 'update', app_file, current_db, '-f')
         cli('service', 'update', app_file, current_db, '-f')
 
@@ -332,7 +302,7 @@ class TestPod:
         pod = _run_pod(current_db, unpacked, '--base-path', current_db, '--host', '127.0.0.1', '--port', str(port))
         try:
             _wait_until_serving(f'http://127.0.0.1:{port}')
-            assert (unpacked / 'app.py').read_text(encoding='utf-8') == _APP
+            assert (unpacked / _APP_FILE).read_text() == (project / _APP_FILE).read_text()
             assert (unpacked / 'requirements.txt').is_file()
             served = httpx.get(f'http://127.0.0.1:{port}/openapi.json', timeout=_REQUEST_TIMEOUT)
             assert '/notes' in served.json()['paths'], served.json()['paths']
@@ -357,11 +327,11 @@ class TestPod:
         self, cli: PxtRunner, project: pathlib.Path, current_db: str
     ) -> None:
         """A hosted service runs the project its database was given, so an edit here is `pxt db update`."""
-        app_file = str(project / 'app.py')
+        app_file = str(project / _APP_FILE)
         cli('schema', 'update', app_file, current_db, '-f')
         cli('service', 'update', app_file, current_db, '-f')
 
-        (project / 'app.py').write_text(f'{_APP}\n# an edit the database has not been given\n', encoding='utf-8')
+        edit_app(project, 'an edit the database has not been given')
         [blocked] = cli('service', 'diff', app_file, current_db, '--json', check=False).json['services']
         assert blocked['resolution'] == 'blocked'
         [op] = [op for op in blocked['ops'] if op['target'] == 'project']
@@ -381,7 +351,7 @@ def _run_pod(db_uri: str, project_dir: pathlib.Path, *flags: str, capture: bool 
         '--db',
         db_uri,
         '--app-file',
-        'app.py',
+        _APP_FILE,
         '--name',
         'ingest',
         '--project-dir',

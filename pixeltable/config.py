@@ -12,13 +12,16 @@ import typing
 import warnings
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
 
 import pydantic
 import toml
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
+
+if TYPE_CHECKING:
+    from pixeltable import catalog
 
 _logger = logging.getLogger(__name__)
 
@@ -667,8 +670,7 @@ class Config:
             return default
         return os.environ[env_var]
 
-    # def get_database_config(self, name: str = LOCAL_DATABASE) -> DatabaseConfig | None:
-    def get_database_config(self, db_uri: 'catalog.Path') -> DatabaseConfig | None:
+    def get_database_config(self, db_uri: catalog.Path) -> DatabaseConfig | None:
         """The [[pixeltable.database]] entry for the given path, if present."""
         db_name = LOCAL_DATABASE if db_uri.is_local else db_uri.catalog_uri.uri_str
         databases = self.get_value('database', list)
