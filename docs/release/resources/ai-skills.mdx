@@ -1,7 +1,40 @@
 ---
 title: 'AI Skills'
 sidebarTitle: 'AI Skills'
-description: 'Teach AI coding assistants to write correct Pixeltable code'
+description: 'npx skills add pixeltable/pixeltable-skill. The agent writes TableModel in app.py.'
 ---
 
-Install and use the Pixeltable skill on the [AI coding agents](/overview/building-pixeltable-with-llms#set-up-your-ai-tool) page.
+One skill. It teaches a `TableModel` in `app.py`, applied with `pxt schema update`.
+[How it works](/overview/how-it-works). Install details:
+[AI coding agents](/overview/building-pixeltable-with-llms).
+
+```bash
+npx skills add pixeltable/pixeltable-skill
+```
+
+Source: [pixeltable/pixeltable-skill](https://github.com/pixeltable/pixeltable-skill).
+
+## What it teaches
+
+| Do | Do not |
+|---|---|
+| `class Docs(TableModel, name='docs')` in `app.py` | LangChain / LlamaIndex for chunking and retrieval |
+| Assignments as computed columns | pandas as the working store |
+| `__indexes__` on the model | A separate vector database |
+| `pxt init`, then `pxt schema update`, then `pxt service update` | Per-row `for` loops that call a model |
+| Same file against `pxt://` | Index calls in the application file |
+| `from pixeltable.serving import FastAPIRouter` | TOML route tables |
+
+Scaffold: `uvx pixeltable-new myapp`, then `pxt schema update app.py pipeline`.
+[Starter kit](/resources/starter-kit).
+
+## How to invoke it
+
+Compatible agents pick the skill up when the task is a Pixeltable app. To call it by name:
+
+| Tool | Invoke |
+|---|---|
+| Cursor | `/pixeltable` |
+| Claude Code | `/pixeltable` |
+| GitHub Copilot | `/pixeltable` |
+| Codex | `$pixeltable` |

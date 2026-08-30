@@ -1,6 +1,7 @@
 ---
 title: 'Quickstart'
-description: 'Declare an app file, apply it, serve an insert endpoint'
+description: 'Write an application file, apply it, POST an insert'
+icon: 'bolt'
 ---
 
 Python 3.11+ on Linux, macOS, or Windows.
@@ -24,75 +25,71 @@ Python 3.11+ on Linux, macOS, or Windows.
   </Tab>
 </Tabs>
 
-`[serve]` pulls in FastAPI and uvicorn, which `pxt service` needs.
+`[serve]` pulls in FastAPI and uvicorn, which `pxt service` needs. `pxt service example --out app.py` writes a larger starter.
 
 ## Declare, apply, serve
 
-One file holds the models and the routes. `pxt service example` writes a working one:
+<Steps>
+  <Step title="Write the file">
+    ```python
+    import pixeltable as pxt
+    import pixeltable.functions as pxtf
+    from pixeltable.serving import FastAPIRouter
 
-```bash
-pxt service example --out app.py
-pxt schema update app.py my_app
-pxt service update app.py my_app
-```
-
-That file looks like this:
-
-```python
-from __future__ import annotations  # required to declare a model on Python 3.14+
-
-import pixeltable as pxt
-import pixeltable.functions as pxtf
-from pixeltable.serving import FastAPIRouter
-
-TableModel = pxt.model_base()
+    TableModel = pxt.model_base()
 
 
-class Docs(TableModel, name='docs'):
-    title: pxt.String                         # a stored column
-    body: pxt.String | None                   # a stored column that may be null
-    title_upper = pxtf.string.upper(title)    # a computed column: an assignment, not an annotation
+    class Docs(TableModel, name='docs'):
+        title: pxt.String
+        body: pxt.String | None
+        title_upper = pxtf.string.upper(title)
 
 
-ingest = FastAPIRouter(name='ingest')
-ingest.add_insert_route(
-    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.title, Docs.title_upper]
-)
-```
+    ingest = FastAPIRouter(name='ingest')
+    ingest.add_insert_route(
+        Docs,
+        path='/docs',
+        inputs=[Docs.title, Docs.body],
+        outputs=[Docs.title, Docs.title_upper],
+    )
+    ```
 
-An annotation is a stored column. An assignment is a computed column.
+    Annotation vs assignment, indexes, views, and routes: [How it works](/overview/how-it-works).
+  </Step>
+  <Step title="Apply, then serve">
+    ```bash
+    pxt init
+    pxt schema update app.py my_app
+    pxt service update app.py my_app
+    ```
 
-Insert a row; `title_upper` is computed on the way in. `pxt service list` prints the URL (the port is assigned):
+    `pxt init` writes `pixeltable.toml`, which makes this directory the
+    project root. Schema and service refuse a file with no project root.
 
-```bash
-pxt service list
-# ingest  http://127.0.0.1:<port>  ...
-curl -X POST http://127.0.0.1:<port>/docs \
-  -H 'Content-Type: application/json' \
-  -d '{"title": "Hello", "body": "world"}'
-```
+    <Warning>
+      `pxt schema update` creates the directory and tables. It does not start HTTP. `pxt service update` does not create tables. Apply first.
+    </Warning>
+  </Step>
+  <Step title="Insert a row">
+    `title_upper` is computed on the way in. `pxt service list` prints the URL (the port is assigned):
 
-`pxt schema update` creates the directory and tables. It does not start HTTP. `pxt service update` does not create tables — apply first.
-
-In a notebook, `pxt.create_table()` is still valid. An application’s contract is the application file.
-
-<Note>
-**App vs notebook.** An application's contract is a `TableModel` in `app.py`, applied with `pxt schema update`. Notebooks and tests use `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`.
-</Note>
+    ```bash
+    pxt service list
+    # ingest  http://127.0.0.1:<port>  ...
+    curl -X POST http://127.0.0.1:<port>/docs \
+      -H 'Content-Type: application/json' \
+      -d '{"title": "Hello", "body": "world"}'
+    ```
+  </Step>
+</Steps>
 
 ## Next
 
 <CardGroup cols={2}>
-  <Card title="CLI" icon="terminal" href="/platform/cli">
-    `pxt schema` and `pxt service`: `diff`, `update`, `prune`, `run`, `list`.
-  </Card>
-  <Card title="HTTP serving" icon="globe" href="/howto/deployment/serving">
-    `FastAPIRouter` routes, `pxt service run`, background jobs.
+  <Card title="How it works" icon="layer-group" href="/overview/how-it-works">
+    Schema, database, and services. Same file, local or `pxt://`.
   </Card>
   <Card title="Cloud" icon="cloud" href="/howto/deployment/cloud">
     Same file against `pxt://org:db`.
-  </Card>
-  <Card title="Starter kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
-    Templates for serving, batch, and full-stack apps.
   </Card>
 </CardGroup>

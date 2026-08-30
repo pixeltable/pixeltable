@@ -1,0 +1,234 @@
+---
+title: 'How it works'
+sidebarTitle: 'How it works'
+description: '`diff` shows the plan. `update` makes the target match the application file. `prune` removes what the file does not declare.'
+icon: 'layer-group'
+keywords: ['schema', 'service', 'diff', 'update', 'prune', 'TableModel', 'FastAPIRouter']
+---
+
+[Quickstart](/overview/quick-start) is the first run. This page is what `diff` / `update` / `prune` do.
+
+<Columns cols={3}>
+  <Card title="Schema" icon="table" href="#schema">
+    `TableModel` in `app.py`. `pxt schema` creates tables and views.
+  </Card>
+  <Card title="Services" icon="globe" href="#services">
+    `FastAPIRouter` in the same file. `pxt service` starts a process on a port.
+  </Card>
+  <Card title="Database" icon="database" href="#database">
+    Local directory or `pxt://` URI. Hosted: `pxt db` and `pxt secret`.
+  </Card>
+</Columns>
+
+The application file sits under a project root. `my_app` is the catalog
+target of `pxt schema update app.py my_app`. It is not a folder next to
+`app.py`.
+
+<Columns cols={2}>
+  <Card title="On disk" icon="folder">
+    <Tree>
+      <Tree.File name="pixeltable.toml" />
+      <Tree.File name="app.py" highlight />
+    </Tree>
+    `pxt init` writes the toml. `app.py` imports as `app`. More than one
+    file, or a `functions.py`: [Infrastructure](/howto/deployment/infrastructure).
+  </Card>
+  <Card title="In the catalog" icon="database">
+    <Tree>
+      <Tree.Folder name="my_app" defaultOpen>
+        <Tree.File name="docs" />
+        <Tree.File name="published" />
+      </Tree.Folder>
+    </Tree>
+    Tables named by `name=` on each `TableModel`. Inspect with
+    `pxt ls my_app`.
+  </Card>
+</Columns>
+
+Schema and services use the same verbs:
+
+<Columns cols={3}>
+  <Card title="diff" icon="code-compare">
+    What `update` would change. Exit <Badge color="green" size="sm">0</Badge> in sync, <Badge color="gray" size="sm">2</Badge> pending, <Badge color="red" size="sm">1</Badge> error.
+  </Card>
+  <Card title="update" icon="arrows-rotate">
+    Make the instance match the spec. No-op if it already does.
+  </Card>
+  <Card title="prune" icon="trash">
+    Remove instance parts the spec does not declare.
+  </Card>
+</Columns>
+
+## Schema
+
+An <Tooltip tip="You insert this value. It is stored.">annotation</Tooltip> is a stored column. An <Tooltip tip="Pixeltable computes this on insert. You assign an expression.">assignment</Tooltip> is a computed column. Use `pxt.Column(...)` when you need `primary_key` or `stored=False`. A bare `doc_id: pxt.Int` is required; it is not a primary key.
+
+```python app.py
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+
+TableModel = pxt.model_base()
+
+
+@pxt.udf
+def excerpt(text: str, n: int = 12) -> str:
+    return text if len(text) <= n else f'{text[:n]}...'
+
+
+class Docs(TableModel, name='docs'):
+    doc_id = pxt.Column(type=pxt.Int, primary_key=True)
+    title: pxt.String
+    body: pxt.String | None
+    published: pxt.Bool
+    title_upper = pxtf.string.upper(title)
+    summary = excerpt(title)
+    unstored = pxt.Column(
+        value=pxtf.string.lower(title), stored=False
+    )
+    __indexes__ = [
+        pxt.EmbeddingIndex(
+            body, embedding=embed_fn, name='body_idx'
+        )
+    ]
+
+
+class Published(
+    TableModel, name='published', base=Docs.where(Docs.published)
+):
+    headline = Docs.title_upper + '!'
+
+
+class Titles(
+    TableModel,
+    name='titles',
+    base=Docs.select(Docs.doc_id, t=Docs.title),
+):
+    shouted = t + '!'  # t is the select() alias
+```
+
+`base=Docs.where(...)` inherits columns. `base=Docs.select(...)` projects. Details: [Views](/platform/views).
+
+A `@pxt.udf` defined in this file is recorded by file path. Renaming the file leaves columns that call it unable to compute. Hosted runtime packaging: [Cloud](/howto/deployment/cloud#hosted-catalog).
+
+<CodeGroup>
+
+```bash check
+pxt schema check app.py
+```
+
+```bash diff
+pxt schema diff app.py my_app
+```
+
+```bash update
+pxt schema update app.py my_app
+```
+
+```bash prune
+pxt schema prune app.py my_app -n
+```
+
+</CodeGroup>
+
+## Services
+
+The same file declares a `FastAPIRouter`:
+
+```python app.py
+ingest = FastAPIRouter(name='ingest')
+ingest.add_insert_route(
+    Docs,
+    path='/docs',
+    inputs=[Docs.doc_id, Docs.title, Docs.published],
+    outputs=[Docs.title_upper],
+)
+```
+
+Apply order: [Quickstart](/overview/quick-start). Hosted HTTP: [Cloud](/howto/deployment/cloud).
+
+<AccordionGroup>
+  <Accordion title="Insert" icon="plus" detail="Every required column. Nullable columns may be omitted.">
+    The row is stored. Computed columns run. The response is `outputs`.
+  </Accordion>
+  <Accordion title="Compute" icon="calculator" detail="Same inputs as insert. The row is not stored.">
+    Preview or dry-run. Identical to insert except nothing is written.
+  </Accordion>
+  <Accordion title="Update" icon="pen" detail="Columns to change. Primary key is in the request, not in inputs=.">
+    Recomputes dependent columns on the matched row.
+  </Accordion>
+  <Accordion title="Delete" icon="trash" detail="Defaults to the primary key. The key is in the request.">
+    `match_columns` deletes by a non-key column instead.
+  </Accordion>
+</AccordionGroup>
+
+Uploads, background jobs, query routes, and `include_router`: [HTTP serving](/howto/deployment/serving).
+
+After you edit the file:
+
+<Steps>
+  <Step title="Check and diff" icon="magnifying-glass">
+    ```bash
+    pxt schema check app.py
+    pxt schema diff app.py my_app
+    ```
+  </Step>
+  <Step title="Apply schema" icon="table">
+    ```bash
+    pxt schema update app.py my_app
+    ```
+  </Step>
+  <Step title="Restart the service" icon="globe">
+    ```bash
+    pxt service update app.py my_app
+    pxt service list
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  A schema change with a service already running returns **409** until restart, even when `pxt service diff` is in sync. Apply schema, then `pxt service stop ingest` and `pxt service update`. Route-only edits: `pxt service update` restarts what changed.
+</Warning>
+
+The port is assigned. Do not hard-code `:8000`. Inspect with `pxt dashboard`, `pxt ls`, and `pxt errors`.
+
+## Database
+
+<Tabs>
+  <Tab title="Local" icon="laptop">
+    No account. [Quickstart](/overview/quick-start) applies the file on this machine. Local HTTP: [Self-hosting](/howto/deployment/overview).
+
+    ```bash
+    pxt schema update app.py my_app
+    pxt service update app.py my_app
+    ```
+  </Tab>
+  <Tab title="Cloud" icon="cloud">
+    Same file, a `pxt://` target. [Deploy to Pixeltable Cloud](/howto/deployment/cloud).
+
+    ```bash
+    pxt db update pxt://org:mydb
+    pxt schema update app.py pxt://org:mydb
+    pxt service update app.py pxt://org:mydb
+    ```
+  </Tab>
+</Tabs>
+
+## For agents
+
+<Prompt description="Emit the application file. Run diff. Read the exit code. Apply." icon="robot" actions={["copy", "cursor"]}>
+Emit a Pixeltable application file (`app.py`) with `TableModel` classes and `FastAPIRouter` routes. Run `pxt schema diff app.py TARGET`. Exit 0 means in sync. Exit 2 means pending; `--json` is the plan. Exit 1 is an error that names the file, declaration, or key. Then `pxt schema update`. Do not emit an ordered list of `create_table` / `add_computed_column` calls. Destructive ops need `--allow-destructive`.
+</Prompt>
+
+## Next
+
+<Columns cols={3}>
+  <Card title="Cloud" icon="cloud" href="/howto/deployment/cloud">
+    Same file against `pxt://org:db`.
+  </Card>
+  <Card title="Self-hosting" icon="server" href="/howto/deployment/overview">
+    Batch, FastAPI, or `pxt service`.
+  </Card>
+  <Card title="HTTP serving" icon="globe" href="/howto/deployment/serving">
+    Route API, `pxt service run`, background jobs.
+  </Card>
+</Columns>

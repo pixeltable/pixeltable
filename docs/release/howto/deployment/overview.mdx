@@ -1,468 +1,88 @@
 ---
-title: "Deployment Overview"
-sidebarTitle: "Deployment Patterns"
-description: "Choose the right deployment strategy for your Pixeltable application"
+title: 'Self-hosting'
+sidebarTitle: 'Overview'
+description: 'Three local habits: a batch script, mount FastAPIRouter on your app, or pxt service.'
 ---
 
-## What Pixeltable Replaces
+Hosted catalog: [Cloud](/howto/deployment/cloud). This page is what you run on this machine.
 
-Most multimodal AI stacks look like this: blob storage for media, a relational database for metadata, a vector database for embeddings, an orchestrator for scheduling, and custom glue code holding it all together.
+| Habit | What you run | What starts |
+|-------|----------------|-------------|
+| Batch | `pxt schema update`, then a Python script, then exit | Nothing listening |
+| FastAPI | Same apply, then `uvicorn` on an app that `include_router()`s | Your process on a port you pick |
+| `pxt service` | `pxt schema update`, then `pxt service update` | A process Pixeltable starts; `pxt service list` prints the URL |
 
-<Tabs>
-  <Tab title="Traditional Stack">
+Route API: [HTTP serving](/howto/deployment/serving). Persistent volume, Dockerfile, HA: [Infrastructure](/howto/deployment/infrastructure) and [Operations](/howto/deployment/operations).
 
-```mermaid
-flowchart LR
-    S3[S3 / GCS] --> Orch[Airflow / Prefect]
-    Orch --> PG[(PostgreSQL)]
-    Orch --> VDB[(Vector DB)]
-    PG --- Cache[Redis]
-    PG --- Glue[Glue Code]
-    VDB --- Glue
-```
+## Batch
 
-**5+ services to deploy and maintain:** blob storage, orchestrator, relational DB, vector DB, cache — plus custom retry logic, rate limiting, sync scripts, and error handling to wire them together.
-
-  </Tab>
-  <Tab title="With Pixeltable">
-
-```mermaid
-flowchart LR
-    Refs[S3 / GCS] -->|references| CC[Computed Columns]
-    CC --> Query[Query + Search]
-```
-
-**1 Python import.** Storage, orchestration, caching, vector indexing, rate limiting, and retry logic are built in. The infrastructure you don't deploy is infrastructure you don't maintain.
-
-  </Tab>
-</Tabs>
-
-### Systems Pixeltable Replaces
-
-You don't install, configure, or manage these — Pixeltable handles them natively.
-
-| Instead of … | With Pixeltable … |
-|---|---|
-| **PostgreSQL / MySQL** | `TableModel` in `app.py` — schema is Python, applied with `pxt schema update` |
-| **Pinecone / Weaviate / Qdrant** | `EmbeddingIndex` on the model — auto-maintained on insert/update/delete |
-| **S3 / boto3 / blob storage** | `pxt.Image` / `Video` / `Audio` / `Document` types with transparent caching; `destination='s3://…'` for cloud routing |
-| **Airflow / Prefect / Celery** | Computed columns trigger on insert — no orchestrator, no workers, no DAGs |
-| **LangChain / LlamaIndex** (RAG) | `@pxt.query` + `.similarity()` + computed column chaining |
-| **pandas / polars** (multimodal) | `.sample()`, ephemeral UDFs, then `add_computed_column()` to commit — [same code, prototype to production](/howto/cookbooks/core/dev-iterative-workflow) |
-| **DVC / MLflow / W&B** | Built-in [`history()`](/platform/version-control), [`revert()`](/platform/version-control), time travel (`table:N`), [snapshots](/platform/version-control) — zero config |
-| **Custom retry / rate-limit / caching** | Built into every [AI integration](/integrations/frameworks); results cached, only new rows recomputed |
-| **Custom ETL / glue code** | Declarative schema — Pixeltable handles execution, caching, incremental updates |
-
-### Tools Pixeltable Abstracts
-
-These tools run under the hood, but you interact through a cleaner interface. This is a sample — Pixeltable wraps [30+ AI providers](/integrations/frameworks), [dozens of built-in functions](/sdk/latest/image) for media and data processing, and supports any Python library via [`@pxt.udf`](/platform/udfs-in-pixeltable).
-
-| Tool | Raw usage | Through Pixeltable |
-|---|---|---|
-| **FFmpeg** | Install binary, subprocess calls, format conversion, frame seeking | [`extract_audio(video, format='mp3')`](/sdk/latest/video#udf-extract_audio) for audio; [`frame_iterator(video, fps=1)`](/sdk/latest/video#iterator-frame_iterator) for frame extraction via `pxt.create_view()` |
-| **Pillow/PIL** | `Image.open()`, resize, convert, encode, save, handle formats | [`pixeltable.functions.image`](/sdk/latest/image) module: `resize()`, `crop()`, `thumbnail()`, `b64_encode()`, `rotate()`, `blend()`, plus `width()`, `height()`, `get_metadata()` |
-| **spaCy** | `pip install spacy`, download model, load pipeline, parse documents | [`document_splitter(doc, separators='sentence')`](/sdk/latest/document#iterator-document_splitter) — spaCy runs under the hood (configurable via `spacy_model` parameter). Also supports `'heading'`, `'paragraph'`, `'page'`, `'token_limit'`, `'char_limit'` separators |
-| **sentence-transformers** | Load model, tokenize, encode batches, normalize vectors | [`sentence_transformer.using(model_id='intfloat/e5-large-v2')`](/sdk/latest/huggingface) passed to `add_embedding_index()`. Pixeltable handles model loading, batching, and index maintenance |
-| **OpenAI CLIP** | Load model, preprocess images/text differently, encode, handle multimodal alignment | [`clip.using(model_id='openai/clip-vit-base-patch32')`](/sdk/latest/huggingface) — multimodal embedding index that accepts both image and text queries for cross-modal search |
-| **OpenAI Whisper** | API key setup, audio format handling, chunking long files, parsing responses | [`openai.transcriptions(audio=table.audio_col, model='whisper-1')`](/sdk/latest/openai#udf-transcriptions) as a computed column — automatic rate limiting, caching. Also supports local Whisper via [`whisper.transcribe()`](/sdk/latest/whisper) |
-| **Anthropic Claude tool calling** | Construct messages, define tool schemas as JSON, parse tool_use blocks, execute tools, re-call with results | [`anthropic.messages()`](/sdk/latest/anthropic) + [`anthropic.invoke_tools()`](/sdk/latest/anthropic) + [`pxt.tools()`](/howto/cookbooks/agents/llm-tool-calling) — all as chained computed columns. Tool schemas derived automatically from `@pxt.udf` function signatures |
-| **+ many more** | | See the full [SDK Reference](/sdk/latest/pixeltable), [AI Integrations](/integrations/frameworks), and [Cookbooks](/howto/cookbooks/agents/pattern-rag-pipeline) |
-
-### What Pixeltable Doesn't Replace
-
-You still need these — Pixeltable is a data layer, not a full application framework.
-
-| Tool | Why you still need it |
-|---|---|
-| **FastAPI / Flask / Django** | Standard CRUD endpoints can use built-in [HTTP serving](/howto/deployment/serving); custom logic still needs a framework |
-| **Pydantic** | Request/response validation for your API endpoints (Pixeltable's `.to_pydantic()` bridges the two) |
-| **React / Vue / frontend** | UI layer — Pixeltable has no frontend |
-| **Docker / Kubernetes / Terraform** | Deployment infrastructure — Pixeltable runs *inside* your containers, it doesn't provision them |
-| **Authentication / authorization** | User management, API keys, OAuth — outside Pixeltable's scope |
-| **Domain-specific UDFs** | Business logic you write as `@pxt.udf` functions (e.g., web search, custom scoring) — Pixeltable provides the framework, you provide the logic |
-
-<Tip>
-**Migrating from a specific stack?** See the step-by-step migration guides with side-by-side code comparisons:
-- [From DIY Data Pipelines](/migrate/from-diy-data-pipeline) — replace custom scripts, DVC, Airflow, and manual processing
-- [From RDBMS & Vector DBs](/migrate/from-rdbms-vectordbs) — replace Postgres + Pinecone + LangChain RAG stacks
-- [From Agent Frameworks](/migrate/from-agent-frameworks) — replace LangGraph, CrewAI, and similar agent DSLs
-</Tip>
-
-## Deployment Decision Guide
-
-Pixeltable supports three production deployment patterns. Choose based on your constraints:
-
-| Question | Answer | Recommendation |
-|----------|--------|----------------|
-| Building a web app with a frontend? | Yes | **Full Backend** (FastAPI + React) |
-| Need an API with zero web code? | Yes | **Declarative Serving** (`pxt service` from an application file) |
-| Need batch/background processing (cron, queue, Cloud Run Job)? | Yes | **Batch Processing** (pure Python script, no HTTP server) |
-| Existing production DB that must stay? | Yes | **Batch Processing** (process in Pixeltable, `export_sql` to your DB) |
-| Need semantic search (RAG)? | Yes | **Full Backend** or **Declarative Serving** |
-| Expose Pixeltable as MCP server for LLM tools? | Yes | **Full Backend** + [MCP Server](/libraries/mcp) |
-
-### Technical Capabilities (Both)
-
-Regardless of deployment mode, you get:
-- **[Multimodal Types](/platform/type-system):** Native handling of Video, Document, Audio, Image, JSON.
-- **[Computed Columns](/tutorials/computed-columns):** Automatic incremental updates and dependency tracking.
-- **[Views & Iterators](/platform/views):** Built-in logic for chunking documents, extracting frames, etc.
-- **[Model Orchestration](/integrations/frameworks):** Rate-limited API calls to OpenAI, Anthropic, Gemini, local models.
-- **[Data Interoperability](/sdk/latest/io):** Import/export CSV, JSON, Parquet, PyTorch, LanceDB, pandas.
-- **[Configurable Media Storage](/platform/configuration):** Per-column destination (local or cloud bucket).
-
-### Use Case Comparison
-
-| Capability | [Media processing](/use-cases/media-processing) | [Multimodal backend](/use-cases/multimodal-backend) |
-|------------|-------------------|-----------------|
-| **Multimodal Types** | ✅ Video, Audio, Image, Document | ✅ Video, Audio, Image, Document |
-| **Computed Columns** | ✅ Enrichment & pre-annotation | ✅ Pipeline orchestration |
-| **Embedding Indexes** | ✅ Curation & similarity search | ✅ RAG & retrieval |
-| **Versioning** | ✅ Dataset snapshots | ✅ Data lineage |
-
----
-
-## Deployment Strategies
-
-### Approach 1: Batch Processing
-
-Use Pixeltable as a batch processing engine: a Python script that ingests data, lets computed columns process it, exports results to your existing serving database via `export_sql`, and exits. **No HTTP server, no FastAPI.** Run it as a Cloud Run Job, ECS Task, Kubernetes Job, Lambda, or a cron container.
-
-```mermaid
-flowchart TB
-    Trigger["Cron / Queue / Webhook"]
-
-    subgraph Container["Ephemeral Container"]
-        Schema["Create Schema"]
-        Ingest["Ingest Data"]
-        Process["Computed Columns"]
-    end
-
-    DB["Serving DB (export_sql)"]
-    Bucket["Cloud Bucket (destination)"]
-
-    Trigger --> Schema --> Ingest --> Process
-    Process -->|"structured data"| DB
-    Process -->|"generated media"| Bucket
-```
-
-<AccordionGroup>
-  <Accordion title="Use When" icon="check">
-    - Existing RDBMS (PostgreSQL, MySQL, Snowflake) and blob storage (S3, GCS, Azure Blob) must remain
-    - Long-running batch jobs (processing thousands of documents, hours of video)
-    - Background tasks triggered by a queue, cron, or webhook
-    - You don't need an HTTP API at all
-  </Accordion>
-
-  <Accordion title="Architecture" icon="sitemap">
-    - Run Pixeltable in an ephemeral container (Cloud Run Job, ECS Fargate, K8s Job, Lambda)
-    - Declare tables, views, computed columns as `TableModel` in `app.py`
-    - `pxt schema update app.py TARGET` applies them (idempotent)
-    - Insert data from queue, RDBMS, or cloud storage
-    - Computed columns process everything automatically (chunking, embeddings, LLM calls)
-    - `export_sql` pushes structured results to your serving database
-    - `destination` parameter routes generated media to cloud buckets
-    - Container exits when done
-  </Accordion>
-
-  <Accordion title="What This Provides" icon="sparkles">
-    - Native multimodal type system (Video, Document, Audio, Image, JSON)
-    - Declarative computed columns eliminate orchestration boilerplate
-    - Incremental computation automatically handles new data
-    - `export_sql` for any SQL database (PostgreSQL, MySQL, Snowflake, SQLite)
-    - `destination` parameter for routing media to S3/GCS/Azure Blob
-    - LLM call orchestration with automatic rate limiting
-    - Iterators for chunking documents, extracting frames, splitting audio
-  </Accordion>
-</AccordionGroup>
+Insert, let computed columns run, export, exit. No HTTP.
 
 ```python
-# app.py: declarative schema
-from __future__ import annotations
-
-import pixeltable as pxt
-import pixeltable.functions as pxtf
-from pixeltable.functions.huggingface import sentence_transformer
-from pixeltable.functions.uuid import uuid7
-
-TableModel = pxt.model_base()
-embed_fn = sentence_transformer.using(model_id='all-MiniLM-L6-v2')
-
-
-class Documents(TableModel, name='documents'):
-    title: pxt.String
-    body: pxt.String
-    source_id: pxt.String
-    uuid = uuid7()
-    timestamp: pxt.Timestamp
-
-
-class Sentences(
-    TableModel,
-    name='sentences',
-    base=Documents,
-    iterator=pxtf.string.string_splitter(Documents.body, separators='sentence'),
-):
-    __indexes__ = [
-        pxt.EmbeddingIndex(
-            text,  # type: ignore[name-defined]  # iterator output
-            embedding=embed_fn,
-            name='sentences_embed',
-        )
-    ]
-```
-
-```bash
-pxt schema update app.py pipeline
-```
-
-```python
-# pipeline.py: ingest, compute, export, exit
-import json
-from datetime import datetime
+# pipeline.py
 from pixeltable.io.sql import export_sql
-import schema
+import app
 
-SERVING_DB_URL = 'postgresql+psycopg://user:pass@host/db'
-
-with open('batch.json') as f:
-    batch = json.load(f)
-
-now = datetime.now()
-for row in batch['documents']:
-    row.setdefault('timestamp', now)
-
-# Insert triggers computed columns: chunking, embeddings, etc.
-schema.documents.insert(batch['documents'])
-
-# Export structured results to serving DB
+app.Documents.insert(batch['documents'])
 export_sql(
-    schema.documents.select(
-        schema.documents.source_id,
-        schema.documents.title,
-        schema.documents.body,
-    ),
+    app.Documents.select(app.Documents.title, app.Documents.body),
     'processed_documents',
-    db_connect_str=SERVING_DB_URL,
+    db_connect_str='postgresql+psycopg://user:pass@host/db',
     if_exists='replace',
 )
 ```
 
-### Approach 2: Pixeltable as Full Backend
-
-Use Pixeltable for both orchestration and storage as your primary data backend.
-
-```mermaid
-flowchart TB
-    Frontend[Frontend App]
-    API[FastAPI / Flask / Django]
-
-    subgraph Pixeltable[Pixeltable Full Backend]
-        PG[(PostgreSQL<br/>Metadata & Data)]
-        Media[Media Storage<br/>S3/GCS/Local]
-        Compute[Computed Columns<br/>Embeddings & LLMs]
-
-        PG --- Media
-        PG --- Compute
-    end
-
-    Frontend --> API
-    API --> Pixeltable
+```bash
+pxt schema update app.py pipeline
+python pipeline.py
 ```
 
-<AccordionGroup>
-  <Accordion title="Use When" icon="check">
-    - Building new multimodal AI application
-    - Semantic search and vector similarity required
-    - Storage and ML pipeline need tight integration
-    - Stack consolidation preferred over separate storage/orchestration layers
-  </Accordion>
+Scaffold: `uvx pixeltable-new myapp --batch`. Reference: [starter-kit/batch](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/batch).
 
-  <Accordion title="Architecture" icon="sitemap">
-    - Deploy Pixeltable on persistent instance (EC2 with EBS, EKS with persistent volumes, VM)
-    - Build API endpoints (FastAPI, Flask, Django) that interact with Pixeltable tables
-    - Frontend calls endpoints to insert data and retrieve results
-    - Query using Pixeltable's semantic search, filters, joins, and aggregations
-    - All data stored in Pixeltable: metadata, media references, computed column results
-  </Accordion>
+## FastAPI
 
-  <Accordion title="What This Provides" icon="sparkles">
-    - Unified storage, computation, and retrieval in single system
-    - Native semantic search via embedding indexes (pgvector)
-    - No synchronization layer between storage and orchestration
-    - Automatic versioning and lineage tracking
-    - Incremental computation propagates through views
-    - LLM/agent orchestration
-    - Data export to PyTorch, Parquet, LanceDB
-  </Accordion>
-</AccordionGroup>
+Mount the same `FastAPIRouter` on an app you already run.
 
 ```python
-# Example: FastAPIRouter endpoints backed by Pixeltable
 import fastapi
-import pixeltable as pxt
 from pixeltable.serving import FastAPIRouter
 
 app = fastapi.FastAPI()
-router = FastAPIRouter(prefix="/api", tags=["documents"])
-
-docs = pxt.get_table('myapp/documents')
-
-# File upload with background processing (returns job handle)
-router.add_insert_route(docs, path="/upload",
-    uploadfile_inputs=["document"], inputs=["uploaded_at"],
-    outputs=["uuid"], background=True)
-
-# Search via @pxt.query
-@pxt.query
-def search_documents(query_text: str, limit: int = 10):
-    sim = docs.embedding.similarity(string=query_text)
-    return docs.order_by(sim, asc=False).limit(limit).select(
-        docs.document, docs.summary, similarity=sim)
-
-router.add_query_route(path="/search", query=search_documents)
-
-# Delete by primary key
-router.add_delete_route(docs, path="/delete")
-
+router = FastAPIRouter(prefix='/api')
+router.add_insert_route(
+    docs,
+    path='/upload',
+    uploadfile_inputs=['document'],
+    background=True,
+)
 app.include_router(router)
 ```
 
-`FastAPIRouter` auto-generates request/response schemas from column types, handles file uploads via `uploadfile_inputs`, and supports `background=True` for long-running inserts. OpenAPI docs are available at `/docs`.
+Use `def` handlers, not `async def`. Pixeltable is sync; `async def` blocks the event loop. [Operations](/howto/deployment/operations).
 
-<Tip>
-**When to keep hand-written endpoints:** Use `@router.post()` for multi-table operations, conditional logic, or custom response shapes. `FastAPIRouter` extends `APIRouter`, so hand-written and declarative routes coexist on the same router. See [HTTP serving](/howto/deployment/serving).
-</Tip>
+Scaffold: `uvx pixeltable-new myapp --backend`.
 
-<Tip>
-**Use sync (`def`) endpoints, not `async def`.** FastAPI dispatches sync endpoints to a thread pool, giving each request its own thread. Pixeltable is thread-safe and handles concurrent requests automatically. Using `async def` would block the event loop and serialize all requests. See [Production Operations](/howto/deployment/operations) for details.
-</Tip>
+## `pxt service`
 
-### Approach 3: Declarative Serving (`pxt service`)
-
-Generate a complete REST API from an application file. No FastAPI code, no frontend, no hand-written
-endpoints: one file declares the models that name the tables and the routers that serve routes over them,
-and `pxt service` runs it.
-
-```mermaid
-flowchart LR
-    Client["REST Client / cURL"]
-    App["app.py"]
-
-    subgraph PXT["pxt service update"]
-        API["Auto-generated FastAPI"]
-        Tables["Pixeltable Tables"]
-    end
-
-    App -->|declares models and routes| PXT
-    Client --> API --> Tables
-```
-
-<AccordionGroup>
-  <Accordion title="Use When" icon="check">
-    - You need an API but not a frontend
-    - Endpoints are standard insert, query, delete, or `export_sql` operations
-    - Prototyping an API before building a full application
-    - You want zero Python web framework code
-  </Accordion>
-
-  <Accordion title="Architecture" icon="sitemap">
-    - Declare tables, views, computed columns and embedding indexes as models in `app.py`
-    - Declare routes on a `FastAPIRouter` in the same file
-    - `pxt schema update app.py TARGET` creates the tables; `pxt service update app.py TARGET` serves them
-    - Supports insert, compute, update, delete and query routes, with `export_sql`
-    - Auto-generates OpenAPI/Swagger docs
-  </Accordion>
-
-  <Accordion title="What This Provides" icon="sparkles">
-    - A complete REST API from one declarative file
-    - Auto-generated request/response schemas
-    - Background job support for long-running inserts
-    - `export_sql` for pushing rows to external databases
-    - OpenAPI documentation out of the box
-    - Same Pixeltable capabilities (computed columns, embedding indexes, etc.)
-  </Accordion>
-</AccordionGroup>
-
-```python
-# app.py
-from __future__ import annotations
-
-import pixeltable as pxt
-from pixeltable.serving import FastAPIRouter
-
-TableModel = pxt.model_base()
-
-
-class Documents(TableModel, name='documents'):
-    title: pxt.String
-    body: pxt.String
-
-
-@pxt.query
-def search_documents(query_text: str) -> pxt.Query:
-    return Documents.where(Documents.title.contains(query_text)).select(Documents.title)
-
-
-api = FastAPIRouter(name='my-service', prefix='/api')
-api.add_query_route(path='/search', query=search_documents)
-api.add_insert_route(Documents, path='/ingest', inputs=[Documents.title, Documents.body])
-```
+The [Quickstart](/overview/quick-start) file. Apply schema, then start the process.
 
 ```bash
 pxt schema update app.py pipeline
 pxt service update app.py pipeline
-pxt service list  # pipeline/my-service  http://127.0.0.1:49213  pid 8123  app.py
-# curl -X POST http://127.0.0.1:49213/api/search -d '{"query_text": "machine learning"}'
+pxt service list
 ```
 
-## Get Started
+`pxt service run app.py pipeline` serves from this process until interrupted (container entrypoint). After you edit the file: [How it works](/overview/how-it-works#services).
 
-Scaffold a project in one command, then customize:
+Scaffold: `uvx pixeltable-new myapp`.
 
-```bash
-uvx pixeltable-new myapp              # declarative serving (default)
-uvx pixeltable-new myapp --backend    # full FastAPI + React app
-uvx pixeltable-new myapp --batch      # batch processing script
-```
-
-Or scaffold a vertical application template:
-
-```bash
-uvx pixeltable-new myapp --template knowledge-base         # cross-modal search + RAG Q&A
-uvx pixeltable-new myapp --template chat-agent             # tool-calling agent with memory
-uvx pixeltable-new myapp --template audio-transcription    # audio transcription + search
-uvx pixeltable-new myapp --template full-stack-showcase    # FastAPI + React reference app
-uvx pixeltable-new myapp --template video-search           # video frame analysis + search
-uvx pixeltable-new myapp --template media-indexing         # enterprise media processing + export
-uvx pixeltable-new myapp --template image-dataset          # ML dataset auto-labeling + export
-```
-
-Or clone the full [Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) for reference implementations with Docker, Helm, Terraform, CDK, and cloud job runners.
-
-The starter kit contains reference implementations for all three deployment patterns:
-
-| Directory | Pattern | What it demonstrates |
-|---|---|---|
-| **[`backend/` + `frontend/`](https://github.com/pixeltable/pixeltable-starter-kit)** | **Full Backend** | FastAPI + React with persistent storage, multimodal upload, cross-modal search, tool-calling agent. Deployment via Docker, Helm, Terraform, CDK. |
-| **[`batch/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/batch)** | **Batch Processing** | Pure Python script: ingest, computed columns, `export_sql` to serving DB. Deploy to Cloud Run Jobs, Lambda, ECS Fargate, K8s Jobs. |
-| **[`serving/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/serving)** | **Declarative Serving** | `pxt service` from an application file: zero-code REST API with insert, query, search, and `export_sql` routes. |
-| **[`templates/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/templates)** | **Application Templates** | 7 vertical templates (knowledge base, chat agent, audio transcription, video search, media indexing, image dataset, full-stack showcase) scaffolded via `pixeltable-new --template`. |
-
-## Next Steps
+## Next
 
 <CardGroup cols={2}>
-  <Card title="HTTP Serving" icon="globe" href="/howto/deployment/serving">
-    Expose tables and queries as HTTP endpoints with `pxt service` or `FastAPIRouter`
+  <Card title="HTTP serving" icon="globe" href="/howto/deployment/serving">
+    Insert, compute, update, delete, query, uploads, background jobs.
   </Card>
-  <Card title="Infrastructure Setup" icon="server" href="/howto/deployment/infrastructure">
-    Code organization and storage architecture
-  </Card>
-  <Card title="Production Operations" icon="gears" href="/howto/deployment/operations">
-    Concurrency, error handling, and schema evolution
-  </Card>
-  <Card title="Security & Backup" icon="shield" href="/howto/deployment/security">
-    Backup strategies and security best practices
+  <Card title="Cloud" icon="cloud" href="/howto/deployment/cloud">
+    Same file against `pxt://org:db`.
   </Card>
 </CardGroup>
-

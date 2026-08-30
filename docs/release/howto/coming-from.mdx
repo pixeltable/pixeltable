@@ -1,0 +1,118 @@
+---
+title: 'Coming from...'
+sidebarTitle: 'Coming from...'
+description: 'Insert a row. Chunks, frames, or tool calls appear as columns. No extra sync job.'
+icon: 'right-left'
+---
+
+Apply with `pxt schema update app.py my_app`, then `t = pxt.get_table('my_app.docs')`.
+
+<Tabs>
+  <Tab title="RAG" icon="file-lines">
+    Insert a document. Chunks and embeddings update.
+
+    ```python
+    import pixeltable as pxt
+    import pixeltable.functions as pxtf
+
+    TableModel = pxt.model_base()
+
+
+    class Docs(TableModel, name='docs'):
+        pdf: pxt.Document
+        source: pxt.String
+
+
+    class Chunks(
+        TableModel,
+        name='chunks',
+        base=Docs,
+        iterator=pxtf.document.document_splitter(
+            Docs.pdf, separators='sentence,token_limit', limit=300
+        ),
+    ):
+        __indexes__ = [
+            pxt.EmbeddingIndex(
+                # iterator output, not redeclared
+                text,  # type: ignore[name-defined]
+                embedding=pxtf.huggingface.sentence_transformer.using(
+                    model_id='sentence-transformers/all-MiniLM-L6-v2'
+                ),
+                name='text_idx',
+            )
+        ]
+    ```
+
+    ```python
+    chunks = pxt.get_table('my_app.chunks')
+
+
+    @pxt.query
+    def retrieve(question: str, top_k: int = 5):
+        sim = chunks.text.similarity(string=question)
+        return chunks.order_by(sim, asc=False).limit(top_k).select(
+            chunks.text
+        )
+    ```
+
+    [RAG pipeline cookbook](/howto/cookbooks/agents/pattern-rag-pipeline)
+  </Tab>
+  <Tab title="Media" icon="film">
+    Insert a video. Frames appear as rows.
+
+    ```python
+    import pixeltable as pxt
+    import pixeltable.functions as pxtf
+
+    TableModel = pxt.model_base()
+
+
+    class Videos(TableModel, name='videos'):
+        video: pxt.Video
+
+
+    class Frames(
+        TableModel,
+        name='frames',
+        base=Videos,
+        iterator=pxtf.video.frame_iterator(Videos.video, fps=1),
+    ):
+        # iterator output
+        thumb = frame.resize((256, 256))  # type: ignore[name-defined]
+    ```
+
+    [Extract video frames](/howto/cookbooks/video/video-extract-frames)
+  </Tab>
+  <Tab title="Agents" icon="robot">
+    Insert a message. Tool calls and the answer are columns.
+
+    ```python
+    import pixeltable as pxt
+    import pixeltable.functions as pxtf
+
+    TableModel = pxt.model_base()
+
+
+    @pxt.udf
+    def get_weather(city: str) -> str:
+        return f'Weather in {city}: 72°F, sunny'
+
+
+    tools = pxt.tools(get_weather)
+
+
+    class Assistant(TableModel, name='assistant'):
+        message: pxt.String
+        response = pxtf.openai.chat_completions(
+            messages=[{'role': 'user', 'content': message}],
+            model='gpt-4o-mini',
+            tools=tools,
+        )
+        tool_output = pxtf.openai.invoke_tools(tools, response)
+    ```
+
+    [Tool calling cookbook](/howto/cookbooks/agents/llm-tool-calling)
+  </Tab>
+</Tabs>
+
+Same insert route as [Quickstart](/overview/quick-start). Route API: [HTTP serving](/howto/deployment/serving).

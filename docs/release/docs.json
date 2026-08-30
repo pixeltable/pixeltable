@@ -19,7 +19,7 @@
             "pages": [
               "overview/pixeltable",
               "overview/quick-start",
-              "overview/from-your-stack"
+              "overview/how-it-works"
             ]
           },
           {
@@ -35,6 +35,7 @@
           {
             "group": "How to",
             "pages": [
+              "howto/coming-from",
               "platform/configuration",
               {
                 "group": "Self-hosting",
@@ -449,20 +450,24 @@
   },
   "redirects": [
     {
+      "source": "/overview/from-your-stack",
+      "destination": "/howto/coming-from"
+    },
+    {
       "source": "/migrate/from-diy-data-pipeline",
-      "destination": "/overview/from-your-stack"
+      "destination": "/howto/coming-from"
     },
     {
       "source": "/migrate/from-rdbms-vectordbs",
-      "destination": "/overview/from-your-stack"
+      "destination": "/howto/coming-from"
     },
     {
       "source": "/migrate/from-agent-frameworks",
-      "destination": "/overview/from-your-stack"
+      "destination": "/howto/coming-from"
     },
     {
       "source": "/migrate/from-hand-written-endpoints",
-      "destination": "/overview/from-your-stack"
+      "destination": "/howto/coming-from"
     },
     {
       "source": "/platform/tables",

@@ -1,15 +1,26 @@
 ---
 title: 'Why Pixeltable?'
-description: 'The unified multimodal backend for AI data apps'
+description: 'The unified multimodal backend for AI data apps. Database, orchestration, and serving in one application file.'
+icon: 'table'
 ---
 
-You declare tables, computed columns, and HTTP routes in **one Python file**. Apply it locally, serve it, then publish the same file to [Pixeltable Cloud](/howto/deployment/cloud).
+Pixeltable is the unified multimodal backend for AI data apps: the database, orchestration, and serving layers in **one application file** (`app.py`). You process media, run models, and serve the result without assembling a blob store, a vector database, an orchestrator, and glue.
 
-Insert a row. Computed columns run. Indexes stay current. No extra vector database, queue, or cache to keep in sync.
+Insert a row. Computed columns run. Indexes stay current.
+
+<Columns cols={3}>
+  <Card title="Store" icon="database">
+    `pxt schema update` creates the tables `app.py` declares. Images, video, audio, documents, and structured columns live in one catalog.
+  </Card>
+  <Card title="Transform" icon="bolt">
+    Assigned columns run on insert. Embedding indexes update. No extra queue or cache to keep in sync.
+  </Card>
+  <Card title="Serve" icon="globe">
+    `pxt service update` starts HTTP from the same file. `pxt service list` prints the URL.
+  </Card>
+</Columns>
 
 ```python
-from __future__ import annotations
-
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.serving import FastAPIRouter
@@ -25,55 +36,18 @@ class Docs(TableModel, name='docs'):
 
 ingest = FastAPIRouter(name='ingest')
 ingest.add_insert_route(
-    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.title, Docs.title_upper]
+    Docs,
+    path='/docs',
+    inputs=[Docs.title, Docs.body],
+    outputs=[Docs.title, Docs.title_upper],
 )
 ```
 
-[Quickstart](/overview/quick-start) applies that file and serves it.
+[Quickstart](/overview/quick-start) is the first run. Schema, database, and services: [How it works](/overview/how-it-works). Same file on a hosted catalog: [Cloud](/howto/deployment/cloud).
 
-## What this replaces
+RAG, media, agents, and HTTP are columns and views in that file. They update when the row does. Stack-shaped snippets: [Coming from...](/howto/coming-from).
 
-Most stacks glue together object storage, a warehouse, a vector database, an orchestrator, and custom HTTP. Pixeltable is that backend:
-
-- **One catalog** for images, video, audio, documents, and tables
-- **Transforms as columns** — they run on insert, incrementally
-- **Indexes that follow the data** — embeddings stay in sync
-- **HTTP from the same file** — insert a row, get computed output
-
-Coming from Pinecone, LangChain, or hand-rolled FastAPI? See [From your stack](/overview/from-your-stack).
-
-## Four things you declare
-
-<CardGroup cols={2}>
-  <Card title="Store" icon="database" href="/platform/type-system">
-    Images, video, audio, documents, and JSON next to ordinary columns.
-  </Card>
-  <Card title="Transform" icon="bolt" href="/tutorials/computed-columns">
-    Assign a computed column. It runs on every new row.
-  </Card>
-  <Card title="Index" icon="magnifying-glass" href="/platform/embedding-indexes">
-    Embedding indexes on the model. Inserts keep them current.
-  </Card>
-  <Card title="Serve" icon="globe" href="/howto/deployment/serving">
-    A `FastAPIRouter` in the same file. Computed columns run on insert.
-  </Card>
-</CardGroup>
-
-Views, UDFs, versioning, and import/export are in the [User Guide](/platform/type-system).
-
-## Built for
-
-<CardGroup cols={3}>
-  <Card title="Multimodal backend" icon="microchip-ai" href="/use-cases/multimodal-backend">
-    RAG, search, and live APIs over images, video, and documents.
-  </Card>
-  <Card title="Agents" icon="robot" href="/use-cases/agentic-workflows">
-    Tool calls and memory as columns. Restart does not drop the trace.
-  </Card>
-  <Card title="Media pipelines" icon="photo-film" href="/use-cases/media-processing">
-    Frames, transcripts, and embeddings as rows, not a separate job.
-  </Card>
-</CardGroup>
+**Apps vs notebooks.** To ship an app, put tables in a Python file and apply it. In a notebook or a test you can create tables as you go. Same catalog either way; the file is what you keep.
 
 ## Start here
 
@@ -81,13 +55,7 @@ Views, UDFs, versioning, and import/export are in the [User Guide](/platform/typ
   <Card title="Quickstart" icon="bolt" href="/overview/quick-start">
     Write the file, apply it, hit the insert endpoint.
   </Card>
-  <Card title="10-minute tour" icon="play" href="/overview/ten-minute-tour">
-    A notebook walkthrough if you want to click through first.
-  </Card>
-  <Card title="From your stack" icon="layer-group" href="/overview/from-your-stack">
-    RAG, media, agents, and HTTP against a stack you already have.
-  </Card>
-  <Card title="AI coding agents" icon="sparkles" href="/overview/building-pixeltable-with-llms">
-    Install the skill; the agent writes the same application file.
+  <Card title="How it works" icon="layer-group" href="/overview/how-it-works">
+    `diff`, `update`, and `prune` make a target match the file.
   </Card>
 </CardGroup>

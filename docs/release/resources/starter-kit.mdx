@@ -1,13 +1,94 @@
 ---
 title: 'Starter kit'
-description: 'Project templates for Pixeltable backends'
+description: 'uvx pixeltable-new writes an application file. pxt schema update applies it. pxt service update serves it.'
 ---
 
-The [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) is the example home: serving, batch, and FastAPI + React patterns, plus `uvx pixeltable-new` templates.
+The [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) is `serving/`
+(default) and `batch/` (no HTTP). `uvx pixeltable-new` copies one into a new directory.
+
+Other apps (RAG, video, agents, a UI) are written into the same `app.py` by an agent
+with the [Pixeltable skill](/resources/ai-skills). Video frames + CLIP and an agent-as-table
+live in starter-kit `examples/` (same apply path; not copied by `uvx`). Cloud reads
+[`gallery.json`](https://github.com/pixeltable/pixeltable-starter-kit/blob/main/gallery.json).
+
+A first run: [Quickstart](/overview/quick-start). Verbs:
+[How it works](/overview/how-it-works).
 
 ```bash
-uvx pixeltable-new --list
-uvx pixeltable-new myapp --template knowledge-base
+uvx pixeltable-new myapp
+cd myapp
+uv sync
+pxt schema update app.py pipeline
+pxt service update app.py pipeline
 ```
 
-First-run without a template: [Quickstart](/overview/quick-start) (`pxt service example` → `pxt schema update` → `pxt service update`).
+`pipeline` is a catalog directory, not a folder on disk. The scaffold includes
+`pixeltable.toml`. If you copied files by hand, run `pxt init` first.
+
+Routes live on a `FastAPIRouter` in the same file as the `TableModel` classes.
+[HTTP serving](/howto/deployment/serving).
+
+## Patterns
+
+<Columns cols={2}>
+  <Card title="Serving" icon="globe">
+    Default. `app.py` declares tables and routes. `pxt service` starts HTTP.
+
+    ```bash
+    uvx pixeltable-new myapp
+    ```
+  </Card>
+  <Card title="Batch" icon="gears">
+    Insert, let computed columns run, export, exit. No HTTP.
+
+    ```bash
+    uvx pixeltable-new myapp --batch
+    ```
+  </Card>
+</Columns>
+
+Already have FastAPI: apply the file, then `app.include_router(api)` on the
+router declared in `app.py`.
+
+## What serving writes
+
+<Columns cols={2}>
+  <Card title="On disk" icon="folder">
+    <Tree>
+      <Tree.Folder name="myapp" defaultOpen>
+        <Tree.File name="pixeltable.toml" />
+        <Tree.File name="app.py" highlight />
+        <Tree.File name="pyproject.toml" />
+      </Tree.Folder>
+    </Tree>
+  </Card>
+  <Card title="In the catalog" icon="database">
+    After `pxt schema update app.py pipeline`:
+
+    <Tree>
+      <Tree.Folder name="pipeline" defaultOpen>
+        <Tree.File name="documents" />
+        <Tree.File name="images" />
+      </Tree.Folder>
+    </Tree>
+  </Card>
+</Columns>
+
+Same file against Cloud:
+
+```bash
+pxt db update pxt://org:db
+pxt schema update app.py pxt://org:db
+pxt service update app.py pxt://org:db
+```
+
+[Deploy to Pixeltable Cloud](/howto/deployment/cloud).
+
+<CardGroup cols={2}>
+  <Card title="AI Skills" icon="robot" href="/resources/ai-skills">
+    Teach an agent to write `TableModel` in `app.py`.
+  </Card>
+  <Card title="Clone the kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
+    `serving/` and `batch/` in one repo. Extra DAGs in `examples/`.
+  </Card>
+</CardGroup>

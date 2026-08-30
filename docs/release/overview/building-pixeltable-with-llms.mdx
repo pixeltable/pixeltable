@@ -1,26 +1,35 @@
 ---
 title: 'AI coding agents'
-description: 'Install the Pixeltable skill, then the same application file locally and on Cloud'
+description: 'Hand the playbook to the agent. It writes app.py and runs pxt schema update.'
 ---
 
-Install the [Pixeltable Agent Skill](https://github.com/pixeltable/pixeltable-skill). Then the loop is the [Quickstart](/overview/quick-start): `pxt service example` → `pxt schema update` → `pxt service update`.
+Hand the agent [https://www.pixeltable.com/get-started.md](https://www.pixeltable.com/get-started.md). It installs `pxt`, the Skill, and MCP once. After that it writes the same application file as [Quickstart](/overview/quick-start). What belongs in the file: [How it works](/overview/how-it-works). Exit codes: [For agents](/overview/how-it-works#for-agents).
 
-The skill steers the model off LangChain, pandas-as-store, per-row model loops, and a separate vector DB. Apps are a `TableModel` file. Notebooks can still use `pxt.create_table()`.
+<CardGroup cols={2}>
+  <Card title="Onboard your agent" icon="robot" href="https://www.pixeltable.com/get-started.md">
+    Playbook: CLI, Skill, MCP. One markdown file. The agent runs it.
+  </Card>
+  <Card title="What the skill teaches" icon="sparkles" href="/resources/ai-skills">
+    `/pixeltable`. A `TableModel` in `app.py`, not LangChain.
+  </Card>
+</CardGroup>
 
-## Set Up Your AI Tool
+The playbook is for agents with terminal access. Humans: [Quickstart](/overview/quick-start).
 
-```bash
-npx skills add pixeltable/pixeltable-skill
-```
+Do not copy this repo's `AGENTS.md` into an application. That file is for Pixeltable contributors.
 
-Works with tools that support [Agent Skills](https://agentskills.io/specification): Cursor, Claude Code, Windsurf, Cline, OpenCode, Codex CLI, and others.
+Example prompts: add a computed column on `Articles`; `pxt schema update app.py my_app`; add an insert route.
+
+## Editors
+
+The playbook covers Cursor, Claude Code, Codex CLI, VS Code, Windsurf, Gemini CLI, and OpenCode.
 
 <Tabs>
-  <Tab title="Cursor / Windsurf">
-    `npx skills add` is the install. Do not copy this repo's `AGENTS.md` into an application — that file is for Pixeltable contributors.
+  <Tab title="Cursor">
+    Index [docs.pixeltable.com](https://docs.pixeltable.com) in **Settings → Indexing & Docs** so prompts can `@` Pixeltable docs. Keep each request small. Put product context in the app `README`.
   </Tab>
   <Tab title="Claude Code">
-    Same `npx skills add`, or the plugin:
+    Same Skill via `npx skills add`, or the plugin:
 
     ```bash
     /plugin marketplace add pixeltable/pixeltable-skill
@@ -28,72 +37,26 @@ Works with tools that support [Agent Skills](https://agentskills.io/specificatio
     ```
   </Tab>
   <Tab title="Any LLM">
-    Append `.md` to a docs URL and paste it. Site index: [llms.txt](https://docs.pixeltable.com/llms.txt) ([standard](https://llmstxt.org/)).
+    Append `.md` to a docs URL and paste it.
 
     | Resource | URL |
     |----------|-----|
+    | Agent playbook | [get-started.md](https://www.pixeltable.com/get-started.md) |
+    | Site index | [docs llms.txt](https://docs.pixeltable.com/llms.txt) ([standard](https://llmstxt.org/)) |
+    | Product index | [pixeltable.com/llms.txt](https://pixeltable.com/llms.txt) |
     | This page as markdown | [building-pixeltable-with-llms.md](https://docs.pixeltable.com/overview/building-pixeltable-with-llms.md) |
-    | Site index | [llms.txt](https://docs.pixeltable.com/llms.txt) |
-    | Full map | [llms-full.txt](https://docs.pixeltable.com/llms-full.txt) |
   </Tab>
 </Tabs>
 
-## What the agent should write
+## MCP
 
-An application file, then `pxt schema update app.py my_app`. Inserts compute on the way in.
+Two servers. Per-editor config is in the [playbook](https://www.pixeltable.com/get-started.md). There is no hosted authenticated control-plane MCP.
 
-```python
-from __future__ import annotations
+| Server | Transport | Use |
+|--------|-----------|-----|
+| `pixeltable-web` | HTTP | Read-only docs search. Endpoint: `https://pixeltable.com/mcp` |
+| `pixeltable-developer` | stdio | Inspect and query a local or Cloud catalog |
 
-import pixeltable as pxt
-import pixeltable.functions as pxtf
+WebMCP does not mutate tables. Catalog changes go through the developer server (keep human confirmation on) or the CLI: `pxt ls --json`, `pxt describe --json`, `pxt errors`.
 
-TableModel = pxt.model_base()
-
-
-class Articles(TableModel, name='articles'):
-    title: pxt.String
-    body: pxt.String
-    response = pxtf.openai.chat_completions(
-        messages=[{'role': 'user', 'content': body}],
-        model='gpt-4o-mini',
-    )
-    summary = response.choices[0].message.content
-```
-
-```bash
-pxt schema update app.py my_app
-```
-
-Then `t = pxt.get_table('my_app.articles')` and `t.insert(...)`. Or [HTTP serving](/howto/deployment/serving). Same file against `pxt://org:db`: [Deploy to Pixeltable Cloud](/howto/deployment/cloud).
-
-## Docs search and catalog CLI
-
-Hosted docs MCP for the editor:
-
-```
-https://docs.pixeltable.com/mcp
-```
-
-Catalog inspection without importing Python: `pxt ls --json`, `pxt describe --json`, `pxt errors`. See the [CLI](/platform/cli).
-
-To call remote MCP tools from a table, `pxt.mcp_udfs(url)` — [Agents as tables](/use-cases/agentic-workflows).
-
-Experimental local catalog MCP: [mcp-server-pixeltable-developer](https://github.com/pixeltable/mcp-server-pixeltable-developer).
-
-## Next
-
-<CardGroup cols={2}>
-  <Card title="Quickstart" icon="bolt" href="/overview/quick-start">
-    Schema file → update → serve.
-  </Card>
-  <Card title="Agents as tables" icon="robot" href="/use-cases/agentic-workflows">
-    Tools and `invoke_tools` as columns.
-  </Card>
-  <Card title="Starter kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
-    Templates for serving, batch, and FastAPI + React.
-  </Card>
-  <Card title="Cloud" icon="cloud" href="/howto/deployment/cloud">
-    Same file against `pxt://org:db`.
-  </Card>
-</CardGroup>
+To call remote MCP tools from a table, `pxt.mcp_udfs(url)`. [Agents as tables](/use-cases/agentic-workflows).
