@@ -85,9 +85,7 @@ def assert_not_serving(cli: PxtRunner, *names: str) -> None:
 
 
 class TestService:
-    def test_deploying_needs_agreeing_config(
-        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
-    ) -> None:
+    def test_config_must_agree(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A service inherits the daemon's config values, so a caller resolving them differently cannot deploy."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
@@ -195,7 +193,7 @@ class TestService:
         cli('service', 'update', apps('basic_changed_route.py'), target, '-f', '--allow-destructive')
         assert_serving(cli, apps('basic_changed_route.py'), target, 'ingest')
 
-    def test_custom_app_source_edits(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+    def test_custom_app_edits(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """Editing a served application: a path it adds is applied by restarting the service."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
@@ -226,7 +224,7 @@ class TestService:
         upper = httpx.get(f'{after["endpoint"]}/notes/upper', timeout=_REQUEST_TIMEOUT)
         assert upper.json() == {'upper': ['HELLO']}, upper.text
 
-    def test_source_change_restarts(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+    def test_source_change(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """An edited udf body restarts the service and the plan names the file; an unimported file does not."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
@@ -284,7 +282,7 @@ class TestService:
         cli('service', 'update', apps('basic.py'), target, '-f')
         assert_serving(cli, apps('basic.py'), target, 'ingest')
 
-    def test_run_in_the_foreground(
+    def test_run_foreground(
         self, cli: PxtRunner, cli_bg: Callable[..., BackgroundPxt], apps: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         """run serves from the calling process and records nothing; update is the background form."""
@@ -309,7 +307,7 @@ class TestService:
         cli('service', 'update', app, target, '-f')
         assert_serving(cli, app, target, 'ingest')
 
-    def test_blocked_on_the_database(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+    def test_blocked_on_database(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A service whose tables do not exist is blocked until the schema is applied."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
@@ -492,7 +490,7 @@ class TestService:
         assert _post(endpoint, '/notes', note_id=1, text='hello').status_code == 200
         assert pxt.get_table(f'{target}/notes').select().collect()['text_upper'] == ['HELLO']
 
-    def test_custom_app_with_prefixed_router(
+    def test_custom_app_prefixed_router(
         self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         """A router included under a prefix is part of the application, and its paths are not app_paths."""

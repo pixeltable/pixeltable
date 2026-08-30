@@ -25,9 +25,9 @@ from urllib.parse import parse_qs, unquote, urlparse
 import pydantic
 
 from pixeltable import exceptions as excs
-from pixeltable.config import Config
+from pixeltable.config import Config, env_var_name
 
-from .daemon_state import state as daemon_state
+from .daemon_state import compare_env_values, config_fingerprint, state as daemon_state
 from .router import Method, RawResponse, Request
 from .routes import router
 
@@ -46,6 +46,19 @@ _HAS_STATIC_BUNDLE = _STATIC_DIR.exists()
 
 # Header carrying the caller's env fingerprint: {env var name: hash of its value}, no values.
 _ENV_HEADER = 'x-pxt-env-fingerprint'
+
+
+def _changed_settings(names: list[str]) -> str:
+    """One line per changed setting: how the file or the environment holding it spells it, and where it is."""
+    config = Config.get()
+    keys = {env_var_name(ck.section, ck.key): ck for ck in config.env_keys()}
+    lines: list[str] = []
+    for name in names:
+        ck = keys.get(name)
+        lines.append(
+            f'  {config.describe_setting(ck.section, ck.key)}' if ck is not None else f'  {name}, no longer set'
+        )
+    return '\n'.join(lines)
 
 
 class _DaemonHandler(BaseHTTPRequestHandler):
@@ -151,15 +164,16 @@ class _DaemonHandler(BaseHTTPRequestHandler):
 
     def _env_values_agree(self, req: Request) -> bool:
         """Whether this daemon's config values are the ones it recorded and the caller expects."""
-        current = Config.get().env_fingerprint()
+        current = config_fingerprint()
         changed = daemon_state.changed_env_vars(current)
         if len(changed) > 0:
             # api clients are built from these values and cached per worker thread, so serving with the new
             # ones takes a new process
             self._send_json(
                 {
-                    'detail': f'{Config.get().config_file} now has different values for: {", ".join(changed)}.\n'
-                    'Run `pxt daemon restart` to serve with them.',
+                    'detail': f'configuration has changed since the daemon started:\n{_changed_settings(changed)}\n\n'
+                    'The daemon reads configuration once at startup. '
+                    'Run `pxt daemon restart` to pick up the new configuration.',
                     'error_code': 'STALE_CONFIG',
                 },
                 http.HTTPStatus.CONFLICT,
@@ -176,18 +190,21 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             caller: dict[str, str] = json.loads(header)
         except json.JSONDecodeError:
             return True  # an unparseable fingerprint is no evidence of disagreement
-        missing, differing = Config.get().compare_env_values(caller, current)
+        missing, differing = compare_env_values(caller, current)
         if len(missing) == 0 and len(differing) == 0:
             return True
 
         detail: list[str] = []
         if len(missing) > 0:
-            detail.append(f"set in your environment but not in this daemon's: {', '.join(missing)}")
+            detail.append(f'  set here but not in the daemon: {", ".join(missing)}')
         if len(differing) > 0:
-            detail.append(f'bound to a different value here: {", ".join(differing)}')
+            detail.append(f'  set to a different value in the daemon: {", ".join(differing)}')
         self._send_json(
             {
-                'detail': '; '.join(detail) + '.\nRun `pxt daemon restart` to serve with your environment.',
+                'detail': 'the daemon started with a different environment:\n'
+                + '\n'.join(detail)
+                + '\n\nThe daemon reads the environment once at startup. '
+                'Run `pxt daemon restart` to pick up your environment.',
                 'error_code': 'STALE_CONFIG',
             },
             http.HTTPStatus.CONFLICT,

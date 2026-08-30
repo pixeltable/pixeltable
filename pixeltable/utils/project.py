@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import enum
 import hashlib
 import json
 import logging
@@ -30,9 +31,16 @@ DepsType = Literal['uv', 'poetry', 'pip', 'none']
 # a project declares its packages in one of these, each installed by the tool it names
 LOCK_FILES: dict[str, DepsType] = {'uv.lock': 'uv', 'poetry.lock': 'poetry', 'requirements.txt': 'pip'}
 
-# which of the two artifacts a comparison is about, the process that runs them both, or the files one
-# application loaded out of a published project
-Scope = Literal['image', 'archive', 'restart', 'published']
+
+class ProjectPart(enum.StrEnum):
+    """The parts that make up a project's fingerprint."""
+
+    IMAGE = 'image'
+
+    ARCHIVE = 'archive'
+
+    # vars and secrets
+    BINDINGS = 'bindings'
 
 
 def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
@@ -204,30 +212,25 @@ class ProjectFingerprint(pydantic.BaseModel):
     vars: dict[str, str]
     secrets: dict[str, str]
 
-    def image_needed(self, other: ProjectFingerprint) -> bool:
-        """Whether an image built from other would differ from one built now."""
-        return self._image_inputs() != other._image_inputs()
+    def compare(self, other: ProjectFingerprint, *, own_files_only: bool = False) -> set[ProjectPart]:
+        """The parts that differ from other.
 
-    def archive_needed(self, other: ProjectFingerprint) -> bool:
-        """Whether an archive packaged from other would differ from one packaged now."""
-        return self.files != other.files
-
-    def restart_needed(self, other: ProjectFingerprint) -> bool:
-        """Whether a process started from other would differ from one started now."""
-        return self != other
-
-    def publish_needed(self, other: ProjectFingerprint) -> bool:
-        """Whether the project other holds is behind the files this fingerprint names.
-
-        Only those files are compared: an application loads a part of the project, and what the rest of it
-        holds is no business of this comparison.
+        own_files_only compares only the files in this fingerprint and excludes files that exist only in other.
         """
-        return len(self.changes(other, 'published')) > 0
+        parts: set[ProjectPart] = set()
+        if self._image_inputs() != other._image_inputs():
+            parts.add(ProjectPart.IMAGE)
+        files_differ = len(self._added_or_changed(other)) > 0 if own_files_only else self.files != other.files
+        if files_differ:
+            parts.add(ProjectPart.ARCHIVE)
+        if (self.vars, self.secrets) != (other.vars, other.secrets):
+            parts.add(ProjectPart.BINDINGS)
+        return parts
 
     def image_digest(self) -> str:
         """The identity of an image built for this environment.
 
-        Two fingerprints share it exactly when image_needed() reports no difference, so an environment
+        Two fingerprints share it exactly when compare() reports no IMAGE difference, so an environment
         that has been built once is never built again, whichever project declares it.
         """
         return _digest(self._image_inputs())
@@ -235,47 +238,49 @@ class ProjectFingerprint(pydantic.BaseModel):
     def archive_digest(self) -> str:
         """The identity of the archive this project's files package into.
 
-        Two fingerprints share it exactly when archive_needed() reports no difference.
+        Two fingerprints share it exactly when compare() reports no ARCHIVE difference.
         """
         return _digest(self.files)
 
-    def changes(self, other: ProjectFingerprint, scope: Scope = 'restart') -> list[str]:
-        """What differs from other within scope, one printable line each.
+    def changes(
+        self, other: ProjectFingerprint, parts: set[ProjectPart] | None = None, *, own_files_only: bool = False
+    ) -> list[str]:
+        """What differs from other in the given parts, one printable line each; every part by default.
 
-        'image' covers the environment an image is built from, 'archive' the project's files, 'restart'
-        everything a running process holds, and 'published' the files this fingerprint names, which other
-        holds a superset of.
+        own_files_only compares only the files in this fingerprint and excludes files that exist only in other.
         """
-        selected = self._lock_files() if scope == 'image' else self.files
-        deployed_selected = other._lock_files() if scope == 'image' else other.files
-        lines = [
-            f'{path} changed'
-            for path in sorted(set(selected) & set(deployed_selected))
-            if selected[path] != deployed_selected[path]
-        ]
-        lines += [f'{path} added' for path in sorted(set(selected) - set(deployed_selected))]
-        if scope != 'published':
-            lines += [f'{path} removed' for path in sorted(set(deployed_selected) - set(selected))]
-        if scope == 'archive':
-            return lines
-
-        for field in ('python_version', 'pixeltable_version'):
-            was, now = getattr(other, field), getattr(self, field)
-            if was != now:
-                lines.append(f'{field} {was} -> {now}')
-        if self.system_dependencies != other.system_dependencies:
-            lines.append('system_dependencies changed')
-        if self.uv_options != other.uv_options:
-            lines.append('uv_options changed')
-        if scope == 'image':
-            return lines
-
-        lines += [f'var {name} changed' for name in _changed_keys(self.vars, other.vars)]
-        lines += [f'secret {name} changed' for name in _changed_keys(self.secrets, other.secrets)]
+        if parts is None:
+            parts = set(ProjectPart)
+        lines: list[str] = []
+        if ProjectPart.ARCHIVE in parts:
+            lines += self._added_or_changed(other)
+            if not own_files_only:
+                lines += [f'{path} removed' for path in sorted(set(other.files) - set(self.files))]
+        if ProjectPart.IMAGE in parts:
+            if ProjectPart.ARCHIVE not in parts:
+                # make sure to include the lock files
+                lines += _changed_paths(self._lock_files(), other._lock_files())
+            for field in ('python_version', 'pixeltable_version'):
+                was, now = getattr(other, field), getattr(self, field)
+                if was != now:
+                    lines.append(f'{field} {was} -> {now}')
+            if self.system_dependencies != other.system_dependencies:
+                lines.append('system_dependencies changed')
+            if self.uv_options != other.uv_options:
+                lines.append('uv_options changed')
+        if ProjectPart.BINDINGS in parts:
+            lines += [f'var {name} changed' for name in _changed_keys(self.vars, other.vars)]
+            lines += [f'secret {name} changed' for name in _changed_keys(self.secrets, other.secrets)]
         return lines
 
+    def _added_or_changed(self, other: ProjectFingerprint) -> list[str]:
+        """The files in this fingerprint that are changed or absent in other."""
+        return _changed_paths(self.files, other.files) + [
+            f'{path} added' for path in sorted(set(self.files) - set(other.files))
+        ]
+
     def deps_type(self) -> DepsType:
-        """The tool that installs the project's packages, named by the lockfile the archive holds."""
+        """The tool that installs the project's packages."""
         return next((tool for name, tool in LOCK_FILES.items() if name in self.files), 'none')
 
     def _image_inputs(self) -> tuple:
@@ -288,12 +293,16 @@ class ProjectFingerprint(pydantic.BaseModel):
         )
 
     def _lock_files(self) -> dict[str, str]:
-        """The selected lockfiles: an image installs the project's packages from one of them."""
         return {path: content_hash for path, content_hash in self.files.items() if path in LOCK_FILES}
 
 
 def _digest(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def _changed_paths(now: dict[str, str], was: dict[str, str]) -> list[str]:
+    """One line per path both hold with different contents."""
+    return [f'{path} changed' for path in sorted(set(now) & set(was)) if now[path] != was[path]]
 
 
 def _changed_keys(now: dict[str, str], was: dict[str, str]) -> list[str]:

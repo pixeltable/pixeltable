@@ -219,13 +219,15 @@ def project_root() -> str | None:
     return None if found is None else str(found)
 
 
-def env_fingerprint(environ: dict[str, str] | None = None) -> dict[str, str]:
-    """Returns dict mapping every set environment variable to a hash of its value.
+def value_fingerprint(value: str) -> str:
+    """A hash of one config value, short enough to print and to compare by eye."""
+    return hashlib.sha256(value.encode('utf-8')).hexdigest()[:12]
 
-    The hash is the same as value_fingerprint() in config.py.
-    """
+
+def env_fingerprint(environ: dict[str, str] | None = None) -> dict[str, str]:
+    """Returns dict mapping every set environment variable to a hash of its value."""
     env = os.environ if environ is None else environ
-    return {name: hashlib.sha256(env[name].encode('utf-8')).hexdigest()[:12] for name in sorted(env) if env[name] != ''}
+    return {name: value_fingerprint(env[name]) for name in sorted(env) if env[name] != ''}
 
 
 def identity() -> dict[str, Any]:

@@ -299,7 +299,7 @@ class TestSchema:
         assert "column 'author' will be added  safe" in r.stdout
         assert "column 'body' will be dropped  DESTRUCTIVE" in r.stdout
 
-    def test_iterator_view_and_indexes(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+    def test_iterator_view_indexes(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A schema that declares an iterator view and indexes over what the iterator produces."""
         skip_test_if_not_installed('spacy')  # the view's iterator splits on sentences
         target = db_root.make_catalog_path('app')
@@ -363,7 +363,7 @@ class TestSchema:
 
         assert_in_agreement(cli, apps('media.py'), target)
 
-    def test_routes_are_not_schema(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+    def test_routes_not_schema(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """An application file's routes are invisible to the schema: only its models declare tables."""
         target = db_root.make_catalog_path('app')
         cli('schema', 'update', apps('basic.py'), target)
@@ -374,7 +374,7 @@ class TestSchema:
         # the variant adds a route and nothing else, so the schema is already in agreement with it
         assert_in_agreement(cli, apps('basic_added_route.py'), target)
 
-    def test_extras_and_prune(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
+    def test_extras_prune(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """A table the file does not declare: reported as an extra, left alone by update, dropped by prune."""
         p = db_root.make_catalog_path
         schema_file = project_dir / 'app_schema.py'
@@ -434,9 +434,7 @@ class TestSchema:
         # the declared tables are untouched, so the schema and the target still agree
         assert_in_agreement(cli, str(schema_file), target)
 
-    def test_prune_keeps_tables_with_declared_dependents(
-        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
-    ) -> None:
+    def test_prune_declared_dependents(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         p = db_root.make_catalog_path
         target = p('keep')
 
@@ -466,9 +464,7 @@ class TestSchema:
         assert re.search(r"the following depend on it: '.*keep/derived'", r.stderr) is not None
         assert pxt.get_table(f'{target}/raw') is not None
 
-    def test_prune_reports_tables_dropped_before_the_failure(
-        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
-    ) -> None:
+    def test_prune_reports_dropped(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         p = db_root.make_catalog_path
         target = p('partial')
 

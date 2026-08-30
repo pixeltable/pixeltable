@@ -33,7 +33,7 @@ from pixeltable_cli import models, types
 from pixeltable_cli.utils import identity
 
 from . import bridge
-from .daemon_state import state as daemon_state
+from .daemon_state import config_fingerprint, state as daemon_state
 from .router import RawResponse, Request, Router
 
 router = Router()
@@ -126,7 +126,7 @@ def config(_req: Request) -> models.ConfigResponse:
     return models.ConfigResponse(
         config_file=str(Config.get().config_file),
         entries=entries,
-        env_fingerprint=Config.get().env_fingerprint(),
+        env_fingerprint=config_fingerprint(),
         env_var_names=daemon_state.known_env_vars(),
     )
 

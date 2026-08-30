@@ -30,7 +30,13 @@ from pixeltable.service.management_protocol import (
     SetSecretRequest,
     UpdateDbRequest,
 )
-from pixeltable.utils.project import ProjectFingerprint, create_project_archive, loaded_fingerprint, project_fingerprint
+from pixeltable.utils.project import (
+    ProjectFingerprint,
+    ProjectPart,
+    create_project_archive,
+    loaded_fingerprint,
+    project_fingerprint,
+)
 from pixeltable_cli.types import DbChangeOp, DbPlan, DbTarget
 
 _UPLOAD_TIMEOUT = 300
@@ -232,7 +238,7 @@ def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | No
         project_dir = unpacking / _ARCHIVE_DIR
         project_dir.mkdir()  # an archive holding no files still unpacks to an empty project
         with tarfile.open(archive_path, mode='r:bz2') as tf:
-            members = []
+            members: list[tarfile.TarInfo] = []
             for member in tf.getmembers():
                 if member.name == _ARCHIVE_DIR:
                     continue
@@ -245,7 +251,6 @@ def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | No
                 members.append(member)
             # filter='data': refuses a member naming a path outside the directory, and drops ownership bits
             tf.extractall(project_dir, members=members, filter='data')
-        archive_path.unlink()
 
         if dest.exists():
             shutil.rmtree(dest)
@@ -435,10 +440,11 @@ def _compare_db(current: DatabaseState, config: DatabaseConfig, fingerprint: Pro
         # a database that has not been given the project reports no fingerprint: both artifacts are missing
         ops += [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
     else:
-        if fingerprint.image_needed(current.fingerprint):
-            ops.append(DbChangeOp.image_moved(fingerprint.changes(current.fingerprint, 'image')))
-        if fingerprint.archive_needed(current.fingerprint):
-            ops.append(DbChangeOp.archive_moved(fingerprint.changes(current.fingerprint, 'archive')))
+        moved = fingerprint.compare(current.fingerprint)
+        if ProjectPart.IMAGE in moved:
+            ops.append(DbChangeOp.image_moved(fingerprint.changes(current.fingerprint, {ProjectPart.IMAGE})))
+        if ProjectPart.ARCHIVE in moved:
+            ops.append(DbChangeOp.archive_moved(fingerprint.changes(current.fingerprint, {ProjectPart.ARCHIVE})))
 
     for field, config_value, current_value in (
         ('cpu', config.cpu, current.cpu),

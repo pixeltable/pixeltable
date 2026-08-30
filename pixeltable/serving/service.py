@@ -17,7 +17,7 @@ from pixeltable.utils.app_module import (
     services_by_name,
     visible_models,
 )
-from pixeltable.utils.project import ProjectFingerprint, Scope, loaded_fingerprint
+from pixeltable.utils.project import ProjectFingerprint, loaded_fingerprint
 from pixeltable_cli.types import (
     CheckReport,
     Resolution,
@@ -221,7 +221,7 @@ def _service_diff(
     target: PxtPath,
     otel: bool,
 ) -> ServiceDiff:
-    """How the instance of one service at target differs from what the application file holds."""
+    """How the instance of one service at target differs from what's reflected in app_info."""
     ops: list[ServiceChangeOp] = []
     route_detail: str | None = None
 
@@ -237,17 +237,21 @@ def _service_diff(
             ops.append(ServiceChangeOp.otel(running.otel, otel))
 
     published = app_info.published
-    if published is not None and app_info.fingerprint.publish_needed(published):
+    # empty for a local target, whose services read the project files in place
+    behind = app_info.fingerprint.compare(published, own_files_only=True) if published is not None else set()
+    if len(behind) > 0:
         # a hosted service reads the project the database was given, so restarting it re-runs the old files
-        scope: Scope = 'image' if app_info.fingerprint.image_needed(published) else 'published'
         ops.append(
             ServiceChangeOp.project_moved(
-                app_info.fingerprint.changes(published, scope), command=f'pxt db update {app_info.db_uri}'
+                app_info.fingerprint.changes(published, behind, own_files_only=True),
+                command=f'pxt db update {app_info.db_uri}',
             )
         )
-    elif len(ops) == 0 and running is not None and app_info.fingerprint.restart_needed(running.record.fingerprint):
-        # the contract is unchanged, so the project is the only thing left to report
-        ops.append(ServiceChangeOp.project_moved(app_info.fingerprint.changes(running.record.fingerprint)))
+    elif len(ops) == 0 and running is not None:
+        moved = app_info.fingerprint.compare(running.record.fingerprint)
+        if len(moved) > 0:
+            # the contract is unchanged, so the project is the only thing left to report
+            ops.append(ServiceChangeOp.project_moved(app_info.fingerprint.changes(running.record.fingerprint, moved)))
 
     if app_info.model_mismatch_reason is not None:
         command = f'pxt schema update {app_info.app_file}' + ('' if target == '' else f' {target}')

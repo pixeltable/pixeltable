@@ -76,7 +76,7 @@ class TestLs:
         entries = cli('ls', p('cli_ls'), '--json').json['entries']
         assert p('cli_ls/t') not in {e['path'] for e in entries}
 
-    def test_long_and_metadata(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    def test_long_metadata(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """-l / -l --json populate num_cols and flags via get_metadata(). Bare --json is the
         cheap path: it skips the per-entry metadata fetch and returns num_cols=None."""
         p = db_root.make_catalog_path
@@ -102,7 +102,7 @@ class TestLs:
         assert row['num_cols'] is None
         assert row['flags'] == ''
 
-    def test_tree_and_counts(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    def test_tree_counts(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """--tree formats the nested catalog with ASCII prefixes. --counts populates
         num_rows in both text and JSON; a dirs-only target skips the count pool entirely."""
         p = db_root.make_catalog_path
@@ -241,7 +241,7 @@ class TestCwd:
             cli('cd')
 
     @pytest.mark.db_roots('local', reason="a leading '/' absolute path is a local-catalog notion")
-    def test_mv_destination_honors_absolute_path(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    def test_mv_absolute_destination(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_mv_wd'), if_exists='ignore')
         pxt.create_dir(p('cli_mv_wd/sub'), if_exists='ignore')
@@ -286,7 +286,7 @@ class TestCwd:
             cli('cd')
 
     @pytest.mark.db_roots('local', reason='prompt renders the working directory in the CLI absolute convention')
-    def test_shell_prompt_shows_working_directory(
+    def test_shell_prompt_wd(
         self, cli: PxtRunner, pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path
     ) -> None:
         p = db_root.make_catalog_path
@@ -321,7 +321,7 @@ class TestCwd:
             cli('cd')  # never leak the working directory into other tests sharing this session
 
     @pytest.mark.db_roots('local', reason='daemon session store; independent of the catalog backend')
-    def test_rejects_nonexistent_and_isolates_sessions(self, db_root: DatabaseRoot, pxt_daemon: int) -> None:
+    def test_rejects_nonexistent_wd(self, db_root: DatabaseRoot, pxt_daemon: int) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_cwd_iso'), if_exists='ignore')
         base = f'http://127.0.0.1:{pxt_daemon}'
@@ -1171,7 +1171,7 @@ class TestDashboard:
         assert csv_body.splitlines()[0] == 'x'
         assert 'cli_dash_t_t.csv' in disp
 
-    def test_dirs_and_status_contract(self, cli: PxtRunner, pxt_daemon: int) -> None:
+    def test_dirs_status_contract(self, cli: PxtRunner, pxt_daemon: int) -> None:
         """Pin the response shapes the dashboard SPA reads in dashboard/src/api/client.ts.
         getDirectoryTree reads the node list from tree.entries of /api/dirs?tree=true (the response
         is an object, not a top-level array), and getStatus reads the flat pxt_version / home /

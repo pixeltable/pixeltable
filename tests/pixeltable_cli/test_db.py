@@ -135,7 +135,7 @@ class TestDb:
         assert plan['ops'] == []
         assert plan['returncode'] == EXIT_CHANGES_PENDING
 
-    def test_update_sends_both_artifacts(self, cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> None:
+    def test_update_both_artifacts(self, cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> None:
         """A database whose project is not this one needs the image and the archive both."""
         declare(cli, project, hosted_db)
 
@@ -150,14 +150,14 @@ class TestDb:
         assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
         assert_in_agreement(cli, project, hosted_db)
 
-    def test_status_and_list_report_the_database(self, cli: PxtRunner, hosted_db: str) -> None:
+    def test_status_list(self, cli: PxtRunner, hosted_db: str) -> None:
         name = hosted_db.rsplit(':', 1)[-1]
         status = cli('db', 'status', hosted_db, '--json').json
         assert status['state'] == 'AVAILABLE', status
         listed = cli('db', 'list', 'pxt://pixeltable', '--json').json
         assert name in [entry['db_name'] for entry in listed], listed
 
-    def test_source_edit_sends_the_project(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+    def test_source_edit(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
         """An edit to a source file moves the archive alone: the environment it runs in is unchanged."""
         edit_app(project, 'an edit that changes no dependency')
 
@@ -172,7 +172,7 @@ class TestDb:
         assert [op['status'] for op in applied['ops']] == ['applied']
         assert_in_agreement(cli, project, current_db)
 
-    def test_lockfile_edit_rebuilds_the_image(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+    def test_lockfile_edit(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
         """The lockfile is in both manifests, so editing it moves the image and the archive alike."""
         (project / 'requirements.txt').write_text('pixeltable\ntqdm\n', encoding='utf-8')
 
@@ -186,7 +186,7 @@ class TestDb:
         assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
         assert_in_agreement(cli, project, current_db)
 
-    def test_excluded_files_are_not_sent(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+    def test_excluded_files(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
         """A file the entry excludes is not part of the project, so writing it changes nothing."""
         declare(cli, project, current_db, exclude=['notes/**'])
         assert_in_agreement(cli, project, current_db)
@@ -198,7 +198,7 @@ class TestDb:
         edit_app(project, 'an edit to a file the entry selects')
         assert ops_on(diff(cli, project, current_db), 'archive') != []
 
-    def test_secret_is_set_and_deleting_it_is_destructive(
+    def test_secrets(
         self, cli: PxtRunner, project: pathlib.Path, current_db: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv('PXTTEST_SECRET', 'a value the database holds')
@@ -222,7 +222,7 @@ class TestDb:
         assert [op['status'] for op in ops_on(applied, 'secret')] == ['applied']
         assert_in_agreement(cli, project, current_db)
 
-    def test_unbound_secret_is_refused(
+    def test_unbound_secret(
         self, cli: PxtRunner, project: pathlib.Path, current_db: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A secret naming an environment variable that is not set stops the update."""
@@ -233,7 +233,7 @@ class TestDb:
         assert r.returncode == EXIT_ERROR
         assert 'PXTTEST_UNSET' in r.stderr, r.stderr
 
-    def test_capacity_is_applied(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+    def test_capacity(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
         running_on = cli('db', 'status', current_db, '--json').json['cpu']
         declare(cli, project, current_db, cpu=running_on + 1)
 
@@ -245,7 +245,7 @@ class TestDb:
         assert [op['status'] for op in ops_on(update(cli, project, current_db), 'capacity')] == ['applied']
         assert_in_agreement(cli, project, current_db)
 
-    def test_placement_cannot_be_changed(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+    def test_placement(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
         """Where a database runs is fixed when it is created, so a differing entry reports what no update applies."""
         running_in = cli('db', 'status', current_db, '--json').json['region']
         declare(cli, project, current_db, region=f'{running_in}-2')
@@ -260,7 +260,7 @@ class TestDb:
         assert [op['status'] for op in ops_on(applied, 'placement')] == [None]
         assert ops_on(diff(cli, project, current_db), 'placement') != []
 
-    def test_dry_run_applies_nothing(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+    def test_dry_run(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
         edit_app(project, 'an edit no update applies')
 
         planned = update(cli, project, current_db, '-n')
@@ -268,7 +268,7 @@ class TestDb:
         assert all(op['status'] is None for op in planned['ops']), planned['ops']
         assert ops_on(diff(cli, project, current_db), 'archive') != []
 
-    def test_build_image_does_not_compare_first(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+    def test_build_image(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
         """build-image sends and builds whatever the project holds, in agreement or not."""
         ops = cli('db', 'build-image', current_db, '--json', cwd=project).json
         assert sorted(op['target'] for op in ops) == ['archive', 'image']
@@ -295,7 +295,7 @@ class TestDb:
 class TestPod:
     """What a service pod does with the project its database holds."""
 
-    def test_pod_serves_the_project_the_database_holds(
+    def test_pod_serves_project(
         self, cli: PxtRunner, project: pathlib.Path, current_db: str, tmp_path: pathlib.Path
     ) -> None:
         app_file = str(project / _APP_FILE)
@@ -315,7 +315,7 @@ class TestPod:
             pod.terminate()
             pod.wait(timeout=30)
 
-    def test_pod_refuses_another_project(
+    def test_pod_refuses_digest_mismatch(
         self, cli: PxtRunner, project: pathlib.Path, current_db: str, tmp_path: pathlib.Path
     ) -> None:
         """A pod is told which project to run, and runs nothing else."""
@@ -328,9 +328,7 @@ class TestPod:
         assert digest in stderr, stderr
         assert not unpacked.exists()
 
-    def test_service_diff_is_blocked_until_the_database_has_the_project(
-        self, cli: PxtRunner, project: pathlib.Path, current_db: str
-    ) -> None:
+    def test_service_diff_blocked(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
         """A hosted service runs the project its database was given, so an edit here is `pxt db update`."""
         app_file = str(project / _APP_FILE)
         cli('schema', 'update', app_file, current_db, '-f')
