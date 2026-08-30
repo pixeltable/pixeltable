@@ -183,9 +183,9 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
 
 
 def db_build_image(db_uri: str) -> list[DbChangeOp]:
-    """Ship this project to the database at db_uri and build its image, and wait for both.
+    """Send this project to the database at db_uri and build its image, and wait for both.
 
-    Ships and builds whatever the project holds, without comparing it to the database first.
+    Sends and builds whatever the project holds, without comparing it to the database first.
     """
     db_path = _validated_db_uri(db_uri)
     config = _get_db_config(db_path)
@@ -262,8 +262,8 @@ def _publish_artifacts(config: DatabaseConfig, db_path: catalog.Path, with_image
 
 def _capacity_settings(config: DatabaseConfig) -> dict[str, float | int]:
     """The capacity fields from DatabaseConfig as a dict."""
-    declared = (('cpu', config.cpu), ('memory_mb', config.memory_mb), ('disk_gb', config.disk_gb))
-    return {field: value for field, value in declared if value is not None}
+    settings = (('cpu', config.cpu), ('memory_mb', config.memory_mb), ('disk_gb', config.disk_gb))
+    return {field: value for field, value in settings if value is not None}
 
 
 def _get_target_ops(plan: DbPlan, target: DbTarget) -> list[DbChangeOp]:

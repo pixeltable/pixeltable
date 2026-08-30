@@ -182,7 +182,9 @@ def _update(args: argparse.Namespace) -> None:
         _print_plan(plan, as_json=args.json_output)
         sys.exit(EXIT_CHANGES_PENDING)
 
-    _print_plan(plan, as_json=False)
+    if not args.json_output:
+        # the pending plan, for the confirmation that follows; --json emits the applied plan alone
+        _print_plan(plan, as_json=False)
     what = f'{plan.summary.ops} change(s)' if plan.exists else f'create {plan.db_uri} and apply it'
     minutes = ', which rebuilds the image and takes several minutes' if plan.summary.rebuild else ''
     confirm_or_exit(
@@ -244,11 +246,11 @@ def _build_image(args: argparse.Namespace) -> None:
     label = (
         None
         if args.json_output
-        else 'Shipping the project and building the image (this may take 10 minutes or longer) ...'
+        else 'Sending the project and building the image (this may take 10 minutes or longer) ...'
     )
     with spinner(label):
         ops = [DbChangeOp.model_validate(op) for op in post_request('/api/db/build-image', {'db_uri': db_uri})]
     if args.json_output:
         print(json.dumps([op.model_dump(mode='json') for op in ops]))
     else:
-        print(f'Shipped the project and rebuilt the image of {db_uri}.')
+        print(f'Sent the project to {db_uri} and rebuilt its image.')

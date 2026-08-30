@@ -126,7 +126,7 @@ class ServiceChangeOp(ChangeOp):
             name='project',
             op='alter',
             severity='blocked',
-            description=f'{summary}; run {command} to ship it to the database',
+            description=f'{summary}; run {command} to send it to the database',
             details={'changes': '; '.join(changes), 'command': command},
         )
 
@@ -267,7 +267,7 @@ class DbChangeOp(ChangeOp):
             op='alter',
             # what the pods serve is unchanged; they restart to run the new sources
             severity='additive',
-            description=f'the project will be shipped again: {_summary(changes)}',
+            description=f'the project will be sent to the database again: {_summary(changes)}',
             details={'changes': '; '.join(changes)},
             requires_restart=True,
         )
@@ -327,13 +327,13 @@ class DbChangeOp(ChangeOp):
 
     @classmethod
     def upload_archive(cls) -> DbChangeOp:
-        """The operation for shipping the project the caller named rather than one a difference calls for."""
+        """The operation for sending the project the caller named rather than one a difference calls for."""
         return cls(
             target='archive',
             name='project',
             op='alter',
             severity='additive',
-            description='the archive will be uploaded',
+            description='the project will be sent to the database',
             requires_restart=True,
         )
 
