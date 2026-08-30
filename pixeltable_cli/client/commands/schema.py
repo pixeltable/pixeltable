@@ -422,8 +422,10 @@ def _prune(app_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, d
         on_refusal=report_refusal,
     )
 
-    resp = post_request('/api/schema/prune', {'app_file': app_file, 'catalog_dir': catalog_dir})
-    _prune_output(resp, as_json=as_json, verb='dropped')
+    pruned = SchemaPlan.model_validate(
+        post_request('/api/schema/prune', {'app_file': app_file, 'catalog_dir': catalog_dir})
+    )
+    _prune_output(pruned, as_json=as_json, verb='dropped')
 
 
 def _prune_output(plan: SchemaPlan, *, as_json: bool, verb: str) -> None:
@@ -448,8 +450,11 @@ def _update(
     if not (allow_destructive and force):
         _decide_update(app_file, catalog_dir, as_json=as_json, force=force, allow_destructive=allow_destructive)
 
-    applied = post_request(
-        '/api/schema/update', {'app_file': app_file, 'catalog_dir': catalog_dir, 'allow_destructive': allow_destructive}
+    applied = SchemaPlan.model_validate(
+        post_request(
+            '/api/schema/update',
+            {'app_file': app_file, 'catalog_dir': catalog_dir, 'allow_destructive': allow_destructive},
+        )
     )
     _update_output(applied, as_json=as_json)
 

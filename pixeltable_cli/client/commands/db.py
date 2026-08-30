@@ -13,8 +13,8 @@ from ..utils import EXIT_CHANGES_PENDING, EXIT_IN_AGREEMENT, EXIT_REFUSED, confi
 
 EPILOG = """\
 Examples:
-  pxt db diff pixeltable.toml pxt://org:db     # what update would change; exit 2 if anything is pending
-  pxt db update pixeltable.toml pxt://org:db   # apply it: secrets, then the image, then capacity
+  pxt db diff pxt://org:db     # what update would change; exit 2 if anything is pending
+  pxt db update pxt://org:db   # apply it: secrets, then the artifacts, then capacity
   pxt db create pxt://org:db
   pxt db list pxt://org
   pxt db status pxt://org:db
@@ -24,9 +24,9 @@ Examples:
   pxt db delete pxt://org:db
 
 A project declares one [[pixeltable.database]] entry per target hosted database, named by the database's uri.
-The entry says what goes into the image (include/exclude, system_dependencies, python_version), what the
-database runs on (cpu, memory_mb, disk_gb, workers) and which secrets it holds. 'diff' compares the entry
-against the database; 'update' applies the difference.
+The entry says which of the project's files are sent to the database (include/exclude), what the image
+holds (system_dependencies, python_version), what the database runs on (cpu, memory_mb, disk_gb, workers)
+and which secrets it holds. 'diff' compares the entry against the database; 'update' applies the difference.
 
 Exit status of diff and update: 0 in agreement, 2 changes pending, 3 refused, 1 error.
 """

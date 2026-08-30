@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, field_validator
 
 from pixeltable.serving import ServiceInstanceRecord
+from pixeltable.utils.project import ProjectFingerprint
 from pixeltable_cli.types import ServiceSpec
 
 
@@ -22,6 +23,7 @@ class ManagementOperationType(str, Enum):
     GET_SERVICE_INSTANCE = 'get_service_instance'
     LIST_SERVICE_INSTANCES = 'list_service_instances'
     UPDATE_SERVICE_INSTANCE = 'update_service_instance'
+    REPORT_SERVICE_INSTANCE = 'report_service_instance'
     START_SERVICE_INSTANCE = 'start_service_instance'
     STOP_SERVICE_INSTANCE = 'stop_service_instance'
     DELETE_SERVICE_INSTANCE = 'delete_service_instance'
@@ -285,6 +287,22 @@ class UpdateServiceInstanceRequest(BaseModel):
 
 class UpdateServiceInstanceResponse(BaseModel):
     instance: ServiceInstanceRecord
+
+
+class ReportServiceInstanceRequest(BaseModel):
+    """Record the project an instance loaded; a service pod sends this as it starts serving.
+
+    Unlike UPDATE_SERVICE_INSTANCE this changes nothing the instance is asked to serve, so it must not
+    restart the pod that sends it.
+    """
+
+    operation_type: Literal[ManagementOperationType.REPORT_SERVICE_INSTANCE] = (
+        ManagementOperationType.REPORT_SERVICE_INSTANCE
+    )
+    org: str | None = None
+    db: str
+    service_name: str
+    fingerprint: ProjectFingerprint
 
 
 class StartServiceInstanceRequest(BaseModel):

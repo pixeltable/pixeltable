@@ -107,8 +107,8 @@ class ServiceChangeOp(ChangeOp):
         """The operation for a project that moved on since the instance started.
 
         changes are the causes, from ProjectFingerprint.changes(). With a command, the instance cannot be
-        brought up to date by restarting it -- a hosted image has to be rebuilt first -- so the operation is
-        blocked.
+        brought up to date by restarting it -- a hosted service runs the project its database was given, not
+        the project here -- so the operation is blocked.
         """
         summary = _summary(changes)
         if command is None:
@@ -126,7 +126,7 @@ class ServiceChangeOp(ChangeOp):
             name='project',
             op='alter',
             severity='blocked',
-            description=f'{summary}, which the image this service runs predates',
+            description=f'{summary}; run {command} to ship it to the database',
             details={'changes': '; '.join(changes), 'command': command},
         )
 

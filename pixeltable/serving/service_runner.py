@@ -13,7 +13,6 @@ from typing import Any
 import pixeltable.catalog as catalog
 from pixeltable.config import Config
 from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
-from pixeltable.serving._config import database_config_for
 from pixeltable.utils.project import loaded_fingerprint
 
 from .service_manager import ServiceManager

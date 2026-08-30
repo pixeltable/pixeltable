@@ -4,17 +4,25 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import os
 import sys
+import tarfile
+import tempfile
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Literal
 
 import pydantic
 from pathspec import PathSpec
+from tqdm import tqdm
 
 import pixeltable
 from pixeltable import exceptions as excs
 from pixeltable.config import DatabaseConfig
+from pixeltable.env import Env
+
+_logger = logging.getLogger('pixeltable')
 
 # a project declares its packages in one of these
 LOCK_FILES = ('uv.lock', 'poetry.lock', 'requirements.txt')

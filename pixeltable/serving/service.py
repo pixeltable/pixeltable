@@ -5,6 +5,7 @@ from typing import Literal
 
 from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
+from pixeltable.service.db import published_fingerprint
 from pixeltable.utils.app_module import (
     check_report,
     get_model_bases,
@@ -16,7 +17,7 @@ from pixeltable.utils.app_module import (
     services_by_name,
     visible_models,
 )
-from pixeltable.utils.project import ProjectFingerprint, loaded_fingerprint
+from pixeltable.utils.project import ProjectFingerprint, Scope, loaded_fingerprint
 from pixeltable_cli.types import (
     CheckReport,
     Resolution,
@@ -162,6 +163,12 @@ class _AppInfo:
     # why the target cannot serve the models these services name, or None if it can
     model_mismatch_reason: str | None
 
+    # pxt://org:db of the target's database, without the catalog path below it; empty for a local target
+    db_uri: str
+
+    # the project db_uri was last given; None for a local target, which serves the project files in place
+    published: ProjectFingerprint | None
+
     # the project files this application imported; a running instance records the same, and a difference
     # between them is what restarts it
     fingerprint: ProjectFingerprint
@@ -180,7 +187,8 @@ def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
         needed.update(router.route_models())
     project_root = Config.get().project_root
     assert project_root is not None  # load_app_module() refuses a file outside a project root
-    db_config = Config.get().get_database_config(catalog.Path.parse(target, allow_empty_path=True))
+    catalog_path = catalog.Path.parse(target, allow_empty_path=True)
+    db_config = Config.get().get_database_config(catalog_path)
     return _AppInfo(
         app_file=app_file,
         services={
@@ -191,6 +199,8 @@ def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
             for name, service in services_by_name(module, app_file).items()
         },
         model_mismatch_reason=model_mismatch_error_str(needed, target),
+        db_uri=catalog_path.uri_str,
+        published=published_fingerprint(catalog_path),
         fingerprint=loaded_fingerprint(project_root, db_config),
     )
 
@@ -218,7 +228,16 @@ def _service_diff(
         if running.otel != otel:
             ops.append(ServiceChangeOp.otel(running.otel, otel))
 
-    if len(ops) == 0 and running is not None and app_info.fingerprint.restart_needed(running.record.fingerprint):
+    published = app_info.published
+    if published is not None and app_info.fingerprint.restart_needed(published):
+        # a hosted service reads the project the database was given, so restarting it re-runs the old files
+        scope: Scope = 'image' if app_info.fingerprint.image_needed(published) else 'restart'
+        ops.append(
+            ServiceChangeOp.project_moved(
+                app_info.fingerprint.changes(published, scope), command=f'pxt db update {app_info.db_uri}'
+            )
+        )
+    elif len(ops) == 0 and running is not None and app_info.fingerprint.restart_needed(running.record.fingerprint):
         # the contract is unchanged, so the project is the only thing left to report
         ops.append(ServiceChangeOp.project_moved(app_info.fingerprint.changes(running.record.fingerprint)))
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import os
+import tarfile
 import time
 import urllib.request
 from pathlib import Path
@@ -16,18 +18,24 @@ from pixeltable.service.management_protocol import (
     CreateDbRequest,
     DeleteSecretRequest,
     GetDbRequest,
+    GetProjectRequest,
+    GetProjectResponse,
     GetProjectUploadUrlRequest,
     GetProjectUploadUrlResponse,
     ListSecretsRequest,
     ListSecretsResponse,
+    ReportServiceInstanceRequest,
     SetProjectRequest,
     SetSecretRequest,
     UpdateDbRequest,
 )
-from pixeltable.utils.project import ProjectFingerprint, create_project_archive, project_fingerprint
+from pixeltable.utils.project import ProjectFingerprint, create_project_archive, loaded_fingerprint, project_fingerprint
 from pixeltable_cli.types import DbChangeOp, DbPlan, DbTarget
 
 _UPLOAD_TIMEOUT = 300
+_DOWNLOAD_TIMEOUT = 300
+
+_ARCHIVE_DIR = 'project'
 
 _DB_DESTRUCTIVE_HINT = "Re-run 'pxt db update' with --allow-destructive to apply these changes."
 
@@ -82,13 +90,22 @@ def db_diff(db_uri: str) -> DbPlan:
     if current is None:
         return DbPlan.from_ops(db_uri, None, [])
 
+    # GET_DB reports no secrets, so the keys are a call of their own
+    current.secret_keys = _secret_keys(db_path)
     fingerprint = project_fingerprint(_validated_project_root(), config)
     return DbPlan.from_ops(db_uri, current.state, _compare_db(current, config, fingerprint))
 
 
+def published_fingerprint(db_path: catalog.Path) -> ProjectFingerprint | None:
+    """The fingerprint of the project at the hosted db_path."""
+    if db_path.org is None or db_path.db is None:
+        return None
+    state = _get_db_state(db_path)
+    return None if state is None else state.fingerprint
+
+
 def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
-    """Reconcile the database at db_uri with the entry declaring it: create it if it is absent, then apply
-    secrets, the two artifacts, and capacity, in that order.
+    """Reconcile the database at db_uri with its corresponding DatabaseConfig in the project configuration.
 
     Secrets go first, since code the pods run reads them as they start; capacity last, so that the resize
     restarts pods already on the new image and the new sources. A placement difference is skipped, since no
@@ -138,7 +155,7 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
 
     image_ops, archive_ops = _get_target_ops(plan, 'image'), _get_target_ops(plan, 'archive')
     if len(image_ops) > 0 or len(archive_ops) > 0:
-        _ship_project(config, db_path, image=len(image_ops) > 0)
+        _publish_artifacts(config, db_path, with_image=len(image_ops) > 0)
         for op in image_ops + archive_ops:
             op.status = 'applied'
 
@@ -177,17 +194,68 @@ def db_build_image(db_uri: str) -> list[DbChangeOp]:
             excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'{db_path.uri_str} does not exist; run `pxt db update` to create it'
         )
     ops = [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
-    _ship_project(config, db_path)
+    _publish_artifacts(config, db_path, with_image=True)
     for op in ops:
         op.status = 'applied'
     return ops
 
 
-def _ship_project(config: DatabaseConfig, db_path: catalog.Path, *, image: bool = True) -> None:
-    """Store the project's archive, build the image from it when the environment moved, and roll the pods."""
+def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | None = None) -> str:
+    """Unpack db_uri's project archive into dest, and return the archive's digest.
+
+    Refuses an archive whose digest is not expected_digest: a pod is told which project to run, and a
+    different one would serve code nobody asked for.
+    """
+    db_path = _validated_db_uri(db_uri)
+    response = GetProjectResponse.model_validate(
+        management_client.api_call(GetProjectRequest(org=db_path.org, db=db_path.db))
+    )
+    if expected_digest is not None and response.digest != expected_digest:
+        raise excs.Error(
+            excs.ErrorCode.INVALID_STATE,
+            f'{db_path.uri_str} serves project {response.digest}, not the {expected_digest} this process runs',
+        )
+    with urllib.request.urlopen(response.presigned_url, timeout=_DOWNLOAD_TIMEOUT) as r:
+        content = r.read()
+
+    dest.mkdir(parents=True, exist_ok=True)
+    prefix = f'{_ARCHIVE_DIR}/'
+    with tarfile.open(fileobj=io.BytesIO(content), mode='r:bz2') as tf:
+        members = []
+        for member in tf.getmembers():
+            if member.name == _ARCHIVE_DIR:
+                continue
+            if not member.name.startswith(prefix):
+                raise excs.Error(
+                    excs.ErrorCode.INVALID_DATA_FORMAT,
+                    f'{db_path.uri_str} serves an archive holding {member.name!r}, which is outside {prefix}',
+                )
+            member.name = member.name[len(prefix) :]
+            members.append(member)
+        # filter='data': refuses a member naming a path outside dest, and drops ownership and permission bits
+        tf.extractall(dest, members=members, filter='data')
+    return response.digest
+
+
+def report_instance_fingerprint(db_uri: str, service_name: str) -> None:
+    """Tell the database at db_uri which of its project files the named service instance loaded."""
+    db_path = _validated_db_uri(db_uri)
+    config = _get_db_config(db_path)
+    management_client.api_call(
+        ReportServiceInstanceRequest(
+            org=db_path.org,
+            db=db_path.db,
+            service_name=service_name,
+            fingerprint=loaded_fingerprint(_validated_project_root(), config),
+        )
+    )
+
+
+def _publish_artifacts(config: DatabaseConfig, db_path: catalog.Path, with_image: bool) -> None:
+    """Store the project's archive, build the image from it when with_image, and point the pods at it."""
     # both artifacts come from one archive, so it is stored once whichever of the two moved
     key = _upload_project_archive(config, db_path)
-    if image:
+    if with_image:
         _build_image(config, db_path, key)
     _set_project(db_path, key)
 
@@ -324,16 +392,14 @@ def _get_db_config(db_uri: catalog.Path) -> DatabaseConfig:
 
 
 def _get_db_state(db_path: catalog.Path) -> DatabaseState | None:
-    """The named database as the control plane reports it, secret keys included; None if it holds no such database."""
+    """The named database as the control plane reports it; None if it holds no such database."""
     try:
         response = management_client.api_call(GetDbRequest(org=db_path.org, db=db_path.db))
     except excs.ExternalServiceError as e:
         if e.provider_http_status_code != 404:
             raise
         return None
-    state = DatabaseState.model_validate(response.get('database', response))
-    state.secret_keys = _secret_keys(db_path)
-    return state
+    return DatabaseState.model_validate(response.get('database', response))
 
 
 def _compare_db(current: DatabaseState, config: DatabaseConfig, fingerprint: ProjectFingerprint) -> list[DbChangeOp]:
