@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence, TypedDict, TypeVar
+from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence, TypedDict
 
 from pixeltable import exceptions as excs
-from pixeltable.catalog.globals import fold_identifier
 from pixeltable.type_system import ColumnType
-
-_V = TypeVar('_V')
 
 
 class CellError(TypedDict):
@@ -15,30 +12,6 @@ class CellError(TypedDict):
 
     errortype: str
     errormsg: str
-
-
-class _FoldedKeyMapping(Mapping[str, _V]):
-    """Read-only view over a mapping whose keys are already folded; folds the lookup key.
-
-    Iteration, keys() and len() pass through, so callers still see the stored (folded) spellings.
-    """
-
-    _data: Mapping[str, _V]
-
-    def __init__(self, data: Mapping[str, _V]):
-        self._data = data
-
-    def __getitem__(self, key: str) -> _V:
-        return self._data[fold_identifier(key)]
-
-    def __contains__(self, key: object) -> bool:
-        return isinstance(key, str) and fold_identifier(key) in self._data
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._data)
-
-    def __len__(self) -> int:
-        return len(self._data)
 
 
 class Row(Mapping[str, Any]):
@@ -51,9 +24,7 @@ class Row(Mapping[str, Any]):
     evaluation failed; the `index_values` property holds the values of embedding indexes defined on the
     row's table. Both are keyed by column or index name.
 
-    Every key a Row is constructed with is a stored name, and so is already case-folded because they come from
-    the catalog. The caller-supplied keys, on the other hand, are folded, so that `row['MyCol']`, `'MYCOL' in row` and
-    `row.errors['MyCol']` all work correctly. Iteration and `keys()` pass through and yield the stored spellings.
+    Keys are case-sensitive: every name is the folded (lower-case) spelling stored in the catalog.
     """
 
     _data: tuple[Any, ...]
@@ -76,25 +47,21 @@ class Row(Mapping[str, Any]):
         self._errors = errors or {}
         self._index_values = index_values or {}
 
-    def _slot(self, key: object) -> int | None:
-        """Index of the column `key` names, or None if this row has no such column."""
-        return self._columns.get(fold_identifier(key)) if isinstance(key, str) else None
-
     def __getitem__(self, key: str) -> Any:
-        idx = self._slot(key)
-        if idx is None:
+        if key not in self._columns:
             raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Column {key!r} does not exist in the row.')
-        return self._data[idx]
+        return self._data[self._columns[key]]
 
     def get(self, key: str, default: Any = None) -> Any:
-        idx = self._slot(key)
-        return default if idx is None else self._data[idx]
+        if key not in self._columns:
+            return default
+        return self._data[self._columns[key]]
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._columns)
 
     def __contains__(self, key: object) -> bool:
-        return self._slot(key) is not None
+        return key in self._columns
 
     def __len__(self) -> int:
         return len(self._columns)
@@ -103,23 +70,17 @@ class Row(Mapping[str, Any]):
         return f'Row({dict(self)})'
 
     @property
-    def errors(self) -> Mapping[str, CellError]:
+    def errors(self) -> dict[str, CellError]:
         """Error information for each cell of this row whose evaluation failed, keyed by column or index name.
 
         A failed cell holds `None` as its value and records its error here.
-
-        The returned mapping folds the lookup key, so `row.errors['MyCol']` and `row.errors['mycol']` both work.
         """
-        return _FoldedKeyMapping(self._errors)
+        return self._errors
 
     @property
-    def index_values(self) -> Mapping[str, Any]:
-        """The embedding values for embedding indexes defined on the row's table, keyed by index name.
-
-        The returned mapping folds the lookup key, so `row.index_values['MyIdx']` and `row.index_values['myidx']`
-        both work.
-        """
-        return _FoldedKeyMapping(self._index_values)
+    def index_values(self) -> dict[str, Any]:
+        """The embedding values for embedding indexes defined on the row's table, keyed by index name."""
+        return self._index_values
 
     def to_json(self) -> dict[str, Any]:
         """Return a JSON-serializable dict of this row's values.
@@ -208,8 +169,8 @@ class RowBatch(Sequence[Row]):
         return RowBatch(
             [tuple(fn(val) for val in row._data) for row in self._rows],
             self._col_types,
-            errors=[row._errors for row in self._rows],
-            index_values=[{name: fn(val) for name, val in row._index_values.items()} for row in self._rows],
+            errors=[row.errors for row in self._rows],
+            index_values=[{name: fn(val) for name, val in row.index_values.items()} for row in self._rows],
         )
 
     def __getitem__(self, index: Any) -> Any:
