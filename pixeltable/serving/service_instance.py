@@ -60,10 +60,12 @@ class ServiceInstanceRecord(pydantic.BaseModel):
     # the project files the instance is running, as its process fingerprinted them at start
     fingerprint: ProjectFingerprint
 
-    def to_cli_instance(self) -> types.ServiceInstance:
+    def to_cli_instance(self, catalog_uri: str = '') -> types.ServiceInstance:
         return types.ServiceInstance(
             name=self.service_name,
-            base_path=PxtPath(self.base_path),
+            # base_path is the directory within this instance's own catalog; qualified by the catalog it
+            # belongs to, it is the address the CLI verbs take
+            base_path=PxtPath('/'.join(part for part in (catalog_uri, self.base_path) if part != '')),
             endpoint=self.endpoint,
             state=self.state,
             error=self.error,

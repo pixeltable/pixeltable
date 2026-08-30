@@ -112,60 +112,65 @@ def service_update(
     return plan
 
 
-def service_prune(app_file: str, target: PxtPath) -> ServicePlan:
-    """Stop and forget the services at target that app_file does not declare.
-
-    A stopped service can be started again, so this is not destructive the way dropping a table is.
-
-    Returns the plan, with one drop operation per service stopped.
-    """
+def service_prune(app_file: str, target: PxtPath, *, dry_run: bool = False) -> ServicePlan:
+    """Stop and forget the services that aren't in app_file. Returns the plan, with one drop operation per service. """
     declared = services_by_name(load_app_module(app_file, subject='application file'), app_file)
     extras = sorted(
         i.service_name for i in get_manager(target).list(_base_path(target)) if i.service_name not in declared
     )
-    return ServicePlan(
-        app_file=app_file, target=target, extras=extras, ops=_forget_services(extras, target, delete=True)
+    ops = (
+        [ServiceChangeOp.delete_service(name, None, 'skipped') for name in extras]
+        if dry_run
+        else _forget_services(extras, target, delete=True)
     )
+    return ServicePlan(app_file=app_file, target=target, extras=extras, ops=ops)
 
 
 def service_stop(names: list[str]) -> list[ServiceChangeOp]:
     """Stop the named instances and forget them.
 
-    A name is either a Pixeltable uri or a bare service name, which we try to resolve to a local instance.
-    A name with no instance yields a 'skipped' operation rather than an error, so that stopping a set of services is
-    idempotent.
+    A unrecognized name yields a 'skipped' operation rather than an error, so that stopping a set of
+    services is idempotent.
     """
     ops: list[ServiceChangeOp] = []
-    for svc_path, name in _resolve_names(names):
-        ops += _forget_services([name], svc_path, delete=False)
+    for name in names:
+        found = _resolve_service_instances(name)
+        if len(found) == 0:
+            ops.append(ServiceChangeOp.delete_service(name, None, 'skipped'))
+            continue
+        if len(found) > 1:
+            addresses = ', '.join(sorted(i.record.to_cli_instance().address for i in found))
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} is ambiguous; it names {addresses}')
+        found[0].stop()
+        ops.append(ServiceChangeOp.delete_service(name, found[0].endpoint, 'applied'))
     return ops
 
 
-def _resolve_names(names: list[str]) -> list[tuple[PxtPath, str]]:
-    """Resolve each name to a (path, service name) tuple."""
-    out: list[tuple[PxtPath, str]] = []
-    local_instances: list[ServiceInstance] | None = None
-    for name in names:
-        path = catalog.Path.parse(name, allow_empty_path=True)
-        if path.len > 1 or not path.is_local:
-            out.append((PxtPath(str(path.parent)), path.name))
-            continue
-        # a bare name, which we try to resolve to a local instance
-        if local_instances is None:
-            local_instances = get_manager('').list('', recursive=True)
-        matches = [i for i in local_instances if i.service_name == name]
-        if len(matches) > 1:
-            addresses = ', '.join(sorted(f'{i.base_path}/{i.service_name}'.lstrip('/') for i in matches))
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} is ambiguous; it names {addresses}')
-        out.append((PxtPath(matches[0].base_path if len(matches) == 1 else ''), name))
-    return out
+def _resolve_service_instances(name_or_uri: str) -> list[service_instance.ServiceInstance]:
+    """Return the instances matching a service uri or name.
+
+    A uri matches exactly one instance; a bare service name matches every locally running instance with that same name.
+    """
+    path = catalog.Path.parse(name_or_uri, allow_empty_path=True)
+    if path.len > 1 or not path.is_local:
+        target = PxtPath(str(path.parent))
+        found = get_manager(target).get(path.name, _base_path(target))
+        return [] if found is None else [found]
+    return [i for i in get_manager('').list('', recursive=True) if i.service_name == name_or_uri]
 
 
 def service_list(target: PxtPath | None = None) -> list[ServiceInstance]:
-    """The instances running locally: those serving target and below it, or all of them if target is None."""
+    """The instances serving target and below it, or every local one when target is None.
+
+    A target holding no instance is taken to name one service, which is then the only one reported: a
+    service is inspected the way `describe` inspects one table.
+    """
     catalog_uri = PxtPath('') if target is None else target
     instances = get_manager(catalog_uri).list(_base_path(catalog_uri), recursive=True)
-    return [i.record.to_cli_instance() for i in sorted(instances, key=lambda i: (i.base_path, i.service_name))]
+    if len(instances) == 0 and target is not None:
+        instances = _resolve_service_instances(target)
+    uri = catalog.Path.parse(catalog_uri, allow_empty_path=True).uri_str
+    return [i.record.to_cli_instance(uri) for i in sorted(instances, key=lambda i: (i.base_path, i.service_name))]
 
 
 def service_check(app_file: str) -> CheckReport:

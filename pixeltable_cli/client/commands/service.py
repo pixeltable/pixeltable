@@ -411,34 +411,27 @@ def _run_foreground(
 
 
 def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_run: bool) -> None:
-    plan = _service_plan(app_file, target)
-    extras = plan.extras
-    if len(extras) == 0:
+    body = {'app_file': app_file, 'target': target}
+    planned = ServicePlan.model_validate(post_request('/api/service/prune', {**body, 'dry_run': True}))
+    if len(planned.ops) == 0:
         if as_json:
-            print(plan.model_copy(update={'ops': []}).model_dump_json(indent=2))
+            print(planned.model_dump_json(indent=2))
         else:
             print('nothing to prune')
         sys.exit(EXIT_IN_AGREEMENT)
 
     if dry_run:
-        _print_ops(
-            [ServiceChangeOp.delete_service(name, None, 'skipped') for name in extras],
-            as_json=as_json,
-            verb='would stop',
-        )
+        _print_ops(planned.ops, as_json=as_json, verb='would stop')
         sys.exit(EXIT_CHANGES_PENDING)
 
+    refused = [op.model_copy(update={'status': 'refused'}) for op in planned.ops]
     confirm_or_exit(
-        f'stop {len(extras)} service(s) the file does not declare?',
+        f'stop {len(planned.ops)} service(s)?',
         force,
         refused_exit_code=EXIT_REFUSED,
-        on_refusal=lambda: _print_ops(
-            [ServiceChangeOp.delete_service(name, None, 'refused') for name in extras],
-            as_json=as_json,
-            verb='would stop',
-        ),
+        on_refusal=lambda: _print_ops(refused, as_json=as_json, verb='would stop'),
     )
-    pruned = ServicePlan.model_validate(post_request('/api/service/prune', {'app_file': app_file, 'target': target}))
+    pruned = ServicePlan.model_validate(post_request('/api/service/prune', body))
     _print_ops(pruned.ops, as_json=as_json, verb='stopped')
 
 
@@ -449,22 +442,18 @@ def _stop(names: list[str], *, as_json: bool) -> None:
 
 def _list(target: str | None, *, as_json: bool) -> None:
     running = _running(target)
-    if target is not None and len(running) == 0:
-        # nothing is bound at that directory, so the argument names one service rather than a directory:
-        # a single service is inspected the way `describe` inspects one table
-        running = _matching(_running(), target)
     if as_json:
         print(json.dumps([d.model_dump(mode='json') for d in running], indent=2))
         return
     if len(running) == 0:
         print('no services running')
         return
-    width = max(len(_address(d)) for d in running)
+    width = max(len(d.address) for d in running)
     for d in running:
         pid_or_state = f'pid {d.pid}' if d.pid is not None else d.state
         # shown as the file it names: a catalog path never carries a .py suffix
         app_file = d.app_module.replace('.', '/') + '.py'
-        print(f'{_address(d):<{width}s}  {d.endpoint}  {pid_or_state}  {app_file}')
+        print(f'{d.address:<{width}s}  {d.endpoint}  {pid_or_state}  {app_file}')
         if d.error is not None:
             print(f'    {d.error}')
         for route in d.spec.routes:
@@ -478,17 +467,6 @@ def _list(target: str | None, *, as_json: bool) -> None:
 def _running(target: str | None = None) -> list[ServiceInstance]:
     params = {} if target is None else {'target': target}
     return [ServiceInstance.model_validate(d) for d in get_request('/api/service/list', params)]
-
-
-def _address(service: ServiceInstance) -> str:
-    """The service's name qualified by the directory it is bound to, as 'stop' accepts it."""
-    base_path = service.base_path
-    return service.name if base_path == '' else f'{base_path}/{service.name}'
-
-
-def _matching(running: list[ServiceInstance], name: str) -> list[ServiceInstance]:
-    """The services a name denotes: an address matches one, a bare name matches every target holding it."""
-    return [d for d in running if name in (_address(d), d.name)]
 
 
 def _print_plan(plan: ServicePlan, *, as_json: bool, applied: bool = False) -> None:

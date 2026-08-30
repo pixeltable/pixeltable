@@ -570,7 +570,7 @@ class ServiceInstance(pydantic.BaseModel):
     """A service instance, as `pxt service list` shows it."""
 
     name: str
-    base_path: PxtPath  # the catalog directory the service's models are bound to
+    base_path: PxtPath  # the catalog directory the service's models are bound to, database uri included
     endpoint: str
     state: str
     error: str | None  # why a FAILED instance failed, when its manager reports a reason
@@ -579,6 +579,12 @@ class ServiceInstance(pydantic.BaseModel):
 
     pid: int | None  # the process serving the instance; set only for an instance running on this machine
     process_started_at: float | None  # creation time of pid, None where the platform does not report one
+
+    @pydantic.computed_field  # type: ignore[prop-decorator]
+    @property
+    def address(self) -> str:
+        """The name qualified by the directory it is bound to, as the other verbs take it."""
+        return self.name if self.base_path == '' else f'{self.base_path}/{self.name}'
 
 
 # Databases

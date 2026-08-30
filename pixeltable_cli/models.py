@@ -246,6 +246,7 @@ class ServiceDiffBody(BaseModel):
 class ServicePruneBody(BaseModel):
     app_file: str  # absolute filesystem path to the application file on the daemon host
     target: PxtPath
+    dry_run: bool = False
 
 
 class ServiceUpdateBody(BaseModel):

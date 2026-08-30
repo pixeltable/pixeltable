@@ -524,7 +524,7 @@ def service_update(req: Request) -> types.ServicePlan:
 @router.post('/api/service/prune')
 def service_prune(req: Request) -> types.ServicePlan:
     body = req.body(models.ServicePruneBody)
-    return service.service_prune(body.app_file, req.resolve_path(body.target))
+    return service.service_prune(body.app_file, req.resolve_path(body.target), dry_run=body.dry_run)
 
 
 @router.post('/api/service/stop')
