@@ -49,7 +49,7 @@ def _validate(conn: sql.Connection) -> None:
     if len(problems) > 0:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_SCHEMA,
-            'Pixeltable identifiers are now case-insensitive, and must be ASCII and not reserved, but this '
+            'Pixeltable identifiers are now case-insensitive, and must be alphanumeric and not reserved, but this '
             'database contains names that cannot be converted:\n'
             + '\n'.join(f'  - {p}' for p in problems)
             + '\nPlease resolve these with the previous Pixeltable version, then upgrade again.',
@@ -62,13 +62,13 @@ def _non_ascii_names(conn: sql.Connection) -> list[str]:
     for dir_id, dir_md in conn.execute(sql.select(Dir.id, Dir.md)):
         name = dir_md['name']
         if not name.isascii():
-            problems.append(f'directory {name!r} (id={dir_id}) contains non-ASCII characters')
+            problems.append(f'directory {name!r} (id={dir_id}) contains non-alphanumeric characters')
     for tbl_id, tbl_md in conn.execute(sql.select(Table.id, Table.md)):
         if not tbl_md['name'].isascii():
-            problems.append(f'table {tbl_md["name"]!r} (id={tbl_id}) contains non-ASCII characters')
+            problems.append(f'table {tbl_md["name"]!r} (id={tbl_id}) contains non-alphanumeric characters')
         for idx_md in tbl_md['index_md'].values():
             if not idx_md['name'].isascii():
-                problems.append(f'index {idx_md["name"]!r} of table id={tbl_id} contains non-ASCII characters')
+                problems.append(f'index {idx_md["name"]!r} of table id={tbl_id} contains non-alphanumeric characters')
     for tbl_id, schema_version, sv_md in conn.execute(
         sql.select(TableSchemaVersion.tbl_id, TableSchemaVersion.schema_version, TableSchemaVersion.md)
     ):
@@ -77,7 +77,7 @@ def _non_ascii_names(conn: sql.Connection) -> list[str]:
             if name is not None and not name.isascii():
                 problems.append(
                     f'column {name!r} of table id={tbl_id}, schema version {schema_version} '
-                    f'contains non-ASCII characters'
+                    f'contains non-alphanumeric characters'
                 )
     return problems
 

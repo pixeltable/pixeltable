@@ -347,7 +347,6 @@ class Column:
     @classmethod
     def validate_name(cls, name: str) -> None:
         """Check that a name is usable as a pixeltable column name"""
-        # the reserved names are Pixeltable identifiers, so they are matched against the folded name
         folded_name = fold_identifier(name)
         if is_system_column_name(folded_name) or is_python_keyword(folded_name):
             raise excs.RequestError(
