@@ -35,7 +35,7 @@ def _serve(
     if otel:
         instrument_app(app)
     # after the file has loaded, so the fingerprint names the files that are serving
-    report_instance_fingerprint(db_uri, service_name)
+    report_instance_fingerprint(db_uri, service_name, base_path)
 
     log_level = logging.getLogger('pixeltable').getEffectiveLevel()
     # log_config=None keeps uvicorn from replacing the logging Env has already set up

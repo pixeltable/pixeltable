@@ -252,6 +252,7 @@ class GetServiceInstanceRequest(BaseModel):
     org: str | None = None
     db: str
     service_name: str
+    base_path: str = ''
 
 
 class GetServiceInstanceResponse(BaseModel):
@@ -279,6 +280,7 @@ class UpdateServiceInstanceRequest(BaseModel):
     org: str | None = None
     db: str
     service_name: str
+    base_path: str = ''
     spec: ServiceSpec | None = None
     app_module: str | None = None
     otel: bool | None = None
@@ -306,6 +308,7 @@ class ReportServiceInstanceRequest(BaseModel):
     org: str | None = None
     db: str
     service_name: str
+    base_path: str = ''
     fingerprint: ProjectFingerprint
 
 
@@ -316,6 +319,7 @@ class StartServiceInstanceRequest(BaseModel):
     org: str | None = None
     db: str
     service_name: str
+    base_path: str = ''
 
 
 class StartServiceInstanceResponse(BaseModel):
@@ -329,6 +333,7 @@ class StopServiceInstanceRequest(BaseModel):
     org: str | None = None
     db: str
     service_name: str
+    base_path: str = ''
 
 
 class StopServiceInstanceResponse(BaseModel):
@@ -342,6 +347,7 @@ class DeleteServiceInstanceRequest(BaseModel):
     org: str | None = None
     db: str
     service_name: str
+    base_path: str = ''
 
 
 class DeleteServiceInstanceResponse(BaseModel):

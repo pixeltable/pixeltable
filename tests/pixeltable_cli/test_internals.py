@@ -1816,7 +1816,14 @@ class TestHostedDatabase:
             sent: list[Any]
 
             def __init__(self) -> None:
-                self.database = {'state': 'AVAILABLE', 'cpu': 0.5, 'memory_mb': 512, 'disk_gb': 10, 'workers': []}
+                self.database = {
+                    'state': 'AVAILABLE',
+                    'cpu': 0.5,
+                    'memory_mb': 512,
+                    'disk_gb': 10,
+                    'worker_count': 1,
+                    'workers': [],
+                }
                 self.secrets = {}
                 self.sent = []
 
@@ -1838,7 +1845,12 @@ class TestHostedDatabase:
                 elif op in ('build_image', 'set_project'):
                     pass
                 elif op == 'create_db':
-                    self.database = {'state': 'AVAILABLE', 'cpu': request.cpu, 'memory_mb': request.memory_mb}
+                    self.database = {
+                        'state': 'AVAILABLE',
+                        'cpu': request.cpu,
+                        'memory_mb': request.memory_mb,
+                        'worker_count': request.workers,
+                    }
                 elif op == 'update_db':
                     assert self.database is not None
                     for field in ('cpu', 'memory_mb', 'disk_gb'):

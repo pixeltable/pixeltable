@@ -38,6 +38,7 @@ from pixeltable.utils.project import (
     create_project_archive,
     loaded_fingerprint,
     project_fingerprint,
+    unpacked_digest,
 )
 from pixeltable_cli.types import DbChangeOp, DbPlan, DbTarget
 
@@ -80,9 +81,12 @@ class DatabaseState(pydantic.BaseModel):
 
     secret_keys: list[str] = pydantic.Field(default_factory=list)
 
-    # the pods serving the database, which is the observed worker count; DatabaseConfig.workers is the
-    # declared one. Named 'workers' on the wire.
+    # the pods serving the database, which is what they are doing rather than how many are configured.
+    # Named 'workers' on the wire.
     worker_status: list[dict[str, Any]] = pydantic.Field(default_factory=list, alias='workers')
+
+    # the worker count the database is configured with, which the pod list does not give: pods come and go
+    worker_count: int
 
     fingerprint: ProjectFingerprint | None = None
 
@@ -282,6 +286,14 @@ def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | No
             # filter='data': refuses a member naming a path outside the directory, and drops ownership bits
             tf.extractall(project_dir, members=members, filter='data')
 
+        unpacked = unpacked_digest(project_dir)
+        if unpacked != response.digest:
+            # what arrived is not what the control plane named, whatever it named
+            raise excs.Error(
+                excs.ErrorCode.INVALID_DATA_FORMAT,
+                f'{db_path.uri_str} served an archive holding project {unpacked}, not {response.digest}',
+            )
+
         if dest.exists():
             shutil.rmtree(dest)
         project_dir.rename(dest)
@@ -290,7 +302,7 @@ def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | No
     return response.digest
 
 
-def report_instance_fingerprint(db_uri: str, service_name: str) -> None:
+def report_instance_fingerprint(db_uri: str, service_name: str, base_path: str = '') -> None:
     """Tell the database at db_uri which of its project files the named service instance loaded."""
     db_path = _validated_db_uri(db_uri)
     config = _get_db_config(db_path)
@@ -299,6 +311,7 @@ def report_instance_fingerprint(db_uri: str, service_name: str) -> None:
             org=db_path.org,
             db=db_path.db,
             service_name=service_name,
+            base_path=base_path,
             fingerprint=loaded_fingerprint(_validated_project_root(), config),
         )
     )
@@ -480,15 +493,18 @@ def _compare_db(current: DatabaseState, config: DatabaseConfig, fingerprint: Pro
         ('cpu', config.cpu, current.cpu),
         ('memory_mb', config.memory_mb, current.memory_mb),
         ('disk_gb', config.disk_gb, current.disk_gb),
-        ('workers', config.workers, len(current.worker_status)),
+        ('workers', config.workers, current.worker_count),
     ):
         if config_value is None or config_value == current_value:
             continue
         ops.append(DbChangeOp.capacity(field, current_value, config_value))
 
-    for key in sorted(set(config.secrets or {}) - set(current.secret_keys)):
+    declared = config.secrets or {}
+    deployed = {} if current.fingerprint is None else current.fingerprint.secrets
+    rebound = {key for key in set(declared) & set(current.secret_keys) if declared[key] != deployed.get(key)}
+    for key in sorted((set(declared) - set(current.secret_keys)) | rebound):
         ops.append(DbChangeOp.secret(key, 'add'))
-    for key in sorted(set(current.secret_keys) - set(config.secrets or {})):
+    for key in sorted(set(current.secret_keys) - set(declared)):
         ops.append(DbChangeOp.secret(key, 'drop'))
 
     for field, config_value, current_value in (

@@ -382,21 +382,21 @@ def _run_foreground(
     import uvicorn
 
     from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
-    from pixeltable.utils.app_module import get_module_services, load_app_module
+    from pixeltable.utils.app_module import load_app_module, services_by_name
 
     if otel:
         # before the first Pixeltable operation, so that loading the file is traced too
         init_instrumentation()
     if service_name is None:
-        app, routers = get_module_services(load_app_module(app_file, subject='application file'), app_file)
-        if len(routers) > 1:
-            declared = ', '.join(sorted(routers))
+        services = services_by_name(load_app_module(app_file, subject='application file'), app_file)
+        if len(services) > 1:
+            declared = ', '.join(sorted(services))
             print(
-                f'pxt service run: {app_file} declares more than one FastAPIRouter: {declared}\nname the one to serve',
+                f'pxt service run: {app_file} declares more than one service: {declared}\nname the one to serve',
                 file=sys.stderr,
             )
             sys.exit(EXIT_ERROR)
-        service_name = next(iter(routers))
+        service_name = next(iter(services))
     app, _ = create_app(app_file, service_name, target)
     if otel:
         instrument_app(app)

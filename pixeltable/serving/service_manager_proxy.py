@@ -88,15 +88,23 @@ class ServiceManagerProxy(ServiceManagerBase):
             if (instance.spec, instance.record.app_module, instance.otel) != (spec, app_module, otel):
                 management_client.api_call(
                     UpdateServiceInstanceRequest(
-                        org=self._org, db=self._db, service_name=name, spec=spec, app_module=app_module, otel=otel
+                        org=self._org,
+                        db=self._db,
+                        service_name=name,
+                        base_path=base_path,
+                        spec=spec,
+                        app_module=app_module,
+                        otel=otel,
                     )
                 )
-                instance = self._settled(name, base_path)
+                instance = self._wait_for_state(name, base_path, ServiceInstanceState.AVAILABLE)
             if instance.state is ServiceInstanceState.AVAILABLE:
                 return instance
-            management_client.api_call(StartServiceInstanceRequest(org=self._org, db=self._db, service_name=name))
+            management_client.api_call(
+                StartServiceInstanceRequest(org=self._org, db=self._db, service_name=name, base_path=base_path)
+            )
 
-        started = self._settled(name, base_path)
+        started = self._wait_for_state(name, base_path, ServiceInstanceState.AVAILABLE)
         if started.state is not ServiceInstanceState.AVAILABLE:
             detail = '' if started.record.error is None else f': {started.record.error}'
             raise excs.Error(
@@ -106,22 +114,27 @@ class ServiceManagerProxy(ServiceManagerBase):
 
     def stop(self, instance: ServiceInstance) -> None:
         management_client.api_call(
-            StopServiceInstanceRequest(org=self._org, db=self._db, service_name=instance.service_name)
+            StopServiceInstanceRequest(
+                org=self._org, db=self._db, service_name=instance.service_name, base_path=instance.base_path
+            )
         )
-        self._settled(instance.service_name, instance.base_path)
+        self._wait_for_state(instance.service_name, instance.base_path, ServiceInstanceState.STOPPED)
 
     def delete(self, instance: ServiceInstance) -> None:
         management_client.api_call(
-            DeleteServiceInstanceRequest(org=self._org, db=self._db, service_name=instance.service_name)
+            DeleteServiceInstanceRequest(
+                org=self._org, db=self._db, service_name=instance.service_name, base_path=instance.base_path
+            )
         )
+        self._wait_for_deleted(instance.service_name, instance.base_path)
 
     def _serves(self, record: ServiceInstanceRecord, base_path: str, recursive: bool) -> bool:
         if record.base_path == base_path:
             return True
         return recursive and (base_path == '' or record.base_path.startswith(f'{base_path}/'))
 
-    def _settled(self, name: str, base_path: str) -> ServiceInstance:
-        """Poll the named instance until its state settles, and return it."""
+    def _wait_for_state(self, name: str, base_path: str, expected: ServiceInstanceState) -> ServiceInstance:
+        """Poll the named instance until it reaches expected or fails, and return it."""
         deadline = time.monotonic() + self._POLL_TIMEOUT
         while True:
             instance = self.get(name, base_path)
@@ -129,11 +142,23 @@ class ServiceManagerProxy(ServiceManagerBase):
                 raise excs.Error(
                     excs.ErrorCode.INTERNAL_ERROR, f'Service {name!r} is no longer in {self.catalog_uri.uri_str}'
                 )
-            if instance.state is not ServiceInstanceState.STARTING:
+            if instance.state in (expected, ServiceInstanceState.FAILED):
                 return instance
             if time.monotonic() >= deadline:
                 raise excs.Error(
                     excs.ErrorCode.INTERNAL_ERROR,
-                    f'Service {name!r} is still {instance.state.value} after {self._POLL_TIMEOUT:.0f}s',
+                    f'Service {name!r} is {instance.state.value} rather than {expected.value} '
+                    f'after {self._POLL_TIMEOUT:.0f}s',
+                )
+            time.sleep(self._POLL_INTERVAL)
+
+    def _wait_for_deleted(self, name: str, base_path: str) -> None:
+        """Poll the named instance until it's gone."""
+        deadline = time.monotonic() + self._POLL_TIMEOUT
+        while self.get(name, base_path) is not None:
+            if time.monotonic() >= deadline:
+                raise excs.Error(
+                    excs.ErrorCode.INTERNAL_ERROR,
+                    f'Service {name!r} is still in {self.catalog_uri.uri_str} after {self._POLL_TIMEOUT:.0f}s',
                 )
             time.sleep(self._POLL_INTERVAL)

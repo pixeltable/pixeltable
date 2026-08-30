@@ -309,6 +309,12 @@ def _changed_keys(now: dict[str, str], was: dict[str, str]) -> list[str]:
     return sorted({name for name in set(now) | set(was) if now.get(name) != was.get(name)})
 
 
+def unpacked_digest(project_dir: Path) -> str:
+    """The archive digest of every file under project_dir, as ProjectFingerprint.archive_digest() computes it."""
+    files = {p.relative_to(project_dir).as_posix(): _content_hash(p) for p in project_dir.rglob('*') if p.is_file()}
+    return _digest(files)
+
+
 def project_fingerprint(project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
     """Fingerprint every file an image built from project_root would hold.
 
