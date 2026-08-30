@@ -20,7 +20,7 @@ from tqdm import tqdm
 
 import pixeltable
 from pixeltable import exceptions as excs
-from pixeltable.config import DatabaseConfig
+from pixeltable.config import PROJECT_CONFIG_FILES, DatabaseConfig
 from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
@@ -136,7 +136,9 @@ def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Pa
         if include is not None:
             files |= _resolve_patterns(project_root, include)
 
-    files |= {project_root / name for name in LOCK_FILES if (project_root / name).is_file()}
+    # we always include the lockfile and project config files, both are needed by the pod
+    selected = (*LOCK_FILES, *PROJECT_CONFIG_FILES)
+    files |= {project_root / name for name in selected if (project_root / name).is_file()}
     return sorted(files)
 
 

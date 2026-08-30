@@ -96,6 +96,9 @@ class DatabaseState(pydantic.BaseModel):
     last_build_state: str | None = None
     last_build_error: str | None = None
 
+    # why the database is FAILED
+    failure_reason: str | None = None
+
 
 def db_diff(db_uri: str) -> DbPlan:
     """Diff the database at db_uri with the corresponding DatabaseConfig in the project configuration."""
@@ -176,9 +179,15 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
         raise
 
     settled = _await_db_settled(db_path)
+    if settled.state == 'FAILED':
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'{db_path.uri_str} is FAILED after the update: {settled.failure_reason or "no reason was reported"}',
+            provider='pixeltable_cloud',
+        )
     plan.state = settled.state
     plan.exists = True
-    plan.status = 'failed' if settled.state == 'FAILED' else 'applied'
+    plan.status = 'applied'
     # what the plan asked for has been applied; an operation no update carries out is what is left
     plan.resolution = 'unsupported' if any(op.severity == 'unsupported' for op in plan.ops) else 'up_to_date'
     return plan

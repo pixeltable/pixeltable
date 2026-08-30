@@ -46,6 +46,12 @@ class TestProject:
         # include_only replaces the selection, and the lockfile is selected whatever the patterns say
         assert self._names(project, DatabaseConfig(include_only=['app.py'])) == ['app.py', 'uv.lock']
 
+    def test_project_config_always_selected(self, project: pathlib.Path) -> None:
+        """A pod reads its database entry out of the archive, so no pattern can drop the file holding it."""
+        (project / 'pixeltable.toml').write_text("[[pixeltable.database]]\nname = 'pxt://acme:main'\n")
+        assert 'pixeltable.toml' in self._names(project, DatabaseConfig(include_only=['app.py']))
+        assert 'pixeltable.toml' in self._names(project, DatabaseConfig(exclude=['*.toml']))
+
     def test_include_only_with_include(self, project: pathlib.Path) -> None:
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='include_only'):
             _archive_files(project, DatabaseConfig(include_only=['app.py'], exclude=['*.log']))

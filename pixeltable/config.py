@@ -99,6 +99,9 @@ _UNSPECIFIED = _Unspecified()
 PROJECT_CONFIG_FILE = 'pixeltable.toml'
 _PYPROJECT = 'pyproject.toml'  # with a [tool.pixeltable] section
 
+# both of them, for a caller that handles whichever the project holds
+PROJECT_CONFIG_FILES = (PROJECT_CONFIG_FILE, _PYPROJECT)
+
 
 def _find_project_root(start: Path) -> Path | None:
     """Find the nearest directory holding one of the recognized project config files."""
