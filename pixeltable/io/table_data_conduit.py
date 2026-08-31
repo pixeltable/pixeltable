@@ -785,11 +785,12 @@ class PydanticTableDataConduit(TableDataConduit):
                 # mode='python' (the default) keeps datetimes/dates as native objects and renders nested models
                 # as dicts, so that coercing each cell below yields the same values as the equivalent dict input
                 # (e.g. naive timestamps get localized to the session time zone, rather than left as ISO strings).
-                raw_row = row.model_dump()
+                dumped_row = row.model_dump()
             except pydantic_core.PydanticSerializationError as e:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Row {i}: error serializing pydantic model:\n{e}'
                 ) from e
+            raw_row = fold_mapping_keys(dumped_row)
             # explicitly check that all required columns are present and non-None in the rows,
             # because we ignore nullability when validating the pydantic model
             for col_name in sorted_reqd_cols:
@@ -829,7 +830,8 @@ class PydanticTableDataConduit(TableDataConduit):
         """
         assert isinstance(model, type) and issubclass(model, pydantic.BaseModel)
 
-        model_field_names = set(model.model_fields.keys())
+        model_fields = fold_mapping_keys(model.model_fields)
+        model_field_names = set(model_fields.keys())
 
         missing_required = self.reqd_col_names - model_field_names
         if missing_required:
@@ -857,7 +859,7 @@ class PydanticTableDataConduit(TableDataConduit):
             )
         for field_name in sorted(common_fields):
             pxt_col_type = self.pxt_schema[field_name]
-            model_type = model.model_fields[field_name].annotation
+            model_type = model_fields[field_name].annotation
 
             # we ignore nullability: we want to accept optional model fields for required table columns, as long as
             # the model instances provide a non-null value

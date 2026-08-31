@@ -4480,6 +4480,14 @@ class TestTable:
         t2.alter_column('NUM', type_=pxt.Int | None)
         validate_update_status(t2.insert([{'num': None}]), 1)
 
+        # a pydantic model's field names are matched like a dict row's keys
+        class Row(pydantic.BaseModel):
+            MYCOL: int
+            other: str
+
+        validate_update_status(t.insert([Row(MYCOL=20, other='d')]), 1)
+        assert t.where(t.OTHER == 'd').collect()['mycol'] == [20]
+
     def test_case_insensitive_column_name_resolution(self, db_root: DatabaseRoot) -> None:
         """Names that fold onto each other, or onto a reserved name, are rejected."""
         p = db_root.make_catalog_path
@@ -4523,6 +4531,13 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
             t.add_btree_index('c', idx_name='Class')
         assert 'c' in t.columns()
+
+        class AmbiguousRow(pydantic.BaseModel):
+            C: int
+            c: int
+
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='Column names are case-insensitive'):
+            t.insert([AmbiguousRow(C=1, c=2)])
 
     @pytest.mark.db_roots('local', reason="Operational table feature, doesn't need to run with proxy")
     def test_unsupported_operational_tbl_ops(self, uses_db: None) -> None:
