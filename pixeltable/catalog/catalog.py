@@ -1181,8 +1181,8 @@ class Catalog(CatalogBase):
         rowcount = conn.execute(reset_tbl_state_stmt).rowcount
         if rowcount == 0 and not isinstance(op, DeleteTableMdOp):
             _logger.info(
-                f'Finalize pending ops({tbl_id}): no Table rows matched. Another process may have deleted the '
-                'table concurrently.'
+                f'Finalize pending ops({tbl_id}): no Table rows matched. Another process may have deleted the table '
+                'concurrently.'
             )
 
         return True

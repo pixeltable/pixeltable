@@ -308,7 +308,8 @@ Spans are written synchronously, so the file is complete even if the process cra
 - Script/notebook: run with `OTEL_SPAN_DUMP=/tmp/spans.jsonl` set (the process must call
   `pxt_otel.init()`), or pass `pxt_otel.init(span_dump='/tmp/spans.jsonl')` directly. Requires
   `pip install 'pixeltable[otel]'`; no OTLP endpoint needed.
-- `pxt serve ... --span-dump /tmp/spans.jsonl`
+- Services: run `pxt service run|update ... --otel` with `OTEL_SPAN_DUMP=/tmp/spans.jsonl` set (the
+  service worker calls `pxt_otel.init()`, which resolves the variable).
 - Set `OTEL_SPAN_LEVEL=debug` (or `trace`) for per-row and per-UDF spans; the default `info` emits
   operation-level spans only.
 - To also capture every SQL statement (with `db.statement`), call
