@@ -12,8 +12,8 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from typing import Callable
 
-import numpy as np
 import pytest
 
 import pixeltable as pxt
@@ -21,20 +21,6 @@ from pixeltable_cli.client.utils import display_path
 
 from ..utils import DatabaseRoot, get_image_files
 from .conftest import PxtRunner
-
-
-@pxt.udf
-def _fail_on_zero(x: int) -> int:
-    """Module-level UDF: raises for k=0 so we can populate a stored errortype column."""
-    if x == 0:
-        raise ValueError('fail')
-    return x
-
-
-@pxt.udf
-def _trivial_embed(s: str) -> pxt.Array[(8,), np.float32]:
-    """Module-level embedder for embedding-index tests: deterministic, no model download."""
-    return np.zeros(8, dtype=np.float32)
 
 
 @pytest.mark.db_roots('local', reason='reports daemon liveness/version; not catalog-specific')
@@ -444,14 +430,17 @@ class TestIdxs:
         else:
             assert p('cli_idx/t') in {e['table'] for e in cli('idxs', p(''), '--json').json}
 
-    def test_embedding_filter(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    def test_embedding_filter(self, cli: PxtRunner, db_root: DatabaseRoot, apps: Callable[[str], str]) -> None:
         """--embedding filters to embedding indexes only; a table with both a btree-style
         index and an embedding index reports one entry each, then only the embedding under
         --embedding."""
+        apps('udfs.py')  # the import below resolves only once the fixture has copied the corpus
+        from apps.udfs import trivial_embed
+
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_idx_emb'), if_exists='ignore')
         t = pxt.create_table(p('cli_idx_emb/t'), {'s': pxt.String | None}, if_exists='replace')
-        t.add_embedding_index('s', idx_name='emb_idx', string_embed=_trivial_embed)
+        t.add_embedding_index('s', idx_name='emb_idx', string_embed=trivial_embed)
 
         all_entries = cli('idxs', p('cli_idx_emb/t'), '--json').json
         emb_only = cli('idxs', p('cli_idx_emb/t'), '--embedding', '--json').json
@@ -794,8 +783,11 @@ class TestConfig:
 class TestErrors:
     """The `cli errors` command itself."""
 
-    def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot, apps: Callable[[str], str]) -> None:
         """Populated + empty cases, JSON and text."""
+        apps('udfs.py')  # the import below resolves only once the fixture has copied the corpus
+        from apps.udfs import fail_on_zero
+
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_errs'), if_exists='ignore')
 
@@ -808,8 +800,8 @@ class TestErrors:
 
         # Computed column that raises for k=0: row 0 shows up in the errors listing
         t = pxt.create_table(p('cli_errs/bad'), {'k': pxt.Int}, primary_key='k', if_exists='replace')
-        t.add_computed_column(b=_fail_on_zero(t.k), on_error='ignore')
-        t.add_computed_column(c=_fail_on_zero(t.k), on_error='ignore')
+        t.add_computed_column(b=fail_on_zero(t.k), on_error='ignore')
+        t.add_computed_column(c=fail_on_zero(t.k), on_error='ignore')
         t.insert([{'k': 0}, {'k': 1}], on_error='ignore')
         text = cli('errors', p('cli_errs/bad')).stdout
         assert 'k: 0' in text

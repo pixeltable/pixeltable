@@ -131,6 +131,17 @@ class ServiceChangeOp(ChangeOp):
         )
 
     @classmethod
+    def project_unreported(cls) -> ServiceChangeOp:
+        return cls(
+            target='project',
+            name='project',
+            op='alter',
+            severity='additive',
+            description='the service will restart to report the project it is running',
+            requires_restart=True,
+        )
+
+    @classmethod
     def db_not_updated(cls, command: str) -> ServiceChangeOp:
         """The operation for a database `pxt db update` has not run for."""
         return cls(
@@ -251,40 +262,6 @@ class DbChangeOp(ChangeOp):
     details: dict[str, str] = pydantic.Field(default_factory=dict)
 
     @classmethod
-    def image_moved(cls, changes: list[str]) -> DbChangeOp:
-        """The operation for an environment that differs from the one the current image holds.
-
-        changes are the causes, from ProjectFingerprint.changes().
-        """
-        return cls(
-            target='image',
-            name='image',
-            op='alter',
-            # the image is replaced, not removed: what the database serves is unchanged until a pod restarts
-            severity='additive',
-            description=f'the image will be rebuilt: {_summary(changes)}',
-            details={'changes': '; '.join(changes)},
-            requires_restart=True,
-        )
-
-    @classmethod
-    def archive_moved(cls, changes: list[str]) -> DbChangeOp:
-        """The operation for sources the database's pods are not running.
-
-        changes are the causes, from ProjectFingerprint.changes().
-        """
-        return cls(
-            target='archive',
-            name='project',
-            op='alter',
-            # what the pods serve is unchanged; they restart to run the new sources
-            severity='additive',
-            description=f'the project files will be uploaded: {_summary(changes)}',
-            details={'changes': '; '.join(changes)},
-            requires_restart=True,
-        )
-
-    @classmethod
     def capacity(cls, field: str, current: float | int | None, declared: float | int) -> DbChangeOp:
         was = 'unreported' if current is None else str(current)
         return cls(
@@ -326,26 +303,44 @@ class DbChangeOp(ChangeOp):
         )
 
     @classmethod
-    def build_image(cls) -> DbChangeOp:
+    def build_image(cls, changes: list[str] | None = None) -> DbChangeOp:
         """The operation for an image build the caller asked for rather than one a difference calls for."""
+        description: str
+        details: str
+        if changes is not None:
+            description = f'the image will be rebuilt: {_summary(changes)}',
+            details = {'changes': '; '.join(changes)},
+        else:
+            description = 'the image will be rebuilt from the project environment'
+            details = {}
         return cls(
             target='image',
             name='image',
             op='alter',
             severity='additive',
-            description="the image will be rebuilt from the project's environment",
+            description=description,
+            details=details,
             requires_restart=True,
         )
 
     @classmethod
-    def upload_archive(cls) -> DbChangeOp:
+    def upload_archive(cls, changes: list[str] | None = None) -> DbChangeOp:
         """The operation for uploading the project the caller named rather than one a difference calls for."""
+        description: str
+        details: str
+        if changes is not None:
+            description = f'the project files will be uploaded: {_summary(changes)}',
+            details = {'changes': '; '.join(changes)},
+        else:
+            description = 'the project will be uploaded'
+            details = {}
         return cls(
             target='archive',
             name='project',
             op='alter',
             severity='additive',
-            description='the project files will be uploaded',
+            description=description,
+            details=details,
             requires_restart=True,
         )
 

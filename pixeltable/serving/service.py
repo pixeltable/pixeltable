@@ -280,10 +280,15 @@ def _service_diff(
             )
         )
     elif len(ops) == 0 and running is not None:
-        stale = app_info.fingerprint.compare(running.record.fingerprint)
-        if len(stale) > 0:
-            # the routes agree, but some archive files changed
-            ops.append(ServiceChangeOp.project_moved(app_info.fingerprint.changes(running.record.fingerprint, stale)))
+        if running.record.fingerprint is None:
+            ops.append(ServiceChangeOp.project_unreported())
+        else:
+            stale = app_info.fingerprint.compare(running.record.fingerprint)
+            if len(stale) > 0:
+                # the routes agree, but some archive files changed
+                ops.append(
+                    ServiceChangeOp.project_moved(app_info.fingerprint.changes(running.record.fingerprint, stale))
+                )
 
     if app_info.model_mismatch_reason is not None:
         command = f'pxt schema update {app_info.app_file}' + ('' if target == '' else f' {target}')

@@ -57,8 +57,9 @@ class ServiceInstanceRecord(pydantic.BaseModel):
     # creation time of pid, None where the platform does not report one
     process_started_at: float | None = None
 
-    # the project files the instance is running, as its process fingerprinted them at start
-    fingerprint: ProjectFingerprint
+    # the project files the instance is running, as its process fingerprinted them at start; None until
+    # the instance's process reports them
+    fingerprint: ProjectFingerprint | None = None
 
     def to_cli_instance(self, catalog_uri: str = '') -> types.ServiceInstance:
         return types.ServiceInstance(

@@ -37,6 +37,7 @@ from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.process import is_pid, pid_alive
 
 from . import proxy_dispatch
+from .db import unpack_project_archive
 from .proxy_protocol import decode_body, encode_body
 
 if TYPE_CHECKING:
@@ -386,6 +387,21 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='pixeltable.service.proxy_daemon')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--project-root', type=Path, default=None)
+    parser.add_argument('--db', help='pxt://org:db')
+    parser.add_argument('--project-dir', type=Path, default=None, help='unpack that database project here')
     parsed = parser.parse_args()
-    Config.init(reinit=True, project_root=parsed.project_root)
+    project_root = parsed.project_root
+    if parsed.db is not None:
+        if parsed.project_dir is None:
+            parser.error('--db requires --project-dir')
+        try:
+            unpack_project_archive(parsed.db, parsed.project_dir)
+            project_root = parsed.project_dir
+        except excs.ExternalServiceError as exc:
+            if exc.provider_http_status_code != 404:
+                raise
+            # a database exists before `pxt db update` gives it a project: serve the catalog without one,
+            # and a request that needs a udf from it says so
+            logging.getLogger('pixeltable').warning('%s has no project; udfs it declares cannot be resolved', parsed.db)
+    Config.init(reinit=True, project_root=project_root)
     _serve(test_mode=parsed.test)

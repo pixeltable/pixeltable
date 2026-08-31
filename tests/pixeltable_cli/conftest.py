@@ -39,6 +39,9 @@ class PxtResult:
 
     @property
     def json(self) -> Any:
+        if self.stdout.strip() == '':
+            # a command that failed wrote its reason to stderr, and parsing '' would discard it
+            raise AssertionError(f'pxt produced no output (rc={self.returncode}): {self.stderr.strip()}')
         return json.loads(self.stdout)
 
 

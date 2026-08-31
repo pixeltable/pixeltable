@@ -124,13 +124,6 @@ class StopDbRequest(BaseModel):
 
 
 class BuildImageRequest(BaseModel):
-    """Build the image the database's pods run on.
-
-    The image holds the environment and no project code, so image_digest identifies it and any database
-    declaring that environment can run it. The build reads the lockfile out of the archive project_key
-    names, and nothing else out of it.
-    """
-
     operation_type: Literal[ManagementOperationType.BUILD_IMAGE] = ManagementOperationType.BUILD_IMAGE
     org: str | None = None
     db: str
@@ -153,6 +146,9 @@ class SetProjectRequest(BaseModel):
     org: str | None = None
     db: str
     project_key: str
+    # what the archive holds and the environment it runs in; GET_DB reports it back, and a diff compares
+    # the project here against it
+    fingerprint: ProjectFingerprint
 
 
 class GetProjectRequest(BaseModel):

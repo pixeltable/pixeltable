@@ -328,11 +328,12 @@ def report_instance_fingerprint(db_uri: str, service_name: str, base_path: str =
 
 def _publish_artifacts(config: DatabaseConfig, db_path: catalog.Path, with_image: bool) -> None:
     """Store the project's archive, build the image from it when with_image, and point the pods at it."""
+    fingerprint = project_fingerprint(_validated_project_root(), config)
     # both artifacts come from one archive, so it is stored once whichever of the two moved
     key = _upload_project_archive(config, db_path)
     if with_image:
-        _build_image(config, db_path, key)
-    _set_project(db_path, key)
+        _build_image(db_path, key, fingerprint)
+    _set_project(db_path, key, fingerprint)
 
 
 def _capacity_settings(config: DatabaseConfig) -> dict[str, float | int]:
@@ -351,9 +352,7 @@ def _get_target_ops(plan: DbPlan, target: DbTarget) -> list[DbChangeOp]:
     return [op for op in plan.ops if op.target == target]
 
 
-def _build_image(config: DatabaseConfig, db_path: catalog.Path, project_key: str) -> None:
-    project_root = _validated_project_root()
-    fingerprint = project_fingerprint(project_root, config)
+def _build_image(db_path: catalog.Path, project_key: str, fingerprint: ProjectFingerprint) -> None:
     management_client.api_call(
         BuildImageRequest(
             org=db_path.org,
@@ -376,9 +375,11 @@ def _build_image(config: DatabaseConfig, db_path: catalog.Path, project_key: str
         )
 
 
-def _set_project(db_path: catalog.Path, project_key: str) -> None:
+def _set_project(db_path: catalog.Path, project_key: str, fingerprint: ProjectFingerprint) -> None:
     """Point the database's pods at the stored archive, and wait for them to come back on it."""
-    management_client.api_call(SetProjectRequest(org=db_path.org, db=db_path.db, project_key=project_key))
+    management_client.api_call(
+        SetProjectRequest(org=db_path.org, db=db_path.db, project_key=project_key, fingerprint=fingerprint)
+    )
     current = _await_db_settled(db_path)
     if current.state == 'FAILED':
         raise excs.ExternalServiceError(
@@ -496,9 +497,9 @@ def _compare_db(current: DatabaseState, config: DatabaseConfig, fingerprint: Pro
     else:
         moved = fingerprint.compare(current.fingerprint)
         if ProjectPart.IMAGE in moved:
-            ops.append(DbChangeOp.image_moved(fingerprint.changes(current.fingerprint, {ProjectPart.IMAGE})))
+            ops.append(DbChangeOp.build_image(fingerprint.changes(current.fingerprint, {ProjectPart.IMAGE})))
         if ProjectPart.ARCHIVE in moved:
-            ops.append(DbChangeOp.archive_moved(fingerprint.changes(current.fingerprint, {ProjectPart.ARCHIVE})))
+            ops.append(DbChangeOp.upload_archive(fingerprint.changes(current.fingerprint, {ProjectPart.ARCHIVE})))
 
     for field, config_value, current_value in (
         ('cpu', config.cpu, current.cpu),
