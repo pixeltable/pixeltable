@@ -65,8 +65,6 @@ pxt cd ..                          # up one level
 pxt cd                             # clear it
 ```
 
-Path components are case-insensitive: `pxt ls MyDir` and `pxt ls mydir` list the same directory, and `pxt ls` prints the lower-cased name. See [Identifiers and Naming](/platform/identifiers).
-
 Absolute paths ignore the working directory: a leading `/` (e.g. `pxt ls /other_dir`) resolves from the catalog root, and a `pxt://org:db/...` URI addresses a hosted catalog. `.` and `..` work in any path and resolve against the working directory; `..` at the catalog root keeps the root.
 
 The working directory is scoped to the **invoking terminal**, not the daemon globally -- it is keyed by the shell's session, sent with every command. So separate terminals have independent working directories, and, crucially, it does **not** leak into subprocesses or agents you launch: a spawned process runs under its own session with no working directory, so its `pxt` commands resolve relative paths from the catalog root regardless of what you set interactively.
