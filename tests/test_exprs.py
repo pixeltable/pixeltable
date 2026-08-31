@@ -18,7 +18,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import exprs, functions as pxtf
+from pixeltable import catalog, exprs, functions as pxtf
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.functions.video import legacy_frame_iterator
@@ -2061,6 +2061,12 @@ class TestExprs:
         assert res['exact'] == [1]
         assert res['lowered'] == [2]
         assert res['uppered'] == [None]
+
+        t.insert([{'jsoncol': {'café': 1}}])
+        res = t.select(t.JsonCol['café']).collect()
+        (name,) = res.schema.keys()
+        assert catalog.is_valid_identifier(name)
+        assert res[name] == [None, 1]
 
 
 @pxt.udf
