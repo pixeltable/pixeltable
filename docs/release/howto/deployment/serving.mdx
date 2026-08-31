@@ -45,36 +45,7 @@ uvicorn.run(app, host='0.0.0.0', port=8000)
 
 `@pxt.query` evaluates the function body at decoration time. Apply the application file with `pxt schema update` before defining queries that reference those tables. Keep `@router.post()` for multi-table operations, conditional logic, or a custom response shape. `FastAPIRouter` extends FastAPI's `APIRouter`.
 
-### Your own FastAPI app, run by `pxt service`
-
-The application file may hold a `fastapi.FastAPI` object. `pxt service` then serves that app: one service, named after the module. Models bind at `TARGET` before it starts, so a handler can call `Notes.insert(...)`.
-
-```python
-import fastapi
-import pixeltable as pxt
-
-TableModel = pxt.model_base()
-
-
-class Notes(TableModel, name='notes'):
-    note_id = pxt.Column(type=pxt.Int, primary_key=True)
-    text: pxt.String
-
-
-app = fastapi.FastAPI()
-
-
-@app.post('/notes')
-def add_note(note_id: int, text: str) -> dict[str, int]:
-    return {'rows': Notes.insert([{'note_id': note_id, 'text': text}]).num_rows}
-```
-
-```bash
-pxt schema update notes_app.py my_dir
-pxt service update notes_app.py my_dir
-```
-
-Every `FastAPIRouter` in that file must be on `app` (`include_router`). A router left out is an error. Included routers are diffed by their declarations. Paths the app serves itself are diffed as path strings.
+`pxt service` serves `FastAPIRouter` instances. A `fastapi.FastAPI` object in the application file is rejected; run that app with uvicorn after `pxt schema update`.
 
 ## Compute without inserting
 
