@@ -54,15 +54,25 @@ def _run_isolated(fn: Callable[[], None], env_overrides: dict[str, str], tmp_hom
         pool.submit(fn).result()
 
 
+# Core pixeltable must not depend on opentelemetry: it imports and runs with the extra absent, and nothing
+# in core imports it at module load. The serving worker configures tracing in its own process before it
+# serves, so it imports the instrumentation lazily, behind require_package().
+_LAZY_OTEL_IMPORTS_IN_CORE: frozenset[str] = frozenset({'serving/_app.py'})
+
+
 def test_no_otel_imports_in_core() -> None:
-    # core pixeltable must never import opentelemetry; instrumentation lives only in this package
     pkg_root = Path(pxt.__file__).parent
-    offenders = [
-        str(path)
-        for path in pkg_root.rglob('*.py')
-        if re.search(r'^\s*(import opentelemetry|from opentelemetry)', path.read_text(), flags=re.MULTILINE)
-    ]
-    assert offenders == []
+    module_scope: list[str] = []
+    lazy: set[str] = set()
+    for path in pkg_root.rglob('*.py'):
+        source = path.read_text()
+        rel = path.relative_to(pkg_root).as_posix()
+        if re.search(r'^(import opentelemetry|from opentelemetry)', source, flags=re.MULTILINE):
+            module_scope.append(rel)
+        if re.search(r'^\s+(import opentelemetry|from opentelemetry)', source, flags=re.MULTILINE):
+            lazy.add(rel)
+    assert module_scope == []
+    assert lazy == _LAZY_OTEL_IMPORTS_IN_CORE
 
 
 def check_builds_tracer_provider() -> None:

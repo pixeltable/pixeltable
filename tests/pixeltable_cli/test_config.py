@@ -8,18 +8,17 @@ import os
 import pathlib
 import subprocess
 import time
-from collections.abc import Callable, Iterator
 from textwrap import dedent
-from typing import Any
+from typing import Any, Iterator
 
 import pytest
 
 import pixeltable as pxt
 
-from ..utils import skip_test_if_not_installed
+from ..utils import DatabaseRoot, skip_test_if_not_installed
 from .conftest import PxtRunner
 
-pytestmark = pytest.mark.local('the daemon under test is the one serving the in-process catalog')
+pytestmark = pytest.mark.db_roots('local', reason='the daemon under test is the one serving the in-process catalog')
 
 # values no daemon in this module was started with, and that no output may ever contain
 _A_KEY = 'sk-pxt-test-aaaa'
@@ -65,9 +64,9 @@ def make_table(target: str) -> None:
 
 
 class TestConfig:
-    def test_supplying_a_key_the_daemon_lacks(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
+    def test_supplying_a_key_the_daemon_lacks(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """A shell binds a credential the daemon has not got: work is refused, inspection is not, a restart fixes it."""
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         make_table(target)
         with_key = {'OPENAI_API_KEY': _A_KEY}
         without_key: dict[str, str | None] = {'OPENAI_API_KEY': None}
@@ -98,9 +97,9 @@ class TestConfig:
         cli('daemon', 'restart', env_overrides=with_key)
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=with_key).stdout
 
-    def test_rotating_a_key(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
+    def test_rotating_a_key(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """A shell binds a credential to a new value: refused until the daemon is restarted with it."""
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         make_table(target)
         first = {'OPENAI_API_KEY': _A_KEY}
         second = {'OPENAI_API_KEY': _ANOTHER_KEY}
@@ -117,9 +116,9 @@ class TestConfig:
         cli('daemon', 'restart', env_overrides=second)
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=second).stdout
 
-    def test_a_setting_that_is_not_a_credential(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
+    def test_a_setting_that_is_not_a_credential(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """Any env-settable setting counts, not just credentials: an endpoint decides what the work talks to."""
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         make_table(target)
         other_endpoint = {'OPENAI_BASE_URL': 'https://example.invalid/v1'}
         cli('daemon', 'restart', env_overrides={'OPENAI_BASE_URL': None})
@@ -130,11 +129,9 @@ class TestConfig:
         cli('daemon', 'restart', env_overrides=other_endpoint)
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=other_endpoint).stdout
 
-    def test_instance_settings_ignore_the_environment(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str]
-    ) -> None:
+    def test_instance_settings_ignore_the_environment(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """A setting every process using the instance shares is read from the file, and says so when exported."""
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         make_table(target)
         exported = {'PIXELTABLE_FILE_CACHE_SIZE_G': '1'}
 
@@ -147,9 +144,9 @@ class TestConfig:
         assert 'PIXELTABLE_FILE_CACHE_SIZE_G' not in entries['env_var_names']
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=exported).stdout
 
-    def test_no_command_prints_a_credential(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
+    def test_no_command_prints_a_credential(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """A credential the caller supplies never appears in output, whether the daemon agrees with it or not."""
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         make_table(target)
         with_key = {'OPENAI_API_KEY': _A_KEY}
 
@@ -177,20 +174,18 @@ class TestConfig:
         resp = cli('config', '--json', env_overrides=supplied).json
         entries = {(e['section'], e['key']): e for e in resp['entries']}
 
-        secret = entries['pixeltable.clouddb.secrets', 'pxt_test_key']
+        secret = entries['pixeltable.database.secrets', 'pxt_test_key']
         assert (secret['value'], secret['source']) == ('<redacted>', 'env')
-        var = entries['pixeltable.clouddb.vars', 'pxt_test_dest']
+        var = entries['pixeltable.database.vars', 'pxt_test_dest']
         assert (var['value'], var['source']) == ('s3://bucket/prefix', 'env')
         assert 'PIXELTABLE_SECRET_PXT_TEST_KEY' in resp['env_var_names']
 
-    def test_config_var_supplied_by_the_environment(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
-    ) -> None:
+    def test_config_var_from_env(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """A config var a schema declares is bound from the environment, with no entry in any config file."""
-        target = make_catalog_path('cfg')
-        media_dir = tmp_path / 'media'
+        target = db_root.make_catalog_path('cfg')
+        media_dir = project_dir / 'media'
         media_dir.mkdir()
-        schema_file = tmp_path / 'app.py'
+        schema_file = project_dir / 'app.py'
         schema_file.write_text(
             dedent(
                 """
@@ -221,13 +216,66 @@ class TestConfig:
         assert md['columns']['thumb']['destination'] == '$pxt_test_dest'
         entries = cli('config', '--json', env_overrides=bound).json['entries']
         dest = next(e for e in entries if e['key'] == 'pxt_test_dest')
-        assert (dest['section'], dest['source']) == ('pixeltable.clouddb.vars', 'env')
+        assert (dest['section'], dest['source']) == ('pixeltable.database.vars', 'env')
+
+    def test_config_var_from_project_config(
+        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
+    ) -> None:
+        """A var and a secret bound in the project's pixeltable.toml reach the daemon."""
+        target = db_root.make_catalog_path('cfg')
+        media_dir = project_dir / 'media'
+        media_dir.mkdir()
+        schema_file = project_dir / 'app.py'
+        schema_file.write_text(
+            dedent(
+                """
+                from __future__ import annotations
+
+                import pixeltable as pxt
+
+                MEDIA_DEST = pxt.ConfigVar('pxt_proj_dest', pxt.URI)
+
+                TableModel = pxt.model_base()
+
+
+                class Clips(TableModel, name='clips'):
+                    img: pxt.Image | None
+                    thumb = pxt.Column(value=img.rotate(90), destination=MEDIA_DEST)
+                """
+            ),
+            encoding='utf-8',
+        )
+
+        # the project binds the var, with nothing in the environment and nothing in the home config
+        project_config = project_dir.parent / 'pixeltable.toml'
+        original = project_config.read_text(encoding='utf-8')
+        project_config.write_text(
+            f"{original}\n[[pixeltable.database]]\nvars.pxt_proj_dest = '{media_dir.as_posix()}'\n"
+            "secrets.pxt_proj_key = 'from-the-project'\n",
+            encoding='utf-8',
+        )
+        try:
+            cli('daemon', 'restart')  # the daemon read the project config when it started
+            cli('schema', 'update', str(schema_file), target)
+            assert cli('schema', 'diff', str(schema_file), target).returncode == 0
+
+            # the column records the variable, and pxt config names the project file as its source
+            md = pxt.get_table(f'{target}/clips').get_metadata()
+            assert md['columns']['thumb']['destination'] == '$pxt_proj_dest'
+            entries = cli('config', '--json').json['entries']
+            var = next(e for e in entries if e['key'] == 'pxt_proj_dest')
+            assert (var['section'], var['source']) == ('pixeltable.database.vars', str(project_config))
+            secret = next(e for e in entries if e['key'] == 'pxt_proj_key')
+            assert (secret['section'], secret['source']) == ('pixeltable.database.secrets', str(project_config))
+        finally:
+            project_config.write_text(original, encoding='utf-8')
+            cli('daemon', 'restart')
 
     def test_changing_a_value_in_the_config_file(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, cli: PxtRunner, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
         """Editing a credential in the config file of a running daemon is refused until it is restarted."""
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         make_table(target)
 
         # the daemon reads the file PIXELTABLE_CONFIG names, and picks up a change of that name by itself
@@ -239,7 +287,7 @@ class TestConfig:
 
         time.sleep(0.01)  # the file stamp is (mtime, size), so a rewrite needs a distinct mtime
         config_file.write_text(
-            f'[pixeltable]\nfile_cache_size_g = 1.0\n\n[pixeltable.clouddb.secrets]\npxt_test_key = "{_A_KEY}"\n',
+            f'[pixeltable]\nfile_cache_size_g = 1.0\n\n[pixeltable.database.secrets]\npxt_test_key = "{_A_KEY}"\n',
             encoding='utf-8',
         )
 
@@ -254,15 +302,15 @@ class TestConfig:
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=own_config).stdout
         entries = cli('config', '--json', env_overrides=own_config).json['entries']
         test_key = next(
-            e for e in entries if (e['section'], e['key']) == ('pixeltable.clouddb.secrets', 'pxt_test_key')
+            e for e in entries if (e['section'], e['key']) == ('pixeltable.database.secrets', 'pxt_test_key')
         )
         assert test_key['source'] == str(config_file)
 
     def test_an_unparseable_config_file_is_reported(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, cli: PxtRunner, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
         """A config file that stops parsing under a running daemon produces an error, not a dropped request."""
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         make_table(target)
         config_file = tmp_path / 'config.toml'
         config_file.write_text('[pixeltable]\nfile_cache_size_g = 1.0\n', encoding='utf-8')
@@ -276,19 +324,19 @@ class TestConfig:
         assert str(config_file) in r.stderr
         assert 'RemoteDisconnected' not in r.stderr
 
-    def test_restart_while_serving(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
-    ) -> None:
+    def test_restart_while_serving(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """A restart that would abandon work in progress is refused; once the work is done it goes through."""
         skip_test_if_not_installed('sentence_transformers')
-        target = make_catalog_path('cfg')
-        schema_file = tmp_path / 'slow.py'
+        target = db_root.make_catalog_path('cfg')
+        schema_file = project_dir / 'slow.py'
         schema_file.write_text(_SLOW_SCHEMA_SRC, encoding='utf-8')
 
         # PXT_PORT addresses the daemon under test; the cli fixture put it in this process's environment
         slow = subprocess.Popen(
             ['pxt', 'schema', 'update', str(schema_file), target],
             env={**os.environ, 'BROWSER': 'true'},
+            # a client outside the daemon's project root restarts it, so run where the schema file is
+            cwd=project_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
@@ -298,7 +346,9 @@ class TestConfig:
             in_flight: list[dict[str, Any]] = []
             deadline = time.time() + 60.0
             while time.time() < deadline and slow.poll() is None:
-                in_flight = cli('daemon', 'status', '--json').json['in_flight']
+                # check=False: a daemon busy with the update may answer /health too late to be reported
+                r = cli('daemon', 'status', '--json', check=False)
+                in_flight = r.json['in_flight'] if r.returncode == 0 else []
                 if len(in_flight) > 0:
                     break
                 time.sleep(0.05)

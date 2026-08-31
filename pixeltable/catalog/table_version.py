@@ -384,11 +384,12 @@ class TableVersion:
         if not value_expr.is_valid:
             col_name = schema_col_md.name if schema_col_md is not None else '<unnamed>'
             message = '\n'.join(
-                [
+                (
                     f'The computed column {col_name!r} in table {self.name!r} is no longer valid.',
-                    value_expr.validation_error,
-                    'You can continue to query existing data from this column, but evaluating it on new data will raise an error.',  # noqa: E501
-                ]
+                    value_expr.validation_error.catalog_error_msg(),
+                    'You can continue to query existing data from this column, '
+                    'but evaluating it on new data will raise an error.',
+                )
             )
             warnings.warn(message, category=excs.PixeltableWarning)  # noqa: B028
         return value_expr

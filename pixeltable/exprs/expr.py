@@ -15,7 +15,7 @@ import sqlalchemy as sql
 from deprecated import deprecated
 from typing_extensions import TypeForm
 
-from pixeltable import catalog, exceptions as excs, func, type_system as ts
+from pixeltable import catalog, exceptions as excs, type_system as ts
 
 from .data_row import DataRow
 from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator, StringOperator
@@ -24,6 +24,16 @@ if TYPE_CHECKING:
     from pixeltable import exprs, func
 
     from .expr_dict import ExprDict
+
+
+class ValidationError:
+    @abc.abstractmethod
+    def catalog_error_msg(self) -> str:
+        """The error to display if this invalid Expr was deserialized from a stored catalog."""
+
+    @abc.abstractmethod
+    def protocol_error_msg(self) -> str:
+        """The error to display if this invalid Expr was deserialized from a proxy server request."""
 
 
 class ExprScope:
@@ -141,7 +151,12 @@ class Expr(abc.ABC):
         return None
 
     @property
-    def validation_error(self) -> str | None:
+    def is_column_ref(self) -> bool:
+        """Whether this expression refers to a single column, whether by identity or by name."""
+        return False
+
+    @property
+    def validation_error(self) -> ValidationError | None:
         """
         Subclasses can override this to indicate that validation has failed after a catalog load.
 
@@ -430,9 +445,22 @@ class Expr(abc.ABC):
 
     def validate_storable(self, context: str) -> None:
         """Raise if this expr references a Function that cannot be persisted."""
+        from pixeltable import func
+
         from .function_call import FunctionCall
 
         for fn_call in self.subexprs(FunctionCall):
+            if isinstance(fn_call.fn, func.InvalidFunction):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{context} uses a UDF this process cannot resolve: {fn_call.fn.error_msg}',
+                )
+            if isinstance(fn_call.fn, func.QueryTemplateFunction) and not fn_call.fn.queries_tables:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{context} calls `{fn_call.fn.display_name}()`, which queries a model rather than a table. '
+                    'A query over a model can only be stored once the model is bound to a table.',
+                )
             if not fn_call.fn.is_storable:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -711,6 +739,8 @@ class Expr(abc.ABC):
         return function(self)
 
     def __dir__(self) -> list[str]:
+        from pixeltable import func
+
         attrs = ['isin', 'astype', 'apply']
         attrs += [f.name for f in func.FunctionRegistry.get().get_type_methods(self.col_type.type_enum)]
         return attrs
@@ -984,6 +1014,8 @@ class Expr(abc.ABC):
                 parameter.
             col_type: The pixeltable result type of the new `Function`.
         """
+        from pixeltable import func
+
         if col_type is not None:
             # col_type is specified explicitly
             fn_type = col_type

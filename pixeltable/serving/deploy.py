@@ -94,7 +94,7 @@ def _collect_project_files(
         if include is not None or exclude is not None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
-                'Cannot specify both include_only and include/exclude in [pixeltable.clouddb] configuration',
+                'Cannot specify both include_only and include/exclude in a [[pixeltable.database]] entry',
             )
         files = _resolve_patterns(project_dir, include_only)
 
@@ -164,22 +164,22 @@ def _export_conda_env() -> bytes | None:
     return ''.join(filtered).encode('utf-8')
 
 
-def _load_database_config(project_dir: Path) -> DatabaseConfig | None:
-    pxt_toml = _load_database_config_from_toml(project_dir / 'pixeltable.toml', ['pixeltable', 'clouddb'])
+def _load_database_config(project_dir: Path, name: str | None = None) -> DatabaseConfig | None:
+    """The project's configuration for the named database, or for its only one when name is absent."""
+    pxt_toml = _load_database_config_from_toml(project_dir / 'pixeltable.toml', ['pixeltable', 'database'], name)
     if pxt_toml is not None:
         return pxt_toml
 
-    py_toml = _load_database_config_from_toml(project_dir / 'pyproject.toml', ['tool', 'pixeltable', 'clouddb'])
+    py_toml = _load_database_config_from_toml(project_dir / 'pyproject.toml', ['tool', 'pixeltable', 'database'], name)
     if py_toml is not None:
         return py_toml
 
     # Fall back on system config.
     # TODO: This should be removed, but doing it now will break a bunch of tests
-    cfg = Config.get().get_value('clouddb', dict)
-    return _validate_database_config(cfg) if cfg is not None else None
+    return _select_database(Config.get().get_value('database', list), name)
 
 
-def _load_database_config_from_toml(toml_path: Path, resolution: list[str]) -> DatabaseConfig | None:
+def _load_database_config_from_toml(toml_path: Path, resolution: list[str], name: str | None) -> DatabaseConfig | None:
     if not toml_path.is_file():
         return None
 
@@ -193,16 +193,35 @@ def _load_database_config_from_toml(toml_path: Path, resolution: list[str]) -> D
             return None
         cfg = cfg[key]
 
-    return _validate_database_config(cfg)
-
-
-def _validate_database_config(cfg: dict) -> DatabaseConfig:
+    entries = cfg if isinstance(cfg, list) else [cfg]  # a single table is one entry, written [pixeltable.database]
     try:
-        return DatabaseConfig.model_validate(cfg)
+        validated = [DatabaseConfig.model_validate(entry) for entry in entries]
     except Exception as e:
         raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid [pixeltable.clouddb] configuration: {e}'
+            excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid [[pixeltable.database]] in {toml_path.name}: {e}'
         ) from e
+    # a name addresses one entry, so two entries sharing one leave the target ambiguous; Config enforces the
+    # same rule for the entries it reads
+    seen: set[str | None] = set()
+    for db in validated:
+        if db.name in seen:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'Duplicate [[pixeltable.database]] name {db.name!r} in {toml_path.name}',
+            )
+        seen.add(db.name)
+    return _select_database(validated, name)
+
+
+def _select_database(databases: list[DatabaseConfig] | None, name: str | None) -> DatabaseConfig | None:
+    """The entry name addresses; the only entry when name addresses none, so a lone entry configures any target."""
+    if databases is None or len(databases) == 0:
+        return None
+    if name is not None:
+        named = next((db for db in databases if db.name == name), None)
+        if named is not None:
+            return named
+    return databases[0] if len(databases) == 1 else None
 
 
 def _abbrev_path(path: str, max_len: int = 40) -> str:
@@ -216,19 +235,22 @@ def __add_tarfile(tf: tarfile.TarFile, name: str, content: bytes) -> None:
     tf.addfile(info, fileobj=io.BytesIO(content))
 
 
-def build_db_runtime_bundle(project_dir: Path | None = None, show_progress: bool = False) -> Path:
+def build_db_runtime_bundle(
+    project_dir: Path | None = None, show_progress: bool = False, db_name: str | None = None
+) -> Path:
     """Package the current project into a tarball for updating a hosted database runtime.
 
     If show_progress is True, a progress bar tracking the number of project files added, and naming the
     file most recently added, is displayed.
 
     Bundle layout:
-        metadata.json   (always) — pxt_md_version, python_version
+        metadata.json   (always) — pxt_md_version, db_config
         project/        (always) — all project source files including uv.lock, pyproject.toml, etc.
 
+    metadata.json's db_config is the project's [[pixeltable.database]] entry (a DatabaseConfig, minus
+    the vars and secrets bindings, with python_version resolved), which is what the server-side
+    Dockerfile builder reads: system_dependencies go to conda-forge, uv_options to `uv sync`.
     The server reads project/uv.lock and runs `uv sync --frozen` to install Python packages.
-    System dependencies declared in pixeltable.toml [pixeltable.clouddb] system_dependencies
-    are included in metadata.json for the server-side Dockerfile builder to install via conda-forge.
 
     Lockfiles are never generated here — the developer is expected to have run `uv lock` (or provided
     a requirements.txt) in their project. If no lockfile and no conda environment is found, a warning
@@ -241,25 +263,26 @@ def build_db_runtime_bundle(project_dir: Path | None = None, show_progress: bool
     if not project_dir.is_dir():
         raise FileNotFoundError(f'Project directory does not exist: {project_dir}')
 
-    runtime_cfg = _load_database_config(project_dir)
-    exclude = runtime_cfg.exclude if runtime_cfg else None
-    include = runtime_cfg.include if runtime_cfg else None
-    include_only = runtime_cfg.include_only if runtime_cfg else None
-    system_dependencies: list[str] = (runtime_cfg.system_dependencies or []) if runtime_cfg else []
+    # A project with no [[pixeltable.database]] entry deploys on the defaults.
+    runtime_cfg = _load_database_config(project_dir, db_name) or DatabaseConfig()
 
-    # Config override wins; otherwise use the deploy environment's version.
-    python_version = (runtime_cfg.python_version if runtime_cfg else None) or (
-        f'{sys.version_info.major}.{sys.version_info.minor}'
+    # Resolve python_version here rather than server-side: the fallback is the version of the
+    # environment doing the deploy, which the server cannot see.
+    runtime_cfg = runtime_cfg.model_copy(
+        update={'python_version': runtime_cfg.python_version or f'{sys.version_info.major}.{sys.version_info.minor}'}
     )
 
-    files_set = set(_collect_project_files(project_dir, exclude, include, include_only))
+    files_set = set(
+        _collect_project_files(project_dir, runtime_cfg.exclude, runtime_cfg.include, runtime_cfg.include_only)
+    )
     # Lock files are always bundled regardless of .gitignore — they control reproducible installs.
-    has_lockfile = False
-    for lock_name in ('uv.lock', 'poetry.lock', 'requirements.txt'):
+    deps_type = 'none'
+    for d, lock_name in (('uv', 'uv.lock'), ('poetry', 'poetry.lock'), ('pip', 'requirements.txt')):
         lock_path = project_dir / lock_name
         if lock_path.is_file():
             files_set.add(lock_path)
-            has_lockfile = True
+            if deps_type == 'none':
+                deps_type = d
     files = sorted(files_set)
 
     print(f'A runtime bundle will be built containing {len(files)} files from {project_dir}.')
@@ -271,7 +294,7 @@ def build_db_runtime_bundle(project_dir: Path | None = None, show_progress: bool
     conda_env_yaml = _export_conda_env()
 
     # No lockfile and no conda export means the image has no source for Python dependencies.
-    if not has_lockfile and conda_env_yaml is None:
+    if deps_type == 'none' and conda_env_yaml is None:
         Env.get().console_logger.warning(
             'No dependency lockfile (uv.lock, poetry.lock, requirements.txt) was found and no conda '
             'environment was detected.\nThe deployed runtime may not have the necessary Python '
@@ -282,9 +305,13 @@ def build_db_runtime_bundle(project_dir: Path | None = None, show_progress: bool
     os.close(fd)
     bundle_path = Path(name)
 
-    meta: dict = {'pxt_md_version': metadata.VERSION, 'python_version': python_version}
-    if system_dependencies:
-        meta['system_dependencies'] = system_dependencies
+    # The server rebuilds the DatabaseConfig from this and drives the runtime image off it. vars and
+    # secrets are bindings this process resolves locally, so they are withheld rather than shipped.
+    meta = {
+        'pxt_md_version': metadata.VERSION,
+        'deps_type': deps_type,
+        'db_config': runtime_cfg.model_dump(exclude={'vars', 'secrets'}, exclude_none=True),
+    }
 
     with (
         tarfile.open(bundle_path, 'w:bz2') as tf,

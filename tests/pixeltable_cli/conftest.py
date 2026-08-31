@@ -8,15 +8,21 @@ real daemon on 22089.
 
 import json
 import os
+import pathlib
+import re
+import shutil
 import socket
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable, Iterator
 
 import pytest
+
+from pixeltable.config import Config
+
+from ..utils import DatabaseRoot
 
 
 def _pick_port() -> int:
@@ -36,15 +42,63 @@ class PxtResult:
         return json.loads(self.stdout)
 
 
+@pytest.fixture(scope='session', autouse=True)
+def session_project(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
+    """The project the session's daemon serves.
+
+    The daemon serves one project, and a client standing in another restarts it, so every CLI test works
+    inside this one: its application files go in a directory of their own under this root.
+
+    autouse and session-scoped: the local proxy daemon is handed the recorded project root when it starts,
+    and any test in this package may be the one that starts it.
+    """
+    root = tmp_path_factory.mktemp('pxt_project')
+    (root / 'pixeltable.toml').write_text('', encoding='utf-8')
+    Config.init(reinit=True, project_root=root)
+    return root
+
+
+@pytest.fixture(autouse=True)
+def serve_the_session_project(session_project: pathlib.Path) -> None:
+    """Point Config at the session's project before each test.
+
+    Every process this package starts is handed the project Config holds at the time, and a test elsewhere in
+    the session leaves its own value behind.
+    """
+    if Config.get().project_root != session_project:
+        Config.init(reinit=True, project_root=session_project)
+
+
+@pytest.fixture
+def served_project(session_project: pathlib.Path) -> pathlib.Path:
+    return session_project
+
+
+@pytest.fixture
+def project_dir(session_project: pathlib.Path, request: pytest.FixtureRequest) -> pathlib.Path:
+    """A directory of the session's project, named after the test that writes its files there.
+
+    A module path is relative to the project root, so files in a directory named after the test are
+    imported under names no other test uses.
+    """
+    name = re.sub(r'\W', '_', request.node.name)
+    directory = session_project / name
+    directory.mkdir(exist_ok=True)
+    return directory
+
+
 @pytest.fixture(scope='session')
-def pxt_daemon(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Iterator[int]:
+def pxt_daemon(
+    init_env: None, tmp_path_factory: pytest.TempPathFactory, session_project: pathlib.Path
+) -> Iterator[int]:
     port = _pick_port()
     env = {**os.environ, 'PXT_PORT': str(port)}
     log_path = tmp_path_factory.mktemp('pxt-daemon') / 'daemon.log'
     prior_port = os.environ.get('PXT_PORT')
     with open(log_path, 'w', encoding='utf-8') as log:
         proc = subprocess.Popen(
-            [sys.executable, '-m', 'pixeltable_cli.server.daemon'],
+            # the project this daemon serves, named the way a client names it
+            [sys.executable, '-m', 'pixeltable_cli.server.daemon', '--project-root', str(session_project)],
             env=env,
             stdout=log,
             stderr=log,
@@ -110,9 +164,88 @@ def _as_text(stream: bytes | str | None) -> str:
 
 
 @pytest.fixture
-def cli(pxt_daemon: int, make_catalog_path: Callable[[str], str]) -> PxtRunner:
-    # make_catalog_path resets the catalog (like uses_db) and pulls in the local/proxy axis, so a test
-    # using cli() auto-forks over both backends unless it is marked @pytest.mark.local. The CLI daemon and
+def apps(session_project: pathlib.Path) -> Callable[[str], str]:
+    """Returns a Callable that resolves the name of an app file in the shared app corpus to its path.
+
+    The corpus needs to be copied into the session's project in order for cli commands to work.
+    """
+    directory = session_project / 'apps'
+    if not directory.exists():
+        shutil.copytree(pathlib.Path(__file__).parent / 'apps', directory, ignore=shutil.ignore_patterns('__pycache__'))
+
+    def _path(name: str) -> str:
+        path = directory / name
+        assert path.is_file(), f'no such app file: {path}'
+        return str(path)
+
+    return _path
+
+
+@dataclass
+class BackgroundPxt:
+    """A `pxt` command still running, for a verb that serves until it is interrupted."""
+
+    proc: subprocess.Popen
+    port: int
+
+    @property
+    def endpoint(self) -> str:
+        return f'http://127.0.0.1:{self.port}'
+
+    def wait_until_serving(self, timeout: float = 60.0) -> None:
+        """Block until the command answers on its port, or fail with whatever it printed instead."""
+        import httpx
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.proc.poll() is not None:
+                raise AssertionError(f'pxt exited with {self.proc.returncode} before serving')
+            try:
+                if httpx.get(f'{self.endpoint}/openapi.json', timeout=1.0).status_code == 200:
+                    return
+            except httpx.HTTPError:
+                time.sleep(0.2)
+        raise AssertionError(f'nothing was serving on {self.endpoint} within {timeout:.0f}s')
+
+
+@pytest.fixture
+def cli_bg(
+    pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path
+) -> Iterator[Callable[..., BackgroundPxt]]:
+    """Runs a `pxt` command in the background, for one that serves rather than returning."""
+    running: list[BackgroundPxt] = []
+
+    def _run(*args: str, port: int | None = None) -> BackgroundPxt:
+        bound = _pick_port() if port is None else port
+        env = {**os.environ, 'PXT_PORT': str(pxt_daemon), 'BROWSER': 'true'}
+        proc = subprocess.Popen(
+            ['pxt', *args, '--port', str(bound)],
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            # in the session's project, so that client and daemon agree on which project this is
+            cwd=session_project,
+        )
+        handle = BackgroundPxt(proc, bound)
+        running.append(handle)
+        return handle
+
+    yield _run
+
+    for handle in running:
+        handle.proc.terminate()
+        try:
+            handle.proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            handle.proc.kill()
+
+
+@pytest.fixture
+def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -> PxtRunner:
+    # db_root resets the catalog (like uses_db) and pulls in the local/proxy/cloud axis, so a test
+    # using cli() auto-forks over all backends unless it is marked @pytest.mark.db_roots. The CLI daemon and
     # this test process share PIXELTABLE_HOME, so both resolve a pxt:// path to the same local proxy daemon.
     def _run(
         *args: str,
@@ -120,6 +253,8 @@ def cli(pxt_daemon: int, make_catalog_path: Callable[[str], str]) -> PxtRunner:
         cwd: str | os.PathLike[str] | None = None,
         env_overrides: dict[str, str | None] | None = None,
     ) -> PxtResult:
+        # in the session's project, so that client and daemon agree on which project this is
+        cwd = session_project if cwd is None else cwd
         # BROWSER=true prevents an actual browser tab open on `pxt dashboard` when tests are run on a dev machine.
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon), 'BROWSER': 'true'}
         for name, value in (env_overrides or {}).items():

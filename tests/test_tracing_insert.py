@@ -24,7 +24,7 @@ def batch_add_one(vals: Batch[int]) -> Batch[int]:
         return [val + 1 for val in vals]
 
 
-@pytest.mark.local('subscribes an in-process telemetry subscriber the daemon cannot see')
+@pytest.mark.db_roots('local', reason='subscribes an in-process telemetry subscriber the daemon cannot see')
 class TestInsertTracing:
     """End-to-end span nesting for the insert() path: operation -> row -> udf cell."""
 

@@ -9,8 +9,7 @@ UDFs).
 
 import itertools
 import threading
-from collections.abc import Iterator
-from typing import Any, Callable, Literal, TypedDict, TypeVar
+from typing import Any, Callable, Iterator, Literal, TypedDict, TypeVar
 
 import av
 import numpy as np

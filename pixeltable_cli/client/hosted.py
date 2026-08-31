@@ -7,9 +7,9 @@ import contextlib
 import json
 import sys
 import time
-from collections.abc import Iterator
-from typing import Any
+from typing import Any, Iterator
 
+from pixeltable_cli import models
 from pixeltable_cli.utils import split_pxt_uri
 
 from .utils import get_request, print_aligned
@@ -34,11 +34,8 @@ def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
 def resolve_db_uri(db_uri: str | None, prog: str = 'pxt') -> tuple[str, str]:
     """Parse pxt://org:db and return (org, db), defaulting to the configured pixeltable.db_uri. Exits on error."""
     if db_uri is None:
-        resp = get_request('/api/config')
-        entries = resp.get('entries', []) if isinstance(resp, dict) else []
-        configured = next(
-            (e.get('value') for e in entries if e.get('section') == 'pixeltable' and e.get('key') == 'db_uri'), None
-        )
+        resp = models.ConfigResponse.model_validate(get_request('/api/config'))
+        configured = next((e.value for e in resp.entries if (e.section, e.key) == ('pixeltable', 'db_uri')), None)
         if configured is None:
             print(
                 f'{prog}: error: no database URI given, and no db_uri is set in the Pixeltable config file',

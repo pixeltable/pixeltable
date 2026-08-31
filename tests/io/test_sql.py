@@ -17,7 +17,7 @@ import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.io.sql import export_sql, import_sql
 
-from ..utils import CatalogMode, error, get_documents, get_image_files, get_video_files, pxt_raises
+from ..utils import DatabaseRoot, error, get_documents, get_image_files, get_video_files, pxt_raises
 
 
 @dataclasses.dataclass(frozen=True)
@@ -168,10 +168,10 @@ class TestSql:
             return conn.execute(sql.text(f'SELECT COUNT(*) FROM {table_name}')).scalar_one()
 
     def _run_export_suite(
-        self, spec: _DialectSpec, tmp_path: pathlib.Path, p: Callable[[str], str], catalog_mode: CatalogMode
+        self, spec: _DialectSpec, tmp_path: pathlib.Path, p: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         # over the proxy every export collect()s the source rows to the client; keep the volume modest there
-        num_rows = 100_000 if catalog_mode == 'local' else 1_000
+        num_rows = 100_000 if db_root.id == 'local' else 1_000
         t, rows = self.create_test_data(p('test1'), num_rows)
         connect = spec.connect(tmp_path)
         engine = sql.create_engine(connect)
@@ -201,18 +201,17 @@ class TestSql:
         export_sql(t.where(t.c_int < 5), 'fresh_table', db_connect_str=connect, if_not_exists='create')
         assert self._row_count(engine, 'fresh_table') == 5
 
-    def test_export_sqlite(
-        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, tmp_path: pathlib.Path
-    ) -> None:
-        self._run_export_suite(self._sqlite_spec(), tmp_path, make_catalog_path, catalog_mode)
+    def test_export_sqlite(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
+        self._run_export_suite(self._sqlite_spec(), tmp_path, db_root.make_catalog_path, db_root)
 
-    def test_export_postgresql(
-        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, tmp_path: pathlib.Path
-    ) -> None:
-        self._run_export_suite(self._postgresql_spec(), tmp_path, make_catalog_path, catalog_mode)
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]'
+    )
+    def test_export_postgresql(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
+        self._run_export_suite(self._postgresql_spec(), tmp_path, db_root.make_catalog_path, db_root)
 
-    def test_errors(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_errors(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         connection_string = Env.get().db_url
 
         # unsupported column type
@@ -249,13 +248,14 @@ class TestSql:
             export_sql(t_img2, 'img_target', db_connect_str=connection_string, if_exists='insert')
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
-    def test_import_full_table(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, dbms: str
-    ) -> None:
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]'
+    )
+    def test_import_full_table(self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str) -> None:
         """End-to-end import of a full SA Table: type inference for all common SA types, nullable vs non-nullable
         propagation, NULL-to-None value roundtrip, exact value preservation, and the single-version-bump claim
         across batch boundaries (rows > the insert batch size so streaming actually engages)."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine(dbms, tmp_path)
         n = 2500  # > the 1024-row insert batch size, to force at least 3 batches
 
@@ -332,13 +332,11 @@ class TestSql:
         assert list(result) == seed_rows
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
-    def test_import_select_and_filter(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, dbms: str
-    ) -> None:
+    def test_import_select_and_filter(self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str) -> None:
         """Import via `sa.select(...)` rather than a bare Table: column projection (subset), row filter via
         `.where(...)`, labeled expressions, accepting an `sa.Connection` (not just an Engine), and the 0-row
         edge case (impossible filter -> empty destination, schema still created)."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine(dbms, tmp_path)
         rows = [{'c_int': i, 'c_str': f'row_{i}', 'c_float': float(i)} for i in range(20)]
         src = _seed_source(
@@ -379,13 +377,11 @@ class TestSql:
         assert empty_tbl.count() == 0
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
-    def test_import_text_columns(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, dbms: str
-    ) -> None:
+    def test_import_text_columns(self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str) -> None:
         """Import via `sql.text(...).columns(...)`: raw SQL whose output columns are typed by the user. Type
         inference and nullability propagation must come from the `.columns(...)` declaration, not from the
         source table."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine(dbms, tmp_path)
         rows: list[dict[str, Any]] = [{'c_int': i, 'c_str': f'row_{i}', 'c_float': float(i)} for i in range(5)]
         _seed_source(
@@ -419,8 +415,9 @@ class TestSql:
         assert list(result) == expected
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
-    def test_import_on_server(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, dbms: str) -> None:
-        p = make_catalog_path
+    @pytest.mark.db_roots('local', 'proxy', reason='Relies on a locally instantiated DB server')
+    def test_import_on_server(self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str) -> None:
+        p = db_root.make_catalog_path
         engine = _import_engine(dbms, tmp_path)
         rows = [{'c_int': i, 'c_str': f'row_{i}'} for i in range(15)]
         src = _seed_source(
@@ -437,9 +434,10 @@ class TestSql:
         assert [(r['c_int'], r['c_str']) for r in result] == [(r['c_int'], r['c_str']) for r in rows]
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
-    @pytest.mark.local(
-        'SQL media columns referencing local file paths are a local-only scenario; a hosted '
-        "daemon cannot read the client's local files"
+    @pytest.mark.db_roots(
+        'local',
+        reason='SQL media columns referencing local file paths are a local-only scenario; a hosted '
+        "daemon cannot read the client's local files",
     )
     def test_media_via_overrides(self, uses_db: None, tmp_path: pathlib.Path, dbms: str) -> None:
         """`schema_overrides` promotes plain String path columns into Pixeltable media types (Image, Video,
@@ -510,11 +508,11 @@ class TestSql:
         for i, row in enumerate(path_result):
             assert row['c_path'] == img_paths[i]
 
-    def test_image_bytes_via_override(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_image_bytes_via_override(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Source `LargeBinary` column holding raw image bytes + `schema_overrides={'c_img': pxt.Image}`.
         SqlDataNode must spill the bytes to TempStore so on-write media validation still runs (mirroring
         InMemoryDataNode's image-bytes handling)."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine('sqlite', tmp_path)
         img_paths = get_image_files()[:2]
         img_bytes = [pathlib.Path(p).read_bytes() for p in img_paths]
@@ -539,10 +537,10 @@ class TestSql:
         for row in result:
             assert isinstance(row['c_img'], PIL.Image.Image)
 
-    def test_if_exists(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_if_exists(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Walk the if_exists matrix in a single test, since the branching is purely pixeltable-side and doesn't
         depend on the SQL backend."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine('sqlite', tmp_path)
         seed_a = [{'c_int': i, 'c_str': f'a_{i}'} for i in range(3)]
         seed_b = [{'c_int': 100 + i, 'c_str': f'b_{i}'} for i in range(2)]
@@ -615,11 +613,11 @@ class TestSql:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r"must be one of 'error', 'append'"):
             import_sql(src_a, engine, p('dest'), if_exists='garbage')  # type: ignore[arg-type]
 
-    def test_validation_errors(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_validation_errors(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Broad sweep of the remaining `RequestError` / `NotFoundError` paths in `import_sql` and
         `SqlDataNode._open()`.
         """
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine('sqlite', tmp_path)
 
         # `sql.Interval` has no entry in our SA -> pxt mapping; without an override the inference must fail.
@@ -674,9 +672,9 @@ class TestSql:
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='c_required'):
             import_sql(partial_src, engine, p('req_dest'), if_exists='append')
 
-    def test_import_on_error_ignore(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_import_on_error_ignore(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """`on_error='ignore'` import: per-row computed-column failures surface as nulls."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine('sqlite', tmp_path)
 
         dest = pxt.create_table(p('on_error_dest'), {'c_int': pxt.Int | None})
@@ -692,12 +690,10 @@ class TestSql:
         assert result['c_int'] == sorted(values)
         assert result['c_checked'] == [None if v < 0 else False for v in sorted(values)]
 
-    def test_import_null_into_non_nullable(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
-    ) -> None:
+    def test_import_null_into_non_nullable(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """A source NULL mapped to a non-nullable destination column aborts the import, like the in-memory insert
         path, rather than being silently stored; this holds regardless of `on_error`."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine('sqlite', tmp_path)
         src = _seed_source(
             engine,
@@ -711,9 +707,10 @@ class TestSql:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='non-None'):
             import_sql(src, engine, p('null_dest'), schema_overrides=overrides, on_error='ignore')
 
-    @pytest.mark.local(
-        'seeds a local-file image into the SQL source, which is a local-only scenario (a hosted '
-        "daemon cannot read the client's local files)"
+    @pytest.mark.db_roots(
+        'local',
+        reason='seeds a local-file image into the SQL source, which is a local-only scenario (a hosted '
+        "daemon cannot read the client's local files)",
     )
     def test_import_abort_and_view_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """A row error under the default `on_error='abort'` aborts a new-table import and drops the freshly

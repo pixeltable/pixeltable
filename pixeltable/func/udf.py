@@ -128,6 +128,7 @@ def make_function(
     `substitute_fn`.
     """
     defined_in_script = False
+    function_path: str | None
     # Obtain function_path from decorated_fn when appropriate
     if force_stored:
         # force storing the function in the db
