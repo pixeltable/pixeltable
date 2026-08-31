@@ -688,8 +688,11 @@ class HFTableDataConduit(TableDataConduit):
             # we assemble per-row dicts by from lists of per-column values
             rows: list[dict[str, Any]] = [{} for _ in range(chunk_size)]
             if self.column_name_for_split is not None:
+                mapped_split_col_name = self.source_column_map.get(
+                    self.column_name_for_split, self.column_name_for_split
+                )
                 for row in rows:
-                    row[self.column_name_for_split] = split_name
+                    row[mapped_split_col_name] = split_name
 
             for col_idx, col_name in enumerate(batch.schema.names):
                 feature = features[col_name]
