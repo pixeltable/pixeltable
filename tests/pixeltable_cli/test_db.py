@@ -138,7 +138,7 @@ def service_list(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> dict[str
 
 
 def get_target_ops(plan: dict[str, Any], target: str) -> list[dict[str, Any]]:
-    """The plan's operations against one target: image, archive, capacity, secret or placement."""
+    """The plan's operations against one target: image, archive, capacity or secret."""
     return [op for op in plan['ops'] if op['target'] == target]
 
 
@@ -298,21 +298,6 @@ class TestDb:
             for op in get_target_ops(db_update(cli, project, current_db, '--allow-destructive'), 'capacity')
         ] == ['applied']
         assert_in_agreement(cli, project, current_db)
-
-    def test_placement(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
-        """Where a database runs is fixed when it is created, so a differing entry reports what no update applies."""
-        running_in = db_status(cli, project, current_db)['region']
-        create_project_config(cli, project, current_db, region=f'{running_in}-2')
-
-        plan = db_diff(cli, project, current_db)
-        assert plan['resolution'] == 'unsupported'
-        [op] = get_target_ops(plan, 'placement')
-        assert op['severity'] == 'unsupported'
-        assert plan['summary']['unsupported'] == 1
-
-        applied = db_update(cli, project, current_db)
-        assert [op['status'] for op in get_target_ops(applied, 'placement')] == ['skipped']
-        assert get_target_ops(db_diff(cli, project, current_db), 'placement') != []
 
     def test_dry_run(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
         edit_app(project, 'an edit no update applies')

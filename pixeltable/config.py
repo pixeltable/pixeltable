@@ -57,10 +57,6 @@ class DatabaseConfig(pydantic.BaseModel):
     disk_gb: int | None = None
     workers: int | None = None
 
-    # fixed when the database is created, so declaring them addresses a database that does not exist yet
-    location: str | None = None
-    region: str | None = None
-
     @pydantic.field_validator('system_dependencies')
     @classmethod
     def _check_system_dependencies(cls, v: list[str] | None) -> list[str] | None:

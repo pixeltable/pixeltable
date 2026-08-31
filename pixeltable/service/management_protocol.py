@@ -69,8 +69,6 @@ class CreateDbRequest(BaseModel):
     org: str | None = None
     db: str
     db_name: str | None = None
-    location: str | None = None
-    region: str | None = None
     cpu: float = 0.5
     memory_mb: int = 512
     disk_gb: int = 10

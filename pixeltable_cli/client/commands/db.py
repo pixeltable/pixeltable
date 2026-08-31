@@ -214,7 +214,7 @@ def _print_plan(plan: DbPlan, *, as_json: bool, applied: bool = False) -> None:
         print(f'    {op.description}  [{op.severity}]')
     s = plan.summary
     print()
-    print(f'Plan: {s.ops} change(s), {s.destructive} destructive, {s.unsupported} unsupported')
+    print(f'Plan: {s.ops} change(s), {s.destructive} destructive')
 
 
 def _delete(args: argparse.Namespace) -> None:

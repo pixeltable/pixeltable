@@ -70,8 +70,6 @@ class DatabaseState(pydantic.BaseModel):
     state: str = ''
     db_name: str | None = None
     default_bucket: str | None = None
-    location: str | None = None
-    region: str | None = None
     cpu: float | None = None
     memory_mb: int | None = None
     disk_gb: int | None = None
@@ -126,8 +124,7 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
     """Reconcile the database at db_uri with its corresponding DatabaseConfig in the project configuration.
 
     Secrets go first, since code the pods run reads them as they start; capacity last, so that the resize
-    restarts pods already on the new image and the new sources. A placement difference is skipped, since no
-    update can carry it out.
+    restarts pods already on the new image and the new sources.
 
     This is the one verb that creates a hosted database. A database created here is given every secret and
     both artifacts -- it reports no fingerprint yet, so the diff has nothing to compare against -- and it is
@@ -151,20 +148,9 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
             f'Reconciling {db_uri} would apply destructive changes: {destructive}.\n{_DB_DESTRUCTIVE_HINT}',
         )
 
-    for op in _get_target_ops(plan, 'placement'):
-        op.status = 'skipped'
-
     created = not plan.exists
     if created:
-        management_client.api_call(
-            CreateDbRequest(
-                org=db_path.org,
-                db=db_path.db,
-                location=config.location,
-                region=config.region,
-                **_capacity_settings(config),
-            )
-        )
+        management_client.api_call(CreateDbRequest(org=db_path.org, db=db_path.db, **_capacity_settings(config)))
         _await_db_settled(db_path)
         # a database that has just been created reports no fingerprint, so there is nothing to diff against:
         # it needs every secret and both artifacts, whatever the plan says
@@ -189,7 +175,7 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
     plan.exists = True
     plan.status = 'applied'
     # what the plan asked for has been applied; an operation no update carries out is what is left
-    plan.resolution = 'unsupported' if any(op.severity == 'unsupported' for op in plan.ops) else 'up_to_date'
+    plan.resolution = 'up_to_date'
     return plan
 
 
@@ -518,14 +504,6 @@ def _compare_db(current: DatabaseState, config: DatabaseConfig, fingerprint: Pro
         ops.append(DbChangeOp.secret(key, 'add'))
     for key in sorted(set(current.secret_keys) - set(declared)):
         ops.append(DbChangeOp.secret(key, 'drop'))
-
-    for field, config_value, current_value in (
-        ('location', config.location, current.location),
-        ('region', config.region, current.region),
-    ):
-        if config_value is None or current_value is None or config_value == current_value:
-            continue
-        ops.append(DbChangeOp.placement(field, current_value, config_value))
 
     # TODO: compare config.vars against current.vars once UPDATE_DB accepts vars
 

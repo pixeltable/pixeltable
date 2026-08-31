@@ -251,7 +251,7 @@ class ServiceChangeOp(ChangeOp):
 
 # what a DbChangeOp acts on. The two artifacts are separate: 'image' is the environment the pods run on,
 # 'archive' the sources they fetch, and a source edit moves only the second.
-DbTarget = Literal['image', 'archive', 'capacity', 'secret', 'placement']
+DbTarget = Literal['image', 'archive', 'capacity', 'secret']
 
 
 class DbChangeOp(ChangeOp):
@@ -275,20 +275,6 @@ class DbChangeOp(ChangeOp):
         )
 
     @classmethod
-    def placement(cls, field: str, current: str, declared: str) -> DbChangeOp:
-        """The operation for a field fixed at creation, which no update can carry out."""
-        return cls(
-            target='placement',
-            name=field,
-            op='alter',
-            severity='unsupported',
-            description=(
-                f'{field} is {current!r} and cannot be changed to {declared!r}; create a database there instead'
-            ),
-            details={'from': current, 'to': declared},
-        )
-
-    @classmethod
     def secret(cls, key: str, op: Literal['add', 'drop']) -> DbChangeOp:
         if op == 'add':
             return cls(
@@ -306,10 +292,10 @@ class DbChangeOp(ChangeOp):
     def build_image(cls, changes: list[str] | None = None) -> DbChangeOp:
         """The operation for an image build the caller asked for rather than one a difference calls for."""
         description: str
-        details: str
+        details: dict[str, str]
         if changes is not None:
-            description = f'the image will be rebuilt: {_summary(changes)}',
-            details = {'changes': '; '.join(changes)},
+            description = f'the image will be rebuilt: {_summary(changes)}'
+            details = {'changes': '; '.join(changes)}
         else:
             description = 'the image will be rebuilt from the project environment'
             details = {}
@@ -327,10 +313,10 @@ class DbChangeOp(ChangeOp):
     def upload_archive(cls, changes: list[str] | None = None) -> DbChangeOp:
         """The operation for uploading the project the caller named rather than one a difference calls for."""
         description: str
-        details: str
+        details: dict[str, str]
         if changes is not None:
-            description = f'the project files will be uploaded: {_summary(changes)}',
-            details = {'changes': '; '.join(changes)},
+            description = f'the project files will be uploaded: {_summary(changes)}'
+            details = {'changes': '; '.join(changes)}
         else:
             description = 'the project will be uploaded'
             details = {}
@@ -582,7 +568,6 @@ class ServiceInstance(pydantic.BaseModel):
 class DbPlanSummary(pydantic.BaseModel):
     ops: int
     destructive: int
-    unsupported: int
     rebuild: bool  # whether the plan rebuilds the image, which is the one step that takes minutes
     restarts: bool  # whether applying the plan interrupts what the database is serving
 
@@ -603,8 +588,6 @@ class DbPlan(pydantic.BaseModel):
         resolution: Resolution
         if state is None:
             resolution = 'create'
-        elif any(op.severity == 'unsupported' for op in ops):
-            resolution = 'unsupported'
         elif any(op.destructive for op in ops):
             resolution = 'update_destructive'
         elif len(ops) > 0:
@@ -629,7 +612,6 @@ class DbPlan(pydantic.BaseModel):
         return DbPlanSummary(
             ops=len(self.ops),
             destructive=sum(1 for op in self.ops if op.destructive),
-            unsupported=sum(1 for op in self.ops if op.severity == 'unsupported'),
             rebuild=any(op.target == 'image' for op in self.ops),
             restarts=any(op.requires_restart for op in self.ops),
         )
