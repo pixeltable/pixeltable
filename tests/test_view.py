@@ -453,7 +453,7 @@ class TestView:
         assert 'derived' in v.columns()
 
         # a view column that shadows a base column is rejected in any casing
-        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS):
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: c1'):
             v.add_column(C1=pxt.Int | None)
 
         row = v.order_by(v.C1).select(v.C1, v.DERIVED).collect()[0]

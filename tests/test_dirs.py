@@ -293,7 +293,7 @@ class TestDirs:
         assert pxt.list_tables(p('MYDIR')) == [p('mydir/mytbl')]
         assert pxt.get_table(p('MyDir/MYTBL')) == pxt.get_table(p('mydir/mytbl'))
 
-        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"mydir' is an existing directory"):
             pxt.create_dir(p('MYDIR'))
 
         # a destination that differs only in case denotes the same path, so move() rejects it
