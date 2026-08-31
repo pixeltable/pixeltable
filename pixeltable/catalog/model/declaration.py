@@ -241,7 +241,7 @@ class _ModelNamespace(dict):
     known_cols: dict[str, ColumnSpec]
 
     # Names that are produced by the base query or iterator; these cannot be redefined in the model.
-    reserved_cols: dict[str, Literal['base query', 'iterator']]
+    reserved_cols: dict[str, Literal['base table', 'base query', 'iterator']]
 
     # The scope in which the class body is defined; used to evaluate stringized type annotations (see
     # set_col_type()) and prebind annotations.
@@ -284,7 +284,7 @@ class _ModelNamespace(dict):
                 self.set_col_type(key, self.pending_ann_types.pop(key))
 
     def add_reserved_column_ref(
-        self, name: str, col_type: ts.ColumnType, kind: Literal['base query', 'iterator']
+        self, name: str, col_type: ts.ColumnType, kind: Literal['base table', 'base query', 'iterator']
     ) -> None:
         """Add `name` as a reserved column (it is resolvable in the class body, and its symbol cannot be reused,
         but it does not have a ColumnSpec and will not be included in the list of columns for the view to create).
@@ -578,13 +578,15 @@ class TableModelMeta(type):
                 caller=caller,
             )
 
-            if base is not None and base.select_list is not None:
+            if base is not None:
                 # Make the select list's named columns referenceable in the body.
-                for expr, col_name in base.select_list:
+                for expr, col_name in base._effective_select_list:
                     if col_name is None:
                         continue
                     assert is_valid_identifier(col_name)  # since it must be a Python symbol
-                    namespace.add_reserved_column_ref(col_name, expr.col_type, 'base query')
+                    namespace.add_reserved_column_ref(
+                        col_name, expr.col_type, 'base table' if base.select_list is None else 'base query'
+                    )
 
             if iterator is not None:
                 # Likewise for the iterator's outputs: referenceable, but created by the iterator.
