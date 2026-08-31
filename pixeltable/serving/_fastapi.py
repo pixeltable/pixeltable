@@ -1743,6 +1743,8 @@ class FastAPIRouter(fastapi.APIRouter):
         # a new name, not a reassignment: the endpoint below closes over it, and a closure sees a parameter's
         # declared type rather than what it was narrowed to
         match_col_names = _col_names(match_columns)
+        if match_col_names is not None:
+            match_col_names = [fold_identifier(name) for name in match_col_names]
         if match_col_names is None:
             pk = [c.name for c in declared_path.column_md() if c.is_pk and c.name is not None]
             if not pk:

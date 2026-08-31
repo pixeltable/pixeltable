@@ -316,6 +316,8 @@ def table_count(req: Request) -> models.CountResponse:
 def table_errors(req: Request) -> models.ErrorsResponse:
     path = req.resolve_path(req.query_str('path') or '')
     col = req.query_str('col')
+    if col is not None:
+        col = fold_identifier(col)
     t = pxt.get_table(path)
     md = t.get_metadata()
 
