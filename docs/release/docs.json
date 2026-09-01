@@ -453,20 +453,24 @@
       "destination": "/howto/coming-from"
     },
     {
-      "source": "/migrate/from-diy-data-pipeline",
+      "source": "/migrate",
       "destination": "/howto/coming-from"
+    },
+    {
+      "source": "/migrate/from-diy-data-pipeline",
+      "destination": "/howto/coming-from#scripts-and-airflow"
     },
     {
       "source": "/migrate/from-rdbms-vectordbs",
-      "destination": "/howto/coming-from"
+      "destination": "/howto/coming-from#pinecone-and-milvus"
     },
     {
       "source": "/migrate/from-agent-frameworks",
-      "destination": "/howto/coming-from"
+      "destination": "/howto/coming-from#langgraph"
     },
     {
       "source": "/migrate/from-hand-written-endpoints",
-      "destination": "/howto/coming-from"
+      "destination": "/howto/deployment/serving"
     },
     {
       "source": "/platform/tables",
