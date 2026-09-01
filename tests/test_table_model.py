@@ -2141,6 +2141,13 @@ class TestTableModel:
             class TableColCollision(TableModel, name='table_col_collision', base=ValidTableModel):
                 id: pxt.Int | None
 
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r"'id' is already defined by the base table; it cannot be redeclared."
+        ):
+
+            class TableColCollisionComputed(TableModel, name='table_col_collision_computed', base=ValidTableModel):
+                id = ValidTableModel.id + 1
+
         # ... or by the base query ...
         with pxt_raises(
             excs.ErrorCode.INVALID_SCHEMA,
