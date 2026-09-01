@@ -7,6 +7,7 @@ from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 
+from .globals import fold_identifier
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 
@@ -20,6 +21,7 @@ class Dir(SchemaObject):
         session = get_runtime().session
         user = Env.get().user
         assert session is not None
+        assert name == fold_identifier(name), name
         dir_md = schema.DirMd(name=name, user=user, additional_md={})
         dir_record = schema.Dir(parent_id=parent_id, md=dataclasses.asdict(dir_md))
         session.add(dir_record)

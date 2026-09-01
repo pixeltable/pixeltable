@@ -30,7 +30,7 @@ from pixeltable.utils.fault_injection import FaultLocation
 from .catalog_base import CatalogBase
 from .column import Column
 from .dir import Dir
-from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation
+from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, fold_identifier
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
 from .model import IndexDeclaration, TableSchemaChangeSet, prepare_model, prepare_model_updates
@@ -87,6 +87,15 @@ _MAX_RETRIES = -1
 _MAX_TBL_CACHE_SIZE = 1024
 
 T = TypeVar('T')
+
+
+def _validate_folded_names(tbl_md: schema.TableMd, schema_version_md: schema.SchemaVersionMd) -> None:
+    """Verify that the identifiers of a table about to be written are folded."""
+    assert tbl_md.name == fold_identifier(tbl_md.name), tbl_md.name
+    for idx_md in tbl_md.index_md.values():
+        assert idx_md.name == fold_identifier(idx_md.name), idx_md.name
+    for schema_col in schema_version_md.columns.values():
+        assert schema_col.name is None or schema_col.name == fold_identifier(schema_col.name), schema_col.name
 
 
 def _is_retryable_exc(e: BaseException) -> bool:
@@ -2752,6 +2761,7 @@ class Catalog(CatalogBase):
                         assert tbl_col_id in sch_col_ids, (tbl_md.tbl_id, tbl_col_id)
                         sch_col_ids.remove(tbl_col_id)
                 assert len(sch_col_ids) == 0, (tbl_md.tbl_id, sch_col_ids)
+                _validate_folded_names(tbl_md, schema_version_md)
             if pending_ops is not None:
                 assert tbl_md.pending_stmt is not None
                 assert all(op.tbl_id == str(tbl_id) for op in pending_ops)

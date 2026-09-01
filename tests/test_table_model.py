@@ -2597,3 +2597,77 @@ class TestTableModel:
                 os.environ['PIXELTABLE_CONFIG'] = original_config
             reload_env()
             reload_catalog()
+
+    def test_model_case_insensitive_columns(self, db_root: DatabaseRoot) -> None:
+        """A model's column names fold, while the Python spellings it declared keep resolving."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class M(TableModel, name='M'):
+            MyCol: pxt.Int
+            doubled = MyCol * 2
+
+        TableModel.create_all(p(''))
+
+        # the stored column and the table itself are folded
+        assert M.table.columns() == ['mycol', 'doubled']
+
+        # and after binding, both spellings are synonyms
+        assert M.MyCol is M.mycol
+        # But only the original and the folded casing resolve at the class level
+        with pytest.raises(AttributeError, match="has no attribute 'MYCOL'"):
+            _ = M.MYCOL
+
+        M.insert([{'MYCOL': 3}])
+        assert M.collect()['Doubled'] == [6]
+
+        # Two declarations that Python allows, but that collide in Pixeltable
+        CollisionModel = pxt.model_base()
+
+        class TableWithCollision(CollisionModel, name='dup_annotations'):
+            Foo: pxt.Int
+            foo: pxt.Int
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"'Foo', 'foo' were specified"):
+            CollisionModel.create_all(p(''))
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"'Foo', 'foo' were specified"):
+            CollisionModel.get_model_diff(p(''))
+
+    def test_model_case_insensitive_declarations(self) -> None:
+        """Table and index names in a model declaration fold, so two that differ only in case collide."""
+        TableModel = pxt.model_base()
+
+        class First(TableModel, name='Foo'):
+            id: pxt.Int
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='previously used by `First`'):
+
+            class Second(TableModel, name='foo'):
+                id2: pxt.Int
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='index names must be unique'):
+
+            class M(TableModel, name='m'):
+                a: pxt.String
+                b: pxt.String
+                __indexes__ = [
+                    EmbeddingIndex(a, embedding=dummy_embedding.using(n=512), name='Idx'),
+                    EmbeddingIndex(b, embedding=dummy_embedding.using(n=512), name='idx'),
+                ]
+
+    def test_model_case_insensitive_shadowing(self, db_root: DatabaseRoot) -> None:
+        """Shadowing of a base column is decided on the folded name."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class T(TableModel, name='test_table'):
+            id: pxt.Int
+            value: pxt.Float | None
+
+        class V(TableModel, name='test_view', base=T):
+            Value: pxt.Float | None
+
+        with pxt_raises(
+            excs.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'value' already exists in the base table 'test_table'"
+        ):
+            TableModel.create_all(p(''))

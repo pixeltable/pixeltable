@@ -37,6 +37,8 @@ from .globals import (
     IfNotExistsParam,
     MediaValidation,
     OnErrorParam,
+    fold_identifier,
+    fold_mapping_keys,
     is_valid_identifier,
 )
 from .table import Table
@@ -492,6 +494,7 @@ class LocalTable(Table):
         from pixeltable.catalog import retry_loop
 
         self._validate_column_schema(schema)
+        schema = fold_mapping_keys(schema)
 
         # a retry loop is necessary because drop column needs it
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
@@ -568,6 +571,7 @@ class LocalTable(Table):
             col_name, spec = next(iter(kwargs.items()))
             if not is_valid_identifier(col_name):
                 raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {col_name}')
+            col_name = fold_identifier(col_name)
 
             col_schema: ColumnSpec = {'value': spec}
             if stored is not None:
@@ -641,7 +645,7 @@ class LocalTable(Table):
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot drop base table column {col.name!r}'
                     )
-                col = self._tbl_version.get().cols_by_name[column]
+                col = self._tbl_version.get().cols_by_name[col.name]
             else:
                 exists = self._tbl_version_path.has_column(column.col_md.qcolid)
                 if not exists:
@@ -773,7 +777,7 @@ class LocalTable(Table):
             tv = self._tbl_version.get()
             col = self._resolve_column_parameter(column)
 
-            existing_idx_by_name = tv.idxs_by_name.get(idx_name) if idx_name is not None else None
+            existing_idx_by_name = tv.get_idx_by_name(idx_name) if idx_name is not None else None
             if existing_idx_by_name is not None and not isinstance(existing_idx_by_name.idx, index.BtreeIndex):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -822,14 +826,15 @@ class LocalTable(Table):
                 Column.validate_name(idx_name)
                 # Named index: duplicate detection is by name. Handle a name collision before constructing the new
                 # index, so that if_exists='ignore' remains a true no-op and never surfaces validation errors.
-                if idx_name in self._tbl_version.get().idxs_by_name:
+                existing_idx = self._tbl_version.get().get_idx_by_name(idx_name)
+                if existing_idx is not None:
                     if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
                     # An index with the same name already exists. Handle it according to if_exists.
                     if if_exists_ == IfExistsParam.ERROR:
                         raise excs.AlreadyExistsError(
                             excs.ErrorCode.INDEX_ALREADY_EXISTS, f'Duplicate index name: {idx_name}'
                         )
-                    if not isinstance(self._tbl_version.get().idxs_by_name[idx_name].idx, index.EmbeddingIndex):
+                    if not isinstance(existing_idx.idx, index.EmbeddingIndex):
                         raise excs.RequestError(
                             excs.ErrorCode.UNSUPPORTED_OPERATION,
                             f'Index {idx_name!r} is not an embedding index. Cannot {if_exists_.name.lower()} it.',
@@ -838,7 +843,7 @@ class LocalTable(Table):
                         return
                     assert if_exists_ in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
                     self.drop_index(idx_name=idx_name)
-                    assert idx_name not in self._tbl_version.get().idxs_by_name
+                    assert self._tbl_version.get().get_idx_by_name(idx_name) is None
 
             from pixeltable.index import EmbeddingIndex
 
@@ -963,12 +968,12 @@ class LocalTable(Table):
 
         if idx_name is not None:
             if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-            if idx_name not in self._tbl_version.get().idxs_by_name:
+            idx_info = self._tbl_version.get().get_idx_by_name(idx_name)
+            if idx_info is None:
                 if if_not_exists_ == IfNotExistsParam.ERROR:
                     raise excs.NotFoundError(excs.ErrorCode.INDEX_NOT_FOUND, f'Index {idx_name!r} does not exist')
                 assert if_not_exists_ == IfNotExistsParam.IGNORE
                 return
-            idx_info = self._tbl_version.get().idxs_by_name[idx_name]
         else:
             if col.get_tbl().id != self._tbl_version.id:
                 raise excs.RequestError(
@@ -1146,7 +1151,7 @@ class LocalTable(Table):
                     col = self._tbl_version_path.get_column(column)
                     if col is None:
                         raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
-                    col_name = column
+                    col_name = col.name
                 else:
                     assert isinstance(column, ColumnRef)
                     col = column.col

@@ -39,7 +39,7 @@ from typing_extensions import TypeForm
 
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
-from pixeltable.catalog import model
+from pixeltable.catalog import fold_identifier, model
 from pixeltable.catalog.model.query import ModelQuery
 from pixeltable.config import Config
 from pixeltable.env import Env
@@ -1742,6 +1742,8 @@ class FastAPIRouter(fastapi.APIRouter):
         # a new name, not a reassignment: the endpoint below closes over it, and a closure sees a parameter's
         # declared type rather than what it was narrowed to
         match_col_names = _col_names(match_columns)
+        if match_col_names is not None:
+            match_col_names = [fold_identifier(name) for name in match_col_names]
         if match_col_names is None:
             pk = [c.name for c in declared_path.column_md() if c.is_pk and c.name is not None]
             if not pk:
@@ -2306,6 +2308,10 @@ class FastAPIRouter(fastapi.APIRouter):
         """
         Validate insert-/update-route args. Returns (pk_col_names, input_col_names, output_col_names, cols_by_name).
         """
+        inputs = None if inputs is None else [fold_identifier(name) for name in inputs]
+        uploadfile_inputs = None if uploadfile_inputs is None else [fold_identifier(name) for name in uploadfile_inputs]
+        outputs = None if outputs is None else [fold_identifier(name) for name in outputs]
+
         declared_path = _route_table_path(target)
         verb = 'insert into' if route_type == 'insert' else route_type
         kind = _path_kind(declared_path)

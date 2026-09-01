@@ -20,6 +20,7 @@ from pyarrow.parquet import ParquetDataset
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable.catalog import fold_identifier, fold_mapping_keys
 from pixeltable.io.pandas import _df_check_primary_key_values, _df_row_to_pxt_row, df_infer_schema
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.pydantic import is_json_convertible
@@ -161,17 +162,23 @@ class TableDataConduit:
 
     # Check source columns : required, computed, unknown
     def check_source_columns_are_insertable(self, columns: Iterable[str]) -> None:
-        col_name_set: set[str] = set()
+        mapped_col_to_original_col: dict[str, str] = {}
         for col_name in columns:  # FIXME
-            mapped_col_name = self.source_column_map.get(col_name, col_name)
-            col_name_set.add(mapped_col_name)
+            mapped_col_name = fold_identifier(self.source_column_map.get(col_name, col_name))
+            if mapped_col_name in mapped_col_to_original_col:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Pixeltable column names are case-insensitive; columns '
+                    f'{mapped_col_to_original_col[mapped_col_name]!r} and {col_name!r} are the same',
+                )
+            mapped_col_to_original_col[mapped_col_name] = col_name
             if mapped_col_name not in self.pxt_schema:
                 raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column name {mapped_col_name}')
             if mapped_col_name in self.computed_col_names:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Value for computed column {mapped_col_name}'
                 )
-        missing_cols = self.reqd_col_names - col_name_set
+        missing_cols = self.reqd_col_names - mapped_col_to_original_col.keys()
         if len(missing_cols) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.MISSING_REQUIRED, f'Missing required column(s) ({", ".join(missing_cols)})'
@@ -255,34 +262,32 @@ class RowDataTableDataConduit(TableDataConduit):
         if not isinstance(row, dict):
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'row {row} is not a dictionary')
 
-        col_names: set[str] = set()
         output_row: dict[str, Any] = {}
-        for col_name, val in row.items():
-            mapped_col_name = self.source_column_map.get(col_name, col_name)
-            col_names.add(mapped_col_name)
-            if mapped_col_name not in self.pxt_schema:
+        folded_input_row = fold_mapping_keys(row)
+        missing_cols = self.reqd_col_names - folded_input_row.keys()
+        if len(missing_cols) > 0:
+            raise excs.RequestError(
+                excs.ErrorCode.MISSING_REQUIRED, f'Missing required column(s) ({", ".join(missing_cols)}) in row {row}'
+            )
+        for col_name, val in folded_input_row.items():
+            if col_name not in self.pxt_schema:
                 raise excs.NotFoundError(
-                    excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column name {mapped_col_name} in row {row}'
+                    excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column name {col_name} in row {row}'
                 )
-            if mapped_col_name in self.computed_col_names:
+            if col_name in self.computed_col_names:
                 raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Value for computed column {mapped_col_name} in row {row}'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Value for computed column {col_name} in row {row}'
                 )
             # basic sanity checks here
             try:
-                checked_val = self.pxt_schema[mapped_col_name].create_literal(val)
+                checked_val = self.pxt_schema[col_name].create_literal(val)
             except TypeError as e:
                 msg = str(e)
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Error in column {col_name}: {msg[0].lower() + msg[1:]}\nRow: {row}',
                 ) from e
-            output_row[mapped_col_name] = checked_val
-        missing_cols = self.reqd_col_names - col_names
-        if len(missing_cols) > 0:
-            raise excs.RequestError(
-                excs.ErrorCode.MISSING_REQUIRED, f'Missing required column(s) ({", ".join(missing_cols)}) in row {row}'
-            )
+            output_row[col_name] = checked_val
         return output_row
 
     def valid_row_batch(self) -> Iterator[RowData]:
@@ -683,8 +688,11 @@ class HFTableDataConduit(TableDataConduit):
             # we assemble per-row dicts by from lists of per-column values
             rows: list[dict[str, Any]] = [{} for _ in range(chunk_size)]
             if self.column_name_for_split is not None:
+                mapped_split_col_name = self.source_column_map.get(
+                    self.column_name_for_split, self.column_name_for_split
+                )
                 for row in rows:
-                    row[self.column_name_for_split] = split_name
+                    row[mapped_split_col_name] = split_name
 
             for col_idx, col_name in enumerate(batch.schema.names):
                 feature = features[col_name]
@@ -780,11 +788,12 @@ class PydanticTableDataConduit(TableDataConduit):
                 # mode='python' (the default) keeps datetimes/dates as native objects and renders nested models
                 # as dicts, so that coercing each cell below yields the same values as the equivalent dict input
                 # (e.g. naive timestamps get localized to the session time zone, rather than left as ISO strings).
-                raw_row = row.model_dump()
+                dumped_row = row.model_dump()
             except pydantic_core.PydanticSerializationError as e:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Row {i}: error serializing pydantic model:\n{e}'
                 ) from e
+            raw_row = fold_mapping_keys(dumped_row)
             # explicitly check that all required columns are present and non-None in the rows,
             # because we ignore nullability when validating the pydantic model
             for col_name in sorted_reqd_cols:
@@ -824,7 +833,8 @@ class PydanticTableDataConduit(TableDataConduit):
         """
         assert isinstance(model, type) and issubclass(model, pydantic.BaseModel)
 
-        model_field_names = set(model.model_fields.keys())
+        model_fields = fold_mapping_keys(model.model_fields)
+        model_field_names = set(model_fields.keys())
 
         missing_required = self.reqd_col_names - model_field_names
         if missing_required:
@@ -852,7 +862,7 @@ class PydanticTableDataConduit(TableDataConduit):
             )
         for field_name in sorted(common_fields):
             pxt_col_type = self.pxt_schema[field_name]
-            model_type = model.model_fields[field_name].annotation
+            model_type = model_fields[field_name].annotation
 
             # we ignore nullability: we want to accept optional model fields for required table columns, as long as
             # the model instances provide a non-null value
