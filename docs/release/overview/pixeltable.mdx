@@ -35,13 +35,27 @@ An annotation (`title`) is a stored column. An assignment (`title_upper`) is com
 
 <Steps>
   <Step title="Apply">
-    `pxt schema update app.py my_app` creates the tables. It does not start HTTP.
+    ```bash
+    pxt schema update app.py my_app
+    ```
+
+    Creates the tables. It does not start HTTP.
   </Step>
   <Step title="Insert">
-    POST `/docs` or `t.insert(...)`. `title_upper` is computed. Indexes stay current.
+    ```python
+    t = pxt.get_table('my_app.docs')
+    t.insert([{'title': 'Hello', 'body': 'world'}])
+    ```
+
+    `title_upper` is computed. Indexes stay current.
   </Step>
   <Step title="Serve">
-    `pxt service update app.py my_app` starts HTTP from the same file. `pxt service list` prints the URL.
+    ```bash
+    pxt service update app.py my_app
+    pxt service list
+    ```
+
+    Starts HTTP from the same file. The port is assigned.
   </Step>
 </Steps>
 
