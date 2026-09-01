@@ -25,7 +25,7 @@
 [**llms-full.txt**](https://docs.pixeltable.com/llms-full.txt) |
 [**Discord**](https://discord.gg/QPyqFYx2UN)
 
-## Make building multimodal AI data apps dead simple
+## Make Building Multimodal AI Data Apps Dead Simple
 
 **Pixeltable is the unified multimodal backend for AI data apps in one Python file.** Store media, run models, index embeddings, and serve HTTP from `app.py`. Insert a row. Computed columns run. Indexes stay current. You do not glue together a blob store, a vector database, an orchestrator, and handlers.
 
