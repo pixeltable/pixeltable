@@ -14,7 +14,7 @@ from typing_extensions import TypeForm
 
 from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
-from pixeltable.catalog.globals import OnErrorParam
+from pixeltable.catalog.globals import OnErrorParam, fold_identifier
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, RowDataTableDataConduit, TableDataConduit
@@ -238,13 +238,14 @@ def create_table(
     # mapping and report the same errors
     schema = catalog.normalize_schema(schema)
 
-    # fold the primary_key parameter into the schema
+    # apply the primary_key parameter to the schema
     for pk_col in primary_key or []:
-        if pk_col not in schema:
+        folded_pk_col = fold_identifier(pk_col)
+        if folded_pk_col not in schema:
             raise excs.NotFoundError(
                 excs.ErrorCode.COLUMN_NOT_FOUND, f'Primary key column {pk_col!r} not found in table schema.'
             )
-        schema[pk_col] = {**schema[pk_col], 'primary_key': True}
+        schema[folded_pk_col] = {**schema[folded_pk_col], 'primary_key': True}
 
     tbl, was_created = (
         get_runtime()
@@ -406,17 +407,15 @@ def create_view(
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
 
-    if additional_columns is None:
-        additional_columns = {}
-    else:
-        # additional columns should not be in the base table
-        base_col_names = {cvmd.name for cvmd in tbl_path.column_md()}
-        for col_name in additional_columns:
-            if col_name in base_col_names:
-                raise excs.AlreadyExistsError(
-                    excs.ErrorCode.COLUMN_ALREADY_EXISTS,
-                    f'Column {col_name!r} already exists in the base table {tbl_path.tbl_name()!r}.',
-                )
+    additional_columns = catalog.normalize_schema(additional_columns or {})
+    # additional columns should not be in the base table
+    base_col_names = {col_md.name for col_md in tbl_path.column_md()}
+    shadowed = next((name for name in additional_columns if name in base_col_names), None)
+    if shadowed is not None:
+        raise excs.AlreadyExistsError(
+            excs.ErrorCode.COLUMN_ALREADY_EXISTS,
+            f'Column {shadowed!r} already exists in the base table {tbl_path.tbl_name()!r}.',
+        )
 
     if iterator is not None and not isinstance(iterator, func.GeneratingFunctionCall):
         raise excs.RequestError(
@@ -432,10 +431,6 @@ def create_view(
         json.dumps(custom_metadata)
     except (TypeError, ValueError) as err:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
-
-    # canonicalize/validate the additional columns once here, so both local and delegated catalogs receive the same
-    # mapping and report the same errors
-    additional_columns = catalog.normalize_schema(additional_columns)
 
     view, was_created = (
         get_runtime()
@@ -632,11 +627,11 @@ def move(
     if if_exists_ not in (catalog.IfExistsParam.ERROR, catalog.IfExistsParam.IGNORE):
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "`if_exists` must be one of 'error' or 'ignore'")
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    if path == new_path:
+    path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
+    if path_obj == new_path_obj:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): source and destination cannot be identical'
         )
-    path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
     if path_obj.catalog_uri != new_path_obj.catalog_uri:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,

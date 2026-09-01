@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs
-from pixeltable.catalog import Path as CatalogPath, model
+from pixeltable.catalog import Path as CatalogPath, fold_identifier, model
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.utils.app_module import (
@@ -149,6 +149,7 @@ def get_table_data(
         query = query.where(error_predicate)
 
     if order_by is not None:
+        order_by = fold_identifier(order_by)
         # only sort by columns with a B-tree index; other columns would force a full sort
         order_col = next((c for c in columns if c['name'] == order_by), None)
         if order_col is not None and order_col['is_sorted']:

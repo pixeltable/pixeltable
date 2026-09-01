@@ -16,7 +16,7 @@ from uuid import UUID
 import pandas as pd
 
 from pixeltable import catalog, exceptions as excs, exprs, type_system as ts
-from pixeltable.catalog import is_valid_identifier
+from pixeltable.catalog import fold_identifier, is_valid_identifier
 from pixeltable.query_clauses import FromClause, JoinClause, JoinType, SampleClause
 from pixeltable.runtime import get_runtime
 from pixeltable.type_system import ColumnType
@@ -117,7 +117,8 @@ class QueryBase(ABC):
         for i, (expr, name) in enumerate(select_list):
             if name is None:
                 # use default, add suffix if needed so default adds no duplicates
-                default_name = expr.default_column_name()
+                raw_default_name = expr.default_column_name()
+                default_name = None if raw_default_name is None else fold_identifier(raw_default_name)
                 if default_name is not None:
                     column_name = default_name
                     if default_name in seen_out_names:
@@ -406,7 +407,7 @@ class QueryBase(ABC):
         for name, _ in named_items.items():
             if not isinstance(name, str) or not is_valid_identifier(name):
                 raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'Invalid name: {name}')
-        base_list = [(expr, None) for expr in items] + [(expr, k) for (k, expr) in named_items.items()]
+        base_list = [(expr, None) for expr in items] + [(expr, fold_identifier(k)) for (k, expr) in named_items.items()]
         if len(base_list) == 0:
             return self
 

@@ -9,7 +9,7 @@ from uuid import UUID
 from pixeltable import catalog, exprs
 from pixeltable.types import ColumnSpec
 
-from ..globals import col_type_from_spec
+from ..globals import col_type_from_spec, fold_mapping_keys
 from ..table_metadata import ColumnMetadata, TableMetadata
 
 if TYPE_CHECKING:
@@ -192,7 +192,8 @@ class _TableProperties:
 
 
 def user_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
-    """The model's declared columns, plus any its base query projects via a `select()` clause."""
+    """The model's declared columns, plus any its base query projects via a `select()` clause. Keyed by folded column
+    name."""
     specs: dict[str, ColumnSpec] = dict(model.__columns__)
     base = model.__table_spec__['base']
     if base is not None and base.select_list is not None:
@@ -203,7 +204,7 @@ def user_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
                 specs[expr.default_column_name()] = {'value': expr, 'stored': False}
             else:
                 specs[col_name] = {'value': expr, 'stored': not expr.is_column_ref}
-    return specs
+    return fold_mapping_keys(specs)
 
 
 def base_query_columns(model: TableModelMeta) -> set[str]:

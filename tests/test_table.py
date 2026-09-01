@@ -4436,6 +4436,109 @@ class TestTable:
                 {'c': {'type': pxt.Int | None, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
 
+    def test_case_insensitive_columns(self, db_root: DatabaseRoot) -> None:
+        """Column names are matched case-insensitively, and the folded spelling is what gets stored."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('T'), {'MyCol': pxt.Int | None, 'Other': pxt.String}, primary_key=['OTHER'])
+
+        # stored and displayed folded
+        assert t.columns() == ['mycol', 'other']
+        assert set(t.get_metadata()['columns'].keys()) == {'mycol', 'other'}
+
+        # every lookup form resolves
+        _ = t.mycol, t.MyCol, t['MYCOL']  # raise AttributeError if the name does not resolve
+
+        t.insert([{'MYCOL': 1, 'other': 'a'}])
+        assert t.select(t.MyCol).collect()['mycol'] == [1]
+        t.update({'MyCol': 2})
+        assert t.select(t.mycol).collect()['mycol'] == [2]
+        t.batch_update([{'MYCOL': 3, 'OTHER': 'a'}])
+        assert t.select(t.mycol).collect()['mycol'] == [3]
+
+        t.add_computed_column(Doubled=t.MyCol * 2)
+        assert 'doubled' in t.columns()
+        t.recompute_columns('DOUBLED')
+        t.drop_column('DOUBLED')
+        assert 'doubled' not in t.columns()
+
+        # inserted rows don't need to agree on the column spelling
+        t.insert([{'MyCol': 10, 'OTHER': 'b'}, {'other': 'c'}])
+        rows = t.order_by(t.OTHER).collect()
+        assert [(r['mycol'], r['other']) for r in rows] == [(3, 'a'), (10, 'b'), (None, 'c')]
+
+        # a case-only rename does nothing
+        version_before = t.get_metadata()['version']
+        t.rename_column('mycol', 'MYCOL')
+        assert t.columns() == ['mycol', 'other']
+        assert t.get_metadata()['version'] == version_before
+
+        # the table itself resolves under any casing
+        assert pxt.get_table(p('t')) == pxt.get_table(p('T'))
+
+        # alter_column resolves its column in any casing
+        t2 = pxt.create_table(p('t2'), {'Num': pxt.Int})
+        t2.alter_column('NUM', type_=pxt.Int | None)
+        validate_update_status(t2.insert([{'num': None}]), 1)
+
+        # a pydantic model's field names are matched like a dict row's keys
+        class Row(pydantic.BaseModel):
+            MYCOL: int
+            other: str
+
+        validate_update_status(t.insert([Row(MYCOL=20, other='d')]), 1)
+        assert t.where(t.OTHER == 'd').collect()['mycol'] == [20]
+
+    def test_case_insensitive_column_name_resolution(self, db_root: DatabaseRoot) -> None:
+        """Names that fold onto each other, or onto a reserved name, are rejected."""
+        p = db_root.make_catalog_path
+
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match=r'Column names are case-insensitive'):
+            pxt.create_table(p('bad'), {'a': pxt.Int | None, 'A': pxt.String | None})
+
+        t = pxt.create_table(p('t'), {'c': pxt.Int | None})
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match=r'Column names are case-insensitive'):
+            t.add_columns({'a': pxt.Int | None, 'A': pxt.String | None})
+
+        # a folded collision with an existing column is an error
+        t.add_column(mycol=pxt.Int | None)
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: mycol'):
+            t.add_column(MyCol=pxt.String | None)
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: mycol'):
+            t.add_computed_column(MYCOL=t.c + 1)
+        t.add_column(MyCol=pxt.String | None, if_exists='ignore')
+        validate_update_status(t.insert([{'MYCOL': 7}]), 1)
+        t.add_column(MYCOL=pxt.String | None, if_exists='replace')
+        validate_update_status(t.insert([{'MYCOL': 'a string'}]), 1)
+
+        # insert and update
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='Column names are case-insensitive'):
+            t.insert([{'C': 1, 'c': 2}])
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='Column names are case-insensitive'):
+            t.update({'C': 1, 'c': 2})
+
+        # the reserved-name ban applies after folding
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            pxt.create_table(p('bad'), {'Count': pxt.Int | None})
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            t.add_columns({'Count': pxt.Int | None})
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            pxt.create_table(p('bad'), {'Class': pxt.Int | None})
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            t.rename_column('c', 'Count')
+        # a Python keyword is reserved in every casing, for index names as well as column names
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            t.rename_column('c', 'Class')
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            t.add_btree_index('c', idx_name='Class')
+        assert 'c' in t.columns()
+
+        class AmbiguousRow(pydantic.BaseModel):
+            C: int
+            c: int
+
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='Column names are case-insensitive'):
+            t.insert([AmbiguousRow(C=1, c=2)])
+
     @pytest.mark.db_roots('local', reason="Operational table feature, doesn't need to run with proxy")
     def test_unsupported_operational_tbl_ops(self, uses_db: None) -> None:
         operational_tbl = pxt.create_table('t0', {'n': pxt.Int | None}, _is_data_versioned=False)
