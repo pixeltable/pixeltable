@@ -148,11 +148,9 @@ def is_valid_identifier(name: str, *, allow_hyphens: bool = False) -> bool:
     """Identifiers are restricted to ASCII characters: on ASCII, str.lower(), str.casefold() and SQL LOWER() all behave
     in the same way.
     """
-    if not name.isascii():
-        return False
     # If allow_hyphens=True, we allow hyphens to appear in the name, but we still do not permit a name to start with one
     adj_name = name.replace('-', '_') if allow_hyphens else name
-    return adj_name.isidentifier() and not name.startswith('-') and not name.startswith('_')
+    return adj_name.isidentifier() and name.isascii() and not name.startswith('-') and not name.startswith('_')
 
 
 def is_system_column_name(name: str) -> bool:
