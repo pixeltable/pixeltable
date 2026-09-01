@@ -1054,10 +1054,11 @@ class TestFastAPI:
         schemas = spec['components']['schemas']
 
         # routes present
-        # note: Starlette's `:path` converter is normalized away in OpenAPI: the route registered
-        # as /_pxt/media/{path:path} appears as /_pxt/media/{path}.
-        for route_path in ('/json', '/upload', '/file', '/bg', '/_pxt/jobs/{job_id}', '/_pxt/media/{path}'):
+        for route_path in ('/json', '/upload', '/file', '/bg'):
             assert route_path in paths, f'missing {route_path} from openapi paths: {list(paths)}'
+        # the routes Pixeltable serves itself are excluded from the document, so a reader sees only
+        # the application's own paths
+        assert not any(path.startswith('/_pxt/') for path in paths), sorted(paths)
 
         def deref(schema_or_ref: dict[str, Any]) -> dict[str, Any]:
             """
@@ -1119,22 +1120,6 @@ class TestFastAPI:
         assert 'BackgroundJobResponse' in schemas
         bg_model = schemas['BackgroundJobResponse']
         assert set(bg_model['properties'].keys()) == {'id', 'job_url'}
-
-        # /_pxt/jobs/{job_id}: GET returns JobStatusResponse
-        jobs_op = paths['/_pxt/jobs/{job_id}']['get']
-        jobs_resp = jobs_op['responses']['200']['content']['application/json']['schema']
-        assert jobs_resp.get('$ref', '').endswith('/JobStatusResponse'), jobs_resp
-        assert 'JobStatusResponse' in schemas
-        job_status = schemas['JobStatusResponse']
-        assert set(job_status['properties'].keys()) == {'status', 'error', 'result'}
-        # path parameter is declared
-        p0 = jobs_op['parameters'][0]
-        assert p0['name'] == 'job_id' and p0['in'] == 'path'
-
-        # /_pxt/media/{path}: path parameter declared
-        media_op = paths['/_pxt/media/{path}']['get']
-        p0 = media_op['parameters'][0]
-        assert p0['name'] == 'path' and p0['in'] == 'path'
 
     def test_add_query_route_scalars(self, db_root: DatabaseRoot) -> None:
         """Multi-column scalar query route, plus retrieval_udf flavor and registration errors."""

@@ -83,15 +83,7 @@ class TestFastAPIModels:
 
         # the routes are fully described before the table exists
         schema = client.get('/openapi.json').json()
-        assert sorted(path for path in schema['paths'] if not path.startswith('/_pxt/media')) == [
-            '/_pxt/jobs/{job_id}',
-            '/comp',
-            '/del',
-            '/ins',
-            '/thumb-file',
-            '/thumb-json',
-            '/upd',
-        ]
+        assert sorted(schema['paths']) == ['/comp', '/del', '/ins', '/thumb-file', '/thumb-json', '/upd']
 
         TableModel.create_all(p(''))
         router.bind(p(''))
