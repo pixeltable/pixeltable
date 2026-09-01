@@ -302,15 +302,6 @@ class LocalTable(Table):
         FileCache.get().emit_eviction_warnings()
         return result
 
-    def _get_base_tables(self) -> list['Table']:
-        """The ancestor list of bases of this table, starting with its immediate base. Requires a transaction context"""
-        bases: list[Table] = []
-        base = self._get_base_table()
-        while base is not None:
-            bases.append(base)
-            base = base._get_base_table()
-        return bases
-
     @property
     @abc.abstractmethod
     def _effective_base_versions(self) -> list[int | None]:
@@ -319,8 +310,9 @@ class LocalTable(Table):
     def _is_data_versioned(self) -> bool:
         return self._tbl_version_path.is_data_versioned()
 
-    def _get_comment(self) -> str:
-        return self._tbl_version_path.comment()
+    def _get_column_exprs(self) -> dict[str, 'exprs.Expr | None']:
+        # cols_by_name is ordered by column id, which guarantees that references point backward
+        return {name: col.value_expr for name, col in self._tbl_version.get().cols_by_name.items()}
 
     def _get_custom_metadata(self) -> Any:
         return self._tbl_version_path.custom_metadata()

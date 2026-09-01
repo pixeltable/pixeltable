@@ -164,6 +164,20 @@ class TableProxy(Table):
     def __getitem__(self, name: str) -> 'exprs.ColumnRef':
         return getattr(self, name)
 
+    def _get_column_exprs(self) -> dict[str, 'exprs.Expr | None']:
+        from pixeltable import exprs
+
+        path = self._tbl_path
+        own_col_md = [col_md for col_md in path.column_md() if col_md.qcolid.tbl_id == path.tbl_id]
+        # sort by column id, so that each value expression references only columns that precede it
+        own_col_md.sort(key=lambda col_md: col_md.id)
+        result: dict[str, exprs.Expr | None] = {}
+        for col_md in own_col_md:
+            value_expr_dict = col_md.schema_col.value_expr
+            # deserialize against path, which covers the base columns a value expression can reference
+            result[col_md.name] = None if value_expr_dict is None else exprs.Expr.from_dict(value_expr_dict, path)
+        return result
+
     def list_views(self, *, recursive: bool = True) -> list[str]:
         return self._dispatch('list_views', self._dispatch_args(locals()))
 

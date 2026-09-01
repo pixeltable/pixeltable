@@ -1791,7 +1791,7 @@ class TestFunction:
         v.add_column(in5=pxt.Json | None)
         v.add_computed_column(out5=(v.out1 + v.in3 + v.in5.number))
 
-        vv = pxt.create_view('test_subview', v, comment='This is an example table comment.')
+        vv = pxt.create_view(p('test_subview'), v, comment='This is an example table comment.')
         vv.add_column(in6=pxt.Json | None)
         vv.add_computed_column(out6=(vv.out5 + v.out1 + t.in3 + vv.in6.number))
 

@@ -12,7 +12,7 @@ import pixeltable.type_system as ts
 
 from ..runtime import get_runtime
 from .data_row import DataRow
-from .expr import Expr
+from .expr import Expr, ExprDeserCtx
 from .literal import Literal
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
@@ -190,13 +190,11 @@ class SimilarityExpr(Expr):
         }
 
     @classmethod
-    def _from_dict(
-        cls, d: dict, components: list[Expr], tbl_versions: dict[UUID, catalog.TableVersion] | None = None
-    ) -> 'SimilarityExpr':
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_ctx: ExprDeserCtx = None) -> 'SimilarityExpr':
         tvk_from_dict = catalog.TableVersionKey.from_dict(d['table_version_key'])
-        if tbl_versions is not None:
+        if isinstance(tbl_ctx, dict):
             # Ignore table version key from the dict, retarget to the provided table version instead
-            table_version_key = tbl_versions[tvk_from_dict.tbl_id].key
+            table_version_key = tbl_ctx[tvk_from_dict.tbl_id].key
         else:
             table_version_key = tvk_from_dict
         idx_name = d.get('idx_name')

@@ -78,7 +78,7 @@ class InlineArray(Expr):
         return super()._as_dict()
 
     @classmethod
-    def _from_dict(cls, _: dict, components: list[Expr], tbl_versions: Any = None) -> InlineArray:
+    def _from_dict(cls, _: dict, components: list[Expr], tbl_ctx: Any = None) -> InlineArray:
         try:
             return cls(components)
         except excs.Error:
@@ -127,7 +127,7 @@ class InlineList(Expr):
         return super()._as_dict()
 
     @classmethod
-    def _from_dict(cls, _: dict, components: list[Expr], tbl_versions: Any = None) -> InlineList:
+    def _from_dict(cls, _: dict, components: list[Expr], tbl_ctx: Any = None) -> InlineList:
         return cls(components)
 
     def as_literal(self) -> Literal | None:
@@ -196,7 +196,7 @@ class InlineDict(Expr):
         return {'keys': self.keys, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> InlineDict:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_ctx: Any = None) -> InlineDict:
         assert 'keys' in d
         assert len(d['keys']) == len(components)
         arg = dict(zip(d['keys'], components))

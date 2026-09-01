@@ -28,13 +28,15 @@ class ViewProxy(TableProxy):
         return 'snapshot' if self._tbl_md_path.is_snapshot() else 'view'
 
     def _get_base_table(self) -> Table | None:
-        # TODO: implement
-        raise NotImplementedError()
-        return None
-        # base = self._tbl_md_path.base
-        # if base is None:
-        #     return None
-        # return ViewProxy(base, self._client)
+        from .insertable_table_proxy import InsertableTableProxy
+
+        base = self._tbl_md_path.base
+        if base is None:
+            return None
+        if not base.is_view():
+            return InsertableTableProxy(base.tbl_id, base, self._client)
+        # a base pinned at a version is reached as an anonymous snapshot of that version
+        return ViewProxy(base.tbl_id, base.effective_version() is not None, base, self._client)
 
     def insert(
         self,

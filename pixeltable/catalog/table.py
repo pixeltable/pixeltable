@@ -199,6 +199,26 @@ class Table(SchemaObject):
     def _get_base_table(self) -> 'Table' | None:
         """The base's Table instance. Requires a transaction context"""
 
+    def _get_comment(self) -> str | None:
+        return self._tbl_path.comment()
+
+    @abc.abstractmethod
+    def _get_column_exprs(self) -> dict[str, 'exprs.Expr | None']:
+        """The value expressions of this table's own columns, keyed by column name.
+
+        Excludes columns inherited from a base, and maps a non-computed column to None. Ordered so that each
+        expression references only columns that precede it. Requires a transaction context.
+        """
+
+    def _get_base_tables(self) -> list['Table']:
+        """The ancestor list of bases of this table, starting with its immediate base. Requires a transaction context"""
+        bases: list[Table] = []
+        base = self._get_base_table()
+        while base is not None:
+            bases.append(base)
+            base = base._get_base_table()
+        return bases
+
     @abc.abstractmethod
     def describe(self) -> None:
         """
