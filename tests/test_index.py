@@ -1134,8 +1134,17 @@ class TestIndex:
         for ie in ('error', 'ignore'):
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not a B-tree index'):
                 t.add_btree_index('id', idx_name='emb_idx', if_exists=ie)
+        # index names are case-insensitive
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not a B-tree index'):
+            t.add_btree_index('id', idx_name='Emb_Idx')
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not an embedding index'):
             t.add_embedding_index('name', idx_name='name_idx2', string_embed=local_embed, if_exists='ignore')
+
+        # an index added under a mixed-case name is stored, and reachable, under the folded one
+        t.add_btree_index('extra', idx_name='Extra_Idx')
+        assert 'extra_idx' in btree_idxs(t)
+        t.drop_index(idx_name='EXTRA_IDX')
+        assert 'extra_idx' not in btree_idxs(t)
 
         # drop by name and by column
         t.drop_index(idx_name='name_idx2')

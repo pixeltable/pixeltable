@@ -777,7 +777,7 @@ class LocalTable(Table):
             tv = self._tbl_version.get()
             col = self._resolve_column_parameter(column)
 
-            existing_idx_by_name = tv.idxs_by_name.get(idx_name) if idx_name is not None else None
+            existing_idx_by_name = tv.get_idx_by_name(idx_name) if idx_name is not None else None
             if existing_idx_by_name is not None and not isinstance(existing_idx_by_name.idx, index.BtreeIndex):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -843,7 +843,7 @@ class LocalTable(Table):
                         return
                     assert if_exists_ in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
                     self.drop_index(idx_name=idx_name)
-                    assert idx_name not in self._tbl_version.get().idxs_by_name
+                    assert self._tbl_version.get().get_idx_by_name(idx_name) is None
 
             from pixeltable.index import EmbeddingIndex
 
