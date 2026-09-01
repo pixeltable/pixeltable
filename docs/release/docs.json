@@ -19,7 +19,8 @@
             "pages": [
               "overview/pixeltable",
               "overview/quick-start",
-              "overview/how-it-works"
+              "overview/how-it-works",
+              "overview/from-your-stack"
             ]
           },
           {
@@ -35,7 +36,6 @@
           {
             "group": "How to",
             "pages": [
-              "howto/coming-from",
               "platform/configuration",
               {
                 "group": "Self-hosting",
@@ -449,28 +449,20 @@
   },
   "redirects": [
     {
-      "source": "/overview/from-your-stack",
-      "destination": "/howto/coming-from"
-    },
-    {
-      "source": "/migrate",
-      "destination": "/howto/coming-from"
-    },
-    {
       "source": "/migrate/from-diy-data-pipeline",
-      "destination": "/howto/coming-from#scripts-and-airflow"
+      "destination": "/overview/from-your-stack"
     },
     {
       "source": "/migrate/from-rdbms-vectordbs",
-      "destination": "/howto/coming-from#pinecone-and-milvus"
+      "destination": "/overview/from-your-stack"
     },
     {
       "source": "/migrate/from-agent-frameworks",
-      "destination": "/howto/coming-from#langgraph"
+      "destination": "/overview/from-your-stack"
     },
     {
       "source": "/migrate/from-hand-written-endpoints",
-      "destination": "/howto/deployment/serving"
+      "destination": "/overview/from-your-stack"
     },
     {
       "source": "/platform/tables",
@@ -819,6 +811,10 @@
     {
       "source": "/overview/python-sdk",
       "destination": "/sdk/latest/pixeltable"
+    },
+    {
+      "source": "/resources/ai-skills",
+      "destination": "/overview/building-pixeltable-with-llms"
     }
   ]
 }

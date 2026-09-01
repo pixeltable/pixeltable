@@ -1,32 +1,43 @@
 ---
 title: 'Deploy to Pixeltable Cloud'
 sidebarTitle: 'Deploy to Pixeltable Cloud'
-description: 'pxt schema update app.py pxt://org:db. Secrets with pxt secret set. pxt service stays local.'
+description: 'Same application file against a hosted database'
 ---
 
-Create a hosted database. Apply the same [Quickstart](/overview/quick-start) file to a `pxt://` URI.
+The [Quickstart](/overview/quick-start) file is the Cloud file. Create a hosted database, then apply it to a `pxt://` URI.
 
-<Tip>
-`PIXELTABLE_API_KEY` is required. Set it in the environment or in `config.toml`. See [Configuration](/platform/configuration).
-</Tip>
+`PIXELTABLE_API_KEY` is required. Set it in the environment or in `config.toml`. [Configuration](/platform/configuration).
 
 ```bash
 pxt db create pxt://org:mydb
-pxt secret set pxt://org OPENAI_API_KEY=sk-...
 pxt schema update app.py pxt://org:mydb
 ```
 
-Then `t = pxt.get_table('pxt://org:mydb/docs')`. `pxt schema update` creates the tables on the hosted catalog. It does not start HTTP.
+Then `t = pxt.get_table('pxt://org:mydb/docs')`.
 
-<Warning>
-`pxt service` binds to the **local** catalog. A `pxt://` target is refused. Browse and insert from the [dashboard](https://www.pixeltable.com); [recipes](https://www.pixeltable.com/recipes) run hosted insert APIs.
-</Warning>
+```python
+from __future__ import annotations
 
-## Hosted catalog
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+from pixeltable.serving import FastAPIRouter
 
-Provider keys for hosted compute: `pxt secret set`, then `pxt db stop` / `pxt db start` or `pxt db update-runtime` so the running database picks them up.
+TableModel = pxt.model_base()
 
-Built-ins and provider functions in `app.py` apply on Cloud. A `@pxt.udf` or custom iterator defined only in a local file does not. Put it in the project packaged by `pxt db update-runtime`.
+
+class Docs(TableModel, name='docs'):
+    title: pxt.String
+    body: pxt.String | None
+    title_upper = pxtf.string.upper(title)
+
+
+ingest = FastAPIRouter(name='ingest')
+ingest.add_insert_route(
+    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.title, Docs.title_upper]
+)
+```
+
+`pxt schema update` creates the tables on the hosted catalog. It does not start HTTP. `pxt service` binds to the **local** catalog. A `pxt://` target is refused.
 
 ## Media on the home bucket
 
@@ -41,7 +52,7 @@ class Images(TableModel, name='images'):
     )
 ```
 
-Or set `output_media_dest` as the default for computed media. Details: [Cloud storage](/integrations/cloud-storage).
+Or set `output_media_dest` as the default for computed media. Details: [Cloud storage](/integrations/cloud-storage#pixeltable-cloud-home-bucket).
 
 ## Local vs Cloud
 

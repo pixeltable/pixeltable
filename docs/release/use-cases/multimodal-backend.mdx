@@ -190,7 +190,7 @@ Add multimodal intelligence to applications with two deployment patterns.
       <Step title="Built-in HTTP Serving">
         Expose tables and queries as HTTP endpoints from the file that declares them
 
-        [`pxt service`](/howto/deployment/serving), [`FastAPIRouter`](/howto/deployment/serving#quickstart-python)
+        [`pxt service`](/howto/deployment/serving), [`FastAPIRouter`](/howto/deployment/serving)
 
         ```python
         # app.py
@@ -223,7 +223,6 @@ Add multimodal intelligence to applications with two deployment patterns.
         ```
 
         ```bash
-        pxt init                             # writes the project configuration here
         pxt schema update app.py my_dir      # create the tables the models declare
         pxt service update app.py my_dir     # serve the routes over them
         ```

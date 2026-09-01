@@ -1,77 +1,51 @@
 ---
 title: 'Why Pixeltable?'
-description: 'The unified multimodal backend for AI data apps. Database, orchestration, and serving in one application file.'
-icon: 'table'
+description: 'One application file is the catalog, the transforms, and the HTTP'
 ---
 
-Pixeltable is the unified multimodal backend for AI data apps in **one application file** (`app.py`). You process media, run models, and serve the result without assembling a blob store, a vector database, an orchestrator, and glue.
+Pixeltable is the multimodal backend for an AI app. Tables, computed columns, indexes, and HTTP live in **one Python file**. You apply that file locally. The same file applies against [Pixeltable Cloud](/howto/deployment/cloud).
 
-Insert a row. Computed columns run. Indexes stay current.
+Most stacks glue a blob store, a warehouse, a vector database, an orchestrator, and custom endpoints. Those pieces drift. Pixeltable is that backend as columns on a table. Insert a row. Transforms run. Indexes stay current. There is no sync job to keep a second system honest.
 
-```python
-import pixeltable as pxt
-import pixeltable.functions as pxtf
-from pixeltable.serving import FastAPIRouter
-
-TableModel = pxt.model_base()
-
-
-class Docs(TableModel, name='docs'):
-    title: pxt.String
-    body: pxt.String | None
-    title_upper = pxtf.string.upper(title)
-
-
-ingest = FastAPIRouter(name='ingest')
-ingest.add_insert_route(
-    Docs,
-    path='/docs',
-    inputs=[Docs.title, Docs.body],
-    outputs=[Docs.title, Docs.title_upper],
-)
-```
-
-An annotation (`title`) is a stored column. An assignment (`title_upper`) is computed on insert.
-
-<Steps>
-  <Step title="Declare">
-    ```bash
-    pxt schema update app.py my_app
-    ```
-
-    Creates the tables `app.py` declares. It does not start HTTP.
-  </Step>
-  <Step title="Insert">
-    ```python
-    t = pxt.get_table('my_app.docs')
-    t.insert([{'title': 'Hello', 'body': 'world'}])
-    ```
-
-    Assigned columns run. Indexes stay current.
-  </Step>
-  <Step title="Serve">
-    ```bash
-    pxt service update app.py my_app
-    pxt service list
-    ```
-
-    Starts HTTP from the same file. The port is assigned.
-  </Step>
-</Steps>
-
-First run: [Quickstart](/overview/quick-start). `diff` / `update` / `prune`: [How it works](/overview/how-it-works). Same file on a hosted catalog: [Cloud](/howto/deployment/cloud).
-
-Pinecone, Postgres, and LangGraph map onto columns in that file. [Migrate](/howto/coming-from).
-
-**Apps vs notebooks.** To ship an app, put tables in a Python file and apply it. In a notebook or a test you can create tables as you go. Same catalog either way; the file is what you keep.
-
-## Start here
-
-<CardGroup cols={2}>
+<CardGroup cols={3}>
   <Card title="Quickstart" icon="bolt" href="/overview/quick-start">
-    Write the file, apply it, hit the insert endpoint.
+    Write the file, apply it, POST an insert.
   </Card>
   <Card title="How it works" icon="layer-group" href="/overview/how-it-works">
-    `diff`, `update`, and `prune` make a target match the file.
+    Schema, service, and database. `diff` / `update` / `prune`.
+  </Card>
+  <Card title="Cloud" icon="cloud" href="/howto/deployment/cloud">
+    Same file against `pxt://org:db`.
+  </Card>
+</CardGroup>
+
+## What you declare
+
+A `TableModel` is a table. An annotation (`title: pxt.String`) is a stored column — the value you insert. An assignment (`title_upper = ...`) is a computed column. It runs on insert and on update. An embedding index lives on the model, so new rows are searchable without a separate vector database. A `FastAPIRouter` in the same file is the HTTP surface: insert a row, get computed output.
+
+You do not have to serve HTTP. Apply the file, insert from Python, export, exit. Views, UDFs, versioning, and import/export are in the [User Guide](/platform/type-system).
+
+Notebooks and tests can still call `pxt.create_table()`. An application's contract is the file.
+
+## What this replaces
+
+- **One catalog** for images, video, audio, documents, and ordinary columns
+- **Transforms as columns** — incremental, not a pipeline you re-run
+- **Indexes that follow the data** — embeddings stay in sync with the rows
+- **HTTP from the same file** — or nothing listening
+
+Coming from Pinecone, LangChain, or hand-rolled FastAPI? See [From your stack](/overview/from-your-stack).
+
+## Built for
+
+<CardGroup cols={3}>
+  <Card title="Multimodal backend" icon="microchip-ai" href="/use-cases/multimodal-backend">
+    RAG, search, and live APIs over images, video, and documents.
+  </Card>
+  <Card title="Agents" icon="robot" href="/use-cases/agentic-workflows">
+    Tool calls and memory as columns. Restart does not drop the trace.
+  </Card>
+  <Card title="Media pipelines" icon="photo-film" href="/use-cases/media-processing">
+    Frames, transcripts, and embeddings as rows, not a separate job.
   </Card>
 </CardGroup>
