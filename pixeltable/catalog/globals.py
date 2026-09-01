@@ -3,8 +3,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 import itertools
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Mapping, NamedTuple, TypeVar, cast
 
 from typing_extensions import TypeForm
 
