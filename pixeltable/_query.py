@@ -27,7 +27,7 @@ import PIL.Image
 import pydantic
 import sqlalchemy.exc as sql_exc
 
-from pixeltable import catalog, exceptions as excs, exec, exprs
+from pixeltable import catalog, exceptions as excs, exec, exprs, telemetry, telemetry_schemas
 from pixeltable._query_base import QueryBase
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.env import Env
@@ -283,8 +283,21 @@ class ResultCursor(Iterable[Row]):
             self.open()
         assert self._row_iterator is not None
         try:
-            for data in self._row_iterator:
-                yield Row(data, self._columns, self._schema)
+            with telemetry.span(
+                'pixeltable.result_cursor.yield_rows',
+                set_current=True,
+                **telemetry_schemas.QueryAttrs(tables=self._query._tbl_names()),
+            ) as yield_span:
+                num_rows = 0
+                try:
+                    for data in self._row_iterator:
+                        num_rows += 1
+                        yield Row(data, self._columns, self._schema)
+                except GeneratorExit:
+                    pass
+                finally:
+                    # also on early consumer exit, where the row count is the partial one
+                    telemetry.add_attrs(yield_span, rows=num_rows)
         finally:
             self.close()
 
@@ -503,6 +516,7 @@ class Query(QueryBase):
         assert n is not None
         return self.limit(n).collect()
 
+    @telemetry.spanned('pixeltable.head', set_current=True)
     def head(self, n: int = 10) -> ResultSet:
         """Return the first n rows of the Query, in insertion order of the underlying Table.
 
@@ -518,7 +532,9 @@ class Query(QueryBase):
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
-        return self._head(n)
+        result = self._head(n)
+        self._record_query_attrs(len(result))
+        return result
 
     def _head(self, n: int = 10, *, media_as_urls: bool = False) -> ResultSet:
         if self.order_by_clause is not None:
@@ -536,6 +552,7 @@ class Query(QueryBase):
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n)._collect(media_as_urls=media_as_urls)
 
+    @telemetry.spanned('pixeltable.tail', set_current=True)
     def tail(self, n: int = 10) -> ResultSet:
         """Return the last n rows of the Query, in insertion order of the underlying Table.
 
@@ -551,7 +568,9 @@ class Query(QueryBase):
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
-        return self._tail(n)
+        result = self._tail(n)
+        self._record_query_attrs(len(result))
+        return result
 
     def _tail(self, n: int = 10, *, media_as_urls: bool = False) -> ResultSet:
         if self.order_by_clause is not None:
@@ -606,8 +625,18 @@ class Query(QueryBase):
                 get_runtime().catalog.convert_sql_exc(e, tbl_id=single_tbl)
                 raise  # just re-raise if not converted to a Pixeltable error
 
+    def _tbl_names(self) -> list[str]:
+        return [tbl.tbl_name() for tbl in self._from_clause.tbls]
+
+    def _record_query_attrs(self, rows: int) -> None:
+        """Attach the query's identifying attrs to the enclosing query span (collect/head/tail/count)."""
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.QueryAttrs(tables=self._tbl_names(), rows=rows))
+
+    @telemetry.spanned('pixeltable.collect', set_current=True)
     def collect(self) -> ResultSet:
-        return self._collect()
+        result = self._collect()
+        self._record_query_attrs(len(result))
+        return result
 
     _ProxyMethodNames = Literal['collect', 'head', 'tail']
 
@@ -663,6 +692,7 @@ class Query(QueryBase):
             get_runtime().catalog.convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
             raise  # just re-raise if not converted to a Pixeltable error
 
+    @telemetry.spanned('pixeltable.count', set_current=True)
     def count(self) -> int:
         """Return the number of rows in the Query.
 
@@ -685,7 +715,9 @@ class Query(QueryBase):
 
             cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
             assert isinstance(cat, CatalogProxy)
-            return cat.client.run_query('count', self.as_dict())
+            num_rows = cat.client.run_query('count', self.as_dict())
+            self._record_query_attrs(num_rows)
+            return num_rows
 
         count_query = Query(
             from_clause=self._from_clause,
@@ -708,9 +740,12 @@ class Query(QueryBase):
 
         result = count_query.collect()
         if is_grouped:
-            return len(result)
-        assert len(result) == 1
-        return int(result[0, 'count'])
+            num_rows = len(result)
+        else:
+            assert len(result) == 1
+            num_rows = int(result[0, 'count'])
+        self._record_query_attrs(num_rows)
+        return num_rows
 
     def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus:
         """Update rows in the underlying table of the Query.

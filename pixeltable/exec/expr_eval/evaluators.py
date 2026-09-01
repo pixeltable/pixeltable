@@ -6,9 +6,10 @@ import datetime
 import itertools
 import logging
 import sys
+import time
 from typing import Any, Callable, Iterator, cast
 
-from pixeltable import exceptions as excs, exprs, func, telemetry
+from pixeltable import exceptions as excs, exprs, func, telemetry, telemetry_schemas
 
 from .globals import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
 
@@ -115,6 +116,7 @@ class FnCallEvaluator(Evaluator):
             level=telemetry.DEBUG,
             parent=row.span,
             set_current=telemetry.current_span() is not None,
+            **telemetry_schemas.UdfCallAttrs(column=self.dispatcher.col_names.get(self.fn_call.slot_idx)),
         )
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
@@ -204,6 +206,7 @@ class FnCallEvaluator(Evaluator):
 
     async def eval_batch(self, batched_call_args: FnCallArgs) -> None:
         result_batch: list[Any]
+        start = time.perf_counter()
         try:
             # Batched calls process many rows in one invocation, so they can't nest under a single row
             # span. Make the batch span current only when an operation span is active.
@@ -211,7 +214,9 @@ class FnCallEvaluator(Evaluator):
                 f'pixeltable.udf.{self.fn.display_name}',
                 level=telemetry.DEBUG,
                 set_current=telemetry.current_span() is not None,
-                batch_size=len(batched_call_args.rows),
+                **telemetry_schemas.UdfCallAttrs(
+                    column=self.dispatcher.col_names.get(self.fn_call.slot_idx), batch_size=len(batched_call_args.rows)
+                ),
             ):
                 if self.fn.is_async:
                     result_batch = await self.fn.aexec_batch(
@@ -229,6 +234,8 @@ class FnCallEvaluator(Evaluator):
             self.dispatcher.dispatch_exc(batched_call_args.rows, self.fn_call.slot_idx, exc_tb, self.eval_ctx)
             return
 
+        telemetry_schemas.udf_calls.add(1, udf=self.fn.display_name)
+        telemetry_schemas.udf_latency.record(time.perf_counter() - start, udf=self.fn.display_name)
         for i, row in enumerate(batched_call_args.rows):
             row[self.fn_call.slot_idx] = result_batch[i]
         self.dispatcher.dispatch(batched_call_args.rows, self.eval_ctx)
@@ -241,8 +248,11 @@ class FnCallEvaluator(Evaluator):
         try:
             start_ts = datetime.datetime.now()
             _logger.debug(f'Start evaluating slot {self.fn_call.slot_idx}')
+            start = time.perf_counter()
             with self._cell_span(call_args.row):
                 call_args.row[self.fn_call.slot_idx] = await self.fn.aexec(*call_args.args, **call_args.kwargs)
+            telemetry_schemas.udf_calls.add(1, udf=self.fn.display_name)
+            telemetry_schemas.udf_latency.record(time.perf_counter() - start, udf=self.fn.display_name)
             end_ts = datetime.datetime.now()
             _logger.debug(f'Evaluated slot {self.fn_call.slot_idx} in {end_ts - start_ts}')
             self.dispatcher.dispatch([call_args.row], self.eval_ctx)
@@ -261,8 +271,12 @@ class FnCallEvaluator(Evaluator):
             if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
                 return
             try:
+                start = time.perf_counter()
                 with self._cell_span(item.row):
                     item.row[self.fn_call.slot_idx] = self.scalar_py_fn(*item.args, **item.kwargs)
+                fn_name = self.fn.display_name
+                telemetry_schemas.udf_calls.add(1, udf=fn_name)
+                telemetry_schemas.udf_latency.record(time.perf_counter() - start, udf=fn_name)
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
                 item.row.set_exc(self.fn_call.slot_idx, exc)
