@@ -4,21 +4,9 @@ description: 'The unified multimodal backend for AI data apps. Database, orchest
 icon: 'table'
 ---
 
-Pixeltable is the unified multimodal backend for AI data apps: the database, orchestration, and serving layers in **one application file** (`app.py`). You process media, run models, and serve the result without assembling a blob store, a vector database, an orchestrator, and glue.
+Pixeltable is the unified multimodal backend for AI data apps in **one application file** (`app.py`). You process media, run models, and serve the result without assembling a blob store, a vector database, an orchestrator, and glue.
 
 Insert a row. Computed columns run. Indexes stay current.
-
-<Columns cols={3}>
-  <Card title="Store" icon="database">
-    `pxt schema update` creates the tables `app.py` declares. Images, video, audio, documents, and structured columns live in one catalog.
-  </Card>
-  <Card title="Transform" icon="bolt">
-    Assigned columns run on insert. Embedding indexes update. No extra queue or cache to keep in sync.
-  </Card>
-  <Card title="Serve" icon="globe">
-    `pxt service update` starts HTTP from the same file. `pxt service list` prints the URL.
-  </Card>
-</Columns>
 
 ```python
 import pixeltable as pxt
@@ -43,7 +31,21 @@ ingest.add_insert_route(
 )
 ```
 
-[Quickstart](/overview/quick-start) is the first run. Schema, database, and services: [How it works](/overview/how-it-works). Same file on a hosted catalog: [Cloud](/howto/deployment/cloud).
+An annotation (`title`) is a stored column. An assignment (`title_upper`) is computed on insert.
+
+<Steps>
+  <Step title="Apply">
+    `pxt schema update app.py my_app` creates the tables. It does not start HTTP.
+  </Step>
+  <Step title="Insert">
+    POST `/docs` or `t.insert(...)`. `title_upper` is computed. Indexes stay current.
+  </Step>
+  <Step title="Serve">
+    `pxt service update app.py my_app` starts HTTP from the same file. `pxt service list` prints the URL.
+  </Step>
+</Steps>
+
+First run: [Quickstart](/overview/quick-start). `diff` / `update` / `prune`: [How it works](/overview/how-it-works). Same file on a hosted catalog: [Cloud](/howto/deployment/cloud).
 
 Pinecone, Postgres, and LangGraph map onto columns in that file. [Migrate](/howto/coming-from).
 
