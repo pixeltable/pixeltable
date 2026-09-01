@@ -39,8 +39,7 @@ from typing_extensions import TypeForm
 
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
-from pixeltable.catalog import model
-from pixeltable.catalog.globals import fold_identifier
+from pixeltable.catalog import fold_identifier, model
 from pixeltable.catalog.model.query import ModelQuery
 from pixeltable.config import Config
 from pixeltable.env import Env

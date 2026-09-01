@@ -31,7 +31,7 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.catalog.globals import fold_identifier
+from pixeltable.catalog import fold_identifier
 from pixeltable.config import Config
 from pixeltable.env import Env, validate_db_name
 from pixeltable.runtime import get_runtime, reset_runtime
