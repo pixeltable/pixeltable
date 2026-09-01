@@ -34,12 +34,12 @@ ingest.add_insert_route(
 An annotation (`title`) is a stored column. An assignment (`title_upper`) is computed on insert.
 
 <Steps>
-  <Step title="Apply">
+  <Step title="Declare">
     ```bash
     pxt schema update app.py my_app
     ```
 
-    Creates the tables. It does not start HTTP.
+    Creates the tables `app.py` declares. It does not start HTTP.
   </Step>
   <Step title="Insert">
     ```python
@@ -47,7 +47,7 @@ An annotation (`title`) is a stored column. An assignment (`title_upper`) is com
     t.insert([{'title': 'Hello', 'body': 'world'}])
     ```
 
-    `title_upper` is computed. Indexes stay current.
+    Assigned columns run. Indexes stay current.
   </Step>
   <Step title="Serve">
     ```bash

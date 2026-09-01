@@ -29,12 +29,12 @@
 
 **Pixeltable is the unified multimodal backend for AI data apps in one Python file.** Store media, run models, index embeddings, and serve HTTP from `app.py`. Insert a row. Computed columns run. Indexes stay current. You do not glue together a blob store, a vector database, an orchestrator, and handlers.
 
-| Store | Transform | Serve |
+| Declare | Insert | Serve |
 | --- | --- | --- |
 | `pxt schema update` | Insert a row | `pxt service update` |
 | Creates the tables `app.py` declares. Media and structured columns live together. | Assigned columns run. Indexes stay current. | Starts the `FastAPIRouter` services `app.py` declares. `pxt service list` prints the URL. |
 
-Apply first. `pxt schema update` does not start HTTP. `pxt service update` does not create tables. Hosted catalog: [Cloud](https://docs.pixeltable.com/howto/deployment/cloud) (`pxt db update` ships the project image; `pxt service` stays local).
+Declare first. `pxt schema update` does not start HTTP. `pxt service update` does not create tables. Hosted catalog: [Cloud](https://docs.pixeltable.com/howto/deployment/cloud) (`pxt db update` ships the project image; `pxt service` stays local).
 
 ## Insert a row, the rest follows
 

@@ -30,6 +30,7 @@ If two phrases produce the same practice, they are the same belief. Keep one.
 | Stored column vs computed column | annotation vs assignment |
 | Where tables live | catalog (local directory or `pxt://` URI) |
 | The HTTP process | service (`pxt service`) |
+| The loop | Declare, insert, serve |
 
 Do not write "schema file," "the file," and "application contract" as if they were three objects.
 
@@ -56,4 +57,4 @@ Prefer Mintlify components over a mermaid flowchart for three layers: `Columns` 
 
 - No em dashes (U+2014). Use a period, a colon, or a comma.
 - No Convex product nouns.
-- Pixeltable words: `TableModel`, Insert then Compute then Serve, catalog, same file.
+- Pixeltable words: `TableModel`, Declare then Insert then Serve, catalog, same file.
