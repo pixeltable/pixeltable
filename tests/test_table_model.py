@@ -2202,6 +2202,7 @@ class TestTableModel:
         with pxt_raises(
             excs.ErrorCode.INVALID_SCHEMA, match=r"'Id' is already defined by the base table; it cannot be redeclared."
         ):
+
             class CaseInsensitiveCollision(TableModel, name='test_view', base=ValidTableModel):
                 Id: pxt.Float | None
 
