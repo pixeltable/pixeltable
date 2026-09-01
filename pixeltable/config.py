@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -11,13 +10,16 @@ import threading
 import typing
 import warnings
 from pathlib import Path
-from typing import Any, ClassVar, Generic, Literal, Mapping, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
 
 import pydantic
 import toml
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
+
+if TYPE_CHECKING:
+    from pixeltable import catalog
 
 _logger = logging.getLogger(__name__)
 
@@ -29,32 +31,38 @@ ConfVarT = TypeVar('ConfVarT', bound=str)
 
 
 class DatabaseConfig(pydantic.BaseModel):
-    """One [[pixeltable.database]] entry: what a project supplies for one of the databases it uses."""
+    """The contents of a [[pixeltable.database]] entry from the project config."""
 
     model_config = pydantic.ConfigDict(extra='forbid')
 
-    # the database this entry configures: 'local', or the pxt://org:db uri of a hosted one
+    # the database name ('local', or the uri of a hosted one)
     name: str = 'local'
 
-    # bindings for the config vars and secrets a schema declares
+    # bindings for the config vars and secrets
     vars: dict[str, str] | None = None
     secrets: dict[str, str] | None = None
 
     # the rest applies to a hosted database, whose runtime image is built from the project
-    exclude: list[str] | None = None  # glob patterns to exclude from the bundle
+    exclude: list[str] | None = None  # glob patterns to exclude from the image
     include: list[str] | None = None  # glob patterns to explicitly include (overrides exclude or .gitignore)
-    include_only: list[str] | None = None  # glob patterns to include as the *only* files in the bundle
+    include_only: list[str] | None = None  # glob patterns to include as the *only* files in the image
     # (must be used independently of exclude/include)
     system_dependencies: list[str] | None = None
     python_version: str | None = None  # override the runtime Python version.
     uv_options: str | None = None  # extra options to pass to `uv sync` when building the runtime image
 
+    # hosted db resources
+    cpu: float | None = None
+    memory_mb: int | None = None
+    disk_gb: int | None = None
+    workers: int | None = None
+
     @pydantic.field_validator('system_dependencies')
     @classmethod
     def _check_system_dependencies(cls, v: list[str] | None) -> list[str] | None:
         # Each entry is a conda/micromamba MatchSpec installed from conda-forge. Resolvability can only be
-        # checked by conda at build time, so validate just the obvious mistakes here - before the bundle is
-        # built and shipped - leaving version-constraint operators (<,>,,) alone as they're valid MatchSpec.
+        # checked by conda at build time, so validate just the obvious mistakes here - before an image is
+        # built from them - leaving version-constraint operators (<,>,,) alone as they're valid MatchSpec.
         for spec in v or []:
             if not spec.strip():
                 raise ValueError('`system_dependencies` entries must be non-empty conda package specs')
@@ -87,6 +95,9 @@ _UNSPECIFIED = _Unspecified()
 PROJECT_CONFIG_FILE = 'pixeltable.toml'
 _PYPROJECT = 'pyproject.toml'  # with a [tool.pixeltable] section
 
+# both of them, for a caller that handles whichever the project holds
+PROJECT_CONFIG_FILES = (PROJECT_CONFIG_FILE, _PYPROJECT)
+
 
 def _find_project_root(start: Path) -> Path | None:
     """Find the nearest directory holding one of the recognized project config files."""
@@ -118,10 +129,6 @@ SECRET_SECTION = 'pixeltable.database.secrets'
 # shell-compatible (contains '.')
 VAR_ENV_PREFIX = 'PIXELTABLE_VAR_'
 SECRET_ENV_PREFIX = 'PIXELTABLE_SECRET_'
-
-
-def value_fingerprint(value: str) -> str:
-    return hashlib.sha256(value.encode('utf-8')).hexdigest()[:12]
 
 
 # config var names are lowercase; the env var name is the name uppercased
@@ -656,6 +663,14 @@ class Config:
             return default
         return os.environ[env_var]
 
+    def get_database_config(self, db_uri: catalog.Path) -> DatabaseConfig | None:
+        """The [[pixeltable.database]] entry for the given path, if present."""
+        db_name = LOCAL_DATABASE if db_uri.is_local else db_uri.catalog_uri.uri_str
+        databases = self.get_value('database', list)
+        if databases is None:
+            return None
+        return next((db for db in databases if db.name == db_name), None)
+
     def __database_bindings(self, section: str) -> dict[str, tuple[str, Path | None]]:
         """Return the local database's vars or secrets, each with the file that supplied it.
 
@@ -826,31 +841,19 @@ class Config:
             node = entry[0] if isinstance(entry, tuple) else entry
         return list(node) if isinstance(node, dict) else []
 
-    def env_fingerprint(self) -> dict[str, str]:
-        """Fingerprints of the values of env-settable settings, as {env var name: hash}."""
-        out: dict[str, str] = {}
-        for ck in self.env_keys():
-            value = self.get_value(ck.key, str, section=ck.section)
-            if value is not None and value != '':
-                out[env_var_name(ck.section, ck.key)] = value_fingerprint(value)
-        return out
-
-    def compare_env_values(self, other: Mapping[str, str], mine: Mapping[str, str]) -> tuple[list[str], list[str]]:
-        """Compare the env fingerprint other with mine, as produced by env_fingerprint().
-
-        Returns (set for other but not in mine, resolved differently in mine). A name this instance does not
-        read config from is ignored, so an unrelated variable in the other's environment does not count. A
-        value mine has and other does not is not a disagreement.
-        """
-        known = {env_var_name(ck.section, ck.key) for ck in self.env_keys()}
-        relevant = {
-            name: h
-            for name, h in other.items()
-            if name.startswith((VAR_ENV_PREFIX, SECRET_ENV_PREFIX)) or name in known
-        }
-        missing = sorted(name for name in relevant if name not in mine)
-        differing = sorted(name for name, h in relevant.items() if name in mine and mine[name] != h)
-        return missing, differing
+    def describe_setting(self, section: str, key: str) -> str:
+        """A printable description of a setting, incl. its source."""
+        source = self.get_value_source(key, section)
+        if source == 'env':
+            return f'{env_var_name(section, key)} in the environment'
+        if source == 'unset':
+            return f'{section}.{key}, no longer set'
+        ck = next((ck for ck in self.config_keys() if (ck.section, ck.key) == (section, key)), None)
+        # a pyproject.toml holds Pixeltable's settings under [tool], and an array of tables is written [[ ]]
+        name = f'tool.{section}.{key}' if source.name == 'pyproject.toml' else f'{section}.{key}'
+        if ck is not None and typing.get_origin(ck.expected_type) is list:
+            name = f'[[{name}]]'
+        return f'{name} in {source}'
 
 
 KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
@@ -878,6 +881,11 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
             'One entry per database the project uses: variable and secret bindings, and for a hosted '
             'database the contents of its runtime image',
             list[DatabaseConfig],
+        ),
+        'db_pool_size': ('Number of database connections the engine keeps open (default: 5)', int),
+        'db_pool_max_overflow': (
+            'Number of temporary database connections the engine may open beyond `db_pool_size` (default: 10)',
+            int,
         ),
         'daemon_host': 'Listen address for the proxy daemon in fixed-address mode (e.g. 0.0.0.0)',
         'daemon_port': ('Listen port for the proxy daemon in fixed-address mode (e.g. 8000)', int),
@@ -957,7 +965,18 @@ _FILE_ONLY_KEYS = frozenset({'file_cache_size_g', 'file_cache_lease_s'})
 
 # settings that configure the installation rather than one project, so a project config file may not set them
 _INSTALLATION_KEYS = frozenset(
-    {'home', 'config', 'pgdata', 'db', 'file_cache_size_g', 'file_cache_lease_s', 'daemon_host', 'daemon_port'}
+    {
+        'home',
+        'config',
+        'pgdata',
+        'db',
+        'file_cache_size_g',
+        'file_cache_lease_s',
+        'daemon_host',
+        'daemon_port',
+        'db_pool_size',
+        'db_pool_max_overflow',
+    }
 )
 
 # the settings pxt.init() accepts, ie. the ones a single process may set

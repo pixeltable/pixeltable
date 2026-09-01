@@ -5,9 +5,9 @@
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+from apps.udfs import dummy_embedding
 from pixeltable import EmbeddingIndex
 from pixeltable.serving import FastAPIRouter
-from tests.utils import dummy_embedding
 
 TableModel = pxt.model_base()
 
@@ -24,7 +24,7 @@ class Chunks(
 ):
     """One row per sentence of an article, with an index over the text the iterator produces."""
 
-    __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=32), name='chunk_ix')]  # type: ignore[name-defined]
+    __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding, name='chunk_ix')]  # type: ignore[name-defined]
 
 
 @pxt.query

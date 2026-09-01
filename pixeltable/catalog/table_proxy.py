@@ -180,10 +180,10 @@ class TableProxy(Table):
 
     def __repr__(self) -> str:
         # send the uri as a string: proxy_protocol drops org/db from wire Paths, which is exactly what describe needs
-        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri})['str']
+        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri_str})['str']
 
     def _repr_html_(self) -> str:
-        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri})['html']
+        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri_str})['html']
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset': ...
 

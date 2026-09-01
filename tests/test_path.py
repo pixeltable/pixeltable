@@ -75,7 +75,7 @@ class TestPath:
         local = Path.parse('a.b')
         assert local.org is None
         assert local.db is None
-        assert local.uri == ''
+        assert local.uri_str == ''
         assert local.catalog_uri == Path()
 
     def test_hosted_path_parse(self) -> None:
@@ -84,7 +84,7 @@ class TestPath:
         assert hosted.org == 'customer'
         assert hosted.db == 'main'
         assert hosted.components == ('dir', 'tbl')
-        assert hosted.uri == 'pxt://customer:main'
+        assert hosted.uri_str == 'pxt://customer:main'
         assert hosted.catalog_uri == Path(org='customer', db='main')
         assert str(hosted) == 'pxt://customer:main/dir/tbl'
 
@@ -101,7 +101,7 @@ class TestPath:
         no_db = Path.parse('pxt://customer/tbl')
         assert no_db.org == 'customer'
         assert no_db.db is None
-        assert no_db.uri == 'pxt://customer'
+        assert no_db.uri_str == 'pxt://customer'
 
         # A Pixeltable web URL normalizes to the same parse as its pxt:// form.
         assert Path.parse('https://pixeltable.com/t/customer:main/dir/tbl') == Path.parse('pxt://customer:main/dir/tbl')
@@ -155,7 +155,7 @@ class TestPath:
         # Hyphenated org/db names are accepted.
         hosted = Path.parse('pxt://my-org:my-db/tbl')
         assert (hosted.org, hosted.db) == ('my-org', 'my-db')
-        assert Path.from_components(('tbl',), org='my-org', db='my-db').uri == 'pxt://my-org:my-db'
+        assert Path.from_components(('tbl',), org='my-org', db='my-db').uri_str == 'pxt://my-org:my-db'
 
     def test_hosted_path_navigation(self) -> None:
         # Navigation preserves the catalog (org/db) and drops the version.

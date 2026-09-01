@@ -5,6 +5,7 @@
 import os
 import pathlib
 import textwrap
+from typing import Any
 
 import numpy as np
 import pytest
@@ -14,6 +15,7 @@ import pixeltable.functions as pxtf
 from pixeltable import exceptions as excs
 from pixeltable.catalog.model import BtreeIndex, Column, EmbeddingIndex
 from pixeltable.config import Config
+from pixeltable_cli.types import TableDiff
 
 from .utils import (
     DatabaseRoot,
@@ -31,6 +33,30 @@ from .utils import (
     validate_repr,
     validate_update_status,
 )
+
+
+def as_dict(diff: TableDiff) -> dict[str, Any]:
+    """The diff as a dict, including the model-side and catalog-side operands serialization excludes."""
+    return {
+        'path': diff.path,
+        'model_cls': diff.model_cls,
+        'kind': diff.kind,
+        'exists': diff.exists,
+        'resolution': diff.resolution,
+        'ops': [
+            {
+                'target': op.target,
+                'name': op.name,
+                'op': op.op,
+                'severity': op.severity,
+                'model': op.model,
+                'existing': op.existing,
+                'description': op.description,
+                'details': op.details.model_dump(exclude_none=True),
+            }
+            for op in diff.ops
+        ],
+    }
 
 
 @pxt.udf
@@ -485,10 +511,10 @@ class TestTableModel:
             extra: pxt.Int | None
 
         diff = TableModelV2.get_model_diff(root)['defaults_table']
-        assert diff['resolution'] == 'update_additive'
+        assert diff.resolution == 'update_additive'
         TableModelV2.update_all(root)
         assert set(btree_idxs(tbl_with_defaults).values()) == {'id', 'name', 'extra'}
-        assert TableModelV2.get_model_diff(root)['defaults_table']['resolution'] == 'up_to_date'
+        assert TableModelV2.get_model_diff(root)['defaults_table'].resolution == 'up_to_date'
 
         # has_default_idxs can't be changed
         TableModelV3 = pxt.model_base()
@@ -504,8 +530,8 @@ class TestTableModel:
             id: pxt.Int
             name: pxt.String | None
 
-        assert TableModelV3.get_model_diff(root)['defaults_table']['resolution'] == 'unsupported'
-        assert TableModelV3.get_model_diff(root)['no_defaults_table']['resolution'] == 'unsupported'
+        assert TableModelV3.get_model_diff(root)['defaults_table'].resolution == 'unsupported'
+        assert TableModelV3.get_model_diff(root)['no_defaults_table'].resolution == 'unsupported'
         with capture_console_output(
             match=r'the following table properties have changed \(FATAL\):\n'
             r'\s*has_default_idxs: model=False, existing=True'
@@ -538,8 +564,8 @@ class TestTableModel:
             id: pxt.Int
 
         diff = TableModelV2.get_model_diff(root)
-        assert diff['versioned']['resolution'] == 'unsupported'
-        assert diff['operational']['resolution'] == 'unsupported'
+        assert diff['versioned'].resolution == 'unsupported'
+        assert diff['operational'].resolution == 'unsupported'
         with capture_console_output(
             match=r'the following table properties have changed \(FATAL\):\n'
             r'\s*is_data_versioned: model=False, existing=True'
@@ -1148,7 +1174,7 @@ class TestTableModel:
         TableModel.create_all(root)
 
         # Re-diffing the original models reports no differences (in particular, the view's iterator round-trips).
-        assert all(d['resolution'] == 'up_to_date' for d in TableModel.get_model_diff(root).values())
+        assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(root).values())
         with capture_console_output() as out:
             TableModel.diff_all(root)
         assert out.getvalue().strip() == 'Catalog is up to date.'
@@ -1273,18 +1299,15 @@ class TestTableModel:
         # every diff records the table it was computed against, so that an update can tell whether the catalog
         # moved underneath it; a model whose table doesn't exist yet has nothing to record
         for d in diffs.values():
-            if not d['exists']:
-                assert d['tbl_id'] is None and d['schema_versions'] is None
+            if not d.exists:
+                assert d.tbl_id is None and d.schema_versions is None
                 continue
-            md = pxt.get_table(d['path']).get_metadata()
-            assert d['tbl_id'] == md['id']
-            assert d['schema_versions'][md['id']] == md['schema_version']
+            md = pxt.get_table(d.path).get_metadata()
+            assert d.tbl_id == md['id']
+            assert d.schema_versions is not None and d.schema_versions[md['id']] == md['schema_version']
 
         # those two are the catalog's ids and versions, so they are checked above instead of spelled out below
-        without_identity = {
-            name: {k: v for k, v in d.items() if k not in ('tbl_id', 'schema_versions')} for name, d in diffs.items()
-        }
-        assert without_identity == {
+        assert {name: as_dict(d) for name, d in diffs.items()} == {
             'test_table': {
                 'path': p('test_table'),
                 'model_cls': 'ExampleTableV2',
@@ -2579,7 +2602,7 @@ class TestTableModel:
             Config.init(reinit=True)
             reload_catalog()
             diffs = TableModel.get_model_diff(p(''))
-            assert [d['resolution'] for d in diffs.values()] == ['up_to_date']
+            assert [d.resolution for d in diffs.values()] == ['up_to_date']
 
             # a name the target has no binding for reports itself
             with pxt_raises(excs.ErrorCode.MISSING_REQUIRED, match=r"'no_such_var' is not set"):

@@ -146,7 +146,7 @@ class Path:
         return Path(org=self.org, db=self.db)
 
     @property
-    def uri(self) -> str:
+    def uri_str(self) -> str:
         """The catalog this path lives in, as a URI string. Empty string for the in-process catalog."""
         if self.is_local:
             return ''
@@ -205,7 +205,7 @@ class Path:
             base = f'{base}:{self.version}'
         if self.org is None:
             return base
-        return self.uri if base == '' else f'{self.uri}/{base}'
+        return self.uri_str if base == '' else f'{self.uri_str}/{base}'
 
 
 ROOT_PATH = Path()

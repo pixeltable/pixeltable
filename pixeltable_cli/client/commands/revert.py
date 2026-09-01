@@ -1,8 +1,7 @@
 from pixeltable_cli import models
 
-from ..confirm import confirm_or_exit
 from ..parser import Parser
-from ..utils import post_request, validate_path_arg
+from ..utils import confirm_or_exit, post_request, validate_path_arg
 
 EPILOG = """\
 Examples:

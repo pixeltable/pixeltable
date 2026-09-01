@@ -39,6 +39,9 @@ class PxtResult:
 
     @property
     def json(self) -> Any:
+        if self.stdout.strip() == '':
+            # a command that failed wrote its reason to stderr, and parsing '' would discard it
+            raise AssertionError(f'pxt produced no output (rc={self.returncode}): {self.stderr.strip()}')
         return json.loads(self.stdout)
 
 
@@ -155,6 +158,9 @@ PxtRunner = Callable[..., PxtResult]
 
 _RUN_TIMEOUT_SECS = 300
 
+# an image build runs CodeBuild, which takes minutes
+_IMAGE_BUILD_TIMEOUT_SECS = 1800
+
 
 def _as_text(stream: bytes | str | None) -> str:
     """Normalize captured output: TimeoutExpired carries bytes even when the run was text=True."""
@@ -163,15 +169,57 @@ def _as_text(stream: bytes | str | None) -> str:
     return stream if isinstance(stream, str) else stream.decode(errors='replace')
 
 
+def _copy_app_corpus(session_project: pathlib.Path) -> pathlib.Path:
+    """Put the shared app corpus in the session's project, and return where it landed."""
+    directory = session_project / 'apps'
+    if not directory.exists():
+        shutil.copytree(pathlib.Path(__file__).parent / 'apps', directory, ignore=shutil.ignore_patterns('__pycache__'))
+    return directory
+
+
+@pytest.fixture(scope='session')
+def hosted_image(session_project: pathlib.Path) -> None:
+    """Build the hosted database's image from this session's project, once.
+
+    A hosted database runs the project its image was built from, so a udf a hosted table refers to has to
+    be in that image. A module a test writes for itself never is, which is what the db_roots markers on
+    those tests record.
+    """
+    db_uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
+    if db_uri is None:
+        return
+    _copy_app_corpus(session_project)
+    entry = f'[[pixeltable.database]]\nname = {json.dumps(db_uri)}\n'
+    (session_project / 'pixeltable.toml').write_text(entry, encoding='utf-8')
+    # Naming pixeltable installs its dependencies; the build then reinstalls pixeltable itself from the
+    # base image's wheel, so the pod runs this tree rather than the release named here.
+    # The sentence splitter loads en_core_web_sm and does not fetch it, so the project names it too.
+    requirements = (
+        'pixeltable\n'
+        'spacy\n'
+        'en_core_web_sm @ '
+        'https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl\n'
+    )
+    (session_project / 'requirements.txt').write_text(requirements, encoding='utf-8')
+    r = subprocess.run(
+        ['pxt', 'db', 'update', db_uri, '-f'],
+        cwd=session_project,
+        capture_output=True,
+        text=True,
+        timeout=_IMAGE_BUILD_TIMEOUT_SECS,
+        check=False,
+    )
+    if r.returncode != 0:
+        raise AssertionError(f'building the image for {db_uri} failed (rc={r.returncode}):\n{r.stderr}')
+
+
 @pytest.fixture
 def apps(session_project: pathlib.Path) -> Callable[[str], str]:
     """Returns a Callable that resolves the name of an app file in the shared app corpus to its path.
 
     The corpus needs to be copied into the session's project in order for cli commands to work.
     """
-    directory = session_project / 'apps'
-    if not directory.exists():
-        shutil.copytree(pathlib.Path(__file__).parent / 'apps', directory, ignore=shutil.ignore_patterns('__pycache__'))
+    directory = _copy_app_corpus(session_project)
 
     def _path(name: str) -> str:
         path = directory / name
@@ -252,6 +300,7 @@ def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -
         check: bool = True,
         cwd: str | os.PathLike[str] | None = None,
         env_overrides: dict[str, str | None] | None = None,
+        timeout: float = _RUN_TIMEOUT_SECS,
     ) -> PxtResult:
         # in the session's project, so that client and daemon agree on which project this is
         cwd = session_project if cwd is None else cwd
@@ -271,12 +320,12 @@ def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -
                 check=False,
                 stdin=subprocess.DEVNULL,
                 cwd=cwd,
-                timeout=_RUN_TIMEOUT_SECS,
+                timeout=timeout,
             )
         except subprocess.TimeoutExpired as exc:
             # subprocess.run has already killed the client; report whatever it managed to emit
             raise AssertionError(
-                f'{" ".join(("pxt", *args))} did not finish within {_RUN_TIMEOUT_SECS}s\n'
+                f'{" ".join(("pxt", *args))} did not finish within {timeout}s\n'
                 f'--- stdout ---\n{_as_text(exc.stdout)}\n'
                 f'--- stderr ---\n{_as_text(exc.stderr)}'
             ) from exc
