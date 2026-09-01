@@ -199,8 +199,6 @@ class MyIterator(ComponentIterator):
 Apps declare schema as a `TableModel` and apply it with `pxt schema update`. HTTP routes go in the same file on a `FastAPIRouter`. Tests, notebooks, and one-off REPL work still use `pxt.create_table()`.
 
 ```python
-from __future__ import annotations
-
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.serving import FastAPIRouter

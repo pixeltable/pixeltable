@@ -36,11 +36,9 @@ pxt schema update app.py my_app
 pxt service update app.py my_app
 ```
 
-`pxt service example` writes this file (`from __future__ import annotations` is required on Python 3.14+):
+`pxt service example` writes this file:
 
 ```python
-from __future__ import annotations  # required to declare a model on Python 3.14+
-
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.serving import FastAPIRouter

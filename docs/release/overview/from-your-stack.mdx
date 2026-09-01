@@ -17,8 +17,6 @@ Apply with `pxt schema update app.py my_app`, then `t = pxt.get_table('my_app.do
 Insert a document. Chunks, embeddings, and retrieval update. No Pinecone, no sync job.
 
 ```python
-from __future__ import annotations
-
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
@@ -63,8 +61,6 @@ def retrieve(question: str, top_k: int = 5):
 Insert a video. Frames (and anything you compute on them) appear as rows.
 
 ```python
-from __future__ import annotations
-
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
@@ -91,8 +87,6 @@ class Frames(
 Insert a message. Tool calls and the answer are columns. Restart does not drop the trace.
 
 ```python
-from __future__ import annotations
-
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
@@ -124,8 +118,6 @@ class Assistant(TableModel, name='assistant'):
 Declare a `FastAPIRouter` in the same file as the models. Apply the tables, then serve. `pxt service update` does not create tables.
 
 ```python
-from __future__ import annotations
-
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.serving import FastAPIRouter

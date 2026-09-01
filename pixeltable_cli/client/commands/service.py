@@ -34,8 +34,6 @@ A udf defined here is referenced by this file's path, so moving or renaming the 
 call it unable to compute.
 """
 
-from __future__ import annotations  # required to declare a model on Python 3.14+
-
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.serving import FastAPIRouter

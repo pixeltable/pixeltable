@@ -36,11 +36,9 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and HTTP rou
     pxt service example --out app.py
     ```
 
-    The shape is this (`from __future__ import annotations` is required on Python 3.14+). The command adds a UDF and a compute route; delete what you do not need.
+    The shape is this. The command adds a UDF and a compute route; delete what you do not need.
 
     ```python
-    from __future__ import annotations  # required to declare a model on Python 3.14+
-
     import pixeltable as pxt
     import pixeltable.functions as pxtf
     from pixeltable.serving import FastAPIRouter
