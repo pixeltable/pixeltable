@@ -293,8 +293,10 @@ class ResultCursor(Iterable[Row]):
                     for data in self._row_iterator:
                         num_rows += 1
                         yield Row(data, self._columns, self._schema)
+                except GeneratorExit:
+                    pass
                 finally:
-                    # also on early consumer exit (break/close), where the row count is the partial one
+                    # also on early consumer exit, where the row count is the partial one
                     telemetry.add_attrs(yield_span, rows=num_rows)
         finally:
             self.close()

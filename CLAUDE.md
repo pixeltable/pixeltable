@@ -311,7 +311,7 @@ Spans are written synchronously, so the file is complete even if the process cra
 - Services: run `pxt service run|update ... --otel` with `OTEL_SPAN_DUMP=/tmp/spans.jsonl` set (the
   service worker calls `pxt_otel.init()`, which resolves the variable).
 - Set `OTEL_SPAN_LEVEL=debug` (or `trace`) for per-row and per-UDF spans; the default `info` emits
-  operation-level spans only.
+  operation-level spans plus coarse internal work spans (transactions, SQL writes, data-source prep).
 - To also capture every SQL statement (with `db.statement`), call
   `pxt_otel._instrument_sqlalchemy(engine=pixeltable.env.Env.get().engine)` after `init()`; requires
   `pip install opentelemetry-instrumentation-sqlalchemy`.

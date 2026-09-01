@@ -370,7 +370,9 @@ class ExprEvalNode(ExecNode):
         # count only the root-errored cells; propagation to dependents happens below
         evaluator = exec_ctx.slot_evaluators.get(slot_with_exc)
         if isinstance(evaluator, FnCallEvaluator):
-            telemetry_schemas.udf_errors.add(len(rows), udf=evaluator.fn.display_name)
+            # a failed batched call arrives here once with the whole batch's rows, but is a single invocation
+            num_calls = 1 if evaluator.batch_size is not None else len(rows)
+            telemetry_schemas.udf_errors.add(num_calls, udf=evaluator.fn.display_name)
         tbl = self.row_builder.tbl
         telemetry_schemas.cells_errors.add(
             len(rows), table=tbl.name if tbl is not None else None, table_id=str(tbl.id) if tbl is not None else None

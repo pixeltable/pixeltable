@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 import pixeltable as pxt
-from pixeltable import env
+from pixeltable import env, telemetry_schemas
 from pixeltable.func import Batch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
@@ -67,7 +67,7 @@ def generate(
     import ollama
 
     client = _ollama_client() or ollama
-    return client.generate(
+    result = client.generate(
         model=model,
         prompt=prompt,
         suffix=suffix,
@@ -78,6 +78,9 @@ def generate(
         format=format,
         options=options,
     ).dict()  # type: ignore[call-overload]
+    # ollama reports token counts at the top level of the response, not in a nested usage dict
+    telemetry_schemas.record_token_usage('generate', result, 'prompt_eval_count', 'eval_count')
+    return result
 
 
 @pxt.udf(is_deterministic=False)
@@ -106,7 +109,9 @@ def chat(
     import ollama
 
     client = _ollama_client() or ollama
-    return client.chat(model=model, messages=messages, tools=tools, format=format, options=options).dict()  # type: ignore[call-overload]
+    result = client.chat(model=model, messages=messages, tools=tools, format=format, options=options).dict()  # type: ignore[call-overload]
+    telemetry_schemas.record_token_usage('chat', result, 'prompt_eval_count', 'eval_count')
+    return result
 
 
 @pxt.udf(batch_size=16)
