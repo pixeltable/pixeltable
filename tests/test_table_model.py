@@ -2175,6 +2175,13 @@ class TestTableModel:
             ):
                 tile = 5
 
+        # Also test shadowing by a column name that differs only in case.
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r"'Id' is already defined by the base table; it cannot be redeclared."
+        ):
+            class CaseInsensitiveCollision(TableModel, name='test_view', base=ValidTableModel):
+                Id: pxt.Float | None
+
         # a Table method that a query cannot provide raises AttributeError while the model is unbound
         with pytest.raises(AttributeError, match=r'is not yet bound to an actual table'):
             ValidTableModel.get_metadata()
@@ -2654,20 +2661,3 @@ class TestTableModel:
                     EmbeddingIndex(a, embedding=dummy_embedding.using(n=512), name='Idx'),
                     EmbeddingIndex(b, embedding=dummy_embedding.using(n=512), name='idx'),
                 ]
-
-    def test_model_case_insensitive_shadowing(self, db_root: DatabaseRoot) -> None:
-        """Shadowing of a base column is decided on the folded name."""
-        p = db_root.make_catalog_path
-        TableModel = pxt.model_base()
-
-        class T(TableModel, name='test_table'):
-            id: pxt.Int
-            value: pxt.Float | None
-
-        class V(TableModel, name='test_view', base=T):
-            Value: pxt.Float | None
-
-        with pxt_raises(
-            excs.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'value' already exists in the base table 'test_table'"
-        ):
-            TableModel.create_all(p(''))
