@@ -143,7 +143,7 @@ def start(db: str, test_mode: bool = False) -> str:
         **os.environ,
         'PIXELTABLE_HOME': str(proxy_home(db)),  # own media/tmp + port.lock
         'PIXELTABLE_PGDATA': pgdata,  # shared postmaster
-        # intentionally using as typed db name, without folding: Env has a fallback for legacy (case-sensitive)
+        # intentionally using the raw db name (without case-folding): Env has a fallback for legacy (case-sensitive)
         # database names.
         'PIXELTABLE_DB': db,  # own database
         'PIXELTABLE_PROXY_DAEMON': '1',  # mark this process as a proxy daemon instance
