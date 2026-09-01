@@ -1844,7 +1844,7 @@ class TestHostedDatabase:
                     self.secrets[request.key] = request.value
                 elif op == 'delete_secret':
                     del self.secrets[request.key]
-                elif op in ('update_runtime', 'set_project'):
+                elif op in ('build_image', 'set_archive'):
                     pass
                 elif op == 'create_db':
                     self.database = {
@@ -1902,7 +1902,7 @@ class TestHostedDatabase:
         plan = db.db_update('pxt://acme:main')
         # the archive is stored once, and the build runs from it
         assert [r.operation_type.value for r in api.sent if r.operation_type.value not in ('get_db', 'list_dbs')] == [
-            'update_runtime'
+            'build_image'
         ]
         assert uploaded == ['acme/main/project.tar.bz2']
         assert all(op.status == 'applied' for op in plan.ops)
@@ -1914,9 +1914,9 @@ class TestHostedDatabase:
         (tmp_path / 'uv.lock').write_text('version = 2\n')
 
         db.db_update('pxt://acme:main')
-        build = next(r for r in api.sent if r.operation_type.value == 'update_runtime')
+        build = next(r for r in api.sent if r.operation_type.value == 'build_image')
         entry = Config.get().get_database_config(PxtPath.parse('pxt://acme:main', allow_empty_path=True))
-        assert build.project_key == 'acme/main/project.tar.bz2'
+        assert build.archive_key == 'acme/main/project.tar.bz2'
         assert build.system_dependencies == ['ffmpeg']
         assert build.python_version == project_fingerprint(tmp_path, entry).python_version
         assert build.image_digest == project_fingerprint(tmp_path, entry).image_digest()

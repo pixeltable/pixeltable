@@ -20,16 +20,16 @@ from pixeltable.service.management_protocol import (
     CreateDbRequest,
     DeleteDbRequest,
     DeleteSecretRequest,
+    GetArchiveRequest,
+    GetArchiveResponse,
+    GetArchiveUploadUrlRequest,
+    GetArchiveUploadUrlResponse,
     GetDbRequest,
-    GetProjectRequest,
-    GetProjectResponse,
-    GetProjectUploadUrlRequest,
-    GetProjectUploadUrlResponse,
     ListDbRequest,
     ListSecretsRequest,
     ListSecretsResponse,
     ReportServiceInstanceRequest,
-    SetProjectRequest,
+    SetArchiveRequest,
     SetSecretRequest,
     UpdateDbRequest,
 )
@@ -241,8 +241,8 @@ def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | No
     different one would serve code nobody asked for.
     """
     db_path = _validated_db_uri(db_uri)
-    response = GetProjectResponse.model_validate(
-        management_client.api_call(GetProjectRequest(org=db_path.org, db=db_path.db))
+    response = GetArchiveResponse.model_validate(
+        management_client.api_call(GetArchiveRequest(org=db_path.org, db=db_path.db))
     )
     if expected_digest is not None and response.digest != expected_digest:
         raise excs.Error(
@@ -313,7 +313,7 @@ def report_instance_fingerprint(db_uri: str, service_name: str, base_path: str =
 def _publish_artifacts(config: DatabaseConfig, db_path: catalog.Path) -> None:
     """Store the project's archive and build the image the pods run.
 
-    TODO: call SET_PROJECT with the archive, once the control plane holds one apart from the image.
+    TODO: call SET_ARCHIVE with the archive, once the control plane holds one apart from the image.
     """
     fingerprint = project_fingerprint(_validated_project_root(), config)
     key = _upload_project_archive(config, db_path)
@@ -336,12 +336,12 @@ def _get_target_ops(plan: DbPlan, target: DbTarget) -> list[DbChangeOp]:
     return [op for op in plan.ops if op.target == target]
 
 
-def _build_image(db_path: catalog.Path, project_key: str, fingerprint: ProjectFingerprint) -> None:
+def _build_image(db_path: catalog.Path, archive_key: str, fingerprint: ProjectFingerprint) -> None:
     management_client.api_call(
         BuildImageRequest(
             org=db_path.org,
             db=db_path.db,
-            project_key=project_key,
+            archive_key=archive_key,
             image_digest=fingerprint.image_digest(),
             python_version=fingerprint.python_version,
             system_dependencies=fingerprint.system_dependencies,
@@ -359,11 +359,11 @@ def _build_image(db_path: catalog.Path, project_key: str, fingerprint: ProjectFi
         )
 
 
-# SCALED BACK: uncalled; the control plane has no SET_PROJECT operation
-def _set_project(db_path: catalog.Path, project_key: str, fingerprint: ProjectFingerprint) -> None:
+# SCALED BACK: uncalled; the control plane has no SET_ARCHIVE operation
+def _set_archive(db_path: catalog.Path, archive_key: str, fingerprint: ProjectFingerprint) -> None:
     """Point the database's pods at the stored archive, and wait for them to come back on it."""
     management_client.api_call(
-        SetProjectRequest(org=db_path.org, db=db_path.db, project_key=project_key, fingerprint=fingerprint)
+        SetArchiveRequest(org=db_path.org, db=db_path.db, archive_key=archive_key, fingerprint=fingerprint)
     )
     current = _await_db_settled(db_path)
     if current.state == 'FAILED':
@@ -494,11 +494,11 @@ def _upload_project_archive(config: DatabaseConfig, db_path: catalog.Path, *, sh
     """
     project_root = _validated_project_root()
     digest = project_fingerprint(project_root, config).archive_digest()
-    response = GetProjectUploadUrlResponse.model_validate(
-        management_client.api_call(GetProjectUploadUrlRequest(org=db_path.org, db=db_path.db, digest=digest))
+    response = GetArchiveUploadUrlResponse.model_validate(
+        management_client.api_call(GetArchiveUploadUrlRequest(org=db_path.org, db=db_path.db, digest=digest))
     )
     if response.presigned_url is None:
-        return response.project_key
+        return response.archive_key
 
     archive_path = create_project_archive(project_root, config, show_progress=show_progress)
     try:
@@ -516,4 +516,4 @@ def _upload_project_archive(config: DatabaseConfig, db_path: catalog.Path, *, sh
                     )
     finally:
         archive_path.unlink(missing_ok=True)
-    return response.project_key
+    return response.archive_key

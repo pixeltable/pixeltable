@@ -6,7 +6,7 @@ import re
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, field_validator
 
 from pixeltable.serving import ServiceInstanceRecord
 from pixeltable.utils.project import DepsType, ProjectFingerprint
@@ -14,7 +14,6 @@ from pixeltable_cli.types import ServiceSpec
 
 
 class ManagementOperationType(str, Enum):
-    # TODO: give these members the values their names say, once the control plane answers to them
     CREATE_DB = 'create_db'
     GET_DB = 'get_db'
     LIST_DBS = 'list_dbs'
@@ -32,10 +31,10 @@ class ManagementOperationType(str, Enum):
     START_DB = 'start_db'
     STOP_DB = 'stop_db'
     UPDATE_DB = 'update_db'
-    BUILD_IMAGE = 'update_runtime'
-    SET_PROJECT = 'set_project'
-    GET_PROJECT = 'get_project'
-    GET_PROJECT_UPLOAD_URL = 'get_bundle_upload_url'
+    BUILD_IMAGE = 'build_image'
+    SET_ARCHIVE = 'set_archive'
+    GET_ARCHIVE = 'get_archive'
+    GET_ARCHIVE_UPLOAD_URL = 'get_archive_upload_url'
 
     LIST_ORGS = 'list_orgs'
 
@@ -126,9 +125,7 @@ class BuildImageRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.BUILD_IMAGE] = ManagementOperationType.BUILD_IMAGE
     org: str | None = None
     db: str
-    # TODO: drop the alias once the control plane names this project_key
-    model_config = ConfigDict(populate_by_name=True)
-    project_key: str = Field(alias='bundle_s3_key')
+    archive_key: str
     # ProjectFingerprint.image_digest()
     image_digest: str
     python_version: str
@@ -140,36 +137,36 @@ class BuildImageRequest(BaseModel):
     pxt_md_version: int
 
 
-class SetProjectRequest(BaseModel):
+class SetArchiveRequest(BaseModel):
     """Point the database's pods at a stored project archive, restarting them to fetch it."""
 
-    operation_type: Literal[ManagementOperationType.SET_PROJECT] = ManagementOperationType.SET_PROJECT
+    operation_type: Literal[ManagementOperationType.SET_ARCHIVE] = ManagementOperationType.SET_ARCHIVE
     org: str | None = None
     db: str
-    project_key: str
+    archive_key: str
     # what the archive holds and the environment it runs in; GET_DB reports it back, and a diff compares
     # the project here against it
     fingerprint: ProjectFingerprint
 
 
-class GetProjectRequest(BaseModel):
+class GetArchiveRequest(BaseModel):
     """Ask for a url serving the database's current project archive; a pod sends this as it starts."""
 
-    operation_type: Literal[ManagementOperationType.GET_PROJECT] = ManagementOperationType.GET_PROJECT
+    operation_type: Literal[ManagementOperationType.GET_ARCHIVE] = ManagementOperationType.GET_ARCHIVE
     org: str | None = None
     db: str
 
 
-class GetProjectResponse(BaseModel):
+class GetArchiveResponse(BaseModel):
     presigned_url: str
-    project_key: str
+    archive_key: str
     # ProjectFingerprint.archive_digest() of the archive the url serves
     digest: str
 
 
-class GetProjectUploadUrlRequest(BaseModel):
-    operation_type: Literal[ManagementOperationType.GET_PROJECT_UPLOAD_URL] = (
-        ManagementOperationType.GET_PROJECT_UPLOAD_URL
+class GetArchiveUploadUrlRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.GET_ARCHIVE_UPLOAD_URL] = (
+        ManagementOperationType.GET_ARCHIVE_UPLOAD_URL
     )
     org: str | None = None
     db: str
@@ -177,10 +174,8 @@ class GetProjectUploadUrlRequest(BaseModel):
     digest: str
 
 
-class GetProjectUploadUrlResponse(BaseModel):
-    # TODO: drop the alias once the control plane names this project_key
-    model_config = ConfigDict(populate_by_name=True)
-    project_key: str = Field(alias='bundle_s3_key')
+class GetArchiveUploadUrlResponse(BaseModel):
+    archive_key: str
     # None when the digest names a stored archive: nothing left to upload
     presigned_url: str | None = None
 
