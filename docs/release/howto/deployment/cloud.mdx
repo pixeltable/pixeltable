@@ -1,7 +1,7 @@
 ---
 title: 'Deploy to Pixeltable Cloud'
 sidebarTitle: 'Deploy to Pixeltable Cloud'
-description: 'pxt db update, then pxt schema update app.py pxt://org:db, then pxt service update.'
+description: 'pxt schema update app.py pxt://org:db. Secrets with pxt secret set. pxt service stays local.'
 ---
 
 Create a hosted database. Apply the same [Quickstart](/overview/quick-start) file to a `pxt://` URI.
@@ -12,51 +12,21 @@ Create a hosted database. Apply the same [Quickstart](/overview/quick-start) fil
 
 ```bash
 pxt db create pxt://org:mydb
-pxt db update pxt://org:mydb
-pxt schema update app.py pxt://org:mydb
-pxt service update app.py pxt://org:mydb
-```
-
-Then `t = pxt.get_table('pxt://org:mydb/docs')`.
-
-`pxt db update` reconciles the hosted database with the project's `[[pixeltable.database]]` entry: secrets first, then the image and the project archive, then capacity. `pxt schema update` creates the tables. It does not start HTTP. `pxt service update` starts HTTP on that catalog. `pxt service run` stays on this machine.
-
-If `pxt service diff` says the database project is behind the working copy, run `pxt db update` first.
-
-## Secrets
-
-`pxt secret set` still works:
-
-```bash
 pxt secret set pxt://org OPENAI_API_KEY=sk-...
+pxt schema update app.py pxt://org:mydb
 ```
 
-A project can declare the same secrets on the database entry as the name of an environment variable, never the value. `pxt db update` sets them from there:
+Then `t = pxt.get_table('pxt://org:mydb/docs')`. `pxt schema update` creates the tables on the hosted catalog. It does not start HTTP.
 
-```toml
-[[pixeltable.database]]
-name = 'pxt://org:mydb'
+<Warning>
+`pxt service` binds to the **local** catalog. A `pxt://` target is refused. Browse and insert from the [dashboard](https://www.pixeltable.com); [recipes](https://www.pixeltable.com/recipes) run hosted insert APIs.
+</Warning>
 
-[pixeltable.database.secrets]
-openai_api_key = 'env:OPENAI_API_KEY'
-```
+## Hosted catalog
 
-A running database keeps the values it started with. Run `pxt db stop` then `pxt db start` to pick up a change.
+Provider keys for hosted compute: `pxt secret set`, then `pxt db stop` / `pxt db start` or `pxt db update-runtime` so the running database picks them up.
 
-## Image and archive {#hosted-catalog}
-
-The project ships as two artifacts:
-
-| Artifact | Holds | Moves when |
-|---|---|---|
-| Image | Python environment, no project code | lockfile, `python_version`, `system_dependencies`, or the Pixeltable version |
-| Project archive | Selected project files | any selected file |
-
-A source edit ships the archive. A lockfile edit rebuilds the image as well. `pxt db diff pxt://org:mydb` shows which. `pxt db update` applies it. `pxt db build-image pxt://org:mydb` does both unconditionally.
-
-Built-ins and provider functions in `app.py` apply on Cloud. A `@pxt.udf` or custom iterator defined only in a local file does not. Put it in the project `pxt db update` packs.
-
-Flags: [CLI](/platform/cli#cloud).
+Built-ins and provider functions in `app.py` apply on Cloud. A `@pxt.udf` or custom iterator defined only in a local file does not. Put it in the project packaged by `pxt db update-runtime`.
 
 ## Media on the home bucket
 
@@ -78,10 +48,10 @@ Or set `output_media_dest` as the default for computed media. Details: [Cloud st
 | | Local | Cloud |
 |---|---|---|
 | Catalog | `pxt schema update app.py my_app` | `pxt schema update app.py pxt://org:mydb` |
-| HTTP | `pxt service update app.py my_app` | `pxt service update app.py pxt://org:mydb` |
+| HTTP | `pxt service update app.py my_app` | Dashboard; `pxt service` is local-only |
 | Media | local disk | `pxtfs://org:mydb/home` |
 
-`pxt db` also lists, starts, stops, and deletes hosted databases. [CLI](/platform/cli#cloud).
+`pxt db` also lists, starts, stops, and deletes hosted databases, and `pxt db update-runtime` rebuilds the Python image. [CLI](/platform/cli#cloud).
 
 <CardGroup cols={2}>
   <Card title="Join the waitlist" icon="envelope" href="https://www.pixeltable.com/waitlist">

@@ -10,9 +10,7 @@ Install FastAPI and uvicorn first:
 pip install 'pixeltable[serve]'
 ```
 
-Which process runs the router: [Self-hosting](/howto/deployment/overview). Required columns and apply order: [How it works](/overview/how-it-works). This page is the rest of the route API.
-
-`pxt service example --out app.py` writes a larger starter. `pxt service run app.py my_dir` serves from this process until interrupted. OpenAPI is at `/docs`. `pxt service list` prints the assigned URL.
+Which process runs the router: [Self-hosting](/howto/deployment/overview). This page is the rest of the route API. OpenAPI is at `/docs`.
 
 ## Mount on your own FastAPI app
 
@@ -44,8 +42,6 @@ uvicorn.run(app, host='0.0.0.0', port=8000)
 ```
 
 `@pxt.query` evaluates the function body at decoration time. Apply the application file with `pxt schema update` before defining queries that reference those tables. Keep `@router.post()` for multi-table operations, conditional logic, or a custom response shape. `FastAPIRouter` extends FastAPI's `APIRouter`.
-
-`pxt service` serves `FastAPIRouter` instances. A `fastapi.FastAPI` object in the application file is rejected; run that app with uvicorn after `pxt schema update`.
 
 ## Compute without inserting
 
@@ -266,13 +262,4 @@ curl http://127.0.0.1:<port>/_pxt/jobs/abc123
 
 `background` cannot combine with `return_fileresponse`.
 
-## CLI
-
 Flags: [CLI](/platform/cli).
-
-```bash
-pxt service diff   app.py my_dir
-pxt service update app.py my_dir
-pxt service run    app.py my_dir
-pxt service list
-```

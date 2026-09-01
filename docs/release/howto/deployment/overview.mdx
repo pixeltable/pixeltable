@@ -1,80 +1,44 @@
 ---
 title: 'Self-hosting'
 sidebarTitle: 'Overview'
-description: 'Three local habits: a batch script, mount FastAPIRouter on your app, or pxt service.'
+description: 'Which local process: nothing listening, your FastAPI, or pxt service.'
 ---
 
 Hosted catalog: [Cloud](/howto/deployment/cloud). This page is what you run on this machine.
 
 | Habit | What you run | What starts |
 |-------|----------------|-------------|
-| Batch | `pxt schema update`, then a Python script, then exit | Nothing listening |
-| FastAPI | Same apply, then `uvicorn` on an app that `include_router()`s | Your process on a port you pick |
-| `pxt service` | `pxt schema update`, then `pxt service update` | A process Pixeltable starts; `pxt service list` prints the URL |
+| No HTTP | `pxt schema update`, insert, `export_sql`, exit | Nothing listening |
+| Your FastAPI | Same apply, then `app.include_router(api)` | Your process. [HTTP serving](/howto/deployment/serving) |
+| `pxt service` | Same apply, then `pxt service update` | A process Pixeltable starts. [Quickstart](/overview/quick-start) |
 
-Route API: [HTTP serving](/howto/deployment/serving). Persistent volume, Dockerfile, HA: [Infrastructure](/howto/deployment/infrastructure) and [Operations](/howto/deployment/operations).
+`uvx pixeltable-new myapp` copies the chat agent (TARGET `agent`). `--video` copies video search (TARGET `videointel`).
 
-## Batch
+## No HTTP
 
-Insert, let computed columns run, export, exit. No HTTP.
+Insert, let computed columns run, export, exit. Same snippet: [chat-agent README](https://github.com/pixeltable/pixeltable-starter-kit/blob/main/chat-agent/README.md).
+
+```bash
+pxt schema update app.py agent
+```
 
 ```python
-# pipeline.py
 from pixeltable.io.sql import export_sql
-import app
 
-app.Documents.insert(batch['documents'])
+from app import Knowledge
+
+Knowledge.insert(
+    [{'body': 'One application file. Insert runs compute.', 'title': 'intro', 'source': 'docs'}]
+)
 export_sql(
-    app.Documents.select(app.Documents.title, app.Documents.body),
-    'processed_documents',
-    db_connect_str='postgresql+psycopg://user:pass@host/db',
+    Knowledge.select(Knowledge.title, Knowledge.body, Knowledge.uuid),
+    'knowledge',
+    db_connect_str='sqlite:///agent.db',
     if_exists='replace',
 )
 ```
 
-```bash
-pxt schema update app.py pipeline
-python pipeline.py
-```
-
-Scaffold: `uvx pixeltable-new myapp --batch`. Reference: [starter-kit/batch](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/batch).
-
-## FastAPI
-
-Mount the same `FastAPIRouter` on an app you already run.
-
-```python
-import fastapi
-from pixeltable.serving import FastAPIRouter
-
-app = fastapi.FastAPI()
-router = FastAPIRouter(prefix='/api')
-router.add_insert_route(
-    docs,
-    path='/upload',
-    uploadfile_inputs=['document'],
-    background=True,
-)
-app.include_router(router)
-```
-
-Use `def` handlers, not `async def`. Pixeltable is sync; `async def` blocks the event loop. [Operations](/howto/deployment/operations).
-
-Scaffold: `uvx pixeltable-new myapp --backend`.
-
-## `pxt service`
-
-The [Quickstart](/overview/quick-start) file. Apply schema, then start the process.
-
-```bash
-pxt schema update app.py pipeline
-pxt service update app.py pipeline
-pxt service list
-```
-
-`pxt service run app.py pipeline` serves from this process until interrupted (container entrypoint). After you edit the file: [How it works](/overview/how-it-works#services).
-
-Scaffold: `uvx pixeltable-new myapp`.
+Persistent volume, Dockerfile: [Infrastructure](/howto/deployment/infrastructure) and [Operations](/howto/deployment/operations).
 
 ## Next
 
@@ -83,6 +47,6 @@ Scaffold: `uvx pixeltable-new myapp`.
     Insert, compute, update, delete, query, uploads, background jobs.
   </Card>
   <Card title="Cloud" icon="cloud" href="/howto/deployment/cloud">
-    Same file against `pxt://org:db`.
+    Same file against `pxt://org:mydb`.
   </Card>
 </CardGroup>

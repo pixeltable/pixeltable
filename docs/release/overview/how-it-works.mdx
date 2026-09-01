@@ -203,12 +203,11 @@ The port is assigned. Do not hard-code `:8000`. Inspect with `pxt dashboard`, `p
     ```
   </Tab>
   <Tab title="Cloud" icon="cloud">
-    Same file, a `pxt://` target. [Deploy to Pixeltable Cloud](/howto/deployment/cloud).
+    Same file, a `pxt://` target. [Deploy to Pixeltable Cloud](/howto/deployment/cloud). `pxt service` stays local.
 
     ```bash
-    pxt db update pxt://org:mydb
+    pxt db create pxt://org:mydb
     pxt schema update app.py pxt://org:mydb
-    pxt service update app.py pxt://org:mydb
     ```
   </Tab>
 </Tabs>
@@ -226,7 +225,7 @@ Emit a Pixeltable application file (`app.py`) with `TableModel` classes and `Fas
     Same file against `pxt://org:db`.
   </Card>
   <Card title="Self-hosting" icon="server" href="/howto/deployment/overview">
-    Batch, FastAPI, or `pxt service`.
+    Which process: nothing listening, your FastAPI, or `pxt service`.
   </Card>
   <Card title="HTTP serving" icon="globe" href="/howto/deployment/serving">
     Route API, `pxt service run`, background jobs.

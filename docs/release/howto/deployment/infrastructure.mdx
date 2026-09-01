@@ -45,7 +45,7 @@ pxt schema update docs/app.py docs_app
 
 A second database is another `[[pixeltable.database]]` entry, not a
 folder. The local entry is unnamed (`local`). A hosted one is named by
-its `pxt://org:db` URI and carries what `pxt db update` packs:
+its `pxt://org:db` URI and carries what `pxt db update-runtime` packs:
 
 ```toml
 [[pixeltable.database]]
@@ -70,8 +70,8 @@ UDFs are recorded as a module path relative to the project root.
 [HTTP serving](/howto/deployment/serving#return-computed-columns).
 Apply schema once before starting workers.
 
-<Card title="Pixeltable Starter Kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
-  `uvx pixeltable-new`. Same file on Cloud: `pxt db update`, then schema, then `pxt service`.
+<Card title="Pixeltable Starter Kit" icon="github" href="/resources/starter-kit">
+  Two apps. Each ships a Dockerfile and docker-compose.yml.
 </Card>
 
 ## Where files live
@@ -89,35 +89,9 @@ File cache size is `file_cache_size_g` in `config.toml` only. [Configuration](/p
 file_cache_size_g = 50
 ```
 
-Batch jobs can treat Pixeltable storage as ephemeral and `export_sql` the result. A long-running service needs a persistent volume at `PIXELTABLE_HOME` (pgdata, media, file_cache). Starter-kit deploys set `PIXELTABLE_HOME=/data/pixeltable`.
+With no HTTP, storage can be ephemeral; `export_sql` the result. [Self-hosting](/howto/deployment/overview). A long-running service needs a persistent volume at `PIXELTABLE_HOME` (pgdata, media, file_cache). Starter-kit Dockerfiles set `PIXELTABLE_HOME=/data/pixeltable`.
 
 ```bash
 PIXELTABLE_INPUT_MEDIA_DEST=s3://your-bucket/input
 PIXELTABLE_OUTPUT_MEDIA_DEST=s3://your-bucket/output
-```
-
-## Dependencies
-
-```toml
-[project]
-name = "my-pixeltable-app"
-requires-python = ">=3.11"
-dependencies = [
-    "pixeltable>=0.6.2",
-    "fastapi[standard]>=0.115.0",
-    "python-dotenv>=1.0.1",
-    "sentence-transformers>=3.3.0",
-]
-```
-
-## Import and export
-
-SDK: [io](/sdk/latest/io).
-
-```python
-import pixeltable as pxt
-
-docs_table = pxt.get_table('myapp.documents')
-results = docs_table.where(docs_table.timestamp > '2024-01-01')
-pxt.io.export_parquet(results, '/data/exports/recent_docs.parquet')
 ```

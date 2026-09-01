@@ -44,7 +44,6 @@
                   "howto/deployment/serving",
                   "howto/deployment/infrastructure",
                   "howto/deployment/operations",
-                  "howto/deployment/monitoring",
                   "howto/deployment/security"
                 ]
               },
@@ -496,6 +495,10 @@
     {
       "source": "/platform/deployment",
       "destination": "/howto/deployment/overview"
+    },
+    {
+      "source": "/howto/deployment/monitoring",
+      "destination": "/howto/deployment/operations#monitoring"
     },
     {
       "source": "/overview/installation",

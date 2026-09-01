@@ -15,18 +15,19 @@
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![Python](https://img.shields.io/pypi/pyversions/pixeltable)](https://pypi.org/project/pixeltable/)
 
-[**Quick Start**](https://docs.pixeltable.com/overview/quick-start) |
+[**Quickstart**](https://docs.pixeltable.com/overview/quick-start) |
 [**Documentation**](https://docs.pixeltable.com/) |
 [**CLI**](https://docs.pixeltable.com/platform/cli) |
 [**Dashboard**](https://docs.pixeltable.com/platform/dashboard) |
+[**Cloud**](https://docs.pixeltable.com/howto/deployment/cloud) |
+[**Starter kit**](https://docs.pixeltable.com/resources/starter-kit) |
+[**Skill**](https://github.com/pixeltable/pixeltable-skill) |
 [**llms-full.txt**](https://docs.pixeltable.com/llms-full.txt) |
-[**Starter Kit**](https://github.com/pixeltable/pixeltable-starter-kit) |
-[**AI Coding Skill**](https://github.com/pixeltable/pixeltable-skill) |
 [**Discord**](https://discord.gg/QPyqFYx2UN)
 
-## Make Building Multimodal AI Data Apps Dead Simple
+## One application file
 
-The unified multimodal backend for AI data apps. Declare tables, computed columns, and HTTP routes in one Python file. Apply it locally, serve it, then publish the same file to [Pixeltable Cloud](https://www.pixeltable.com/). Python 3.11+ on Linux, macOS, or Windows.
+Tables, computed columns, and HTTP routes live in `app.py`. Insert runs compute. Apply locally, then the same file against `pxt://`. Python 3.11+ on Linux, macOS, or Windows.
 
 ```bash
 pip install 'pixeltable[serve]'
@@ -59,7 +60,7 @@ ingest.add_insert_route(
 )
 ```
 
-Insert a row and the computed column runs. `pxt service list` prints the URL (the port is assigned):
+An annotation is a stored column. An assignment is a computed column. Insert a row; `title_upper` is computed on the way in. `pxt service list` prints the URL (the port is assigned):
 
 ```bash
 pxt service list
@@ -69,20 +70,42 @@ curl -X POST http://127.0.0.1:<port>/docs \
   -d '{"title": "Hello", "body": "world"}'
 ```
 
-Same file against a hosted database (`PIXELTABLE_API_KEY` required):
+`pxt schema update` creates the directory and tables. It does not start HTTP. `pxt service update` does not create tables. Apply first.
+
+Hosted catalog (`PIXELTABLE_API_KEY` required). `pxt service` stays local:
 
 ```bash
 pxt db create pxt://org:mydb
 pxt schema update app.py pxt://org:mydb
 ```
 
-In a notebook or test, `pxt.create_table()` is still the interactive API. An app’s contract is the application file.
+Same steps: [Quickstart](https://docs.pixeltable.com/overview/quick-start).
+
+## Chat agent or video search
+
+[`uvx pixeltable-new`](https://github.com/pixeltable/pixeltable-new) copies one app from the [starter kit](https://github.com/pixeltable/pixeltable-starter-kit). Default is the chat agent (catalog TARGET `agent`). `--video` is video search (`videointel`).
+
+```bash
+uvx pixeltable-new myapp
+cd myapp
+uv sync
+pxt schema update app.py agent
+pxt service update app.py agent
+```
+
+Knowledge insert needs no API key. `/ask` needs `ANTHROPIC_API_KEY`.
+
+Already have FastAPI: `app.include_router(api)`. [HTTP serving](https://docs.pixeltable.com/howto/deployment/serving). No HTTP: insert, `export_sql`, exit. [Self-hosting](https://docs.pixeltable.com/howto/deployment/overview).
+
+## Agents write the same file
 
 ```bash
 npx skills add pixeltable/pixeltable-skill
 ```
 
-Project templates: [pixeltable-starter-kit](https://github.com/pixeltable/pixeltable-starter-kit).
+The skill writes a `TableModel` in `app.py`, then `pxt schema update`. Do not copy this repo's `AGENTS.md` into an application; that file is for Pixeltable contributors.
+
+Notebooks and tests still use `pxt.create_table()`. An application's contract is the application file.
 
 ## License
 
