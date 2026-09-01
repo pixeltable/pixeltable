@@ -973,7 +973,6 @@ _INSTALLATION_KEYS = frozenset(
         'daemon_port',
         'db_pool_size',
         'db_pool_max_overflow',
-        'db_pool_recycle_s',
     }
 )
 
