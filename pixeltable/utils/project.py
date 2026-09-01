@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import enum
 import hashlib
+import io
 import json
 import logging
 import os
@@ -19,7 +20,7 @@ from pathspec import PathSpec
 from tqdm import tqdm
 
 import pixeltable
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, metadata
 from pixeltable.config import PROJECT_CONFIG_FILES, DatabaseConfig
 from pixeltable.env import Env
 
@@ -190,9 +191,28 @@ def create_project_archive(
             tf.add(f, arcname=f'project/{relpath}')
             bar.update(1)
         bar.set_postfix_str('', refresh=False)
+        _add_build_metadata(tf, project_dir, db_config)
 
     _logger.info(f'Project archive created: {archive_path}')
     return archive_path
+
+
+def _add_build_metadata(tf: tarfile.TarFile, project_dir: Path, db_config: DatabaseConfig | None) -> None:
+    """Add the archive's metadata.json, which tells the image build what environment to create.
+
+    TODO: remove this, and the tarfile the caller opens for it, once the build reads BuildImageRequest.
+    """
+    fingerprint = project_fingerprint(project_dir, db_config)
+    config = db_config if db_config is not None else DatabaseConfig()
+    payload = {
+        'deps_type': fingerprint.deps_type(),
+        'pxt_md_version': metadata.VERSION,
+        'db_config': config.model_dump(mode='json', exclude_none=True) | {'python_version': fingerprint.python_version},
+    }
+    encoded = json.dumps(payload).encode()
+    info = tarfile.TarInfo(name='metadata.json')
+    info.size = len(encoded)
+    tf.addfile(info, io.BytesIO(encoded))
 
 
 class ProjectFingerprint(pydantic.BaseModel):

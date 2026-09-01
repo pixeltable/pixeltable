@@ -25,6 +25,7 @@ from pixeltable.service.management_protocol import (
     GetProjectResponse,
     GetProjectUploadUrlRequest,
     GetProjectUploadUrlResponse,
+    ListDbRequest,
     ListSecretsRequest,
     ListSecretsResponse,
     ReportServiceInstanceRequest,
@@ -34,7 +35,6 @@ from pixeltable.service.management_protocol import (
 )
 from pixeltable.utils.project import (
     ProjectFingerprint,
-    ProjectPart,
     create_project_archive,
     loaded_fingerprint,
     project_fingerprint,
@@ -84,7 +84,8 @@ class DatabaseState(pydantic.BaseModel):
     worker_status: list[dict[str, Any]] = pydantic.Field(default_factory=list, alias='workers')
 
     # the worker count the database is configured with, which the pod list does not give: pods come and go
-    worker_count: int
+    # TODO: require this once GET_DB reports it
+    worker_count: int | None = None
 
     fingerprint: ProjectFingerprint | None = None
 
@@ -106,8 +107,7 @@ def db_diff(db_uri: str) -> DbPlan:
     if current is None:
         return DbPlan.from_ops(db_uri, None, [])
 
-    # GET_DB reports no secrets, so the keys are a call of their own
-    current.secret_keys = _secret_keys(db_path)
+    # TODO: read the secret keys again, once a diff compares them
     fingerprint = project_fingerprint(_validated_project_root(), config)
     return DbPlan.from_ops(db_uri, current.state, _compare_db(current, config, fingerprint))
 
@@ -152,10 +152,8 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
     if created:
         management_client.api_call(CreateDbRequest(org=db_path.org, db=db_path.db, **_capacity_settings(config)))
         _await_db_settled(db_path)
-        # a database that has just been created reports no fingerprint, so there is nothing to diff against:
-        # it needs every secret and both artifacts, whatever the plan says
-        plan.ops = [DbChangeOp.secret(key, 'add') for key in sorted(config.secrets or {})]
-        plan.ops += [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
+        # a database that has just been created has no image of its own
+        plan.ops = [DbChangeOp.build_image()]
 
     try:
         _apply(plan, config, db_path)
@@ -180,15 +178,14 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
 
 
 def _apply(plan: DbPlan, config: DatabaseConfig, db_path: catalog.Path) -> None:
-    """Apply the plan's operations to the database at db_path, marking each one applied."""
-    for op in _get_target_ops(plan, 'secret'):
-        _apply_secret_op(db_path, op, config)
-        op.status = 'applied'
+    """Apply the plan's operations to the database at db_path, marking each one applied.
 
-    image_ops, archive_ops = _get_target_ops(plan, 'image'), _get_target_ops(plan, 'archive')
-    if len(image_ops) > 0 or len(archive_ops) > 0:
-        _publish_artifacts(config, db_path, with_image=len(image_ops) > 0)
-        for op in image_ops + archive_ops:
+    TODO: apply the secret and capacity operations again, once a diff plans them.
+    """
+    image_ops = _get_target_ops(plan, 'image')
+    if len(image_ops) > 0:
+        _publish_artifacts(config, db_path)
+        for op in image_ops:
             op.status = 'applied'
 
     changed = {op.name for op in _get_target_ops(plan, 'capacity')}
@@ -229,8 +226,8 @@ def db_build_image(db_uri: str) -> list[DbChangeOp]:
         raise excs.NotFoundError(
             excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'{db_path.uri_str} does not exist; run `pxt db update` to create it'
         )
-    ops = [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
-    _publish_artifacts(config, db_path, with_image=True)
+    ops = [DbChangeOp.build_image()]
+    _publish_artifacts(config, db_path)
     for op in ops:
         op.status = 'applied'
     return ops
@@ -312,14 +309,14 @@ def report_instance_fingerprint(db_uri: str, service_name: str, base_path: str =
     )
 
 
-def _publish_artifacts(config: DatabaseConfig, db_path: catalog.Path, with_image: bool) -> None:
-    """Store the project's archive, build the image from it when with_image, and point the pods at it."""
+def _publish_artifacts(config: DatabaseConfig, db_path: catalog.Path) -> None:
+    """Store the project's archive and build the image the pods run.
+
+    TODO: call SET_PROJECT with the archive, once the control plane holds one apart from the image.
+    """
     fingerprint = project_fingerprint(_validated_project_root(), config)
-    # both artifacts come from one archive, so it is stored once whichever of the two moved
     key = _upload_project_archive(config, db_path)
-    if with_image:
-        _build_image(db_path, key, fingerprint)
-    _set_project(db_path, key, fingerprint)
+    _build_image(db_path, key, fingerprint)
 
 
 def _capacity_settings(config: DatabaseConfig) -> dict[str, float | int]:
@@ -464,50 +461,27 @@ def _get_db_config(db_uri: catalog.Path) -> DatabaseConfig:
 
 def _get_db_state(db_path: catalog.Path) -> DatabaseState | None:
     """The named database as the control plane reports it; None if it holds no such database."""
-    try:
-        response = management_client.api_call(GetDbRequest(org=db_path.org, db=db_path.db))
-    except excs.ExternalServiceError as e:
-        if e.provider_http_status_code != 404:
-            raise
+    # TODO: read 404 from GET_DB, once an absent database answers with one rather than 401
+    if not _db_exists(db_path):
         return None
+    response = management_client.api_call(GetDbRequest(org=db_path.org, db=db_path.db))
     return DatabaseState.model_validate(response.get('database', response))
 
 
+def _db_exists(db_path: catalog.Path) -> bool:
+    """Whether the org holds a database of this name."""
+    response = management_client.api_call(ListDbRequest(org=db_path.org))
+    return any(entry['db_slug'] == db_path.db for entry in response['databases'])
+
+
 def _compare_db(current: DatabaseState, config: DatabaseConfig, fingerprint: ProjectFingerprint) -> list[DbChangeOp]:
-    """The operations that make current match config + fingerprint."""
-    ops: list[DbChangeOp] = []
+    """The operations that make current match config.
 
-    if current.fingerprint is None:
-        # a database that has not been given the project reports no fingerprint: both artifacts are missing
-        ops += [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
-    else:
-        moved = fingerprint.compare(current.fingerprint)
-        if ProjectPart.IMAGE in moved:
-            ops.append(DbChangeOp.build_image(fingerprint.changes(current.fingerprint, {ProjectPart.IMAGE})))
-        if ProjectPart.ARCHIVE in moved:
-            ops.append(DbChangeOp.upload_archive(fingerprint.changes(current.fingerprint, {ProjectPart.ARCHIVE})))
+    Always a rebuild: current reports no fingerprint, so nothing identifies the project it already holds.
 
-    for field, config_value, current_value in (
-        ('cpu', config.cpu, current.cpu),
-        ('memory_mb', config.memory_mb, current.memory_mb),
-        ('disk_gb', config.disk_gb, current.disk_gb),
-        ('workers', config.workers, current.worker_count),
-    ):
-        if config_value is None or config_value == current_value:
-            continue
-        ops.append(DbChangeOp.capacity(field, current_value, config_value))
-
-    declared = config.secrets or {}
-    deployed = {} if current.fingerprint is None else current.fingerprint.secrets
-    rebound = {key for key in set(declared) & set(current.secret_keys) if declared[key] != deployed.get(key)}
-    for key in sorted((set(declared) - set(current.secret_keys)) | rebound):
-        ops.append(DbChangeOp.secret(key, 'add'))
-    for key in sorted(set(current.secret_keys) - set(declared)):
-        ops.append(DbChangeOp.secret(key, 'drop'))
-
-    # TODO: compare config.vars against current.vars once UPDATE_DB accepts vars
-
-    return ops
+    TODO: compare the fingerprint GET_DB reports, and restore the capacity and secret comparisons with it.
+    """
+    return [DbChangeOp.build_image()]
 
 
 def _upload_project_archive(config: DatabaseConfig, db_path: catalog.Path, *, show_progress: bool = False) -> str:

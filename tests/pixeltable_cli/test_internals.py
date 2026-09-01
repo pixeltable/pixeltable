@@ -1830,6 +1830,8 @@ class TestHostedDatabase:
             def __call__(self, request: Any) -> dict[str, Any]:
                 self.sent.append(request)
                 op = request.operation_type.value
+                if op == 'list_dbs':
+                    return {'databases': [] if self.database is None else [{'db_slug': 'main'}]}
                 if op == 'get_db':
                     if self.database is None:
                         raise excs.ExternalServiceError(
@@ -1842,7 +1844,7 @@ class TestHostedDatabase:
                     self.secrets[request.key] = request.value
                 elif op == 'delete_secret':
                     del self.secrets[request.key]
-                elif op in ('build_image', 'set_project'):
+                elif op in ('update_runtime', 'set_project'):
                     pass
                 elif op == 'create_db':
                     self.database = {
@@ -1895,30 +1897,24 @@ class TestHostedDatabase:
             'cpu = 2.0\nsystem_dependencies = ["ffmpeg"]\n'
             '[pixeltable.database.secrets]\nopenai_api_key = "env:OPENAI_API_KEY"\n',
         )
-        api.database['fingerprint'] = self._fingerprint(tmp_path)
         (tmp_path / 'app.py').write_text('import pixeltable as pxt  # edited\n')
 
         plan = db.db_update('pxt://acme:main')
-        assert [r.operation_type.value for r in api.sent if r.operation_type.value != 'get_db'] == [
-            'list_secrets',
-            'set_secret',
-            'set_project',
-            'update_db',
+        # the archive is stored once, and the build runs from it
+        assert [r.operation_type.value for r in api.sent if r.operation_type.value not in ('get_db', 'list_dbs')] == [
+            'update_runtime'
         ]
-        assert api.secrets == {'openai_api_key': 'sk-test'}
-        # one archive serves both artifacts, so it is stored once
         assert uploaded == ['acme/main/project.tar.bz2']
-        assert api.database['cpu'] == 2.0
         assert all(op.status == 'applied' for op in plan.ops)
         assert plan.status == 'applied'
 
     def test_update_image(self, api: Any, uploaded: list[str], tmp_path: pathlib.Path) -> None:
+        """The build request describes the environment the builder creates."""
         self._project(tmp_path, 'system_dependencies = ["ffmpeg"]\n')
-        api.database['fingerprint'] = self._fingerprint(tmp_path)
         (tmp_path / 'uv.lock').write_text('version = 2\n')
 
         db.db_update('pxt://acme:main')
-        build = next(r for r in api.sent if r.operation_type.value == 'build_image')
+        build = next(r for r in api.sent if r.operation_type.value == 'update_runtime')
         entry = Config.get().get_database_config(PxtPath.parse('pxt://acme:main', allow_empty_path=True))
         assert build.project_key == 'acme/main/project.tar.bz2'
         assert build.system_dependencies == ['ffmpeg']

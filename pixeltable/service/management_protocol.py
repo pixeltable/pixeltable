@@ -6,7 +6,7 @@ import re
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from pixeltable.serving import ServiceInstanceRecord
 from pixeltable.utils.project import DepsType, ProjectFingerprint
@@ -14,27 +14,28 @@ from pixeltable_cli.types import ServiceSpec
 
 
 class ManagementOperationType(str, Enum):
+    # TODO: give these members the values their names say, once the control plane answers to them
     CREATE_DB = 'create_db'
     GET_DB = 'get_db'
     LIST_DBS = 'list_dbs'
     DELETE_DB = 'delete_db'
 
-    CREATE_SERVICE_INSTANCE = 'create_service_instance'
-    GET_SERVICE_INSTANCE = 'get_service_instance'
-    LIST_SERVICE_INSTANCES = 'list_service_instances'
-    UPDATE_SERVICE_INSTANCE = 'update_service_instance'
+    CREATE_SERVICE_INSTANCE = 'create_service'
+    GET_SERVICE_INSTANCE = 'get_service'
+    LIST_SERVICE_INSTANCES = 'list_services'
+    UPDATE_SERVICE_INSTANCE = 'update_service'
     REPORT_SERVICE_INSTANCE = 'report_service_instance'
-    START_SERVICE_INSTANCE = 'start_service_instance'
-    STOP_SERVICE_INSTANCE = 'stop_service_instance'
-    DELETE_SERVICE_INSTANCE = 'delete_service_instance'
+    START_SERVICE_INSTANCE = 'start_service'
+    STOP_SERVICE_INSTANCE = 'stop_service'
+    DELETE_SERVICE_INSTANCE = 'delete_service'
 
     START_DB = 'start_db'
     STOP_DB = 'stop_db'
     UPDATE_DB = 'update_db'
-    BUILD_IMAGE = 'build_image'
+    BUILD_IMAGE = 'update_runtime'
     SET_PROJECT = 'set_project'
     GET_PROJECT = 'get_project'
-    GET_PROJECT_UPLOAD_URL = 'get_project_upload_url'
+    GET_PROJECT_UPLOAD_URL = 'get_bundle_upload_url'
 
     LIST_ORGS = 'list_orgs'
 
@@ -125,7 +126,9 @@ class BuildImageRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.BUILD_IMAGE] = ManagementOperationType.BUILD_IMAGE
     org: str | None = None
     db: str
-    project_key: str
+    # TODO: drop the alias once the control plane names this project_key
+    model_config = ConfigDict(populate_by_name=True)
+    project_key: str = Field(alias='bundle_s3_key')
     # ProjectFingerprint.image_digest()
     image_digest: str
     python_version: str
@@ -175,7 +178,9 @@ class GetProjectUploadUrlRequest(BaseModel):
 
 
 class GetProjectUploadUrlResponse(BaseModel):
-    project_key: str
+    # TODO: drop the alias once the control plane names this project_key
+    model_config = ConfigDict(populate_by_name=True)
+    project_key: str = Field(alias='bundle_s3_key')
     # None when the digest names a stored archive: nothing left to upload
     presigned_url: str | None = None
 

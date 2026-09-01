@@ -11,7 +11,7 @@ from pixeltable.serving._app import create_app, init_instrumentation, instrument
 
 
 def _serve(
-    db_uri: str,
+    db_uri: str | None,
     app_file: str,
     service_name: str,
     base_path: str,
@@ -21,11 +21,16 @@ def _serve(
     port: int,
     otel: bool,
 ) -> None:
-    """Pod entry point: unpack the database's project, serve one of its services, and report what loaded."""
+    """Pod entry point: serve one of the project's services out of project_dir, and report what loaded.
+
+    Without db_uri the project is already in project_dir, put there by the image the pod runs.
+    TODO: fetch unconditionally, once every database holds an archive apart from its image.
+    """
     import uvicorn
 
-    unpack_project_archive(db_uri, project_dir, expected_digest=digest)
-    # the unpacked project is this process's project root, so its modules and its database entry resolve
+    if db_uri is not None:
+        unpack_project_archive(db_uri, project_dir, expected_digest=digest)
+    # the project is this process's project root, so its modules and its database entry resolve
     Config.init(reinit=True, project_root=project_dir)
 
     if otel:
@@ -34,8 +39,10 @@ def _serve(
     app, _ = create_app(str(project_dir / app_file), service_name, base_path)
     if otel:
         instrument_app(app)
-    # after the file has loaded, so the fingerprint names the files that are serving
-    report_instance_fingerprint(db_uri, service_name, base_path)
+    if db_uri is not None:
+        # after the file has loaded, so the fingerprint names the serving files
+        # TODO: report unconditionally, once the control plane records what an instance loaded
+        report_instance_fingerprint(db_uri, service_name, base_path)
 
     log_level = logging.getLogger('pixeltable').getEffectiveLevel()
     # log_config=None keeps uvicorn from replacing the logging Env has already set up
@@ -44,7 +51,7 @@ def _serve(
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='pixeltable.serving.pod_runner')
-    parser.add_argument('--db', required=True, help='pxt://org:db, the database this pod belongs to')
+    parser.add_argument('--db', help="pxt://org:db; when given, the pod fetches that database's project")
     parser.add_argument('--app-file', required=True, help='path to the application file, from the project root')
     parser.add_argument('--name', required=True, help='the service to serve')
     parser.add_argument('--base-path', default='')

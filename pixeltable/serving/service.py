@@ -266,12 +266,12 @@ def _service_diff(
             ops.append(ServiceChangeOp.otel(running.otel, otel))
 
     published = app_info.published
-    # empty for a local target, whose services read the project files in place
+    # a local target's services read the project files in place, and a hosted database reports no
+    # fingerprint, so both are empty
+    # TODO: report db_not_updated again for a hosted database that has not been given a project, once one
+    # that has been given a project reports the fingerprint to tell them apart
     unpublished = app_info.fingerprint.compare(published, own_files_only=True) if published is not None else set()
-    if app_info.db_uri != '' and published is None:
-        # pxt db update creates the database and gives it both artifacts; until it runs there is nothing here
-        ops.append(ServiceChangeOp.db_not_updated(f'pxt db update {app_info.db_uri}'))
-    elif len(unpublished) > 0:
+    if len(unpublished) > 0:
         # this requires a pxt db update
         ops.append(
             ServiceChangeOp.project_moved(

@@ -62,6 +62,11 @@ def assert_in_agreement(cli: PxtRunner, app: str, target: str, cwd: pathlib.Path
 
 
 class TestSchema:
+    @pytest.mark.db_roots(
+        'local',
+        'proxy',
+        reason='a hosted image holds the project it was built from, and this test writes its udf while running',
+    )
     def test_basic(
         self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
@@ -128,6 +133,11 @@ class TestSchema:
         assert 'update_all()' not in r.stderr
         assert 'pxt.move()' not in r.stderr
 
+    @pytest.mark.db_roots(
+        'local',
+        'proxy',
+        reason='a hosted image holds the project it was built from, and this test writes its udf while running',
+    )
     def test_in_place_edit(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """A second update of a path the daemon already served reads the file as it now stands."""
         p = db_root.make_catalog_path
