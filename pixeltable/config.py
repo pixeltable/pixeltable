@@ -881,7 +881,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         ),
         'db_pool_size': ('Number of database connections the engine keeps open (default: 5)', int),
         'db_pool_max_overflow': (
-            'Number of temporary database connections the engine may open beyond `db_pool_size`',
+            'Number of temporary database connections the engine may open beyond `db_pool_size` (default: 10)',
             int,
         ),
         'daemon_host': 'Listen address for the proxy daemon in fixed-address mode (e.g. 0.0.0.0)',
