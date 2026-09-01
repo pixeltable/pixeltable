@@ -191,11 +191,11 @@ def hosted_image(session_project: pathlib.Path) -> None:
     _copy_app_corpus(session_project)
     entry = f'[[pixeltable.database]]\nname = {json.dumps(db_uri)}\n'
     (session_project / 'pixeltable.toml').write_text(entry, encoding='utf-8')
-    # What the corpus needs beyond Pixeltable, which the image inherits from db-base.
-    # TODO: build the runtime image from db-base, so that it holds Pixeltable; until then these pods
-    # do not start.
-    # The sentence splitter loads en_core_web_sm and does not fetch it, so the project names it.
+    # Naming pixeltable installs its dependencies; the build then reinstalls pixeltable itself from the
+    # base image's wheel, so the pod runs this tree rather than the release named here.
+    # The sentence splitter loads en_core_web_sm and does not fetch it, so the project names it too.
     requirements = (
+        'pixeltable\n'
         'spacy\n'
         'en_core_web_sm @ '
         'https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl\n'
