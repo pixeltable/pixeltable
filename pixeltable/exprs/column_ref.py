@@ -18,7 +18,7 @@ from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
 from ..utils.http import fetch_url
 from .data_row import DataRow
-from .expr import Expr
+from .expr import Expr, ExprDeserCtx
 from .literal import Literal
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
@@ -629,9 +629,7 @@ class ColumnRef(Expr):
         return catalog.QColumnId(UUID(d['col_tbl_id']), d['col_id'])
 
     @classmethod
-    def _from_dict(
-        cls, d: dict, _: list[Expr], tbl_versions: dict[UUID, catalog.TableVersion] | None = None
-    ) -> ColumnRef:
+    def _from_dict(cls, d: dict, _: list[Expr], tbl_ctx: ExprDeserCtx = None) -> ColumnRef:
         col_tbl_id = UUID(d['col_tbl_id'])
         col_id = d['col_id']
         col_tbl_effective_version: int | None = d['col_tbl_effective_version']
@@ -640,8 +638,10 @@ class ColumnRef(Expr):
         tbl_id = UUID(d['tbl_id'])
         effective_version: int | None = d['effective_version']
 
-        if tbl_versions is not None:
-            target = tbl_versions[col_tbl_id]
+        if isinstance(tbl_ctx, catalog.TablePath):
+            col_md = tbl_ctx.get_column_md(qcolid)
+        elif tbl_ctx is not None:
+            target = tbl_ctx[col_tbl_id]
             if col_id not in target.cols_by_id:
                 raise excs.NotFoundError(
                     excs.ErrorCode.COLUMN_NOT_FOUND,

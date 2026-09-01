@@ -60,7 +60,7 @@ class TypeCast(Expr):
         return {'new_type': self.col_type.as_dict(), **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> 'TypeCast':
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_ctx: Any = None) -> 'TypeCast':
         assert 'new_type' in d
         assert len(components) == 1
         return cls(components[0], ts.ColumnType.from_dict(d['new_type']))

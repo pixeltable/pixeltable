@@ -128,7 +128,7 @@ class JsonMapper(Expr):
         }
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> JsonMapper:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_ctx: Any = None) -> JsonMapper:
         assert len(components) == 2
         # a legacy JsonMapper (metadata v55 and earlier) was always a map and has no 'op' or 'asc'
         op = cls.Operator(d['op']) if 'op' in d else cls.Operator.MAP
@@ -243,5 +243,5 @@ class JsonMapperDispatch(Expr):
         raise AssertionError('this should never be called')
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> JsonMapperDispatch:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_ctx: Any = None) -> JsonMapperDispatch:
         raise AssertionError('this should never be called')

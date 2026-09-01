@@ -182,6 +182,10 @@ class TablePath(abc.ABC):
     def media_validation(self) -> MediaValidation:
         """The table-level media validation default."""
 
+    @abc.abstractmethod
+    def comment(self) -> str | None:
+        """The table-level comment."""
+
     def is_validate_on_read(self, col_md: ColumnVersionMd) -> bool:
         """Return whether validation for this column should be on read.
 
@@ -651,6 +655,9 @@ class TableMdPath(TablePath):
                 if base_col_md.name not in own_names
             )
         return result
+
+    def comment(self) -> str | None:
+        return self.md.schema_version_md.comment
 
     def get_column_md(self, qcolid: QColumnId) -> ColumnVersionMd:
         """Return metadata for the column with the given qualified id (any physically reachable column)."""

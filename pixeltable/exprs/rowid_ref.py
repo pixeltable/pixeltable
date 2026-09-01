@@ -141,6 +141,6 @@ class RowidRef(Expr):
         }
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> RowidRef:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_ctx: Any = None) -> RowidRef:
         tbl_id, normalized_base_id, idx = UUID(d['tbl_id']), UUID(d['normalized_base_id']), d['idx']
         return cls(tbl=None, idx=idx, tbl_id=tbl_id, normalized_base_id=normalized_base_id)

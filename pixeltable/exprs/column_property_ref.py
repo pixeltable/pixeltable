@@ -118,6 +118,6 @@ class ColumnPropertyRef(Expr):
         return {'prop': self.prop.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> ColumnPropertyRef:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_ctx: Any = None) -> ColumnPropertyRef:
         assert 'prop' in d
         return cls(components[0], cls.Property(d['prop']))  # type: ignore[arg-type]

@@ -371,22 +371,24 @@ def from_table(tbl: catalog.Table, return_value: 'exprs.Expr' | None, descriptio
     params: list[Parameter] = []
 
     for t in ancestors:
-        for name, col in t._tbl_version.get().cols_by_name.items():
+        for name, value_expr in t._get_column_exprs().items():
             assert name not in result_dict, f'Column name is not unique: {name}'
-            if col.is_computed:
+            col_ref = t[name]
+            if value_expr is not None:
                 # Computed column. Apply any existing substitutions and add the new expression to the subst dict.
-                new_expr = col.value_expr.copy().substitute(subst)
-                subst[t[name]] = new_expr  # Substitute new_expr for ColumnRefs to this column
+                new_expr = value_expr.copy().substitute(subst)
+                subst[col_ref] = new_expr  # Substitute new_expr for ColumnRefs to this column
                 result_dict[name] = new_expr
             else:
                 # Data column. Include it as a parameter and add a variable expression as the subst dict.
-                var = exprs.Variable(name, col.col_type)
-                subst[t[name]] = var  # Substitute var for ColumnRefs to this column
+                col_type = col_ref.col_type
+                var = exprs.Variable(name, col_type)
+                subst[col_ref] = var  # Substitute var for ColumnRefs to this column
                 result_dict[name] = var
                 # Since this is a data column, it becomes a UDF parameter.
                 # If the column is nullable, then the parameter will have a default value of None.
-                default_value = exprs.Literal(None) if col.col_type.nullable else None
-                param = Parameter(name, col.col_type, inspect._ParameterKind.POSITIONAL_OR_KEYWORD, default_value)
+                default_value = exprs.Literal(None, col_type) if col_type.nullable else None
+                param = Parameter(name, col_type, inspect._ParameterKind.POSITIONAL_OR_KEYWORD, default_value)
                 params.append(param)
 
     if return_value is None:

@@ -85,5 +85,5 @@ class ColumnRefByName(Expr):
         return {'name': self.name, 'col_type': self.col_type.as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, _components: list[Expr], _tbl_versions: Any = None) -> ColumnRefByName:
+    def _from_dict(cls, d: dict, _components: list[Expr], _tbl_ctx: Any = None) -> ColumnRefByName:
         return cls(d['name'], ts.ColumnType.from_dict(d['col_type']))

@@ -1733,10 +1733,10 @@ class TestFunction:
         lookup.add_computed_column(matching=fn2(customer_id=lookup.lookup_id))
         assert lookup.matching.col_type == fn2.signature.return_type
 
-    @pytest.mark.db_roots('local', reason='builds a query function from a table via Function.from_table')
-    def test_from_table(self, uses_db: None) -> None:
+    def test_from_table(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         schema: dict[str, Any] = {'in1': pxt.Int, 'in2': pxt.String, 'in3': pxt.Float | None, 'in4': pxt.Image | None}
-        t = pxt.create_table('test', schema)
+        t = pxt.create_table(p('test'), schema)
         t.add_computed_column(out1=(t.in1 + 5))
         t.add_computed_column(out2=(t.in3 + t.out1))
         t.add_computed_column(out3=pxtf.string.format('xyz {0}', t.in2))
@@ -1758,7 +1758,7 @@ class TestFunction:
             """
         ).strip()  # fmt: skip
 
-        u = pxt.create_table('udf_test', {'a': pxt.String | None, 'b': pxt.Image | None})
+        u = pxt.create_table(p('udf_test'), {'a': pxt.String | None, 'b': pxt.Image | None})
         u.insert(a='grapefruit')
         u.insert(a='canteloupe')
         u.add_computed_column(result=fn(19, u.a, in3=11.0))
@@ -1787,11 +1787,11 @@ class TestFunction:
         ]
 
         # table_as_udf on a view
-        v = pxt.create_view('test_view', t)
+        v = pxt.create_view(p('test_view'), t)
         v.add_column(in5=pxt.Json | None)
         v.add_computed_column(out5=(v.out1 + v.in3 + v.in5.number))
 
-        vv = pxt.create_view('test_subview', v, comment='This is an example table comment.')
+        vv = pxt.create_view(p('test_subview'), v, comment='This is an example table comment.')
         vv.add_column(in6=pxt.Json | None)
         vv.add_computed_column(out6=(vv.out5 + v.out1 + t.in3 + vv.in6.number))
 

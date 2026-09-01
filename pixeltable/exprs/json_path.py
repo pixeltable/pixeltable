@@ -205,7 +205,7 @@ class JsonPath(Expr):
         return {'path_elements': path_elements, 'root_type': root_type, **components_dict}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> JsonPath:
+    def _from_dict(cls, d: dict, components: list[Expr], tbl_ctx: Any = None) -> JsonPath:
         assert 'path_elements' in d
         assert len(components) <= 1
         anchor = components[0] if len(components) == 1 else None
