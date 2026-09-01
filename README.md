@@ -25,18 +25,48 @@
 [**llms-full.txt**](https://docs.pixeltable.com/llms-full.txt) |
 [**Discord**](https://discord.gg/QPyqFYx2UN)
 
-## One application file
+Pixeltable is the unified multimodal backend for AI data apps. Database, orchestration, and serving live in **one application file** (`app.py`). Insert a row. Computed columns run. Indexes stay current.
 
-Tables, computed columns, and HTTP routes live in `app.py`. Insert runs compute. Apply locally, then the same file against `pxt://`. Python 3.11+ on Linux, macOS, or Windows.
+You process media, run models, and serve the result without assembling a blob store, a vector database, an orchestrator, and glue.
+
+```mermaid
+flowchart TD
+  A["Write app.py: TableModel + FastAPIRouter"]
+  A --> B["Store: pxt schema update"]
+  A --> C["Serve: pxt service update"]
+  B --> D["Insert a row"]
+  C --> D
+  D --> E["Compute: assigned columns run, indexes stay current"]
+```
+
+## What it is
+
+A `TableModel` class is a table. An annotation is a stored column. An assignment is a computed column. A `FastAPIRouter` in the same file is HTTP.
+
+| You write in `app.py` | What happens |
+| --- | --- |
+| `title: pxt.String` | Stored. You insert this value. |
+| `title_upper = pxtf.string.upper(title)` | Computed on insert. |
+| `__indexes__ = [pxt.EmbeddingIndex(...)]` | Vector search stays current on insert. |
+| `ingest.add_insert_route(...)` | POST inserts and returns stored and computed columns. |
+
+`pxt schema update` creates tables. It does not start HTTP. `pxt service update` starts HTTP. It does not create tables. Apply first.
+
+Pinecone, Postgres, and LangGraph map onto those columns. [Migrate](https://docs.pixeltable.com/howto/coming-from).
+
+## First run
+
+Python 3.11+ on Linux, macOS, or Windows. venv and uv: [Quickstart](https://docs.pixeltable.com/overview/quick-start).
 
 ```bash
 pip install 'pixeltable[serve]'
+pxt init
 pxt service example --out app.py
 pxt schema update app.py my_app
 pxt service update app.py my_app
 ```
 
-`pxt service example` writes this file (`from __future__ import annotations` is required on Python 3.14+):
+`pxt init` writes `pixeltable.toml`, which makes this directory the project root. `pxt service example` writes this file (`from __future__ import annotations` is required on Python 3.14+):
 
 ```python
 from __future__ import annotations  # required to declare a model on Python 3.14+
@@ -60,7 +90,7 @@ ingest.add_insert_route(
 )
 ```
 
-An annotation is a stored column. An assignment is a computed column. Insert a row; `title_upper` is computed on the way in. `pxt service list` prints the URL (the port is assigned):
+Insert a row. `title_upper` is computed on the way in. `pxt service list` prints the URL (the port is assigned):
 
 ```bash
 pxt service list
@@ -70,18 +100,18 @@ curl -X POST http://127.0.0.1:<port>/docs \
   -d '{"title": "Hello", "body": "world"}'
 ```
 
-`pxt schema update` creates the directory and tables. It does not start HTTP. `pxt service update` does not create tables. Apply first.
+## Same file on a hosted catalog
 
-Hosted catalog (`PIXELTABLE_API_KEY` required). `pxt service` stays local:
+`PIXELTABLE_API_KEY` required. `pxt service` stays local:
 
 ```bash
 pxt db create pxt://org:mydb
 pxt schema update app.py pxt://org:mydb
 ```
 
-Same steps: [Quickstart](https://docs.pixeltable.com/overview/quick-start).
+[Cloud](https://docs.pixeltable.com/howto/deployment/cloud).
 
-## Chat agent or video search
+## A larger first app
 
 [`uvx pixeltable-new`](https://github.com/pixeltable/pixeltable-new) copies one app from the [starter kit](https://github.com/pixeltable/pixeltable-starter-kit). Default is the chat agent (catalog TARGET `agent`). `--video` is video search (`videointel`).
 
@@ -105,7 +135,7 @@ npx skills add pixeltable/pixeltable-skill
 
 The skill writes a `TableModel` in `app.py`, then `pxt schema update`. Do not copy this repo's `AGENTS.md` into an application; that file is for Pixeltable contributors.
 
-Notebooks and tests still use `pxt.create_table()`. An application's contract is the application file.
+Notebooks and tests still use `pxt.create_table()`. The application file is what you keep.
 
 ## License
 
