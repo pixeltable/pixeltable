@@ -72,6 +72,10 @@ def init_log_level(logger: logging.Logger, config: Config, config_key: str, *, d
     logger.setLevel(level)
 
 
+_DEFAULT_DB_POOL_SIZE = 5
+_DEFAULT_DB_POOL_MAX_OVERFLOW = 10
+
+
 def store_app_name() -> str:
     """The application_name that this process's connections report to the store.
 
@@ -530,13 +534,27 @@ class Env:
         updated_url = add_option_to_db_url(self.db_url, f'-c timezone={time_zone_name}')
         updated_url = add_option_to_db_url(updated_url, f'-c application_name={store_app_name()}')
 
+        config = Config.get()
+        pool_size = config.get_int_value('db_pool_size')
+        if pool_size is None:
+            pool_size = _DEFAULT_DB_POOL_SIZE
+        pool_max_overflow = config.get_int_value('db_pool_max_overflow')
+        if pool_max_overflow is None:
+            pool_max_overflow = _DEFAULT_DB_POOL_MAX_OVERFLOW
+
         self._sa_engine = sql.create_engine(
-            updated_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level
+            updated_url,
+            echo=echo,
+            isolation_level=self._dbms.transaction_isolation_level,
+            pool_size=pool_size,
+            max_overflow=pool_max_overflow,
+            pool_pre_ping=True,
         )
 
         _logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
         _logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
         _logger.info(f'Engine driver : {self._sa_engine.dialect.driver}')
+        _logger.info(f'Engine connection pool: {pool_size} + {pool_max_overflow}')
 
         with self.engine.begin() as conn:
             tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
