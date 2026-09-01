@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable import exprs
+from pixeltable.catalog import fold_identifier
 from pixeltable.config import Config
 from pixeltable.env import Env
 
@@ -133,6 +134,7 @@ def get_table_data(
         query = query.where(error_predicate)
 
     if order_by is not None:
+        order_by = fold_identifier(order_by)
         # only sort by columns with a B-tree index; other columns would force a full sort
         order_col = next((c for c in columns if c['name'] == order_by), None)
         if order_col is not None and order_col['is_sorted']:

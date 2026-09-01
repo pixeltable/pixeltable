@@ -80,13 +80,13 @@ class TestPath:
 
     def test_hosted_path_parse(self) -> None:
         """Path.parse() understands pxt:// URIs and Pixeltable web URLs."""
-        hosted = Path.parse('pxt://variata:main/dir/tbl')
-        assert hosted.org == 'variata'
+        hosted = Path.parse('pxt://customer:main/dir/tbl')
+        assert hosted.org == 'customer'
         assert hosted.db == 'main'
         assert hosted.components == ('dir', 'tbl')
-        assert hosted.uri_str == 'pxt://variata:main'
-        assert hosted.catalog_uri == Path(org='variata', db='main')
-        assert str(hosted) == 'pxt://variata:main/dir/tbl'
+        assert hosted.uri_str == 'pxt://customer:main'
+        assert hosted.catalog_uri == Path(org='customer', db='main')
+        assert str(hosted) == 'pxt://customer:main/dir/tbl'
 
         # Versioned hosted path.
         versioned = Path.parse('pxt://local:testdb/dir/tbl:7', allow_versioned_path=True)
@@ -98,13 +98,13 @@ class TestPath:
         )
 
         # Org without a db.
-        no_db = Path.parse('pxt://variata/tbl')
-        assert no_db.org == 'variata'
+        no_db = Path.parse('pxt://customer/tbl')
+        assert no_db.org == 'customer'
         assert no_db.db is None
-        assert no_db.uri_str == 'pxt://variata'
+        assert no_db.uri_str == 'pxt://customer'
 
         # A Pixeltable web URL normalizes to the same parse as its pxt:// form.
-        assert Path.parse('https://pixeltable.com/t/variata:main/dir/tbl') == Path.parse('pxt://variata:main/dir/tbl')
+        assert Path.parse('https://pixeltable.com/t/customer:main/dir/tbl') == Path.parse('pxt://customer:main/dir/tbl')
 
         # str() round-trips for both local and hosted paths.
         assert all(
@@ -118,16 +118,16 @@ class TestPath:
                 Path.parse(bad)
         # Negative version.
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
-            Path.parse('pxt://variata:main/tbl:-1', allow_versioned_path=True)
+            Path.parse('pxt://customer:main/tbl:-1', allow_versioned_path=True)
         # Bad identifier component in a hosted path.
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
-            Path.parse('pxt://variata:main/a..b')
+            Path.parse('pxt://customer:main/a..b')
         # Org name parses out of the netloc but isn't a valid identifier.
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
             Path.parse('pxt://bad org/tbl')
         # An extra colon lands in the db name, which then fails identifier validation.
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
-            Path.parse('pxt://variata:main:extra/tbl')
+            Path.parse('pxt://customer:main:extra/tbl')
 
     def test_path_construction_invariants(self) -> None:
         # Invariants enforced at construction, so they hold for from_components() (and direct
@@ -139,7 +139,7 @@ class TestPath:
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
             Path.from_components(('tbl',), org='bad org')
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
-            Path.from_components(('tbl',), org='variata', db='bad:db')
+            Path.from_components(('tbl',), org='customer', db='bad:db')
         # Version must be non-negative.
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
             Path.from_components(('tbl',), version=-1)
@@ -159,18 +159,18 @@ class TestPath:
 
     def test_hosted_path_navigation(self) -> None:
         # Navigation preserves the catalog (org/db) and drops the version.
-        path = Path.parse('pxt://variata:main/a/b/c:3', allow_versioned_path=True)
-        assert path.parent == Path.from_components(('a', 'b'), org='variata', db='main')
-        assert path.append('d') == Path.from_components(('a', 'b', 'c', 'd'), org='variata', db='main')
+        path = Path.parse('pxt://customer:main/a/b/c:3', allow_versioned_path=True)
+        assert path.parent == Path.from_components(('a', 'b'), org='customer', db='main')
+        assert path.append('d') == Path.from_components(('a', 'b', 'c', 'd'), org='customer', db='main')
         assert path.ancestors() == [
-            Path.from_components((), org='variata', db='main'),
-            Path.from_components(('a',), org='variata', db='main'),
-            Path.from_components(('a', 'b'), org='variata', db='main'),
+            Path.from_components((), org='customer', db='main'),
+            Path.from_components(('a',), org='customer', db='main'),
+            Path.from_components(('a', 'b'), org='customer', db='main'),
         ]
         # Same-named local and hosted paths are distinct.
-        assert Path.parse('a/b') != Path.parse('pxt://variata:main/a/b')
+        assert Path.parse('a/b') != Path.parse('pxt://customer:main/a/b')
         # is_ancestor is false across catalogs
-        assert not Path.parse('a').is_ancestor(Path.parse('pxt://variata:main/a/b'))
+        assert not Path.parse('a').is_ancestor(Path.parse('pxt://customer:main/a/b'))
 
     @pytest.mark.parametrize('path_str', ['a.b.c', 'a/b/c'])
     def test_path_ancestors(self, path_str: str) -> None:
@@ -232,3 +232,38 @@ class TestPath:
         assert str(dotted_appended) == 'a/b/c/d'
         assert str(unix_appended) == 'a/b/c/d'
         assert dotted_appended.components == unix_appended.components == ('a', 'b', 'c', 'd')
+
+    def test_non_ascii_identifiers(self) -> None:
+        assert not is_valid_identifier('café')
+        assert not is_valid_identifier('Ω')
+        for path in (('Café'), ('dir/Café'), ('pxt://CAFÉ/tbl'), ('pxt://customer:CAFÉ/tbl')):
+            with pxt_raises(excs.ErrorCode.INVALID_PATH, match='Invalid [path|org|database]'):
+                Path.parse(path)
+        with pxt_raises(excs.ErrorCode.INVALID_PATH, match='Café'):
+            Path.from_components(('Café',))
+
+    def test_case_folding(self) -> None:
+        assert Path.parse('A/B').components == ('a', 'b')
+        assert str(Path.parse('MyDir/MyTable')) == 'mydir/mytable'
+        assert Path.parse('A/B') == Path.parse('a/b')
+        assert hash(Path.parse('A/B')) == hash(Path.parse('a/b'))
+        assert Path.from_components(('A', 'B')).components == ('a', 'b')
+
+        hosted = Path.parse('pxt://Org:DB/X')
+        assert (hosted.org, hosted.db, hosted.components) == ('org', 'db', ('x',))
+
+    def test_dir_prefix(self) -> None:
+        assert Path.dir_prefix('MyDir') == 'mydir/'
+        assert Path.dir_prefix('MyDir/Sub') == 'mydir/sub/'
+        assert Path.dir_prefix('a.b') == Path.dir_prefix('a/b') == 'a/b/'
+        assert Path.dir_prefix('a/b/') == 'a/b/'
+        assert Path.dir_prefix('pxt://Org:DB/Dir') == 'pxt://org:db/dir/'
+        assert Path.dir_prefix('https://pixeltable.com/t/Org/Dir') == 'pxt://org/dir/'
+
+        assert Path.dir_prefix('') == ''
+        assert Path.dir_prefix('pxt://Org:DB') == 'pxt://org:db/'
+
+        assert Path.parse(Path.dir_prefix('MyDir') + 'mytable') == Path.parse('MyDir.MyTable')
+
+        with pxt_raises(excs.ErrorCode.INVALID_PATH, match='Invalid path: Café'):
+            Path.dir_prefix('Café')
