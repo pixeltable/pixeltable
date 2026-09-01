@@ -214,8 +214,7 @@ def base_query_columns(model: TableModelMeta) -> set[str]:
         return set()
     # "anonymous" compound expressions are not allowed here, so every unnamed item names a column
     assert all(expr.is_column_ref for expr, name in base.select_list if name is None)
-    names = {expr.default_column_name() if name is None else name for expr, name in base.select_list}
-    return names
+    return {expr.default_column_name() if name is None else name for expr, name in base.select_list}
 
 
 def _format_column_spec(spec: ColumnSpec) -> str:
