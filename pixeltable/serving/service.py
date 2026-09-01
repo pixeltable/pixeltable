@@ -257,6 +257,9 @@ def _service_diff(
     if running is None:
         route_comparison: RouteComparison = 'unavailable'
         route_detail = 'the service is not running at this target'
+        # nothing is serving yet, so every declared route is an addition. Copying the declared spec keeps
+        # its prefix, so this does not rely on _prefix_change() ignoring an empty route list.
+        ops += compare_specs(service.spec.model_copy(update={'routes': [], 'app_paths': []}), service.spec)
     else:
         # a declarative service is compared by its route declarations, an application object by the paths it
         # serves itself
@@ -265,6 +268,7 @@ def _service_diff(
         if running.otel != otel:
             ops.append(ServiceChangeOp.otel(running.otel, otel))
 
+    # SCALED BACK: published is always None, so the project_moved block below never runs
     published = app_info.published
     # a local target's services read the project files in place, and a hosted database reports no
     # fingerprint, so both are empty
@@ -281,7 +285,10 @@ def _service_diff(
         )
     elif len(ops) == 0 and running is not None:
         if running.record.fingerprint is None:
-            ops.append(ServiceChangeOp.project_unreported())
+            # SCALED BACK: a hosted instance reports no fingerprint, so this fired on every diff and made
+            # every update restart a healthy service. A local instance reports one and takes the else.
+            # ops.append(ServiceChangeOp.project_unreported())
+            pass
         else:
             stale = app_info.fingerprint.compare(running.record.fingerprint)
             if len(stale) > 0:

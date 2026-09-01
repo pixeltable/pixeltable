@@ -141,6 +141,7 @@ class ServiceChangeOp(ChangeOp):
             requires_restart=True,
         )
 
+    # SCALED BACK: uncalled
     @classmethod
     def db_not_updated(cls, command: str) -> ServiceChangeOp:
         """The operation for a database `pxt db update` has not run for."""
@@ -261,6 +262,7 @@ class DbChangeOp(ChangeOp):
 
     details: dict[str, str] = pydantic.Field(default_factory=dict)
 
+    # SCALED BACK: uncalled
     @classmethod
     def capacity(cls, field: str, current: float | int | None, declared: float | int) -> DbChangeOp:
         was = 'unreported' if current is None else str(current)
@@ -274,6 +276,7 @@ class DbChangeOp(ChangeOp):
             requires_restart=True,
         )
 
+    # SCALED BACK: uncalled
     @classmethod
     def secret(cls, key: str, op: Literal['add', 'drop']) -> DbChangeOp:
         if op == 'add':
@@ -309,6 +312,7 @@ class DbChangeOp(ChangeOp):
             requires_restart=True,
         )
 
+    # SCALED BACK: uncalled
     @classmethod
     def upload_archive(cls, changes: list[str] | None = None) -> DbChangeOp:
         """The operation for uploading the project the caller named rather than one a difference calls for."""
@@ -480,7 +484,7 @@ class ServiceDiff(pydantic.BaseModel):
     route_comparison: RouteComparison
     route_detail: str | None  # why the routes were not compared, when they were not
 
-    # empty for a create, which subsumes the additions that constitute it
+    # for a create, the addition of every route the service declares
     ops: list[ServiceChangeOp] = pydantic.Field(default_factory=list)
 
     status: OpStatus | None = None

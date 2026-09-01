@@ -112,6 +112,7 @@ def db_diff(db_uri: str) -> DbPlan:
     return DbPlan.from_ops(db_uri, current.state, _compare_db(current, config, fingerprint))
 
 
+# SCALED BACK: GET_DB reports no fingerprint, so this always returns None
 def published_fingerprint(db_path: catalog.Path) -> ProjectFingerprint | None:
     """The fingerprint of the project at the hosted db_path."""
     if db_path.org is None or db_path.db is None:
@@ -358,6 +359,7 @@ def _build_image(db_path: catalog.Path, project_key: str, fingerprint: ProjectFi
         )
 
 
+# SCALED BACK: uncalled; the control plane has no SET_PROJECT operation
 def _set_project(db_path: catalog.Path, project_key: str, fingerprint: ProjectFingerprint) -> None:
     """Point the database's pods at the stored archive, and wait for them to come back on it."""
     management_client.api_call(

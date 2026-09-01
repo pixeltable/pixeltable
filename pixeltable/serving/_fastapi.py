@@ -2591,6 +2591,7 @@ class FastAPIRouter(fastapi.APIRouter):
             methods=['GET'],
             response_class=FileResponse,
             name=_MEDIA_ROUTE_NAME,
+            include_in_schema=False,
         )
 
     def _register_jobs_route(self) -> None:
@@ -2614,6 +2615,7 @@ class FastAPIRouter(fastapi.APIRouter):
             methods=['GET'],
             response_model=JobStatusResponse,
             name=_JOB_STATUS_ROUTE_NAME,
+            include_in_schema=False,
         )
 
     def _build_response_field(self, col_type: ts.ColumnType, *, comment: str | None = None) -> tuple[Any, FieldInfo]:

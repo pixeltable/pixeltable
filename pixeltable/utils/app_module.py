@@ -68,11 +68,19 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
     # resolve the catalog first: initializing it writes, which freeze() would refuse
     catalog = get_runtime().catalog
     try:
+        registry = FunctionRegistry.get()
         with _lock, catalog.freeze():
             _evict_project_modules(root)
             # a file written after this process started is invisible to a finder that cached its directory
             importlib.invalidate_caches()
-            return importlib.import_module(name)
+            registered = set(registry.module_fns)
+            try:
+                return importlib.import_module(name)
+            except BaseException:
+                # a module that raises partway through leaves the udfs it already defined registered, and
+                # Python drops it from sys.modules, so _evict_project_modules() cannot reach them again
+                registry.deregister_functions(set(registry.module_fns) - registered)
+                raise
     except ProhibitedWriteError as e:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, _prohibited_write_msg(str(path), subject, e)

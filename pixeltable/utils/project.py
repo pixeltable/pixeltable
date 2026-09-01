@@ -207,7 +207,9 @@ def _add_build_metadata(tf: tarfile.TarFile, project_dir: Path, db_config: Datab
     payload = {
         'deps_type': fingerprint.deps_type(),
         'pxt_md_version': metadata.VERSION,
-        'db_config': config.model_dump(mode='json', exclude_none=True) | {'python_version': fingerprint.python_version},
+        # the fingerprint's python_version defaults to the running interpreter's, which says nothing about
+        # what the image should hold, so only a declared one is reported
+        'db_config': config.model_dump(mode='json', exclude_none=True),
     }
     encoded = json.dumps(payload).encode()
     info = tarfile.TarInfo(name='metadata.json')

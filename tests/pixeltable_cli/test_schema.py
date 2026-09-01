@@ -791,6 +791,23 @@ class TestSchema:
         assert r.returncode == 1
         assert 'error loading' in r.stderr
 
+        # one that defines a udf before it fails: the udf is registered by the time the failure happens,
+        # and the fixed file redefines it, so a load that keeps it would refuse the second one
+        halfway = project_dir / 'halfway.py'
+        udf_src = dedent(
+            """
+            @pxt.udf
+            def shout(s: str) -> str:
+                return s.upper()
+            """
+        )
+        halfway.write_text(SCHEMA_SRC + udf_src + '\nraise RuntimeError("boom")\n')
+        r = cli('schema', 'update', str(halfway), p('halfway'), check=False)
+        assert r.returncode == 1
+        assert 'error loading' in r.stderr
+        halfway.write_text(SCHEMA_SRC + udf_src)
+        cli('schema', 'update', str(halfway), p('halfway'))
+
         # a schema file sits at the top of its project, so an import above it names no package
         above = project_dir / 'above.py'
         above.write_text('from .. import something\n')

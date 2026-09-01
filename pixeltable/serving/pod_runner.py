@@ -28,6 +28,7 @@ def _serve(
     """
     import uvicorn
 
+    # SCALED BACK: the control plane passes no --db, so a hosted pod never reports
     if db_uri is not None:
         unpack_project_archive(db_uri, project_dir, expected_digest=digest)
     # the project is this process's project root, so its modules and its database entry resolve
