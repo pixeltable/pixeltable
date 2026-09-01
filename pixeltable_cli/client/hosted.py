@@ -16,10 +16,6 @@ from .utils import get_request, print_aligned
 
 DB_POLL_INTERVAL = 5
 DB_POLL_TIMEOUT = 600
-SVC_POLL_INTERVAL = 5
-SVC_POLL_TIMEOUT = 300
-RUNTIME_POLL_INTERVAL = 10
-RUNTIME_POLL_TIMEOUT = 900
 
 
 def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
@@ -154,7 +150,7 @@ def print_org(org: dict[str, Any]) -> None:
 
 
 @contextlib.contextmanager
-def _spinner(label: str | None) -> Iterator[None]:
+def spinner(label: str | None) -> Iterator[None]:
     """Display a transient progress spinner showing label for the duration of the block; None displays nothing."""
     if label is None:
         yield
@@ -191,7 +187,7 @@ def poll_state(
     """
     result: dict[str, Any] = {}
     deadline = time.monotonic() + timeout
-    with _spinner(label):
+    with spinner(label):
         while time.monotonic() < deadline:
             time.sleep(interval)
             try:
@@ -220,17 +216,4 @@ def poll_db(org: str, db: str, pending_states: set[str], label: str | None) -> d
     """Poll a hosted database until its state leaves pending_states."""
     return poll_state(
         '/api/db', {'org': org, 'db': db}, 'database', pending_states, DB_POLL_INTERVAL, DB_POLL_TIMEOUT, label
-    )
-
-
-def poll_svc(org: str, db: str, svc_name: str, pending_states: set[str], label: str | None) -> dict[str, Any]:
-    """Poll a hosted service until its state leaves pending_states."""
-    return poll_state(
-        '/api/service',
-        {'org': org, 'db': db, 'service_name': svc_name},
-        'service',
-        pending_states,
-        SVC_POLL_INTERVAL,
-        SVC_POLL_TIMEOUT,
-        label,
     )

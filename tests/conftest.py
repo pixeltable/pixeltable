@@ -370,6 +370,12 @@ def served_project() -> pathlib.Path | None:
     return None
 
 
+@pytest.fixture(scope='session')
+def hosted_image() -> None:
+    """Build the hosted database's image. The CLI package overrides this; elsewhere it does nothing."""
+    return None
+
+
 @pytest.fixture(scope='function')
 def db_root(
     init_env: None, served_project: pathlib.Path | None, request: pytest.FixtureRequest
@@ -406,6 +412,8 @@ def db_root(
         case 'cloud':
             base_uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
             assert base_uri, 'This should have been intercepted in pytest_generate_tests().'
+            # a hosted database runs its image's project, so the image must hold this session's project
+            request.getfixturevalue('hosted_image')
             test_dir = uuid.uuid4().hex
             prefix = f'{base_uri}/test_{test_dir}'
             _logger.info('Creating test directory in cloud catalog: %s', prefix)

@@ -16,12 +16,13 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import psutil
 
-from pixeltable_cli import schema_types
+from pixeltable_cli import types
 from pixeltable_cli.utils import (
     _IDENTITY_KEYS,
     _resolve_pixeltable_home,
@@ -34,6 +35,12 @@ from pixeltable_cli.utils import (
 )
 
 _IS_WINDOWS = platform.system() == 'Windows'
+
+# shared exit codes for all commands
+EXIT_IN_AGREEMENT = 0
+EXIT_ERROR = 1
+EXIT_CHANGES_PENDING = 2
+EXIT_REFUSED = 3
 
 
 def session_key() -> str:
@@ -403,17 +410,17 @@ def check_file(route: str, field: str, file: str, *, verb: str, as_json: bool) -
     if not path.is_file():
         print(f'pxt {verb}: file not found: {file}', file=sys.stderr)
         sys.exit(1)
-    report: schema_types.CheckReport = post_request(route, {field: str(path.resolve())})
+    report = types.CheckReport.model_validate(post_request(route, {field: str(path.resolve())}))
     if as_json:
-        print(json.dumps(report, indent=2))
+        print(report.model_dump_json(indent=2))
     else:
-        for warning in report['warnings']:
+        for warning in report.warnings:
             print(f'warning: {warning}')
-        for error in report['errors']:
+        for error in report.errors:
             print(f'error: {error}', file=sys.stderr)
-        if report['valid']:
-            print(f'{report["file"]}: valid')
-    sys.exit(0 if report['valid'] else 1)
+        if report.valid:
+            print(f'{report.file}: valid')
+    sys.exit(0 if report.valid else 1)
 
 
 def validate_path_arg(path: str) -> str:
@@ -451,3 +458,42 @@ def print_aligned(headers: list[str], rows: list[list[str]], right_align: set[in
     print(fmt(headers))
     for r in rows:
         print(fmt(r))
+
+
+def stdin_is_a_tty() -> bool:
+    """Like `sys.stdin.isatty()`, but on Windows distinguishes real consoles from NUL/other
+    character devices. msvcrt's `isatty` returns nonzero for any char device, so `subprocess.DEVNULL`
+    (which maps to NUL) is misreported as a TTY; GetConsoleMode() succeeds only on real consoles.
+    """
+    if not sys.stdin.isatty():
+        return False
+    if sys.platform != 'win32':
+        return True
+    import ctypes
+    from ctypes import wintypes
+
+    handle = ctypes.windll.msvcrt._get_osfhandle(sys.stdin.fileno())
+    mode = wintypes.DWORD()
+    return bool(ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode)))
+
+
+def confirm_or_exit(
+    prompt: str, force: bool, *, refused_exit_code: int = 2, on_refusal: Callable[[], None] | None = None
+) -> None:
+    """Prompt for yes/no on stdin; refuse non-tty unless --force. Both refusals exit with refused_exit_code.
+
+    on_refusal runs just before the non-tty refusal exits, for a caller that reports the refusal itself.
+    """
+    if force:
+        return
+    if not stdin_is_a_tty():
+        if on_refusal is not None:
+            on_refusal()
+        print(f'pxt: refusing to proceed without --force/-f (no TTY for confirmation): {prompt}', file=sys.stderr)
+        sys.exit(refused_exit_code)
+    sys.stderr.write(f'{prompt} [y/N] ')
+    sys.stderr.flush()
+    ans = sys.stdin.readline().strip().lower()
+    if ans not in ('y', 'yes'):
+        print('aborted', file=sys.stderr)
+        sys.exit(refused_exit_code)

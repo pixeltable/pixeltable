@@ -41,7 +41,7 @@ def _report_env_differences(resp: models.ConfigResponse) -> None:
     if len(differing) > 0:
         print(f'  set to a different value in the daemon: {", ".join(differing)}')
     if len(missing) > 0 or len(differing) > 0:
-        print('  run `pxt daemon restart` to serve with your environment')
+        print('  run `pxt daemon restart` to pick up your environment')
 
 
 def run(argv: list[str]) -> None:

@@ -8,6 +8,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.catalog.model import schema as schema_verbs
 from pixeltable.config import Config
 from pixeltable.func import Function
 from pixeltable.functions.video import frame_iterator
@@ -34,7 +35,7 @@ def fail_on_neg(x: int) -> int:
 
 
 class TestBridge:
-    def test_app_module_with_a_non_identifier_name(self, project_env: pathlib.Path) -> None:
+    def test_app_module_non_identifier_name(self, project_env: pathlib.Path) -> None:
         """A file or directory whose name is not a module name is reported, and the message names it."""
         app_file = project_env / '2024 pipeline.py'
         app_file.write_text('import pixeltable as pxt\n\n@pxt.udf\ndef shout(s: str) -> str:\n    return s.upper()\n')
@@ -74,7 +75,7 @@ class TestBridge:
         assert '[tool.pixeltable]' in message
         assert 'pxt init' in message
 
-    def test_app_module_imports_its_neighbors(self, project_env: pathlib.Path) -> None:
+    def test_app_module_neighbor_imports(self, project_env: pathlib.Path) -> None:
         """An application file imports the modules of its project by name, in every spelling."""
         (project_env / 'pkg').mkdir()
         (project_env / 'pkg' / 'inner.py').write_text("VALUE = 'first'\n", encoding='utf-8')
@@ -100,7 +101,7 @@ class TestBridge:
         assert sys.modules['ad_gen.app'] is module
         assert str(project_env) in sys.path
 
-    def test_edited_neighbor_is_read_again(self, project_env: pathlib.Path) -> None:
+    def test_edited_neighbor_reread(self, project_env: pathlib.Path) -> None:
         """Loading an application file again reads the modules it imports as they now stand."""
         helpers = project_env / 'neighbor_helpers.py'
         helpers.write_text("SUFFIX = 'first'\n", encoding='utf-8')
@@ -198,7 +199,7 @@ class TestBridge:
         assert len(errors) == 1, errors
         assert 'functions.tag' in errors[0]
 
-    def test_app_module_cannot_modify_the_catalog(self, uses_db: None, project_env: pathlib.Path) -> None:
+    def test_app_module_catalog_write_refused(self, uses_db: None, project_env: pathlib.Path) -> None:
         """A mutation while an application file loads is refused; a read goes through."""
         t = pxt.create_table('frozen', {'c': pxt.Int})
         t.insert([{'c': 1}])
@@ -415,7 +416,7 @@ class TestBridge:
         assert [(u['path'], u['kind']) for u in result['unavailable']] == [('broken', 'table')]
         assert 'cannot open' in result['unavailable'][0]['error']
 
-    def test_search_finds_dir_table_column(self, uses_db: None) -> None:
+    def test_search_dir_table_column(self, uses_db: None) -> None:
         pxt.create_dir('proj')
         pxt.create_table('proj/users', {'email': pxt.String | None, 'age': pxt.Int | None})
 
@@ -428,7 +429,7 @@ class TestBridge:
         pxt.create_dir('MyDir')
         assert len(bridge.search('mydir')['directories']) == 1
 
-    def test_search_returns_every_match(self, uses_db: None) -> None:
+    def test_search_all_matches(self, uses_db: None) -> None:
         pxt.create_dir('sl')
         for i in range(5):
             pxt.create_table(f'sl/match_{i}', {'c1': pxt.String | None})
@@ -632,7 +633,7 @@ class TestBridge:
         schema_file = project_env / 'refusal_schema.py'
         schema_file.write_text(schema_src)
         target = PxtPath('refusal')
-        bridge.schema_update(str(schema_file), target)
+        schema_verbs.schema_update(str(schema_file), target)
 
         # the edited schema goes into a module of its own: a process reads a file once, and picks up an edit
         # by starting again
@@ -641,6 +642,6 @@ class TestBridge:
 
         # dropping a column destroys its data; the refusal tells a CLI user about the flag, not about update_all()
         with pxt_raises(excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE, match='--allow-destructive') as info:
-            bridge.schema_update(str(dropped_file), target)
+            schema_verbs.schema_update(str(dropped_file), target)
         assert 'update_all()' not in info.value.message
         assert 'body' in pxt.get_table('refusal/docs').columns()

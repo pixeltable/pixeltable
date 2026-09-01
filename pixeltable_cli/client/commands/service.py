@@ -6,11 +6,19 @@ import json
 import sys
 from pathlib import Path
 
-from ...service_types import ServiceChangeOp, ServiceDeployment, ServicePlan, ServiceResolution, delete_service_op
-from ...utils import PxtPath
-from ..confirm import confirm_or_exit
+from ...types import Resolution, ServiceChangeOp, ServiceInstance, ServicePlan
+from ...utils import PxtPath, split_pxt_uri
 from ..parser import Parser
-from ..utils import check_file, get_request, post_request
+from ..utils import (
+    EXIT_CHANGES_PENDING,
+    EXIT_ERROR,
+    EXIT_IN_AGREEMENT,
+    EXIT_REFUSED,
+    check_file,
+    confirm_or_exit,
+    get_request,
+    post_request,
+)
 
 _EXAMPLE_APP = '''\
 """Pixeltable application, written by 'pxt service example'.
@@ -61,6 +69,21 @@ ingest.add_insert_route(
 ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
 '''
 
+_HOSTED = """
+Hosted databases:
+  TARGET may be a pxt:// uri, and the services then run in that database rather than on this machine.
+  'pxt db update' puts this project's code there first, and 'pxt schema update' creates the
+  tables; 'run' is local only, since it serves from the calling process.
+"""
+
+_OWN_APP = """
+Your own application:
+  A file may supply its own fastapi.FastAPI object rather than leave Pixeltable to build one, in which case it
+  declares one service, named after its module. All FastAPIRouters in that same file need to be included in
+  that application (via include_router()); they don't get turned into separate services. The file's models are bound
+  at TARGET before it serves, so a handler reaches them by name.
+"""
+
 _APP_FILE = """
 Project:
   APP has to sit under a project root: the directory holding the project configuration, which is a
@@ -73,23 +96,27 @@ Examples:
   pxt service diff app.py my_dir          # what update would change; exit 2 if anything is pending
   pxt service diff app.py my_dir --json
   pxt service diff app.py my_dir --otel     # also report tracing that is off but was asked for
+  pxt service diff app.py pxt://acme:main   # against a hosted database
 
 Tracing:
   --otel emits OpenTelemetry traces from the services 'update' starts, and needs the instrumentation
-  package ('pip install pixeltable[otel]'). It is deployment state: a service already running without
-  it restarts when 'update' is given the flag, and 'diff' reports that as a pending change.
-{_APP_FILE}"""
+  package ('pip install pixeltable[otel]'). The setting belongs to the running service, not to the file:
+  a service already running without it restarts when 'update' is given the flag, and 'diff' reports that
+  as a pending change.
+{_OWN_APP}{_HOSTED}{_APP_FILE}"""
 
 UPDATE_EPILOG = f"""\
 Examples:
   pxt service update app.py my_dir                       # start what is declared, restart what changed
   pxt service update app.py my_dir --allow-destructive   # also stop serving routes that changed or went away
   pxt service update app.py my_dir --otel                # emit OpenTelemetry traces from what it starts
+  pxt service update app.py pxt://acme:main              # start them in a hosted database
 
 Tracing:
-  --otel needs the instrumentation package ('pip install pixeltable[otel]'). It is deployment state: a
-  service already running without it restarts to pick it up, and dropping the flag restarts it again.
-{_APP_FILE}"""
+  --otel needs the instrumentation package ('pip install pixeltable[otel]'). The setting belongs to the
+  running service, not to the file: a service already running without it restarts to pick it up, and
+  dropping the flag restarts it again.
+{_OWN_APP}{_HOSTED}{_APP_FILE}"""
 
 RUN_EPILOG = f"""\
 Examples:
@@ -100,14 +127,14 @@ Examples:
 
 One service per process, as 'update' deploys them. Nothing is recorded: it runs for as long as this process
 does. Use 'update' to run it in the background, where 'list' and 'stop' can find it again.
-{_APP_FILE}"""
+{_OWN_APP}{_HOSTED}{_APP_FILE}"""
 
 PRUNE_EPILOG = f"""\
 Examples:
   pxt service prune app.py my_dir     # stop and forget the services the file does not declare
 
 A stopped service can be started again with 'pxt service update'.
-{_APP_FILE}"""
+{_OWN_APP}{_HOSTED}{_APP_FILE}"""
 
 STOP_EPILOG = """\
 Examples:
@@ -120,6 +147,7 @@ LIST_EPILOG = """\
 Examples:
   pxt service list                    # every service running locally
   pxt service list my_dir             # those bound at my_dir and below it
+  pxt service list pxt://acme:main    # those in a hosted database
 """
 
 CHECK_EPILOG = f"""\
@@ -136,29 +164,23 @@ Notes:
   service and a model base, and every udf its columns call is named by a module path another
   process resolves. Takes no TARGET, so it says nothing about what a target can serve;
   'pxt service diff' answers that.
-{_APP_FILE}"""
+{_OWN_APP}{_HOSTED}{_APP_FILE}"""
 
 VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'list', 'check', 'example')
 
-EXIT_IN_AGREEMENT = 0
-EXIT_ERROR = 1
-EXIT_CHANGES_PENDING = 2
-EXIT_REFUSED = 3
 
-_MARKERS: dict[ServiceResolution, str] = {
+_MARKERS: dict[Resolution, str] = {
     'up_to_date': '=',
     'create': '+',
     'update_additive': '~',
     'update_destructive': '~',
-    'unsupported': '!',
     'blocked': '!',
 }
-_PENDING: dict[ServiceResolution, str] = {
+_PENDING: dict[Resolution, str] = {
     'up_to_date': 'up to date',
     'create': 'will be started',
     'update_additive': 'will be restarted',
     'update_destructive': 'will be restarted (destructive)',
-    'unsupported': 'cannot be served',
     'blocked': 'blocked: the database has to change first',
 }
 
@@ -197,7 +219,7 @@ def run(argv: list[str]) -> None:
         ap.add_argument('app', help='path to a Python file declaring FastAPIRouter services')
         ap.add_argument('--json', action='store_true', dest='as_json')
         args = ap.parse_args(argv[1:])
-        check_file('/api/localservice/check', 'app_file', args.app, verb='service check', as_json=args.as_json)
+        check_file('/api/service/check', 'app_file', args.app, verb='service check', as_json=args.as_json)
         return
 
     if verb == 'stop':
@@ -226,7 +248,7 @@ def run(argv: list[str]) -> None:
         ap.add_argument('-f', '--force', action='store_true', help='skip confirmation')
         ap.add_argument('-n', '--dry-run', action='store_true', dest='dry_run')
     if verb == 'diff':
-        ap.add_argument('--otel', action='store_true', help='compare the deployments against tracing being on')
+        ap.add_argument('--otel', action='store_true', help='compare the running services against tracing being on')
     if verb == 'update':
         ap.add_argument('--otel', action='store_true', help='emit OpenTelemetry traces (requires `pixeltable[otel]`)')
         ap.add_argument(
@@ -289,14 +311,15 @@ def _example(out: str | None) -> None:
 
 
 def _service_plan(app_file: str, target: PxtPath, otel: bool = False) -> ServicePlan:
-    plan: ServicePlan = post_request('/api/localservice/diff', {'app_file': app_file, 'target': target, 'otel': otel})
-    return plan
+    return ServicePlan.model_validate(
+        post_request('/api/service/diff', {'app_file': app_file, 'target': target, 'otel': otel})
+    )
 
 
 def _diff(app_file: str, target: PxtPath, *, as_json: bool, otel: bool = False) -> None:
     plan = _service_plan(app_file, target, otel)
     _print_plan(plan, as_json=as_json)
-    sys.exit(EXIT_IN_AGREEMENT if plan['in_agreement'] else EXIT_CHANGES_PENDING)
+    sys.exit(EXIT_IN_AGREEMENT if plan.in_agreement else EXIT_CHANGES_PENDING)
 
 
 def _update(
@@ -310,28 +333,30 @@ def _update(
     otel: bool = False,
 ) -> None:
     plan = _service_plan(app_file, target, otel)
-    if plan['in_agreement']:
+    if plan.in_agreement:
         # report the same shape as a run that applied something, so a caller reading --json sees one form
-        for service in plan['services']:
-            service['status'] = 'skipped'
+        for service in plan.services:
+            service.status = 'skipped'
         _print_plan(plan, as_json=as_json)
         sys.exit(EXIT_IN_AGREEMENT)
     if dry_run:
         _print_plan(plan, as_json=as_json)
         sys.exit(EXIT_CHANGES_PENDING)
 
-    s = plan['summary']
-    restarts = f', interrupting {s["restarts"]} running service(s)' if s['restarts'] > 0 else ''
+    s = plan.summary
+    restarts = f', interrupting {s.restarts} running service(s)' if s.restarts > 0 else ''
     confirm_or_exit(
-        f'start or restart {s["create"] + s["update_additive"] + s["update_destructive"]} service(s){restarts}?',
+        f'start or restart {s.create + s.update_additive + s.update_destructive} service(s){restarts}?',
         force,
         refused_exit_code=EXIT_REFUSED,
         on_refusal=lambda: _print_plan(plan, as_json=as_json),
     )
 
-    applied: ServicePlan = post_request(
-        '/api/localservice/update',
-        {'app_file': app_file, 'target': target, 'allow_destructive': allow_destructive, 'otel': otel},
+    applied = ServicePlan.model_validate(
+        post_request(
+            '/api/service/update',
+            {'app_file': app_file, 'target': target, 'allow_destructive': allow_destructive, 'otel': otel},
+        )
     )
     _print_plan(applied, as_json=as_json, applied=True)
 
@@ -342,24 +367,28 @@ def _run_foreground(
     """Serve one of the file's services from this process, on one port, until interrupted.
 
     One service per process, as `update` deploys them, so what runs here serves the same routes at the same
-    paths. Nothing is recorded and nothing is reconciled: the service here is not a deployment, and it runs
-    for as long as this process does. That is what makes it the mode for a container entrypoint or a dev loop.
+    paths. Nothing is recorded and nothing is reconciled: the service runs for as long as this process
+    does. That is what makes it the mode for a container entrypoint or a dev loop.
     """
+    if split_pxt_uri(target) is not None:
+        print(
+            f'pxt service run: {target!r} is hosted, and this command serves from this process.\n'
+            f"run it against a local directory, or start it in the database with 'pxt service update'",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_ERROR)
+
     # this command runs the server itself, so unlike the rest of the client it needs pixeltable in-process
     import uvicorn
 
-    from pixeltable.serving._app import (
-        create_app_for_services,
-        init_instrumentation,
-        instrument_app,
-        load_service_routers,
-    )
+    from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
+    from pixeltable.utils.app_module import load_app_module, services_by_name
 
     if otel:
         # before the first Pixeltable operation, so that loading the file is traced too
         init_instrumentation()
-    services = load_service_routers(app_file)
     if service_name is None:
+        services = services_by_name(load_app_module(app_file, subject='application file'), app_file)
         if len(services) > 1:
             declared = ', '.join(sorted(services))
             print(
@@ -368,7 +397,7 @@ def _run_foreground(
             )
             sys.exit(EXIT_ERROR)
         service_name = next(iter(services))
-    app = create_app_for_services(services, app_file=app_file, base_path=target, service_name=service_name)
+    app, _ = create_app(app_file, service_name, target)
     if otel:
         instrument_app(app)
     n_routes = len(app.routes)
@@ -382,130 +411,99 @@ def _run_foreground(
 
 
 def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_run: bool) -> None:
-    plan = _service_plan(app_file, target)
-    extras = plan['extras']
-    if len(extras) == 0:
+    body = {'app_file': app_file, 'target': target}
+    planned = ServicePlan.model_validate(post_request('/api/service/prune', {**body, 'dry_run': True}))
+    if len(planned.ops) == 0:
         if as_json:
-            print(json.dumps({**plan, 'ops': []}, indent=2))
+            print(planned.model_dump_json(indent=2))
         else:
             print('nothing to prune')
         sys.exit(EXIT_IN_AGREEMENT)
 
     if dry_run:
-        _print_ops([delete_service_op(name, None, 'skipped') for name in extras], as_json=as_json, verb='would stop')
+        _print_ops(planned.ops, as_json=as_json, verb='would stop')
         sys.exit(EXIT_CHANGES_PENDING)
 
+    refused = [op.model_copy(update={'status': 'refused'}) for op in planned.ops]
     confirm_or_exit(
-        f'stop {len(extras)} service(s) the file does not declare?',
+        f'stop {len(planned.ops)} service(s)?',
         force,
         refused_exit_code=EXIT_REFUSED,
-        on_refusal=lambda: _print_ops(
-            [delete_service_op(name, None, 'refused') for name in extras], as_json=as_json, verb='would stop'
-        ),
+        on_refusal=lambda: _print_ops(refused, as_json=as_json, verb='would stop'),
     )
-    pruned: ServicePlan = post_request('/api/localservice/prune', {'app_file': app_file, 'target': target})
-    _print_ops(pruned.get('ops', []), as_json=as_json, verb='stopped')
+    pruned = ServicePlan.model_validate(post_request('/api/service/prune', body))
+    _print_ops(pruned.ops, as_json=as_json, verb='stopped')
 
 
 def _stop(names: list[str], *, as_json: bool) -> None:
-    running = _running()
-    by_target: dict[str, list[str]] = {}
-    ops: list[ServiceChangeOp] = []
-    for name in names:
-        matches = _matching(running, name)
-        if len(matches) == 0:
-            ops.append(delete_service_op(name, None, 'skipped'))
-            continue
-        if len(matches) > 1:
-            addresses = ', '.join(sorted(_address(d) for d in matches))
-            print(f'pxt service stop: {name!r} is ambiguous; it names {addresses}', file=sys.stderr)
-            sys.exit(EXIT_ERROR)
-        deployment = matches[0]
-        by_target.setdefault(deployment['base_path'], []).append(deployment['name'])
-
-    for target, target_names in by_target.items():
-        ops += post_request('/api/localservice/stop', {'names': target_names, 'target': target})
+    ops = [ServiceChangeOp.model_validate(op) for op in post_request('/api/service/stop', {'names': names})]
     _print_ops(ops, as_json=as_json, verb='stopped')
 
 
 def _list(target: str | None, *, as_json: bool) -> None:
     running = _running(target)
-    if target is not None and len(running) == 0:
-        # nothing is bound at that directory, so the argument names one service rather than a directory:
-        # a single service is inspected the way `describe` inspects one table
-        running = _matching(_running(), target)
     if as_json:
-        print(json.dumps(running, indent=2))
+        print(json.dumps([d.model_dump(mode='json') for d in running], indent=2))
         return
     if len(running) == 0:
         print('no services running')
         return
-    width = max(len(_address(d)) for d in running)
+    width = max(len(f'{d.catalog_path}/{d.name}'.lstrip('/')) for d in running)
     for d in running:
-        print(f'{_address(d):<{width}s}  {d["endpoint"]}  pid {d["pid"]}  {d["app_file"]}')
-        prefix = d['spec']['prefix']
-        for route in d['spec']['routes']:
-            served = ', '.join(route['outputs']) if len(route['outputs']) > 0 else '-'
-            accepted = ', '.join([*route['inputs'], *(f'{n} (file)' for n in route['uploadfile_inputs'])])
+        pid_or_state = f'pid {d.pid}' if d.pid is not None else d.state
+        # shown as the file it names: a catalog path never carries a .py suffix
+        app_file = d.app_module.replace('.', '/') + '.py'
+        where = f'{d.catalog_path}/{d.name}'.lstrip('/')
+        print(f'{where:<{width}s}  {d.endpoint}  {pid_or_state}  {app_file}')
+        if d.error is not None:
+            print(f'    {d.error}')
+        for route in d.spec.routes:
+            served = ', '.join(route.outputs) if len(route.outputs) > 0 else '-'
+            accepted = ', '.join([*route.inputs, *(f'{n} (file)' for n in route.uploadfile_inputs)])
             print(
-                f'    {route["method"]:<5s} {prefix}{route["path"]:<24s} {route["route_type"]:<8s} '
-                f'in: {accepted or "-"}  out: {served}'
+                f'    {route.method:<5s} {route.path:<24s} {route.route_type:<8s} in: {accepted or "-"}  out: {served}'
             )
 
 
-def _running(target: str | None = None) -> list[ServiceDeployment]:
+def _running(target: str | None = None) -> list[ServiceInstance]:
     params = {} if target is None else {'target': target}
-    deployments: list[ServiceDeployment] = get_request('/api/localservice/list', params)
-    return deployments
-
-
-def _address(deployment: ServiceDeployment) -> str:
-    """The service's name qualified by the directory it is bound to, as 'stop' accepts it."""
-    base_path = deployment['base_path']
-    return deployment['name'] if base_path == '' else f'{base_path}/{deployment["name"]}'
-
-
-def _matching(running: list[ServiceDeployment], name: str) -> list[ServiceDeployment]:
-    """The deployments a name denotes: an address matches one, a bare name matches every target holding it."""
-    return [d for d in running if name in (_address(d), d['name'])]
+    return [ServiceInstance.model_validate(d) for d in get_request('/api/service/list', params)]
 
 
 def _print_plan(plan: ServicePlan, *, as_json: bool, applied: bool = False) -> None:
     if as_json:
-        print(json.dumps(plan, indent=2))
+        print(plan.model_dump_json(indent=2))
         return
-    for service in plan['services']:
-        resolution = service['resolution']
-        state = service.get('status', _PENDING[resolution]) if applied else _PENDING[resolution]
-        line = f'{_MARKERS[resolution]} {service["name"]:<24s} {state}'
-        if service['endpoint'] is not None:
-            line += f'  {service["endpoint"]}'
+    for service in plan.services:
+        resolution = service.resolution
+        state = (service.status or _PENDING[resolution]) if applied else _PENDING[resolution]
+        line = f'{_MARKERS[resolution]} {service.name:<24s} {state}'
+        if service.endpoint is not None:
+            line += f'  {service.endpoint}'
         print(line)
-        for op in service['ops']:
-            print(f'    {op["description"]}  [{op["severity"]}]')
-        if service['route_detail'] is not None and resolution in ('unsupported', 'blocked'):
-            print(f'    {service["route_detail"]}')
-    for name in plan['extras']:
+        for op in service.ops:
+            print(f'    {op.description}  [{op.severity}]')
+        if service.route_detail is not None and resolution == 'blocked':
+            print(f'    {service.route_detail}')
+    for name in plan.extras:
         print(f'! {name:<24s} extra (not declared); stop it with prune')
 
-    s = plan['summary']
-    updates = s['update_additive'] + s['update_destructive']
-    counts = f'{s["create"]} start, {updates} restart, {s["up_to_date"]} unchanged, {s["extras"]} extra'
-    if s['blocked'] > 0:
-        counts += f', {s["blocked"]} blocked'
-    if s['unsupported'] > 0:
-        counts += f', {s["unsupported"]} unsupported'
+    s = plan.summary
+    updates = s.update_additive + s.update_destructive
+    counts = f'{s.create} start, {updates} restart, {s.up_to_date} unchanged, {s.extras} extra'
+    if s.blocked > 0:
+        counts += f', {s.blocked} blocked'
     print()
     print(f'Plan: {counts}')
 
 
 def _print_ops(ops: list[ServiceChangeOp], *, as_json: bool, verb: str) -> None:
     if as_json:
-        print(json.dumps(ops, indent=2))
+        print(json.dumps([op.model_dump(mode='json') for op in ops], indent=2))
         return
     for op in ops:
-        endpoint = op['details'].get('endpoint', '')
+        endpoint = op.details.get('endpoint', '')
         suffix = f'  {endpoint}' if endpoint != '' else ''
-        print(f'{op["name"]:<24s} {op.get("status", verb)}{suffix}')
+        print(f'{op.name:<24s} {op.status or verb}{suffix}')
     print()
-    print(f'{verb}: {sum(1 for op in ops if op.get("status") == "applied")} service(s)')
+    print(f'{verb}: {sum(1 for op in ops if op.status == "applied")} service(s)')

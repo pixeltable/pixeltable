@@ -20,6 +20,9 @@ overview:
 - [Approach 3: Declarative Serving](/howto/deployment/overview#approach-3-declarative-serving-pxt-service):
   use `pxt service` when you want Pixeltable to create and run the FastAPI app from an application file.
 
+The two combine: an application file may supply its own FastAPI app, and `pxt service` runs that one
+instead of building its own. See [Your own application, run by `pxt service`](#your-own-application-run-by-pxt-service).
+
 FastAPI and uvicorn are optional dependencies. Install them before using
 `pxt service` or the Python serving API:
 
@@ -100,6 +103,53 @@ app.include_router(router)
 
 uvicorn.run(app, host='0.0.0.0', port=8000)
 ```
+
+### Your own application, run by `pxt service`
+
+An application file may hold your own `fastapi.FastAPI` object. `pxt service` then serves that application
+as it is, so you keep the routes you wrote by hand and still get `diff`, `update`, `list` and `stop`
+instead of running `uvicorn` yourself.
+
+```python
+# notes_app.py, under a project root
+import fastapi
+import pixeltable as pxt
+
+TableModel = pxt.model_base()
+
+
+class Notes(TableModel, name='notes'):
+    note_id = pxt.Column(type=pxt.Int, primary_key=True)
+    text: pxt.String
+
+
+app = fastapi.FastAPI()
+
+
+@app.post('/notes')
+def add_note(note_id: int, text: str) -> dict[str, int]:
+    return {'rows': Notes.insert([{'note_id': note_id, 'text': text}]).num_rows}
+```
+
+```bash
+pxt schema update notes_app.py my_dir     # create the tables the models declare
+pxt service update notes_app.py my_dir    # serve the application, as service 'notes_app'
+```
+
+Three things to know:
+
+- The file declares **one** service, named after its module (not the variable holding the app object).
+- The models in the file are bound at the target before the application serves, and can be used in handler logic
+  just like table names (e.g., `Notes.insert(...)`).
+- All `FastAPIRouter` instances in the application file are part of the app service, not separate services of their own:
+
+  ```python
+  app.include_router(ingest, prefix='/v1')   # ingest's routes are served under /v1
+  ```
+
+A router not included in `app` would never be served, and in that situation `pxt service` returns with an error.
+The routes of an included `FastAPIRouter` are diffed by their declarations (i.e., they take the data types of path
+parameters into account); the paths the application serves itself are simply diffed as path strings.
 
 ### Compute without persisting
 
