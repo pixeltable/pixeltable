@@ -882,6 +882,11 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
             'database the contents of its runtime image',
             list[DatabaseConfig],
         ),
+        'db_pool_size': ('Number of database connections the engine keeps open (default: 5)', int),
+        'db_pool_max_overflow': (
+            'Number of temporary database connections the engine may open beyond `db_pool_size` (default: 10)',
+            int,
+        ),
         'daemon_host': 'Listen address for the proxy daemon in fixed-address mode (e.g. 0.0.0.0)',
         'daemon_port': ('Listen port for the proxy daemon in fixed-address mode (e.g. 8000)', int),
         'db_uri': 'Base pxt:// URI for remote catalog access (e.g. pxt://myorg:mydb)',
@@ -960,7 +965,18 @@ _FILE_ONLY_KEYS = frozenset({'file_cache_size_g', 'file_cache_lease_s'})
 
 # settings that configure the installation rather than one project, so a project config file may not set them
 _INSTALLATION_KEYS = frozenset(
-    {'home', 'config', 'pgdata', 'db', 'file_cache_size_g', 'file_cache_lease_s', 'daemon_host', 'daemon_port'}
+    {
+        'home',
+        'config',
+        'pgdata',
+        'db',
+        'file_cache_size_g',
+        'file_cache_lease_s',
+        'daemon_host',
+        'daemon_port',
+        'db_pool_size',
+        'db_pool_max_overflow',
+    }
 )
 
 # the settings pxt.init() accepts, ie. the ones a single process may set
