@@ -15,6 +15,8 @@ from typing import Any
 
 import pytest
 
+from ..utils import DatabaseRoot
+
 from .conftest import PxtRunner
 
 pytestmark = [
@@ -34,21 +36,6 @@ _BUILD_TIMEOUT = 1800.0
 _APP_FILE = 'basic.py'  # the corpus file the project holds
 
 
-@pytest.fixture(autouse=True)
-def hosted_environment() -> None:
-    """Skip the test unless the session names a hosted database to act on."""
-    if os.environ.get('PXTTEST_CLOUD_DB_URI') is None:
-        pytest.skip('PXTTEST_CLOUD_DB_URI is not set.')
-
-
-@pytest.fixture
-def hosted_db() -> str:
-    """The hosted database these tests act on, which is the one the cloud catalog tests read."""
-    uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
-    assert uri is not None  # hosted_environment() skipped the test otherwise
-    return uri
-
-
 @pytest.fixture
 def project(tmp_path: pathlib.Path) -> pathlib.Path:
     """A project of the test's own, holding an application file from the corpus and a lockfile.
@@ -65,12 +52,12 @@ def project(tmp_path: pathlib.Path) -> pathlib.Path:
 
 
 @pytest.fixture
-def current_db(cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> str:
+def current_db(cli: PxtRunner, project: pathlib.Path, db_root: DatabaseRoot) -> str:
     """A hosted database running an image built from this project."""
-    create_project_config(cli, project, hosted_db)
-    applied = db_update(cli, project, hosted_db)
+    create_project_config(cli, project, db_root.prefix)
+    applied = db_update(cli, project, db_root.prefix)
     assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
-    return hosted_db
+    return db_root.prefix
 
 
 def create_project_config(cli: PxtRunner, project: pathlib.Path, db_uri: str, **settings: Any) -> None:
@@ -110,6 +97,7 @@ def get_target_ops(plan: dict[str, Any], target: str) -> list[dict[str, Any]]:
     return [op for op in plan['ops'] if op['target'] == target]
 
 
+@pytest.mark.db_roots('cloud', reason='Uses the CLI to drive cloud DBs through the control plane')
 class TestDb:
     def test_create(self, cli: PxtRunner, project: pathlib.Path) -> None:
         """A database the control plane does not hold is planned as a create, and the update makes it."""
@@ -130,25 +118,25 @@ class TestDb:
         finally:
             cli('db', 'delete', absent, cwd=project, check=False)
 
-    def test_update_builds_the_image(self, cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> None:
+    def test_update_builds_the_image(self, cli: PxtRunner, project: pathlib.Path, db_root: DatabaseRoot) -> None:
         """Every update builds the image, since the database reports no fingerprint to compare."""
-        create_project_config(cli, project, hosted_db)
+        create_project_config(cli, project, db_root.prefix)
 
-        plan = db_diff(cli, project, hosted_db)
+        plan = db_diff(cli, project, db_root.prefix)
         assert plan['resolution'] == 'update_additive'
         assert [op['name'] for op in get_target_ops(plan, 'image')] == ['image']
         assert plan['summary']['rebuild']
         assert plan['returncode'] == EXIT_CHANGES_PENDING
 
-        applied = db_update(cli, project, hosted_db)
+        applied = db_update(cli, project, db_root.prefix)
         assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
 
         # and the next diff plans the same build, since there is still nothing to compare
-        assert get_target_ops(db_diff(cli, project, hosted_db), 'image') != []
+        assert get_target_ops(db_diff(cli, project, db_root.prefix), 'image') != []
 
-    def test_status_list(self, cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> None:
-        name = hosted_db.rsplit(':', 1)[-1]
-        status = db_status(cli, project, hosted_db)
+    def test_status_list(self, cli: PxtRunner, project: pathlib.Path, db_root: DatabaseRoot) -> None:
+        name = db_root.prefix.rsplit(':', 1)[-1]
+        status = db_status(cli, project, db_root.prefix)
         assert status['state'] == 'AVAILABLE', status
         listed = cli('db', 'list', 'pxt://pixeltable', '--json', cwd=project).json
         assert name in [entry['db_name'] for entry in listed], listed
@@ -166,8 +154,8 @@ class TestDb:
         assert [op['target'] for op in ops] == ['image']
         assert all(op['status'] == 'applied' for op in ops), ops
 
-    def test_errors(self, cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> None:
-        create_project_config(cli, project, hosted_db)
+    def test_errors(self, cli: PxtRunner, project: pathlib.Path, db_root: DatabaseRoot) -> None:
+        create_project_config(cli, project, db_root.prefix)
 
         not_a_uri = cli('db', 'diff', 'my_dir', cwd=project, check=False)
         assert 'URI must be pxt://org:db' in not_a_uri.stderr, not_a_uri.stderr
