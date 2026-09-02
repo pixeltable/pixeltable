@@ -21,6 +21,7 @@ from typing import Any, Callable, Iterator
 import pytest
 
 from pixeltable.config import Config
+from pixeltable_cli.client.utils import is_running
 
 from ..utils import DatabaseRoot
 
@@ -108,12 +109,11 @@ def pxt_daemon(
             stdin=subprocess.DEVNULL,
         )
     try:
-        from pixeltable_cli.client.utils import is_running
-
         os.environ['PXT_PORT'] = str(port)
         # Allow for a cold pixeltable import in the daemon subprocess, which on a loaded CI runner can run
         # well past a warm import; matches the client's own startup health timeout.
         startup_timeout = 45
+        print(f'Waiting for the test daemon on port {port}, serving {session_project}', flush=True)
         deadline = time.time() + startup_timeout
         while time.time() < deadline:
             if is_running():
@@ -132,6 +132,7 @@ def pxt_daemon(
         # provoke that restart here, with the environment this fixture started the daemon with.
         subprocess.run(['pxt', 'ls', '/'], env=env, capture_output=True, check=False, timeout=60)
         assert is_running()
+        print(f'Test daemon is up on port {port}; log at {log_path}', flush=True)
         yield port
     finally:
         # a test may have restarted the daemon, in which case the process answering on the port is not the
@@ -181,9 +182,9 @@ def pixeltable_wheel(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
     """A wheel built from this working tree, for a project to install in place of the released pixeltable."""
     repo_root = pathlib.Path(__file__).parents[2]
     out_dir = tmp_path_factory.mktemp('pxt_wheel')
+    print(f'Building a Pixeltable wheel from {repo_root}', flush=True)
     r = subprocess.run(
         ['uv', 'build', '--wheel', '-o', str(out_dir), str(repo_root)],
-        capture_output=True,
         text=True,
         check=False,
         timeout=_RUN_TIMEOUT_SECS,
@@ -306,6 +307,8 @@ def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -
                 env.pop(name, None)
             else:
                 env[name] = value
+        print(f'Running: pxt {" ".join(args)}', flush=True)
+        started = time.monotonic()
         try:
             r = subprocess.run(
                 ['pxt', *args],
@@ -324,6 +327,7 @@ def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -
                 f'--- stdout ---\n{_as_text(exc.stdout)}\n'
                 f'--- stderr ---\n{_as_text(exc.stderr)}'
             ) from exc
+        print(f'Finished in {time.monotonic() - started:.1f}s (rc={r.returncode}): pxt {" ".join(args)}', flush=True)
         if check and r.returncode != 0:
             raise AssertionError(f'pxt {args} failed (rc={r.returncode}): {r.stderr}')
         return PxtResult(r.returncode, r.stdout, r.stderr)

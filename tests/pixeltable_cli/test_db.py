@@ -16,7 +16,6 @@ import pytest
 from .conftest import PxtRunner, write_requirements
 
 pytestmark = [
-    pytest.mark.remote_api,
     pytest.mark.expensive,
     pytest.mark.db_roots('local', reason='pxt db acts on a hosted database, not on the catalog a test runs against'),
 ]
@@ -159,7 +158,7 @@ class TestDb:
         not_a_uri = cli('db', 'diff', 'my_dir', cwd=project, check=False)
         assert 'URI must be pxt://org:db' in not_a_uri.stderr, not_a_uri.stderr
 
-        undeclared = cli('db', 'diff', f'pxt://pixeltable:pxttest-undeclared', cwd=project, check=False)
+        undeclared = cli('db', 'diff', 'pxt://pixeltable:pxttest-undeclared', cwd=project, check=False)
         assert undeclared.returncode == EXIT_ERROR
         assert '[[pixeltable.database]]' in undeclared.stderr, undeclared.stderr
 
