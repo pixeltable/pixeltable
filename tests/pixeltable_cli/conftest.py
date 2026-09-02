@@ -330,6 +330,7 @@ def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -
         print(f'Finished in {time.monotonic() - started:.1f}s (rc={r.returncode}): pxt {" ".join(args)}', flush=True)
         if check and r.returncode != 0:
             raise AssertionError(f'pxt {args} failed (rc={r.returncode}): {r.stderr}')
+        print(r.stdout)
         return PxtResult(r.returncode, r.stdout, r.stderr)
 
     return _run
