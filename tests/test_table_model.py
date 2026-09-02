@@ -826,6 +826,7 @@ class TestTableModel:
             subview_col_1 = ExampleTableModel.img.rotate(180)
             subview_col_2 = ExampleViewModel.view_col_1.rotate(270)
             subview_col_3 = subview_col_2.rotate(30)
+            subview_col_4 = ExampleViewModel.img.rotate(90)  # Ensure base table columns are in scope for view
 
         class ExampleViewModelFromQuery(
             TableModel,
@@ -893,6 +894,7 @@ class TestTableModel:
         subview2.add_computed_column(subview_col_1=subview2.img.rotate(180))
         subview2.add_computed_column(subview_col_2=subview2.view_col_1.rotate(270))
         subview2.add_computed_column(subview_col_3=subview2.subview_col_2.rotate(30))
+        subview2.add_computed_column(subview_col_4=subview2.img.rotate(90))
 
         view_from_query2 = pxt.create_view(
             p(f'{prefix}test_view_from_query_2'),
@@ -934,56 +936,6 @@ class TestTableModel:
         ):
             assert schema_from_tbl_md(mtbl.get_metadata()) == schema_from_tbl_md(atbl.get_metadata())
             assert_resultset_eq(mtbl.order_by(mtbl.value).collect(), atbl.order_by(atbl.value).collect())
-
-    def test_view_model_shadows_base_column(self, db_root: DatabaseRoot) -> None:
-        """A view model column cannot shadow a base column, the same as create_view()."""
-        p = db_root.make_catalog_path
-        TableModel = pxt.model_base()
-
-        class ExampleTableModel(TableModel, name='test_table'):
-            id: pxt.Int
-            value: pxt.Float | None
-
-        class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel):
-            value = ExampleTableModel.value * 100.0
-
-        with pxt_raises(
-            excs.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'value' already exists in the base table 'test_table'"
-        ):
-            TableModel.create_all(p(''))
-
-    def test_update_all_adds_shadowing_column(self, db_root: DatabaseRoot) -> None:
-        """update_all() cannot add a view column that shadows a base column, the same as add_computed_column()."""
-        p = db_root.make_catalog_path
-        TableModel = pxt.model_base()
-
-        class ExampleTableModel(TableModel, name='test_table'):
-            id: pxt.Int
-            value: pxt.Float | None
-
-        class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel):
-            vc1 = ExampleTableModel.id + 1
-
-        TableModel.create_all(p(''))
-        ExampleTableModel.insert([{'id': 1, 'value': 2.0}])
-
-        TableModelV2 = pxt.model_base()
-
-        class ExampleTableModelV2(TableModelV2, name='test_table'):
-            id: pxt.Int
-            value: pxt.Float | None
-
-        class ExampleViewModelV2(TableModelV2, name='test_view', base=ExampleTableModelV2):
-            vc1 = ExampleTableModelV2.id + 1
-            value = ExampleTableModelV2.value * 100.0
-
-        with pxt_raises(
-            excs.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'value' already exists in the base table 'test_table'"
-        ):
-            TableModelV2.update_all(p(''))
-        # nothing was applied: value still reads through to the base's column
-        t = ExampleViewModel.table
-        assert t.select(t.value).collect()['value'] == [2.0]
 
     def test_view_model_index_on_iterator_column(self, db_root: DatabaseRoot) -> None:
         """An embedding index in a view model can name a column produced by the view's iterator."""
@@ -2204,7 +2156,22 @@ class TestTableModel:
                 id: pxt.Int | None
                 bad = object()
 
-        # A model column may not redefine a name already provided by the base query...
+        # A model column may not redefine a name already provided by the base table ...
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r"'id' is already defined by the base table; it cannot be redeclared."
+        ):
+
+            class TableColCollision(TableModel, name='table_col_collision', base=ValidTableModel):
+                id: pxt.Int | None
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r"'id' is already defined by the base table; it cannot be redeclared."
+        ):
+
+            class TableColCollisionComputed(TableModel, name='table_col_collision_computed', base=ValidTableModel):
+                id = ValidTableModel.id + 1
+
+        # ... or by the base query ...
         with pxt_raises(
             excs.ErrorCode.INVALID_SCHEMA,
             match=r"'doubled' is already defined by the base query; it cannot be redeclared.",
@@ -2215,7 +2182,7 @@ class TestTableModel:
             ):
                 doubled = ValidTableModel.id * 3
 
-        # ...or by the iterator.
+        # ... or by the iterator.
         class ImageModel(TableModel, name='image_model'):
             img: pxt.Image | None
 
@@ -2230,6 +2197,14 @@ class TestTableModel:
                 iterator=pxtf.image.tile_iterator(ImageModel.img, (256, 256)),
             ):
                 tile = 5
+
+        # Also test shadowing by a column name that differs only in case.
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r"'Id' is already defined by the base table; it cannot be redeclared."
+        ):
+
+            class CaseInsensitiveCollision(TableModel, name='test_view', base=ValidTableModel):
+                Id: pxt.Float | None
 
         # a Table method that a query cannot provide raises AttributeError while the model is unbound
         with pytest.raises(AttributeError, match=r'is not yet bound to an actual table'):
@@ -2710,20 +2685,3 @@ class TestTableModel:
                     EmbeddingIndex(a, embedding=dummy_embedding.using(n=512), name='Idx'),
                     EmbeddingIndex(b, embedding=dummy_embedding.using(n=512), name='idx'),
                 ]
-
-    def test_model_case_insensitive_shadowing(self, db_root: DatabaseRoot) -> None:
-        """Shadowing of a base column is decided on the folded name."""
-        p = db_root.make_catalog_path
-        TableModel = pxt.model_base()
-
-        class T(TableModel, name='test_table'):
-            id: pxt.Int
-            value: pxt.Float | None
-
-        class V(TableModel, name='test_view', base=T):
-            Value: pxt.Float | None
-
-        with pxt_raises(
-            excs.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'value' already exists in the base table 'test_table'"
-        ):
-            TableModel.create_all(p(''))
