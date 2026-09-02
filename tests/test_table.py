@@ -1119,7 +1119,7 @@ class TestTable:
         assert res2['c1'] == [r['c1'] for r in rows]
         assert res2['c2'] == [r['c2'] for r in rows]
 
-    @pytest.mark.skip(reason='Test fails on cloud without server-side streaming')
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails on cloud without server-side streaming for large collects')
     def test_bulk_scalar_collect(self, db_root: DatabaseRoot) -> None:
         t = pxt.create_table(db_root.make_catalog_path('bulk'), {'id': pxt.Int, 'val': pxt.String})
         for i in range(10):
