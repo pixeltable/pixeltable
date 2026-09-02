@@ -17,17 +17,16 @@
 
 [**Quickstart**](https://docs.pixeltable.com/overview/quick-start) |
 [**Documentation**](https://docs.pixeltable.com/) |
-[**CLI**](https://docs.pixeltable.com/platform/cli) |
-[**Dashboard**](https://docs.pixeltable.com/platform/dashboard) |
 [**Cloud**](https://docs.pixeltable.com/howto/deployment/cloud) |
-[**Starter kit**](https://docs.pixeltable.com/resources/starter-kit) |
 [**Skill**](https://github.com/pixeltable/pixeltable-skill) |
 [**llms-full.txt**](https://docs.pixeltable.com/llms-full.txt) |
 [**Discord**](https://discord.gg/QPyqFYx2UN)
 
 ## One application file
 
-Pixeltable stores tables and runs transforms as columns. You write those tables (and optional HTTP routes) in `app.py`. `pxt schema update` creates the tables on this machine. The same file can target a hosted catalog at a `pxt://org:database` URI. Python 3.11+ on Linux, macOS, or Windows.
+Most stacks glue a blob store, a warehouse, a vector database, an orchestrator, and custom endpoints. You pay for the joints. Pixeltable is the database, the orchestration, and the serving: tables, computed columns, indexes, and endpoints in one Python file (`app.py`). Insert a row. Transforms run.
+
+Locally, `pxt schema update` creates the tables. `pxt service update` starts the endpoints. On Cloud, use the same file after you set `PIXELTABLE_API_KEY` (create the key in the [dashboard](https://docs.pixeltable.com/howto/deployment/cloud#get-an-api-key)) and run `pxt db update`. Python 3.11+ on Linux, macOS, or Windows.
 
 ```bash
 pip install 'pixeltable[serve]'
@@ -69,9 +68,9 @@ curl -X POST http://127.0.0.1:<port>/docs \
   -d '{"title": "Hello", "body": "world"}'
 ```
 
-`pxt schema update` creates the catalog namespace `my_app` and its tables. That is not a folder on disk, and it does not start HTTP. After the tables exist, `pxt service update` starts the routes.
+`pxt schema update` creates the catalog namespace `my_app` and its tables. That is not a folder on disk. It does not start the endpoints. After the tables exist, `pxt service update` starts them.
 
-To put the same file on Pixeltable Cloud, set `PIXELTABLE_API_KEY`, name the database in `pixeltable.toml`, then run the three commands below. `pxt db update` creates or updates the hosted database. `pxt schema update` creates tables there. `pxt service update` starts HTTP on the host. `pxt service run` always serves from this process and cannot target Cloud:
+To put the same file on Pixeltable Cloud, create an API key in the [Cloud dashboard](https://docs.pixeltable.com/howto/deployment/cloud#get-an-api-key), set `PIXELTABLE_API_KEY`, name the database in `pixeltable.toml`, then run the three commands below. `pxt db update` creates or updates the hosted database. It does not insert rows and does not start app endpoints. `pxt schema update` creates tables there. `pxt service update` starts the endpoints on the host. `pxt service run` always serves from this process and cannot target Cloud:
 
 ```bash
 pxt db update pxt://org:mydb
@@ -95,7 +94,7 @@ pxt service update app.py agent
 
 Inserting into the knowledge table needs no API key. The `/ask` route needs `ANTHROPIC_API_KEY`.
 
-To mount the routes on an existing FastAPI app, `app.include_router(...)`. [HTTP serving](https://docs.pixeltable.com/howto/deployment/serving). If you do not want HTTP, run `pxt schema update`, insert from Python, then `export_sql`. [Self-hosting](https://docs.pixeltable.com/howto/deployment/overview).
+To mount the routes on an existing FastAPI app, `app.include_router(...)`. [HTTP serving](https://docs.pixeltable.com/howto/deployment/serving). To skip endpoints, run `pxt schema update`, insert from Python, then `export_sql`. [Self-hosting](https://docs.pixeltable.com/howto/deployment/overview).
 
 ## Agents write the same file
 

@@ -7,7 +7,7 @@ Most stacks glue a blob store, a warehouse, a vector database, an orchestrator, 
 
 If you process media and serve model pipelines, that file is the backend you keep. Insert a row. Transforms run. Indexes stay current.
 
-Locally, create those tables with `pxt schema update`. Start the endpoints with `pxt service update` if you want them, then insert from Python, the dashboard, or POST. On [Pixeltable Cloud](/howto/deployment/cloud), use the same `app.py` after you set `PIXELTABLE_API_KEY` and run `pxt db update`. That Cloud command creates or updates the hosted database. It does not insert rows and does not start app endpoints.
+Locally, create those tables with `pxt schema update`. Start the endpoints with `pxt service update`. On [Pixeltable Cloud](/howto/deployment/cloud), use the same `app.py` after you set `PIXELTABLE_API_KEY` and run `pxt db update`. That Cloud command creates or updates the hosted database. It does not insert rows and does not start app endpoints.
 
 <Card title="Quickstart" icon="bolt" href="/overview/quick-start">
   Write `app.py`, run `pxt schema update` and `pxt service update`, then POST a row.
