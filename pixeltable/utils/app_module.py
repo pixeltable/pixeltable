@@ -20,6 +20,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.func import FunctionRegistry
 from pixeltable.runtime import get_runtime
+from pixeltable.utils.project import in_environment
 from pixeltable_cli.types import CheckReport, RouteSpec, ServiceSpec
 
 _lock = threading.RLock()
@@ -62,15 +63,13 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
     """Import file under the module path relative to the project root."""
     path = Path(file).resolve()
     name = module_name(file, subject=subject)
-    root = Config.get().project_root
-    assert root is not None  # module_name() refuses a file outside a project root
 
     # resolve the catalog first: initializing it writes, which freeze() would refuse
     catalog = get_runtime().catalog
     try:
         registry = FunctionRegistry.get()
         with _lock, catalog.freeze():
-            _evict_project_modules(root)
+            _evict_project_modules()
             # a file written after this process started is invisible to a finder that cached its directory
             importlib.invalidate_caches()
             registered = set(registry.module_fns)
@@ -110,12 +109,16 @@ def _no_root_msg(path: Path, subject: str, root: Path | None) -> str:
     )
 
 
-def _evict_project_modules(root: Path) -> None:
-    """Discard every loaded module read from root, and the udfs they registered, so this load reads them again.
+def _evict_project_modules() -> None:
+    """Remove the project's own modules from sys.modules, and their udfs from the registry.
 
-    Scanning sys.modules rather than tracking what an earlier load imported: resolving a stored udf reference
-    imports a project module too, and a module missing from the eviction set is never read again.
+    Removing project modules allows us to have them re-imported, in response to changes to the source files.
+
+    The standard library and installed packages stay loaded, including when the environment sits inside the
+    project root (eg, a .venv).
     """
+    root = Config.get().project_root
+    assert root is not None  # module_name() refuses a file outside a project root
     registry = FunctionRegistry.get()
     for name, module in list(sys.modules.items()):
         module_file = getattr(module, '__file__', None)
@@ -123,22 +126,13 @@ def _evict_project_modules(root: Path) -> None:
             continue
         if name.split('.', maxsplit=1)[0] in _RUNNING_PACKAGES:
             continue
-        if Path(module_file).resolve().is_relative_to(root):
+        # the file path lets us distinguish between a project module and a standard library module
+        resolved = Path(module_file).resolve()
+        if in_environment(resolved):
+            continue
+        if resolved.is_relative_to(root):
             registry.deregister_module(name)
             sys.modules.pop(name, None)
-
-
-def _module_name(path: Path, root: Path, subject: str) -> str:
-    """The dotted name an import of path reaches it by, with root on sys.path."""
-    relative = path.relative_to(root).with_suffix('')
-    for part in relative.parts:
-        if not part.isidentifier() or keyword.iskeyword(part):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                f'{path}: {part!r} is not a module name, so this {subject} cannot be imported; rename it, or '
-                f'the directory holding it, to a Python identifier',
-            )
-    return '.'.join(relative.parts)
 
 
 def _prohibited_write_msg(file: str, subject: str, exc: ProhibitedWriteError) -> str:
