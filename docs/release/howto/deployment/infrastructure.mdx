@@ -3,10 +3,11 @@ title: 'Infrastructure'
 description: 'One application file, PIXELTABLE_HOME, and where media files live.'
 ---
 
-Put `TableModel` classes and `FastAPIRouter` in `app.py`. The file has to
-sit under a project root. `pxt init` writes `pixeltable.toml`, or appends
-`[[tool.pixeltable.database]]` to an existing `pyproject.toml`. Schema and
-service refuse a file with no project root.
+Put `TableModel` classes and `FastAPIRouter` in `app.py`. Put `app.py` in
+the directory you run `pxt init` in. `pxt init` writes `pixeltable.toml`,
+or appends `[[tool.pixeltable.database]]` to an existing `pyproject.toml`.
+`pxt schema update` and `pxt service update` error if you have not run
+`pxt init` in this directory or a parent.
 
 <Tree>
   <Tree.Folder name="proj" defaultOpen>
@@ -27,7 +28,7 @@ If both files sit in the same directory, `pixeltable.toml` wins. `pxt init`
 writes one or the other, not both. Nested `pxt init` is refused: one
 project, one root.
 
-Apply, then serve:
+Create tables, then start HTTP:
 
 ```bash
 pxt init
@@ -35,18 +36,18 @@ pxt schema update app.py my_app
 pxt service update app.py my_app
 ```
 
-`my_app` is a catalog directory, not a folder on disk. A second
-application file is another path under the same root, applied to another
-catalog target:
+`my_app` is a namespace inside Pixeltable, not a folder in this repo. A
+second file under the same project root can use a different last-argument
+name:
 
 ```bash
 pxt schema update ads/app.py ads
 pxt schema update docs/app.py docs_app
 ```
 
-A second database is another `[[pixeltable.database]]` entry, not a
-folder. The local entry is unnamed (`local`). A hosted one is named by
-its `pxt://org:db` URI and carries what `pxt db update` packs:
+Add another `[[pixeltable.database]]` block for a second database. Leave
+`name` off for the local database. For Cloud, set `name = "pxt://org:db"`
+and list the files `pxt db update` should upload:
 
 ```toml
 [[pixeltable.database]]
@@ -56,17 +57,18 @@ name = "pxt://org:prod"
 include = ["app.py", "functions.py"]
 ```
 
-Same file, different TARGET:
+Same `app.py`, different last argument:
 
 ```bash
 pxt schema update app.py my_app
 pxt schema update app.py pxt://org:prod
 ```
 
-Mount the same router on an existing FastAPI app:
-[HTTP serving](/howto/deployment/serving). Do not run `python app.py`.
+If `app.py` only declares models and a `FastAPIRouter` for Pixeltable,
+start HTTP with `pxt service update`, not `python app.py`. If you mount
+the router on your own FastAPI app, start that app as in [HTTP serving](/howto/deployment/serving).
 
-Install floor:
+Minimum Python and Pixeltable versions:
 
 ```toml
 [project]
@@ -76,10 +78,11 @@ dependencies = [
 ]
 ```
 
-UDFs are recorded as a module path relative to the project root.
-[Custom functions](/platform/custom-functions). `return_rows=True`:
-[HTTP serving](/howto/deployment/serving#return-computed-columns).
-Apply schema once before starting workers.
+Pixeltable records each UDF by its import path from the project root, so
+renaming or moving the file breaks computed columns that call it.
+[Custom functions](/platform/custom-functions). To return computed columns
+from an insert, see [HTTP serving](/howto/deployment/serving#return-computed-columns).
+Run `pxt schema update` once before you start HTTP processes.
 
 <Card title="Pixeltable Starter Kit" icon="github" href="/resources/starter-kit">
   Two apps. Each ships a Dockerfile and docker-compose.yml.
@@ -87,7 +90,7 @@ Apply schema once before starting workers.
 
 ## Where files live
 
-Default home is `~/.pixeltable`: `pgdata` (PostgreSQL), `media` (generated files), `file_cache` (downloads). `pxt.create_dir` is a catalog namespace, not a folder on disk.
+Default home is `~/.pixeltable`: `pgdata` (PostgreSQL), `media` (generated files), `file_cache` (downloads). Names like `my_app` are Pixeltable namespaces (you can also create one with `pxt.create_dir`), not folders in your repo.
 
 - Inserted local files: the path is stored; the original stays put.
 - Inserted URLs: the URL is stored; first access downloads into the file cache.
@@ -100,7 +103,7 @@ File cache size is `file_cache_size_g` in `config.toml` only. [Configuration](/p
 file_cache_size_g = 50
 ```
 
-With no HTTP, storage can be ephemeral; `export_sql` the result. [Self-hosting](/howto/deployment/overview). A long-running service needs a persistent volume at `PIXELTABLE_HOME` (pgdata, media, file_cache). Starter-kit Dockerfiles set `PIXELTABLE_HOME=/data/pixeltable`.
+If you only insert and export, the Pixeltable data directory can be temporary: write the result out with `export_sql`. [Self-hosting](/howto/deployment/overview). A long-running service needs a persistent volume at `PIXELTABLE_HOME` (pgdata, media, file_cache). Starter-kit Dockerfiles set `PIXELTABLE_HOME=/data/pixeltable`.
 
 ```bash
 PIXELTABLE_INPUT_MEDIA_DEST=s3://your-bucket/input

@@ -1,7 +1,7 @@
 ---
 title: 'HTTP serving'
 sidebarTitle: 'HTTP serving'
-description: 'Insert, compute, update, delete, query. Uploads, background jobs, SqlExport.'
+description: 'HTTP routes for insert, compute, update, delete, and query, plus uploads, background jobs, and SqlExport.'
 ---
 
 Install FastAPI and uvicorn first:
@@ -10,7 +10,7 @@ Install FastAPI and uvicorn first:
 pip install 'pixeltable[serve]'
 ```
 
-Which process runs the router: [Self-hosting](/howto/deployment/overview). This page is the rest of the route API. OpenAPI is at `/docs`.
+How the process starts is on [Self-hosting](/howto/deployment/overview). This page covers the route API once you have chosen which process serves it. After a service is running, FastAPI's OpenAPI UI is at `http://<host>:<port>/docs`.
 
 ## Mount on your own FastAPI app
 
@@ -20,7 +20,7 @@ import uvicorn
 import pixeltable as pxt
 from pixeltable.serving import FastAPIRouter
 
-t = pxt.get_table('my_dir.my_table')
+t = pxt.get_table('my_app.docs')
 
 app = fastapi.FastAPI()
 router = FastAPIRouter()
@@ -41,11 +41,11 @@ app.include_router(router)
 uvicorn.run(app, host='0.0.0.0', port=8000)
 ```
 
-`@pxt.query` evaluates the function body at decoration time. Apply the application file with `pxt schema update` before defining queries that reference those tables. Keep `@router.post()` for multi-table operations, conditional logic, or a custom response shape. `FastAPIRouter` extends FastAPI's `APIRouter`.
+`@pxt.query` evaluates the function body at decoration time. Define `@pxt.query` functions only after `pxt schema update`, because the decorator runs the function body immediately. Use a plain FastAPI `@app.post()` when one `FastAPIRouter` helper cannot express the request.
 
 ## Compute without inserting
 
-[`Table.compute()`](/sdk/latest/table#method-compute) materializes computed columns and does not write a row.
+[`Table.compute()`](/sdk/latest/table#method-compute) runs computed columns and returns the values without writing a row.
 
 ```python
 rows = t.compute([{'prompt': 'hello'}])
@@ -65,7 +65,7 @@ router.add_compute_route(
 
 ## Decorator-style routes
 
-`add_insert_route()` builds the response model from the column schema. For a different body, decorate. The function receives `outputs` as keyword arguments and returns a `pydantic.BaseModel`.
+`add_insert_route()` builds the response model from the column schema. To return a custom JSON body, use `@router.insert_route` instead of `add_insert_route()`. The function receives `outputs` as keyword arguments and returns a `pydantic.BaseModel`.
 
 ```python
 import pydantic

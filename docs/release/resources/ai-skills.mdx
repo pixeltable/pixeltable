@@ -1,11 +1,11 @@
 ---
 title: 'AI Skills'
 sidebarTitle: 'AI Skills'
-description: 'npx skills add pixeltable/pixeltable-skill. The agent writes TableModel in app.py.'
+description: 'Install the Pixeltable skill. The coding agent writes TableModel classes in app.py.'
 ---
 
-One skill. It teaches a `TableModel` in `app.py`, applied with `pxt schema update`.
-The skill follows Declare, Experiment, Serve: apply, then `pxt service update`, then insert or `pxt dashboard`.
+One skill file teaches the coding agent to declare tables as `TableModel` classes in `app.py` and create them with `pxt schema update`.
+The skill's workflow is: create tables from the file, start HTTP with `pxt service update`, then try the app by inserting rows or opening the dashboard.
 Install details: [AI coding agents](/overview/building-pixeltable-with-llms).
 
 ```bash
@@ -19,11 +19,11 @@ Source: [pixeltable/pixeltable-skill](https://github.com/pixeltable/pixeltable-s
 | Do | Do not |
 |---|---|
 | `class Docs(TableModel, name='docs')` in `app.py` | LangChain / LlamaIndex for chunking and retrieval |
-| Assignments as computed columns | pandas as the working store |
+| Assignments as computed columns | pandas as the database that holds your app data |
 | `__indexes__` on the model | A separate vector database |
 | `pxt init`, then `pxt schema update`, then `pxt service update` | Per-row `for` loops that call a model |
-| Same file against `pxt://` | Index calls in the application file |
-| `from pixeltable.serving import FastAPIRouter` | TOML route tables |
+| Use the same `app.py` with a `pxt://` Cloud URI | Call `add_embedding_index()` in application code |
+| `from pixeltable.serving import FastAPIRouter` | Declare HTTP routes in TOML |
 
 Scaffold: `uvx pixeltable-new myapp`, then `pxt schema update app.py agent`.
 [Starter kit](/resources/starter-kit).

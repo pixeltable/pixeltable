@@ -6,7 +6,7 @@ description: 'Insert a video; frames are rows. Export when the dataset is ready.
 
 Insert media. Iterators explode it into rows. Computed columns run on the new rows. Export when you are ready to train.
 
-Apply with `pxt schema update app.py my_app`, then `t = pxt.get_table('my_app.videos')`. Notebooks can still use `pxt.create_table()`.
+Create the tables with `pxt schema update app.py my_app`, then open them with `t = pxt.get_table('my_app.videos')`. Notebooks can still use `pxt.create_table()`.
 
 ```python
 import pixeltable as pxt
@@ -35,6 +35,6 @@ frames = pxt.get_table('my_app.frames')
 frames.select(frames.thumb).head(10)
 ```
 
-Whisper, YOLOX, and other models live in the cookbooks — wire them as computed columns on these tables. Export with `to_pytorch_dataset()` when the sample is right.
+Add Whisper, YOLOX, and other models from the cookbooks as computed columns on these tables. When the rows look ready for training, export with `to_pytorch_dataset()`.
 
 [Extract video frames](/howto/cookbooks/video/video-extract-frames) · [Transcribe audio](/howto/cookbooks/audio/audio-transcribe) · [Export to PyTorch](/howto/cookbooks/data/data-export-pytorch)

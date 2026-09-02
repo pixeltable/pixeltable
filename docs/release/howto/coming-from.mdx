@@ -1,19 +1,19 @@
 ---
 title: 'Migrate to Pixeltable'
 sidebarTitle: 'Migrate'
-description: 'Pick the stack you run. Insert replaces the extra service.'
+description: 'Pick the stack you already run. Inserting a row replaces the extra store or orchestrator.'
 icon: 'right-left'
 ---
 
-Hosted catalog: [Cloud](/howto/deployment/cloud). This page is the stack you already run.
+Hosted catalog: [Cloud](/howto/deployment/cloud). This page maps the stack you already run onto Pixeltable.
 
-Apply with `pxt schema update app.py my_app`. First run: [Quickstart](/overview/quick-start).
+Defining the class does not create the table. Run `pxt schema update app.py my_app` first ([Quickstart](/overview/quick-start)); the snippets assume that already ran.
 
 <Tabs>
   <Tab title="Pinecone and Milvus" icon="magnifying-glass">
     <div id="pinecone-and-milvus" />
 
-    Stop a separate vector database. The embedding index sits on the column. Insert keeps it current.
+    You do not need a separate vector database. The embedding index sits on the column. Insert keeps it current.
 
     ```python
     import pixeltable as pxt
@@ -44,7 +44,7 @@ Apply with `pxt schema update app.py my_app`. First run: [Quickstart](/overview/
     [Embedding indexes](/platform/embedding-indexes)
   </Tab>
   <Tab title="Postgres" icon="database">
-    Stop keeping application rows in a separate RDBMS. Typed columns, insert, and select live in the catalog.
+    You do not need a separate RDBMS for application rows. Typed columns, insert, and select live in the catalog.
 
     ```python
     import pixeltable as pxt
@@ -64,12 +64,12 @@ Apply with `pxt schema update app.py my_app`. First run: [Quickstart](/overview/
     orders.where(orders.qty > 1).select(orders.sku, orders.qty).collect()
     ```
 
-    Another system still needs SQL: `export_sql` on [Self-hosting](/howto/deployment/overview).
+    If another system must keep a SQL copy, export with `export_sql` (example on [Self-hosting](/howto/deployment/overview)).
   </Tab>
   <Tab title="LangGraph" icon="robot">
     <div id="langgraph" />
 
-    Stop StateGraph, ToolNode, and a checkpointer. Insert a message. Tool calls and the answer are columns.
+    You do not need StateGraph, ToolNode, or a checkpointer. After `pxt schema update`, insert `{'message': '...'}` and read `response` and `tool_output`.
 
     ```python
     import pixeltable as pxt
@@ -101,7 +101,7 @@ Apply with `pxt schema update app.py my_app`. First run: [Quickstart](/overview/
   <Tab title="Scripts and Airflow" icon="gears">
     <div id="scripts-and-airflow" />
 
-    Stop the frame loop, cron, and a full re-run. Insert a video. Frames appear as rows.
+    You do not need a frame loop, cron, or a full re-run. Insert a video. The iterator adds a `frame` column on `Frames`; `thumb` is a computed column from that `frame`.
 
     ```python
     import pixeltable as pxt
@@ -128,11 +128,11 @@ Apply with `pxt schema update app.py my_app`. First run: [Quickstart](/overview/
   </Tab>
 </Tabs>
 
-Same insert path as [Quickstart](/overview/quick-start).
+After `pxt schema update`, insert with `table.insert([...])` as in the snippets above, or POST after `pxt service update` ([Quickstart](/overview/quick-start)).
 
 <CardGroup cols={2}>
   <Card title="Quickstart" icon="bolt" href="/overview/quick-start">
-    Write the file, apply it, hit the insert endpoint.
+    Write `app.py`, run `pxt schema update`, then insert from Python or HTTP.
   </Card>
   <Card title="HTTP serving" icon="globe" href="/howto/deployment/serving">
     Insert, compute, update, delete, query, uploads, background jobs.

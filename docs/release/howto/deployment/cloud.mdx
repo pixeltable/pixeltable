@@ -4,11 +4,11 @@ sidebarTitle: 'Deploy to Pixeltable Cloud'
 description: 'Same application file against a hosted database'
 ---
 
-The [Quickstart](/overview/quick-start) file is the Cloud file. Pack the hosted database, declare the tables, then serve.
+Use the same `app.py` as the [Quickstart](/overview/quick-start). Create the hosted database, then the tables, then hosted HTTP.
 
 `PIXELTABLE_API_KEY` is required. Set it in the environment or in `config.toml`. [Configuration](/platform/configuration).
 
-`pxt init` writes `pixeltable.toml`. Name the hosted database in that file, then pack, declare, and serve:
+`pxt init` writes `pixeltable.toml`. Put the hosted URL in that file, then run the three commands:
 
 ```toml
 [[pixeltable.database]]
@@ -21,7 +21,7 @@ pxt schema update app.py pxt://org:mydb
 pxt service update app.py pxt://org:mydb
 ```
 
-Then `t = pxt.get_table('pxt://org:mydb/docs')`.
+A Cloud table path uses the URI plus `/table`. Open it with `t = pxt.get_table('pxt://org:mydb/docs')`. A local table uses dotted `namespace.table`, such as `pxt.get_table('my_app.docs')`.
 
 ```python
 import pixeltable as pxt
@@ -43,13 +43,13 @@ ingest.add_insert_route(
 )
 ```
 
-`pxt db update` creates the hosted database or brings it up to what the project declares: image, secrets, capacity. That is Pack. It is not Experiment. `pxt schema update` creates the tables. It does not start HTTP. `pxt service update` starts hosted HTTP. `pxt service run` is local only.
+`pxt db update` creates the hosted database or updates its image, secrets, and size. It does not insert your data and does not start app HTTP. `pxt schema update` creates the tables. It does not start HTTP. `pxt service update` starts hosted HTTP. Do not use `pxt service run` for Cloud; that command only starts HTTP in your local terminal.
 
-Experiment on Cloud: insert from the dashboard, then `pxt schema diff`.
+After the database is up, insert from the Cloud dashboard and run `pxt schema diff` to see pending schema changes.
 
 ## Media on the home bucket
 
-Every Cloud database includes a managed bucket. No provider account, no credentials file. Declare it on a computed column:
+Every Cloud database includes a managed bucket. No provider account, no credentials file. Set `destination=` on that computed column:
 
 ```python
 class Images(TableModel, name='images'):
@@ -66,10 +66,10 @@ Or set `output_media_dest` as the default for computed media. Details: [Cloud st
 
 | | Local | Cloud |
 |---|---|---|
-| Pack | (this machine) | `pxt db update pxt://org:mydb` |
-| Catalog | `pxt schema update app.py my_app` | `pxt schema update app.py pxt://org:mydb` |
+| Hosted database | not needed | `pxt db update pxt://org:mydb` |
+| Tables | `pxt schema update app.py my_app` | `pxt schema update app.py pxt://org:mydb` |
 | HTTP | `pxt service update app.py my_app` | `pxt service update app.py pxt://org:mydb` |
-| Experiment | insert, `pxt dashboard`, `pxt schema diff` | dashboard insert, `pxt schema diff` |
+| Try a change | insert, `pxt dashboard`, `pxt schema diff` | dashboard insert, `pxt schema diff` |
 | Media | local disk | `pxtfs://org:mydb/home` |
 
 `pxt db` also lists, starts, stops, diffs, and deletes hosted databases. `pxt db build-image` rebuilds the Python image without waiting for drift. [CLI](/platform/cli#cloud).

@@ -21,7 +21,7 @@ Iterators are particularly useful when:
 - Implementing feature extraction workflows
 
 <Note>
-**App vs notebook.** An application's contract is a `TableModel` in `app.py` (`iterator=` on the view model). Notebooks use `pxt.create_view(..., iterator=...)`.
+In an app file, set `iterator=` on the view's `TableModel`. In a notebook, pass `iterator=` to `pxt.create_view()`.
 </Note>
 
 ```python

@@ -3,9 +3,9 @@ title: 'Ecosystem'
 description: 'Built-in AI provider integrations as computed columns'
 ---
 
-Providers are functions on a `TableModel`. Apply with `pxt schema update`. Notebooks can still `add_computed_column()`. API keys and extras are on each provider page.
+Each AI provider is a function you assign as a computed column on a `TableModel`. Create the table with `pxt schema update`. In notebooks you can still call `add_computed_column()`. Each provider page lists its API key and optional extras.
 
-Missing one? A [`@pxt.udf`](/platform/udfs-in-pixeltable), or [GitHub Discussions](https://github.com/pixeltable/pixeltable/discussions).
+If a provider is missing, wrap it in a [`@pxt.udf`](/platform/udfs-in-pixeltable) or ask on [GitHub Discussions](https://github.com/pixeltable/pixeltable/discussions).
 
 ```python
 import pixeltable as pxt
@@ -275,7 +275,7 @@ Platforms that host or route many models from a shared catalog.
   icon="table"
   href="/tutorials/tables-and-data-operations"
 >
-  Import and export pandas DataFrames — not a working store
+  Import and export pandas DataFrames. Do not use pandas as the database that holds your app data.
 </Card>
 
 Provider notebooks: [docs/release/howto/providers](https://github.com/pixeltable/pixeltable/tree/main/docs/release/howto/providers).

@@ -30,11 +30,13 @@ If two phrases produce the same practice, they are the same belief. Keep one.
 | Stored column vs computed column | annotation vs assignment |
 | Where tables live | catalog (local directory or `pxt://` URI) |
 | The HTTP process | service (`pxt service`) |
-| The loop | Declare, experiment, serve |
-| Declare | `pxt schema update` (tables; no HTTP) |
-| Experiment | insert, `.select()`, `pxt dashboard`, `pxt schema diff`. HTTP POST after Serve |
-| Serve | `pxt service update` (local or `pxt://`) |
-| Pack (Cloud only) | `pxt db update`. Image, secrets, capacity. Not Experiment |
+| Local first run | `pxt schema update`, then `pxt service update`, then insert or POST |
+| Cloud first run | `pxt db update`, then schema, then service, against `pxt://` |
+| `pxt schema update` | Creates tables. Does not start HTTP |
+| `pxt service update` | Starts HTTP. Does not create tables |
+| `pxt db update` | Hosted database only: image, secrets, capacity. Does not insert rows or start app HTTP |
+
+On user-facing pages the **command is the subject**. Declare / Experiment / Serve / Pack are an internal map only. Never write "It is not Experiment." Never write "Pack, declare, then serve." "Apply" is not a command: write `pxt schema update`. "TARGET" is a CLI metavar: on first-run pages say "last argument" (`my_app`, `agent`, or `pxt://org:db`). Do not write "an application's contract."
 
 Do not write "schema file," "the file," and "application contract" as if they were three objects.
 Do not name the loop Store, Transform, Serve. Do not name the middle phase Insert.
@@ -62,4 +64,4 @@ Prefer Mintlify components over a mermaid flowchart for three layers: `Columns` 
 
 - No em dashes (U+2014). Use a period, a colon, or a comma. Empty placeholders use ASCII `-`. This applies to MDX, notebooks, READMEs, the site, the skill, and the kit.
 - No Convex product nouns.
-- Pixeltable words: `TableModel`, Declare then Experiment then Serve, catalog, same file.
+- Pixeltable words: `TableModel`, catalog, same file. Name the command, not Declare / Experiment / Serve / Pack.

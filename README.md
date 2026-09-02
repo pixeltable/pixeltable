@@ -27,7 +27,7 @@
 
 ## One application file
 
-Tables, computed columns, and HTTP routes live in `app.py`. Insert runs compute. Apply locally, then the same file against `pxt://`. Python 3.11+ on Linux, macOS, or Windows.
+Pixeltable stores tables and runs transforms as columns. You write those tables (and optional HTTP routes) in `app.py`. `pxt schema update` creates the tables on this machine. The same file can target a hosted catalog at a `pxt://org:database` URI. Python 3.11+ on Linux, macOS, or Windows.
 
 ```bash
 pip install 'pixeltable[serve]'
@@ -59,7 +59,7 @@ ingest.add_insert_route(
 )
 ```
 
-An annotation is a stored column. An assignment is a computed column. Insert a row; `title_upper` is computed on the way in. `pxt service list` prints the URL (the port is assigned):
+`title: pxt.String` is a value you insert. `title_upper = ...` is computed on insert and on update. `pxt service list` prints the URL (the port is assigned):
 
 ```bash
 pxt service list
@@ -69,9 +69,9 @@ curl -X POST http://127.0.0.1:<port>/docs \
   -d '{"title": "Hello", "body": "world"}'
 ```
 
-`pxt schema update` creates the directory and tables. It does not start HTTP. `pxt service update` does not create tables. Apply first.
+`pxt schema update` creates the catalog namespace `my_app` and its tables. That is not a folder on disk, and it does not start HTTP. After the tables exist, `pxt service update` starts the routes.
 
-Hosted catalog (`PIXELTABLE_API_KEY` required). Pack, declare, then serve. `pxt service run` is local only:
+To put the same file on Pixeltable Cloud, set `PIXELTABLE_API_KEY`, name the database in `pixeltable.toml`, then run the three commands below. `pxt db update` creates or updates the hosted database. `pxt schema update` creates tables there. `pxt service update` starts HTTP on the host. `pxt service run` always serves from this process and cannot target Cloud:
 
 ```bash
 pxt db update pxt://org:mydb
@@ -83,7 +83,7 @@ Same steps: [Quickstart](https://docs.pixeltable.com/overview/quick-start).
 
 ## Chat agent or video search
 
-[`uvx pixeltable-new`](https://github.com/pixeltable/pixeltable-new) copies one app from the [starter kit](https://github.com/pixeltable/pixeltable-starter-kit). Default is the chat agent (catalog TARGET `agent`). `--video` is video search (`videointel`).
+[`uvx pixeltable-new`](https://github.com/pixeltable/pixeltable-new) copies one app from the [starter kit](https://github.com/pixeltable/pixeltable-starter-kit). The default copy is a chat app; pass `agent` as the last argument to `pxt schema update`. `--video` copies video search; pass `videointel`.
 
 ```bash
 uvx pixeltable-new myapp
@@ -93,9 +93,9 @@ pxt schema update app.py agent
 pxt service update app.py agent
 ```
 
-Knowledge insert needs no API key. `/ask` needs `ANTHROPIC_API_KEY`.
+Inserting into the knowledge table needs no API key. The `/ask` route needs `ANTHROPIC_API_KEY`.
 
-Already have FastAPI: `app.include_router(api)`. [HTTP serving](https://docs.pixeltable.com/howto/deployment/serving). No HTTP: insert, `export_sql`, exit. [Self-hosting](https://docs.pixeltable.com/howto/deployment/overview).
+To mount the routes on an existing FastAPI app, `app.include_router(...)`. [HTTP serving](https://docs.pixeltable.com/howto/deployment/serving). If you do not want HTTP, run `pxt schema update`, insert from Python, then `export_sql`. [Self-hosting](https://docs.pixeltable.com/howto/deployment/overview).
 
 ## Agents write the same file
 
@@ -105,7 +105,7 @@ npx skills add pixeltable/pixeltable-skill
 
 The skill writes a `TableModel` in `app.py`, then `pxt schema update`. Do not copy this repo's `AGENTS.md` into an application; that file is for Pixeltable contributors.
 
-Notebooks and tests still use `pxt.create_table()`. An application's contract is the application file.
+Notebooks and tests still use `pxt.create_table()`. An app puts tables in `app.py` and creates them with `pxt schema update`.
 
 ## License
 

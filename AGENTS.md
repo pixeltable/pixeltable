@@ -196,7 +196,7 @@ class MyIterator(ComponentIterator):
 
 ### Working with Tables
 
-Apps declare schema as a `TableModel` and apply it with `pxt schema update`. HTTP routes go in the same file on a `FastAPIRouter`. Tests, notebooks, and one-off REPL work still use `pxt.create_table()`.
+Application schema is a `TableModel` class in `app.py`. `pxt schema update app.py my_app` creates those tables. Put `FastAPIRouter` routes in that same `app.py`. In tests, notebooks, and a REPL, keep using `pxt.create_table()`; do not require a project file there.
 
 ```python
 import pixeltable as pxt
@@ -223,7 +223,7 @@ pxt schema update app.py my_app
 pxt service update app.py my_app
 ```
 
-Runtime after apply: `t = pxt.get_table('my_app.docs')`, then `t.insert()` / `.select()` / `.collect()`. Indexes belong on the model (`__indexes__ = [pxt.EmbeddingIndex(...)]`), not `add_embedding_index()` on an app schema.
+After `pxt schema update`, open the table with `t = pxt.get_table('my_app.docs')`, then `t.insert()` / `.select()` / `.collect()`. On a `TableModel`, put indexes in `__indexes__`. Do not call `add_embedding_index()` in application code that you later create with `pxt schema update`.
 
 Examples: [pixeltable-starter-kit](https://github.com/pixeltable/pixeltable-starter-kit).
 
