@@ -161,6 +161,8 @@ _RUN_TIMEOUT_SECS = 300
 # an image build runs CodeBuild, which takes minutes
 _IMAGE_BUILD_TIMEOUT_SECS = 1800
 
+_WHEEL_SUBDIR = 'wheels'
+
 
 def _as_text(stream: bytes | str | None) -> str:
     """Normalize captured output: TimeoutExpired carries bytes even when the run was text=True."""
@@ -178,7 +180,39 @@ def _copy_app_corpus(session_project: pathlib.Path) -> pathlib.Path:
 
 
 @pytest.fixture(scope='session')
-def hosted_image(session_project: pathlib.Path) -> None:
+def pixeltable_wheel(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
+    """A wheel built from this working tree, for a project to install in place of the released pixeltable."""
+    repo_root = pathlib.Path(__file__).parents[2]
+    out_dir = tmp_path_factory.mktemp('pxt_wheel')
+    r = subprocess.run(
+        ['uv', 'build', '--wheel', '-o', str(out_dir), str(repo_root)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=_RUN_TIMEOUT_SECS,
+    )
+    assert r.returncode == 0, f'building a pixeltable wheel from {repo_root} failed:\n{r.stderr}'
+    wheels = list(out_dir.glob('*.whl'))
+    assert len(wheels) == 1, f'expected one wheel in {out_dir}, found {wheels}'
+    return wheels[0]
+
+
+def write_requirements(project: pathlib.Path, wheel: pathlib.Path, *extra: str) -> None:
+    """Write project's requirements.txt, installing pixeltable from wheel rather than from PyPI.
+
+    The wheel is copied into the project so that the archive carries it, and named by a path relative to
+    the project root, which is where the image build runs pip.
+    """
+    wheel_dir = project / _WHEEL_SUBDIR
+    wheel_dir.mkdir(exist_ok=True)
+    shutil.copy(wheel, wheel_dir / wheel.name)
+    (project / 'requirements.txt').write_text(
+        '\n'.join([f'./{_WHEEL_SUBDIR}/{wheel.name}', *extra]) + '\n', encoding='utf-8'
+    )
+
+
+@pytest.fixture(scope='session')
+def hosted_image(session_project: pathlib.Path, pixeltable_wheel: pathlib.Path) -> None:
     """Build the hosted database's image from this session's project, once.
 
     A hosted database runs the project its image was built from, so a udf a hosted table refers to has to
@@ -191,16 +225,14 @@ def hosted_image(session_project: pathlib.Path) -> None:
     _copy_app_corpus(session_project)
     entry = f'[[pixeltable.database]]\nname = {json.dumps(db_uri)}\n'
     (session_project / 'pixeltable.toml').write_text(entry, encoding='utf-8')
-    # Naming pixeltable installs its dependencies; the build then reinstalls pixeltable itself from the
-    # base image's wheel, so the pod runs this tree rather than the release named here.
     # The sentence splitter loads en_core_web_sm and does not fetch it, so the project names it too.
-    requirements = (
-        'pixeltable\n'
-        'spacy\n'
+    write_requirements(
+        session_project,
+        pixeltable_wheel,
+        'spacy',
         'en_core_web_sm @ '
-        'https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl\n'
+        'https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl',
     )
-    (session_project / 'requirements.txt').write_text(requirements, encoding='utf-8')
     r = subprocess.run(
         ['pxt', 'db', 'update', db_uri, '-f'],
         cwd=session_project,

@@ -7,7 +7,6 @@ which takes minutes. They run against the session's hosted database, the one the
 """
 
 import json
-import os
 import pathlib
 import shutil
 import uuid
@@ -16,8 +15,7 @@ from typing import Any
 import pytest
 
 from ..utils import DatabaseRoot
-
-from .conftest import PxtRunner
+from .conftest import PxtRunner, write_requirements
 
 pytestmark = [
     pytest.mark.remote_api,
@@ -37,7 +35,7 @@ _APP_FILE = 'basic.py'  # the corpus file the project holds
 
 
 @pytest.fixture
-def project(tmp_path: pathlib.Path) -> pathlib.Path:
+def project(tmp_path: pathlib.Path, pixeltable_wheel: pathlib.Path) -> pathlib.Path:
     """A project of the test's own, holding an application file from the corpus and a lockfile.
 
     Outside the session's project, so that the archive holds these files and nothing else: the client hands
@@ -47,7 +45,7 @@ def project(tmp_path: pathlib.Path) -> pathlib.Path:
     root.mkdir()
     (root / 'pixeltable.toml').write_text('', encoding='utf-8')
     shutil.copy(pathlib.Path(__file__).parent / 'apps' / _APP_FILE, root / _APP_FILE)
-    (root / 'requirements.txt').write_text('pixeltable\n', encoding='utf-8')
+    write_requirements(root, pixeltable_wheel)
     return root
 
 
