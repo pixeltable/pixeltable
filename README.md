@@ -22,7 +22,7 @@
 [**llms-full.txt**](https://docs.pixeltable.com/llms-full.txt) |
 [**Discord**](https://discord.gg/QPyqFYx2UN)
 
-## One application file
+## A unified multimodal backend that is one schema you keep, not a stack you assemble
 
 Most stacks glue a blob store, a warehouse, a vector database, an orchestrator, and custom endpoints. You pay for the joints. Pixeltable is the database, the orchestration, and the serving: tables, computed columns, indexes, and endpoints in one Python file (`app.py`). Insert a row. Transforms run.
 
@@ -36,7 +36,7 @@ pxt schema update app.py my_app
 pxt service update app.py my_app
 ```
 
-`pxt service example` writes this file:
+The generated file looks like this. `pxt service example` writes a longer file than the snippet (a UDF and a compute route), which you can delete.
 
 ```python
 import pixeltable as pxt
@@ -61,7 +61,7 @@ ingest.add_insert_route(
 )
 ```
 
-`title: pxt.String` is a value you insert. `title_upper = ...` is computed on insert and on update. `pxt service list` prints the URL (the port is assigned):
+`title: pxt.String` is a value you insert. `title_upper = ...` is computed on insert and on update. The same file can hold `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document`: [media pipelines](https://docs.pixeltable.com/use-cases/media-processing), [RAG](https://docs.pixeltable.com/use-cases/multimodal-backend). `pxt service list` prints the URL (the port is assigned):
 
 ```bash
 pxt service list
