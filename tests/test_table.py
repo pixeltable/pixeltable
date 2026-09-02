@@ -1119,6 +1119,15 @@ class TestTable:
         assert res2['c1'] == [r['c1'] for r in rows]
         assert res2['c2'] == [r['c2'] for r in rows]
 
+    @pytest.mark.skip(reason='Test fails on cloud without server-side streaming')
+    def test_bulk_scalar_collect(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('bulk'), {'id': pxt.Int, 'val': pxt.String})
+        for i in range(10):
+            t.insert([{'id': i * 100_000 + j, 'val': f'row {i}/{j}'} for j in range(100_000)])
+        assert t.count() == 1_000_000
+        res = t.collect()
+        assert len(res) == 1_000_000
+
     def test_insert_query(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = test_tbl
