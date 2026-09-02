@@ -696,6 +696,10 @@
       "destination": "/howto/deployment/cloud"
     },
     {
+      "source": "/docs/cloud",
+      "destination": "/howto/deployment/cloud"
+    },
+    {
       "source": "/use-cases/services",
       "destination": "/howto/deployment/cloud"
     },

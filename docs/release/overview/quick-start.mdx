@@ -118,7 +118,7 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
     Then insert from Python (`t = pxt.get_table('my_app.docs')`) or export. [Self-hosting](/howto/deployment/overview).
   </Tab>
   <Tab title="Cloud">
-    To run this same file on Pixeltable Cloud, set `PIXELTABLE_API_KEY`, create the hosted database with `pxt db update`, create tables with `pxt schema update`, then start hosted HTTP with `pxt service update`. Try changes by inserting from the dashboard and running `pxt schema diff`.
+    To run this same file on Pixeltable Cloud, create an API key in the [Cloud dashboard](/howto/deployment/cloud#get-an-api-key), set `PIXELTABLE_API_KEY`, create the hosted database with `pxt db update`, create tables with `pxt schema update`, then start hosted HTTP with `pxt service update`. Try changes by inserting from the dashboard and running `pxt schema diff`.
 
     ```bash
     pxt db update pxt://org:mydb
