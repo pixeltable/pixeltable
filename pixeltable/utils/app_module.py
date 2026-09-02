@@ -7,6 +7,7 @@ import keyword
 import linecache
 import re
 import sys
+import sysconfig
 import threading
 import traceback
 from pathlib import Path
@@ -62,15 +63,13 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
     """Import file under the module path relative to the project root."""
     path = Path(file).resolve()
     name = module_name(file, subject=subject)
-    root = Config.get().project_root
-    assert root is not None  # module_name() refuses a file outside a project root
 
     # resolve the catalog first: initializing it writes, which freeze() would refuse
     catalog = get_runtime().catalog
     try:
         registry = FunctionRegistry.get()
         with _lock, catalog.freeze():
-            _evict_project_modules(root)
+            _evict_project_modules()
             # a file written after this process started is invisible to a finder that cached its directory
             importlib.invalidate_caches()
             registered = set(registry.module_fns)
@@ -110,35 +109,53 @@ def _no_root_msg(path: Path, subject: str, root: Path | None) -> str:
     )
 
 
-def _evict_project_modules(root: Path) -> None:
-    """Discard every loaded module read from root, and the udfs they registered, so this load reads them again.
+# Where this interpreter keeps the standard library and installed packages. A module read from one of these
+# is never a project module, wherever the project root sits.
+_ENV_DIRS = tuple(
+    Path(sysconfig.get_paths()[name]).resolve()
+    for name in ('stdlib', 'purelib', 'platlib')
+    if name in sysconfig.get_paths()
+)
 
-    Scanning sys.modules rather than tracking what an earlier load imported: resolving a stored udf reference
-    imports a project module too, and a module missing from the eviction set is never read again.
+
+def _project_module_names() -> set[str]:
+    """The top-level module names provided solely by the project root (ie, not by a package).
+
+    A directory counts whether or not it holds an __init__.py: a project package may be a namespace package.
     """
+    root = Config.get().project_root
+    assert root is not None  # module_name() refuses a file outside a project root
+    names = {path.stem for path in root.glob('*.py')}
+    names |= {path.name for path in root.iterdir() if path.is_dir() and path.name.isidentifier()}
+    return names
+
+
+def _evict_project_modules() -> None:
+    """Remove the project's own modules from sys.modules, and their udfs from the registry.
+
+    Removing project modules allows us to have them re-imported, in response to changes to the source files.
+
+    The standard library and installed packages stay loaded, including when the environment sits inside the
+    project root (eg, a .venv).
+    """
+    root = Config.get().project_root
+    assert root is not None  # module_name() refuses a file outside a project root
     registry = FunctionRegistry.get()
+    provided = _project_module_names()
     for name, module in list(sys.modules.items()):
         module_file = getattr(module, '__file__', None)
         if module_file is None or name == '__main__':
             continue
-        if name.split('.', maxsplit=1)[0] in _RUNNING_PACKAGES:
+        top = name.split('.', maxsplit=1)[0]
+        if top in _RUNNING_PACKAGES or top not in provided:
             continue
-        if Path(module_file).resolve().is_relative_to(root):
+        # only the file tells a project directory named json from the stdlib module of that name
+        resolved = Path(module_file).resolve()
+        if any(resolved.is_relative_to(env_dir) for env_dir in _ENV_DIRS):
+            continue
+        if resolved.is_relative_to(root):
             registry.deregister_module(name)
             sys.modules.pop(name, None)
-
-
-def _module_name(path: Path, root: Path, subject: str) -> str:
-    """The dotted name an import of path reaches it by, with root on sys.path."""
-    relative = path.relative_to(root).with_suffix('')
-    for part in relative.parts:
-        if not part.isidentifier() or keyword.iskeyword(part):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                f'{path}: {part!r} is not a module name, so this {subject} cannot be imported; rename it, or '
-                f'the directory holding it, to a Python identifier',
-            )
-    return '.'.join(relative.parts)
 
 
 def _prohibited_write_msg(file: str, subject: str, exc: ProhibitedWriteError) -> str:
