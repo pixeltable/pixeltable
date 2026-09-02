@@ -17,13 +17,13 @@ Pixeltable YOLOX is designed for developers seeking a modern, easy-to-use object
 
 ### Installation
 
-```bash
+```bash wrap
 pip install pixeltable-yolox
 ```
 
 ### Inference
 
-```python
+```python wrap
 import requests
 from PIL import Image
 from yolox.models import Yolox, YoloxProcessor
@@ -44,7 +44,7 @@ print(COCO_CLASSES[result[0]['labels'][0]]) # Example: Print the first detected 
 
 This yields the following output:
 
-```python
+```python wrap
 [{'bboxes': [
    (272.36126708984375, 3.5648040771484375, 640.4871826171875, 223.2653350830078),
    (26.643890380859375, 118.68254089355469, 459.80706787109375, 315.089111328125),
@@ -55,7 +55,7 @@ This yields the following output:
 
 The labels are COCO category indices.
 
-```python
+```python wrap
 from yolox.data.datasets import COCO_CLASSES
 
 print(COCO_CLASSES[7])
@@ -79,13 +79,13 @@ COCO/
 
 Then on the command line:
 
-```bash
+```bash wrap
 yolox train -c yolox-s -d 8 -b 64 --fp16 -o
 ```
 
 For help:
 
-```bash
+```bash wrap
 yolox train -h
 ```
 

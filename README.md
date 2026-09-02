@@ -47,14 +47,17 @@ TableModel = pxt.model_base()
 
 
 class Docs(TableModel, name='docs'):
-    title: pxt.String                         # a stored column
-    body: pxt.String | None                   # a stored column that may be null
-    title_upper = pxtf.string.upper(title)    # a computed column: an assignment, not an annotation
+    title: pxt.String  # a stored column
+    body: pxt.String | None  # a stored column that may be null
+    title_upper = pxtf.string.upper(title)  # computed: an assignment, not an annotation
 
 
 ingest = FastAPIRouter(name='ingest')
 ingest.add_insert_route(
-    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.title, Docs.title_upper]
+    Docs,
+    path='/docs',
+    inputs=[Docs.title, Docs.body],
+    outputs=[Docs.title, Docs.title_upper],
 )
 ```
 

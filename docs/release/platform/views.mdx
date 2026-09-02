@@ -23,7 +23,7 @@ Production apps declare views as `TableModel` classes in a Python file and creat
 
 ## Phase 1: Define your base table and view structure
 
-```python
+```python wrap
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
@@ -43,13 +43,13 @@ class Chunks(
     pass
 ```
 
-```bash
+```bash wrap
 pxt schema update app.py documents
 ```
 
 In a notebook:
 
-```python
+```python wrap
 import pixeltable as pxt
 from pixeltable.functions.document import document_splitter
 
@@ -74,7 +74,7 @@ chunks = pxt.create_view(
 
 ## Phase 2: Use your application
 
-```python
+```python wrap
 import pixeltable as pxt
 
 # Connect to your base table and view
@@ -95,7 +95,7 @@ print(chunks.collect())
 <AccordionGroup>
   <Accordion title="Iterator Views" icon="arrows-split-up-and-left">
     Views created using iterators to transform data:
-    ```python
+    ```python wrap
     # Document splitting view
     chunks = pxt.create_view(
         'docs/chunks',
@@ -109,7 +109,7 @@ print(chunks.collect())
 
   <Accordion title="Query Views" icon="magnifying-glass">
     Views created from query operations:
-    ```python
+    ```python wrap
     # Filtered view of high-budget movies
     blockbusters = pxt.create_view(
         'movies/blockbusters',
@@ -124,7 +124,7 @@ print(chunks.collect())
 <CardGroup cols={1}>
   <Card title="Query Operations" icon="magnifying-glass">
     Query views like regular tables:
-    ```python
+    ```python wrap
     # Basic filtering on view
     chunks.where(chunks.text.contains('specific topic')).collect()
 
@@ -138,7 +138,7 @@ print(chunks.collect())
 
   <Card title="Computed Columns" icon="calculator">
     Add computed columns to views:
-    ```python
+    ```python wrap
     # Add embeddings to chunks
     chunks.add_computed_column(
         embedding=sentence_transformer.using(
@@ -150,7 +150,7 @@ print(chunks.collect())
 
   <Card title="Chaining Views" icon="link">
     Create views based on other views:
-    ```python
+    ```python wrap
     # Create a view of embedded chunks
     embedded_chunks = pxt.create_view(
         'docs/embedded_chunks',

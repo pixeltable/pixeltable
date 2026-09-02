@@ -14,7 +14,7 @@ The settings governing the file cache that the whole instance shares are read fr
 `file_cache_size_g` and `file_cache_lease_s`.
 
 Example `config.toml`:
-```toml
+```toml wrap
 [pixeltable]
 file_cache_size_g = 250
 time_zone = "America/Los_Angeles"
@@ -97,7 +97,7 @@ relevant udf in the [SDK Reference](/sdk/latest) for details on the rate limitin
 
 For providers with a single rate limit across all models, add a `rate_limit` key to the provider's config section:
 
-```toml
+```toml wrap
 [mistral]
 api_key = 'my-mistral-api-key'
 rate_limit = 600  # requests per minute
@@ -111,7 +111,7 @@ rate_limit = 300
 
 For providers that support different rate limits for different models, add a `<provider>.rate_limits` section and list the rate limits for each model:
 
-```toml
+```toml wrap
 [openai]
 api_key = 'my-openai-api-key'
 

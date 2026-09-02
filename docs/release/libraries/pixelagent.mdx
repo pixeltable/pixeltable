@@ -106,7 +106,7 @@ Pixelagent is designed to be both powerful and approachable. Our API emphasizes 
 
 <AccordionGroup>
   <Accordion title="Installation" icon="download">
-    ```bash
+    ```bash wrap
     pip install pixelagent
     # Install provider-specific dependencies
     pip install anthropic  # For Claude models
@@ -115,7 +115,7 @@ Pixelagent is designed to be both powerful and approachable. Our API emphasizes 
   </Accordion>
 
   <Accordion title="Quick Start" icon="play">
-    ```python
+    ```python wrap
     from pixelagent.anthropic import Agent  # Or from pixelagent.openai import Agent
 
     # Create a simple agent
@@ -131,7 +131,7 @@ Pixelagent is designed to be both powerful and approachable. Our API emphasizes 
   </Accordion>
 
   <Accordion title="Adding Tools" icon="wrench">
-    ```python
+    ```python wrap
     import pixeltable as pxt
     from pixelagent.anthropic import Agent
     import yfinance as yf
@@ -157,7 +157,7 @@ Pixelagent is designed to be both powerful and approachable. Our API emphasizes 
   </Accordion>
 
   <Accordion title="Access Conversation Memory" icon="database">
-    ```python
+    ```python wrap
     import pixeltable as pxt
 
     # Agent memory is automatically persisted
@@ -177,7 +177,7 @@ Beyond the basics, Pixelagent provides sophisticated capabilities that allow you
 
 <AccordionGroup>
   <Accordion title="Unlimited Memory" icon="infinity">
-    ```python
+    ```python wrap
     # Unlimited memory
     infinite_agent = Agent(
         agent_name="historian",
@@ -188,7 +188,7 @@ Beyond the basics, Pixelagent provides sophisticated capabilities that allow you
   </Accordion>
 
   <Accordion title="ReAct Pattern" icon="diagram-project">
-    ```python
+    ```python wrap
     import re
     from datetime import datetime
     from pixelagent.openai import Agent

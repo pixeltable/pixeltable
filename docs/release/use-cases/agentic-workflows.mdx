@@ -8,7 +8,7 @@ Insert a message. The model picks a tool, `invoke_tools` runs it, and both resul
 
 Create the tables with `pxt schema update app.py my_app`, then open them with `t = pxt.get_table('my_app.assistant')`. Cookbooks on this topic use `pxt.create_table()` so you can run cells without a project. An app puts the same columns on a `TableModel` in `app.py` and creates the tables with `pxt schema update`.
 
-```python
+```python wrap
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.serving import FastAPIRouter
@@ -40,12 +40,12 @@ ask.add_insert_route(
 )
 ```
 
-```bash
+```bash wrap
 pxt schema update app.py my_app
 pxt service update app.py my_app
 ```
 
-```python
+```python wrap
 assistant = pxt.get_table('my_app.assistant')
 assistant.insert([{'message': 'Weather in Paris?'}])
 assistant.select(assistant.message, assistant.tool_output).collect()

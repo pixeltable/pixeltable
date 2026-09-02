@@ -48,7 +48,7 @@ There are two ways to configure cloud storage destinations:
 
 Set default destinations for all media columns in your `config.toml` (see [Configuration](/platform/configuration) for details):
 
-```toml
+```toml wrap
 [pixeltable]
 # For input media (inserted/referenced files)
 input_media_dest = "s3://my-bucket/input/"
@@ -59,7 +59,7 @@ output_media_dest = "s3://my-bucket/output/"
 
 Or via environment variables:
 
-```bash
+```bash wrap
 export PIXELTABLE_INPUT_MEDIA_DEST="s3://my-bucket/input/"
 export PIXELTABLE_OUTPUT_MEDIA_DEST="s3://my-bucket/output/"
 ```
@@ -72,7 +72,7 @@ Configure these before creating tables. All media columns will automatically use
 
 For **computed columns**, you can override the default with a specific destination:
 
-```python
+```python wrap
 import pixeltable as pxt
 
 # Create a table with input media column
@@ -113,20 +113,20 @@ Every Pixeltable Cloud account includes a free managed storage bucket. No bucket
   <Tab title="Authentication">
     Set your Pixeltable API key:
 
-    ```toml
+    ```toml wrap
     [pixeltable]
     api_key = "your-pixeltable-api-key"
     ```
 
     Or via environment variable:
-    ```bash
+    ```bash wrap
     export PIXELTABLE_API_KEY="your-pixeltable-api-key"
     ```
 
     Pixeltable automatically fetches and refreshes temporary credentials from the Pixeltable cloud management API.
   </Tab>
   <Tab title="Example">
-    ```python
+    ```python wrap
     import pixeltable as pxt
 
     t = pxt.create_table('app/images', {'photo': pxt.Image})
@@ -138,13 +138,13 @@ Every Pixeltable Cloud account includes a free managed storage bucket. No bucket
     ```
 
     Or set it as your global default in `config.toml`:
-    ```toml
+    ```toml wrap
     [pixeltable]
     output_media_dest = "pxtfs://myorg:mydb/home"
     ```
 
     Or as an environment variable:
-    ```bash
+    ```bash wrap
     export PIXELTABLE_OUTPUT_MEDIA_DEST="pxtfs://myorg:mydb/home"
     ```
   </Tab>
@@ -175,13 +175,13 @@ https://www.pixeltable.com/dashboard/{org-slug}/{db-slug}/storage/home/browse
     - IAM role (when running on AWS)
 
     Optionally specify a profile in `config.toml`:
-    ```toml
+    ```toml wrap
     [pixeltable]
     s3_profile = "my-aws-profile"
     ```
   </Tab>
   <Tab title="Example">
-    ```python
+    ```python wrap
     import pixeltable as pxt
 
     # With global config: output_media_dest = "s3://my-bucket/output/"
@@ -211,12 +211,12 @@ https://www.pixeltable.com/dashboard/{org-slug}/{db-slug}/storage/home/browse
     - GCE metadata service (when running on GCP)
   </Tab>
   <Tab title="Requirements">
-    ```bash
+    ```bash wrap
     pip install google-cloud-storage
     ```
   </Tab>
   <Tab title="Example">
-    ```python
+    ```python wrap
     # With global config: output_media_dest = "gs://my-gcs-bucket/output/"
     t = pxt.create_table('app/videos', {'video': pxt.Video})
 
@@ -241,25 +241,25 @@ https://www.pixeltable.com/dashboard/{org-slug}/{db-slug}/storage/home/browse
   </Tab>
   <Tab title="Authentication">
     Configure in `config.toml`:
-    ```toml
+    ```toml wrap
     [azure]
     storage_account_name = "myaccount"
     storage_account_key = "your-key-here"
     ```
 
     Or via environment variables:
-    ```bash
+    ```bash wrap
     export AZURE_STORAGE_ACCOUNT_NAME="myaccount"
     export AZURE_STORAGE_ACCOUNT_KEY="your-key-here"
     ```
   </Tab>
   <Tab title="Requirements">
-    ```bash
+    ```bash wrap
     pip install azure-storage-blob
     ```
   </Tab>
   <Tab title="Example">
-    ```python
+    ```python wrap
     # With global config: output_media_dest = "wasbs://mycontainer@myaccount.blob.core.windows.net/output/"
     t = pxt.create_table('app/docs', {'document': pxt.Document})
 
@@ -284,20 +284,20 @@ https://www.pixeltable.com/dashboard/{org-slug}/{db-slug}/storage/home/browse
     Create an R2 API token and configure AWS-style credentials.
 
     In `~/.aws/credentials`:
-    ```ini
+    ```ini wrap
     [r2]
     aws_access_key_id = your-r2-access-key
     aws_secret_access_key = your-r2-secret-key
     ```
 
     In `config.toml`:
-    ```toml
+    ```toml wrap
     [pixeltable]
     r2_profile = "r2"
     ```
   </Tab>
   <Tab title="Example">
-    ```python
+    ```python wrap
     t = pxt.create_table('app/images', {'image': pxt.Image})
 
     t.add_computed_column(
@@ -320,20 +320,20 @@ https://www.pixeltable.com/dashboard/{org-slug}/{db-slug}/storage/home/browse
     Create B2 application keys and configure AWS-style credentials.
 
     In `~/.aws/credentials`:
-    ```ini
+    ```ini wrap
     [b2]
     aws_access_key_id = your-b2-key-id
     aws_secret_access_key = your-b2-application-key
     ```
 
     In `config.toml`:
-    ```toml
+    ```toml wrap
     [pixeltable]
     b2_profile = "b2"
     ```
   </Tab>
   <Tab title="Example">
-    ```python
+    ```python wrap
     from pixeltable.functions.video import extract_audio
 
     t = pxt.create_table('app/videos', {'video': pxt.Video})
@@ -358,20 +358,20 @@ https://www.pixeltable.com/dashboard/{org-slug}/{db-slug}/storage/home/browse
     Configure AWS-style credentials for Tigris.
 
     In `~/.aws/credentials`:
-    ```ini
+    ```ini wrap
     [tigris]
     aws_access_key_id = your-tigris-access-key
     aws_secret_access_key = your-tigris-secret-key
     ```
 
     In `config.toml`:
-    ```toml
+    ```toml wrap
     [pixeltable]
     tigris_profile = "tigris"
     ```
   </Tab>
   <Tab title="Example">
-    ```python
+    ```python wrap
     t = pxt.create_table('app/media', {'file': pxt.Image})
 
     t.add_computed_column(
@@ -388,7 +388,7 @@ Here's a full example using S3 for both input and computed media.
 
 First, configure your global destinations in `~/.pixeltable/config.toml`:
 
-```toml
+```toml wrap
 [pixeltable]
 input_media_dest = "s3://my-app-bucket/uploads/"
 output_media_dest = "s3://my-app-bucket/generated/"
@@ -398,7 +398,7 @@ s3_profile = "my-aws-profile"  # optional, uses default credentials if not set
 
 Then create your table and add computed columns:
 
-```python
+```python wrap
 import pixeltable as pxt
 from pixeltable.functions import openai
 

@@ -18,11 +18,11 @@ Hosted catalog: [Cloud](/howto/deployment/cloud). This page is which local proce
 
 This example expects the starter-kit chat agent (`Knowledge` in that repo's `app.py`). Insert rows, then export them to SQLite. Same snippet: [chat-agent README](https://github.com/pixeltable/pixeltable-starter-kit/blob/main/chat-agent/README.md).
 
-```bash
+```bash wrap
 pxt schema update app.py agent
 ```
 
-```python
+```python wrap
 from pixeltable.io.sql import export_sql
 
 from app import Knowledge

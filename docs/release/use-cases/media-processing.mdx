@@ -8,7 +8,7 @@ Insert media. Iterators explode it into rows. Computed columns run on the new ro
 
 Create the tables with `pxt schema update app.py my_app`, then open them with `t = pxt.get_table('my_app.videos')`. Cookbooks on this topic use `pxt.create_table()` so you can run cells without a project. An app puts the same columns on a `TableModel` in `app.py` and creates the tables with `pxt schema update`.
 
-```python
+```python wrap
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
@@ -28,11 +28,11 @@ class Frames(
     thumb = frame.resize((256, 256))  # type: ignore[name-defined]  # iterator output
 ```
 
-```bash
+```bash wrap
 pxt schema update app.py my_app
 ```
 
-```python
+```python wrap
 videos = pxt.get_table('my_app.videos')
 videos.insert([{'video': 'demo.mp4'}])
 frames = pxt.get_table('my_app.frames')
