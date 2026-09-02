@@ -7,7 +7,6 @@ import keyword
 import linecache
 import re
 import sys
-import sysconfig
 import threading
 import traceback
 from pathlib import Path
@@ -21,6 +20,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.func import FunctionRegistry
 from pixeltable.runtime import get_runtime
+from pixeltable.utils.project import in_environment
 from pixeltable_cli.types import CheckReport, RouteSpec, ServiceSpec
 
 _lock = threading.RLock()
@@ -109,15 +109,6 @@ def _no_root_msg(path: Path, subject: str, root: Path | None) -> str:
     )
 
 
-# Where this interpreter keeps the standard library and installed packages. A module read from one of these
-# is never a project module, wherever the project root sits.
-_ENV_DIRS = tuple(
-    Path(sysconfig.get_paths()[name]).resolve()
-    for name in ('stdlib', 'purelib', 'platlib')
-    if name in sysconfig.get_paths()
-)
-
-
 def _evict_project_modules() -> None:
     """Remove the project's own modules from sys.modules, and their udfs from the registry.
 
@@ -137,7 +128,7 @@ def _evict_project_modules() -> None:
             continue
         # the file path lets us distinguish between a project module and a standard library module
         resolved = Path(module_file).resolve()
-        if any(resolved.is_relative_to(env_dir) for env_dir in _ENV_DIRS):
+        if in_environment(resolved):
             continue
         if resolved.is_relative_to(root):
             registry.deregister_module(name)
