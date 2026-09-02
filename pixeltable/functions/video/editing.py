@@ -27,6 +27,9 @@ class make_video(pxt.Aggregator):
     Aggregate function that creates a video from a sequence of images, using the default video encoder and
     yuv420p pixel format.
 
+    Call as `make_video(order_expr, frame, *, fps=25)`. `order_expr` is a frame index or timestamp.
+    `order_by=` is invalid.
+
     Args:
         fps: Frames per second for the output video.
 
@@ -34,13 +37,13 @@ class make_video(pxt.Aggregator):
         The video obtained by combining the input frames at the specified `fps`.
 
     Examples:
-        Combine the images in the `img` column of the table `tbl` into a video:
+        Combine the frames in `tbl.frame`, ordered by `tbl.pos`:
 
-        >>> tbl.select(make_video(tbl.img, fps=30)).collect()
+        >>> tbl.select(make_video(tbl.pos, tbl.frame, fps=30)).collect()
 
-        Combine a sequence of rotated images into a video:
+        Combine a sequence of rotated frames:
 
-        >>> tbl.select(make_video(tbl.img.rotate(45), fps=30)).collect()
+        >>> tbl.select(make_video(tbl.pos, tbl.frame.rotate(45), fps=30)).collect()
 
         For a more extensive example, see the
         [Object Detection in Videos](https://docs.pixeltable.com/howto/use-cases/object-detection-in-videos)

@@ -99,13 +99,15 @@ Inserting into the knowledge table needs no API key. The `/ask` route needs `ANT
 
 To mount the routes on an existing FastAPI app, `app.include_router(...)`. [HTTP serving](https://docs.pixeltable.com/howto/deployment/serving). To skip endpoints, run `pxt schema update`, insert from Python, then `export_sql`. [Self-hosting](https://docs.pixeltable.com/howto/deployment/overview).
 
-## Agents write the same file
+## Coding agents
+
+Hand the agent [get-started.md](https://www.pixeltable.com/get-started.md). That playbook installs the package, the skill, and MCP. How the skill writes `app.py`: [AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms).
 
 ```bash
 npx skills add pixeltable/pixeltable-skill
 ```
 
-Skill **2.7.0+** writes a `TableModel` in `app.py`, then `pxt schema update`. If the agent writes `create_table` in app code, `schema.py`, or `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`. Do not copy this repo's `AGENTS.md` into an application; that file is for Pixeltable contributors.
+Skill **2.7.0+** writes a `TableModel` in `app.py`, then `pxt schema update`. If the agent writes `create_table` in app code, `schema.py`, or `pxt serve`, the installed skill is stale: this page wins. Reinstall the skill. Do not copy this repo's `AGENTS.md` into an application; that file is for Pixeltable contributors.
 
 Notebooks and tests still use `pxt.create_table()`. An app puts tables in `app.py` and creates them with `pxt schema update`.
 
