@@ -14,6 +14,7 @@ from requests.adapters import HTTPAdapter, Retry
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.service.management_protocol import ManagementOperationType
 
 _DEFAULT_API_URL = 'https://internal-api.pixeltable.com'
 
@@ -25,10 +26,26 @@ def api_url() -> str:
     return _DEFAULT_API_URL if url is None else url
 
 
-_LONG_OPS = frozenset({'create_db', 'update_runtime', 'delete_db'})
+_LONG_OPS = frozenset(
+    op.value
+    for op in (
+        ManagementOperationType.CREATE_DB,
+        ManagementOperationType.BUILD_IMAGE,
+        ManagementOperationType.DELETE_DB,
+    )
+)
 
 # operations that don't change server state; can be sent multiple times
-_READ_OPS = frozenset({'list_orgs', 'list_dbs', 'get_db', 'list_services', 'get_service'})
+_READ_OPS = frozenset(
+    op.value
+    for op in (
+        ManagementOperationType.LIST_ORGS,
+        ManagementOperationType.LIST_DBS,
+        ManagementOperationType.GET_DB,
+        ManagementOperationType.LIST_SERVICE_INSTANCES,
+        ManagementOperationType.GET_SERVICE_INSTANCE,
+    )
+)
 
 # maximum number of connections kept open to the service, sized for concurrent calls from multiple threads
 _POOL_MAXSIZE = 16
@@ -62,7 +79,8 @@ def api_call(request: Any) -> dict[str, Any]:
     op = getattr(request, 'operation_type', None)
     op_str = op.value if hasattr(op, 'value') else str(op) if op else ''
     timeout = 180 if op_str in _LONG_OPS else 30
-    body = request.model_dump_json()
+    # by_alias: a field the control plane names differently declares that name as its alias
+    body = request.model_dump_json(by_alias=True)
     try:
         resp = _SESSION.post(api_url(), data=body, headers=_api_headers(), timeout=timeout)
     except requests.exceptions.ConnectionError:

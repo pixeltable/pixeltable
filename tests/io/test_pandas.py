@@ -1,6 +1,5 @@
 import datetime
 import uuid
-from typing import Callable
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -11,8 +10,16 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.env import Env
+from pixeltable.io import import_csv
+from pixeltable.io.pandas import import_excel
 
-from ..utils import ensure_s3_pytest_resources_access, pxt_raises, rerun_on_network_error, skip_test_if_not_installed
+from ..utils import (
+    DatabaseRoot,
+    ensure_s3_pytest_resources_access,
+    pxt_raises,
+    rerun_on_network_error,
+    skip_test_if_not_installed,
+)
 
 EXPECTED_SCHEMA = {
     'int_col': ts.IntType(nullable=True),
@@ -58,8 +65,8 @@ class TestPandas:
         }
         return src_data
 
-    def test_import_pandas_types(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_import_pandas_types(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         default_tz = Env.get().default_time_zone
 
         src_data = self.make_src_data()
@@ -86,8 +93,8 @@ class TestPandas:
         assert res['json_col_2'] == src_data['json_col_2']
         assert t.count() == len(df)
 
-    def test_insert_pandas_types(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_insert_pandas_types(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         src_data = self.make_src_data()
         df = pd.DataFrame(src_data)
         t = pxt.io.import_pandas(p('test_types'), df)
@@ -97,26 +104,28 @@ class TestPandas:
         t.insert(df)
         assert t.count() == 2 * len(df)
 
-    def test_import_pandas_csv(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
-        from pixeltable.io import import_csv
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]'
+    )
+    def test_import_pandas_csv(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
 
         t1 = import_csv(p('online_foods'), 'tests/data/datasets/onlinefoods.csv')
         assert t1.count() == 388
         assert t1._get_schema() == {
-            'Age': ts.IntType(nullable=True),
-            'Gender': ts.StringType(nullable=True),
-            'Marital_Status': ts.StringType(nullable=True),
-            'Occupation': ts.StringType(nullable=True),
-            'Monthly_Income': ts.StringType(nullable=True),
-            'Educational_Qualifications': ts.StringType(nullable=True),
-            'Family_size': ts.IntType(nullable=True),
+            'age': ts.IntType(nullable=True),
+            'gender': ts.StringType(nullable=True),
+            'marital_status': ts.StringType(nullable=True),
+            'occupation': ts.StringType(nullable=True),
+            'monthly_income': ts.StringType(nullable=True),
+            'educational_qualifications': ts.StringType(nullable=True),
+            'family_size': ts.IntType(nullable=True),
             'latitude': ts.FloatType(nullable=True),
             'longitude': ts.FloatType(nullable=True),
-            'Pin_code': ts.IntType(nullable=True),
-            'Output': ts.StringType(nullable=True),
-            'Feedback': ts.StringType(nullable=True),
-            'Unnamed__12': ts.StringType(nullable=True),
+            'pin_code': ts.IntType(nullable=True),
+            'output': ts.StringType(nullable=True),
+            'feedback': ts.StringType(nullable=True),
+            'unnamed__12': ts.StringType(nullable=True),
         }
         assert t1.where((t1.Gender == 'Male') & (t1.Occupation == 'Self Employeed')).count() == 38  # [sic]
 
@@ -133,13 +142,13 @@ class TestPandas:
         t2 = import_csv(p('ibm'), 'tests/data/datasets/classeurIBM.csv', primary_key='Date')
         assert t2.count() == 4263
         assert t2._get_schema() == {
-            'Date': ts.StringType(nullable=False),  # Primary key is non-nullable
-            'Open': ts.FloatType(nullable=True),
-            'High': ts.FloatType(nullable=True),
-            'Low': ts.FloatType(nullable=True),
-            'Close': ts.FloatType(nullable=True),
-            'Volume': ts.IntType(nullable=True),
-            'Adj_Close': ts.FloatType(nullable=True),
+            'date': ts.StringType(nullable=False),  # Primary key is non-nullable
+            'open': ts.FloatType(nullable=True),
+            'high': ts.FloatType(nullable=True),
+            'low': ts.FloatType(nullable=True),
+            'close': ts.FloatType(nullable=True),
+            'volume': ts.IntType(nullable=True),
+            'adj_close': ts.FloatType(nullable=True),
         }
 
         t3 = import_csv(p('edge_cases'), 'tests/data/datasets/edge-cases.csv', parse_dates=['ts', 'ts_n'])
@@ -178,19 +187,18 @@ class TestPandas:
         ],
     )
     @rerun_on_network_error()
-    def test_import_csv_from_remote(self, make_catalog_path: Callable[[str], str], source: str) -> None:
-        p = make_catalog_path
+    def test_import_csv_from_remote(self, db_root: DatabaseRoot, source: str) -> None:
+        p = db_root.make_catalog_path
         if source.startswith('s3://'):
             ensure_s3_pytest_resources_access()
         tab = pxt.create_table(p('from_remote_csv'), source=source)
         assert tab.count() == 388
-        assert 'Age' in tab.columns()
-        assert 'Output' in tab.columns()
+        assert 'age' in tab.columns()  # source column names are folded, like any other identifier
+        assert 'output' in tab.columns()
         assert tab.where((tab.Gender == 'Female') & (tab.Marital_Status == 'Married')).count() == 49
 
-    def test_insert_pandas_csv(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
-        from pixeltable.io import import_csv
+    def test_insert_pandas_csv(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
 
         t1 = import_csv(p('online_foods'), 'tests/data/datasets/onlinefoods.csv')
         assert t1.count() == 388
@@ -209,10 +217,9 @@ class TestPandas:
         assert t3.count() == 2 * 4
 
     @rerun_on_network_error()
-    def test_pandas_images(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_pandas_images(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('boto3')  # This test relies on s3 URLs
-        from pixeltable.io import import_csv
 
         # Test overriding string type to images
         t4 = import_csv(p('images'), 'tests/data/datasets/images.csv', schema_overrides={'image': pxt.Image | None})
@@ -229,43 +236,47 @@ class TestPandas:
         ],
     )
     @rerun_on_network_error()
-    def test_import_excel_from_remote(self, make_catalog_path: Callable[[str], str], source: str) -> None:
-        p = make_catalog_path
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]'
+    )
+    def test_import_excel_from_remote(self, db_root: DatabaseRoot, source: str) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('openpyxl')
         if source.startswith('s3://'):
             ensure_s3_pytest_resources_access()
         tab = pxt.create_table(p('from_remote_excel'), source=source, source_format='excel')
         assert tab.count() == 700
-        assert tab._get_schema()['Date'] == ts.TimestampType(nullable=True)
+        assert tab._get_schema()['date'] == ts.TimestampType(nullable=True)
         entry = tab.limit(1).collect()[0]
-        assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
+        assert entry['date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
 
-    def test_import_pandas_excel(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]'
+    )
+    def test_import_pandas_excel(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('openpyxl')
-        from pixeltable.io.pandas import import_excel
 
         t4 = import_excel(p('fin_sample'), 'tests/data/datasets/Financial Sample.xlsx')
         assert t4.count() == 700
-        assert t4._get_schema()['Date'] == ts.TimestampType(nullable=True)
+        assert t4._get_schema()['date'] == ts.TimestampType(nullable=True)
         entry = t4.limit(1).collect()[0]
-        assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
+        assert entry['date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
 
         t5 = import_excel(p('sale_data'), 'tests/data/datasets/SaleData.xlsx')
         assert t5.count() == 45
-        assert t5._get_schema()['OrderDate'] == ts.TimestampType(nullable=True)
+        assert t5._get_schema()['orderdate'] == ts.TimestampType(nullable=True)
         # Ensure valid mapping of 'NaT' -> None
-        assert t5.where(t5.Units == 278).collect()[0]['OrderDate'] is None
+        assert t5.where(t5.Units == 278).collect()[0]['orderdate'] is None
 
         t6 = import_excel(p('questions'), 'docs/resources/rag-demo/Q-A-Rag.xlsx')
         assert t6.count() == 8
         # Ensure that StringType is used when the column contains mixed types
         assert t6._get_schema()['correct_answer'] == ts.StringType(nullable=True)
 
-    def test_insert_pandas_excel(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_insert_pandas_excel(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('openpyxl')
-        from pixeltable.io.pandas import import_excel
 
         t4 = import_excel(p('fin_sample'), 'tests/data/datasets/Financial Sample.xlsx')
         assert t4.count() == 700
@@ -282,9 +293,8 @@ class TestPandas:
         t6.insert('docs/resources/rag-demo/Q-A-Rag.xlsx')
         assert t6.count() == 2 * 8
 
-    def test_pandas_errors(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
-        from pixeltable.io import import_csv
+    def test_pandas_errors(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = import_csv(

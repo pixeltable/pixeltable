@@ -4,7 +4,7 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import make_tbl, pxt_raises, reload_catalog
+from .utils import DatabaseRoot, make_tbl, pxt_raises, reload_catalog
 
 
 @pxt.udf
@@ -15,27 +15,27 @@ def _fail_on_neg(x: int) -> int:
 
 
 class TestDirs:
-    def test_create(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_create(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         dirs = ['dir1', 'dir1/sub1', 'dir1/sub1/subsub1']
         for name in dirs:
             pxt.create_dir(p(name))
         # the created dirs are verified to exist at the expected paths by the get_dir_contents checks below
 
         # invalid names
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: 1dir'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*1dir'):
             pxt.create_dir(p('1dir'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: _dir1'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*_dir1'):
             pxt.create_dir(p('_dir1'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: dir 1'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*dir 1'):
             pxt.create_dir(p('dir 1'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: dir1..sub2'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*dir1..sub2'):
             pxt.create_dir(p('dir1..sub2'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: dir1.sub2.'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*dir1.sub2.'):
             pxt.create_dir(p('dir1.sub2.'))
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*dir1:sub2.'):
             pxt.create_dir(p('dir1:sub2.'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Versioned path not allowed here: .*dir1:120'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Versioned path not allowed here: .*dir1:120'):
             pxt.create_dir(p('dir1:120'))
 
         # existing dirs raise error by default
@@ -54,7 +54,7 @@ class TestDirs:
         with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match=r'does not exist. Create it first with:'):
             pxt.create_dir(p('dir2/sub2'))
         make_tbl(p('t2'))
-        with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match="Directory 't2' does not exist"):
+        with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match=r"Directory '.*t2' does not exist"):
             pxt.create_dir(p('t2/sub2'))
 
         # new client: force loading from store
@@ -76,8 +76,8 @@ class TestDirs:
         listing = pxt.get_dir_contents(p('dir1/sub1'), recursive=False)
         assert listing == {'dirs': [p('dir1/sub1/subsub1')], 'tables': []}
 
-    def test_get_dir_tree(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_get_dir_tree(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         for name in ['dir1', 'dir1/sub1', 'dir1/sub1/subsub1']:
             pxt.create_dir(p(name))
         t = make_tbl(p('dir1/t1'))
@@ -102,8 +102,8 @@ class TestDirs:
         t2 = {'name': 't2', 'path': 't2', 'kind': 'table', 'version': 0, 'error_count': 0, 'base': None}
         assert pxt.get_dir_tree(p('')) == [dir1, t2]
 
-    def test_get_dir_tree_error_count(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_get_dir_tree_error_count(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('errs'), {'x': pxt.Int | None})
         t.add_computed_column(y=_fail_on_neg(t.x))
         t.insert([{'x': 1}, {'x': -1}, {'x': -2}, {'x': 3}], on_error='ignore')
@@ -115,9 +115,9 @@ class TestDirs:
         assert node['kind'] == 'table'
         assert node['error_count'] == 2
 
-    def test_create_if_exists(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_create_if_exists(self, db_root: DatabaseRoot) -> None:
         """Test if_exists parameter of create_dir API"""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         dirs = ['dir1', 'dir1/sub1', 'dir1/sub1/subsub1']
         expected = [p(d) for d in dirs]
         id_before = {}
@@ -206,8 +206,8 @@ class TestDirs:
             pxt.drop_dir(p(dir_name), if_not_exists='invalid')  # type: ignore[arg-type]
         assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
-    def test_drop(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_drop(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         dirs = ['dir1', 'dir1/sub1', 'dir1/sub1/subsub1']
         for name in dirs:
             pxt.create_dir(p(name))
@@ -215,12 +215,12 @@ class TestDirs:
         make_tbl(p('dir1/t1'))
 
         # bad name
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: 1dir'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*1dir'):
             pxt.drop_dir(p('1dir'))
         # bad path
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: dir1..sub1'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*dir1..sub1'):
             pxt.drop_dir(p('dir1..sub1'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Versioned path not allowed here: .*dir1:120'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Versioned path not allowed here: .*dir1:120'):
             pxt.drop_dir(p('dir1:120'))
         # doesn't exist
         self._test_drop_if_not_exists(p, 'dir2')
@@ -240,8 +240,8 @@ class TestDirs:
         reload_catalog()
         assert pxt.list_dirs(p('dir1/sub1')) == []
 
-    def test_drop_force(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_drop_force(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         pxt.create_dir(p('dir1'))
         pxt.create_dir(p('dir2'))
         pxt.create_dir(p('dir1/subdir'))
@@ -260,8 +260,8 @@ class TestDirs:
         assert len(pxt.list_tables(p(''))) == 0
         assert len(pxt.list_dirs(p(''))) == 1
 
-    def test_move(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_move(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         pxt.create_dir(p('dir1'))
         pxt.create_dir(p('dir1/sub1'))
         make_tbl(p('dir1/sub1/t1'))
@@ -283,8 +283,34 @@ class TestDirs:
         reload_catalog()
         assert pxt.list_tables(p('dir2')) == [p('dir2/dir1/sub1/t2')]
 
-    def test_create_with_parents(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_case_insensitive_paths(self, db_root: DatabaseRoot) -> None:
+        """Directory and table paths fold, so a path resolves under any casing and the folded form is stored."""
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('MyDir'))
+        make_tbl(p('MyDir/MyTbl'))
+
+        assert pxt.list_dirs(p('')) == [p('mydir')]
+        assert pxt.list_tables(p('MYDIR')) == [p('mydir/mytbl')]
+        assert pxt.get_table(p('MyDir/MYTBL')) == pxt.get_table(p('mydir/mytbl'))
+
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"mydir' is an existing directory"):
+            pxt.create_dir(p('MYDIR'))
+
+        # a destination that differs only in case denotes the same path, so move() rejects it
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be identical'):
+            pxt.move(p('mydir'), p('MyDir'))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be identical'):
+            pxt.move(p('mydir/mytbl'), p('MYDIR/MyTbl'))
+
+        pxt.move(p('MYDIR/MyTbl'), p('MyDir/Renamed'))
+        assert pxt.list_tables(p('mydir')) == [p('mydir/renamed')]
+
+        reload_catalog()
+        pxt.drop_dir(p('MYDIR'), force=True)
+        assert pxt.list_dirs(p('')) == []
+
+    def test_create_with_parents(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         all_dirs = ['dir1', 'dir1/dir2', 'dir1/dir2/dir3']
         pxt.create_dir(p('dir1/dir2/dir3'), parents=True)
         listing = pxt.list_dirs(p(''), recursive=True)

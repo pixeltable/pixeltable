@@ -1,11 +1,6 @@
-import functools
-import http.server
 import os
 import platform
-import threading
 from collections import OrderedDict
-from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 
@@ -13,42 +8,17 @@ import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 
-from .utils import get_image_files, rerun_on_network_error
+from .conftest import SampleFileServer
+from .utils import get_image_files
 
-pytestmark = pytest.mark.local('inspects local FileCache internals')
-
-
-class _QuietHandler(http.server.SimpleHTTPRequestHandler):
-    def log_message(self, *args: object) -> None:
-        pass
-
-
-@pytest.fixture
-def image_server() -> Iterator[str]:
-    """Serve the local imagenette images over a localhost HTTP server, yielding the base URL.
-
-    FileCache only caches external (non-file://) URLs, so exercising it needs remote-style URLs; serving them
-    from localhost exercises the same download/cache path without the latency and flakiness of fetching over the
-    internet.
-    """
-    img_dir = Path(get_image_files()[0]).parent
-    handler = functools.partial(_QuietHandler, directory=str(img_dir))
-    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield f'http://127.0.0.1:{server.server_address[1]}/'
-    finally:
-        server.shutdown()
-        server.server_close()
+pytestmark = pytest.mark.db_roots('local', reason='inspects local FileCache internals')
 
 
 class TestFileCache:
     # TODO: Understand why this test is flaky on Windows. (It appears to be a timing issue
     #     related to the Windows filesystem.)
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Test is flaky on Windows')
-    @rerun_on_network_error()
-    def test_eviction(self, uses_db: None, image_server: str) -> None:
+    def test_eviction(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         # Set a very small cache size of 200 kiB for this test (the imagenette images are ~5-10 kiB each)
         fc = FileCache.get()
         test_capacity = 200 << 10
@@ -59,7 +29,7 @@ class TestFileCache:
 
         # Construct image URLs
         image_files = get_image_files()[:50]
-        image_urls = [image_server + Path(file).name for file in image_files]
+        image_urls = [sample_file_server.url(file) for file in image_files]
 
         # Initialize a table and a dict to separately track the LRU order
         t = pxt.create_table('images', {'index': pxt.Int | None, 'image': pxt.Image | None})

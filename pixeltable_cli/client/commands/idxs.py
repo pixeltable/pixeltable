@@ -1,5 +1,7 @@
 import json
 
+from pixeltable_cli import models
+
 from ...utils import validate_path_shape
 from ..parser import Parser
 from ..utils import display_path, get_request
@@ -31,18 +33,20 @@ def run(argv: list[str]) -> None:
         if err is not None:
             ap.error(err)
 
-    resp = get_request('/api/indexes', params={'path': args.path or None, 'embedding': args.embedding_only or None})
-    entries = resp['entries']
+    resp = models.IdxsResponse.model_validate(
+        get_request('/api/indexes', params={'path': args.path or None, 'embedding': args.embedding_only or None})
+    )
+    entries = resp.entries
 
     if args.as_json:
-        print(json.dumps(entries, indent=2))
+        print(json.dumps([e.model_dump() for e in entries], indent=2, default=str))
         return
 
     for e in entries:
-        cols = ','.join(e['columns'])
+        cols = ','.join(e.columns)
         extra = ''
-        if e['index_type'] == 'embedding':
-            metric = e['metric'] if e.get('metric') is not None else ''
-            embedding = e['embedding'] if e.get('embedding') is not None else ''
+        if e.index_type == 'embedding':
+            metric = e.metric if e.metric is not None else ''
+            embedding = e.embedding if e.embedding is not None else ''
             extra = f'\t{metric}\t{embedding}'
-        print(f'{display_path(e["table"])}\t{e["name"]}\t{e["index_type"]}\t{cols}{extra}')
+        print(f'{display_path(e.table)}\t{e.name}\t{e.index_type}\t{cols}{extra}')

@@ -13,11 +13,10 @@ import logging
 import socket
 import ssl
 import threading
-from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, Iterator
 from uuid import UUID
 
 import httpx
@@ -35,9 +34,19 @@ from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.row import RowBatch
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.http import fetch_url
+from pixeltable.utils.local_store import TempStore
 
 from . import proxy_protocol
-from .proxy_protocol import MediaPath, ProxyRequest, ProxyResponse, decode_body, encode_body
+from .proxy_protocol import (
+    InlinePartSink,
+    MediaPath,
+    PartSink,
+    ProxyRequest,
+    ProxyResponse,
+    PxtStorePartSink,
+    decode_body,
+    encode_body,
+)
 
 if TYPE_CHECKING:
     from pixeltable.catalog.table_path import TablePathKey
@@ -84,6 +93,10 @@ class Transport(abc.ABC):
     def media_url(self, media_path: str) -> str:
         """Build a fetchable URL for a media-dir-relative path served by the daemon."""
 
+    @abc.abstractmethod
+    def new_part_sink(self) -> PartSink:
+        """Return a fresh sink for one logical request's media parts."""
+
     def close(self) -> None:
         """Release any transport resources."""
 
@@ -108,6 +121,9 @@ class HttpTransport(Transport):
 
     def media_url(self, media_path: str) -> str:
         return f'{self._endpoint}/media/{media_path}'
+
+    def new_part_sink(self) -> PartSink:
+        return InlinePartSink()
 
     def close(self) -> None:
         self._http.close()
@@ -263,6 +279,9 @@ class TunnelTransport(Transport):
     def post(self, body: bytes) -> bytes:
         return self._request('POST', '/rpc', body=body, content_type='application/octet-stream')
 
+    def new_part_sink(self) -> PartSink:
+        return PxtStorePartSink(self._org, self._db)
+
     def media_url(self, media_path: str) -> str:
         return f'{self._endpoint}/media/{media_path}'
 
@@ -270,7 +289,6 @@ class TunnelTransport(Transport):
         # daemon media (/media/<ref>) is reachable only through the tunnel; external s3/http URLs fall back
         if not url.startswith(f'{self._endpoint}/media/'):
             return fetch_url(url)
-        from pixeltable.utils.local_store import TempStore
 
         ref = url[len(self._endpoint) :]  # '/media/<ref>'
         tmp_path = TempStore.create_path(extension=Path(ref).suffix)
@@ -308,6 +326,35 @@ class ProxyClient:
         head, response_parts = decode_body(self._transport.post(body))
         return head.decode(), response_parts
 
+    def _prepare(self, args: dict[str, Any]) -> tuple[dict[str, Any], list[bytes]]:
+        """Serialize args for the wire, exactly once per logical request (media files are read, and for a
+        hosted catalog uploaded, here; CAS retries must reuse the result rather than repeating that work)."""
+        sink = self._transport.new_part_sink()
+        return proxy_protocol.serialize_args(args, sink), sink.binary_parts
+
+    def _post(
+        self,
+        class_name: str,
+        method: str,
+        wire_args: dict[str, Any],
+        parts: list[bytes],
+        *,
+        path_key: TablePathKey | None = None,
+        snapshot_key: TablePathKey | None = None,
+    ) -> ProxyResponse:
+        """POST one attempt of a prepared request and return the raw response."""
+        request = ProxyRequest(
+            class_name=class_name,
+            method=method,
+            args=wire_args,
+            path_key=None if path_key is None else path_key.as_dict(),
+            snapshot_path_key=None if snapshot_key is None else snapshot_key.as_dict(),
+        )
+        response_json, response_parts = self._send(request.model_dump_json(), parts)
+        response = ProxyResponse.model_validate_json(response_json)
+        response._binary_parts = response_parts
+        return response
+
     def send(
         self,
         class_name: str,
@@ -318,18 +365,8 @@ class ProxyClient:
         snapshot_key: TablePathKey | None = None,
     ) -> ProxyResponse:
         """Run class_name.method(**args) on the server and return the raw response."""
-        request = ProxyRequest(
-            class_name=class_name,
-            method=method,
-            args=args,
-            path_key=None if path_key is None else path_key.as_dict(),
-            snapshot_path_key=None if snapshot_key is None else snapshot_key.as_dict(),
-        )
-        proxy_protocol.serialize_request(request)
-        response_json, response_parts = self._send(request.model_dump_json(), request._binary_parts)
-        response = ProxyResponse.model_validate_json(response_json)
-        response._binary_parts = response_parts
-        return response
+        wire_args, parts = self._prepare(args)
+        return self._post(class_name, method, wire_args, parts, path_key=path_key, snapshot_key=snapshot_key)
 
     def send_request(self, class_name: str, method: str, args: dict[str, Any]) -> Any:
         """Run a (path-less) catalog method and return its (deserialized) result."""
@@ -348,9 +385,10 @@ class ProxyClient:
         refresh: Callable[[list], None],
     ) -> Any:
         """Run a Table method, refreshing the caller's local md from any current_md the server returns."""
+        wire_args, parts = self._prepare(args)
         while True:
             snapshot_key = get_snapshot_key()
-            response = self.send('Table', method, args, path_key=path_key, snapshot_key=snapshot_key)
+            response = self._post('Table', method, wire_args, parts, path_key=path_key, snapshot_key=snapshot_key)
             if response.current_md is not None:
                 refresh(proxy_protocol.deserialize_response(response, response.current_md))
             if response.error is not None:

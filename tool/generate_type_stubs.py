@@ -1,24 +1,24 @@
 """
-Auto-generates type stubs for pixeltable.catalog.model based on FORWARDED_TABLE_METHODS.
+Auto-generates type stubs for pixeltable.catalog.model.declaration based on FORWARDED_TABLE_METHODS.
 
-This script first uses `stubgen` to generate stubs for both `model.py` and `table.py`, then merges the relevant
-method definitions from the `Table` class in `table.pyi` into the `TableModelMeta` definition in `model.pyi`.
+This script first uses `stubgen` to generate stubs for both `declaration.py` and `table.py`, then merges the relevant
+method definitions from the `Table` class in `table.pyi` into the `TableModelMeta` definition in `declaration.pyi`.
 This is necessary because the model metaclass forwards certain method calls to an underlying table instance, and
 we want those methods to be properly typed on the model class.
 """
 
 import subprocess
 
-from pixeltable.catalog.model import FORWARDED_TABLE_METHODS
+from pixeltable.catalog.model.declaration import FORWARDED_TABLE_METHODS
 
 
 def generate_stubs() -> None:
-    subprocess.run(('stubgen', '-m', 'pixeltable.catalog.model', '-o', 'target'), check=True)
+    subprocess.run(('stubgen', '-m', 'pixeltable.catalog.model.declaration', '-o', 'target'), check=True)
     subprocess.run(('stubgen', '-m', 'pixeltable.catalog.table', '-o', 'target'), check=True)
 
 
 def merge_stubs() -> None:
-    with open('target/pixeltable/catalog/model.pyi', 'r', encoding='utf-8') as f:
+    with open('target/pixeltable/catalog/model/declaration.pyi', 'r', encoding='utf-8') as f:
         model_stub = f.readlines()
     with open('target/pixeltable/catalog/table.pyi', 'r', encoding='utf-8') as f:
         table_stub = f.readlines()
@@ -38,7 +38,7 @@ def merge_stubs() -> None:
 
     # Inject the merged definitions into the model stub, immediately after the class declaration.
     class_defn_idx = next((i for i, line in enumerate(model_stub) if line.startswith('class TableModelMeta')), None)
-    assert class_defn_idx is not None, '`TableModelMeta` class definition not found in model.pyi'
+    assert class_defn_idx is not None, '`TableModelMeta` class definition not found in declaration.pyi'
     generated_stub = [
         # mypy fundamentally does not understand metaclasses; the disable-error-code="override" directive is one of the
         # hacks we need to get it to cooperate.
@@ -56,14 +56,14 @@ def merge_stubs() -> None:
         *defns_to_merge,
         *model_stub[class_defn_idx + 1 :],
     ]
-    with open('pixeltable/catalog/model.pyi', 'w', encoding='utf-8') as f:
+    with open('pixeltable/catalog/model/declaration.pyi', 'w', encoding='utf-8') as f:
         f.writelines(generated_stub)
 
 
 def main() -> None:
-    print('Generating type stubs for pixeltable.catalog.model ...')
+    print('Generating type stubs for pixeltable.catalog.model.declaration ...')
     generate_stubs()
-    print('Merging forwarded method definitions from table.pyi into model.pyi ...')
+    print('Merging forwarded method definitions from table.pyi into declaration.pyi ...')
     merge_stubs()
     print('Done.')
 

@@ -7,10 +7,12 @@ import PIL
 import pytest
 
 import pixeltable as pxt
+from pixeltable import functions as pxtf
 from pixeltable.func import Batch
 from pixeltable.types import ColumnSpec
 
 from .utils import (
+    DatabaseRoot,
     ReloadTester,
     assert_resultset_eq,
     assert_table_metadata_eq,
@@ -62,8 +64,8 @@ class TestView:
         t.add_computed_column(d2=t.c3 - t.c10)
         return t
 
-    def test_errors(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_errors(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = self.create_tbl(p)
         v = pxt.create_view(p('test_view'), t)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Cannot insert into a view\.'):
@@ -73,20 +75,84 @@ class TestView:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Cannot delete from a view\.'):
             _ = v.delete()
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Cannot use `create_view` after `join`.'):
-            u = pxt.create_table(p('joined_tbl'), {'c1': pxt.String | None})
-            join_df = t.join(u, on=t.c1 == u.c1)
-            _ = pxt.create_view(p('join_view'), join_df)
+        # base-query clauses that create_view() rejects
+        u = pxt.create_table(p('joined_tbl'), {'c1': pxt.String | None})
+        rejected_clauses = [
+            (t.group_by(t.c2), 'group_by'),
+            (v.group_by(t), 'group_by'),
+            (t.distinct(), 'group_by'),
+            (t.select(t.c2).distinct(), 'group_by'),
+            (t.order_by(t.c2), 'order_by'),
+            (t.limit(10), 'limit'),
+            (t.limit(10, offset=5), 'limit'),
+            (t.join(u, on=t.c1 == u.c1), 'join'),
+        ]
+        for query, clause in rejected_clauses:
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=rf'`{clause}` cannot be used in a view definition\.'
+            ):
+                _ = pxt.create_view(p('bad_view'), query)
+
+        # an aggregate makes a row's value depend on which other rows are present, wherever it appears
+        for query in [t.select(total=pxtf.sum(t.c2)), t.select(pxtf.sum(t.c2)), t.where(pxtf.sum(t.c2) > 0)]:
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'aggregates over the base table'):
+                _ = pxt.create_view(p('bad_view'), query)
+
+        # a non-snapshot view requires repeatable sampling: fractional and unstratified
+        for query in [
+            t.sample(n=10),
+            t.sample(fraction=0.5, stratify_by=t.c2),
+            t.sample(n_per_stratum=2, stratify_by=t.c2),
+        ]:
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                match=r'A view that is not a snapshot can only be defined by fractional, unstratified sampling\.',
+            ):
+                _ = pxt.create_view(p('bad_view'), query)
+        # a snapshot is not maintained, so it admits sampling that a view cannot reproduce
+        _ = pxt.create_view(p('sampled_snapshot'), t.sample(n=10), is_snapshot=True)
+
+    def test_list_views(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+
+        def loc(path: str) -> str:
+            """Localized version of p(path), without the pxt://org:db/ prefix"""
+            return pxt.catalog.Path.localize(p(path))
+
+        t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None})
+        # a hierarchy that both branches and nests: a subtree that gets traversed more than once shows up
+        # as a repeated path
+        v1 = pxt.create_view(p('v1'), t)
+        _ = pxt.create_view(p('v2'), t)
+        v1a = pxt.create_view(p('v1a'), v1)
+        v1b = pxt.create_view(p('v1b'), v1)
+        _ = pxt.create_view(p('v1a_i'), v1a)
+
+        assert sorted(t.list_views(recursive=False)) == [loc(path) for path in ('v1', 'v2')]
+        all_views = t.list_views()
+        assert sorted(all_views) == [loc(path) for path in ('v1', 'v1a', 'v1a_i', 'v1b', 'v2')]
+        # every view is listed exactly once, at every level of the hierarchy
+        assert len(all_views) == len(set(all_views))
+
+        assert sorted(v1.list_views(recursive=False)) == [loc(path) for path in ('v1a', 'v1b')]
+        assert sorted(v1.list_views()) == [loc(path) for path in ('v1a', 'v1a_i', 'v1b')]
+        assert v1a.list_views() == [loc('v1a_i')]
+        assert v1b.list_views() == []
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
-    def test_basic(self, do_reload_catalog: bool, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_basic(self, do_reload_catalog: bool, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+
+        def loc(path: str) -> str:
+            """Localized version of p(path), without the pxt://org:db/ prefix"""
+            return pxt.catalog.Path.localize(p(path))
+
         t = self.create_tbl(p)
 
         # create view with filter and computed columns
         schema: dict[str, Any] = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
         v = pxt.create_view(p('test_view'), t.where(t.c2 < 10), additional_columns=schema)
-        assert t.list_views() == ['test_view']
+        assert t.list_views() == [loc('test_view')]
         # TODO: test repr more thoroughly
         _ = repr(v)
         assert_resultset_eq(
@@ -173,9 +239,9 @@ class TestView:
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="Invalid spec for column 'v1'"):
             _ = pxt.create_view(p('lambda_view'), t, additional_columns={'v1': lambda c3: c3 * 2.0})  # type: ignore[dict-item]
 
-    def test_create_if_exists(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+    def test_create_if_exists(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         """Test if_exists parameter of create_view API"""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = self.create_tbl(p)
         v = pxt.create_view(p('test_view'), t)
         id_before = v._id
@@ -211,7 +277,7 @@ class TestView:
         assert p('test_view_on_view') in pxt.list_tables(p(''))
         # if_exists='replace' cannot drop a view with a dependent view.
         # it should raise an error and recommend using 'replace_force'
-        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match="the following depend on it: 'test_view_on_view'"):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match=r"the following depend on it: '.*test_view_on_view'"):
             v3 = pxt.create_view(p('test_view'), t, if_exists='replace')
         assert p('test_view_on_view') in pxt.list_tables(p(''))
         # past a handful of dependents the message lists the first few in sorted order and counts the rest;
@@ -255,11 +321,9 @@ class TestView:
         _ = reload_tester.run_query(v3.select().order_by(v3.c2))
         reload_tester.run_reload_test()
 
-    def test_add_column_to_view(
-        self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
-    ) -> None:
+    def test_add_column_to_view(self, test_tbl: pxt.Table, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         """Test add_column* methods for views"""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = test_tbl
         t_c1_val0 = t.order_by(t.c1).collect()[0]['c1']
 
@@ -375,25 +439,29 @@ class TestView:
             with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=expected_err):
                 v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
 
-    def test_from_query(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
-        t = self.create_tbl(p)
+    def test_case_insensitive_view_columns(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+        """A view's own column names fold, and shadowing of a base column is decided on the folded name."""
+        p = db_root.make_catalog_path
+        t = test_tbl
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            pxt.create_view(p('test_view'), t.group_by(t.c2))
-        assert 'Cannot use `create_view` after `group_by`' in str(exc_info.value)
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'c1' already exists in the base table"):
+            pxt.create_view(p('v1'), t, additional_columns={'C1': pxt.Int | None})
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            pxt.create_view(p('test_view'), t.order_by(t.c2))
-        assert 'Cannot use `create_view` after `order_by`' in str(exc_info.value)
+        v = pxt.create_view(p('V1'), t, additional_columns={'MyCol': pxt.Int | None})
+        assert 'mycol' in v.columns()
+        v.add_computed_column(Derived=v.C1 + '!')
+        assert 'derived' in v.columns()
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            pxt.create_view(p('test_view'), t.limit(10))
-        assert 'Cannot use `create_view` after `limit`' in str(exc_info.value)
+        # a view column that shadows a base column is rejected in any casing
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: c1'):
+            v.add_column(C1=pxt.Int | None)
 
-    def test_parallel_views(self, make_catalog_path: Callable[[str], str]) -> None:
+        row = v.order_by(v.C1).select(v.C1, v.DERIVED).collect()[0]
+        assert row['derived'] == row['c1'] + '!'
+
+    def test_parallel_views(self, db_root: DatabaseRoot) -> None:
         """Two views over the same base table, with non-overlapping filters"""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = self.create_tbl(p)
 
         # create view with filter and computed columns
@@ -441,9 +509,9 @@ class TestView:
         assert_resultset_eq(v1_query.collect(), b1_query.collect())
         assert_resultset_eq(v2_query.collect(), b2_query.collect())
 
-    def test_chained_views(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_chained_views(self, db_root: DatabaseRoot) -> None:
         """Two views, the second one is a view over the first one"""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = self.create_tbl(p)
 
         def version(tbl: pxt.Table) -> int:
@@ -550,8 +618,8 @@ class TestView:
         assert version(v2) == v2_version
         check_views()
 
-    def test_unstored_columns_non_image(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_unstored_columns_non_image(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = self.create_tbl(p)
         print(t)
 
@@ -623,9 +691,9 @@ class TestView:
         for row in v3_res:
             assert row['wc2a'] + 1000 == row['wc2b']
 
-    def test_unstored_columns(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_unstored_columns(self, db_root: DatabaseRoot) -> None:
         """Test chained views with unstored columns"""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         # create table with image column and two updateable int columns
         schema: dict[str, Any] = {'img': pxt.Image | None, 'int1': pxt.Int | None, 'int2': pxt.Int | None}
         t = pxt.create_table(p('test_tbl'), schema)
@@ -697,8 +765,8 @@ class TestView:
         logger.debug('******************* POST UPDATE INT2')
         check_views()
 
-    def test_selected_cols(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
-        p = make_catalog_path
+    def test_selected_cols(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
         t = self.create_tbl(p)
 
         # Note that v1.c3 overrides t.c3, but both are accessible
@@ -751,11 +819,11 @@ class TestView:
         with pytest.raises(AttributeError, match='Unknown column: c1'):
             _ = v1.select(v1.c1).head(5)
 
-    def test_query_base_col(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_query_base_col(self, db_root: DatabaseRoot) -> None:
         # A view's own column and an inherited base column can share the same internal column id (each table
         # numbers its columns from 0). Selecting both through the view must keep them distinct rather than
         # collapsing them into a single result column.
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('base_t'), {'c0': pxt.Int | None, 'c1': pxt.Int | None})
         t.insert([{'c0': i, 'c1': i * 10} for i in range(5)])
         v = pxt.create_view(p('v'), t, additional_columns={'v0': t.c0 + 100})
@@ -765,8 +833,8 @@ class TestView:
         assert all(row['v0'] == row['c0'] + 100 for row in res)
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
-    def test_computed_cols(self, do_reload_catalog: bool, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_computed_cols(self, do_reload_catalog: bool, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = self.create_tbl(p)
 
         # create view with computed columns
@@ -801,8 +869,8 @@ class TestView:
         assert_resultset_eq(v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
-    def test_filter(self, do_reload_catalog: bool, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_filter(self, do_reload_catalog: bool, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = create_test_tbl(p('test_tbl'))
 
         # create view with filter
@@ -836,9 +904,9 @@ class TestView:
         _ = pxt.create_view(p('test_view_2'), t.where(t.c5 < datetime.datetime.now()))
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
-    def test_view_of_snapshot(self, do_reload_catalog: bool, make_catalog_path: Callable[[str], str]) -> None:
+    def test_view_of_snapshot(self, do_reload_catalog: bool, db_root: DatabaseRoot) -> None:
         """Test view over a snapshot"""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = self.create_tbl(p)
         snap = pxt.create_snapshot(p('test_snap'), t)
 
@@ -886,9 +954,9 @@ class TestView:
         check_view(snap, v)
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
-    def test_snapshots(self, do_reload_catalog: bool, make_catalog_path: Callable[[str], str]) -> None:
+    def test_snapshots(self, do_reload_catalog: bool, db_root: DatabaseRoot) -> None:
         """Test snapshot of a view of a snapshot"""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = self.create_tbl(p)
         s = pxt.create_snapshot(p('test_snap'), t)
         assert s.select(s.c2).order_by(s.c2).collect()['c2'] == t.select(t.c2).order_by(t.c2).collect()['c2']
@@ -955,8 +1023,8 @@ class TestView:
         assert t.count() == 115
         check(s, v, view_s)
 
-    def test_table_time_travel(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_table_time_travel(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         pxt.create_dir(p('dir'))
         t = pxt.create_table(p('dir/test_tbl'), {'c1': pxt.Int | None})
         assert t.get_metadata()['version'] == 0
@@ -1042,8 +1110,8 @@ class TestView:
         assert res[6] == [{'balloon': r['c2']} for r in res[5]]
         assert res[7] == res[6] + [{'balloon': f'str{i}'} for i in range(10, 20)]
 
-    def test_view_time_travel(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_view_time_travel(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         pxt.create_dir(p('dir'))
         t = pxt.create_table(p('dir/test_tbl'), {'c1': pxt.Int | None})
         assert t.get_metadata()['version'] == 0
@@ -1260,8 +1328,8 @@ class TestView:
                 vmd,
             )
 
-    def test_time_travel_over_snapshot(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_time_travel_over_snapshot(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         pxt.create_dir(p('dir'))
         t = pxt.create_table(p('dir/test_tbl'), {'c1': pxt.Int | None})
         assert t.get_metadata()['version'] == 0
@@ -1295,12 +1363,12 @@ class TestView:
             specific_version_1 = pxt.get_table(p(f'dir/test_view_{i}:1'))
             assert_resultset_eq(specific_version_1.order_by(specific_version_1.c1).collect(), updated_rs)
 
-    def test_column_defaults(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_column_defaults(self, db_root: DatabaseRoot) -> None:
         """
         Test that during insert() manually-supplied columns are materialized with their defaults and can be referenced
         in computed columns.
         """
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         # TODO: use non-None default values once we have them
         t = pxt.create_table(p('table_1'), {'id': pxt.Int | None, 'json_0': pxt.Json | None})
         # computed column depends on nullable non-computed column json_0
@@ -1322,8 +1390,8 @@ class TestView:
         # computed view column for new row is null
         assert v.where(v.computed_1 == None).count() == 1
 
-    def test_drop_base_column(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_drop_base_column(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = self.create_tbl(p)
         # create view with computed columns
         schema: dict[str, Any] = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
@@ -1341,8 +1409,8 @@ class TestView:
         # drop view's own column - allowed
         v1.drop_column(v1.v2)
 
-    def test_rename_base_column(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_rename_base_column(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = self.create_tbl(p)
         schema: dict[str, Any] = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
         v1 = pxt.create_view(p('test_view1'), t, additional_columns=schema)
@@ -1357,8 +1425,8 @@ class TestView:
         # should work
         v1.rename_column('v1', 'new_v1')
 
-    def test_update_base_column(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_update_base_column(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = self.create_tbl(p)
         v1 = pxt.create_view(p('test_view1'), t, additional_columns={'v1': pxt.Int | None})
         v2 = pxt.create_view(p('test_view2'), v1, additional_columns={'v2': pxt.Int | None})
@@ -1378,11 +1446,9 @@ class TestView:
         v2.update({'v2': 102})
 
     @pytest.mark.parametrize('with_computed_col', [False, True], ids=['plain', 'computed'])
-    def test_update_changes_view_membership(
-        self, with_computed_col: bool, make_catalog_path: Callable[[str], str]
-    ) -> None:
+    def test_update_changes_view_membership(self, with_computed_col: bool, db_root: DatabaseRoot) -> None:
         """A base update that changes whether a row satisfies a view's filter adds it to / removes it from the view."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
         t.insert([{'n': 1}, {'n': 2}, {'n': 3}])
         if with_computed_col:
@@ -1401,10 +1467,10 @@ class TestView:
         if with_computed_col:
             assert sorted(r['doubled'] for r in v.collect()) == [4, 18]
 
-    def test_update_preserves_unaffected_view_columns(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_update_preserves_unaffected_view_columns(self, db_root: DatabaseRoot) -> None:
         """A row that stays in a filtered view keeps the stored columns whose inputs didn't change, without
         recomputing them."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'n': pxt.Int | None, 'other': pxt.Int | None})
         t.insert([{'n': 2, 'other': 1}, {'n': 3, 'other': 2}])
         v = pxt.create_view(p('view'), t.where(t.n > 1), additional_columns={'exp': tracked(t.other)})
@@ -1416,10 +1482,10 @@ class TestView:
         assert len(tracked_calls) == 0
         assert sorted(r['exp'] for r in v.collect()) == [10, 20]
 
-    def test_update_changes_view_membership_cascades(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_update_changes_view_membership_cascades(self, db_root: DatabaseRoot) -> None:
         """A row entering or leaving a filtered view reaches the views on top of it, which have no filter of
         their own to detect the change."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
         t.insert([{'n': 1}, {'n': 2}, {'n': 3}])
         v1 = pxt.create_view(p('view1'), t.where(t.n > 1))
@@ -1463,18 +1529,18 @@ class TestView:
         assert sorted(r['own'] for r in v2.collect()) == [50, 90]
         assert sorted(r['own3'] for r in v3.collect()) == [51, 91]
 
-    def test_recompute_column(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_recompute_column(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = test_tbl
         v = pxt.create_view(p('test_view'), t, additional_columns={'v1': t.c2 + 1})
         validate_update_status(v.recompute_columns(v.v1, cascade=True, where=v.c2 < 10), expected_rows=10)
 
-    def test_circular_view_def(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_circular_view_def(self, db_root: DatabaseRoot) -> None:
         # tests for a specific scenario in which:
         # - A view `my_view` is created
         # - A subview of `my_view` is created with the identical name `my_view`, using if_exists='replace'
         # If this situation not detected, it will lead to permanent catalog corruption.
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('my_tbl'), {'col': pxt.Int | None})
         v1 = pxt.create_view(p('my_view'), t)
         with pxt_raises(
@@ -1506,8 +1572,8 @@ class TestView:
         pxt.drop_table(p('my_tbl'))
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_view_comment(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
-        p = make_catalog_path
+    def test_view_comment(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'c': pxt.Int | None})
         v1 = pxt.create_view(p('tbl_view'), t, comment='This is a test view.')
         assert v1.get_metadata()['comment'] == 'This is a test view.'
@@ -1521,8 +1587,8 @@ class TestView:
             pxt.create_view(p('tbl_view_invalid'), t, comment={'comment': 'This is a test view.'})  # type: ignore[arg-type]
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_view_custom_metadata(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
-        p = make_catalog_path
+    def test_view_custom_metadata(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
+        p = db_root.make_catalog_path
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
         t = pxt.create_table(p('tbl'), {'c': pxt.Int | None})
         v1 = pxt.create_view(p('tbl_view'), t, custom_metadata=custom_metadata)
@@ -1537,10 +1603,8 @@ class TestView:
             pxt.create_view(p('tbl_view_invalid'), t, custom_metadata={'key': set})
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_view_column_custom_metadata(
-        self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool
-    ) -> None:
-        p = make_catalog_path
+    def test_view_column_custom_metadata(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
+        p = db_root.make_catalog_path
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
         t = pxt.create_table(p('tbl'), {'c': pxt.Int | None})
         v = pxt.create_view(
@@ -1561,8 +1625,8 @@ class TestView:
             )
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_view_column_comment(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
-        p = make_catalog_path
+    def test_view_column_comment(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'c': pxt.Int | None})
         v = pxt.create_view(
             p('tbl_view'), t, additional_columns={'v1': {'type': pxt.Int | None, 'comment': 'This is a test column.'}}

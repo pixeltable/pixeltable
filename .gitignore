@@ -20,8 +20,9 @@ __pycache__
 /target/
 /tests/target/
 
-# Generated type stubs
-pixeltable/catalog/model.pyi
+# Generated type stubs; the path differs by branch, and a stub left behind by another branch shadows the
+# module it stands in for
+pixeltable/**/*.pyi
 
 # Node.js
 node_modules/

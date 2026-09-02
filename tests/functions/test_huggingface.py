@@ -8,8 +8,9 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
+from ..conftest import SampleFileServer
 from ..utils import (
-    SAMPLE_IMAGE_URL,
+    SAMPLE_IMAGE_FILE_PATH,
     ReloadTester,
     get_audio_files,
     get_image_files,
@@ -23,7 +24,7 @@ from ..utils import (
     validate_update_status,
 )
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 @pytest.mark.very_expensive  # Downloads Hugging Face models
@@ -165,7 +166,7 @@ class TestHuggingface:
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    def test_detr_for_object_detection(self, uses_db: None) -> None:
+    def test_detr_for_object_detection(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import detr_for_object_detection
@@ -176,7 +177,7 @@ class TestHuggingface:
             detect=detr_for_object_detection(t.img, model_id='facebook/detr-resnet-50', threshold=0.8)
         )
         t.add_computed_column(featured_object=t.detect.label_text[0])
-        status = t.insert(img=SAMPLE_IMAGE_URL)
+        status = t.insert(img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH))
         assert status.num_rows == 1
         assert status.num_excs == 0
         result = t.select(t.detect).collect()[0]['detect']
@@ -190,7 +191,7 @@ class TestHuggingface:
         # Test appropriate typing
         assert t.get_metadata()['columns']['featured_object']['type_'] == 'String | None'
 
-    def test_detr_for_segmentation(self, uses_db: None) -> None:
+    def test_detr_for_segmentation(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import detr_for_segmentation
@@ -199,7 +200,7 @@ class TestHuggingface:
         t.add_computed_column(
             seg=detr_for_segmentation(t.img, model_id='facebook/detr-resnet-50-panoptic', threshold=0.5)
         )
-        status = t.insert(img=SAMPLE_IMAGE_URL)
+        status = t.insert(img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH))
         assert status.num_rows == 1
         assert status.num_excs == 0
         res = t.select(height=t.img.height, width=t.img.width).collect()[0]
@@ -214,7 +215,7 @@ class TestHuggingface:
         assert 'label_text' in result['segments_info'][0]
 
     @pytest.mark.xdist_group('large_model')
-    def test_sam3_for_segmentation(self, uses_db: None) -> None:
+    def test_sam3_for_segmentation(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('transformers')
         from huggingface_hub import get_token
 
@@ -224,7 +225,7 @@ class TestHuggingface:
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image | None})
         t.add_computed_column(seg=sam3_for_segmentation(t.img, text='orange', threshold=0.3))
-        status = t.insert(img=SAMPLE_IMAGE_URL)
+        status = t.insert(img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH))
         assert status.num_rows == 1
         assert status.num_excs == 0
 
@@ -252,7 +253,7 @@ class TestHuggingface:
             assert 0.0 <= score <= 1.0
 
     @pytest.mark.xdist_group('large_model')
-    def test_sam_automatic_mask_generation(self, uses_db: None) -> None:
+    def test_sam_automatic_mask_generation(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('transformers')
         from huggingface_hub import get_token
 
@@ -262,7 +263,7 @@ class TestHuggingface:
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image | None})
         t.add_computed_column(seg=sam_automatic_mask_generation(t.img, points_per_crop=16))
-        status = t.insert(img=SAMPLE_IMAGE_URL)
+        status = t.insert(img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH))
         assert status.num_rows == 1
         assert status.num_excs == 0
 
@@ -288,12 +289,12 @@ class TestHuggingface:
         for score in result['scores']:
             assert 0.0 <= score <= 1.0
 
-    def test_sam3_for_segmentation_invalid_args(self, uses_db: None) -> None:
+    def test_sam3_for_segmentation_invalid_args(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import sam3_for_segmentation
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image | None})
-        t.insert(img=SAMPLE_IMAGE_URL)
+        t.insert(img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH))
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='At least one of'):
             t.add_computed_column(seg=sam3_for_segmentation(t.img))
@@ -348,7 +349,7 @@ class TestHuggingface:
         assert v_fps.count() == 4
 
     @pytest.mark.xdist_group('large_model')
-    def test_sam3_for_segmentation_no_detections(self, uses_db: None) -> None:
+    def test_sam3_for_segmentation_no_detections(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('transformers')
         from huggingface_hub import get_token
 
@@ -361,7 +362,7 @@ class TestHuggingface:
         # threshold=1.0 guarantees zero detections (scores never exceed 1.0)
         t.add_computed_column(seg=sam3_for_segmentation(t.img, text='orange', threshold=1.0))
         t.add_computed_column(viz=overlay_segmentation(t.img, t.seg.masks))
-        validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), expected_rows=1)
+        validate_update_status(t.insert(img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH)), expected_rows=1)
 
         res = t.select(t.seg, t.viz, height=t.img.height, width=t.img.width).collect()[0]
         result = res['seg']
@@ -371,7 +372,7 @@ class TestHuggingface:
         assert result['masks'].shape == (0, res['height'], res['width'])
         assert res['viz'].size == (res['width'], res['height'])
 
-    def test_vit_for_image_classification(self, uses_db: None) -> None:
+    def test_vit_for_image_classification(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import vit_for_image_classification
@@ -380,7 +381,7 @@ class TestHuggingface:
         t.add_computed_column(
             img_class=vit_for_image_classification(t.img, model_id='google/vit-base-patch16-224', top_k=3)
         )
-        validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), expected_rows=1)
+        validate_update_status(t.insert(img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH)), expected_rows=1)
         result = t.select(t.img_class).collect()[0]['img_class']
         assert result['labels'] == [962, 935, 937]
         assert result['label_text'] == ['meat loaf, meatloaf', 'mashed potato', 'broccoli']
@@ -463,7 +464,7 @@ class TestHuggingface:
         assert results[1]['sentiment'][0]['label_text'] == 'negative'
 
     @pytest.mark.xdist_group('large_model')
-    def test_image_captioning(self, uses_db: None) -> None:
+    def test_image_captioning(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import image_captioning
@@ -477,7 +478,7 @@ class TestHuggingface:
             )
         )
 
-        validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), expected_rows=1)
+        validate_update_status(t.insert(img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH)), expected_rows=1)
         result = t.select(t.caption).collect()[0]
 
         # Verify we got a caption
@@ -647,7 +648,7 @@ class TestHuggingface:
         assert result['image'] is not None
 
     @pytest.mark.xdist_group('large_model')
-    def test_image_to_image(self, uses_db: None) -> None:
+    def test_image_to_image(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('diffusers')
@@ -666,14 +667,16 @@ class TestHuggingface:
             )
         )
 
-        validate_update_status(t.insert(img=SAMPLE_IMAGE_URL, prompt=test_prompt), expected_rows=1)
+        validate_update_status(
+            t.insert(img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH), prompt=test_prompt), expected_rows=1
+        )
         result = t.select(t.modified_image).collect()[0]
 
         # Verify we got a modified image
         assert result['modified_image'] is not None
 
     @pytest.mark.xdist_group('large_model')
-    def test_image_to_video(self, uses_db: None) -> None:
+    def test_image_to_video(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('diffusers')
@@ -690,7 +693,7 @@ class TestHuggingface:
             )
         )
 
-        validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), expected_rows=1)
+        validate_update_status(t.insert(img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH)), expected_rows=1)
         result = t.select(t.video).collect()[0]
 
         # Verify we got a video

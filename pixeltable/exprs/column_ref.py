@@ -12,7 +12,6 @@ import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import func
-from pixeltable.catalog.table_version import TableVersionKey
 from pixeltable.runtime import get_runtime
 
 from ..utils.description_helper import DescriptionHelper
@@ -70,7 +69,7 @@ class ColumnRef(Expr):
     def __init__(self, col_md: catalog.ColumnVersionMd, perform_validation: bool = False):
         super().__init__(col_md.col_type)
         self.col_md = col_md
-        key = TableVersionKey(col_md.qcolid.tbl_id, col_md.col_effective_version)
+        key = catalog.TableVersionKey(col_md.qcolid.tbl_id, col_md.col_effective_version)
         self._col = catalog.ColumnHandle(catalog.TableVersionHandle(key), col_md.qcolid.col_id)
 
         # pos (id=0) is an unstored iterator column, but its value comes from the PK, not the iterator output dict
@@ -99,7 +98,7 @@ class ColumnRef(Expr):
     def tbl_version(self) -> catalog.TableVersionHandle:
         # the path-context table (e.g. the view a base column is accessed through), where column-level metadata
         # such as indexes lives - as opposed to _col, which is the column's physical owner
-        key = TableVersionKey(self.col_md.tbl_id, self.col_md.effective_version)
+        key = catalog.TableVersionKey(self.col_md.tbl_id, self.col_md.effective_version)
         return catalog.TableVersionHandle(key)
 
     def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx, iter_outputs: list[ColumnRef]) -> None:
@@ -203,6 +202,7 @@ class ColumnRef(Expr):
         document: str | None = None,
         vector: np.ndarray | None = None,
         idx: str | None = None,
+        _tbl_path: catalog.TablePath | None = None,
     ) -> Expr:
         """
         Return a new expression representing the similarity score between the values of this column and the given
@@ -437,12 +437,14 @@ class ColumnRef(Expr):
 
         from pixeltable.index import EmbeddingIndex
 
-        # Resolve the table through its owning catalog (which may be a proxy) so the index lookup works
-        # uniformly for local and hosted tables. get_table_by_id() manages its own transaction.
-        tbl = get_runtime().get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
-        assert tbl is not None
+        if _tbl_path is None:
+            # Resolve the table through its owning catalog (which may be a proxy) so the index lookup works
+            # uniformly for local and hosted tables. get_table_by_id() manages its own transaction.
+            tbl = get_runtime().get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
+            assert tbl is not None
+            _tbl_path = tbl._tbl_path
         # get_idx_md() resolves the concrete index, raising if idx is ambiguous or doesn't exist.
-        idx_md = tbl._tbl_path.get_idx_md(self.col_md.qcolid, idx, EmbeddingIndex)
+        idx_md = _tbl_path.get_idx_md(self.col_md.qcolid, idx, EmbeddingIndex)
 
         # init_args carries one '<modality>_embed' entry per supported modality (see EmbeddingIndex.as_dict()).
         # Array columns are exempt: similarity search uses the raw vector directly.
@@ -456,7 +458,7 @@ class ColumnRef(Expr):
                     f'{type_str} embedding and does not support {type_str} queries',
                 )
 
-        table_version_key = TableVersionKey(self.col_md.tbl_id, self.col_md.effective_version)
+        table_version_key = catalog.TableVersionKey(self.col_md.tbl_id, self.col_md.effective_version)
         return SimilarityExpr(
             expr, idx_name=idx_md.name, qcol_id=self.col_md.qcolid, table_version_key=table_version_key
         )
@@ -512,6 +514,10 @@ class ColumnRef(Expr):
 
     def default_column_name(self) -> str | None:
         return self.column_md.name
+
+    @property
+    def is_column_ref(self) -> bool:
+        return True
 
     def __str__(self) -> str:
         col_md = self.column_md
@@ -596,12 +602,16 @@ class ColumnRef(Expr):
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
             self.iterator = col.get_tbl().iterator_call.eval(iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
-        stored_outputs = {col_ref.col.name: data_row[col_ref.slot_idx] for col_ref in self.iter_outputs}
-        assert all(name is not None for name in stored_outputs)
+        # Use the iterator's own field names (orig_name), which are not the folded column names
+        outputs = col.get_tbl().iterator_call.outputs
+        assert outputs is not None
+        stored_outputs = {
+            outputs[col_ref.col.name].orig_name: data_row[col_ref.slot_idx] for col_ref in self.iter_outputs
+        }
         assert isinstance(self.iterator, func.PxtIterator)  # Otherwise we could not have an unstored column
         self.iterator.seek(data_row.pk[self.pos_idx], **stored_outputs)
         res = next(self.iterator)
-        data_row[self.slot_idx] = res[col.name]
+        data_row[self.slot_idx] = res[outputs[col.name].orig_name]
 
     def _as_dict(self) -> dict:
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate it
@@ -642,7 +652,7 @@ class ColumnRef(Expr):
         else:
             # validate_initialized=False: this can be called during TableVersion.__init__() while the TV is
             # still being loaded (e.g. deserializing iterator args), so we must not trigger a re-entrant load.
-            key = TableVersionKey(col_tbl_id, col_tbl_effective_version)
+            key = catalog.TableVersionKey(col_tbl_id, col_tbl_effective_version)
             tv = get_runtime().catalog.get_tbl_version(key, validate_initialized=False)
             col = tv.cols_by_id.get(col_id)
             if col is None:

@@ -12,6 +12,7 @@ a given database, and locating a running one via the port.lock file in its home 
 # be strings unresolvable from module scope, and FastAPI would mis-parse the request body. Keeping
 # annotations as real objects (evaluated at def time) lets FastAPI see the actual types.
 
+import argparse
 import atexit
 import json
 import logging
@@ -30,11 +31,14 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.catalog import fold_identifier
 from pixeltable.config import Config
-from pixeltable.env import Env
+from pixeltable.env import Env, validate_db_name
 from pixeltable.runtime import get_runtime, reset_runtime
+from pixeltable.utils.process import is_pid, pid_alive
 
 from . import proxy_dispatch
+from .db import unpack_project_archive
 from .proxy_protocol import decode_body, encode_body
 
 if TYPE_CHECKING:
@@ -47,66 +51,11 @@ _STOP_TIMEOUT = 10.0
 
 def proxy_home(db: str) -> Path:
     """The daemon's home directory (its own media/tmp + port.lock), under the global home."""
-    return Config.get().home / f'proxy_{db}'
+    return Config.get().home / f'proxy_{fold_identifier(db)}'
 
 
 def _port_lock(db: str) -> Path:
     return proxy_home(db) / _LOCK_NAME
-
-
-def _win_pid_alive(pid: int) -> bool:
-    """Windows liveness check via the Win32 API.
-
-    os.kill(pid, 0) cannot probe liveness on Windows: CPython maps os.kill() to
-    OpenProcess(PROCESS_ALL_ACCESS) + TerminateProcess(handle, sig), so signal 0 would terminate a live
-    process, and OpenProcess raises Access-denied (WinError 5) for an already-exited process, which would
-    read as alive. Instead, open the process with only SYNCHRONIZE rights and check whether its handle is
-    signaled: a running process's handle is unsignaled (WAIT_TIMEOUT); an exited one is signaled.
-    """
-    # ctypes.wintypes exists only on Windows, so import it inside this platform-guarded path.
-    import ctypes
-    from ctypes import wintypes
-
-    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)  # type: ignore[attr-defined]  # Windows-only
-    kernel32.OpenProcess.restype = wintypes.HANDLE
-    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-    kernel32.WaitForSingleObject.restype = wintypes.DWORD
-    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-
-    synchronize = 0x00100000  # SYNCHRONIZE access right, the minimum needed to wait on the process handle
-    handle = kernel32.OpenProcess(synchronize, False, pid)
-    if not handle:
-        return False  # no such process
-    try:
-        # WaitForSingleObject returns WAIT_TIMEOUT (0x102) while the process runs; it returns WAIT_OBJECT_0
-        # (0) once the process has exited and its handle becomes signaled.
-        return kernel32.WaitForSingleObject(handle, 0) == 0x102
-    finally:
-        kernel32.CloseHandle(handle)
-
-
-def _pid_alive(pid: int) -> bool:
-    """True if pid is a live process. An already-exited but unreaped child (zombie) counts as dead."""
-    if sys.platform == 'win32':
-        return _win_pid_alive(pid)
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True  # exists, owned by another user
-    except (OSError, SystemError):
-        return False
-    # os.kill(pid, 0) also succeeds for a zombie (exited but not yet reaped). A zombie has terminated, so
-    # treat it as dead; otherwise a daemon that we launched and that has already exited reads as running.
-    try:
-        with open(f'/proc/{pid}/stat', encoding='ascii') as f:
-            # the state is the field after the parenthesized comm, which may itself contain spaces/parens
-            state = f.read().rsplit(') ', 1)[1].split()[0]
-    except (OSError, IndexError):
-        return True  # no /proc (non-Linux) or a transient read race: trust the os.kill result
-    return state != 'Z'
 
 
 def read_port_lock(db: str) -> dict[str, Any] | None:
@@ -118,7 +67,8 @@ def read_port_lock(db: str) -> dict[str, Any] | None:
         info = json.loads(lock.read_text())
     except (ValueError, OSError):
         return None
-    return info if _pid_alive(info.get('pid', -1)) else None
+    # the pid is whatever the file holds, so it is validated before it reaches a platform call
+    return info if is_pid(info.get('pid')) and pid_alive(info['pid']) else None
 
 
 def endpoint(db: str) -> str | None:
@@ -126,11 +76,24 @@ def endpoint(db: str) -> str | None:
     return None if info is None else f'http://127.0.0.1:{info["port"]}'
 
 
-def _health_ok(ep: str) -> bool:
+def _health(ep: str) -> dict[str, Any] | None:
+    """Return what the daemon at ep reports about itself, or None if it does not answer."""
     try:
-        return httpx.get(f'{ep}/health', timeout=2.0).status_code == 200
+        response = httpx.get(f'{ep}/health', timeout=2.0)
     except httpx.HTTPError:
-        return False
+        return None
+    if response.status_code != 200:
+        return None
+    try:
+        return response.json()
+    except ValueError:
+        return None
+
+
+def _serves_another_project(health: dict[str, Any]) -> bool:
+    """Decide whether the daemon that reported health resolves udf module paths against a different project."""
+    root = Config.get().project_root
+    return root is not None and health.get('project_root') != str(root)
 
 
 _LOG_TAIL_BYTES = 64 * 1024  # bound memory on a large log while leaving headroom for _LOG_TAIL_LINES
@@ -153,6 +116,7 @@ def _tail_log(path: Path, n_lines: int = _LOG_TAIL_LINES) -> str:
 
 def create(db: str) -> None:
     """Create the daemon's home directory. The database itself is created on first start()."""
+    validate_db_name(db)
     proxy_home(db).mkdir(parents=True, exist_ok=True)
 
 
@@ -165,8 +129,14 @@ def start(db: str, test_mode: bool = False) -> str:
     """
     create(db)
     ep = endpoint(db)
-    if ep is not None and _health_ok(ep):
-        return ep
+    if ep is not None:
+        health = _health(ep)
+        if health is not None:
+            if not _serves_another_project(health):
+                return ep
+            # this daemon resolves module paths against another project, so replace it with one that
+            # serves the caller's project
+            stop(db)
 
     parent_home = Config.get().home
     pgdata = os.environ.get('PIXELTABLE_PGDATA') or str(parent_home / 'pgdata')
@@ -174,7 +144,10 @@ def start(db: str, test_mode: bool = False) -> str:
         **os.environ,
         'PIXELTABLE_HOME': str(proxy_home(db)),  # own media/tmp + port.lock
         'PIXELTABLE_PGDATA': pgdata,  # shared postmaster
+        # intentionally using the raw db name (without case-folding): Env has a fallback for legacy (case-sensitive)
+        # database names.
         'PIXELTABLE_DB': db,  # own database
+        'PIXELTABLE_PROXY_DAEMON': '1',  # mark this process as a proxy daemon instance
     }
     # The daemon outlives this call, so it must not inherit our stdio: leaving the child's stdout/stderr
     # attached to a pipe blocks the reader on EOF forever, and attached to a terminal it would spew daemon
@@ -186,6 +159,9 @@ def start(db: str, test_mode: bool = False) -> str:
     argv = [sys.executable, '-m', 'pixeltable.service.proxy_daemon']
     if test_mode:
         argv.append('--test')
+    project_root = Config.get().project_root
+    if project_root is not None:
+        argv += ['--project-root', str(project_root)]
     with open(log_path, 'a', encoding='utf-8') as log_file:
         proc = subprocess.Popen(
             argv, env=env, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True
@@ -194,7 +170,7 @@ def start(db: str, test_mode: bool = False) -> str:
     deadline = time.monotonic() + _STARTUP_TIMEOUT
     while time.monotonic() < deadline:
         ep = endpoint(db)
-        if ep is not None and _health_ok(ep):
+        if ep is not None and _health(ep) is not None:
             return ep
         time.sleep(0.25)
 
@@ -226,7 +202,7 @@ def stop(db: str) -> None:
             pid = None
         if pid is not None:
             deadline = time.monotonic() + _STOP_TIMEOUT
-            while time.monotonic() < deadline and _pid_alive(pid):
+            while time.monotonic() < deadline and pid_alive(pid):
                 # Reap promptly if the daemon is our own child, so its zombie isn't mistaken for a live
                 # process and we don't wait out the full timeout; a no-op when it was launched by a
                 # different process (e.g. a prior `pxt localproxy start`), in which case init reaps it.
@@ -238,7 +214,7 @@ def stop(db: str) -> None:
                     except (ChildProcessError, OSError):
                         pass
                 time.sleep(0.05)
-            if _pid_alive(pid):
+            if pid_alive(pid):
                 # Graceful shutdown overran the timeout; force termination so we never leak the daemon.
                 # SIGKILL is absent on Windows, where os.kill() already terminates unconditionally.
                 try:
@@ -279,23 +255,28 @@ def _reinitialize() -> None:
     pxt.init()
 
 
-def _drop_database(db: str) -> None:
+def _drop_database(db_name: str) -> None:
     env = Env.get()
     if env._db_server is None:
         return  # not running against the embedded postmaster (e.g. external DB); nothing to drop
     engine = sql.create_engine(env._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
+    preparer = engine.dialect.identifier_preparer
     try:
         with engine.begin() as conn:
-            conn.execute(
-                sql.text(
-                    'SELECT pg_terminate_backend(pid) FROM pg_stat_activity '
-                    'WHERE datname = :db AND pid <> pg_backend_pid()'
-                ),
-                {'db': db},
-            )
-            conn.execute(sql.text(f'DROP DATABASE IF EXISTS "{db}"'))
+            # Same fallback as in Env._init_db: if the folded name does not exist, try the original spelling
+            target_db_name = fold_identifier(db_name)
+            if not _db_exists(conn, target_db_name):
+                if target_db_name != db_name and _db_exists(conn, db_name):
+                    target_db_name = db_name
+                else:
+                    return
+            conn.execute(sql.text(env._dbms.drop_db_stmt(preparer.quote(target_db_name))))
     finally:
         engine.dispose()
+
+
+def _db_exists(conn: sql.Connection, db: str) -> bool:
+    return conn.execute(sql.text('SELECT COUNT(*) FROM pg_database WHERE datname = :db'), {'db': db}).scalar() > 0
 
 
 def _build_app(test_mode: bool = False) -> 'FastAPI':
@@ -332,8 +313,9 @@ def _build_app(test_mode: bool = False) -> 'FastAPI':
             return Response(content='{"status": "ok"}', media_type='application/json')
 
     @app.get('/health')
-    def health() -> dict[str, str]:
-        return {'status': 'ok'}
+    def health() -> dict[str, str | None]:
+        root = Config.get().project_root
+        return {'status': 'ok', 'project_root': None if root is None else str(root)}
 
     @app.get('/media/{ref:path}')
     def serve_media(ref: str) -> FileResponse:
@@ -411,5 +393,24 @@ def _serve(test_mode: bool = False) -> None:
 
 
 if __name__ == '__main__':
-    test_mode = '--test' in sys.argv[1:]
-    _serve(test_mode=test_mode)
+    parser = argparse.ArgumentParser(prog='pixeltable.service.proxy_daemon')
+    parser.add_argument('--test', action='store_true')
+    parser.add_argument('--project-root', type=Path, default=None)
+    parser.add_argument('--db', help='pxt://org:db')
+    parser.add_argument('--project-dir', type=Path, default=None, help='unpack that database project here')
+    parsed = parser.parse_args()
+    project_root = parsed.project_root
+    if parsed.db is not None:
+        if parsed.project_dir is None:
+            parser.error('--db requires --project-dir')
+        try:
+            unpack_project_archive(parsed.db, parsed.project_dir)
+            project_root = parsed.project_dir
+        except excs.ExternalServiceError as exc:
+            if exc.provider_http_status_code != 404:
+                raise
+            # a database exists before `pxt db update` gives it a project: serve the catalog without one,
+            # and a request that needs a udf from it says so
+            logging.getLogger('pixeltable').warning('%s has no project; udfs it declares cannot be resolved', parsed.db)
+    Config.init(reinit=True, project_root=project_root)
+    _serve(test_mode=parsed.test)

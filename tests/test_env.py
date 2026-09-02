@@ -1,33 +1,45 @@
+import asyncio
+import os
 from typing import Iterator
 
+import numpy as np
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs
+from pixeltable import env, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.runtime import reset_runtime
+from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
 
 from .utils import pxt_raises, skip_test_if_not_local
 
-pytestmark = pytest.mark.local('exercises process-global Env/Config and runtime reset')
+pytestmark = pytest.mark.db_roots('local', reason='exercises process-global Env/Config and runtime reset')
 
 
 def _reset_env(reinit: bool, db_name: str | None) -> None:
-    """Reset the environment for testing. db_name=None restores the default test database."""
+    """Reset the environment for testing. db_name=None keeps whichever database is configured."""
     reset_runtime()
-    # Reload configs
-    config_overrides = {} if db_name is None else {'pixeltable.db': db_name}
-    Config.init(config_overrides=config_overrides, reinit=True)
+    if db_name is not None:
+        os.environ['PIXELTABLE_DB'] = db_name
+    Config.init(reinit=True)
     Env._init_env(reinit_db=reinit)
     FileCache.init()
 
 
 @pytest.fixture(autouse=True)
 def restore_env() -> Iterator[None]:
-    """Put the process back on its configured database once the test is done."""
+    """Put the process back on its configured database once the test is done.
+
+    PIXELTABLE_DB is how the suite gives each worker its own database, so the value it had on entry is
+    what has to come back; dropping it would move every later test to the default database.
+    """
+    configured_db = os.environ.get('PIXELTABLE_DB')
     yield
+    if configured_db is None:
+        os.environ.pop('PIXELTABLE_DB', None)
+    else:
+        os.environ['PIXELTABLE_DB'] = configured_db
     _reset_env(reinit=False, db_name=None)
 
 
@@ -201,3 +213,84 @@ class TestProxyEndpoint:
         monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', cloud_host)
         with pxt_raises(excs.ErrorCode.GENERIC_USER_ERROR, match=error):
             Env.get().proxy_endpoint('acme', 'main')
+
+
+class _TestClient:
+    """Stands in for an async SDK client, recording how it was closed."""
+
+    closes: int
+    loop_was_open: bool | None  # whether the loop was still usable when close() ran
+
+    def __init__(self) -> None:
+        self.closes = 0
+        self.loop_was_open = None
+
+    async def call(self) -> None:
+        """Stands in for an API request."""
+        await asyncio.sleep(0)
+
+    async def close(self) -> None:
+        self.closes += 1
+        self.loop_was_open = not asyncio.get_running_loop().is_closed()
+
+
+# every client the factory below hands out; the ones created on another thread are reachable nowhere else
+_test_clients: list[_TestClient] = []
+
+
+@env.register_client('test_sdk', credential_param=None)
+def _() -> _TestClient:
+    client = _TestClient()
+    _test_clients.append(client)
+    return client
+
+
+@pxt.udf
+async def uses_client(n: int) -> int:
+    """Fetches the registered client, the way the udfs of an API integration do."""
+    await get_runtime().get_client('test_sdk').call()
+    return n + 1
+
+
+@pxt.udf
+async def client_embedding(text: str) -> pxt.Array[(4,), np.float32]:
+    """An embedding udf backed by an API client, as the hosted embedding services are."""
+    await get_runtime().get_client('test_sdk').call()
+    return np.full(4, float(len(text)), dtype=np.float32)
+
+
+class TestApiClients:
+    """The clients of an API integration are closed on the event loop they were created on."""
+
+    def test_closed_on_reset(self, uses_db: None) -> None:
+        t = pxt.create_table('clients', {'n': pxt.Int, 's': pxt.String})
+        t.add_computed_column(m=uses_client(t.n))
+        t.add_embedding_index('s', embedding=client_embedding)
+        n_clients = len(_test_clients)
+
+        t.insert([{'n': 1, 's': 'chartreuse'}])  # the plan runs on the calling thread
+        # the embedding of the search string is computed on a thread the runtime keeps for coroutines
+        assert t.order_by(t.s.similarity(string='chartreuse'), asc=False).limit(1).collect()['n'] == [1]
+        clients = _test_clients[n_clients:]
+        assert len(clients) == 2, 'expected a client per thread'
+
+        reset_runtime()
+
+        assert all((c.closes, c.loop_was_open) == (1, True) for c in clients)
+
+    def test_closed_with_running_loop(self, uses_db: None) -> None:
+        t = pxt.create_table('clients', {'n': pxt.Int})
+        t.add_computed_column(m=uses_client(t.n))
+        n_clients = len(_test_clients)
+
+        async def insert_from_a_running_loop() -> None:  # noqa: RUF029
+            # a live loop on the calling thread, as in a notebook cell, makes execution fan out to a thread
+            # and event loop of its own
+            t.insert([{'n': 1}])
+
+        asyncio.run(insert_from_a_running_loop())
+
+        assert t.collect()['m'] == [2]
+        clients = _test_clients[n_clients:]
+        assert len(clients) == 1
+        assert (clients[0].closes, clients[0].loop_was_open) == (1, True)

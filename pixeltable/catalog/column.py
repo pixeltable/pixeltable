@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import pgvector.sqlalchemy
 import sqlalchemy as sql
@@ -14,13 +13,15 @@ import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.type_system as ts
 from pixeltable import catalog, exceptions as excs
+from pixeltable.config import URI, ConfigVar
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.type_system import sa_type_as_dict
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.object_stores import ObjectOps
 
-from .globals import MediaValidation, QColumnId, is_system_column_name, is_valid_identifier
+from .globals import MediaValidation, fold_identifier, is_system_column_name, is_valid_identifier
+from .types import ColumnVersionMd, QColumnId
 
 if TYPE_CHECKING:
     from .table_version import TableVersion
@@ -59,7 +60,7 @@ class Column:
     stored: bool
     is_pk: bool
     is_iterator_col: bool
-    _explicit_destination: str | None  # An object store reference for computed files
+    _explicit_destination: str | ConfigVar[URI] | None  # an object store reference for computed files
     _media_validation: MediaValidation | None  # if not set, TableVersion.media_validation applies
     _custom_metadata: Any  # user-defined metadata; must be a valid JSON-serializable object
     _comment: str | None
@@ -92,7 +93,7 @@ class Column:
         stores_cellmd: bool = False,
         value_expr_dict: dict[str, Any] | None = None,
         tbl_handle: 'TableVersionHandle' | None = None,
-        destination: str | Path | None = None,
+        destination: str | Path | dict | ConfigVar[URI] | None = None,
         comment: str | None = None,
         custom_metadata: Any = None,
     ):
@@ -149,6 +150,9 @@ class Column:
 
         if isinstance(destination, Path):
             destination = str(destination)
+        if isinstance(destination, dict):
+            # a reference read back from metadata; see ConfigVar._as_dict()
+            destination = ConfigVar._from_dict(destination)
 
         self._explicit_destination = destination
 
@@ -168,7 +172,7 @@ class Column:
     def create_index_columns(
         cls,
         tbl_handle: TableVersionHandle,
-        col: Column,
+        col: catalog.ColumnVersionMd,
         idx: index.IndexBase,
         *,
         schema_version: int,
@@ -219,7 +223,7 @@ class Column:
         primary_key: bool = False
         media_validation: catalog.MediaValidation | None = None
         stored: bool = True
-        destination: str | Path | None = None
+        destination: str | Path | ConfigVar[URI] | None = None
         custom_metadata: Any = None
         comment: str | None = None
 
@@ -324,9 +328,10 @@ class Column:
             )
 
         d = spec.get('destination')
-        if d is not None and not isinstance(d, (str, Path)):
+        if d is not None and not isinstance(d, (str, Path, ConfigVar)):
             raise excs.RequestError(
-                excs.ErrorCode.TYPE_MISMATCH, f'Column {name!r}: `destination` must be a string or path; got {d}'
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'Column {name!r}: `destination` must be a string, a path, or a ConfigVar; got {d!r}',
             )
 
         if 'custom_metadata' in spec:
@@ -342,7 +347,8 @@ class Column:
     @classmethod
     def validate_name(cls, name: str) -> None:
         """Check that a name is usable as a pixeltable column name"""
-        if is_system_column_name(name) or is_python_keyword(name):
+        folded_name = fold_identifier(name)
+        if is_system_column_name(folded_name) or is_python_keyword(folded_name):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_COLUMN_NAME,
                 f'{name!r} is a reserved name in Pixeltable; please choose a different column name.',
@@ -366,7 +372,11 @@ class Column:
             schema_version_drop=self.schema_version_drop,
             stored=self.stored,
             stores_cellmd=self.stores_cellmd,
-            destination=self._explicit_destination,
+            destination=(
+                self._explicit_destination._as_dict()
+                if isinstance(self._explicit_destination, ConfigVar)
+                else self._explicit_destination
+            ),
             sa_col_type=sa_type_as_dict(self.sa_col_type) if self.stored else None,
         )
         col_schema_md = schema.SchemaColumn(
@@ -391,7 +401,6 @@ class Column:
 
         TODO: cache this
         """
-        from .globals import ColumnVersionMd, QColumnId
 
         pos = None if self.is_system_col else 0  # placeholder; only matters for column ordering in column_md() output
         col_md, schema_col = self.to_md(pos)
@@ -433,6 +442,18 @@ class Column:
                 f'Column {self.name!r}: `destination` property only applies to stored computed columns',
             )
 
+    @property
+    def display_destination(self) -> str | None:
+        """The destination this column declares, as user-facing metadata reports it.
+
+        Not self.destination: that falls back to the instance-wide default for a stored media column, which is
+        configuration rather than part of the schema.
+        """
+        if self._explicit_destination is None:
+            return None
+        # a ConfigVar displays as its name, not as the location it currently resolves to
+        return str(self._explicit_destination)
+
     def get_tbl(self) -> TableVersion:
         tv = self.tbl_handle.get()
         return tv
@@ -441,6 +462,8 @@ class Column:
     def destination(self) -> str | None:
         if self._explicit_destination is not None:
             # An expilicit destination was set as part of the column definition
+            if isinstance(self._explicit_destination, ConfigVar):
+                return self._explicit_destination.value()
             return self._explicit_destination
 
         # Otherwise, if this is a stored media column, use the default destination if one is configured (input

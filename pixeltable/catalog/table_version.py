@@ -6,7 +6,7 @@ import itertools
 import logging
 import time
 import warnings
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -25,7 +25,14 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.object_stores import ObjectOps
 
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, IndexSpec, MediaValidation, QColumnId, TableVersionMd, is_valid_identifier
+from .globals import (
+    _ROWID_COLUMN_NAME,
+    IndexSpec,
+    MediaValidation,
+    fold_identifier,
+    fold_mapping_keys,
+    is_valid_identifier,
+)
 from .tbl_ops import (
     CreateColumnMdOp,
     CreateStoreColumnsOp,
@@ -37,7 +44,9 @@ from .tbl_ops import (
     TableOp,
     TableOpsBuilder,
 )
+from .types import QColumnId, TableVersionKey, TableVersionMd
 from .update_status import RowCountStats, UpdateStatus
+from .utils import generate_idx_name, validate_idxs
 
 if TYPE_CHECKING:
     from pixeltable import exec, store
@@ -49,25 +58,6 @@ if TYPE_CHECKING:
     from .table_path import TableVersionPath
 
 _logger = logging.getLogger(__name__)
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class TableVersionKey:
-    tbl_id: UUID
-    effective_version: int | None
-
-    # Allow unpacking as a tuple
-    def __iter__(self) -> Iterator[Any]:
-        return iter((self.tbl_id, self.effective_version))
-
-    def as_dict(self) -> dict:
-        return {'id': str(self.tbl_id), 'effective_version': self.effective_version}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> TableVersionKey:
-        tbl_id = UUID(d['id'])
-        effective_version = d['effective_version']
-        return cls(tbl_id, effective_version)
 
 
 class TableVersion:
@@ -256,169 +246,6 @@ class TableVersion:
 
         return TableVersionHandle(self.key)
 
-    @classmethod
-    def create_initial_md(
-        cls,
-        tbl_id: UUID,
-        name: str,
-        cols: list[Column],
-        comment: str | None,
-        custom_metadata: Any,
-        media_validation: MediaValidation,
-        has_default_idxs: bool,
-        view_md: schema.ViewMd | None,
-        is_data_versioned: bool,
-        additional_idxs: list[IndexSpec],
-    ) -> TableVersionMd:
-        from .table_version_handle import TableVersionHandle
-
-        user = Env.get().user
-        timestamp = time.time()
-
-        tbl_id_str = str(tbl_id)
-        tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
-        column_ids = itertools.count()
-        index_ids = itertools.count()
-
-        # assign ids
-        for col in cols:
-            col.tbl_handle = tbl_handle
-            col.id = next(column_ids)
-            col.schema_version_add = 0
-
-        # resolve ColumnRefByName's to ColumnRefs in computed columns
-        subst = exprs.ExprDict[exprs.Expr](
-            (
-                exprs.ColumnRefByName(col.name),
-                exprs.ColumnRef(
-                    col.column_version_md(),
-                    perform_validation=(col._media_validation or media_validation) == MediaValidation.ON_READ,
-                ),
-            )
-            for col in cols
-            if col.name is not None
-        )
-
-        # create metadata
-        column_md: dict[int, schema.ColumnMd] = {}
-        schema_col_md: dict[int, schema.SchemaColumn] = {}
-        for pos, col in enumerate(cols):
-            value_expr = col.value_expr
-            if value_expr is not None:
-                col.set_value_expr(value_expr.substitute(subst))
-            if col.is_computed:
-                col.check_value_expr()
-            col_md, col_schema_md = col.to_md(pos)
-            column_md[col.id] = col_md
-            schema_col_md[col.id] = col_schema_md
-
-        cls._validate_idxs(tbl_id, additional_idxs, has_default_idxs)
-
-        # Merge default indexes and additional indexes into a manifest of indexes to create.
-        index_md: dict[int, schema.IndexMd] = {}
-        idxs_to_create: list[IndexSpec] = []
-        if has_default_idxs and (view_md is None or not view_md.is_snapshot):
-            idxs_to_create.extend(
-                IndexSpec(col, None, index.BtreeIndex(uses_value_col=is_data_versioned))
-                for col in cols
-                if index.BtreeIndex.can_index(col)
-            )
-
-        # an index on a column of this table must reference the instance in cols, which is the one that got an id
-        # above; an index on a base column references that column directly
-        own_cols = {id(col) for col in cols}
-        assert all(
-            id(spec.indexed_column) in own_cols
-            for spec in additional_idxs
-            if cast(Column, spec.indexed_column).tbl_handle.id == tbl_id
-        )
-        idxs_to_create.extend(additional_idxs)
-
-        taken_idx_names = {spec.idx_name for spec in idxs_to_create if spec.idx_name is not None}
-
-        index_cols: list[Column] = []
-        for idx_col, idx_name, idx in idxs_to_create:
-            assert isinstance(idx_col, Column)
-            val_col, undo_col = Column.create_index_columns(
-                tbl_handle,
-                idx_col,
-                idx,
-                schema_version=0,
-                is_data_versioned=is_data_versioned,
-                next_col_id=lambda: next(column_ids),
-            )
-            index_cols.extend(c for c in (val_col, undo_col) if c is not None)
-
-            idx_id = next(index_ids)
-            resolved_idx_name: str
-            if idx_name is not None:
-                resolved_idx_name = idx_name
-            else:
-                resolved_idx_name = cls._generate_idx_name(taken_idx_names)
-                taken_idx_names.add(resolved_idx_name)
-            idx_cls = type(idx)
-            md = schema.IndexMd(
-                id=idx_id,
-                name=resolved_idx_name,
-                indexed_col_id=idx_col.id,
-                indexed_col_tbl_id=str(idx_col.tbl_handle.id),
-                index_val_col_id=None if val_col is None else val_col.id,
-                index_val_undo_col_id=None if undo_col is None else undo_col.id,
-                schema_version_add=0,
-                schema_version_drop=None,
-                class_fqn=idx_cls.__module__ + '.' + idx_cls.__name__,
-                init_args=idx.as_dict(),
-            )
-            index_md[idx_id] = md
-
-        for col in index_cols:
-            col_md, col_schema_md = col.to_md(pos=None)
-            column_md[col.id] = col_md
-            schema_col_md[col.id] = col_schema_md
-
-        assert all(column_md[col_id].id == col_id for col_id in column_md)
-        assert all(index_md[idx_id].id == idx_id for idx_id in index_md)
-
-        tbl_md = schema.TableMd(
-            tbl_id=tbl_id_str,
-            name=name,
-            user=user,
-            current_version=0,
-            current_schema_version=0,
-            next_col_id=next(column_ids),
-            next_idx_id=next(index_ids),
-            next_row_id=0,
-            view_sn=0,
-            column_md=column_md,
-            index_md=index_md,
-            view_md=view_md,
-            additional_md={},
-            is_data_versioned=is_data_versioned,
-            has_default_idxs=has_default_idxs,
-        )
-
-        table_version_md = schema.VersionMd(
-            tbl_id=tbl_id_str,
-            created_at=timestamp,
-            version=0,
-            schema_version=0,
-            user=user,
-            update_status=None,
-            additional_md={},
-        )
-
-        schema_version_md = schema.SchemaVersionMd(
-            tbl_id=tbl_id_str,
-            schema_version=0,
-            preceding_schema_version=None,
-            columns=schema_col_md,
-            comment=comment,
-            custom_metadata=custom_metadata,
-            media_validation=media_validation.name.lower(),
-            additional_md={},
-        )
-        return TableVersionMd(tbl_md, table_version_md, schema_version_md)
-
     def delete_media(self, tbl_version: int | None = None) -> None:
         # Assemble a set of column destinations and delete objects from all of them
         # None is a valid column destination which refers to the default object location
@@ -546,11 +373,12 @@ class TableVersion:
         if not value_expr.is_valid:
             col_name = schema_col_md.name if schema_col_md is not None else '<unnamed>'
             message = '\n'.join(
-                [
+                (
                     f'The computed column {col_name!r} in table {self.name!r} is no longer valid.',
-                    value_expr.validation_error,
-                    'You can continue to query existing data from this column, but evaluating it on new data will raise an error.',  # noqa: E501
-                ]
+                    value_expr.validation_error.catalog_error_msg(),
+                    'You can continue to query existing data from this column, '
+                    'but evaluating it on new data will raise an error.',
+                )
             )
             warnings.warn(message, category=excs.PixeltableWarning)  # noqa: B028
         return value_expr
@@ -629,7 +457,8 @@ class TableVersion:
         return f'idx_{self.id.hex}_{idx_id}'
 
     def add_index(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> UpdateStatus:
-        self._validate_idxs(self.id, [IndexSpec(col, idx_name, idx)], self.has_default_idxs, self.idxs.values())
+        idx_name = None if idx_name is None else fold_identifier(idx_name)
+        validate_idxs(self.id, [IndexSpec(col, idx_name, idx)], self.has_default_idxs, self.idxs.values())
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
         status = self._add_index(col, idx_name, idx)
@@ -637,23 +466,13 @@ class TableVersion:
         _logger.info(f'Added index {idx_name} on column {col.name} to table {self.name}')
         return status
 
-    @classmethod
-    def _generate_idx_name(cls, taken_names: set[str]) -> str:
-        """Generates an index name that is not in `taken_names`."""
-        i = 0
-        while True:
-            name = f'idx{i}'
-            if name not in taken_names:
-                return name
-            i += 1
-
     def _create_index_md(
         self, col: Column, val_col: Column | None, undo_col: Column | None, idx_name: str | None, idx: index.IndexBase
     ) -> int:
         """Create md for given index and update self._tbl_md. Returns index id."""
         existing_names = {i.name for i in self._tbl_md.index_md.values()}
         if idx_name is None:
-            idx_name = self._generate_idx_name(existing_names)
+            idx_name = generate_idx_name(existing_names)
         else:
             assert is_valid_identifier(idx_name)
             assert idx_name not in existing_names
@@ -695,7 +514,7 @@ class TableVersion:
         """Create the columns that idx needs in order to index col of this table."""
         return Column.create_index_columns(
             self.handle,
-            col,
+            col.column_version_md(),
             idx,
             schema_version=self.schema_version,
             is_data_versioned=self.is_data_versioned,
@@ -714,64 +533,6 @@ class TableVersion:
         # now create the index structure
         self._create_index(col, val_col, undo_col, idx_name, idx)
         return status
-
-    @classmethod
-    def _validate_idxs(
-        cls,
-        tbl_id: UUID,
-        idxs: Iterable[IndexSpec],
-        has_default_idxs: bool,
-        existing_idxs: Iterable[TableVersion.IndexInfo] = (),
-    ) -> None:
-        """Validate the indexes in idxs, which are about to be created on the table with id tbl_id.
-
-        idxs: resolved specs, ie. every indexed_column is a Column, not a column name.
-        existing_idxs: the table's live indexes; a new index must not collide with one of those.
-        """
-        existing_by_name = {info.name: info for info in existing_idxs}
-        # names of the columns that already have a B-tree index; a view's base columns are excluded, because the
-        # validation below rejects them as targets anyway
-        btree_col_names = {
-            info.col.name
-            for info in existing_idxs
-            if isinstance(info.idx, index.BtreeIndex) and info.col.tbl_handle.id == tbl_id
-        }
-        new_names: set[str] = set()
-        new_btree_col_names: set[str] = set()
-
-        for idx_col, idx_name, idx in idxs:
-            assert isinstance(idx_col, Column)
-            if isinstance(idx, index.BtreeIndex):
-                assert idx_col.name is not None, repr(idx_col)
-                if has_default_idxs:
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        'Cannot create an explicit B-tree index on a table with has_default_idxs=True; '
-                        'its eligible columns are indexed automatically.',
-                    )
-                index.BtreeIndex.validate_column(idx_col)
-                if idx_col.name in new_btree_col_names or idx_col.name in btree_col_names:
-                    raise excs.AlreadyExistsError(
-                        excs.ErrorCode.INDEX_ALREADY_EXISTS,
-                        f'A B-tree index already exists on column {idx_col.name!r}.',
-                    )
-                new_btree_col_names.add(idx_col.name)
-                if idx_col.tbl_handle.id != tbl_id:
-                    # PXT-1260 Allow views to create a b-tree index on a base column
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'Cannot create a B-tree index on column {idx_col.name!r}: it belongs to a base table. '
-                        'Add the index to the base table instead.',
-                    )
-            if idx_name is not None:
-                assert idx_name not in new_names, idx_name
-                existing_info = existing_by_name.get(idx_name)
-                if existing_info is not None:
-                    raise excs.AlreadyExistsError(
-                        excs.ErrorCode.INDEX_ALREADY_EXISTS,
-                        f'Index {idx_name!r} already exists on column {existing_info.col.name!r}.',
-                    )
-                new_names.add(idx_name)
 
     def _validate_idx_drops(self, idx_ids: Iterable[int]) -> None:
         """Reject the removal of a default B-tree index."""
@@ -826,7 +587,6 @@ class TableVersion:
 
     def add_columns_ops(self, cols: Iterable[Column]) -> tuple[TableVersionMd, list[TableOp]]:
         """Applies the column-addition metadata changes and builds the TableOps to execute them in the store."""
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         assert self.is_mutable
         assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
         assert all(col.stored is not None for col in cols)
@@ -898,7 +658,6 @@ class TableVersion:
 
     def add_columns(self, cols: list[Column], print_stats: bool, on_error: Literal['abort', 'ignore']) -> UpdateStatus:
         """Adds columns to the table."""
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         assert self.is_mutable
 
         # we're creating a new schema version
@@ -1005,7 +764,6 @@ class TableVersion:
         """Drop a column from the table."""
 
         assert self.is_mutable
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
 
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
@@ -1016,8 +774,9 @@ class TableVersion:
 
     def _cascade_drop_column(self, col: Column) -> list[Column]:
         """
-        Marks any indices on the column as dropped and returns the column together with the value and undo columns of
-        those indices.
+        Drops any indices on the column and returns the column together with the value and undo columns of
+        those indices. On a data-versioned table the indices are marked as dropped; on an operational table their
+        metadata is removed outright.
         Also fixes up idxs/idxs_by_name/idxs_by_col.
         """
         if col.is_pk:
@@ -1041,6 +800,8 @@ class TableVersion:
         for info in dropped_idx_info:
             del self.idxs[info.id]
             del self.idxs_by_name[info.name]
+            if not self.is_data_versioned:
+                del self._tbl_md.index_md[info.id]
         if col.qid in self.idxs_by_col:
             del self.idxs_by_col[col.qid]
         return to_drop
@@ -1089,7 +850,6 @@ class TableVersion:
         - Drops precede adds, and index drops precede column drops, so an index that is both explicitly dropped and
           attached to a dropped column is processed only once.
         """
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         assert self.is_mutable
 
         if self.schema_version != expected_schema_version:
@@ -1112,7 +872,7 @@ class TableVersion:
 
         # Validate the new indexes against the post-drop state, so that dropping an index and adding another one with
         # the same name, or on the same column, in a single change set is allowed.
-        self._validate_idxs(self.id, added_idxs, self.has_default_idxs, self.idxs.values())
+        validate_idxs(self.id, added_idxs, self.has_default_idxs, self.idxs.values())
 
         status = UpdateStatus()
         if len(added_cols) > 0:
@@ -1186,7 +946,9 @@ class TableVersion:
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
+        Column.validate_name(new_name)
+        old_name = fold_identifier(old_name)
+        new_name = fold_identifier(new_name)
         if not self.is_mutable:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot rename column for immutable table {self.name!r}'
@@ -1198,8 +960,9 @@ class TableVersion:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot rename base table column {col.name!r}'
             )
-        if not is_valid_identifier(new_name):
-            raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {new_name}')
+        if old_name == new_name:
+            # no-op: return early and do not create a new schema version
+            return
         if new_name in self.cols_by_name:
             raise excs.AlreadyExistsError(excs.ErrorCode.COLUMN_ALREADY_EXISTS, f'Column {new_name!r} already exists')
         del self.cols_by_name[old_name]
@@ -1215,7 +978,6 @@ class TableVersion:
 
     def alter_column(self, col: Column, type_: ts.ColumnType) -> None:
         """Alter the type of a column. Currently only supports widening a value column to nullable."""
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         assert self.is_mutable
         assert not col.is_computed
         assert not col.is_pk
@@ -1247,7 +1009,6 @@ class TableVersion:
         self._create_schema_version()
 
     def _create_schema_version(self) -> None:
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
         self._write_md(new_version=True, new_schema_version=True)
@@ -1447,12 +1208,15 @@ class TableVersion:
         self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool, allow_media: bool
     ) -> dict[Column, exprs.Expr]:
         update_targets: dict[Column, exprs.Expr] = {}
-        for col_name, val in value_spec.items():
-            if not isinstance(col_name, str):
+        for raw_col_name in value_spec:
+            if not isinstance(raw_col_name, str):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
-                    f'Update specification: dict key must be column name; got {col_name!r}',
+                    f'Update specification: dict key must be column name; got {raw_col_name!r}',
                 )
+        value_spec = fold_mapping_keys(value_spec)
+
+        for col_name, val in value_spec.items():
             if col_name == _ROWID_COLUMN_NAME:
                 # a valid rowid is a list of ints, one per rowid column
                 num_rowid_cols = len(self.store_tbl.rowid_columns())
@@ -1948,7 +1712,6 @@ class TableVersion:
 
     def set_version_update_status(self, status: UpdateStatus) -> None:
         """Record status as the UpdateStatus of the change that created the current version."""
-        assert self.is_data_versioned
         assert self.effective_version is None
         # we need to strip out UpdateStatus.rows, if set
         if status.rows is not None:
@@ -2062,6 +1825,7 @@ class TableVersion:
         return {info.val_col for info in self.idxs.values() if info.col.id in col_ids and info.val_col is not None}
 
     def get_idx(self, col: Column, idx_name: str | None, idx_cls: type[index.IndexBase]) -> TableVersion.IndexInfo:
+        idx_name = None if idx_name is None else fold_identifier(idx_name)
         if not self.supports_idxs:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Snapshot does not support indices')
         candidates = [info for info in self.idxs_by_col.get(col.qid, []) if isinstance(info.idx, idx_cls)]
@@ -2079,6 +1843,10 @@ class TableVersion:
                 excs.ErrorCode.INDEX_NOT_FOUND, f'Index {idx_name!r} not found for column {col.name!r}'
             )
         return candidates[0] if idx_name is None else next(info for info in candidates if info.name == idx_name)
+
+    def get_idx_by_name(self, name: str) -> TableVersion.IndexInfo | None:
+        """Return the index with the given name, or None if there is none."""
+        return self.idxs_by_name.get(fold_identifier(name))
 
     def find_btree_index(self, col: Column) -> TableVersion.IndexInfo | None:
         """Return the B-tree index on col, or None if it doesn't have one."""

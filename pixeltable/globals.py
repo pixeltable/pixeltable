@@ -14,7 +14,7 @@ from typing_extensions import TypeForm
 
 from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
-from pixeltable.catalog.globals import OnErrorParam
+from pixeltable.catalog.globals import OnErrorParam, fold_identifier
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, RowDataTableDataConduit, TableDataConduit
@@ -41,16 +41,23 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 
-def init(config_overrides: dict[str, Any] | None = None, additional_config_files: list[str] | None = None) -> None:
+def init(config_overrides: dict[str, Any] | None = None) -> None:
     """Initializes the Pixeltable environment.
 
+    Settings come from the config file of the Pixeltable instance ($PIXELTABLE_HOME/config.toml), from
+    environment variables, and from `config_overrides`.
+
     Args:
-        config_overrides: Optional dictionary of configuration overrides.
-        additional_config_files: Optional list of additional TOML config file paths to load.
+        config_overrides: Configuration settings for this process, keyed by `'<section>.<key>'`. A setting given
+            here takes precedence over the environment and the config file. Settings that apply to the instance
+            as a whole, such as `pixeltable.file_cache_size_g`, cannot be given here.
+
+    Examples:
+        Supply an API key and a database name for this process:
+
+        >>> pxt.init({'openai.api_key': 'sk-...', 'pixeltable.db': 'my_db'})
     """
-    if config_overrides is None:
-        config_overrides = {}
-    Config.init(config_overrides, additional_config_files=additional_config_files)
+    Config.init(config_overrides if config_overrides is not None else {})
     _ = get_runtime().catalog
 
 
@@ -231,6 +238,15 @@ def create_table(
     # mapping and report the same errors
     schema = catalog.normalize_schema(schema)
 
+    # apply the primary_key parameter to the schema
+    for pk_col in primary_key or []:
+        folded_pk_col = fold_identifier(pk_col)
+        if folded_pk_col not in schema:
+            raise excs.NotFoundError(
+                excs.ErrorCode.COLUMN_NOT_FOUND, f'Primary key column {pk_col!r} not found in table schema.'
+            )
+        schema[folded_pk_col] = {**schema[folded_pk_col], 'primary_key': True}
+
     tbl, was_created = (
         get_runtime()
         .get_catalog(path_obj)
@@ -238,7 +254,6 @@ def create_table(
             path_obj,
             schema,
             if_exists=if_exists_,
-            primary_key=primary_key,
             comment=comment,
             custom_metadata=custom_metadata,
             media_validation=media_validation_,
@@ -372,16 +387,11 @@ def create_view(
         tbl_path = base._tbl_path
         sample_clause = None
     elif isinstance(base, Query):
-        base._validate_mutable_op_sequence('create_view', allow_select=True)
+        catalog.View.validate_view_query(base, is_snapshot=is_snapshot)
         tbl_path = base._from_clause.tbls[0]
         where = base.where_clause
         sample_clause = base.sample_clause
         select_list = base.select_list
-        if sample_clause is not None and not is_snapshot and not sample_clause.is_repeatable:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                'Non-snapshot views cannot be created with non-fractional or stratified sampling',
-            )
     else:
         raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, '`base` must be an instance of `Table` or `Query`')
     assert isinstance(base, (catalog.Table, Query))
@@ -397,17 +407,15 @@ def create_view(
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
 
-    if additional_columns is None:
-        additional_columns = {}
-    else:
-        # additional columns should not be in the base table
-        base_col_names = {cvmd.name for cvmd in tbl_path.column_md()}
-        for col_name in additional_columns:
-            if col_name in base_col_names:
-                raise excs.AlreadyExistsError(
-                    excs.ErrorCode.COLUMN_ALREADY_EXISTS,
-                    f'Column {col_name!r} already exists in the base table {tbl_path.tbl_name()!r}.',
-                )
+    additional_columns = catalog.normalize_schema(additional_columns or {})
+    # additional columns should not be in the base table
+    base_col_names = {col_md.name for col_md in tbl_path.column_md()}
+    shadowed = next((name for name in additional_columns if name in base_col_names), None)
+    if shadowed is not None:
+        raise excs.AlreadyExistsError(
+            excs.ErrorCode.COLUMN_ALREADY_EXISTS,
+            f'Column {shadowed!r} already exists in the base table {tbl_path.tbl_name()!r}.',
+        )
 
     if iterator is not None and not isinstance(iterator, func.GeneratingFunctionCall):
         raise excs.RequestError(
@@ -423,10 +431,6 @@ def create_view(
         json.dumps(custom_metadata)
     except (TypeError, ValueError) as err:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
-
-    # canonicalize/validate the additional columns once here, so both local and delegated catalogs receive the same
-    # mapping and report the same errors
-    additional_columns = catalog.normalize_schema(additional_columns)
 
     view, was_created = (
         get_runtime()
@@ -623,11 +627,11 @@ def move(
     if if_exists_ not in (catalog.IfExistsParam.ERROR, catalog.IfExistsParam.IGNORE):
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "`if_exists` must be one of 'error' or 'ignore'")
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    if path == new_path:
+    path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
+    if path_obj == new_path_obj:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): source and destination cannot be identical'
         )
-    path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
     if path_obj.catalog_uri != new_path_obj.catalog_uri:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,

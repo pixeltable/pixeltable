@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import abc
-from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, overload
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, overload
 
 import pandas as pd
 from typing_extensions import TypeForm
@@ -960,6 +959,7 @@ class Table(SchemaObject):
         from .column import Column
 
         for name, spec in schema.items():
+            Column.validate_name(name)
             if isinstance(spec, dict):
                 Column._validate_column_spec(name, spec)
 

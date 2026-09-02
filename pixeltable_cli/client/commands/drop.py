@@ -1,8 +1,7 @@
-import json
+from pixeltable_cli import models
 
-from ..confirm import confirm_or_exit
 from ..parser import Parser
-from ..utils import display_path, post_request, validate_path_arg
+from ..utils import confirm_or_exit, display_path, post_request, validate_path_arg
 
 EPILOG = """\
 Examples:
@@ -35,8 +34,10 @@ def run(argv: list[str]) -> None:
 
     confirm_or_exit(f'drop table {args.path}?', args.force)
 
-    resp = post_request('/api/tables/drop', {'path': validate_path_arg(args.path), 'cascade': args.cascade})
+    resp = models.DropResponse.model_validate(
+        post_request('/api/tables/drop', {'path': validate_path_arg(args.path), 'cascade': args.cascade})
+    )
     if args.as_json:
-        print(json.dumps(resp, indent=2))
+        print(resp.model_dump_json(indent=2))
     else:
-        print(f'dropped {display_path(resp["path"])}')
+        print(f'dropped {display_path(resp.path)}')

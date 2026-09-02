@@ -1,11 +1,12 @@
 import importlib
 import importlib.metadata
 import sys
-from collections.abc import Callable
+from typing import Callable
 
 # Single source of truth for both the top-level help message and shell-mode dispatch.
 # Each key names a module under pixeltable_cli.client.commands.* exposing run(argv: list[str]) -> None.
 COMMANDS: dict[str, str] = {
+    'init': 'write the project configuration here, making this the project root',
     'health': 'show daemon info',
     'cd': 'set or clear the working directory prepended to relative paths',
     'pwd': 'print the working directory',
@@ -28,13 +29,13 @@ COMMANDS: dict[str, str] = {
     'revert': 'undo the last op(s) on a table',
     'schema': 'reconcile a directory with a class-based schema file (diff/update/prune/example)',
     'shell': 'interactive REPL (avoids per-command Python startup)',
-    'serve': 'run a user-defined HTTP service (insert/update/delete/query)',
     'daemon': 'control the daemon (start/stop/restart/status)',
     'localproxy': 'manage local proxy daemons (create/start/stop/delete)',
     'dashboard': 'print and open the dashboard URL',
-    'db': 'manage hosted databases (create/list/status/start/stop/update/update-runtime/delete)',
-    'service': 'manage hosted services (create/update/list/status/start/stop/delete)',
+    'db': 'manage hosted databases (diff/update/create/list/status/start/stop/build-image/delete)',
+    'service': 'run the services an application file declares (diff/update/prune/stop/list/example)',
     'org': 'manage organizations (list/status)',
+    'secret': 'manage the secrets an org or database holds (list/set/delete)',
 }
 
 

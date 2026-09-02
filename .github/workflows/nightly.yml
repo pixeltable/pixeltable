@@ -185,8 +185,7 @@ jobs:
           conda-remove-defaults: true
       - name: Install ollama
         run: |
-          curl -fsSL https://ollama.com/install.sh | sh
-          ollama serve &  # Start the ollama server if it didn't start via install.sh
+          ./scripts/retry.sh 3 30 ./scripts/install-ollama.sh
           sleep 10  # Wait for the ollama server to start
           # Pull the models used for testing now, with retries, to safeguard against connection issues
           ./scripts/retry.sh 3 30 ollama pull 'qwen3:0.6b'

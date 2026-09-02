@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import dataclasses
 import functools
 import logging
@@ -7,9 +8,8 @@ import random
 import time
 import warnings
 from collections import OrderedDict, defaultdict
-from collections.abc import Collection, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Mapping, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Collection, Iterator, Literal, Mapping, Sequence, TypeVar
 from uuid import UUID, uuid4
 
 import psycopg
@@ -19,7 +19,6 @@ from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
 from pixeltable import exceptions as excs, exprs, func, telemetry
-from pixeltable.catalog import model
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -31,15 +30,17 @@ from pixeltable.utils.fault_injection import FaultLocation
 from .catalog_base import CatalogBase
 from .column import Column
 from .dir import Dir
-from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, QColumnId
+from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, fold_identifier
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
+from .model import IndexDeclaration, TableSchemaChangeSet, prepare_model, prepare_model_updates
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
-from .table_version import TableVersion, TableVersionKey, TableVersionMd
+from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
+from .types import QColumnId, TableVersionKey, TableVersionMd
 from .update_status import UpdateStatus
 from .view import View
 
@@ -74,6 +75,9 @@ def _unpack_row(row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api
     return result
 
 
+# if True, write transactions are prohibited
+_frozen: contextvars.ContextVar[bool] = contextvars.ContextVar('pxt_catalog_frozen', default=False)
+
 # -1: unlimited
 # for now, we don't limit the number of retries, because we haven't seen situations where the actual number of retries
 # grows uncontrollably
@@ -83,6 +87,15 @@ _MAX_RETRIES = -1
 _MAX_TBL_CACHE_SIZE = 1024
 
 T = TypeVar('T')
+
+
+def _validate_folded_names(tbl_md: schema.TableMd, schema_version_md: schema.SchemaVersionMd) -> None:
+    """Verify that the identifiers of a table about to be written are folded."""
+    assert tbl_md.name == fold_identifier(tbl_md.name), tbl_md.name
+    for idx_md in tbl_md.index_md.values():
+        assert idx_md.name == fold_identifier(idx_md.name), idx_md.name
+    for schema_col in schema_version_md.columns.values():
+        assert schema_col.name is None or schema_col.name == fold_identifier(schema_col.name), schema_col.name
 
 
 def _is_retryable_exc(e: BaseException) -> bool:
@@ -175,6 +188,10 @@ def retrying_read(op: Callable[[], T], *, read_tvps: Collection[TableVersionPath
     if get_runtime().in_xact:
         return op()
     return retry_loop(for_write=False, read_tvps=read_tvps)(op)()
+
+
+class ProhibitedWriteError(Exception):
+    """Raised by begin_xact() when _frozen == True."""
 
 
 class PendingTableOpsError(Exception):
@@ -354,6 +371,18 @@ class Catalog(CatalogBase):
             self._tbl_md_read_allowed = False
 
     @contextmanager
+    def freeze(self) -> Iterator[None]:
+        """Prevent write transactions in this thread.
+
+        Unaffected: reads and writes from other threads.
+        """
+        token = _frozen.set(True)
+        try:
+            yield
+        finally:
+            _frozen.reset(token)
+
+    @contextmanager
     def begin_xact(
         self,
         *,
@@ -387,6 +416,8 @@ class Catalog(CatalogBase):
         If convert_db_excs == True, converts DBAPIErrors into excs.Errors if possible.
         """
         assert for_write or not (write_tvps or write_tbl_ids), 'for_write must be True when write targets are specified'
+        if for_write and _frozen.get():
+            raise ProhibitedWriteError()
         read_tvps = read_tvps or []
         write_tvps = write_tvps or []
         read_tbl_ids = read_tbl_ids or []
@@ -1523,7 +1554,6 @@ class Catalog(CatalogBase):
         path: Path,
         schema: dict[str, ColumnSpec],
         if_exists: IfExistsParam,
-        primary_key: list[str] | None,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
@@ -1541,15 +1571,7 @@ class Catalog(CatalogBase):
         columns = [Column.create(name, spec) for name, spec in schema.items()]
 
         return self._create_table(
-            path,
-            columns,
-            if_exists,
-            primary_key,
-            comment,
-            custom_metadata,
-            media_validation,
-            has_default_idxs,
-            is_data_versioned,
+            path, columns, if_exists, comment, custom_metadata, media_validation, has_default_idxs, is_data_versioned
         )
 
     def _create_table(
@@ -1557,7 +1579,6 @@ class Catalog(CatalogBase):
         path: Path,
         columns: list[Column],
         if_exists: IfExistsParam,
-        primary_key: list[str] | None,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
@@ -1572,8 +1593,6 @@ class Catalog(CatalogBase):
         # Therefore IfExistsParam.IGNORE is incompatible with explicit_tbl_id.
         assert explicit_tbl_id is None or if_exists != IfExistsParam.IGNORE
 
-        if primary_key is None:
-            primary_key = []
         if additional_idxs is None:
             additional_idxs = []
 
@@ -1594,7 +1613,6 @@ class Catalog(CatalogBase):
                 tbl_id,
                 path.name,
                 columns,
-                primary_key=primary_key,
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
@@ -1750,7 +1768,8 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
-        idxs: list[model.IndexDeclaration],
+        idxs: list[IndexDeclaration],
+        is_data_versioned: bool,
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
@@ -1767,8 +1786,8 @@ class Catalog(CatalogBase):
         tbl_id = uuid4()
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
-        iterator, additional_cols, resolved_idxs = model.prepare_model(
-            tbl_handle, columns, display_name, iterator, base, idxs
+        iterator, additional_cols, resolved_idxs = prepare_model(
+            tbl_handle, columns, display_name, iterator, base, idxs, is_data_versioned
         )
 
         # If the table already exists, rebind to it and report that nothing was created.
@@ -1781,17 +1800,17 @@ class Catalog(CatalogBase):
                 path=path,
                 columns=additional_cols,
                 if_exists=IfExistsParam.ERROR,
-                primary_key=None,
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
                 has_default_idxs=has_default_idxs,
-                is_data_versioned=True,
+                is_data_versioned=is_data_versioned,
                 additional_idxs=resolved_idxs,
                 explicit_tbl_id=tbl_id,
             )
 
         else:
+            assert is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
             return self._create_view(
                 path=path,
                 base=base._first_tbl,
@@ -1810,7 +1829,7 @@ class Catalog(CatalogBase):
                 explicit_tbl_id=tbl_id,
             )
 
-    def update_from_model(self, change_sets: list[model.TableSchemaChangeSet]) -> None:
+    def update_from_model(self, change_sets: list[TableSchemaChangeSet]) -> None:
         """Update tables/views from declarative models.
 
         If the table does not exist, raises NotFoundError. If the model is incompatible with the existing table,
@@ -1942,7 +1961,7 @@ class Catalog(CatalogBase):
                 pending_ancestor_ids = (set(tvp.tbl_ids[1:]) & updated_tbl_ids) - applied_tbl_ids
                 assert len(pending_ancestor_ids) == 0, f'{tv.name}: bases not yet applied: {pending_ancestor_ids}'
 
-                added_cols, added_idxs = model.prepare_model_updates(
+                added_cols, added_idxs = prepare_model_updates(
                     tvp, tv.display_str(), change_set['new_columns'], change_set['new_idxs']
                 )
                 dropped_cols = [tv.cols_by_name[name] for name in change_set['dropped_columns']]
@@ -2742,6 +2761,7 @@ class Catalog(CatalogBase):
                         assert tbl_col_id in sch_col_ids, (tbl_md.tbl_id, tbl_col_id)
                         sch_col_ids.remove(tbl_col_id)
                 assert len(sch_col_ids) == 0, (tbl_md.tbl_id, sch_col_ids)
+                _validate_folded_names(tbl_md, schema_version_md)
             if pending_ops is not None:
                 assert tbl_md.pending_stmt is not None
                 assert all(op.tbl_id == str(tbl_id) for op in pending_ops)

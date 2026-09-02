@@ -1,3 +1,5 @@
+from pixeltable_cli import models
+
 from ..parser import Parser
 from ..utils import display_path, get_request
 
@@ -13,5 +15,5 @@ Notes:
 def run(argv: list[str]) -> None:
     ap = Parser(prog='pxt pwd', epilog=EPILOG)
     ap.parse_args(argv)
-    resp = get_request('/api/cwd')
-    print(display_path(resp['uri']) if resp['uri'] is not None else '(no working directory)')
+    resp = models.CwdResponse.model_validate(get_request('/api/cwd'))
+    print(display_path(resp.uri) if resp.uri is not None else '(no working directory)')

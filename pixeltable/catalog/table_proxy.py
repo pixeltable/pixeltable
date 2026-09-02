@@ -17,7 +17,8 @@ from ..exprs import ColumnRef
 from .globals import normalize_schema
 from .path import Path as CatalogPath
 from .table import Table
-from .table_path import TableMdPath, TablePathKey, TableVersionKey
+from .table_path import TableMdPath, TablePathKey
+from .types import TableVersionKey, TableVersionMd
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -31,7 +32,6 @@ if TYPE_CHECKING:
     from pixeltable.types import ColumnSpec
 
     from ..globals import TableDataSource
-    from .globals import TableVersionMd
     from .table_metadata import TableMetadata, VersionMetadata
     from .update_status import UpdateStatus
 
@@ -180,10 +180,10 @@ class TableProxy(Table):
 
     def __repr__(self) -> str:
         # send the uri as a string: proxy_protocol drops org/db from wire Paths, which is exactly what describe needs
-        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri})['str']
+        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri_str})['str']
 
     def _repr_html_(self) -> str:
-        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri})['html']
+        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri_str})['html']
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset': ...
 

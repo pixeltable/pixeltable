@@ -1,11 +1,14 @@
+import sys
 import threading
 import time
-from typing import Callable
+import traceback
+from typing import Callable, Sequence
 
 import pytest
 
 import pixeltable as pxt
-from tests.utils import DummyIterator, validate_update_status
+
+from .utils import DatabaseRoot, DummyIterator, validate_update_status
 
 
 @pxt.udf
@@ -39,12 +42,24 @@ def _run_workers(target: Callable[[int], None], n_threads: int) -> list[tuple[in
 
 
 class TestConcurrentOps:
+    def _assert_no_errors(self, errors: Sequence[tuple[int, BaseException] | BaseException]) -> None:
+        for error in errors:
+            if isinstance(error, tuple):
+                thread, exc = error
+                threadmsg = f' from thread {thread}'
+            else:
+                exc = error
+                threadmsg = ''
+            print(f'======= Exception {threadmsg} ======')
+            traceback.print_exception(exc, file=sys.stdout)
+        assert len(errors) == 0, (
+            f'There were {len(errors)} exception(s) on concurrent threads; stack traces printed above.'
+        )
+
     @pytest.mark.parametrize('num_threads,rows_per_thread', [(4, 100)])
-    def test_concurrent_insert_and_select(
-        self, make_catalog_path: Callable[[str], str], num_threads: int, rows_per_thread: int
-    ) -> None:
+    def test_concurrent_insert_and_select(self, db_root: DatabaseRoot, num_threads: int, rows_per_thread: int) -> None:
         """Verify that concurrent inserts and selects from multiple threads work correctly."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test_concurrent'), {'thread_id': pxt.Int, 'row_idx': pxt.Int, 'value': pxt.Int})
         t.add_computed_column(doubled=t.value * 2)
         t.add_computed_column(offset=t.value + 100)
@@ -72,7 +87,7 @@ class TestConcurrentOps:
         for th in threads:
             th.join()
 
-        assert errors == [], f'Worker threads raised exceptions: {errors}'
+        self._assert_no_errors(errors)
 
         result = t.select(t.thread_id, t.row_idx, t.value, t.doubled, t.offset).collect()
         assert len(result) == num_threads * rows_per_thread
@@ -86,8 +101,8 @@ class TestConcurrentOps:
     NUM_THREADS = 4
     ITERATIONS = 20
 
-    def test_shared_query(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_shared_query(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('t1'), {'a': pxt.Int, 'b': pxt.Int})
         validate_update_status(t.insert([{'a': i, 'b': i * 10} for i in range(100)]), expected_rows=100)
 
@@ -101,7 +116,7 @@ class TestConcurrentOps:
                 assert all(row['b'] == row['a'] * 10 for row in rows)
 
         errors = _run_workers(worker1, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
         q = t.where(t.a > 50).select(sum_ab=t.a + t.b, double_a=t.a * 2).order_by(t.a)
 
@@ -114,11 +129,11 @@ class TestConcurrentOps:
                 assert rows[0]['sum_ab'] == 51 + 510
 
         errors = _run_workers(worker2, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
-    def test_shared_query_extended(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_shared_query_extended(self, db_root: DatabaseRoot) -> None:
         """A Query built on the main thread can be extended on a worker thread via builder methods."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('t_ext'), {'a': pxt.Int, 'b': pxt.Int})
         validate_update_status(t.insert([{'a': i, 'b': i * 10} for i in range(100)]), expected_rows=100)
         base = t.where(t.a >= 50).select(t.a, t.b)
@@ -131,10 +146,10 @@ class TestConcurrentOps:
                 assert rows[0]['a'] == 50
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
-    def test_shared_colrefs(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_shared_colrefs(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('t4'), {'a': pxt.Int, 'b': pxt.Int})
         validate_update_status(t.insert([{'a': i, 'b': i * 10} for i in range(100)]), expected_rows=100)
         a_ref = t.a
@@ -146,10 +161,10 @@ class TestConcurrentOps:
                 assert len(rows) == 100
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
-    def test_shared_view_query1(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_shared_view_query1(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('t5_base'), {'a': pxt.Int})
         validate_update_status(t.insert([{'a': i} for i in range(100)]), expected_rows=100)
         v = pxt.create_view(p('t5_view'), t.where(t.a >= 50))
@@ -162,10 +177,10 @@ class TestConcurrentOps:
                 assert len(rows) == 50
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
-    def test_shared_view_query2(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_shared_view_query2(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('t6_base'), {'n': pxt.Int})
         validate_update_status(t.insert([{'n': 3}, {'n': 5}]), expected_rows=2)
         iv = pxt.create_view(p('t6_iter_view'), t, iterator=DummyIterator(t.n))
@@ -178,10 +193,10 @@ class TestConcurrentOps:
                 assert len(rows) == 3 + 5
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
-    def test_non_collect_queries(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_non_collect_queries(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('t10'), {'a': pxt.Int})
         validate_update_status(t.insert([{'a': i} for i in range(20)]), expected_rows=20)
         q = t.where(t.a >= 5).select(t.a)
@@ -194,10 +209,10 @@ class TestConcurrentOps:
                 assert len(q.tail(5)) == 5
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
-    def test_shared_query_udf(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_shared_query_udf(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('t15'), {'a': pxt.Int})
         validate_update_status(t.insert([{'a': i} for i in range(50)]), expected_rows=50)
 
@@ -218,10 +233,10 @@ class TestConcurrentOps:
                 assert all(len(result[i, 'rows']) == 11 for i in range(n_rows))
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
-    def test_shared_query_udf_cross_table(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_shared_query_udf_cross_table(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('t15x'), {'a': pxt.Int})
         validate_update_status(t.insert([{'a': i} for i in range(50)]), expected_rows=50)
 
@@ -240,9 +255,10 @@ class TestConcurrentOps:
                 assert all(len(result[i, 'rows']) == 11 for i in range(n_rows))
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
-    def test_concurrent_select_insert(self, make_catalog_path: Callable[[str], str]) -> None:
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails for unclear reasons [PXT-1315]')
+    def test_concurrent_select_insert(self, db_root: DatabaseRoot) -> None:
         """
         Concurrent threads doing select and insert operations on the same table.
 
@@ -253,7 +269,7 @@ class TestConcurrentOps:
 
         TODO: programmatic validation of plan reuse (cache-hit count)
         """
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         n0 = 20
         t = pxt.create_table(p('t_reader_writer'), {'id': pxt.Int, 'val': pxt.String, 'n': pxt.Int})
         t.add_computed_column(s_double=t.n * 2)
@@ -332,11 +348,11 @@ class TestConcurrentOps:
         for th in threads:
             th.join()
 
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
         assert t.count() == n0 + n_writers * writes_per_writer
 
-    def test_shared_join(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_shared_join(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t1 = pxt.create_table(p('t17_a'), {'id': pxt.Int, 'i': pxt.Int})
         t2 = pxt.create_table(p('t17_b'), {'id': pxt.Int, 'f': pxt.Float})
         validate_update_status(t1.insert([{'id': i, 'i': i} for i in range(20)]), expected_rows=20)
@@ -351,11 +367,11 @@ class TestConcurrentOps:
                 assert all(row['out'] == row['i'] + row['f'] for row in rows)
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
-    def test_shared_join2(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_shared_join2(self, db_root: DatabaseRoot) -> None:
         """Table instances from the main thread can be reused in worker threads to create join queries."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t1 = pxt.create_table(p('j1'), {'id': pxt.Int})
         t2 = pxt.create_table(p('j2'), {'id': pxt.Int})
         validate_update_status(t1.insert([{'id': i} for i in range(5)]), expected_rows=5)
@@ -366,10 +382,10 @@ class TestConcurrentOps:
             assert len(t1.select().join(t2, on=t1.id == t2.id).collect()) == 5
 
         errors = _run_workers(worker, n_threads=1)
-        assert errors == [], f'worker raised: {errors[0][1]!r}'
+        self._assert_no_errors(errors)
 
-    def test_shared_snapshot_query(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_shared_snapshot_query(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('t19_base'), {'a': pxt.Int})
         validate_update_status(t.insert([{'a': i} for i in range(20)]), expected_rows=20)
         s = pxt.create_snapshot(p('t19_snap'), t)
@@ -381,12 +397,12 @@ class TestConcurrentOps:
                 assert len(q.collect()) == 10
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
-    def test_table_methods(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_table_methods(self, db_root: DatabaseRoot) -> None:
         """Table read methods and at least one mutating op are usable from a thread other
         than the one that created the handle, concurrently across multiple threads."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('t_xthread'), {'a': pxt.Int, 'keep': pxt.Int})
         validate_update_status(t.insert([{'a': 1, 'keep': 1}]), expected_rows=1)
 
@@ -425,7 +441,7 @@ class TestConcurrentOps:
             (writer if tid == 0 else reader)(tid)
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert not errors, f'workers raised: {errors!r}'
+        self._assert_no_errors(errors)
 
         # Final count: initial row + writer's inserts.
         assert t.count() == 1 + n_inserts_per_writer

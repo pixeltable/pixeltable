@@ -188,36 +188,49 @@ Add multimodal intelligence to applications with two deployment patterns.
   <Tab title="5. Serve">
     <Steps>
       <Step title="Built-in HTTP Serving">
-        Expose tables and queries as HTTP endpoints with a TOML config or a single CLI command
+        Expose tables and queries as HTTP endpoints from the file that declares them
 
-        [`pxt serve`](/howto/deployment/serving), [`FastAPIRouter`](/howto/deployment/serving#quickstart-python)
+        [`pxt service`](/howto/deployment/serving), [`FastAPIRouter`](/howto/deployment/serving#quickstart-python)
 
-        ```toml
-        # service.toml
-        [[service]]
-        name = "image-service"
-        port = 8000
+        ```python
+        # app.py
+        from __future__ import annotations
 
-        [[service.routes]]
-        type = "insert"
-        table = "app/images"
-        path = "/upload"
-        uploadfile_inputs = ["image"]
-        outputs = ["image", "caption"]
+        import pixeltable as pxt
+        from pixeltable.serving import FastAPIRouter
 
-        [[service.routes]]
-        type = "query"
-        path = "/search"
-        query = "app.queries.search_images"
+        TableModel = pxt.model_base()
+
+
+        class Images(TableModel, name='images'):
+            image: pxt.Image
+            caption = caption_image(image)  # a computed column
+
+            __indexes__ = [pxt.EmbeddingIndex(caption, embedding=embed)]
+
+
+        @pxt.query
+        def search_images(text: str) -> pxt.Query:
+            sim = Images.caption.similarity(string=text)
+            return Images.order_by(sim, asc=False).limit(10)
+
+
+        api = FastAPIRouter(name='image-service')
+        api.add_insert_route(
+            Images, path='/upload', uploadfile_inputs=[Images.image], outputs=[Images.caption]
+        )
+        api.add_query_route(path='/search', query=search_images)
         ```
 
         ```bash
-        pxt serve image-service --config service.toml
+        pxt init                             # writes the project configuration here
+        pxt schema update app.py my_dir      # create the tables the models declare
+        pxt service update app.py my_dir     # serve the routes over them
         ```
 
         <CardGroup cols={2}>
           <Card title="HTTP Serving Guide" href="/howto/deployment/serving">
-            TOML config, CLI, Python API, background jobs
+            Application file, CLI, Python API, background jobs
           </Card>
           <Card title="Deployment Overview" href="/howto/deployment/overview">
             Full backend vs. orchestration layer

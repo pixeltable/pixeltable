@@ -1,5 +1,3 @@
-from typing import Callable
-
 import psycopg
 import pytest
 import sqlalchemy as sql
@@ -10,19 +8,22 @@ import pixeltable.exceptions as excs
 from pixeltable.env import Env, store_app_name
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
-from tests.coordinator import MultiThreadedScenario
-from tests.fault_injection import BlockFault, ExceptionFault
-from tests.utils import pxt_raises
+
+from .coordinator import MultiThreadedScenario
+from .fault_injection import BlockFault, ExceptionFault
+from .utils import DatabaseRoot, pxt_raises
 
 
 class TestCatalog:
     """Tests for miscellanous catalog functions."""
 
-    def test_json_reserved_key(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_json_reserved_key(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         # JSON cell values are user data and may contain a key that collides with the proxy protocol's reserved
         # tag; inserting and reading such values back must round-trip rather than be rejected.
-        p = make_catalog_path
-        t = pxt.create_table(p('json_tbl'), {'id': pxt.Int | None, 'data': pxt.Json | None})
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('json_tbl'), {'id': pxt.Int | None, 'data': pxt.Json | None}, _is_data_versioned=is_data_versioned
+        )
         rows = [
             {'id': 0, 'data': {'$pxt': 1}},  # collides at the top level
             {'id': 1, 'data': {'a': {'$pxt': [1, 2]}, 'b': 3}},  # collides while nested
@@ -40,8 +41,8 @@ class TestCatalog:
         with pytest.raises(excs.Error, match='same catalog'):
             pxt.move('pxt://local:db/t', 'local_t')  # hosted -> local
 
-    def test_ls(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_ls(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         pxt.create_dir(p('test_dir'))
         pxt.create_dir(p('test_dir/subdir'))
 
@@ -59,8 +60,6 @@ class TestCatalog:
         _s2 = pxt.create_snapshot(p('test_dir/snapshot2'), v2, additional_columns={'c': pxt.String | None})
         t.insert(a=4171780)
         df = pxt.ls(p('test_dir'))
-        # a hosted (proxy) table's Base shows its full catalog uri, which widens the column vs local; compare row
-        # tokens so the assertion checks content (including the uris) independent of column padding.
         expected = f"""
             Name Kind Version Base
             snapshot1 snapshot {v1_name}:2
@@ -73,15 +72,18 @@ class TestCatalog:
         def tokens(s: str) -> list[list[str]]:
             return [line.split() for line in s.splitlines() if line.split()]
 
-        assert tokens(repr(df)) == tokens(expected)
+        # compare contents, not repr(): pandas truncates one this wide. Empty cells (a dir has no version
+        # or base) are dropped to match the expected tokens.
+        actual = [list(df.columns), *([v for v in row if v != ''] for row in df.itertuples(index=False))]
+        assert actual == tokens(expected)
 
-    def test_cross_type_replacement(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_cross_type_replacement(self, db_root: DatabaseRoot) -> None:
         """Test that tables, views, and snapshots can replace each other with if_exists='replace'.
 
         This tests the path collision handling logic: dirs can only collide with dirs,
         but all table subtypes (table, view, snapshot) can collide with each other.
         """
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         base_table = pxt.create_table(p('base'), {'c1': pxt.Int | None})
 
         # One lambda per create_x with expected columns
@@ -141,7 +143,7 @@ class TestCatalog:
         assert op.needs_xact  # now a ClassVar
         assert 'needs_xact' not in op.to_dict()
 
-    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
+    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_finalize_pending_ops_retriable_error(self, uses_db: None, fault_injection: None) -> None:
         t = pxt.create_table('test', {'a': pxt.Int | None})
         exc = sql_exc.DBAPIError('', {}, orig=psycopg.errors.SerializationFailure())
@@ -151,7 +153,7 @@ class TestCatalog:
         fault.assert_count(1)
         _ = t.select(t.b).collect()
 
-    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
+    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_finalize_pending_ops_non_retriable_error(self, uses_db: None, fault_injection: None) -> None:
         t = pxt.create_table('test', {'a': pxt.Int | None})
         # Inject a non-retriable error into LoadViewOp. LoadViewOp is the last of 3 ops that constitute a view creation.
@@ -170,7 +172,7 @@ class TestCatalog:
         assert len(ls) == 1, ls
         assert ls['Name'].iloc[0] == 'test', ls
 
-    @pytest.mark.local('recovers transparently when the server drops the pooled db connections')
+    @pytest.mark.db_roots('local', reason='recovers transparently when the server drops the pooled db connections')
     def test_dropped_connection(self, uses_db: None) -> None:
         if not Env.get().is_local:
             # the way this test drops connections (pg_terminate_backend on the pixeltable db) is specific to pgserver
@@ -213,10 +215,10 @@ class TestCatalog:
         t.insert([{'a': 2}])
         assert t.count() == 2
 
-    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
-    def test_concurrent_add_column_insert(self, uses_db: None, fault_injection: None) -> None:
+    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
+    def test_concurrent_add_column_insert(self, uses_db: None, fault_injection: None, is_data_versioned: bool) -> None:
         """Concurrent insert while add_column is blocked mid-finalize"""
-        t = pxt.create_table('test', {'a': pxt.Int | None})
+        t = pxt.create_table('test', {'a': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         fault = BlockFault()
 
         (
@@ -240,7 +242,7 @@ class TestCatalog:
         assert len(result) == 1
         assert result[0] == {'a': 1, 'b': 2}
 
-    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
+    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_create_view_stale_base_tv_after_txn_failure(self, uses_db: None, fault_injection: None) -> None:
         """
         Verifies bug fix: due to an error in view creation, Catalog would fail to invalidate a modified but not
@@ -282,7 +284,7 @@ class TestCatalog:
         # Verify that the insert was propagated to vb.
         assert pxt.get_table('vb').count() == 1
 
-    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
+    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_load_view_concurrent_drop_view(self, uses_db: None, fault_injection: None) -> None:
         """
         Start with a base table and a view. Thread 0 loads the view md, and is about to initialize it when Thread 1
@@ -311,7 +313,7 @@ class TestCatalog:
         base.insert([{'a': 1}])
         assert base.count() == 1
 
-    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
+    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_drop_view_concurrent_insert(self, uses_db: None, fault_injection: None) -> None:
         """
         Start with a base table and a view. Thread 0 begins to drop the view, but pauses inside finalize pending ops

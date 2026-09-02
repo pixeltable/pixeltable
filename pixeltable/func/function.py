@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable, Self, Sequence, cast
 import sqlalchemy as sql
 
 from pixeltable import exceptions as excs, type_system as ts
+from pixeltable.config import Config
 
 from .globals import resolve_symbol
 from .signature import Signature
@@ -542,12 +543,22 @@ class Function(ABC):
             instance = resolve_symbol(path)
             if isinstance(instance, Function):
                 return instance
+            elif instance is None:
+                # we couldn't resolve the path
+                project_root = Config.get().project_root
+                detail = (
+                    '(There is no configured project root; did you forget to run `pxt init` in the '
+                    "project's top-level directory?)"
+                    if project_root is None
+                    else f'A module outside the project at {project_root} is only importable if it is installed.'
+                )
+                return InvalidFunction(path, d, f'{path!r} names no importable module. {detail}')
             else:
                 return InvalidFunction(
-                    path, d, f'the symbol {path!r} is no longer a UDF. (Was the `@pxt.udf` decorator removed?)'
+                    path, d, f'the symbol `{path}` is no longer a UDF. (Was the `@pxt.udf` decorator removed?)'
                 )
         except (AttributeError, ImportError):
-            return InvalidFunction(path, d, f'the symbol {path!r} no longer exists. (Was the UDF moved or renamed?)')
+            return InvalidFunction(path, d, f'the symbol `{path}` no longer exists. (Was the UDF moved or renamed?)')
 
     def to_store(self) -> tuple[dict, bytes]:
         """

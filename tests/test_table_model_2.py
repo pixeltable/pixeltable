@@ -1,28 +1,21 @@
 # ruff: noqa: F821
 # ruff: noqa: N806
 
-import sys
-from typing import Callable
-
-import pytest
+from __future__ import annotations
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.catalog.model import Column, EmbeddingIndex
 
-from .utils import assert_resultset_eq, capture_console_output, dummy_embedding, schema_from_tbl_md
+from .utils import DatabaseRoot, assert_resultset_eq, capture_console_output, dummy_embedding, schema_from_tbl_md
 
-# Separate model tests, in a different file from test_table_model.py that is declared without
+# Separate model tests, in a different file from test_table_model.py that is declared with
 # `from __future__ import annotations`
 
 
 class TestTableModel2:
-    @pytest.mark.skipif(
-        sys.version_info >= (3, 14),
-        reason='Fails on Python 3.14 without `from __future__ import annotations` (PEP 649)',
-    )
-    def test_table_model_no_from_future(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_table_model_no_from_future(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
         class ExampleTableModel(TableModel, name='test_table'):
@@ -40,8 +33,8 @@ class TestTableModel2:
                 custom_metadata={'chicken': 'eggs'},
                 comment='This is a column with special properties',
             )
-            computed_with_special_props = Column(value=(value / 3), stored=False)
-            computed_with_special_props_2 = Column(value=img.rotate(90))
+            computed_with_special_props = pxt.Column(value=(value / 3), stored=False)
+            computed_with_special_props_2 = pxt.Column(value=img.rotate(90))
 
             __indexes__ = [EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='clip_idx')]  # noqa: RUF012
 

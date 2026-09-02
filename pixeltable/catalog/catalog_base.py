@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Any, Mapping
 
-from pixeltable.catalog import model
+from .model import TableSchemaChangeSet
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -32,7 +32,6 @@ class CatalogBase(abc.ABC):
         path: Path,
         schema: dict[str, ColumnSpec],
         if_exists: IfExistsParam,
-        primary_key: list[str] | None,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
@@ -71,10 +70,11 @@ class CatalogBase(abc.ABC):
         iterator: func.GeneratingFunctionCall | None,
         base: 'Query | None',
         idxs: list['IndexDeclaration'],
+        is_data_versioned: bool,
     ) -> tuple[Table, bool]: ...
 
     @abc.abstractmethod
-    def update_from_model(self, updates: list[model.TableSchemaChangeSet]) -> None: ...
+    def update_from_model(self, updates: list[TableSchemaChangeSet]) -> None: ...
 
     @abc.abstractmethod
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None: ...

@@ -8,12 +8,10 @@ For more information on FLUX models, see the [BFL documentation](https://docs.bf
 """
 
 import asyncio
-import atexit
 import logging
 import re
-from collections.abc import Mapping
 from io import BytesIO
-from typing import Literal
+from typing import Literal, Mapping
 
 import aiohttp
 import PIL.Image
@@ -44,18 +42,23 @@ class _BflClient:
     """
 
     api_key: str
-    session: aiohttp.ClientSession
+    _session: aiohttp.ClientSession | None
 
     def __init__(self, api_key: str):
-        from pixeltable.runtime import get_runtime
-
         self.api_key = api_key
-        self.session = get_runtime().event_loop.run_until_complete(self._start_session())
-        atexit.register(lambda: asyncio.run(self.session.close()))
+        self._session = None  # defer session creation until we have a running event loop
 
-    async def _start_session(self) -> aiohttp.ClientSession:
-        # Don't set base_url because polling_url and image URLs are absolute
-        return aiohttp.ClientSession()
+    def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None:
+            # Don't set base_url because polling_url and image URLs are absolute
+            self._session = aiohttp.ClientSession()
+        return self._session
+
+    async def close(self) -> None:
+        """Close the HTTP session, if one was ever opened."""
+        if self._session is not None:
+            await self._session.close()
+            self._session = None
 
     @classmethod
     def _handle_rate_limit(cls, headers: Mapping[str, str], context: str) -> BflRateLimitedError:
@@ -73,7 +76,7 @@ class _BflClient:
         request_headers = {'x-key': self.api_key, 'Content-Type': 'application/json', 'Accept': 'application/json'}
         url = f'https://api.bfl.ai{endpoint}'
 
-        async with self.session.post(url, json=payload, headers=request_headers) as resp:
+        async with self._get_session().post(url, json=payload, headers=request_headers) as resp:
             match resp.status:
                 case 200:
                     data = await resp.json()
@@ -99,7 +102,7 @@ class _BflClient:
         elapsed = 0.0
 
         while elapsed < max_wait:
-            async with self.session.get(polling_url, headers=request_headers) as resp:
+            async with self._get_session().get(polling_url, headers=request_headers) as resp:
                 match resp.status:
                     case 200:
                         data = await resp.json()
@@ -138,7 +141,7 @@ class _BflClient:
 
     async def _download_image(self, task_id: str, url: str) -> PIL.Image.Image:
         """Download image from the result URL."""
-        async with self.session.get(url) as resp:
+        async with self._get_session().get(url) as resp:
             if resp.status != 200:
                 raise BflUnexpectedError(f'BFL task {task_id}: failed to download image, status {resp.status}')
             img_data = await resp.read()

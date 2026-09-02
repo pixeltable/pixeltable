@@ -15,4 +15,4 @@ class TestDbDumpTool:
     def test_db_dump_tool(self) -> None:
         skip_test_if_not_installed('transformers')
         # A generous timeout to allow for a large HF download
-        subprocess.run((sys.executable, 'tool/create_test_db_dump.py'), check=True, timeout=900)
+        subprocess.run((sys.executable, '-m', 'tool.create_test_db_dump'), check=True, timeout=900)

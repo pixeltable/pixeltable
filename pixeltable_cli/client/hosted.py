@@ -7,19 +7,15 @@ import contextlib
 import json
 import sys
 import time
-from collections.abc import Iterator
-from typing import Any
+from typing import Any, Iterator
 
+from pixeltable_cli import models
 from pixeltable_cli.utils import split_pxt_uri
 
 from .utils import get_request, print_aligned
 
 DB_POLL_INTERVAL = 5
 DB_POLL_TIMEOUT = 600
-SVC_POLL_INTERVAL = 5
-SVC_POLL_TIMEOUT = 300
-RUNTIME_POLL_INTERVAL = 10
-RUNTIME_POLL_TIMEOUT = 900
 
 
 def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
@@ -34,11 +30,8 @@ def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
 def resolve_db_uri(db_uri: str | None, prog: str = 'pxt') -> tuple[str, str]:
     """Parse pxt://org:db and return (org, db), defaulting to the configured pixeltable.db_uri. Exits on error."""
     if db_uri is None:
-        resp = get_request('/api/config')
-        entries = resp.get('entries', []) if isinstance(resp, dict) else []
-        configured = next(
-            (e.get('value') for e in entries if e.get('section') == 'pixeltable' and e.get('key') == 'db_uri'), None
-        )
+        resp = models.ConfigResponse.model_validate(get_request('/api/config'))
+        configured = next((e.value for e in resp.entries if (e.section, e.key) == ('pixeltable', 'db_uri')), None)
         if configured is None:
             print(
                 f'{prog}: error: no database URI given, and no db_uri is set in the Pixeltable config file',
@@ -157,7 +150,7 @@ def print_org(org: dict[str, Any]) -> None:
 
 
 @contextlib.contextmanager
-def _spinner(label: str | None) -> Iterator[None]:
+def spinner(label: str | None) -> Iterator[None]:
     """Display a transient progress spinner showing label for the duration of the block; None displays nothing."""
     if label is None:
         yield
@@ -194,7 +187,7 @@ def poll_state(
     """
     result: dict[str, Any] = {}
     deadline = time.monotonic() + timeout
-    with _spinner(label):
+    with spinner(label):
         while time.monotonic() < deadline:
             time.sleep(interval)
             try:
@@ -223,17 +216,4 @@ def poll_db(org: str, db: str, pending_states: set[str], label: str | None) -> d
     """Poll a hosted database until its state leaves pending_states."""
     return poll_state(
         '/api/db', {'org': org, 'db': db}, 'database', pending_states, DB_POLL_INTERVAL, DB_POLL_TIMEOUT, label
-    )
-
-
-def poll_svc(org: str, db: str, svc_name: str, pending_states: set[str], label: str | None) -> dict[str, Any]:
-    """Poll a hosted service until its state leaves pending_states."""
-    return poll_state(
-        '/api/service',
-        {'org': org, 'db': db, 'service_name': svc_name},
-        'service',
-        pending_states,
-        SVC_POLL_INTERVAL,
-        SVC_POLL_TIMEOUT,
-        label,
     )

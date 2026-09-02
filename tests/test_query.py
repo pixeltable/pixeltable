@@ -17,6 +17,7 @@ from pixeltable.functions.string import isalpha, isascii
 from pixeltable.functions.video import frame_iterator
 
 from .utils import (
+    DatabaseRoot,
     ReloadTester,
     create_all_datatypes_tbl,
     get_audio_files,
@@ -67,8 +68,8 @@ class TestQuery:
 
         return t1, t2, t3
 
-    def test_select_where(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_select_where(self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         t = test_tbl
         res1 = t.collect()
         res2 = t.select().collect()
@@ -158,8 +159,9 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'where\(\) clause already specified'):
             _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
-    def test_join(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to server timeout [PXT-1319]')
+    def test_join(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         num_rows = 1000
         t1, t2, t3 = self.create_join_tbls(num_rows, p)
         # inner join
@@ -228,8 +230,8 @@ class TestQuery:
         pd_df = res.to_pandas()
         # TODO: verify result
 
-    def test_join_errors(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_join_errors(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t1, t2, t3 = self.create_join_tbls(1000, p)
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
@@ -340,7 +342,7 @@ class TestQuery:
         print(res)
         assert len(res) == 4
 
-    def test_limit_basic(self, test_tbl: pxt.Table) -> None:
+    def test_limit_basic(self, test_tbl: pxt.Table, is_data_versioned: bool) -> None:
         t = test_tbl
 
         # Basic return shape: length and schema preserved
@@ -425,8 +427,8 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with sample'):
             _ = t.sample(n=10).limit(5)
 
-    def test_limit_joins(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_limit_joins(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         num_rows = 100
         t1, t2, _ = self.create_join_tbls(num_rows, p)
 
@@ -449,8 +451,8 @@ class TestQuery:
         res = small1.join(small2, on=small1.id, how='inner').select(small1.i).limit(1000).collect()
         assert len(res) == 10
 
-    def test_limit_iterator_views(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_limit_iterator_views(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         base_t = pxt.create_table(p('lim_base'), {'video': pxt.Video | None})
         view_t = pxt.create_view(p('lim_frames'), base_t, iterator=frame_iterator(base_t.video, fps=1))
         base_t.insert(video=get_video_files()[0])
@@ -523,8 +525,8 @@ class TestQuery:
         assert rows == []
         assert list(cur.schema.keys()) == ['c1', 'c2']
 
-    def test_head_tail(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_head_tail(self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         t = test_tbl
         res = t.head(10).to_pandas()
         assert np.all(res.c2 == list(range(10)))
@@ -576,7 +578,7 @@ class TestQuery:
                Limit           10""",
         )
 
-    def test_count(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
+    def test_count(self, test_tbl: pxt.Table, is_data_versioned: bool) -> None:
         t = test_tbl
         cnt = t.count()
         assert cnt == 100
@@ -618,10 +620,10 @@ class TestQuery:
         distinct_c1_filtered = len(t.where(t.c2 < 10).select(t.c1).distinct().collect())
         assert cnt == distinct_c1_filtered
 
-    def test_count_join(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_count_join(self, db_root: DatabaseRoot) -> None:
         """Tests for join...count queries"""
         # TODO(PXT-1108): when the join+where bug is fixed, add some queries with where().
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         num_rows = 100
         t1, t2, t3 = self.create_join_tbls(num_rows, p)
 
@@ -642,8 +644,8 @@ class TestQuery:
         res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[next(iter(res.schema.keys()))] == [1.0] * 10
 
-    def test_html_media_url(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_html_media_url(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         tab = pxt.create_table(
             p('test_html_repr'), {'video': pxt.Video | None, 'audio': pxt.Audio | None, 'doc': pxt.Document | None}
         )
@@ -700,8 +702,8 @@ class TestQuery:
         validate_update_status(t.select().delete())
         assert t.count() == 0
 
-    def test_mutation_op_restrictions(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_mutation_op_restrictions(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = test_tbl
 
         # select_list
@@ -809,7 +811,7 @@ class TestQuery:
         self.__check_constant_query(t.select(foo=5), 5)
         self.__check_constant_query(t.select(foo=None), None)
 
-    @pytest.mark.local('TODO: convert')
+    @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_to_pytorch_dataset(self, all_datatypes_tbl: pxt.Table) -> None:
         """tests all types are handled correctly in this conversion"""
         skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
@@ -839,7 +841,7 @@ class TestQuery:
             assert isinstance(tup['c_video'], str)
             assert isinstance(tup['c_json'], dict)
 
-    @pytest.mark.local('TODO: convert')
+    @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_to_pytorch_image_format(self, all_datatypes_tbl: pxt.Table) -> None:
         """tests the image_format parameter is honored"""
         skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
@@ -894,7 +896,7 @@ class TestQuery:
             elt_count += 1
         assert elt_count == 1
 
-    @pytest.mark.local('to_pytorch_dataset caching keyed on the local dataset cache')
+    @pytest.mark.db_roots('local', reason='to_pytorch_dataset caching keyed on the local dataset cache')
     def test_pytorch_dataset_caching(self, uses_db: None) -> None:
         """Tests that dataset caching works
         1. using the same dataset twice in a row uses the cache
@@ -938,7 +940,7 @@ class TestQuery:
         assert isinstance(ds4, PixeltablePytorchDataset)
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
-    @pytest.mark.local('exports a COCO dataset to the local filesystem')
+    @pytest.mark.db_roots('local', reason='exports a COCO dataset to the local filesystem')
     def test_to_coco(self, uses_db: None) -> None:
         pytest.importorskip('pycocotools')
         from pycocotools.coco import COCO
@@ -998,8 +1000,8 @@ class TestQuery:
             _ = t.select(t.annotations[0]).to_coco_dataset()
         assert 'missing key "image"' in str(exc_info.value).lower()
 
-    def test_distinct(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
-        p = make_catalog_path
+    def test_distinct(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
         schema: dict[str, Any] = {
             'c1': pxt.String | None,
             'c2': pxt.Int | None,
@@ -1098,8 +1100,8 @@ class TestQuery:
         assert 'c3' in results.schema
         assert 'c4' in results.schema
 
-    def test_to_pydantic(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_to_pydantic(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
 
         class TestModel(pydantic.BaseModel):
             i: int
@@ -1148,10 +1150,6 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Required model fields .* are missing') as exc_info:
             _ = list(t.select(t.i).collect().to_pydantic(TestModel))
         assert extract_fields(exc_info) == {'s', 'f', 'b', 'ts', 'd'}
-        # case-sensitive field names
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Required model fields .* are missing') as exc_info:
-            _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, D=t.d).collect().to_pydantic(TestModel))
-        assert extract_fields(exc_info) == {'d'}
 
         # (s?): dotall mode, needed to match the embedded \n's
         with pxt_raises(
@@ -1166,6 +1164,30 @@ class TestQuery:
         ) as exc_info:
             _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, t.d, extra=t.i + t.f).collect().to_pydantic(StrictTestModel))
         assert extract_fields(exc_info) == {'extra'}
+
+    def test_to_pydantic_case_insensitive(self, db_root: DatabaseRoot) -> None:
+        """Model field names are matched against the folded result column names."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('t'), {'i': pxt.Int | None, 's': pxt.String | None})
+        t.insert([{'i': 1, 's': 'one'}, {'i': 2, 's': 'two'}])
+
+        class MixedCaseModel(pydantic.BaseModel):
+            MyInt: int
+            MyStr: str
+
+        mixed = list(t.select(MyInt=t.i, MYSTR=t.s).order_by(t.i).collect().to_pydantic(MixedCaseModel))
+        assert [m.MyInt for m in mixed] == [1, 2]
+        assert [m.MyStr for m in mixed] == ['one', 'two']
+
+        # two fields that fold onto each other cannot both be matched
+        class CollidingModel(pydantic.BaseModel):
+            Val: int = -1
+            val: int = -1
+
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"CollidingModel has fields 'Val' and 'val' which are the same"
+        ):
+            _ = list(t.select(val=t.i).collect().to_pydantic(CollidingModel))
 
     def test_cursor_lifecycle(self, test_tbl: pxt.Table) -> None:
         query = test_tbl.select(test_tbl.c1, test_tbl.c2, test_tbl.c3).order_by(test_tbl.c2)
@@ -1227,8 +1249,8 @@ class TestQuery:
                 with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='does not exist'):
                     row['nonexistent']
 
-    def test_table_cursor(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_table_cursor(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         tbl = pxt.create_table(p('cursor_tbl'), {'a': pxt.Int | None, 'b': pxt.String | None})
         tbl.insert([{'a': i, 'b': f'val_{i}'} for i in range(5)])
         rows = list(tbl.cursor())
@@ -1236,8 +1258,9 @@ class TestQuery:
         assert all('a' in row and 'b' in row for row in rows)
 
     @pytest.mark.benchmark(group='select_inexpensive')
-    def test_select_inexpensive(self, make_catalog_path: Callable[[str], str], benchmark: Any) -> None:
-        p = make_catalog_path
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to server timeout [PXT-1319]')
+    def test_select_inexpensive(self, db_root: DatabaseRoot, benchmark: Any) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test_inexpensive'), {'c1': pxt.Int | None, 'c2': pxt.String | None})
 
         row_count = 100000
@@ -1250,9 +1273,9 @@ class TestQuery:
 
         benchmark(select_inexpensive)
 
-    def test_query_after_column_drop(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
-        t = pxt.create_table(p('t_drop'), {'a': pxt.Int, 'b': pxt.Int})
+    def test_query_after_column_drop(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('t_drop'), {'a': pxt.Int, 'b': pxt.Int}, _is_data_versioned=is_data_versioned)
         validate_update_status(t.insert([{'a': i, 'b': i * 10} for i in range(10)]), expected_rows=10)
         q = t.select(t.a, t.b)
         assert len(q.collect()) == 10
@@ -1262,9 +1285,9 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             q.collect()
 
-    def test_query_after_column_drop_and_add(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
-        t = pxt.create_table(p('t_readd'), {'a': pxt.Int, 'keep': pxt.Int})
+    def test_query_after_column_drop_and_add(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('t_readd'), {'a': pxt.Int, 'keep': pxt.Int}, _is_data_versioned=is_data_versioned)
         validate_update_status(t.insert([{'a': 1, 'keep': 0}]), expected_rows=1)
         q = t.select(t.a)
         assert len(q.collect()) == 1
@@ -1275,9 +1298,9 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             q.collect()
 
-    def test_query_after_schema_change(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
-        t = pxt.create_table(p('t_add'), {'c1': pxt.Int | None})
+    def test_query_after_schema_change(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('t_add'), {'c1': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         q_c1 = t.where(t.c1 > 1).select(t.c1)
         q_where = t.where(t.c1 > 1)
         q_select = t.where(t.c1 > 1).select()
@@ -1297,10 +1320,12 @@ class TestQuery:
         assert len(res) == 1
         assert res[0] == {'c1': 2}
 
-    def test_order_by_after_schema_change(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_order_by_after_schema_change(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         # Confirm where/order_by/limit clauses don't capture stale select-list state.
-        t = pxt.create_table(p('t_add_ob'), {'c1': pxt.Int | None, 'c2': pxt.Int | None})
+        t = pxt.create_table(
+            p('t_add_ob'), {'c1': pxt.Int | None, 'c2': pxt.Int | None}, _is_data_versioned=is_data_versioned
+        )
         t.insert([{'c1': i, 'c2': 5 - i} for i in range(5)])
         q = t.where(t.c1 >= 1).order_by(t.c2)
         assert list(q.schema.keys()) == ['c1', 'c2']
@@ -1313,3 +1338,27 @@ class TestQuery:
         t.drop_column(t.c2)
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             _ = q.collect()
+
+    def test_case_insensitive_result_access(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('t'), {'MyCol': pxt.Int | None})
+        t.insert([{'mycol': 1}])
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Repeated column name'):
+            _ = t.select(A=t.MyCol, a=t.MyCol)
+
+        rs = t.select(t.MyCol).collect()
+        assert list(rs.schema.keys()) == ['mycol']
+        assert rs['MyCol'] == [1]
+        assert rs[0, 'MYCOL'] == 1
+
+        # a Row is keyed by the folded column names
+        row = next(iter(t.select(t.MyCol).cursor()))
+        assert list(row.keys()) == ['mycol']
+        assert row['mycol'] == 1
+
+        # same with Row.errors
+        t.add_computed_column(Inv=1 // t.MyCol)
+        out = t.compute([{'MYCOL': 0}], on_error='ignore')
+        assert list(out[0].errors.keys()) == ['inv']
+        assert out[0].errors['inv']['errortype'] == 'ZeroDivisionError'

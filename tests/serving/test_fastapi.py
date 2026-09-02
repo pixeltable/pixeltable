@@ -1,10 +1,12 @@
+import asyncio
+import hashlib
 import io
 import json
 import os
 import pathlib
 import time
 import urllib.parse
-from typing import Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal
 
 import av
 import httpx
@@ -17,8 +19,9 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.functions.json as pxt_json
 from pixeltable.env import Env
+from pixeltable_cli.types import ServiceSpec
 from tests.utils import (
-    CatalogMode,
+    DatabaseRoot,
     get_audio_files,
     get_image_files,
     get_video_files,
@@ -26,6 +29,10 @@ from tests.utils import (
     skip_test_if_not_installed,
     sleep,
 )
+
+if TYPE_CHECKING:
+    # fastapi is an optional dependency, so the tests that need it import it themselves and skip without it
+    from fastapi.testclient import TestClient
 
 
 @pxt.udf
@@ -80,19 +87,52 @@ def add_one(x: int) -> int:
     return x + 1
 
 
+# the event loop of every computation that ran through record_loop(), which for a background job is the
+# loop of the worker thread that ran it
+_computation_loops: list[asyncio.AbstractEventLoop] = []
+
+
+@pxt.udf
+def record_loop(x: int, secs: float = 0.0) -> int:
+    """Record the loop of this computation, then hold its thread for secs."""
+    _computation_loops.append(asyncio.get_running_loop())
+    time.sleep(secs)
+    return x + 1
+
+
 # ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------
 
 
-def make_test_client(router: Any) -> Any:
+# the clients handed out by make_test_client() that have yet to see an app shutdown
+_live_clients: list['TestClient'] = []
+
+
+@pytest.fixture(autouse=True)
+def shut_down_test_apps() -> Iterator[None]:
+    """Put every app built during a test through its lifespan shutdown, as a served app would go through it.
+
+    The shutdown is what closes the worker threads' event loops and API clients, so leaving it out leaks
+    one of each per app for the rest of the session. A client a test entered itself is entered again here,
+    which runs its app's lifespan a second time.
+    """
+    yield
+    while len(_live_clients) > 0:
+        with _live_clients.pop():
+            pass
+
+
+def make_test_client(router: Any) -> 'TestClient':
     """Create a FastAPI app, include `router`, and return a TestClient."""
     import fastapi
     from fastapi.testclient import TestClient
 
     app = fastapi.FastAPI()
     app.include_router(router)
-    return TestClient(app)
+    client = TestClient(app)
+    _live_clients.append(client)
+    return client
 
 
 def make_media_poster(
@@ -119,7 +159,7 @@ def await_background_job(
 ) -> dict[str, Any]:
     """Poll `job['job_url']` until terminal; validate structure and return the status body."""
     assert isinstance(job.get('id'), str) and len(job['id']) > 0
-    assert isinstance(job.get('job_url'), str) and '/jobs/' in job['job_url'] and job['id'] in job['job_url']
+    assert isinstance(job.get('job_url'), str) and '/_pxt/jobs/' in job['job_url'] and job['id'] in job['job_url']
     saw_pending = False
     deadline = time.time() + timeout
     while True:
@@ -238,22 +278,20 @@ def assert_sqlite_row(connect: str, table_name: str, where: dict[str, Any], expe
         assert actual == v, (k, actual, v)
 
 
+@pytest.mark.db_roots('local', 'proxy', reason='Numerous failures; re-run once other known issues are fixed')
 class TestFastAPI:
     @pytest.mark.parametrize('route_type', ['insert', 'compute', 'compute_view'])
     def test_add_insert_route_scalars(
-        self,
-        make_catalog_path: Callable[[str], str],
-        tmp_path: pathlib.Path,
-        route_type: Literal['insert', 'compute', 'compute_view'],
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute', 'compute_view']
     ) -> None:
         """Test insert routes with all scalar types and various input/output combinations."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            p('test_serve.scalars'),
+            p('test_serve/scalars'),
             {
                 'id': pxt.Int | None,
                 'str_col': pxt.String | None,
@@ -273,7 +311,7 @@ class TestFastAPI:
         # the same as the table's
         target: pxt.Table = t
         if route_type == 'compute_view':
-            target = pxt.create_view(p('test_serve.scalars_view'), t)
+            target = pxt.create_view(p('test_serve/scalars_view'), t)
 
         # sqlite targets for export_sql coverage
         db_path = tmp_path / 'export.db'
@@ -330,6 +368,52 @@ class TestFastAPI:
         )
         # engine cache reuse: three export_sql routes against the same db_connect share one engine
         assert len(router._engine_cache) == 1
+
+        # the service definition the router amounts to, which survives being serialized
+        service = router.service_spec(name='scalars')
+        assert service.name == 'scalars'
+        assert ServiceSpec.model_validate(json.loads(service.model_dump_json())) == service
+        specs = {spec.path: spec for spec in service.routes}
+        assert specs.keys() == {'/all', '/partial-in', '/partial-out', '/minimal', '/update'}
+        # everything the '/update' route was declared with, and nothing else
+        assert specs['/update'].model_dump() == {
+            'method': 'POST',
+            'path': '/update',
+            'route_type': 'insert' if route_type == 'insert' else 'compute',
+            # a route declared against a table names the table it serves, not a model
+            'model': None,
+            'table': str(target._path()),
+            'inputs': ['id', 'str_col', 'int_col'],
+            'uploadfile_inputs': [],
+            'outputs': ['id', 'str_upper', 'int_plus1'],
+            'match_columns': [],
+            'background': False,
+            'return_fileresponse': False,
+            'one_row': False,
+            'export_sql': {
+                # the connection string holds credentials, so a spec carries a digest of it
+                'db_connect_digest': hashlib.sha256(db_connect.encode()).hexdigest()[:16],
+                'table': 'out_update',
+                'db_schema': None,
+                'method': 'update',
+            },
+            'query': None,
+        }
+        assert specs['/update'].export_sql is not None and 'db_connect' not in specs['/update'].export_sql
+        assert specs['/all'].export_sql is not None and specs['/all'].export_sql['table'] == 'out_all'
+        assert specs['/partial-in'].inputs == ['id', 'str_col', 'int_col']
+        assert specs['/partial-in'].export_sql is None
+        assert specs['/partial-out'].outputs == ['id', 'str_upper', 'int_plus1']
+        # the recorded path is one the catalog resolves
+        assert specs['/all'].table is not None and pxt.get_table(specs['/all'].table)._id == target._id
+        # a router with no name of its own needs one supplied
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='this router has no name'):
+            router.service_spec()
+
+        # the route resolved the target it names
+        routes = {route.spec.path: route for route in router._routes}
+        assert routes['/all'].has_table_target
+        assert routes['/all'].tbl is not None and routes['/all'].tbl._id == target._id
 
         with make_test_client(router) as client:
             all_input = {
@@ -415,21 +499,17 @@ class TestFastAPI:
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_video(
-        self,
-        make_catalog_path: Callable[[str], str],
-        catalog_mode: CatalogMode,
-        use_uploadfile: bool,
-        route_type: Literal['insert', 'compute'],
+        self, db_root: DatabaseRoot, use_uploadfile: bool, route_type: Literal['insert', 'compute']
     ) -> None:
         """Test insert/compute routes with video data, including FileResponse and media serving."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         video_path = get_video_files()[0]
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            p('test_serve.videos'),
+            p('test_serve/videos'),
             {'id': pxt.Int | None, 'video': pxt.Video | None, 'width': pxt.Int | None, 'height': pxt.Int | None},
         )
         t.add_computed_column(resized=t.video.resize(width=t.width, height=t.height))
@@ -472,13 +552,13 @@ class TestFastAPI:
 
         # `video` is served as a /media/ URL when it was uploaded, or (over proxy) when a referenced local file
         # had to be shipped to the daemon; a locally-referenced external file is left as a file:// URL.
-        if use_uploadfile or catalog_mode == 'proxy':
+        if use_uploadfile or db_root.id == 'proxy':
             assert '/media/' in result['video'], result['video']
         else:
             assert result['video'].startswith('file:'), result['video']
 
         if route_type == 'insert':
-            if catalog_mode == 'local':
+            if db_root.id == 'local':
                 # storage-location / byte-identity checks only apply when the router and the table share a filesystem
                 media_dir = str(Env.get().media_dir)
                 video_local = t.where(t.id == 1).select(p=t.video.localpath).collect()[0]['p']
@@ -531,8 +611,7 @@ class TestFastAPI:
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_image(
         self,
-        make_catalog_path: Callable[[str], str],
-        catalog_mode: CatalogMode,
+        db_root: DatabaseRoot,
         use_uploadfile: bool,
         tmp_path: pathlib.Path,
         route_type: Literal['insert', 'compute'],
@@ -542,7 +621,7 @@ class TestFastAPI:
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter, SqlExport
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         image_path = get_image_files()[0]
         with PIL.Image.open(image_path) as img:
             orig_w, orig_h = img.size
@@ -551,7 +630,7 @@ class TestFastAPI:
         # image.resize requires concrete ints - so width and height must be Required, and every
         # insert (even the /rotate one, which doesn't care about them) has to supply them.
         t = pxt.create_table(
-            p('test_serve.images'),
+            p('test_serve/images'),
             {'id': pxt.Int | None, 'image': pxt.Image | None, 'width': pxt.Int, 'height': pxt.Int},
         )
         # resized: uses both scalar inputs (mirrors video.resize(width=..., height=...))
@@ -618,12 +697,12 @@ class TestFastAPI:
 
         # `image` is served as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
         # be shipped to the daemon; a locally-referenced external file is left as a file:// URL.
-        if use_uploadfile or catalog_mode == 'proxy':
+        if use_uploadfile or db_root.id == 'proxy':
             assert '/media/' in result['image'], result['image']
         else:
             assert result['image'].startswith('file:'), result['image']
         if route_type == 'insert':
-            if catalog_mode == 'local':
+            if db_root.id == 'local':
                 media_dir = str(Env.get().media_dir)
                 image_local = t.where(t.id == 1).select(p=t.image.localpath).collect()[0]['p']
                 if use_uploadfile:
@@ -669,7 +748,7 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('image/'), resp.headers['content-type']
         assert_image_bytes(resp.content, size=(64, 48))
-        if route_type == 'insert' and catalog_mode == 'local':
+        if route_type == 'insert' and db_root.id == 'local':
             resized_path = t.where(t.id == 2).select(p=t.resized.localpath).collect()[0]['p']
             assert_fileresponse_ok(resp, resized_path, 'image/')
 
@@ -679,18 +758,14 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('image/'), resp.headers['content-type']
         assert_image_bytes(resp.content, size=(orig_w, orig_h))
-        if route_type == 'insert' and catalog_mode == 'local':
+        if route_type == 'insert' and db_root.id == 'local':
             rotated_path = t.where(t.id == 3).select(p=t.rotated.localpath).collect()[0]['p']
             assert_fileresponse_ok(resp, rotated_path, 'image/')
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_audio(
-        self,
-        make_catalog_path: Callable[[str], str],
-        catalog_mode: CatalogMode,
-        use_uploadfile: bool,
-        route_type: Literal['insert', 'compute'],
+        self, db_root: DatabaseRoot, use_uploadfile: bool, route_type: Literal['insert', 'compute']
     ) -> None:
         """Audio counterpart of test_add_insert_route_video/_image. Structurally parallel so the
         three tests can later be generalized over a media-kind fixture. Uses the audio UDFs
@@ -698,14 +773,14 @@ class TestFastAPI:
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         # Use sample-16-bit.wav specifically so the mime type in upload mode is deterministic.
         audio_path = next(f for f in get_audio_files() if f.endswith('sample-16-bit.wav'))
         pxt.create_dir(p('test_serve'))
         # factor and end_time are Required because multiply_volume's `factor` param must be non-None
         # on every insert (the `scaled` computed column runs on every row).
         t = pxt.create_table(
-            p('test_serve.audios'),
+            p('test_serve/audios'),
             {'id': pxt.Int | None, 'audio': pxt.Audio | None, 'factor': pxt.Float, 'end_time': pxt.Float},
         )
         # scaled: uses both scalar inputs (mirrors video.resize(width=..., height=...))
@@ -752,12 +827,12 @@ class TestFastAPI:
 
         # `audio` is served as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
         # be shipped to the daemon; a locally-referenced external file is left as a file:// URL.
-        if use_uploadfile or catalog_mode == 'proxy':
+        if use_uploadfile or db_root.id == 'proxy':
             assert '/media/' in result['audio'], result['audio']
         else:
             assert result['audio'].startswith('file:'), result['audio']
         if route_type == 'insert':
-            if catalog_mode == 'local':
+            if db_root.id == 'local':
                 media_dir = str(Env.get().media_dir)
                 audio_local = t.where(t.id == 1).select(p=t.audio.localpath).collect()[0]['p']
                 if use_uploadfile:
@@ -791,7 +866,7 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('audio/'), resp.headers['content-type']
         assert_audio_bytes(resp.content)
-        if route_type == 'insert' and catalog_mode == 'local':
+        if route_type == 'insert' and db_root.id == 'local':
             scaled_path = t.where(t.id == 2).select(p=t.scaled.localpath).collect()[0]['p']
             assert_fileresponse_ok(resp, scaled_path, 'audio/')
 
@@ -801,7 +876,7 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('audio/'), resp.headers['content-type']
         assert_audio_bytes(resp.content)
-        if route_type == 'insert' and catalog_mode == 'local':
+        if route_type == 'insert' and db_root.id == 'local':
             normalized_path = t.where(t.id == 3).select(p=t.normalized.localpath).collect()[0]['p']
             assert_fileresponse_ok(resp, normalized_path, 'audio/')
 
@@ -809,22 +884,21 @@ class TestFastAPI:
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_video_bg(
         self,
-        make_catalog_path: Callable[[str], str],
-        catalog_mode: CatalogMode,
+        db_root: DatabaseRoot,
         use_uploadfile: bool,
         tmp_path: pathlib.Path,
         route_type: Literal['insert', 'compute'],
     ) -> None:
         """Background variant of test_add_insert_route_video: POST returns a job id/url, the
-        work runs in FastAPIRouter._executor, and the result is fetched via /jobs/{id}."""
+        work runs in FastAPIRouter._executor, and the result is fetched via /_pxt/jobs/{id}."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter, SqlExport
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         video_path = get_video_files()[0]
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            p('test_serve.videos'),
+            p('test_serve/videos'),
             {'id': pxt.Int | None, 'video': pxt.Video | None, 'width': pxt.Int | None, 'height': pxt.Int | None},
         )
         t.add_computed_column(resized=t.video.resize(width=t.width, height=t.height))
@@ -869,12 +943,12 @@ class TestFastAPI:
 
         # `video` is served as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
         # be shipped to the daemon; a locally-referenced external file is left as a file:// URL.
-        if use_uploadfile or catalog_mode == 'proxy':
+        if use_uploadfile or db_root.id == 'proxy':
             assert '/media/' in result['video'], result['video']
         else:
             assert result['video'].startswith('file:'), result['video']
         if route_type == 'insert':
-            if catalog_mode == 'local':
+            if db_root.id == 'local':
                 media_dir = str(Env.get().media_dir)
                 video_local = t.where(t.id == 1).select(p=t.video.localpath).collect()[0]['p']
                 if use_uploadfile:
@@ -904,7 +978,7 @@ class TestFastAPI:
         result = single_row(await_background_job(client, job)['result'], route_type)
         # single-output response model: only 'resized' is present
         assert set(result.keys()) == {'resized'}, result
-        if route_type == 'insert' and catalog_mode == 'local':
+        if route_type == 'insert' and db_root.id == 'local':
             resize_local = t.where(t.id == 2).select(p=t.resized.localpath).collect()[0]['p']
             assert_media_fetchable(client, result['resized'], resize_local)
         fetch_and_decode_media(client, result['resized'], assert_video_bytes, width=160)
@@ -912,16 +986,51 @@ class TestFastAPI:
         # (export_sql writes the response body, so this assertion holds for both insert and compute)
         assert_sqlite_row(db_connect, 'bg_resize', {'resized': result['resized']}, {'resized': result['resized']})
 
-    def test_openapi(self, make_catalog_path: Callable[[str], str]) -> None:
+    @pytest.mark.db_roots(
+        'local', reason='a background job computes in the router process only for an in-process catalog'
+    )
+    @pytest.mark.parametrize('busy_at_shutdown', [False, True])
+    def test_background_job_teardown(self, uses_db: None, busy_at_shutdown: bool) -> None:
+        """A background job runs on a worker thread with an event loop of its own, which app shutdown closes."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        t = pxt.create_table('bg_teardown', {'x': pxt.Int})
+        # in one scenario the job holds its worker until the shutdown, in the other it is done before it
+        t.add_computed_column(y=record_loop(t.x, 2.0 if busy_at_shutdown else 0.0))
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/bg', background=True)
+        client = make_test_client(router)
+        n_loops = len(_computation_loops)
+
+        with client:
+            resp = client.post('/bg', json={'x': 1})
+            assert resp.status_code == 200, resp.text
+            if busy_at_shutdown:
+                # leave the context as soon as the job is on a worker, without waiting for it to finish
+                deadline = time.time() + 30.0
+                while len(_computation_loops) == n_loops and time.time() < deadline:
+                    time.sleep(0.01)
+            else:
+                await_background_job(client, resp.json(), require_pending=False)
+            loops = _computation_loops[n_loops:]
+            assert len(loops) == 1, 'the job did not run on a worker thread of its own'
+            assert not loops[0].is_closed()
+
+        # exiting the TestClient context fired the lifespan shutdown handler
+        assert loops[0].is_closed(), 'app shutdown left the worker thread with an open event loop'
+        assert t.count() == 1, 'the job did not finish'
+
+    def test_openapi(self, db_root: DatabaseRoot) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
         # non-computed columns carry comments via the dict-form ColumnSpec
         t = pxt.create_table(
-            p('test_serve.openapi'),
+            p('test_serve/openapi'),
             schema={
                 'id': {'type': pxt.Int | None, 'comment': 'unique row identifier'},
                 'prompt': {'type': pxt.String | None, 'comment': 'input text prompt'},
@@ -945,10 +1054,11 @@ class TestFastAPI:
         schemas = spec['components']['schemas']
 
         # routes present
-        # note: Starlette's `:path` converter is normalized away in OpenAPI: the route registered
-        # as /media/{path:path} appears as /media/{path}.
-        for route_path in ('/json', '/upload', '/file', '/bg', '/jobs/{job_id}', '/media/{path}'):
+        for route_path in ('/json', '/upload', '/file', '/bg'):
             assert route_path in paths, f'missing {route_path} from openapi paths: {list(paths)}'
+        # the routes Pixeltable serves itself are excluded from the document, so a reader sees only
+        # the application's own paths
+        assert not any(path.startswith('/_pxt/') for path in paths), sorted(paths)
 
         def deref(schema_or_ref: dict[str, Any]) -> dict[str, Any]:
             """
@@ -1011,30 +1121,14 @@ class TestFastAPI:
         bg_model = schemas['BackgroundJobResponse']
         assert set(bg_model['properties'].keys()) == {'id', 'job_url'}
 
-        # /jobs/{job_id}: GET returns JobStatusResponse
-        jobs_op = paths['/jobs/{job_id}']['get']
-        jobs_resp = jobs_op['responses']['200']['content']['application/json']['schema']
-        assert jobs_resp.get('$ref', '').endswith('/JobStatusResponse'), jobs_resp
-        assert 'JobStatusResponse' in schemas
-        job_status = schemas['JobStatusResponse']
-        assert set(job_status['properties'].keys()) == {'status', 'error', 'result'}
-        # path parameter is declared
-        p0 = jobs_op['parameters'][0]
-        assert p0['name'] == 'job_id' and p0['in'] == 'path'
-
-        # /media/{path}: path parameter declared
-        media_op = paths['/media/{path}']['get']
-        p0 = media_op['parameters'][0]
-        assert p0['name'] == 'path' and p0['in'] == 'path'
-
-    def test_add_query_route_scalars(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_query_route_scalars(self, db_root: DatabaseRoot) -> None:
         """Multi-column scalar query route, plus retrieval_udf flavor and registration errors."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.docs'), {'id': pxt.Int | None, 'text': pxt.String | None})
+        t = pxt.create_table(p('test_serve/docs'), {'id': pxt.Int | None, 'text': pxt.String | None})
         t.add_computed_column(length=t.text.len())
         rows = [{'id': i, 'text': 'x' * i} for i in range(1, 6)]
         t.insert(rows)
@@ -1115,15 +1209,15 @@ class TestFastAPI:
         assert default_schema['properties']['min_len']['default'] == 3
         assert 'min_len' not in default_schema.get('required', [])
 
-    def test_add_query_route_single_column(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_query_route_single_column(self, db_root: DatabaseRoot) -> None:
         """Single-column queries: return_scalar=False produces dict-per-row in a wrapper,
         return_scalar=True produces a plain list of scalar values."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.docs'), {'id': pxt.Int | None, 'text': pxt.String | None})
+        t = pxt.create_table(p('test_serve/docs'), {'id': pxt.Int | None, 'text': pxt.String | None})
         t.insert([{'id': i, 'text': f't{i}'} for i in range(3)])
 
         @pxt.query
@@ -1149,15 +1243,15 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.json() == ['t0', 't1', 't2']
 
-    def test_add_query_route_one_row(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_query_route_one_row(self, db_root: DatabaseRoot) -> None:
         """one_row=True returns a flat JSON object (or bare scalar with return_scalar=True).
         0 rows -> 404; >1 rows -> 409."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.docs'), {'id': pxt.Int | None, 'text': pxt.String | None})
+        t = pxt.create_table(p('test_serve/docs'), {'id': pxt.Int | None, 'text': pxt.String | None})
         # id=0 appears twice on purpose, to exercise the >1-row branch
         t.insert([{'id': 0, 'text': 'dup-a'}, {'id': 0, 'text': 'dup-b'}, {'id': 1, 'text': 't1'}])
 
@@ -1172,6 +1266,25 @@ class TestFastAPI:
         router = FastAPIRouter()
         router.add_query_route(path='/by-id', query=by_id, one_row=True)
         router.add_query_route(path='/text-by-id', query=text_by_id, one_row=True)
+
+        # a query route declares a function rather than a table, so it has nothing to bind; entering the
+        # client's context runs the startup handlers, which must not refuse a router of query routes alone
+        route = next(route for route in router._routes if route.spec.path == '/by-id')
+        assert not route.has_table_target
+        assert (route.tbl, route.model_cls, route.table_path) == (None, None, None)
+
+        # a query route names neither a model nor a table: the tables it runs against are internal to by_id
+        spec = next(spec for spec in router.service_spec(name='docs').routes if spec.path == '/by-id')
+        assert (spec.route_type, spec.method) == ('query', 'POST')
+        assert (spec.model, spec.table) == (None, None)
+        assert spec.query is not None and spec.query.endswith('by_id')
+        assert spec.one_row
+        # the parameters it accepts and the response fields, as frozen at declaration
+        assert spec.inputs == ['id']
+        assert spec.outputs == ['id', 'text']
+        with make_test_client(router):
+            pass
+
         client = make_test_client(router)
 
         # non-scalar one_row: flat JSON object, NOT wrapped in {'rows': [...]}
@@ -1211,15 +1324,15 @@ class TestFastAPI:
         assert scalar_schema.get('type') != 'array'
         assert 'rows' not in str(scalar_schema)
 
-    def test_add_query_route_image(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+    def test_add_query_route_image(self, db_root: DatabaseRoot) -> None:
         """Image query route: JSON response, return_fileresponse (happy/404/500), and background."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         image_path = get_image_files()[0]
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.images'), {'id': pxt.Int | None, 'image': pxt.Image | None})
+        t = pxt.create_table(p('test_serve/images'), {'id': pxt.Int | None, 'image': pxt.Image | None})
         # A computed resize produces derived media stored under media_dir, which the route will
         # rewrite to /media/ URLs. The raw `image` column stays at its pinned external path.
         t.add_computed_column(resized=t.image.resize(size=(32, 32)))
@@ -1263,7 +1376,7 @@ class TestFastAPI:
 
         # FileResponse: exactly one matching row -> image bytes
         resp = client.post('/one-file', json={'img_id': 1})
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             resized_local = t.where(t.id == 1).select(p=t.resized.localpath).collect()[0]['p']
             assert_fileresponse_ok(resp, resized_local, 'image/')
         else:
@@ -1280,7 +1393,7 @@ class TestFastAPI:
         assert resp.status_code == 409, resp.text
         assert 'expected exactly 1' in resp.json()['detail']
 
-        # Background variant: poll /jobs/{id} until done
+        # Background variant: poll /_pxt/jobs/{id} until done
         resp = client.post('/one-bg', json={'img_id': 1})
         assert resp.status_code == 200, resp.text
         job = resp.json()
@@ -1289,7 +1402,7 @@ class TestFastAPI:
         assert len(result['rows']) == 1
         assert '/media/' in result['rows'][0]['resized']
 
-    def test_add_query_route_image_transform(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_query_route_image_transform(self, db_root: DatabaseRoot) -> None:
         """Inline image transformations (non-ColumnRef expressions) in the SELECT list.
 
         The query-route rewrite at `_fastapi.py` only targets `ColumnRef` items. When the
@@ -1301,10 +1414,10 @@ class TestFastAPI:
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         image_path = get_image_files()[0]
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.img_xform'), {'id': pxt.Int | None, 'image': pxt.Image | None})
+        t = pxt.create_table(p('test_serve/img_xform'), {'id': pxt.Int | None, 'image': pxt.Image | None})
         t.insert([{'id': 1, 'image': image_path}, {'id': 2, 'image': image_path}])
 
         @pxt.query
@@ -1332,17 +1445,17 @@ class TestFastAPI:
         assert resp.headers['content-type'].startswith('image/')
         assert len(resp.content) > 0
 
-    def test_add_mirror_route_video(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_mirror_route_video(self, db_root: DatabaseRoot) -> None:
         """Round trip over a proxy table: an insert route ingests a local video; a query route returns the
         persisted, computed `mirrored` video by id. Over proxy this exercises the upload path and the
         persisted-media download (daemon media URL -> client FileCache)."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         video_path = get_video_files()[0]
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.mirror'), {'id': pxt.Int | None, 'v': pxt.Video | None})
+        t = pxt.create_table(p('test_serve/mirror'), {'id': pxt.Int | None, 'v': pxt.Video | None})
         t.add_computed_column(mirrored=t.v.mirror_x())
 
         @pxt.query
@@ -1368,18 +1481,25 @@ class TestFastAPI:
         assert media.status_code == 200
         assert len(media.content) > 0
 
-    def test_duplicate_routes(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_duplicate_routes(self, db_root: DatabaseRoot) -> None:
         """Registering the same (path, method) twice must raise rather than silently shadow."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.dup'), {'id': pxt.Int, 'val': pxt.Int | None}, primary_key='id')
+        t = pxt.create_table(p('test_serve/dup'), {'id': pxt.Int, 'val': pxt.Int | None}, primary_key='id')
 
         @pxt.query
         def lookup() -> pxt.Query:
             return t.select(t.id)
+
+        # a path parameter has nothing to fill it, and would shadow every route declared after it
+        router = FastAPIRouter()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='takes no parameter'):
+            router.add_insert_route(t, path='/{item}')
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='takes no parameter'):
+            router.add_query_route(path='/lookup/{id}', query=lookup)
 
         # POST/POST collision across the insert/compute/update entry points (both orderings)
         router = FastAPIRouter()
@@ -1407,12 +1527,11 @@ class TestFastAPI:
         router.add_insert_route(t, path='/mixed')
         router.add_query_route(path='/mixed', query=lookup, method='get')
 
-        # Collision with the built-in /media and /jobs routes (registered by FastAPIRouter.__init__)
+        # Pixeltable serves media files and job status under /_pxt, so nothing declared can shadow them
         router = FastAPIRouter()
-        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"already registered: GET '/media/\{path:path\}'"):
-            router.add_query_route(path='/media/{path:path}', query=lookup, method='get')
-        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"already registered: GET '/jobs/\{job_id\}'"):
-            router.add_query_route(path='/jobs/{job_id}', query=lookup, method='get')
+        for reserved in ('/_pxt', '/_pxt/media/thumb', '/_pxt/jobs/mine'):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='reserved for the routes Pixeltable serves'):
+                router.add_query_route(path=reserved, query=lookup, method='get')
 
         # Duplicate detection respects the router's prefix (FastAPI stores routes under prefix + path)
         router = FastAPIRouter(prefix='/v1')
@@ -1420,14 +1539,14 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="already registered: POST '/v1/c'"):
             router.add_insert_route(t, path='/c')
 
-    def test_add_query_route_errors(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_add_query_route_errors(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            p('test_serve.docs'), {'id': pxt.Int | None, 'text': pxt.String | None, 'image': pxt.Image | None}
+            p('test_serve/docs'), {'id': pxt.Int | None, 'text': pxt.String | None, 'image': pxt.Image | None}
         )
         t.insert([{'id': 1, 'text': 'a'}])
 
@@ -1469,15 +1588,15 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='GET endpoints cannot have uploadfile_inputs'):
             router.add_query_route(path='/e', query=by_image, uploadfile_inputs=['img'], method='get')
 
-    def test_unservable_output_cols(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_unservable_output_cols(self, db_root: DatabaseRoot) -> None:
         """Routes reject Array/Binary output cols at registration; JSON with embedded objects is rejected per row."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            p('test_serve.unservable'),
+            p('test_serve/unservable'),
             {
                 'id': pxt.Int,
                 'val': pxt.Int | None,
@@ -1547,14 +1666,14 @@ class TestFastAPI:
             assert resp.status_code == 500, resp.text
             assert expected in resp.text, resp.text
 
-    def test_decorator_routes_allow_unservable_outputs(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_decorator_routes_allow_unservable_outputs(self, db_root: DatabaseRoot) -> None:
         """Decorator-form routes let user code handle outputs that add_*_route forms reject."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.unservable_deco'), {'id': pxt.Int, 'val': pxt.Int | None}, primary_key='id')
+        t = pxt.create_table(p('test_serve/unservable_deco'), {'id': pxt.Int, 'val': pxt.Int | None}, primary_key='id')
         t.add_computed_column(j_arr=json_embed_ndarray(t.id))
         t.add_computed_column(j_img=json_embed_image(t.id))
         t.add_computed_column(j_bytes=json_embed_bytes(t.id))
@@ -1583,7 +1702,7 @@ class TestFastAPI:
             assert resp.status_code == 200, resp.text
             assert resp.json() == {'ok': True}, resp.json()
 
-    def test_add_compute_route_view(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_add_compute_route_view(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Compute routes against a two-level view hierarchy: filter view -> frame-iterator view.
 
         A compute route on a view takes base-table rows and returns the view's output rows: an empty
@@ -1595,13 +1714,13 @@ class TestFastAPI:
         from pixeltable.functions.video import frame_iterator
         from pixeltable.serving import FastAPIRouter, SqlExport
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         # a short clip (~3.5s), so fps=1 keeps the fan-out small but still produces multiple frames
         video_path = next(f for f in get_video_files() if f.endswith('v_shooting_01_01.mpg'))
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.clips'), {'id': pxt.Int | None, 'video': pxt.Video | None})
-        v = pxt.create_view(p('test_serve.clips_v'), t.where(t.id > 0))
-        vv = pxt.create_view(p('test_serve.clips_vv'), v, iterator=frame_iterator(v.video, fps=1.0))
+        t = pxt.create_table(p('test_serve/clips'), {'id': pxt.Int | None, 'video': pxt.Video | None})
+        v = pxt.create_view(p('test_serve/clips_v'), t.where(t.id > 0))
+        vv = pxt.create_view(p('test_serve/clips_vv'), v, iterator=frame_iterator(v.video, fps=1.0))
         vv.add_computed_column(rotated=vv.frame.rotate(90))
 
         db_connect = make_sqlite_target(
@@ -1759,9 +1878,9 @@ class TestFastAPI:
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     def test_add_insert_route_errors(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import sqlalchemy as sql
 
@@ -1769,7 +1888,7 @@ class TestFastAPI:
 
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            p('test_serve.errors'),
+            p('test_serve/errors'),
             {'id': pxt.Int | None, 'text': pxt.String | None, 'image': pxt.Image | None, 'video': pxt.Video | None},
         )
         # a scalar computed column and a media computed column, so we can test the
@@ -1780,25 +1899,25 @@ class TestFastAPI:
         router = FastAPIRouter()
         add_route_fn = router.add_insert_route if route_type == 'insert' else router.add_compute_route
 
-        v = pxt.create_view(p('test_serve.errors_view'), t)
+        v = pxt.create_view(p('test_serve/errors_view'), t)
         if route_type == 'insert':
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot insert into view'):
                 add_route_fn(v, path='/v')
         else:
             # views are valid compute targets, but snapshots, views over snapshots, and sample-clause
             # views are not
-            snap = pxt.create_snapshot(p('test_serve.errors_snap'), t)
+            snap = pxt.create_snapshot(p('test_serve/errors_snap'), t)
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot compute snapshot'):
                 add_route_fn(snap, path='/v')
-            snap_view = pxt.create_view(p('test_serve.errors_snap_view'), snap)
+            snap_view = pxt.create_view(p('test_serve/errors_snap_view'), snap)
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='base hierarchy contains a snapshot'):
                 add_route_fn(snap_view, path='/v')
-            sample_view = pxt.create_view(p('test_serve.errors_sample_view'), t.sample(fraction=0.5, seed=1))
+            sample_view = pxt.create_view(p('test_serve/errors_sample_view'), t.sample(fraction=0.5, seed=1))
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='defined with a sample clause'):
                 add_route_fn(sample_view, path='/v')
             # inputs conform to the base table's schema, so a view-local column is not a valid input
             note_view = pxt.create_view(
-                p('test_serve.errors_note_view'), t, additional_columns={'note': pxt.String | None}
+                p('test_serve/errors_note_view'), t, additional_columns={'note': pxt.String | None}
             )
             with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown input column 'note'"):
                 add_route_fn(note_view, path='/v', inputs=['note'])
@@ -1890,17 +2009,17 @@ class TestFastAPI:
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     def test_insert_route(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
     ) -> None:
         """`insert_route()`/`compute_route()` as a decorator: user fn consumes outputs and shapes the response."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.decorated'), {'id': pxt.Int | None, 'prompt': pxt.String | None})
+        t = pxt.create_table(p('test_serve/decorated'), {'id': pxt.Int | None, 'prompt': pxt.String | None})
         t.add_computed_column(greeting='hello, ' + t.prompt)
         t.add_computed_column(length=t.prompt.len())
 
@@ -1940,17 +2059,17 @@ class TestFastAPI:
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     def test_insert_route_type_validation(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
     ) -> None:
         """Parameter annotations are validated against the column types (strict nullability)."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.types'), {'id': pxt.Int, 'prompt': pxt.String | None})
+        t = pxt.create_table(p('test_serve/types'), {'id': pxt.Int, 'prompt': pxt.String | None})
         t.add_computed_column(length=t.prompt.len())
         router = FastAPIRouter()
         route = dml_decorator(route_type, router)
@@ -2012,18 +2131,16 @@ class TestFastAPI:
             def _bad(*, id: int) -> BadResponse:
                 return BadResponse(x=id)
 
-    def test_update_route_type_validation(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
-    ) -> None:
+    def test_update_route_type_validation(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Update-route parameter annotations are validated against column types (strict nullability)."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.types'), {'id': pxt.Int, 'prompt': pxt.String | None}, primary_key='id')
+        t = pxt.create_table(p('test_serve/types'), {'id': pxt.Int, 'prompt': pxt.String | None}, primary_key='id')
         t.add_computed_column(length=t.prompt.len())
         router = FastAPIRouter()
 
@@ -2085,13 +2202,13 @@ class TestFastAPI:
             def _bad(*, id: int) -> BadResponse:
                 return BadResponse(x=id)
 
-    def test_route_decorators_future_annotations(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_route_decorators_future_annotations(self, db_root: DatabaseRoot) -> None:
         """Decorated function defined in a module with `from __future__ import annotations`.
 
         Under PEP 563, parameter and return annotations are strings at runtime; the validator
         must resolve them via typing.get_type_hints() before interpreting them.
         """
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import sys
         import textwrap
@@ -2100,7 +2217,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.future'), {'id': pxt.Int, 'text': pxt.String}, primary_key='id')
+        t = pxt.create_table(p('test_serve/future'), {'id': pxt.Int, 'text': pxt.String}, primary_key='id')
         t.add_computed_column(text_upper=t.text.upper())
         t.insert([{'id': 1, 'text': 'hello'}])
 
@@ -2164,9 +2281,9 @@ class TestFastAPI:
         finally:
             del sys.modules['_test_future_ann_mod']
 
-    def test_route_decorators_unresolvable_annotation(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_route_decorators_unresolvable_annotation(self, db_root: DatabaseRoot) -> None:
         """Forward-ref that can't be resolved produces a clean INVALID_ARGUMENT error at registration."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import sys
         import textwrap
@@ -2175,7 +2292,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.unresolvable'), {'id': pxt.Int, 'text': pxt.String}, primary_key='id')
+        t = pxt.create_table(p('test_serve/unresolvable'), {'id': pxt.Int, 'text': pxt.String}, primary_key='id')
 
         user_mod = types.ModuleType('_test_unresolvable_ann_mod')
         exec(
@@ -2205,18 +2322,16 @@ class TestFastAPI:
             del sys.modules['_test_unresolvable_ann_mod']
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
-    def test_insert_route_image(
-        self, make_catalog_path: Callable[[str], str], route_type: Literal['insert', 'compute']
-    ) -> None:
+    def test_insert_route_image(self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']) -> None:
         """Media columns surface as /media/ URLs in the decorated fn's kwargs."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.img_dec'), {'id': pxt.Int | None, 'image': pxt.Image | None})
+        t = pxt.create_table(p('test_serve/img_dec'), {'id': pxt.Int | None, 'image': pxt.Image | None})
         t.add_computed_column(thumb=t.image.resize([32, 32]))
 
         router = FastAPIRouter()
@@ -2242,17 +2357,17 @@ class TestFastAPI:
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_insert_route_uploadfile(
-        self, make_catalog_path: Callable[[str], str], use_uploadfile: bool, route_type: Literal['insert', 'compute']
+        self, db_root: DatabaseRoot, use_uploadfile: bool, route_type: Literal['insert', 'compute']
     ) -> None:
         """Decorator + multipart/form-data upload."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.upl_dec'), {'id': pxt.Int | None, 'image': pxt.Image | None})
+        t = pxt.create_table(p('test_serve/upl_dec'), {'id': pxt.Int | None, 'image': pxt.Image | None})
         t.add_computed_column(thumb=t.image.resize([16, 16]))
 
         router = FastAPIRouter()
@@ -2270,6 +2385,11 @@ class TestFastAPI:
             assert thumb is not None
             return UplResp(thumb_url=thumb)
 
+        # uploads are recorded apart from the plain inputs, and the inputs hold both
+        route = next(route for route in router._routes if route.spec.path == '/upl')
+        assert route.spec.uploadfile_inputs == (['image'] if use_uploadfile else [])
+        assert route.spec.inputs == ['id', 'image']
+
         client = make_test_client(router)
 
         image_path = get_image_files()[0]
@@ -2284,11 +2404,9 @@ class TestFastAPI:
         assert '/media/' in resp.json()['thumb_url']
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
-    def test_insert_route_background(
-        self, make_catalog_path: Callable[[str], str], route_type: Literal['insert', 'compute']
-    ) -> None:
+    def test_insert_route_background(self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']) -> None:
         """Background variant: 202-like response with job_url; poll for the decorated fn's result."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
@@ -2296,7 +2414,7 @@ class TestFastAPI:
 
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            p('test_serve.bg_dec'), {'id': pxt.Int | None, 'delay': pxt.Float | None, 'value': pxt.Int | None}
+            p('test_serve/bg_dec'), {'id': pxt.Int | None, 'delay': pxt.Float | None, 'value': pxt.Int | None}
         )
         t.add_computed_column(slept=sleep(t.delay))
 
@@ -2319,17 +2437,15 @@ class TestFastAPI:
         assert result == {'doubled': 14}
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
-    def test_insert_route_errors(
-        self, make_catalog_path: Callable[[str], str], route_type: Literal['insert', 'compute']
-    ) -> None:
-        p = make_catalog_path
+    def test_insert_route_errors(self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.dec_err'), {'id': pxt.Int, 'text': pxt.String})
+        t = pxt.create_table(p('test_serve/dec_err'), {'id': pxt.Int, 'text': pxt.String})
         t.add_computed_column(text_upper=t.text.upper())
         router = FastAPIRouter()
         route = dml_decorator(route_type, router)
@@ -2369,9 +2485,9 @@ class TestFastAPI:
             def _(*, id: int):  # type: ignore[no-untyped-def]  # intentionally missing return annotation
                 return {'x': id}
 
-    def test_compute_route_batch(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_compute_route_batch(self, db_root: DatabaseRoot) -> None:
         """compute_route() batch form on an iterator view: the fn takes list[RowModel] of all fanned-out rows."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
@@ -2381,9 +2497,9 @@ class TestFastAPI:
         video_path = next(f for f in get_video_files() if f.endswith('v_shooting_01_01.mpg'))
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            p('test_serve.batch_dec'), {'id': pxt.Int | None, 'prompt': pxt.String | None, 'video': pxt.Video | None}
+            p('test_serve/batch_dec'), {'id': pxt.Int | None, 'prompt': pxt.String | None, 'video': pxt.Video | None}
         )
-        vv = pxt.create_view(p('test_serve.batch_dec_frames'), t, iterator=frame_iterator(t.video, fps=1.0))
+        vv = pxt.create_view(p('test_serve/batch_dec_frames'), t, iterator=frame_iterator(t.video, fps=1.0))
         vv.add_computed_column(greeting='hello, ' + vv.prompt)
         vv.add_computed_column(thumb=vv.frame.resize([16, 16]))
 
@@ -2506,16 +2622,16 @@ class TestFastAPI:
             def _(rows: list[KwRow]) -> Resp:  # pragma: no cover
                 raise AssertionError
 
-    def test_add_update_route(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_add_update_route(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Update routes: JSON, subset inputs/outputs, FileResponse, 404 for missing row, background."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         image_path = get_image_files()[0]
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            p('test_serve.items'),
+            p('test_serve/items'),
             {'id': pxt.Int, 'text': pxt.String | None, 'value': pxt.Int | None, 'image': pxt.Image | None},
             primary_key='id',
         )
@@ -2606,23 +2722,23 @@ class TestFastAPI:
         assert resp.status_code == 500, resp.text
         assert 'expected 1' in resp.json()['detail']
 
-    def test_add_update_route_errors(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
-        p = make_catalog_path
+    def test_add_update_route_errors(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            p('test_serve.items'),
+            p('test_serve/items'),
             {'id': pxt.Int, 'text': pxt.String | None, 'image': pxt.Image | None},
             primary_key='id',
         )
         t.add_computed_column(text_upper=t.text.upper())
-        t_no_pk = pxt.create_table(p('test_serve.nopk'), {'text': pxt.String | None})
+        t_no_pk = pxt.create_table(p('test_serve/nopk'), {'text': pxt.String | None})
         router = FastAPIRouter()
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot update'):
-            v = pxt.create_view(p('test_serve.items_view'), t)
+            v = pxt.create_view(p('test_serve/items_view'), t)
             router.add_update_route(v, path='/v')
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='table has no primary key'):
             router.add_update_route(t_no_pk, path='/e')
@@ -2655,9 +2771,9 @@ class TestFastAPI:
                 export_sql=SqlExport(db_connect=db_connect, table='tgt'),
             )
 
-    def test_update_route(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_update_route(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """`update_route()` decorator: custom response model, 404, background, function still callable."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
@@ -2665,7 +2781,7 @@ class TestFastAPI:
 
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            p('test_serve.items'), {'id': pxt.Int, 'text': pxt.String | None, 'value': pxt.Int | None}, primary_key='id'
+            p('test_serve/items'), {'id': pxt.Int, 'text': pxt.String | None, 'value': pxt.Int | None}, primary_key='id'
         )
         t.add_computed_column(text_upper=t.text.upper())
         t.insert([{'id': 1, 'text': 'hello', 'value': 10}, {'id': 2, 'text': 'world', 'value': 20}])
@@ -2723,15 +2839,15 @@ class TestFastAPI:
         result = await_background_job(client, job, require_pending=False)['result']
         assert result == {'key': 2, 'upper': '', 'doubled': 14}
 
-    def test_update_route_errors(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_update_route_errors(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.items'), {'id': pxt.Int, 'text': pxt.String | None}, primary_key='id')
+        t = pxt.create_table(p('test_serve/items'), {'id': pxt.Int, 'text': pxt.String | None}, primary_key='id')
         t.add_computed_column(text_upper=t.text.upper())
         router = FastAPIRouter()
 
@@ -2770,15 +2886,15 @@ class TestFastAPI:
             def _(*, id: int):  # type: ignore[no-untyped-def]
                 return {'x': id}
 
-    def test_add_delete_route(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_delete_route(self, db_root: DatabaseRoot) -> None:
         """Delete routes: primary-key default, explicit match_columns, multi-col AND, 0-match, background."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            p('test_serve.items'),
+            p('test_serve/items'),
             {'id': pxt.Int, 'group': pxt.String | None, 'value': pxt.Int | None},
             primary_key='id',
         )
@@ -2833,19 +2949,19 @@ class TestFastAPI:
         assert result == {'num_rows': 1}
         assert t.where(t.id == 5).count() == 0
 
-    def test_add_delete_route_errors(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_add_delete_route_errors(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.items'), {'id': pxt.Int, 'group': pxt.String | None}, primary_key='id')
-        t_no_pk = pxt.create_table(p('test_serve.nopk'), {'id': pxt.Int | None, 'group': pxt.String | None})
+        t = pxt.create_table(p('test_serve/items'), {'id': pxt.Int, 'group': pxt.String | None}, primary_key='id')
+        t_no_pk = pxt.create_table(p('test_serve/nopk'), {'id': pxt.Int | None, 'group': pxt.String | None})
 
         router = FastAPIRouter()
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot delete from'):
-            v = pxt.create_view(p('test_serve.items_view'), t)
+            v = pxt.create_view(p('test_serve/items_view'), t)
             router.add_delete_route(v, path='/v')
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown column 'doesnotexist'"):
             router.add_delete_route(t, path='/e', match_columns=['doesnotexist'])
@@ -2854,6 +2970,58 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='table has no primary key'):
             router.add_delete_route(t_no_pk, path='/e')
 
+    def test_column_ref_args(self, db_root: DatabaseRoot) -> None:
+        """Routes accept ColumnRefs wherever they accept column names."""
+        p = db_root.make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir(p('test_serve'))
+        t = pxt.create_table(
+            p('test_serve/items'), {'id': pxt.Int, 'val': pxt.Int | None, 'img': pxt.Image | None}, primary_key='id'
+        )
+        t.add_computed_column(incr=add_one(t.val))
+
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/ins', inputs=[t.id, t.val], outputs=[t.id, t.incr])
+        router.add_compute_route(t, path='/comp', inputs=[t.id, t.val], outputs=[t.incr])
+        router.add_update_route(t, path='/upd', inputs=[t.val], outputs=[t.id, t.incr])
+        router.add_delete_route(t, path='/del', match_columns=[t.id])
+        router.add_insert_route(
+            t, path='/upload', inputs=[t.id], uploadfile_inputs=[t.img], outputs=[t.id], background=False
+        )
+        client = make_test_client(router)
+
+        assert client.post('/ins', json={'id': 1, 'val': 10}).json() == {'id': 1, 'incr': 11}
+        assert client.post('/comp', json={'id': 2, 'val': 20}).json() == {'incr': 21}
+        assert client.post('/upd', json={'id': 1, 'val': 40}).json() == {'id': 1, 'incr': 41}
+        assert client.post('/del', json={'id': 1}).json() == {'num_rows': 1}
+
+        with open(get_image_files()[0], 'rb') as f:
+            resp = client.post('/upload', data={'id': '7'}, files={'img': ('x.jpg', f, 'image/jpeg')})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'id': 7}
+
+    def test_bind_table_targets(self, db_root: DatabaseRoot) -> None:
+        """A route declared against a Table needs no binding: it already names the table it serves."""
+        p = db_root.make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serving import FastAPIRouter
+
+        t = pxt.create_table(p('items'), {'id': pxt.Int, 'val': pxt.Int | None}, primary_key='id')
+
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/ins', inputs=['id', 'val'], outputs=['id'])
+
+        # no bind() call: the route already names the table it serves
+        app = fastapi.FastAPI()
+        app.include_router(router)
+        with TestClient(app) as client:
+            assert client.post('/ins', json={'id': 1, 'val': 10}).json() == {'id': 1}
+
     @pytest.mark.parametrize(
         ('op_name', 'first_body', 'retry_body'),
         [('insert', {'id': 2, 'val': 20}, {'id': 3, 'val': 30}), ('delete', {'id': 1}, {'id': 2})],
@@ -2861,20 +3029,20 @@ class TestFastAPI:
     @pytest.mark.parametrize('schema_op', ['add_column', 'drop'])
     def test_schema_change(
         self,
-        make_catalog_path: Callable[[str], str],
+        db_root: DatabaseRoot,
         op_name: str,
         first_body: dict[str, Any],
         retry_body: dict[str, Any],
         schema_op: str,
     ) -> None:
         """Schema-version bump or drop-and-recreate after route registration causes the handler to 409."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
         schema: dict[str, Any] = {'id': pxt.Int, 'val': pxt.Int | None}
-        t = pxt.create_table(p('test_serve.items'), schema, primary_key='id')
+        t = pxt.create_table(p('test_serve/items'), schema, primary_key='id')
         t.insert([{'id': 1, 'val': 10}])
 
         router = FastAPIRouter()
@@ -2893,8 +3061,8 @@ class TestFastAPI:
             t.add_computed_column(val_plus_1=t.val + 1)
         else:
             # drop and recreate at the same path; new table has a fresh UUID
-            pxt.drop_table(p('test_serve.items'), force=True)
-            pxt.create_table(p('test_serve.items'), schema, primary_key='id')
+            pxt.drop_table(p('test_serve/items'), force=True)
+            pxt.create_table(p('test_serve/items'), schema, primary_key='id')
 
         # handler now detects the mismatch and rejects the request
         resp = client.post('/ep', json=retry_body)

@@ -210,27 +210,24 @@ Pixeltable provides a small set of primitives that compose into any multimodal A
   <Accordion title="Serve" icon="globe">
     **Expose tables and queries as HTTP endpoints**
 
-    ```toml
-    # pyproject.toml
-    [[tool.pixeltable.service]]
-    name = "my-service"
-    prefix = "/api"
-    modules = ["schema"]
+    ```python
+    # app.py
+    class Docs(TableModel, name='docs'):
+        document: pxt.Document
+        summary = summarize(document)
 
-    [[tool.pixeltable.service.routes]]
-    type = "insert"
-    table = "myapp.docs"
-    path = "/ingest"
-    inputs = ["document"]
-    outputs = ["document", "summary"]
+
+    api = FastAPIRouter(name='my-service', prefix='/api')
+    api.add_insert_route(Docs, path='/ingest', inputs=[Docs.document], outputs=[Docs.summary])
     ```
 
     ```bash
-    pxt serve my-service
+    pxt init                        # writes the project configuration here
+    pxt service update app.py my_dir
     ```
 
     <Card title="HTTP Serving" icon="globe" href="/howto/deployment/serving">
-      TOML config, CLI, Python API, background jobs
+      Application file, CLI, Python API, background jobs
     </Card>
   </Accordion>
   

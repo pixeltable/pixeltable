@@ -37,7 +37,12 @@ class ColumnMetadata(TypedDict):
     is_iterator_col: bool
     """`True` if this column is produced by an iterator (only applicable to views)."""
     destination: str | None
-    """An object store reference for computed files, if one is configured."""
+    """The object store destination declared for this column's computed files, if it declares one.
+
+    An instance-wide default destination is not reported here, because it is configuration rather than part of
+    the schema. A destination declared as a config var reads as `$<name>` rather than as the location it
+    currently resolves to; see [`ConfigVar`][pixeltable.ConfigVar].
+    """
 
 
 class EmbeddingIndexParams(TypedDict):
@@ -87,8 +92,8 @@ class TableMetadata(TypedDict):
     """`True` if this table is a view."""
     is_snapshot: bool
     """`True` if this table is a snapshot."""
-    version: int | None
-    """The current version of the table or None if it's not data-versioned."""
+    version: int
+    """The current version of the table."""
     version_created: datetime.datetime
     """The timestamp when this table version was created."""
     schema_version: int

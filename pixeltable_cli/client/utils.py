@@ -9,26 +9,38 @@ import os
 import platform
 import re
 import signal
+import socket
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import psutil
 
+from pixeltable_cli import types
 from pixeltable_cli.utils import (
     _IDENTITY_KEYS,
     _resolve_pixeltable_home,
+    env_fingerprint,
     get_port,
     identity,
     pidfile_path,
+    project_root,
     validate_path_shape,
 )
 
 _IS_WINDOWS = platform.system() == 'Windows'
+
+# shared exit codes for all commands
+EXIT_IN_AGREEMENT = 0
+EXIT_ERROR = 1
+EXIT_CHANGES_PENDING = 2
+EXIT_REFUSED = 3
 
 
 def session_key() -> str:
@@ -71,6 +83,7 @@ def read_pidfile() -> int | None:
 
 
 def fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
+    """What the daemon reports about itself, or None if nothing usable answered within timeout."""
     try:
         with urllib.request.urlopen(health_url(), timeout=timeout) as r:
             body = json.loads(r.read())
@@ -91,9 +104,29 @@ def is_running(timeout: float = 0.3) -> bool:
     return fetch_health(timeout) is not None
 
 
+def port_is_open(timeout: float = 0.3) -> bool:
+    """Report whether something accepts a connection on the daemon's port.
+
+    A daemon busy with a request answers the connection but not the request, which tells 'still there, working'
+    apart from 'gone'.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(timeout)
+        return sock.connect_ex(('127.0.0.1', get_port())) == 0
+
+
 def _identity_diff(client: dict[str, Any], daemon: dict[str, Any]) -> list[str]:
     """Return the list of identity keys whose values differ."""
     return [k for k in _IDENTITY_KEYS if client.get(k) != daemon.get(k)]
+
+
+def _serves_another_project(daemon: dict[str, Any]) -> bool:
+    """Report whether the daemon's project root differs from the one the working directory establishes.
+
+    A working directory that establishes no project asks for nothing, and leaves the daemon as it is.
+    """
+    root = project_root()
+    return root is not None and daemon.get('project_root') != root
 
 
 def spawn_detached() -> None:
@@ -116,15 +149,14 @@ def spawn_detached() -> None:
         # daemon's cwd to the pixeltable home (which holds no importable packages) and set
         # PYTHONSAFEPATH so the working directory is not prepended to sys.path at all (3.11+).
         env = {**os.environ, 'PYTHONSAFEPATH': '1'}
+        # a daemon starts in the Pixeltable home, which marks no project, so its command line carries the
+        # project it serves
+        root = project_root()
+        args = [sys.executable, '-m', 'pixeltable_cli.server.daemon']
+        if root is not None:
+            args += ['--project-root', root]
         with open(log_path, 'a', encoding='utf-8') as log:
-            subprocess.Popen(
-                [sys.executable, '-m', 'pixeltable_cli.server.daemon'],
-                stdout=log,
-                stderr=log,
-                cwd=_resolve_pixeltable_home(),
-                env=env,
-                **popen_kwargs,
-            )
+            subprocess.Popen(args, stdout=log, stderr=log, cwd=_resolve_pixeltable_home(), env=env, **popen_kwargs)
     except OSError as e:
         reason = e.strerror or e.__class__.__name__
         raise RuntimeError(f'pxt daemon log unavailable ({log_path}): {reason}') from None
@@ -259,6 +291,8 @@ def ensure_running() -> str:
     if health is not None:
         client_identity = identity()
         diff = _identity_diff(client_identity, health)
+        if _serves_another_project(health):
+            diff = [*diff, 'project_root']
         if len(diff) > 0:
             # Identity mismatch: the daemon was launched against a different install or env snapshot than the
             # client now sees (eg, after pip install -U pixeltable). Restart it ourselves rather than making
@@ -325,7 +359,8 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None, params:
             # doseq=True expands list values into repeated params (?pk=a&pk=b).
             url += '?' + urllib.parse.urlencode(filtered, doseq=True)
 
-    headers: dict[str, str] = {'X-Pxt-Session': session_key()}
+    # the daemon compares the env fingerprint with its own and returns an error if the env has changed
+    headers: dict[str, str] = {'X-Pxt-Session': session_key(), 'X-Pxt-Env-Fingerprint': json.dumps(env_fingerprint())}
     data: bytes | None = None
     if body is not None:
         data = json.dumps(body).encode()
@@ -365,6 +400,29 @@ def post_request(path: str, body: dict[str, Any]) -> Any:
     return _request('POST', path, body=body)
 
 
+def check_file(route: str, field: str, file: str, *, verb: str, as_json: bool) -> None:
+    """Print what the daemon at route reports about file, and exit 0 when it reports the file valid.
+
+    Sends the absolute path under field, since the daemon reads the file itself. Exit 1 is the error status
+    of every verb that takes a file.
+    """
+    path = Path(file)
+    if not path.is_file():
+        print(f'pxt {verb}: file not found: {file}', file=sys.stderr)
+        sys.exit(1)
+    report = types.CheckReport.model_validate(post_request(route, {field: str(path.resolve())}))
+    if as_json:
+        print(report.model_dump_json(indent=2))
+    else:
+        for warning in report.warnings:
+            print(f'warning: {warning}')
+        for error in report.errors:
+            print(f'error: {error}', file=sys.stderr)
+        if report.valid:
+            print(f'{report.file}: valid')
+    sys.exit(0 if report.valid else 1)
+
+
 def validate_path_arg(path: str) -> str:
     """Validate a pxt path's shape and return it unchanged. Paths travel as query params or body fields,
     which the transport URL-encodes, so no encoding happens here. A bad shape (a dotted component other than
@@ -400,3 +458,42 @@ def print_aligned(headers: list[str], rows: list[list[str]], right_align: set[in
     print(fmt(headers))
     for r in rows:
         print(fmt(r))
+
+
+def stdin_is_a_tty() -> bool:
+    """Like `sys.stdin.isatty()`, but on Windows distinguishes real consoles from NUL/other
+    character devices. msvcrt's `isatty` returns nonzero for any char device, so `subprocess.DEVNULL`
+    (which maps to NUL) is misreported as a TTY; GetConsoleMode() succeeds only on real consoles.
+    """
+    if not sys.stdin.isatty():
+        return False
+    if sys.platform != 'win32':
+        return True
+    import ctypes
+    from ctypes import wintypes
+
+    handle = ctypes.windll.msvcrt._get_osfhandle(sys.stdin.fileno())
+    mode = wintypes.DWORD()
+    return bool(ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode)))
+
+
+def confirm_or_exit(
+    prompt: str, force: bool, *, refused_exit_code: int = 2, on_refusal: Callable[[], None] | None = None
+) -> None:
+    """Prompt for yes/no on stdin; refuse non-tty unless --force. Both refusals exit with refused_exit_code.
+
+    on_refusal runs just before the non-tty refusal exits, for a caller that reports the refusal itself.
+    """
+    if force:
+        return
+    if not stdin_is_a_tty():
+        if on_refusal is not None:
+            on_refusal()
+        print(f'pxt: refusing to proceed without --force/-f (no TTY for confirmation): {prompt}', file=sys.stderr)
+        sys.exit(refused_exit_code)
+    sys.stderr.write(f'{prompt} [y/N] ')
+    sys.stderr.flush()
+    ans = sys.stdin.readline().strip().lower()
+    if ans not in ('y', 'yes'):
+        print('aborted', file=sys.stderr)
+        sys.exit(refused_exit_code)
