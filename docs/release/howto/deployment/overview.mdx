@@ -1,20 +1,20 @@
 ---
 title: 'Self-hosting'
 sidebarTitle: 'Overview'
-description: 'Choose what runs on this machine: no HTTP, your own FastAPI app, or pxt service.'
+description: 'Choose what runs locally: Python only, your own FastAPI app, or pxt service.'
 ---
 
 Hosted catalog: [Cloud](/howto/deployment/cloud). This page is which local process to start after `pxt schema update`.
 
 | If you want | What you run | What starts |
 |-------|----------------|-------------|
-| No HTTP | `pxt schema update`, insert from Python, then `export_sql` | Nothing listening |
+| Python only | `pxt schema update`, insert from Python, then `export_sql` | Nothing listening |
 | Your FastAPI | `pxt schema update`, then `app.include_router(...)` | Your process. [HTTP serving](/howto/deployment/serving) |
 | `pxt service` | `pxt schema update`, then `pxt service update` | A process Pixeltable starts. [Quickstart](/overview/quick-start) |
 
 `uvx pixeltable-new myapp` copies the chat agent; pass `agent` as the last argument to `pxt schema update`. `--video` copies video search; pass `videointel`.
 
-## No HTTP
+## Python only
 
 This example expects the starter-kit chat agent (`Knowledge` in that repo's `app.py`). Insert rows, then export them to SQLite. Same snippet: [chat-agent README](https://github.com/pixeltable/pixeltable-starter-kit/blob/main/chat-agent/README.md).
 

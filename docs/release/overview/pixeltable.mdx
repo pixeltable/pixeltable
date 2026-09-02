@@ -1,13 +1,13 @@
 ---
 title: 'Why Pixeltable?'
-description: 'One Python file declares tables, computed columns, and HTTP routes'
+description: 'The backend is one schema you keep, not a stack you assemble'
 ---
 
-Pixeltable stores images, video, audio, documents, and ordinary columns in tables you declare in Python. Tables, computed columns, indexes, and HTTP routes live in **one Python file** (`app.py`).
+Most stacks glue a blob store, a warehouse, a vector database, an orchestrator, and custom endpoints. You pay for the joints. Pixeltable is the database, the orchestration, and the serving: tables, computed columns, indexes, and endpoints in **one Python file** (`app.py`).
 
-On this machine you create those tables with `pxt schema update`. Start HTTP with `pxt service update` if you want it, then insert rows from Python, the dashboard, or POST. The same `app.py` can target [Pixeltable Cloud](/howto/deployment/cloud) after you set `PIXELTABLE_API_KEY` and run `pxt db update`. That Cloud command creates or updates the hosted database. It does not insert rows and does not start app HTTP.
+If you process media and serve model pipelines, that file is the backend you keep. Insert a row. Transforms run. Indexes stay current.
 
-Most stacks glue a blob store, a warehouse, a vector database, an orchestrator, and custom endpoints. Each transform and index in Pixeltable is a column on the same table as the data. Insert a row. Transforms run. Indexes stay current.
+Locally, create those tables with `pxt schema update`. Start the endpoints with `pxt service update` if you want them, then insert from Python, the dashboard, or POST. On [Pixeltable Cloud](/howto/deployment/cloud), use the same `app.py` after you set `PIXELTABLE_API_KEY` and run `pxt db update`. That Cloud command creates or updates the hosted database. It does not insert rows and does not start app endpoints.
 
 <Card title="Quickstart" icon="bolt" href="/overview/quick-start">
   Write `app.py`, run `pxt schema update` and `pxt service update`, then POST a row.
@@ -15,9 +15,9 @@ Most stacks glue a blob store, a warehouse, a vector database, an orchestrator, 
 
 ## What you declare
 
-A `TableModel` class becomes a table when you run `pxt schema update`. An annotation (`title: pxt.String`) is a stored column: the value you insert. An assignment (`title_upper = ...`) is a computed column. It runs on insert and on update. An embedding index lives on the model, so new rows are searchable without a separate vector database. A `FastAPIRouter` in the same file defines HTTP routes, for example POST a row and get computed columns back.
+A `TableModel` class becomes a table when you run `pxt schema update`. An annotation (`title: pxt.String`) is a stored column: the value you insert. An assignment (`title_upper = ...`) is a computed column. It runs on insert and on update. An embedding index lives on the model, so new rows are searchable without a separate vector database. A `FastAPIRouter` in the same file defines endpoints, for example POST a row and get computed columns back.
 
-HTTP is optional. You can run `pxt schema update`, insert from Python, then export. Views, UDFs, versioning, and import/export start in the [User Guide](/platform/type-system).
+Endpoints are optional. Skip `pxt service update` if you insert from Python, then export. Views, UDFs, versioning, and import/export start in the [User Guide](/platform/type-system).
 
 Notebooks and tests can still call `pxt.create_table()`. An app declares tables in `app.py`.
 
@@ -26,10 +26,12 @@ Notebooks and tests can still call `pxt.create_table()`. An app declares tables 
 - **One catalog** for images, video, audio, documents, and ordinary columns
 - **Transforms as columns**: incremental, not a pipeline you re-run
 - **Indexes that follow the data**: embeddings stay in sync with the rows
-- **HTTP from the same file**, or skip HTTP and insert from Python
+- **Endpoints from the same file**, or skip `pxt service update` and insert from Python
 
 Coming from Pinecone, LangChain, or hand-rolled FastAPI? See [Migrate](/howto/coming-from).
 
 ## Built for
 
-[Multimodal backend](/use-cases/multimodal-backend) (RAG and live APIs), [agents](/use-cases/agentic-workflows) (tool calls as columns), and [media pipelines](/use-cases/media-processing) (frames and transcripts as rows).
+Developers who process media and serve model pipelines: [multimodal backend](/use-cases/multimodal-backend) (RAG and live APIs), [agents](/use-cases/agentic-workflows) (tool calls as columns), and [media pipelines](/use-cases/media-processing) (frames and transcripts as rows).
+
+The longer argument: [Making Multimodal More Lovable](https://www.pixeltable.com/blog/making-multimodal-more-lovable).

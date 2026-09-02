@@ -1,12 +1,12 @@
 ---
 title: 'How it works'
 sidebarTitle: 'How it works'
-description: 'pxt schema creates tables. pxt service starts HTTP. diff shows what would change.'
+description: 'pxt schema creates tables. pxt service starts the endpoints. diff shows what would change.'
 ---
 
 [Quickstart](/overview/quick-start) is the first run. This page explains what `pxt schema` and `pxt service` do, and what the last argument names.
 
-One Python file declares tables and, if you want HTTP, routes. `pxt schema update` creates the tables. `pxt service update` starts HTTP on an assigned port. The last argument is a namespace name such as `my_app`, or a Cloud URL such as `pxt://org:db`. It does not create a folder beside `app.py`.
+One Python file declares tables and, if you want endpoints, routes. `pxt schema update` creates the tables. `pxt service update` starts the endpoints on an assigned port. The last argument is a namespace name such as `my_app`, or a Cloud URL such as `pxt://org:db`. It does not create a folder beside `app.py`.
 
 <CardGroup cols={3}>
   <Card title="Schema" icon="table" href="#schema">
@@ -55,7 +55,7 @@ A schema change with a service already running needs `pxt service update` after 
 
 <Tabs>
   <Tab title="Local">
-    No Cloud account. Follow the [Quickstart](/overview/quick-start) on this machine. For which process should listen, see [Self-hosting](/howto/deployment/overview).
+    No Cloud account. Follow the [Quickstart](/overview/quick-start). For which process should listen, see [Self-hosting](/howto/deployment/overview).
 
     ```bash
     pxt init
@@ -64,7 +64,7 @@ A schema change with a service already running needs `pxt service update` after 
     ```
   </Tab>
   <Tab title="Cloud">
-    Use the same `app.py` with a `pxt://` URL as the last argument after `pxt db update`. [Deploy to Pixeltable Cloud](/howto/deployment/cloud). `pxt service run` only starts HTTP in your local terminal.
+    Use the same `app.py` with a `pxt://` URL as the last argument after `pxt db update`. [Deploy to Pixeltable Cloud](/howto/deployment/cloud). `pxt service run` only starts endpoints in your local terminal.
 
     ```bash
     pxt db update pxt://org:mydb

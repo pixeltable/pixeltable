@@ -3,7 +3,7 @@ title: 'Quickstart'
 description: 'Install, write one application file, create tables, POST an insert'
 ---
 
-Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and HTTP routes live in one file. When you insert a row, computed columns run automatically.
+Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoints live in one file. When you insert a row, computed columns run automatically.
 
 ## Install
 
@@ -24,9 +24,9 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and HTTP rou
   </Tab>
 </Tabs>
 
-`[serve]` pulls in FastAPI and uvicorn, which `pxt service` needs. If you do not need HTTP, `pip install pixeltable` is enough.
+`[serve]` pulls in FastAPI and uvicorn, which `pxt service` needs. Skip `[serve]` and `pxt service update` if you insert from Python; `pip install pixeltable` is enough. `pxt schema example --brief` writes models only. [Self-hosting](/howto/deployment/overview).
 
-## Write the file, create tables, start HTTP
+## Write the file, create tables, start the endpoints
 
 <Steps>
   <Step title="Write the file">
@@ -60,16 +60,16 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and HTTP rou
 
     `title: pxt.String` is a value you insert. `title_upper = ...` is computed on insert and on update.
   </Step>
-  <Step title="Create tables, then start HTTP">
+  <Step title="Create tables, then start the endpoints">
     ```bash
     pxt init
     pxt schema update app.py my_app
     pxt service update app.py my_app
     ```
 
-    `pxt init` marks this directory as a project root. `pxt schema update` errors if you have not run it in this directory or a parent. `my_app` is the table-namespace name inside Pixeltable, not a folder beside `app.py`. `pxt schema update` creates that namespace and its tables, and does not start HTTP. Run it before `pxt service update`, which starts HTTP and does not create tables.
+    `pxt init` marks this directory as a project root. `pxt schema update` errors if you have not run it in this directory or a parent. `my_app` is the table-namespace name inside Pixeltable, not a folder beside `app.py`. `pxt schema update` creates that namespace and its tables. It does not start the endpoints. Run it before `pxt service update`, which starts the endpoints and does not create tables.
   </Step>
-  <Step title="Insert a row over HTTP">
+  <Step title="Insert a row">
     Send a row with HTTP POST. Pixeltable computes `title_upper` during that insert. `pxt service list` prints the URL (the port is assigned):
 
     ```bash
@@ -105,20 +105,8 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
 ## Same file, other first runs
 
 <Tabs>
-  <Tab title="No HTTP">
-    Skip `[serve]`. `pxt schema example --brief` writes models only.
-
-    ```bash
-    pip install pixeltable
-    pxt init
-    pxt schema example --brief --out app.py
-    pxt schema update app.py my_app
-    ```
-
-    Then insert from Python (`t = pxt.get_table('my_app.docs')`) or export. [Self-hosting](/howto/deployment/overview).
-  </Tab>
   <Tab title="Cloud">
-    To run this same file on Pixeltable Cloud, create an API key in the [Cloud dashboard](/howto/deployment/cloud#get-an-api-key), set `PIXELTABLE_API_KEY`, create the hosted database with `pxt db update`, create tables with `pxt schema update`, then start hosted HTTP with `pxt service update`. Try changes by inserting from the dashboard and running `pxt schema diff`.
+    To run this same file on Pixeltable Cloud, create an API key in the [Cloud dashboard](/howto/deployment/cloud#get-an-api-key), set `PIXELTABLE_API_KEY`, create the hosted database with `pxt db update`, create tables with `pxt schema update`, then start hosted endpoints with `pxt service update`. Try changes by inserting from the dashboard and running `pxt schema diff`.
 
     ```bash
     pxt db update pxt://org:mydb
