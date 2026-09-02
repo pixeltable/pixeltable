@@ -45,7 +45,7 @@ from pixeltable.service.management_protocol import (
     StartDbRequest,
     StopDbRequest,
 )
-from pixeltable.utils import app_module
+from pixeltable.utils import project
 from pixeltable.utils.app_module import (
     _evict_project_modules,
     load_app_module,
@@ -196,7 +196,7 @@ class TestProjectModuleEviction:
         # the daemon runs from it, which is what sysconfig reports and _ENV_DIRS is built from
         installed = root / '.venv' / 'lib' / 'python3.11' / 'site-packages'
         installed.mkdir(parents=True)
-        monkeypatch.setattr(app_module, '_ENV_DIRS', (installed,))
+        monkeypatch.setattr(project, '_ENV_DIRS', (installed,))
         (installed / 'psycopg').mkdir()
         (installed / 'psycopg' / '__init__.py').write_text('')
 
