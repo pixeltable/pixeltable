@@ -45,6 +45,7 @@ from pixeltable.service.management_protocol import (
     StartDbRequest,
     StopDbRequest,
 )
+from pixeltable.utils import app_module
 from pixeltable.utils.app_module import (
     _evict_project_modules,
     load_app_module,
@@ -191,9 +192,11 @@ class TestProjectModuleEviction:
         root = tmp_path / 'project'
         (root / 'apps').mkdir(parents=True)
         (root / 'apps' / 'udfs.py').write_text('')
-        # where `python -m venv .venv` puts the packages of a project that holds its own environment
+        # where `python -m venv .venv` puts the packages of a project that holds its own environment;
+        # the daemon runs from it, which is what sysconfig reports and _ENV_DIRS is built from
         installed = root / '.venv' / 'lib' / 'python3.11' / 'site-packages'
         installed.mkdir(parents=True)
+        monkeypatch.setattr(app_module, '_ENV_DIRS', (installed,))
         (installed / 'psycopg').mkdir()
         (installed / 'psycopg' / '__init__.py').write_text('')
 
@@ -205,12 +208,16 @@ class TestProjectModuleEviction:
 
         loaded('apps.udfs', root / 'apps' / 'udfs.py')
         vendored = loaded('psycopg', installed / 'psycopg' / '__init__.py')
+        # a module the project no longer holds: the next import has to fail rather than find it cached
+        deleted = root / 'gone.py'
+        loaded('gone', deleted)
 
         # project_root is read-only, and the eviction reads the one this process was configured with
         monkeypatch.setattr(Config, 'project_root', property(lambda _: root))
         _evict_project_modules()
 
         assert sys.modules.get('apps.udfs') is None, 'the project module was not re-read'
+        assert sys.modules.get('gone') is None, 'a module whose source was deleted stayed cached'
         assert sys.modules.get('psycopg') is vendored, 'an installed package was unloaded'
 
 

@@ -118,18 +118,6 @@ _ENV_DIRS = tuple(
 )
 
 
-def _project_module_names() -> set[str]:
-    """The top-level module names provided solely by the project root (ie, not by a package).
-
-    A directory counts whether or not it holds an __init__.py: a project package may be a namespace package.
-    """
-    root = Config.get().project_root
-    assert root is not None  # module_name() refuses a file outside a project root
-    names = {path.stem for path in root.glob('*.py')}
-    names |= {path.name for path in root.iterdir() if path.is_dir() and path.name.isidentifier()}
-    return names
-
-
 def _evict_project_modules() -> None:
     """Remove the project's own modules from sys.modules, and their udfs from the registry.
 
@@ -141,15 +129,13 @@ def _evict_project_modules() -> None:
     root = Config.get().project_root
     assert root is not None  # module_name() refuses a file outside a project root
     registry = FunctionRegistry.get()
-    provided = _project_module_names()
     for name, module in list(sys.modules.items()):
         module_file = getattr(module, '__file__', None)
         if module_file is None or name == '__main__':
             continue
-        top = name.split('.', maxsplit=1)[0]
-        if top in _RUNNING_PACKAGES or top not in provided:
+        if name.split('.', maxsplit=1)[0] in _RUNNING_PACKAGES:
             continue
-        # only the file tells a project directory named json from the stdlib module of that name
+        # the file path lets us distinguish between a project module and a standard library module
         resolved = Path(module_file).resolve()
         if any(resolved.is_relative_to(env_dir) for env_dir in _ENV_DIRS):
             continue
