@@ -68,7 +68,7 @@ ingest.add_insert_route(
 )
 ```
 
-`pxt db update` creates the hosted database or updates its image, secrets, and size. It does not insert your data and does not start app HTTP. `pxt schema update` creates the tables. It does not start HTTP. `pxt service update` starts hosted HTTP. Do not use `pxt service run` for Cloud; that command only starts HTTP in your local terminal.
+`pxt db update` creates the hosted database or updates its image, secrets, and size. It does not insert your data and does not start app endpoints. `pxt schema update` creates the tables. It does not start the endpoints. `pxt service update` starts hosted endpoints. Do not use `pxt service run` for Cloud; that command only starts endpoints in your local terminal.
 
 After the database is up, insert from the Cloud dashboard and run `pxt schema diff` to see pending schema changes.
 

@@ -1,7 +1,7 @@
 ---
 title: 'Media processing'
 sidebarTitle: 'Datasets from media'
-description: 'Insert a video; frames are rows. Export when the dataset is ready.'
+description: 'Insert a video. Frames are rows. Export when the dataset is ready.'
 ---
 
 Insert media. Iterators explode it into rows. Computed columns run on the new rows. Export when you are ready to train.
@@ -28,6 +28,10 @@ class Frames(
     thumb = frame.resize((256, 256))  # type: ignore[name-defined]  # iterator output
 ```
 
+```bash
+pxt schema update app.py my_app
+```
+
 ```python
 videos = pxt.get_table('my_app.videos')
 videos.insert([{'video': 'demo.mp4'}])
@@ -35,6 +39,8 @@ frames = pxt.get_table('my_app.frames')
 frames.select(frames.thumb).head(10)
 ```
 
-Add Whisper, YOLOX, and other models from the cookbooks as computed columns on these tables. When the rows look ready for training, export with `to_pytorch_dataset()`.
+Add Whisper, YOLOX, and other models from the cookbooks as computed columns on these tables. When the rows look ready for training, export with `to_pytorch_dataset()`. Skip `pxt service update` on this path. [Self-hosting](/howto/deployment/overview).
+
+A video search app with endpoints: `uvx pixeltable-new myapp --video`, then pass `videointel` to `pxt schema update`. Live search over chunks: [RAG and live APIs](/use-cases/multimodal-backend).
 
 [Extract video frames](/howto/cookbooks/video/video-extract-frames) · [Transcribe audio](/howto/cookbooks/audio/audio-transcribe) · [Export to PyTorch](/howto/cookbooks/data/data-export-pytorch)
