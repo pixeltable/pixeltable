@@ -33,7 +33,7 @@ This page leads with a `TableModel` in `app.py`. Create those tables with `pxt s
 
 ## Basic types
 
-```python wrap
+```python
 import pixeltable as pxt
 
 TableModel = pxt.model_base()
@@ -49,7 +49,7 @@ class Example(TableModel, name='basic_types'):
 
 In a notebook:
 
-```python wrap
+```python
 table = pxt.create_table('example/basic_types', {
     'text': pxt.String,
     'count': pxt.Int,
@@ -63,7 +63,7 @@ table = pxt.create_table('example/basic_types', {
 
 Use `uuid7()` to create columns that auto-generate unique identifiers:
 
-```python wrap
+```python
 from pixeltable.functions.uuid import uuid7
 
 # UUID as primary key - auto-generated for each row
@@ -79,7 +79,7 @@ products.insert([{'name': 'Laptop', 'price': 999.99}])
 
 You can also add UUIDs to existing tables:
 
-```python wrap
+```python
 # Add UUID column to existing table
 orders.add_computed_column(order_id=uuid7())
 ```
@@ -96,7 +96,7 @@ See the [UUID cookbook](/howto/cookbooks/core/workflow-uuid-identity) for more e
 
 Pixeltable natively supports images, video, audio, and documents as first-class column types.
 
-```python wrap
+```python
 import pixeltable as pxt
 
 TableModel = pxt.model_base()
@@ -111,7 +111,7 @@ class Media(TableModel, name='media'):
 
 In a notebook:
 
-```python wrap
+```python
 media = pxt.create_table('example/media', {
     'image': pxt.Image,
     'video': pxt.Video,
@@ -124,7 +124,7 @@ media = pxt.create_table('example/media', {
 
 Images can be constrained by resolution and/or color mode:
 
-```python wrap
+```python
 # Constrain by resolution
 thumbnails = pxt.create_table('example/thumbnails', {
     'thumb': pxt.Image[(224, 224)]  # Width 224, height 224
@@ -149,7 +149,7 @@ See the [PIL Documentation](https://pillow.readthedocs.io/en/stable/handbook/con
 
 Arrays are used for embeddings, feature vectors, and tensor data. They must always specify a shape and dtype.
 
-```python wrap
+```python
 ml_data = pxt.create_table('example/ml_features', {
     # Fixed-size embedding (e.g., from CLIP or OpenAI)
     'embedding': pxt.Array[(768,), pxt.Float],
@@ -171,7 +171,7 @@ Array shapes follow NumPy conventions. Use `None` for unconstrained dimensions:
 
 ### Working with arrays
 
-```python wrap
+```python
 # Arrays can be sliced like NumPy arrays
 t.select(
     t.embedding[0],      # First element
@@ -184,7 +184,7 @@ t.select(
 
 The `Json` type stores flexible structured data—dictionaries, lists, or primitives.
 
-```python wrap
+```python
 logs = pxt.create_table('example/logs', {
     'event': pxt.Json
 })
@@ -200,7 +200,7 @@ logs.insert([
 
 Access nested data using dictionary or attribute syntax:
 
-```python wrap
+```python
 # Dictionary syntax
 t.select(t.event['type']).collect()
 
@@ -222,7 +222,7 @@ Pixeltable handles missing keys gracefully—you'll get `None` instead of an exc
 
 Validate JSON columns against a schema to ensure data integrity:
 
-```python wrap
+```python
 # Define a JSON schema
 movie_schema = {
     'type': 'object',
@@ -248,7 +248,7 @@ movies.insert(data={'title': 'Inception', 'year': 2010, 'rating': 8.8})
 
 ### Using Pydantic models
 
-```python wrap
+```python
 from pydantic import BaseModel
 
 class Movie(BaseModel):
@@ -266,7 +266,7 @@ movies = pxt.create_table('example/pydantic_movies', {
 
 Use `astype()` to convert string file paths or URLs to media types:
 
-```python wrap
+```python
 # String file paths → Media types
 media = pxt.create_table('media_table', {'path': pxt.String})
 media.insert([{'path': '/path/to/image.jpg'}])
@@ -287,7 +287,7 @@ For other type conversions, use built-in functions from the [`string`](/sdk/late
 
 Media columns (`Image`, `Video`, `Audio`, `Document`) have special properties:
 
-```python wrap
+```python
 # Local file path (Pixeltable ensures this is on local filesystem)
 t.select(t.image.localpath).collect()
 
@@ -299,7 +299,7 @@ t.select(t.image.fileurl).collect()
 
 Computed columns have `errortype` and `errormsg` properties for debugging:
 
-```python wrap
+```python
 # Create a computed column that might fail
 t.add_computed_column(
     result=some_function(t.input),

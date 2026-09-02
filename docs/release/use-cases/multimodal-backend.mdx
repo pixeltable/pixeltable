@@ -8,7 +8,7 @@ Insert a document. The iterator explodes it into chunks. The embedding index sta
 
 Create the tables with `pxt schema update app.py my_app`, then open them with `t = pxt.get_table('my_app.docs')`. Cookbooks on this topic use `pxt.create_table()` so you can run cells without a project. An app puts the same columns on a `TableModel` in `app.py` and creates the tables with `pxt schema update`.
 
-```python wrap
+```python
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.serving import FastAPIRouter
@@ -27,10 +27,12 @@ class Chunks(
     TableModel,
     name='chunks',
     base=Docs,
-    iterator=pxtf.document.document_splitter(Docs.document, separators='token_limit', limit=300),
+    iterator=pxtf.document.document_splitter(
+        Docs.document, separators='token_limit', limit=300
+    ),
 ):
     __indexes__ = [
-        pxt.EmbeddingIndex(text, embedding=embed, name='chunks_embed')  # type: ignore[name-defined]  # iterator output
+        pxt.EmbeddingIndex(text, embedding=embed, name='chunks_embed')
     ]
 
 
@@ -41,16 +43,21 @@ def search_docs(query_text: str):
 
 
 api = FastAPIRouter(name='rag')
-api.add_insert_route(Docs, path='/docs', uploadfile_inputs=[Docs.document], outputs=[Docs.document])
+api.add_insert_route(
+    Docs,
+    path='/docs',
+    uploadfile_inputs=[Docs.document],
+    outputs=[Docs.document],
+)
 api.add_query_route(path='/search', query=search_docs, method='post')
 ```
 
-```bash wrap
+```bash
 pxt schema update app.py my_app
 pxt service update app.py my_app
 ```
 
-```python wrap
+```python
 docs = pxt.get_table('my_app.docs')
 docs.insert([{'document': 'report.pdf'}])
 ```

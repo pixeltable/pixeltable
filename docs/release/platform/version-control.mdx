@@ -13,7 +13,7 @@ Put the table on a `TableModel` in `app.py` for an application. Inserts, updates
 
 Every operation that modifies a table creates a new version:
 
-```python wrap
+```python
 import pixeltable as pxt
 
 TableModel = pxt.model_base()
@@ -24,11 +24,11 @@ class Products(TableModel, name='products'):
     price: pxt.Float
 ```
 
-```bash wrap
+```bash
 pxt schema update app.py demo
 ```
 
-```python wrap
+```python
 products = pxt.get_table('demo.products')
 
 # Version 1: Data inserted
@@ -50,7 +50,7 @@ No configuration required—versioning is always on.
 
 ### Human-readable history
 
-```python wrap
+```python
 products.history()
 ```
 
@@ -65,7 +65,7 @@ Returns a DataFrame showing all versions with timestamps, change types, and row 
 
 ### Programmatic access
 
-```python wrap
+```python
 versions = products.get_versions()  # List of dictionaries
 latest = versions[0]
 print(f"Version {latest['version']}: {latest['inserts']} inserts")
@@ -75,7 +75,7 @@ print(f"Version {latest['version']}: {latest['inserts']} inserts")
 
 Query any historical version using the `table_name:version` syntax:
 
-```python wrap
+```python
 # Get the table at version 1 (before computed column)
 products_v1 = pxt.get_table('demo/products:1')
 products_v1.collect()  # Returns data as it was at version 1
@@ -97,7 +97,7 @@ Version handles are **read-only**—you cannot modify historical data.
 
 Undo the most recent change with `revert()`:
 
-```python wrap
+```python
 # Oops, wrong update
 products.update({'price': 0.00}, where=products.name == 'Widget')
 
@@ -115,7 +115,7 @@ You can call `revert()` multiple times to go back further, but cannot revert pas
 
 Create named, persistent point-in-time copies for long-term preservation:
 
-```python wrap
+```python
 # Freeze current state before a major data update
 baseline = pxt.create_snapshot('demo/products_baseline', products)
 
@@ -137,7 +137,7 @@ Pixeltable tracks the complete lineage of your data:
 ### Schema lineage
 Every computed column records its dependencies:
 
-```python wrap
+```python
 products.add_computed_column(
     discounted=products.price * 0.9
 )
@@ -151,7 +151,7 @@ products.add_computed_column(
 ### View lineage
 Views automatically track their source tables:
 
-```python wrap
+```python
 expensive = pxt.create_view(
     'demo/expensive_products',
     products.where(products.price > 20)

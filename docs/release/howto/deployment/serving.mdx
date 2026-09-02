@@ -6,7 +6,7 @@ description: 'HTTP routes for insert, compute, update, delete, and query, plus u
 
 Install FastAPI and uvicorn first:
 
-```bash wrap
+```bash
 pip install 'pixeltable[serve]'
 ```
 
@@ -14,7 +14,7 @@ How the process starts is on [Self-hosting](/howto/deployment/overview). This pa
 
 ## Mount on your own FastAPI app
 
-```python wrap
+```python
 import fastapi
 import uvicorn
 import pixeltable as pxt
@@ -47,14 +47,14 @@ uvicorn.run(app, host='0.0.0.0', port=8000)
 
 [`Table.compute()`](/sdk/latest/table#method-compute) runs computed columns and returns the values without writing a row.
 
-```python wrap
+```python
 rows = t.compute([{'prompt': 'hello'}])
 print(rows[0]['result'])
 ```
 
 Same over HTTP:
 
-```python wrap
+```python
 router.add_compute_route(
     t,
     path='/preview',
@@ -67,7 +67,7 @@ router.add_compute_route(
 
 `add_insert_route()` builds the response model from the column schema. To return a custom JSON body, use `@router.insert_route` instead of `add_insert_route()`. The function receives `outputs` as keyword arguments and returns a `pydantic.BaseModel`.
 
-```python wrap
+```python
 import pydantic
 from pixeltable.serving import FastAPIRouter
 
@@ -120,7 +120,7 @@ At registration:
 
 `SqlExport` writes each successful insert or update to another SQL table. Pixeltable commits first; then the external write. If the external write fails, the request is HTTP 500. No rollback.
 
-```python wrap
+```python
 from pixeltable.serving import FastAPIRouter, SqlExport
 
 router = FastAPIRouter()
@@ -156,7 +156,7 @@ A connection string with an embedded password is plaintext in the application fi
 
 ## Full example
 
-```python wrap
+```python
 # app.py
 import pixeltable as pxt
 from pixeltable.serving import FastAPIRouter
@@ -216,14 +216,14 @@ images.add_query_route(
 
 `insert()`, `update()`, and `batch_update()` can return computed columns without a follow-up query:
 
-```python wrap
+```python
 status = table.insert([row], return_rows=True)
 data = status.rows[0]
 ```
 
 `status.rows` is a list of dicts. For typed access, `model_validate()` with `extra="ignore"`:
 
-```python wrap
+```python
 from pydantic import BaseModel
 
 
@@ -244,7 +244,7 @@ After `.collect()`, use `to_pydantic()`. After `return_rows=True`, use `model_va
 
 `background=True` returns a job handle immediately:
 
-```json wrap
+```json
 {
   "id": "abc123",
   "job_url": "http://127.0.0.1:<port>/_pxt/jobs/abc123"
@@ -253,7 +253,7 @@ After `.collect()`, use `to_pydantic()`. After `return_rows=True`, use `model_va
 
 Poll `job_url` (`pxt service list` prints the base URL):
 
-```bash wrap
+```bash
 curl http://127.0.0.1:<port>/_pxt/jobs/abc123
 # {"status": "pending"}
 # {"status": "done", "result": {...}}

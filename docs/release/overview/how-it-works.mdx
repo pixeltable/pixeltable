@@ -57,7 +57,7 @@ A schema change with a service already running needs `pxt service update` after 
   <Tab title="Local">
     No Cloud account. Follow the [Quickstart](/overview/quick-start). For which process should listen, see [Self-hosting](/howto/deployment/overview).
 
-    ```bash wrap
+    ```bash
     pxt init
     pxt schema update app.py my_app
     pxt service update app.py my_app
@@ -66,7 +66,7 @@ A schema change with a service already running needs `pxt service update` after 
   <Tab title="Cloud">
     Use the same `app.py` with a `pxt://` URL as the last argument after `pxt db update`. [Deploy to Pixeltable Cloud](/howto/deployment/cloud). `pxt service run` only starts endpoints in your local terminal.
 
-    ```bash wrap
+    ```bash
     pxt db update pxt://org:mydb
     pxt schema update app.py pxt://org:mydb
     pxt service update app.py pxt://org:mydb

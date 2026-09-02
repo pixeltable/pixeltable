@@ -30,7 +30,7 @@ project, one root.
 
 Create tables, then start HTTP:
 
-```bash wrap
+```bash
 pxt init
 pxt schema update app.py my_app
 pxt service update app.py my_app
@@ -40,7 +40,7 @@ pxt service update app.py my_app
 second file under the same project root can use a different last-argument
 name:
 
-```bash wrap
+```bash
 pxt schema update ads/app.py ads
 pxt schema update docs/app.py docs_app
 ```
@@ -49,7 +49,7 @@ Add another `[[pixeltable.database]]` block for a second database. Leave
 `name` off for the local database. For Cloud, set `name = "pxt://org:db"`
 and list the files `pxt db update` should upload:
 
-```toml wrap
+```toml
 [[pixeltable.database]]
 
 [[pixeltable.database]]
@@ -59,7 +59,7 @@ include = ["app.py", "functions.py"]
 
 Same `app.py`, different last argument:
 
-```bash wrap
+```bash
 pxt schema update app.py my_app
 pxt schema update app.py pxt://org:prod
 ```
@@ -70,7 +70,7 @@ the router on your own FastAPI app, start that app as in [HTTP serving](/howto/d
 
 Minimum Python and Pixeltable versions:
 
-```toml wrap
+```toml
 [project]
 requires-python = ">=3.11"
 dependencies = [
@@ -98,14 +98,14 @@ Default home is `~/.pixeltable`: `pgdata` (PostgreSQL), `media` (generated files
 
 File cache size is `file_cache_size_g` in `config.toml` only. [Configuration](/platform/configuration).
 
-```toml wrap
+```toml
 # ~/.pixeltable/config.toml
 file_cache_size_g = 50
 ```
 
 If you only insert and export, the Pixeltable data directory can be temporary: write the result out with `export_sql`. [Self-hosting](/howto/deployment/overview). A long-running service needs a persistent volume at `PIXELTABLE_HOME` (pgdata, media, file_cache). Starter-kit Dockerfiles set `PIXELTABLE_HOME=/data/pixeltable`.
 
-```bash wrap
+```bash
 PIXELTABLE_INPUT_MEDIA_DEST=s3://your-bucket/input
 PIXELTABLE_OUTPUT_MEDIA_DEST=s3://your-bucket/output
 ```

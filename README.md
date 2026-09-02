@@ -47,9 +47,9 @@ TableModel = pxt.model_base()
 
 
 class Docs(TableModel, name='docs'):
-    title: pxt.String  # a stored column
-    body: pxt.String | None  # a stored column that may be null
-    title_upper = pxtf.string.upper(title)  # computed: an assignment, not an annotation
+    title: pxt.String
+    body: pxt.String | None
+    title_upper = pxtf.string.upper(title)
 
 
 ingest = FastAPIRouter(name='ingest')

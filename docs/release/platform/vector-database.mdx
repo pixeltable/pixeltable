@@ -43,10 +43,10 @@ The setup phase defines your schema and creates embedding indexes.
 
 <Tabs>
   <Tab title="Sentence Transformers">
-    ```bash wrap
+    ```bash
     pip install pixeltable sentence-transformers
     ```
-    ```python wrap
+    ```python
     import pixeltable as pxt
     from pixeltable.functions.huggingface import sentence_transformer
 
@@ -75,10 +75,10 @@ The setup phase defines your schema and creates embedding indexes.
   </Tab>
 
   <Tab title="OpenAI">
-    ```bash wrap
+    ```bash
     pip install pixeltable openai
     ```
-    ```python wrap
+    ```python
     import pixeltable as pxt
     from pixeltable.functions.openai import embeddings
 
@@ -105,7 +105,7 @@ The setup phase defines your schema and creates embedding indexes.
   </Tab>
 
   <Tab title="Custom">
-    ```python wrap
+    ```python
     import tensorflow as tf
     import tensorflow_hub as hub
     import tensorflow_text
@@ -137,7 +137,7 @@ The setup phase defines your schema and creates embedding indexes.
 
 <CardGroup cols={1}>
   <Card title="Similarity Metrics" icon="calculator">
-    ```python wrap
+    ```python
     # Available metrics:
     docs.add_embedding_index(
         column='content',
@@ -150,7 +150,7 @@ The setup phase defines your schema and creates embedding indexes.
   </Card>
 
   <Card title="Index Configuration" icon="gear">
-    ```python wrap
+    ```python
     # Optional parameters
     docs.add_embedding_index(
         column='content',
@@ -166,7 +166,7 @@ The setup phase defines your schema and creates embedding indexes.
 
 The insert phase populates your indexes with data. Pixeltable automatically computes embeddings and maintains index consistency.
 
-```python wrap
+```python
 # Single insertion
 docs.insert([
     {
@@ -205,7 +205,7 @@ The query phase allows you to search your indexed content using the `similarity(
 
 <Tabs>
   <Tab title="Similarity Search">
-    ```python wrap
+    ```python
       sim = docs.content.similarity(string="what is the documentation")
 
       # Return top-k most similar documents
@@ -221,7 +221,7 @@ The query phase allows you to search your indexed content using the `similarity(
   </Tab>
 
   <Tab title="Use in a Computed Column">
-    ```python wrap
+    ```python
     @pxt.query
     def filtered_search(query: str, category: str):
         sim = docs.content.similarity(string=query)
@@ -245,7 +245,7 @@ The query phase allows you to search your indexed content using the `similarity(
 
 Pixeltable allows direct access to the raw embedding vectors through the `.embedding()` method. This feature lets you retrieve the actual vector representations that power similarity search.
 
-```python wrap
+```python
 # Access embeddings from a column with a single index
 results = docs.select(
     docs.content,
@@ -278,7 +278,7 @@ docs.add_computed_column(
 
 <CardGroup cols={1}>
   <Card title="Drop Index" icon="trash">
-    ```python wrap
+    ```python
     # Drop by name
     docs.drop_embedding_index(idx_name='e5_idx')
 
@@ -288,7 +288,7 @@ docs.add_computed_column(
   </Card>
 
   <Card title="Update Index" icon="arrows-rotate">
-    ```python wrap
+    ```python
     # Indexes auto-update on changes
     docs.update({
         'content': docs.content + ' Updated!'

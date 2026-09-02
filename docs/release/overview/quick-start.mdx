@@ -9,14 +9,14 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
 
 <Tabs>
   <Tab title="venv">
-    ```bash wrap
+    ```bash
     python -m venv .venv
     source .venv/bin/activate   # Windows: .venv\Scripts\activate
     pip install 'pixeltable[serve]'
     ```
   </Tab>
   <Tab title="uv">
-    ```bash wrap
+    ```bash
     uv venv --python 3.12
     source .venv/bin/activate   # Windows: .venv\Scripts\activate
     uv pip install 'pixeltable[serve]'
@@ -32,13 +32,13 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
   <Step title="Write the file">
     `pxt service example` writes a working application file: models and a `FastAPIRouter` in one place.
 
-    ```bash wrap
+    ```bash
     pxt service example --out app.py
     ```
 
     The generated file looks like this. The command writes a longer file than the snippet (it includes a UDF and a compute route), which you can delete.
 
-    ```python wrap
+    ```python
     import pixeltable as pxt
     import pixeltable.functions as pxtf
     from pixeltable.serving import FastAPIRouter
@@ -47,9 +47,9 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
 
 
     class Docs(TableModel, name='docs'):
-        title: pxt.String  # a stored column
-        body: pxt.String | None  # a stored column that may be null
-        title_upper = pxtf.string.upper(title)  # computed: an assignment, not an annotation
+        title: pxt.String
+        body: pxt.String | None
+        title_upper = pxtf.string.upper(title)
 
 
     ingest = FastAPIRouter(name='ingest')
@@ -64,7 +64,7 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
     `title: pxt.String` is a value you insert. `title_upper = ...` is computed on insert and on update.
   </Step>
   <Step title="Create tables, then start the endpoints">
-    ```bash wrap
+    ```bash
     pxt init
     pxt schema update app.py my_app
     pxt service update app.py my_app
@@ -75,7 +75,7 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
   <Step title="Insert a row">
     Send a row with HTTP POST. Pixeltable computes `title_upper` during that insert. `pxt service list` prints the URL (the port is assigned):
 
-    ```bash wrap
+    ```bash
     pxt service list
     # ingest  http://127.0.0.1:<port>  ...
     curl -X POST http://127.0.0.1:<port>/docs \
@@ -111,7 +111,7 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
   <Tab title="Cloud">
     To run this same file on Pixeltable Cloud, create an API key in the [Cloud dashboard](/howto/deployment/cloud#get-an-api-key), set `PIXELTABLE_API_KEY`, create the hosted database with `pxt db update`, create tables with `pxt schema update`, then start hosted endpoints with `pxt service update`. Try changes by inserting from the dashboard and running `pxt schema diff`.
 
-    ```bash wrap
+    ```bash
     pxt db update pxt://org:mydb
     pxt schema update app.py pxt://org:mydb
     pxt service update app.py pxt://org:mydb
@@ -122,7 +122,7 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
   <Tab title="Starter kit">
     [`uvx pixeltable-new`](https://github.com/pixeltable/pixeltable-new) copies a full app. The default copied app uses namespace `agent` as the last argument to `pxt schema update`. `--video` copies video search and uses `videointel`.
 
-    ```bash wrap
+    ```bash
     uvx pixeltable-new myapp
     cd myapp
     uv sync

@@ -9,7 +9,7 @@ Pixeltable provides extensive built-in support for popular embedding models, but
 
 Here's a simple example using a custom BERT model:
 
-```python wrap
+```python
 import tensorflow as tf
 import tensorflow_hub as hub
 import pixeltable as pxt
@@ -39,7 +39,7 @@ The quick start example works but isn't production-ready. Below we'll cover how 
 
 Always cache your model instances to avoid reloading on every call:
 
-```python wrap
+```python
 @pxt.udf
 def optimized_bert_embed(text: str) -> pxt.Array[(512,), pxt.Float]:
     """BERT embedding function with model caching"""
@@ -63,7 +63,7 @@ def optimized_bert_embed(text: str) -> pxt.Array[(512,), pxt.Float]:
 
 Use Pixeltable's batching capabilities for better performance:
 
-```python wrap
+```python
 from pixeltable.func import Batch
 
 @pxt.udf(batch_size=32)
@@ -89,7 +89,7 @@ def batched_bert_embed(texts: Batch[str]) -> Batch[pxt.Array[(512,), pxt.Float]]
 
 Always implement proper error handling in production UDFs:
 
-```python wrap
+```python
 @pxt.udf
 def robust_bert_embed(text: str) -> pxt.Array[(512,), pxt.Float]:
     """BERT embedding with error handling"""

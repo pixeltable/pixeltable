@@ -24,7 +24,7 @@ Iterators are particularly useful when:
 In an app file, set `iterator=` on the view's `TableModel`. In a notebook, pass `iterator=` to `pxt.create_view()`.
 </Note>
 
-```python wrap
+```python
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
@@ -48,7 +48,7 @@ class Chunks(
 
 In a notebook:
 
-```python wrap
+```python
 import pixeltable as pxt
 from pixeltable.functions.document import document_splitter
 
@@ -88,7 +88,7 @@ Iterators are powerful tools for processing large media files. They work seamles
 
 <Tabs>
   <Tab title="document_splitter">
-    ```python wrap
+    ```python
     from pixeltable.functions.document import document_splitter
 
     # Create view with document chunks
@@ -112,7 +112,7 @@ Iterators are powerful tools for processing large media files. They work seamles
   </Tab>
 
   <Tab title="frame_iterator">
-    ```python wrap
+    ```python
     from pixeltable.functions.video import frame_iterator
 
     # Extract frames at 1 FPS
@@ -154,7 +154,7 @@ Iterators are powerful tools for processing large media files. They work seamles
   </Tab>
 
   <Tab title="video_splitter">
-    ```python wrap
+    ```python
     from pixeltable.functions.video import video_splitter
 
     # Split video into 10-second segments
@@ -182,7 +182,7 @@ Iterators are powerful tools for processing large media files. They work seamles
   </Tab>
 
   <Tab title="string_splitter">
-    ```python wrap
+    ```python
     from pixeltable.functions.string import string_splitter
 
     # Split text into sentences
@@ -205,7 +205,7 @@ Iterators are powerful tools for processing large media files. They work seamles
   </Tab>
 
   <Tab title="tile_iterator">
-    ```python wrap
+    ```python
     from pixeltable.functions.image import tile_iterator
 
     # Create tiles with overlap
@@ -226,7 +226,7 @@ Iterators are powerful tools for processing large media files. They work seamles
   </Tab>
 
   <Tab title="audio_splitter">
-    ```python wrap
+    ```python
     from pixeltable.functions.audio import audio_splitter
 
     # Split by duration (exactly one of duration or max_size is required)
@@ -315,7 +315,7 @@ Iterators are powerful tools for processing large media files. They work seamles
 
 <AccordionGroup>
   <Accordion title="RAG Pipeline" icon="robot">
-    ```python wrap
+    ```python
     # Create document chunks
     chunks = pxt.create_view(
         'rag/chunks',
@@ -338,7 +338,7 @@ Iterators are powerful tools for processing large media files. They work seamles
   </Accordion>
 
   <Accordion title="Video Object Detection" icon="video">
-    ```python wrap
+    ```python
     # Extract frames at 1 FPS
     frames = pxt.create_view(
         'detection/frames',
@@ -355,7 +355,7 @@ Iterators are powerful tools for processing large media files. They work seamles
   </Accordion>
 
   <Accordion title="Audio Transcription" icon="microphone">
-    ```python wrap
+    ```python
     # Split long audio files (silence-aware cuts avoid mid-word boundaries)
     segments = pxt.create_view(
         'audio/segments',
@@ -373,7 +373,7 @@ Iterators are powerful tools for processing large media files. They work seamles
   </Accordion>
 
   <Accordion title="Video Generation" icon="film-simple">
-    ```python wrap
+    ```python
     from pixeltable.functions.video import make_video
 
     # Extract frames at 1 FPS
@@ -424,7 +424,7 @@ When using `token_limit` with `document_splitter`, ensure the limit accounts for
 
 You can create your own iterators using the `@pxt.iterator` decorator on a Python generator function. This is the simplest way to define a custom iterator that splits one row into many.
 
-```python wrap
+```python
 from typing import Iterator, TypedDict
 import pixeltable as pxt
 
@@ -447,7 +447,7 @@ words_view = pxt.create_view(
 
 Use `unstored_cols` to mark columns that should not be persisted:
 
-```python wrap
+```python
 from typing import Iterator, TypedDict
 import pixeltable as pxt
 

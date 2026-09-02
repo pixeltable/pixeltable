@@ -10,7 +10,7 @@ Hosted databases are backed up by Pixeltable Cloud. For a local database, back u
 | No HTTP | If you exported with `export_sql`, keep that SQL copy and `app.py` in git | Run `pxt schema update` again, then insert the data again |
 | Long-running service | `pg_dump` of `~/.pixeltable/pgdata` plus `~/.pixeltable/media/` (or bucket versioning) | Restore `pgdata` and media, restart |
 
-```bash wrap
+```bash
 pg_dump -h ~/.pixeltable/pgdata -U postgres pixeltable > backup.sql
 tar -czf media_backup.tar.gz ~/.pixeltable/media/
 ```
@@ -19,7 +19,7 @@ Stop Pixeltable, restore Postgres from the dump, copy `media` back, then start P
 
 Pixeltable does not manage end-user accounts. Put auth on your HTTP layer. Do not expose PostgreSQL port 5432. Do not put long-lived cloud keys in `config.toml` if the host can use its own IAM role.
 
-```python wrap
+```python
 import os
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')

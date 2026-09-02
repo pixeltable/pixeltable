@@ -15,7 +15,7 @@ Defining the class does not create the table. Run `pxt schema update app.py my_a
 
     You do not need a separate vector database. The embedding index sits on the column. Insert keeps it current.
 
-    ```python wrap
+    ```python
     import pixeltable as pxt
     import pixeltable.functions as pxtf
 
@@ -35,7 +35,7 @@ Defining the class does not create the table. Run `pxt schema update app.py my_a
         ]
     ```
 
-    ```python wrap
+    ```python
     items = pxt.get_table('my_app.items')
     sim = items.body.similarity(string='application file')
     items.order_by(sim, asc=False).limit(5).select(items.body)
@@ -46,7 +46,7 @@ Defining the class does not create the table. Run `pxt schema update app.py my_a
   <Tab title="Postgres" icon="database">
     You do not need a separate RDBMS for application rows. Typed columns, insert, and select live in the catalog.
 
-    ```python wrap
+    ```python
     import pixeltable as pxt
 
     TableModel = pxt.model_base()
@@ -58,7 +58,7 @@ Defining the class does not create the table. Run `pxt schema update app.py my_a
         note: pxt.String | None
     ```
 
-    ```python wrap
+    ```python
     orders = pxt.get_table('my_app.orders')
     orders.insert([{'sku': 'a1', 'qty': 2, 'note': None}])
     orders.where(orders.qty > 1).select(orders.sku, orders.qty).collect()
@@ -71,7 +71,7 @@ Defining the class does not create the table. Run `pxt schema update app.py my_a
 
     You do not need StateGraph, ToolNode, or a checkpointer. After `pxt schema update`, insert `{'message': '...'}` and read `response` and `tool_output`.
 
-    ```python wrap
+    ```python
     import pixeltable as pxt
     import pixeltable.functions as pxtf
 
@@ -103,7 +103,7 @@ Defining the class does not create the table. Run `pxt schema update app.py my_a
 
     You do not need a frame loop, cron, or a full re-run. Insert a video. The iterator adds a `frame` column on `Frames`; `thumb` is a computed column from that `frame`.
 
-    ```python wrap
+    ```python
     import pixeltable as pxt
     import pixeltable.functions as pxtf
 

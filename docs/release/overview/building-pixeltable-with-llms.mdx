@@ -9,7 +9,7 @@ The skill tells the coding agent not to use LangChain, pandas as a database, per
 
 ## Set Up Your AI Tool
 
-```bash wrap
+```bash
 npx skills add pixeltable/pixeltable-skill
 ```
 
@@ -22,7 +22,7 @@ Works with tools that support [Agent Skills](https://agentskills.io/specificatio
   <Tab title="Claude Code">
     Same `npx skills add`, or the plugin:
 
-    ```bash wrap
+    ```bash
     /plugin marketplace add pixeltable/pixeltable-skill
     /plugin install pixeltable-skill@pixeltable-skill
     ```
@@ -42,7 +42,7 @@ Works with tools that support [Agent Skills](https://agentskills.io/specificatio
 
 Write an application file, then create its tables with `pxt schema update app.py my_app`. When you insert a row, computed columns run automatically.
 
-```python wrap
+```python
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
@@ -59,7 +59,7 @@ class Articles(TableModel, name='articles'):
     summary = response.choices[0].message.content
 ```
 
-```bash wrap
+```bash
 pxt schema update app.py my_app
 ```
 

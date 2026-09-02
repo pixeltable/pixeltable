@@ -9,13 +9,13 @@ The `pxt` CLI ships with the `pixeltable` package. It covers two surfaces:
 - **Catalog operations** -- inspect, query, and manage tables, views, and directories. Backed by a long-lived local daemon so each command takes ~40 ms after the first invocation.
 - **Service deployment** -- run the services an application file declares with `pxt service`, and publish them with `pxt deploy`. Both require the `serve` extra (which pulls in `fastapi[standard]` and `uvicorn`):
 
-  ```bash wrap
+  ```bash
   pip install 'pixeltable[serve]'
   ```
 
 Verify the installation:
 
-```bash wrap
+```bash
 pxt --help
 pxt health
 ```
@@ -24,7 +24,7 @@ On the first catalog command, `pxt` auto-spawns a daemon bound to `127.0.0.1:220
 
 ## Command structure
 
-```text wrap
+```text
 pxt <command> [args...]
 ```
 
@@ -57,7 +57,7 @@ These flags work the same way across the catalog commands that support them and 
 
 `pxt cd` sets a working directory that is prepended to *relative* paths in later commands, and `pxt pwd` prints it -- the catalog analogue of a shell's `cd`/`pwd`.
 
-```bash wrap
+```bash
 pxt cd my_dir                      # relative paths now resolve under my_dir
 pxt pwd                            # print the current working directory
 pxt ls sub                         # lists my_dir/sub
@@ -73,7 +73,7 @@ Because of that isolation, scripts and agents should address the catalog with ab
 
 ## Quick reference
 
-```bash wrap
+```bash
 # inspect
 pxt ls -l                          # everything under root, with metadata
 pxt ls some_dir --counts           # row counts (parallelized)
@@ -130,7 +130,7 @@ List entries under a directory.
 | `--counts` | Include row counts (runs `count()` per table, parallelized) |
 | `--tree` | Tree view |
 
-```bash wrap
+```bash
 pxt ls                            # root
 pxt ls some_dir                   # contents of some_dir
 pxt ls -l some_dir                # with metadata
@@ -139,7 +139,7 @@ pxt ls --counts                   # with row counts
 
 Output of `pxt ls -l`:
 
-```text wrap
+```text
 path                kind   cols  version  flags
 agent_demo          dir                       -
 audio_chunks        view      9        3  ci
@@ -153,7 +153,7 @@ Flag letters: `c` = has at least one computed column, `i` = has at least one ind
 
 Show a table's schema and metadata. The plain form is human-readable; `--json` returns the full `get_metadata()` dict.
 
-```bash wrap
+```bash
 pxt describe my_dir/my_table
 pxt describe my_dir/my_table --json
 ```
@@ -166,7 +166,7 @@ List columns for one or more tables. `pxt computed` is shorthand for `pxt column
 |---|---|
 | `--computed` | Restrict to computed columns (no effect for `pxt computed`, which always sets it) |
 
-```bash wrap
+```bash
 pxt columns                       # every column in the catalog
 pxt columns my_dir/my_table       # one table
 pxt columns my_dir                # every table under a directory, recursively
@@ -183,7 +183,7 @@ List indexes. Shows both B-tree and embedding indexes by default; the `--embeddi
 |---|---|
 | `--embedding` | Restrict to embedding indexes |
 
-```bash wrap
+```bash
 pxt idxs                          # every index
 pxt idxs my_dir/my_table          # indexes on one table
 pxt idxs my_dir                   # every table under a directory, recursively
@@ -199,7 +199,7 @@ Show a table's version timeline.
 |---|---|
 | `-n N` | Show at most N most recent versions |
 
-```bash wrap
+```bash
 pxt history my_dir/my_table
 pxt history my_dir/my_table -n 5  # last 5 versions
 ```
@@ -212,7 +212,7 @@ Daemon and runtime state: pxt version, daemon PID, configured paths, total table
 |---|---|
 | `--sizes` | Also report media and file-cache disk usage (slower; scans the directories) |
 
-```bash wrap
+```bash
 pxt status
 pxt status --sizes --json
 ```
@@ -221,7 +221,7 @@ pxt status --sizes --json
 
 Every documented configuration setting with its current value and source (`env`, `file`, or `unset`). Credentials show `<redacted>` when set; the `source` column reveals presence even when the value is masked.
 
-```bash wrap
+```bash
 pxt config
 pxt config --section openai
 pxt config --source env
@@ -238,7 +238,7 @@ Show the first N rows of a table. Unstored computed columns are skipped by defau
 | `-n N` | Number of rows (default 10) |
 | `--cols a,b,c` | Comma-separated column subset. Default: all stored columns |
 
-```bash wrap
+```bash
 pxt rows my_dir/my_table -n 3
 pxt rows my_dir/my_table --cols id,text,score
 ```
@@ -251,7 +251,7 @@ Look up a single row by primary key. A numeric-looking PK token is coerced to in
 |---|---|
 | `--cols a,b,c` | Comma-separated column subset. Default: all stored columns |
 
-```bash wrap
+```bash
 pxt get my_dir/my_table 42                    # single-column PK, int
 pxt get my_dir/my_table some_string_id        # single-column PK, string
 pxt get my_dir/my_table 42 abc                # composite PK, in declared order
@@ -260,7 +260,7 @@ pxt get my_dir/my_table 42 --cols id,text     # restrict to listed columns
 
 ### `pxt count`
 
-```bash wrap
+```bash
 pxt count my_dir/my_table         # prints the integer
 pxt count my_dir/my_table --json
 ```
@@ -273,7 +273,7 @@ List rows where a stored computed column failed. The table must have a primary k
 |---|---|
 | `--col NAME` | Filter to a single computed column |
 
-```bash wrap
+```bash
 pxt errors my_dir/my_table
 pxt errors my_dir/my_table --col embedding
 ```
@@ -290,7 +290,7 @@ Drop a table or view. Use `pxt drop-dir` for directories.
 |---|---|
 | `--cascade` | Also drop dependent views |
 
-```bash wrap
+```bash
 pxt drop my_dir/my_table -f                 # drop a table
 pxt drop my_dir/my_table --cascade -f       # also drop dependent views
 pxt drop my_dir/my_table -n                 # dry-run
@@ -304,7 +304,7 @@ Remove a directory. Use `pxt drop` for tables/views.
 |---|---|
 | `-r`, `--recursive` | Also remove contained tables/views/subdirectories |
 
-```bash wrap
+```bash
 pxt drop-dir my_dir -f            # remove an empty directory
 pxt drop-dir my_dir -r -f         # recursive: also remove contained tables/subdirs
 ```
@@ -313,7 +313,7 @@ pxt drop-dir my_dir -r -f         # recursive: also remove contained tables/subd
 
 Rename in place; the parent directory is preserved. `<new_name>` must be a single leaf name (no `/` or `.`). Takes only universal flags.
 
-```bash wrap
+```bash
 pxt rename my_dir/old_name new_name
 ```
 
@@ -321,7 +321,7 @@ pxt rename my_dir/old_name new_name
 
 Move a table/view/dir under a different directory; the leaf name is preserved. `<new_dir>` can be `''` or `/` for the root directory. Takes only universal flags.
 
-```bash wrap
+```bash
 pxt mv my_dir/my_table other_dir              # -> other_dir/my_table
 pxt mv my_dir/my_table /                      # move to root
 ```
@@ -334,7 +334,7 @@ Undo recent ops on a table. Each revert undoes one op; `--steps` repeats.
 |---|---|
 | `--steps N` | Number of consecutive reverts (default 1) |
 
-```bash wrap
+```bash
 pxt revert my_dir/my_table -f                 # undo the last op
 pxt revert my_dir/my_table --steps 3 -f       # roll back 3 versions
 ```
@@ -349,14 +349,14 @@ Revert is irreversible. Run `pxt history my_dir/my_table` first to see what woul
 
 `pxt init` writes that configuration in the current directory:
 
-```bash wrap
+```bash
 cd ~/proj
 pxt init                             # writes pixeltable.toml, making ~/proj the project root
 ```
 
 The file it writes holds one entry per database the project uses:
 
-```toml wrap
+```toml
 [[pixeltable.database]]
 # the local database
 vars.media_dest = 's3://bucket/prefix'      # binds a ConfigVar a schema declares
@@ -381,7 +381,7 @@ Imports resolve from the root down. This is where a single-file recipe and a lar
 
 A recorded path is how a later process -- the daemon, a serving worker, a hosted pod -- finds the udf again, so a command given a file outside any project root is refused. `pxt schema check` and `pxt service check` validate a file on its own -- it imports without touching the catalog, it declares what the verb needs, and the udfs its columns call are named by paths another process can resolve:
 
-```bash wrap
+```bash
 pxt schema check schema.py           # exit 0 valid, 1 invalid
 pxt service check app.py --json
 ```
@@ -404,22 +404,22 @@ The commands above act on one object at a time. `pxt schema` works differently: 
 
 A schema file defines one or more models on a `pxt.model_base()`. Each model becomes one table, named by `name=`. `pxt schema example` writes a file covering every construct the schema DSL supports, so you never have to start from a blank page and never have to look a construct up:
 
-```bash wrap
+```bash
 pxt schema example --out schema.py
 ```
 
 `pxt schema example --brief` writes the minimal version instead:
 
-```python wrap
+```python
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
 TableModel = pxt.model_base()
 
 class Docs(TableModel, name='docs'):
-    title: pxt.String                         # a stored column; non-nullable
-    body: pxt.String | None                   # `| None` makes it nullable
-    title_upper = pxtf.string.upper(title)    # a computed column: an assignment, not an annotation
+    title: pxt.String
+    body: pxt.String | None
+    title_upper = pxtf.string.upper(title)
 
 class Titled(TableModel, name='titled', base=Docs.where(Docs.title != '')):
     headline = Docs.title_upper + '!'         # a view of Docs, filtered by its base= query
@@ -431,14 +431,14 @@ The daemon imports the file, so it must be readable there. Its own directory is 
 
 ### Reviewing and applying
 
-```bash wrap
+```bash
 pxt schema diff   schema.py my_app     # review
 pxt schema update schema.py my_app     # apply
 ```
 
 `diff` prints one line per table, then one per operation:
 
-```text wrap
+```text
 ~ my_app/docs              update
     + column 'author' will be added  safe
     - column 'body' will be dropped  DESTRUCTIVE
@@ -466,7 +466,7 @@ Plan: 0 create, 1 update, 1 unchanged, 1 extra  |  1 destructive
 | `--allow-destructive` | Permit operations that drop a column or index |
 | `-f`, `--force` | Skip the `[y/N]` prompt shown before destructive operations |
 
-```bash wrap
+```bash
 pxt schema update schema.py my_app                          # safe changes
 pxt schema update schema.py my_app -n                       # the plan, applying nothing
 pxt schema update schema.py my_app --allow-destructive -f   # including drops
@@ -493,7 +493,7 @@ The schema commands report their outcome in the exit status, so a caller never h
 
 A drift check in CI is therefore one command:
 
-```bash wrap
+```bash
 pxt schema diff schema.py pxt://acme:main/prod    # 0 = in sync, 2 = drift, 1 = error
 ```
 
@@ -501,7 +501,7 @@ pxt schema diff schema.py pxt://acme:main/prod    # 0 = in sync, 2 = drift, 1 = 
 
 `pxt schema diff --json` emits the whole plan as one object: `schema_file`, `catalog_dir`, `in_agreement`, `tables`, `extras`, and a `summary` with one count per resolution. Each entry in `tables` carries its `path`, `resolution`, whether it is `destructive`, and its `ops`:
 
-```json wrap
+```json
 {
   "path": "my_app/docs",
   "model_cls": "Docs",
@@ -541,7 +541,7 @@ Every path returns the plan, including the ones that refuse before reaching the 
 | `-n`, `--dry-run` | List what would be dropped; exit `2` if anything would be |
 | `-f`, `--force` | Skip the `[y/N]` prompt |
 
-```bash wrap
+```bash
 pxt schema prune schema.py my_app -n     # list what would be dropped
 pxt schema prune schema.py my_app -f     # drop it
 ```
@@ -556,7 +556,7 @@ Pruning is irreversible. Run it with `-n` first.
 
 For agentic or scripted workloads that issue many commands in sequence, `pxt shell` amortizes Python startup over the session:
 
-```text wrap
+```text
 $ pxt shell
 pxt> ls
 path                kind
@@ -574,7 +574,7 @@ Inside the shell, every `pxt` command is available unmodified. Errors from one c
 
 Most catalog commands accept `--json` for stable, machine-readable output (exceptions: `shell` is interactive, `health` is already JSON):
 
-```bash wrap
+```bash
 pxt ls --json | jq '.entries[] | select(.kind == "table")'
 pxt get my_dir/my_table 42 --json | jq '.row'
 pxt count my_dir/my_table --json | jq '.count'
@@ -598,7 +598,7 @@ at `/docs`. For the API the routes are declared with, see the [Python serving AP
 
 One file declares both halves, so the same file drives both commands:
 
-```bash wrap
+```bash
 pxt service example --out app.py    # a working file to start from
 pxt schema update app.py my_dir     # create the tables the models declare
 pxt service update app.py my_dir    # serve this file's services against them
@@ -613,7 +613,7 @@ A file may supply its own `fastapi.FastAPI` object instead of leaving Pixeltable
 file declares one service, named after its module, and `pxt service update` serves that application as it
 is:
 
-```python wrap
+```python
 # notes_app.py
 TableModel = pxt.model_base()
 
@@ -628,7 +628,7 @@ def add_note(note_id: int, text: str) -> dict[str, int]:
     return {'rows': Notes.insert([{'note_id': note_id, 'text': text}]).num_rows}
 ```
 
-```bash wrap
+```bash
 pxt schema update notes_app.py my_dir     # create the tables for the models in notes_app.py
 pxt service update notes_app.py my_dir    # serve the application, as service 'notes_app'
 ```
@@ -639,7 +639,7 @@ them by name (`Notes.insert(...)`).
 All `FastAPIRouter` instances in the same source file are expected to be included in the `FastAPI` application
 (via `include_router()`), and the application file still produces a single service:
 
-```python wrap
+```python
 app.include_router(ingest, prefix='/v1')   # ingest's routes are served under /v1
 ```
 
@@ -652,7 +652,7 @@ parameters into account); the paths the application serves itself are simply dif
 `TARGET` may be a `pxt://org:db` uri, and the services then run in that database rather than on this
 machine. The database needs this project and its tables first, so the order is:
 
-```bash wrap
+```bash
 pxt db update pxt://acme:main               # create the database and put this project's code in it
 pxt schema update app.py pxt://acme:main    # create the tables the models declare
 pxt service update app.py pxt://acme:main   # start the services there
@@ -697,7 +697,7 @@ request spans of the FastAPI app. It needs the instrumentation package (`pip ins
 and the endpoint and service name come from the `OTEL_*` environment variables or the `[otel]` config
 section, as they do for any Pixeltable process.
 
-```bash wrap
+```bash
 pxt service run app.py my_dir --otel       # traced, in this process
 pxt service update app.py my_dir --otel    # traced, in the background process update starts
 ```
@@ -712,7 +712,7 @@ restart as a pending change before `update` performs it.
 `stop` can find it again. A service that crashes disappears from `list` with no cleanup step, because a
 record is only as live as the process it names.
 
-```bash wrap
+```bash
 pxt service update app.py my_dir
 pxt service list
 # my_dir/ingest  http://127.0.0.1:41273  pid 51234  /home/me/app.py
@@ -724,7 +724,7 @@ so it is a separate command, not a flag on `update`. Use it as a container entry
 One service per process, as `update` deploys them; name the service as a third argument when the file
 declares more than one:
 
-```bash wrap
+```bash
 pxt service run app.py my_dir --port 9000
 # Pixeltable is running on http://localhost:9000
 #   Routes: 4
@@ -752,7 +752,7 @@ All cloud commands accept `--json` for machine-readable output.
 
 Defines which project files the database gets, what its image holds, what it runs on, and which secrets it holds.
 
-```toml wrap
+```toml
 [[pixeltable.database]]
 name = 'pxt://myorg:prod'           # matches the uri passed to pxt db update
 
@@ -791,7 +791,7 @@ The URI argument is optional: with it omitted, these commands use `db_uri` from 
 
 #### `pxt db update`
 
-```bash wrap
+```bash
 pxt db update pxt://myorg:mydb
 pxt db update pxt://myorg:mydb -n      # print the plan and stop
 pxt db update pxt://myorg:mydb --allow-destructive
@@ -805,13 +805,13 @@ pxt db update pxt://myorg:mydb --allow-destructive
 
 This is the command that creates a hosted database, and the one that keeps it current afterwards. Put the database in a `[[pixeltable.database]]` entry, then run `update` against the URI its `name` holds:
 
-```toml wrap
+```toml
 # pixeltable.toml
 [[pixeltable.database]]
 name = 'pxt://myorg:mydb'
 ```
 
-```bash wrap
+```bash
 pxt db update pxt://myorg:mydb
 ```
 
@@ -821,14 +821,14 @@ The uri on the command line selects the entry by its `name`: an entry naming ano
 
 #### `pxt db list`
 
-```bash wrap
+```bash
 pxt db list pxt://myorg
 pxt db list pxt://myorg --json
 ```
 
 #### `pxt db status`
 
-```bash wrap
+```bash
 pxt db status pxt://myorg:mydb
 ```
 
@@ -836,7 +836,7 @@ Prints current state, endpoint, location, and timestamps.
 
 #### `pxt db start`
 
-```bash wrap
+```bash
 pxt db start pxt://myorg:mydb
 ```
 
@@ -844,7 +844,7 @@ Wake a stopped database. Polls until `AVAILABLE`.
 
 #### `pxt db stop`
 
-```bash wrap
+```bash
 pxt db stop pxt://myorg:mydb
 ```
 
@@ -852,7 +852,7 @@ Stop a running database (releases compute; storage is preserved).
 
 #### `pxt db diff`
 
-```bash wrap
+```bash
 pxt db diff pxt://myorg:mydb
 pxt db diff pxt://myorg:mydb --json
 ```
@@ -868,7 +868,7 @@ so an edit to a source file is uploaded in seconds, and only a dependency change
 
 #### `pxt db build-image`
 
-```bash wrap
+```bash
 pxt db build-image pxt://myorg:mydb
 ```
 
@@ -876,7 +876,7 @@ Uploads the project files and builds the image from its environment, without com
 
 #### `pxt db delete`
 
-```bash wrap
+```bash
 pxt db delete pxt://myorg:mydb --json
 ```
 
@@ -886,7 +886,7 @@ Deletes the database, its storage, and all services. Irreversible.
 
 #### `pxt org list`
 
-```bash wrap
+```bash
 pxt org list
 pxt org list --json
 ```
@@ -895,7 +895,7 @@ List all organizations accessible to the current API key.
 
 #### `pxt org status`
 
-```bash wrap
+```bash
 pxt org status pxt://myorg
 ```
 

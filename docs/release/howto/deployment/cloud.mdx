@@ -18,13 +18,13 @@ Sign in from the browser, create a key, then export it. The CLI reads `PIXELTABL
     Open **API Keys** in the organization sidebar, or go to `https://www.pixeltable.com/dashboard/your-org/api-keys`. Click **New**, or **Create API Key** if the list is empty. Name the key. Click **Create Key**. Copy the value now. The dashboard shows the full key once.
   </Step>
   <Step title="Export it">
-    ```bash wrap
+    ```bash
     export PIXELTABLE_API_KEY='your-key'
     ```
 
     Or in `~/.pixeltable/config.toml`:
 
-    ```toml wrap
+    ```toml
     [pixeltable]
     api_key = 'your-key'
     ```
@@ -35,12 +35,12 @@ Sign in from the browser, create a key, then export it. The CLI reads `PIXELTABL
 
 `pxt init` writes `pixeltable.toml`. Put the hosted URL in that file, then run the three commands:
 
-```toml wrap
+```toml
 [[pixeltable.database]]
 name = 'pxt://org:mydb'
 ```
 
-```bash wrap
+```bash
 pxt db update pxt://org:mydb
 pxt schema update app.py pxt://org:mydb
 pxt service update app.py pxt://org:mydb
@@ -48,7 +48,7 @@ pxt service update app.py pxt://org:mydb
 
 A Cloud table path uses the URI plus `/table`. Open it with `t = pxt.get_table('pxt://org:mydb/docs')`. A local table uses dotted `namespace.table`, such as `pxt.get_table('my_app.docs')`.
 
-```python wrap
+```python
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.serving import FastAPIRouter
@@ -76,7 +76,7 @@ After the database is up, insert from the Cloud dashboard and run `pxt schema di
 
 Every Cloud database includes a managed bucket. No provider account, no credentials file. Set `destination=` on that computed column:
 
-```python wrap
+```python
 class Images(TableModel, name='images'):
     photo: pxt.Image
     thumbnail = pxt.Column(

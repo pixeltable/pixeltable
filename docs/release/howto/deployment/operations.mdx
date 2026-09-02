@@ -9,7 +9,7 @@ Use sync (`def`) endpoint handlers, not `async def`. FastAPI puts `def` on a thr
 
 Use `FastAPIRouter` unless you need custom FastAPI handlers. If you write your own, use `def`, not `async def`:
 
-```python wrap
+```python
 from pydantic import BaseModel
 from fastapi import FastAPI
 import pixeltable as pxt
@@ -81,7 +81,7 @@ Change the class in `app.py` and run `pxt schema update` again. Notebooks: [Iter
 
 Each starter-kit app ships a `Dockerfile` and `docker-compose.yml`. In the container, run `pxt schema update app.py agent -f` once (`-f` skips the yes/no prompt), then start HTTP. Pass `agent` or `videointel` as the last argument, matching the starter app you copied. `pxt service run` starts HTTP in this container's foreground. Locally you usually run `pxt service update` instead:
 
-```dockerfile wrap
+```dockerfile
 ENV PIXELTABLE_HOME=/data/pixeltable
 CMD sh -c "uv run pxt schema update app.py agent -f \
   && uv run pxt service run app.py agent --host 0.0.0.0 --port 8000"
@@ -97,7 +97,7 @@ Only one process writes `~/.pixeltable/pgdata`. Do not mount the same `pgdata` o
 
 Insert/compute traces: `pip install 'pixeltable[otel]'`, then [Observability](/platform/observability).
 
-```python wrap
+```python
 import logging
 import time
 import pixeltable as pxt
@@ -117,7 +117,7 @@ def process_video(video: pxt.Video) -> pxt.Json:
         raise
 ```
 
-```python wrap
+```python
 from pixeltable.func import Batch
 
 
@@ -128,14 +128,14 @@ def embed_batch(texts: Batch[str]) -> Batch[list[float]]:
 
 Provider limits in `config.toml`. [Configuration](/platform/configuration#rate-limit-configuration).
 
-```toml wrap
+```toml
 [openai.rate_limits]
 gpt-4o = 500
 ```
 
 Throttle a custom endpoint with `resource_pool`. Default is 600 requests per minute.
 
-```python wrap
+```python
 @pxt.udf(resource_pool='request-rate:my_service')
 async def call_custom_api(prompt: str) -> dict:
     return await custom_api_call(prompt)
@@ -145,7 +145,7 @@ async def call_custom_api(prompt: str) -> dict:
 
 Development reset (deletes data):
 
-```bash wrap
+```bash
 rm -rf ~/.pixeltable/pgdata \
   ~/.pixeltable/media \
   ~/.pixeltable/file_cache
