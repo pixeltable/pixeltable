@@ -21,6 +21,7 @@ from typing import Any, Callable, Iterator
 import pytest
 
 from pixeltable.config import Config
+from pixeltable_cli.client.utils import is_running
 
 from ..utils import DatabaseRoot
 
@@ -108,12 +109,11 @@ def pxt_daemon(
             stdin=subprocess.DEVNULL,
         )
     try:
-        from pixeltable_cli.client.utils import is_running
-
         os.environ['PXT_PORT'] = str(port)
         # Allow for a cold pixeltable import in the daemon subprocess, which on a loaded CI runner can run
         # well past a warm import; matches the client's own startup health timeout.
         startup_timeout = 45
+        print(f'Waiting for the test daemon on port {port}, serving {session_project}', flush=True)
         deadline = time.time() + startup_timeout
         while time.time() < deadline:
             if is_running():
@@ -132,6 +132,7 @@ def pxt_daemon(
         # provoke that restart here, with the environment this fixture started the daemon with.
         subprocess.run(['pxt', 'ls', '/'], env=env, capture_output=True, check=False, timeout=60)
         assert is_running()
+        print(f'Test daemon is up on port {port}; log at {log_path}', flush=True)
         yield port
     finally:
         # a test may have restarted the daemon, in which case the process answering on the port is not the
@@ -158,8 +159,7 @@ PxtRunner = Callable[..., PxtResult]
 
 _RUN_TIMEOUT_SECS = 300
 
-# an image build runs CodeBuild, which takes minutes
-_IMAGE_BUILD_TIMEOUT_SECS = 1800
+_WHEEL_SUBDIR = 'wheels'
 
 
 def _as_text(stream: bytes | str | None) -> str:
@@ -178,39 +178,35 @@ def _copy_app_corpus(session_project: pathlib.Path) -> pathlib.Path:
 
 
 @pytest.fixture(scope='session')
-def hosted_image(session_project: pathlib.Path) -> None:
-    """Build the hosted database's image from this session's project, once.
-
-    A hosted database runs the project its image was built from, so a udf a hosted table refers to has to
-    be in that image. A module a test writes for itself never is, which is what the db_roots markers on
-    those tests record.
-    """
-    db_uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
-    if db_uri is None:
-        return
-    _copy_app_corpus(session_project)
-    entry = f'[[pixeltable.database]]\nname = {json.dumps(db_uri)}\n'
-    (session_project / 'pixeltable.toml').write_text(entry, encoding='utf-8')
-    # Naming pixeltable installs its dependencies; the build then reinstalls pixeltable itself from the
-    # base image's wheel, so the pod runs this tree rather than the release named here.
-    # The sentence splitter loads en_core_web_sm and does not fetch it, so the project names it too.
-    requirements = (
-        'pixeltable\n'
-        'spacy\n'
-        'en_core_web_sm @ '
-        'https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl\n'
-    )
-    (session_project / 'requirements.txt').write_text(requirements, encoding='utf-8')
+def pixeltable_wheel(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
+    """A wheel built from this working tree, for a project to install in place of the released pixeltable."""
+    repo_root = pathlib.Path(__file__).parents[2]
+    out_dir = tmp_path_factory.mktemp('pxt_wheel')
+    print(f'Building a Pixeltable wheel from {repo_root}', flush=True)
     r = subprocess.run(
-        ['pxt', 'db', 'update', db_uri, '-f'],
-        cwd=session_project,
-        capture_output=True,
+        ['uv', 'build', '--wheel', '-o', str(out_dir), str(repo_root)],
         text=True,
-        timeout=_IMAGE_BUILD_TIMEOUT_SECS,
         check=False,
+        timeout=_RUN_TIMEOUT_SECS,
     )
-    if r.returncode != 0:
-        raise AssertionError(f'building the image for {db_uri} failed (rc={r.returncode}):\n{r.stderr}')
+    assert r.returncode == 0, f'building a pixeltable wheel from {repo_root} failed:\n{r.stderr}'
+    wheels = list(out_dir.glob('*.whl'))
+    assert len(wheels) == 1, f'expected one wheel in {out_dir}, found {wheels}'
+    return wheels[0]
+
+
+def write_requirements(project: pathlib.Path, wheel: pathlib.Path, *extra: str) -> None:
+    """Write project's requirements.txt, installing pixeltable from wheel rather than from PyPI.
+
+    The wheel is copied into the project so that the archive carries it, and named by a path relative to
+    the project root, which is where the image build runs pip.
+    """
+    wheel_dir = project / _WHEEL_SUBDIR
+    wheel_dir.mkdir(exist_ok=True)
+    shutil.copy(wheel, wheel_dir / wheel.name)
+    (project / 'requirements.txt').write_text(
+        '\n'.join([f'./{_WHEEL_SUBDIR}/{wheel.name}', *extra]) + '\n', encoding='utf-8'
+    )
 
 
 @pytest.fixture
@@ -311,6 +307,8 @@ def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -
                 env.pop(name, None)
             else:
                 env[name] = value
+        print(f'Running: pxt {" ".join(args)}', flush=True)
+        started = time.monotonic()
         try:
             r = subprocess.run(
                 ['pxt', *args],
@@ -329,8 +327,10 @@ def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -
                 f'--- stdout ---\n{_as_text(exc.stdout)}\n'
                 f'--- stderr ---\n{_as_text(exc.stderr)}'
             ) from exc
+        print(f'Finished in {time.monotonic() - started:.1f}s (rc={r.returncode}): pxt {" ".join(args)}', flush=True)
         if check and r.returncode != 0:
             raise AssertionError(f'pxt {args} failed (rc={r.returncode}): {r.stderr}')
+        print(r.stdout)
         return PxtResult(r.returncode, r.stdout, r.stderr)
 
     return _run
