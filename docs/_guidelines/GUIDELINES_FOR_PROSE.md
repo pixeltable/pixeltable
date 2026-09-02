@@ -30,9 +30,14 @@ If two phrases produce the same practice, they are the same belief. Keep one.
 | Stored column vs computed column | annotation vs assignment |
 | Where tables live | catalog (local directory or `pxt://` URI) |
 | The HTTP process | service (`pxt service`) |
-| The loop | Declare, insert, serve |
+| The loop | Declare, experiment, serve |
+| Declare | `pxt schema update` (tables; no HTTP) |
+| Experiment | insert, `.select()`, `pxt dashboard`, `pxt schema diff`. HTTP POST after Serve |
+| Serve | `pxt service update` (local or `pxt://`) |
+| Pack (Cloud only) | `pxt db update`. Image, secrets, capacity. Not Experiment |
 
 Do not write "schema file," "the file," and "application contract" as if they were three objects.
+Do not name the loop Store, Transform, Serve. Do not name the middle phase Insert.
 
 ## One doubt per page
 
@@ -55,6 +60,6 @@ Prefer Mintlify components over a mermaid flowchart for three layers: `Columns` 
 
 ## Standing bans
 
-- No em dashes (U+2014). Use a period, a colon, or a comma.
+- No em dashes (U+2014). Use a period, a colon, or a comma. Empty placeholders use ASCII `-`. This applies to MDX, notebooks, READMEs, the site, the skill, and the kit.
 - No Convex product nouns.
-- Pixeltable words: `TableModel`, Declare then Insert then Serve, catalog, same file.
+- Pixeltable words: `TableModel`, Declare then Experiment then Serve, catalog, same file.

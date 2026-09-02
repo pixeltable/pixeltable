@@ -6,6 +6,7 @@ description: 'uvx pixeltable-new writes an application file. pxt schema update a
 The [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) is two apps.
 `uvx pixeltable-new` copies one into a new directory.
 
+The kit follows Declare, Experiment, Serve: `pxt schema update`, then `pxt service update`, then insert, `/ask`, or `pxt dashboard`.
 A first run: [Quickstart](/overview/quick-start).
 
 ```bash
@@ -46,8 +47,8 @@ No HTTP: [Self-hosting](/howto/deployment/overview).
 
 Cloud reads
 [`gallery.json`](https://github.com/pixeltable/pixeltable-starter-kit/blob/main/gallery.json).
-Same file against Cloud: `pxt schema update app.py pxt://org:mydb`.
-[Deploy to Pixeltable Cloud](/howto/deployment/cloud). `pxt service` stays local.
+Same file against Cloud: `pxt db update pxt://org:mydb`, then `pxt schema update app.py pxt://org:mydb`, then `pxt service update app.py pxt://org:mydb`.
+[Deploy to Pixeltable Cloud](/howto/deployment/cloud). `pxt service run` is local only.
 
 <CardGroup cols={2}>
   <Card title="AI Skills" icon="robot" href="/resources/ai-skills">

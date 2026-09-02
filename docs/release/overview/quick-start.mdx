@@ -26,11 +26,11 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and HTTP rou
 
 `[serve]` pulls in FastAPI and uvicorn, which `pxt service` needs. No HTTP: `pip install pixeltable` is enough.
 
-## Declare, apply, serve
+## Declare, Experiment, Serve
 
 <Steps>
   <Step title="Write the file">
-    `pxt service example` writes a working application file — models and a `FastAPIRouter` in one place.
+    `pxt service example` writes a working application file: models and a `FastAPIRouter` in one place.
 
     ```bash
     pxt service example --out app.py
@@ -60,16 +60,17 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and HTTP rou
 
     An annotation is a stored column. An assignment is a computed column.
   </Step>
-  <Step title="Apply, then serve">
+  <Step title="Init, apply, then serve">
     ```bash
+    pxt init
     pxt schema update app.py my_app
     pxt service update app.py my_app
     ```
 
-    `my_app` is a catalog directory, not a folder next to `app.py`. `pxt schema update` creates that directory and the tables. It does not start HTTP. `pxt service update` does not create tables. Apply first.
+    `pxt init` marks this directory as a project root. A file with no project root is refused. `my_app` is a catalog directory, not a folder next to `app.py`. `pxt schema update` creates that directory and the tables. It does not start HTTP. `pxt service update` does not create tables. Apply first.
   </Step>
-  <Step title="Insert a row">
-    `title_upper` is computed on the way in. `pxt service list` prints the URL (the port is assigned):
+  <Step title="Experiment">
+    POST is how you play over HTTP. `title_upper` is computed on the way in. `pxt service list` prints the URL (the port is assigned):
 
     ```bash
     pxt service list
@@ -87,6 +88,7 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and HTTP rou
 
 | Command | What it does |
 |---|---|
+| `pxt init` | Mark this directory as a project root |
 | `pxt service example --out app.py` | Write a working file: models plus routes |
 | `pxt schema example --out schema.py` | Schema only. `--brief` is the minimal models; without it, every DSL construct |
 | `pxt schema update FILE TARGET` | Create and migrate the tables `FILE` declares under `TARGET` |
@@ -108,6 +110,7 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
 
     ```bash
     pip install pixeltable
+    pxt init
     pxt schema example --brief --out app.py
     pxt schema update app.py my_app
     ```
@@ -115,11 +118,12 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
     Then insert from Python (`t = pxt.get_table('my_app.docs')`) or export and exit. [Self-hosting](/howto/deployment/overview).
   </Tab>
   <Tab title="Cloud">
-    Same file against a hosted catalog. `PIXELTABLE_API_KEY` is required. `pxt service` stays local.
+    Same file against a hosted catalog. `PIXELTABLE_API_KEY` is required. Pack, declare, then serve. Experiment is dashboard insert plus `pxt schema diff`. `pxt service run` is local only.
 
     ```bash
-    pxt db create pxt://org:mydb
+    pxt db update pxt://org:mydb
     pxt schema update app.py pxt://org:mydb
+    pxt service update app.py pxt://org:mydb
     ```
 
     [Deploy to Pixeltable Cloud](/howto/deployment/cloud).

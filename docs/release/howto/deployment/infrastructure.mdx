@@ -30,6 +30,7 @@ project, one root.
 Apply, then serve:
 
 ```bash
+pxt init
 pxt schema update app.py my_app
 pxt service update app.py my_app
 ```
@@ -45,7 +46,7 @@ pxt schema update docs/app.py docs_app
 
 A second database is another `[[pixeltable.database]]` entry, not a
 folder. The local entry is unnamed (`local`). A hosted one is named by
-its `pxt://org:db` URI and carries what `pxt db update-runtime` packs:
+its `pxt://org:db` URI and carries what `pxt db update` packs:
 
 ```toml
 [[pixeltable.database]]
@@ -64,6 +65,16 @@ pxt schema update app.py pxt://org:prod
 
 Mount the same router on an existing FastAPI app:
 [HTTP serving](/howto/deployment/serving). Do not run `python app.py`.
+
+Install floor:
+
+```toml
+[project]
+requires-python = ">=3.11"
+dependencies = [
+    "pixeltable>=0.7.4",
+]
+```
 
 UDFs are recorded as a module path relative to the project root.
 [Custom functions](/platform/custom-functions). `return_rows=True`:

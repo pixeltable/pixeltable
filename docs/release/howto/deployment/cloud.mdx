@@ -4,13 +4,21 @@ sidebarTitle: 'Deploy to Pixeltable Cloud'
 description: 'Same application file against a hosted database'
 ---
 
-The [Quickstart](/overview/quick-start) file is the Cloud file. Create a hosted database, then apply it to a `pxt://` URI.
+The [Quickstart](/overview/quick-start) file is the Cloud file. Pack the hosted database, declare the tables, then serve.
 
 `PIXELTABLE_API_KEY` is required. Set it in the environment or in `config.toml`. [Configuration](/platform/configuration).
 
+`pxt init` writes `pixeltable.toml`. Name the hosted database in that file, then pack, declare, and serve:
+
+```toml
+[[pixeltable.database]]
+name = 'pxt://org:mydb'
+```
+
 ```bash
-pxt db create pxt://org:mydb
+pxt db update pxt://org:mydb
 pxt schema update app.py pxt://org:mydb
+pxt service update app.py pxt://org:mydb
 ```
 
 Then `t = pxt.get_table('pxt://org:mydb/docs')`.
@@ -35,7 +43,9 @@ ingest.add_insert_route(
 )
 ```
 
-`pxt schema update` creates the tables on the hosted catalog. It does not start HTTP. `pxt service` binds to the **local** catalog. A `pxt://` target is refused.
+`pxt db update` creates the hosted database or brings it up to what the project declares: image, secrets, capacity. That is Pack. It is not Experiment. `pxt schema update` creates the tables. It does not start HTTP. `pxt service update` starts hosted HTTP. `pxt service run` is local only.
+
+Experiment on Cloud: insert from the dashboard, then `pxt schema diff`.
 
 ## Media on the home bucket
 
@@ -56,11 +66,13 @@ Or set `output_media_dest` as the default for computed media. Details: [Cloud st
 
 | | Local | Cloud |
 |---|---|---|
+| Pack | (this machine) | `pxt db update pxt://org:mydb` |
 | Catalog | `pxt schema update app.py my_app` | `pxt schema update app.py pxt://org:mydb` |
-| HTTP | `pxt service update app.py my_app` | Dashboard; `pxt service` is local-only |
+| HTTP | `pxt service update app.py my_app` | `pxt service update app.py pxt://org:mydb` |
+| Experiment | insert, `pxt dashboard`, `pxt schema diff` | dashboard insert, `pxt schema diff` |
 | Media | local disk | `pxtfs://org:mydb/home` |
 
-`pxt db` also lists, starts, stops, and deletes hosted databases, and `pxt db update-runtime` rebuilds the Python image. [CLI](/platform/cli#cloud).
+`pxt db` also lists, starts, stops, diffs, and deletes hosted databases. `pxt db build-image` rebuilds the Python image without waiting for drift. [CLI](/platform/cli#cloud).
 
 <CardGroup cols={2}>
   <Card title="Join the waitlist" icon="envelope" href="https://www.pixeltable.com/waitlist">

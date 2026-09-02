@@ -5,6 +5,8 @@ description: 'One application file is the catalog, the transforms, and the HTTP'
 
 Pixeltable is the multimodal backend for an AI app. Tables, computed columns, indexes, and HTTP live in **one Python file**. You apply that file locally. The same file applies against [Pixeltable Cloud](/howto/deployment/cloud).
 
+The loop is Declare (`pxt schema update`), Experiment (insert, `pxt dashboard`, `pxt schema diff`), Serve (`pxt service update`). Pack on Cloud is `pxt db update`. It is not Experiment.
+
 Most stacks glue a blob store, a warehouse, a vector database, an orchestrator, and custom endpoints. Those pieces drift. Pixeltable is that backend as columns on a table. Insert a row. Transforms run. Indexes stay current. There is no sync job to keep a second system honest.
 
 <CardGroup cols={3}>
@@ -21,7 +23,7 @@ Most stacks glue a blob store, a warehouse, a vector database, an orchestrator, 
 
 ## What you declare
 
-A `TableModel` is a table. An annotation (`title: pxt.String`) is a stored column — the value you insert. An assignment (`title_upper = ...`) is a computed column. It runs on insert and on update. An embedding index lives on the model, so new rows are searchable without a separate vector database. A `FastAPIRouter` in the same file is the HTTP surface: insert a row, get computed output.
+A `TableModel` is a table. An annotation (`title: pxt.String`) is a stored column: the value you insert. An assignment (`title_upper = ...`) is a computed column. It runs on insert and on update. An embedding index lives on the model, so new rows are searchable without a separate vector database. A `FastAPIRouter` in the same file is the HTTP surface: insert a row, get computed output.
 
 You do not have to serve HTTP. Apply the file, insert from Python, export, exit. Views, UDFs, versioning, and import/export are in the [User Guide](/platform/type-system).
 
@@ -30,9 +32,9 @@ Notebooks and tests can still call `pxt.create_table()`. An application's contra
 ## What this replaces
 
 - **One catalog** for images, video, audio, documents, and ordinary columns
-- **Transforms as columns** — incremental, not a pipeline you re-run
-- **Indexes that follow the data** — embeddings stay in sync with the rows
-- **HTTP from the same file** — or nothing listening
+- **Transforms as columns**: incremental, not a pipeline you re-run
+- **Indexes that follow the data**: embeddings stay in sync with the rows
+- **HTTP from the same file**: or nothing listening
 
 Coming from Pinecone, LangChain, or hand-rolled FastAPI? See [From your stack](/overview/from-your-stack).
 

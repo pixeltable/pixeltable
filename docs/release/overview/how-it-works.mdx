@@ -35,7 +35,7 @@ Full flags: [CLI](/platform/cli).
 
 ## Schema
 
-An annotation (`title: pxt.String`) is a stored column — you insert that value. An assignment (`title_upper = ...`) is a computed column. It runs on insert and on update. Use `pxt.Column(...)` when you need a primary key, `stored=False`, or a media option an annotation cannot express.
+An annotation (`title: pxt.String`) is a stored column: you insert that value. An assignment (`title_upper = ...`) is a computed column. It runs on insert and on update. Use `pxt.Column(...)` when you need a primary key, `stored=False`, or a media option an annotation cannot express.
 
 A model with `base=` is a view. `base=Docs.where(...)` inherits columns and filters. `base=Docs` plus an iterator is a component view (one row per chunk, frame, sentence). Indexes belong on the model (`__indexes__` or an `EmbeddingIndex` assignment), not `add_embedding_index()` after apply.
 
@@ -58,16 +58,18 @@ A schema change with a service already running needs `pxt service update` after 
     No account. [Quickstart](/overview/quick-start) applies the file on this machine. Local HTTP: [Self-hosting](/howto/deployment/overview).
 
     ```bash
+    pxt init
     pxt schema update app.py my_app
     pxt service update app.py my_app
     ```
   </Tab>
   <Tab title="Cloud">
-    Same file, a `pxt://` target. [Deploy to Pixeltable Cloud](/howto/deployment/cloud). `pxt service` stays local.
+    Same file, a `pxt://` target. Pack, declare, then serve. [Deploy to Pixeltable Cloud](/howto/deployment/cloud). `pxt service run` is local only.
 
     ```bash
-    pxt db create pxt://org:mydb
+    pxt db update pxt://org:mydb
     pxt schema update app.py pxt://org:mydb
+    pxt service update app.py pxt://org:mydb
     ```
   </Tab>
 </Tabs>

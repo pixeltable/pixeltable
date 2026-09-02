@@ -31,6 +31,7 @@ Tables, computed columns, and HTTP routes live in `app.py`. Insert runs compute.
 
 ```bash
 pip install 'pixeltable[serve]'
+pxt init
 pxt service example --out app.py
 pxt schema update app.py my_app
 pxt service update app.py my_app
@@ -70,11 +71,12 @@ curl -X POST http://127.0.0.1:<port>/docs \
 
 `pxt schema update` creates the directory and tables. It does not start HTTP. `pxt service update` does not create tables. Apply first.
 
-Hosted catalog (`PIXELTABLE_API_KEY` required). `pxt service` stays local:
+Hosted catalog (`PIXELTABLE_API_KEY` required). Pack, declare, then serve. `pxt service run` is local only:
 
 ```bash
-pxt db create pxt://org:mydb
+pxt db update pxt://org:mydb
 pxt schema update app.py pxt://org:mydb
+pxt service update app.py pxt://org:mydb
 ```
 
 Same steps: [Quickstart](https://docs.pixeltable.com/overview/quick-start).
