@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import sys
+import sysconfig
 import tarfile
 import tempfile
 from collections.abc import Iterable
@@ -345,23 +346,35 @@ def project_fingerprint(project_root: Path, config: DatabaseConfig | None) -> Pr
     return _fingerprint(_archive_files(project_root, config), project_root, config)
 
 
+# Where this interpreter keeps the standard library and installed packages.
+_ENV_DIRS = tuple(
+    Path(sysconfig.get_paths()[name]).resolve()
+    for name in ('stdlib', 'purelib', 'platlib')
+    if name in sysconfig.get_paths()
+)
+
+
+def in_environment(path: Path) -> bool:
+    """Returns True if path is a file of this interpreter's standard library or installed packages."""
+    return any(path.is_relative_to(env_dir) for env_dir in _ENV_DIRS)
+
+
 def loaded_fingerprint(project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
-    """Fingerprint the files the loaded application reached under project_root, plus the lockfile.
+    """Fingerprint the project's own files that the loaded application reached, plus the lockfile.
 
-    This decides whether a running service is out of date, so that a service restarts for a file it imports
-    and not for one its neighbour in the same project imports.
+    Excludes the environment's files.
 
-    Call it after load_app_module(), which evicts the project's modules before importing: what is loaded from
-    the project afterwards is what this application reached. A module imported inside a function body is
-    never reached, which is the limitation Modal's mounted-source rule has too, and the reason
-    'pxt service update --restart' exists.
+    Call it after load_app_module(), which removes the project's modules before importing: the project files
+    loaded afterwards are the ones this application reached.
     """
     loaded = {
         Path(file).resolve()
         for file in (getattr(module, '__file__', None) for module in list(sys.modules.values()))
         if file is not None
     }
-    files = [path for path in loaded if path.is_relative_to(project_root) and path.is_file()]
+    files = [
+        path for path in loaded if path.is_relative_to(project_root) and not in_environment(path) and path.is_file()
+    ]
     files += [project_root / name for name in LOCK_FILES if (project_root / name).is_file()]
     return _fingerprint(files, project_root, config)
 

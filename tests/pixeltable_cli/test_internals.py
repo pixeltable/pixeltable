@@ -45,7 +45,14 @@ from pixeltable.service.management_protocol import (
     StartDbRequest,
     StopDbRequest,
 )
-from pixeltable.utils.app_module import load_app_module, module_routers, service_spec, services_by_name
+from pixeltable.utils import project
+from pixeltable.utils.app_module import (
+    _evict_project_modules,
+    load_app_module,
+    module_routers,
+    service_spec,
+    services_by_name,
+)
 from pixeltable.utils.project import project_fingerprint
 from pixeltable_cli import utils
 from pixeltable_cli.client import hosted, main as client_main, parser as client_parser, utils as client_utils
@@ -176,6 +183,42 @@ class TestProjectRootParity:
             library_copy(unreadable)
         with pytest.raises(RuntimeError, match=r'cannot be parsed'):
             client_copy(unreadable)
+
+
+class TestProjectModuleEviction:
+    """Loading an application file re-reads the project's modules, and leaves the environment's alone."""
+
+    def test_installed_packages_stay_loaded(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        root = tmp_path / 'project'
+        (root / 'apps').mkdir(parents=True)
+        (root / 'apps' / 'udfs.py').write_text('')
+        # where `python -m venv .venv` puts the packages of a project that holds its own environment;
+        # the daemon runs from it, which is what sysconfig reports and _ENV_DIRS is built from
+        installed = root / '.venv' / 'lib' / 'python3.11' / 'site-packages'
+        installed.mkdir(parents=True)
+        monkeypatch.setattr(project, '_ENV_DIRS', (installed,))
+        (installed / 'psycopg').mkdir()
+        (installed / 'psycopg' / '__init__.py').write_text('')
+
+        def loaded(name: str, file: pathlib.Path) -> ModuleType:
+            module = ModuleType(name)
+            module.__file__ = str(file)
+            monkeypatch.setitem(sys.modules, name, module)
+            return module
+
+        loaded('apps.udfs', root / 'apps' / 'udfs.py')
+        vendored = loaded('psycopg', installed / 'psycopg' / '__init__.py')
+        # a module the project no longer holds: the next import has to fail rather than find it cached
+        deleted = root / 'gone.py'
+        loaded('gone', deleted)
+
+        # project_root is read-only, and the eviction reads the one this process was configured with
+        monkeypatch.setattr(Config, 'project_root', property(lambda _: root))
+        _evict_project_modules()
+
+        assert sys.modules.get('apps.udfs') is None, 'the project module was not re-read'
+        assert sys.modules.get('gone') is None, 'a module whose source was deleted stayed cached'
+        assert sys.modules.get('psycopg') is vendored, 'an installed package was unloaded'
 
 
 class TestProbe:
