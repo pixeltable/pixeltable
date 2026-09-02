@@ -1,20 +1,18 @@
 """`pxt db` against a hosted database.
 
 Every scenario drives the CLI the way a user does: a project with a [[pixeltable.database]] entry, and the
-`pxt db` verbs reading and applying it. They need a control plane, so the module is skipped unless the cloud
-environment is configured, and it is marked expensive: applying what an entry declares rebuilds an image,
-which takes minutes. They run against the session's hosted database, the one the cloud catalog tests use.
+`pxt db` verbs reading and applying it. They need a control plane, and are marked expensive: applying what
+an entry declares rebuilds an image, which takes minutes.
 """
 
 import json
 import pathlib
 import shutil
 import uuid
-from typing import Any
+from typing import Any, Iterator
 
 import pytest
 
-from ..utils import DatabaseRoot
 from .conftest import PxtRunner, write_requirements
 
 pytestmark = [
@@ -50,12 +48,22 @@ def project(tmp_path: pathlib.Path, pixeltable_wheel: pathlib.Path) -> pathlib.P
 
 
 @pytest.fixture
-def current_db(cli: PxtRunner, project: pathlib.Path, db_root: DatabaseRoot) -> str:
-    """A hosted database running an image built from this project."""
-    create_project_config(cli, project, db_root.prefix)
-    applied = db_update(cli, project, db_root.prefix)
+def test_db_uri(cli: PxtRunner, project: pathlib.Path) -> Iterator[str]:
+    """A database URI of the test's own, naming nothing until the test creates it, deleted when it ends."""
+    uri = f'pxt://pixeltable:pxttest-{uuid.uuid4().hex[:12]}'
+    try:
+        yield uri
+    finally:
+        cli('db', 'delete', uri, cwd=project, check=False)
+
+
+@pytest.fixture
+def current_db(cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> str:
+    """A database of the test's own, running an image built from this project."""
+    create_project_config(cli, project, test_db_uri)
+    applied = db_update(cli, project, test_db_uri)
     assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
-    return db_root.prefix
+    return test_db_uri
 
 
 def create_project_config(cli: PxtRunner, project: pathlib.Path, db_uri: str, **settings: Any) -> None:
@@ -63,7 +71,7 @@ def create_project_config(cli: PxtRunner, project: pathlib.Path, db_uri: str, **
     lines = ['[[pixeltable.database]]', f'name = {json.dumps(db_uri)}']
     for key, value in settings.items():
         if isinstance(value, dict):
-            lines += [f'{key}.{name} = {json.dumps(bound)}' for name, bound in value.items()]
+            lines.extend(f'{key}.{name} = {json.dumps(bound)}' for name, bound in value.items())
         else:
             lines.append(f'{key} = {json.dumps(value)}')
     (project / 'pixeltable.toml').write_text('\n'.join(lines) + '\n', encoding='utf-8')
@@ -95,46 +103,39 @@ def get_target_ops(plan: dict[str, Any], target: str) -> list[dict[str, Any]]:
     return [op for op in plan['ops'] if op['target'] == target]
 
 
-@pytest.mark.db_roots('cloud', reason='Uses the CLI to drive cloud DBs through the control plane')
 class TestDb:
-    def test_create(self, cli: PxtRunner, project: pathlib.Path) -> None:
+    def test_create(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
         """A database the control plane does not hold is planned as a create, and the update makes it."""
-        absent = f'pxt://pixeltable:pxttest-gone-{uuid.uuid4().hex[:12]}'
-        create_project_config(cli, project, absent)
+        create_project_config(cli, project, test_db_uri)
 
-        plan = db_diff(cli, project, absent)
+        plan = db_diff(cli, project, test_db_uri)
         assert plan['resolution'] == 'create'
         assert not plan['exists']
         assert plan['state'] is None
         assert plan['ops'] == []
         assert plan['returncode'] == EXIT_CHANGES_PENDING
 
-        try:
-            applied = db_update(cli, project, absent)
-            assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
-            assert db_status(cli, project, absent)['state'] == 'AVAILABLE'
-        finally:
-            cli('db', 'delete', absent, cwd=project, check=False)
+        applied = db_update(cli, project, test_db_uri)
+        assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
+        assert db_status(cli, project, test_db_uri)['state'] == 'AVAILABLE'
 
-    def test_update_builds_the_image(self, cli: PxtRunner, project: pathlib.Path, db_root: DatabaseRoot) -> None:
+    def test_update_builds_the_image(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
         """Every update builds the image, since the database reports no fingerprint to compare."""
-        create_project_config(cli, project, db_root.prefix)
-
-        plan = db_diff(cli, project, db_root.prefix)
+        plan = db_diff(cli, project, current_db)
         assert plan['resolution'] == 'update_additive'
         assert [op['name'] for op in get_target_ops(plan, 'image')] == ['image']
         assert plan['summary']['rebuild']
         assert plan['returncode'] == EXIT_CHANGES_PENDING
 
-        applied = db_update(cli, project, db_root.prefix)
+        applied = db_update(cli, project, current_db)
         assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
 
         # and the next diff plans the same build, since there is still nothing to compare
-        assert get_target_ops(db_diff(cli, project, db_root.prefix), 'image') != []
+        assert get_target_ops(db_diff(cli, project, current_db), 'image') != []
 
-    def test_status_list(self, cli: PxtRunner, project: pathlib.Path, db_root: DatabaseRoot) -> None:
-        name = db_root.prefix.rsplit(':', 1)[-1]
-        status = db_status(cli, project, db_root.prefix)
+    def test_status_list(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+        name = current_db.rsplit(':', 1)[-1]
+        status = db_status(cli, project, current_db)
         assert status['state'] == 'AVAILABLE', status
         listed = cli('db', 'list', 'pxt://pixeltable', '--json', cwd=project).json
         assert name in [entry['db_name'] for entry in listed], listed
@@ -152,18 +153,17 @@ class TestDb:
         assert [op['target'] for op in ops] == ['image']
         assert all(op['status'] == 'applied' for op in ops), ops
 
-    def test_errors(self, cli: PxtRunner, project: pathlib.Path, db_root: DatabaseRoot) -> None:
-        create_project_config(cli, project, db_root.prefix)
+    def test_errors(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
+        create_project_config(cli, project, test_db_uri)
 
         not_a_uri = cli('db', 'diff', 'my_dir', cwd=project, check=False)
         assert 'URI must be pxt://org:db' in not_a_uri.stderr, not_a_uri.stderr
 
-        undeclared = cli('db', 'diff', 'pxt://pixeltable:pxttest-undeclared', cwd=project, check=False)
+        undeclared = cli('db', 'diff', f'pxt://pixeltable:pxttest-undeclared', cwd=project, check=False)
         assert undeclared.returncode == EXIT_ERROR
         assert '[[pixeltable.database]]' in undeclared.stderr, undeclared.stderr
 
-        absent = f'pxt://pixeltable:pxttest-gone-{uuid.uuid4().hex[:12]}'
-        create_project_config(cli, project, absent)
-        never_built = cli('db', 'build-image', absent, cwd=project, check=False)
+        # own_db is declared but never created, so there is no image to build
+        never_built = cli('db', 'build-image', test_db_uri, cwd=project, check=False)
         assert never_built.returncode == EXIT_ERROR
         assert 'pxt db update' in never_built.stderr, never_built.stderr

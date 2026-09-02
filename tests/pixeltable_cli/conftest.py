@@ -158,9 +158,6 @@ PxtRunner = Callable[..., PxtResult]
 
 _RUN_TIMEOUT_SECS = 300
 
-# an image build runs CodeBuild, which takes minutes
-_IMAGE_BUILD_TIMEOUT_SECS = 1800
-
 _WHEEL_SUBDIR = 'wheels'
 
 
@@ -209,40 +206,6 @@ def write_requirements(project: pathlib.Path, wheel: pathlib.Path, *extra: str) 
     (project / 'requirements.txt').write_text(
         '\n'.join([f'./{_WHEEL_SUBDIR}/{wheel.name}', *extra]) + '\n', encoding='utf-8'
     )
-
-
-@pytest.fixture(scope='session')
-def hosted_image(session_project: pathlib.Path, pixeltable_wheel: pathlib.Path) -> None:
-    """Build the hosted database's image from this session's project, once.
-
-    A hosted database runs the project its image was built from, so a udf a hosted table refers to has to
-    be in that image. A module a test writes for itself never is, which is what the db_roots markers on
-    those tests record.
-    """
-    db_uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
-    if db_uri is None:
-        return
-    _copy_app_corpus(session_project)
-    entry = f'[[pixeltable.database]]\nname = {json.dumps(db_uri)}\n'
-    (session_project / 'pixeltable.toml').write_text(entry, encoding='utf-8')
-    # The sentence splitter loads en_core_web_sm and does not fetch it, so the project names it too.
-    write_requirements(
-        session_project,
-        pixeltable_wheel,
-        'spacy',
-        'en_core_web_sm @ '
-        'https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl',
-    )
-    r = subprocess.run(
-        ['pxt', 'db', 'update', db_uri, '-f'],
-        cwd=session_project,
-        capture_output=True,
-        text=True,
-        timeout=_IMAGE_BUILD_TIMEOUT_SECS,
-        check=False,
-    )
-    if r.returncode != 0:
-        raise AssertionError(f'building the image for {db_uri} failed (rc={r.returncode}):\n{r.stderr}')
 
 
 @pytest.fixture
