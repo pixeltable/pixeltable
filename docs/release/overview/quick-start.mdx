@@ -144,22 +144,11 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
 </Tabs>
 
 <Note>
-This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`.
+This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`. Skill **2.7.0+** writes that `TableModel`. If the agent writes `create_table` in app code, `schema.py`, or `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`.
 </Note>
 
 ## Next
 
-<CardGroup cols={2}>
-  <Card title="CLI" icon="terminal" href="/platform/cli">
-    `pxt schema` and `pxt service`: `example`, `diff`, `update`, `prune`, `list`.
-  </Card>
-  <Card title="HTTP serving" icon="globe" href="/howto/deployment/serving">
-    Route methods, and when to use `pxt service run` instead of `pxt service update`.
-  </Card>
-  <Card title="Cloud" icon="cloud" href="/howto/deployment/cloud">
-    Use the same `app.py` with a hosted URL such as `pxt://your-org:your-db`.
-  </Card>
-  <Card title="Starter kit" icon="github" href="/resources/starter-kit">
-    Chat agent (default) or `--video`.
-  </Card>
-</CardGroup>
+<Card title="How it works" icon="layer-group" href="/overview/how-it-works">
+  What `pxt schema` and `pxt service` do, including `diff`, `update`, and `prune`.
+</Card>

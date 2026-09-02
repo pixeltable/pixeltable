@@ -8,6 +8,8 @@ description: 'Build AI agents with tool calling, persistent memory, and MCP serv
 
 Build AI agents that can call tools, remember context, and integrate with MCP servers—all backed by Pixeltable's persistent storage and orchestration.
 
+This page uses `pxt.create_table()` so you can run cells without a project. An app puts the same columns on a `TableModel` in `app.py` and creates the tables with `pxt schema update`.
+
 <Tip>
 **Declarative Agents:** Instead of imperative control flow, define your agent as a table with computed columns. Each row is a user query; computed columns define the reasoning chain (tool selection → execution → context retrieval → response). Pixeltable handles orchestration, caching, and persistence automatically.
 </Tip>

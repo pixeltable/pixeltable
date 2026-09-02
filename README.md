@@ -103,7 +103,7 @@ To mount the routes on an existing FastAPI app, `app.include_router(...)`. [HTTP
 npx skills add pixeltable/pixeltable-skill
 ```
 
-The skill writes a `TableModel` in `app.py`, then `pxt schema update`. Do not copy this repo's `AGENTS.md` into an application; that file is for Pixeltable contributors.
+Skill **2.7.0+** writes a `TableModel` in `app.py`, then `pxt schema update`. If the agent writes `create_table` in app code, `schema.py`, or `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`. Do not copy this repo's `AGENTS.md` into an application; that file is for Pixeltable contributors.
 
 Notebooks and tests still use `pxt.create_table()`. An app puts tables in `app.py` and creates them with `pxt schema update`.
 

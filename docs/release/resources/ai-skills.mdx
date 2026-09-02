@@ -6,6 +6,7 @@ description: 'Install the Pixeltable skill. The coding agent writes TableModel c
 
 One skill file teaches the coding agent to declare tables as `TableModel` classes in `app.py` and create them with `pxt schema update`.
 The skill's workflow is: create tables from the file, start HTTP with `pxt service update`, then try the app by inserting rows or opening the dashboard.
+Skill **2.7.0+** is the version that writes `app.py`. If the agent writes `create_table` in app code, `schema.py`, or `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`.
 Install details: [AI coding agents](/overview/building-pixeltable-with-llms).
 
 ```bash

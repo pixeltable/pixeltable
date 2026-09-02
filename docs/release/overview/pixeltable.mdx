@@ -9,17 +9,9 @@ On this machine you create those tables with `pxt schema update`. Start HTTP wit
 
 Most stacks glue a blob store, a warehouse, a vector database, an orchestrator, and custom endpoints. Each transform and index in Pixeltable is a column on the same table as the data. Insert a row. Transforms run. Indexes stay current.
 
-<CardGroup cols={3}>
-  <Card title="Quickstart" icon="bolt" href="/overview/quick-start">
-    Write `app.py`, run `pxt schema update` and `pxt service update`, then POST a row.
-  </Card>
-  <Card title="How it works" icon="layer-group" href="/overview/how-it-works">
-    What `pxt schema` and `pxt service` do, including `diff`, `update`, and `prune`.
-  </Card>
-  <Card title="Cloud" icon="cloud" href="/howto/deployment/cloud">
-    Use the same `app.py` with a hosted URL such as `pxt://your-org:your-db`.
-  </Card>
-</CardGroup>
+<Card title="Quickstart" icon="bolt" href="/overview/quick-start">
+  Write `app.py`, run `pxt schema update` and `pxt service update`, then POST a row.
+</Card>
 
 ## What you declare
 
@@ -40,14 +32,4 @@ Coming from Pinecone, LangChain, or hand-rolled FastAPI? See [Migrate](/howto/co
 
 ## Built for
 
-<CardGroup cols={3}>
-  <Card title="Multimodal backend" icon="microchip-ai" href="/use-cases/multimodal-backend">
-    RAG, search, and live APIs over images, video, and documents.
-  </Card>
-  <Card title="Agents" icon="robot" href="/use-cases/agentic-workflows">
-    Agent messages and tool results are stored in table columns, so they survive a process restart.
-  </Card>
-  <Card title="Media pipelines" icon="photo-film" href="/use-cases/media-processing">
-    Insert a video and frames or transcripts show up as rows.
-  </Card>
-</CardGroup>
+[Multimodal backend](/use-cases/multimodal-backend) (RAG and live APIs), [agents](/use-cases/agentic-workflows) (tool calls as columns), and [media pipelines](/use-cases/media-processing) (frames and transcripts as rows).

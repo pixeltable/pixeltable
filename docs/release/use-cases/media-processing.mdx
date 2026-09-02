@@ -6,7 +6,7 @@ description: 'Insert a video; frames are rows. Export when the dataset is ready.
 
 Insert media. Iterators explode it into rows. Computed columns run on the new rows. Export when you are ready to train.
 
-Create the tables with `pxt schema update app.py my_app`, then open them with `t = pxt.get_table('my_app.videos')`. Notebooks can still use `pxt.create_table()`.
+Create the tables with `pxt schema update app.py my_app`, then open them with `t = pxt.get_table('my_app.videos')`. Cookbooks on this topic use `pxt.create_table()` so you can run cells without a project. An app puts the same columns on a `TableModel` in `app.py` and creates the tables with `pxt schema update`.
 
 ```python
 import pixeltable as pxt
