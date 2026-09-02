@@ -28,7 +28,6 @@
             "pages": [
               "overview/building-pixeltable-with-llms",
               "platform/dashboard",
-              "platform/observability",
               "platform/cli",
               "overview/python-sdk"
             ]
