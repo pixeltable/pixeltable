@@ -13,6 +13,8 @@ from typing import Any, Iterator
 
 import pytest
 
+from tests.utils import skip_test_if_no_config
+
 from .conftest import PxtRunner, write_requirements
 
 # the exit statuses `pxt db diff` and `pxt db update` document
@@ -88,10 +90,11 @@ def get_target_ops(plan: dict[str, Any], target: str) -> list[dict[str, Any]]:
     return [op for op in plan['ops'] if op['target'] == target]
 
 
-@pytest.mark.expensive
+@pytest.mark.very_expensive
 @pytest.mark.db_roots('local', reason='These tests have no catalog operations')
 class TestDb:
     def test_db_ops(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
+        skip_test_if_no_config('api_key')
         create_project_config(cli, project, test_db_uri)
 
         # `db update`: Check that its first use is planned as a create
@@ -139,6 +142,7 @@ class TestDb:
         assert all(op['status'] == 'applied' for op in ops), ops
 
     def test_db_errors(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
+        skip_test_if_no_config('api_key')
         create_project_config(cli, project, test_db_uri)
 
         not_a_uri = cli('db', 'diff', 'my_dir', cwd=project, check=False)
