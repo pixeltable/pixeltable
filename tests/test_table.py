@@ -1123,7 +1123,7 @@ class TestTable:
     def test_bulk_scalar_collect(self, db_root: DatabaseRoot) -> None:
         t = pxt.create_table(db_root.make_catalog_path('bulk'), {'id': pxt.Int, 'val': pxt.String})
         for i in range(10):
-            t.insert([{'id': i * 100_000 + j, 'val': f'row {i}/{j}'} for j in range(100_000)])
+            t.insert(({'id': i * 100_000 + j, 'val': f'row {i}/{j}'} for j in range(100_000)))
         assert t.count() == 1_000_000
         res = t.collect()
         assert len(res) == 1_000_000
