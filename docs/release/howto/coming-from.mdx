@@ -11,6 +11,8 @@ Apply with `pxt schema update app.py my_app`. First run: [Quickstart](/overview/
 
 <Tabs>
   <Tab title="Pinecone and Milvus" icon="magnifying-glass">
+    <div id="pinecone-and-milvus" />
+
     Stop a separate vector database. The embedding index sits on the column. Insert keeps it current.
 
     ```python
@@ -65,6 +67,8 @@ Apply with `pxt schema update app.py my_app`. First run: [Quickstart](/overview/
     Another system still needs SQL: `export_sql` on [Self-hosting](/howto/deployment/overview).
   </Tab>
   <Tab title="LangGraph" icon="robot">
+    <div id="langgraph" />
+
     Stop StateGraph, ToolNode, and a checkpointer. Insert a message. Tool calls and the answer are columns.
 
     ```python
@@ -95,6 +99,8 @@ Apply with `pxt schema update app.py my_app`. First run: [Quickstart](/overview/
     [Tool calling cookbook](/howto/cookbooks/agents/llm-tool-calling)
   </Tab>
   <Tab title="Scripts and Airflow" icon="gears">
+    <div id="scripts-and-airflow" />
+
     Stop the frame loop, cron, and a full re-run. Insert a video. Frames appear as rows.
 
     ```python
