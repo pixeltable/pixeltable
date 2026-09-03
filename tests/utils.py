@@ -1104,6 +1104,20 @@ def _process_lifetime_loop_ids() -> set[int]:
     return set() if loop is None else {id(loop)}
 
 
+def _is_open_http_client(obj: Any, client_types: tuple[type, ...]) -> bool:
+    return any(isinstance(obj, client_type) for client_type in client_types) and not obj.is_closed
+
+
+def _async_http_client_types() -> tuple[type, ...]:
+    """The async client classes to look for, one per httpx distribution in the process.
+
+    The openai and anthropic SDKs speak httpx2, which is a separate distribution from httpx and shares no
+    base class with it.
+    """
+    httpx2 = sys.modules.get('httpx2')
+    return (httpx.AsyncClient,) if httpx2 is None else (httpx.AsyncClient, httpx2.AsyncClient)
+
+
 def open_async_resources() -> list[str]:
     """Describes every event loop and HTTP client session that is still open, one string each.
 
@@ -1113,13 +1127,14 @@ def open_async_resources() -> list[str]:
     """
     gc.collect()
     ignored_loop_ids = _process_lifetime_loop_ids()
+    client_types = _async_http_client_types()
     resources: list[str] = []
     for obj in gc.get_objects():
         if isinstance(obj, asyncio.AbstractEventLoop) and not obj.is_closed() and id(obj) not in ignored_loop_ids:
             resources.append(f'event loop {type(obj).__name__} at {id(obj):#x}')
         elif isinstance(obj, aiohttp.ClientSession) and not obj.closed:
             resources.append(f'aiohttp session at {id(obj):#x}')
-        elif isinstance(obj, httpx.AsyncClient) and not obj.is_closed:
+        elif _is_open_http_client(obj, client_types):
             resources.append(f'httpx client at {id(obj):#x}')
     return resources
 
