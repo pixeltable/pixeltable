@@ -319,36 +319,34 @@ def _tbl_lock_mode(op_class: _TblOpClass, is_data_versioned: bool) -> _TblLockMo
     return _TblLockMode.ACCESS_EXCLUSIVE
 
 
-def _tbl_lock_blocking(op_class: _TblOpClass, is_data_versioned: bool) -> bool:
-    """Whether an operation of `op_class` waits for the locks to become available, rather than failing fast.
+def _lock_set_blocking(op_class: _TblOpClass, any_data_versioned: bool) -> bool:
+    """Whether a transaction of `op_class` waits for its locks to become available, rather than failing fast.
 
-    The wait policy applies to the entire operation, not individual tables that need locking. Today we only support
-    operations involving only data-versioned tables, or only operational tables, but not both. TBD: the wait policy when
-    mixed table types are involved.
+    One decision for the entire transaction: a caller either waits for every lock it needs, or for none. Failing
+    fast on reads and writes is what buys an operational table its bounded latency, so only a lock set consisting
+    entirely of them gets it. If any of the tables to be locked is data-versioned, we assume a low performance
+    expectation and wait for the locks rather than failing fast.
+
+    Metadata change and pending ops finalization require a highly exclusive access and always wait.
     """
     if op_class in (_TblOpClass.MD_WRITE, _TblOpClass.FINALIZE):
         return True
     if op_class is _TblOpClass.MD_READ:
         # MD_READ doesn't take any locks, so the response is immaterial
         return False
-    assert op_class in (_TblOpClass.DATA_READ, _TblOpClass.DATA_WRITE):
-    # Reads and data writes wait on a data-versioned table, but fail fast on an operational one.
-    return is_data_versioned
+    assert op_class in (_TblOpClass.DATA_READ, _TblOpClass.DATA_WRITE)
+    return any_data_versioned
 
 
 @dataclasses.dataclass(frozen=True)
 class _LockTarget:
     """A store table of a lock set, and the mode it is to be locked in.
 
-    The wait policy is not here: it is one decision per operation (see _tbl_lock_blocking()), where the mode varies
-    from table to table within a single lock set. A write locks its target's store table to write it and its bases'
-    to read them.
+    The mode varies from table to table within a lock set, depending on the table's role in the operation.
     """
 
     store_tbl_name: str
     mode: _TblLockMode
-    # selects the mode above, and through LockSet the wait policy
-    is_data_versioned: bool
 
 
 @dataclasses.dataclass(frozen=True)
@@ -357,11 +355,7 @@ class LockSet:
 
     tbl_targets: tuple[_LockTarget, ...] = ()  # sorted by store table name
     dir_ids: tuple[UUID, ...] = ()  # sorted by directory path
-    # The kind of the tables this transaction touches, which selects its wait policy; None when it touches none.
-    # A set spanning both kinds would have two policies and no single answer. Nothing produces one today, because a
-    # query over an operational table is restricted to a single table in its from-clause, so _make_lock_set()
-    # asserts instead of choosing.
-    is_data_versioned: bool | None = None
+    blocking: bool = True  # whether to wait if the required locks are not immediately available
 
 
 class Catalog(CatalogBase):
@@ -727,8 +721,6 @@ class Catalog(CatalogBase):
                 pending_ops_tbl_id = e.tbl_id
                 continue
 
-            wait_for_locks = _tbl_lock_blocking(op_class, is_data_versioned=attempt_lock_set.is_data_versioned or False)
-
             if prev_failed_lock_set is not None and attempt_lock_set == prev_failed_lock_set:
                 # re-reading the metadata produced the set that just failed, so retrying cannot make progress:
                 # this is not a stale guess but metadata that does not describe the store
@@ -760,7 +752,6 @@ class Catalog(CatalogBase):
                                 write_tbl_keys=write_tbl_keys,
                                 lock_mutable_tree=lock_mutable_tree,
                                 lock_set=attempt_lock_set,
-                                blocking=wait_for_locks,
                                 finalize_pending_ops=finalize_pending_ops,
                             )
                             self._validate_lock_set(
@@ -893,38 +884,42 @@ class Catalog(CatalogBase):
             pass
 
     @classmethod
-    def _make_lock_set(cls, targets: Collection[_LockTarget], dir_ids: Collection[UUID] = ()) -> LockSet:
+    def _make_lock_set(
+        cls, targets: Collection[_LockTarget], dir_ids: Collection[UUID] = (), *, blocking: bool = True
+    ) -> LockSet:
         """Assemble a LockSet from every target the operation touches, in acquisition order.
 
         Callers pass targets in whatever order they collected them; sorting is this function's job, since
         deadlock freedom rests on the acquisition order.
         """
-        kinds = {t.is_data_versioned for t in targets}
-        assert len(kinds) <= 1, f'lock set spans both table kinds, which have different wait policies: {targets}'
         return LockSet(
             tbl_targets=tuple(sorted(targets, key=lambda t: t.store_tbl_name)),
             dir_ids=tuple(dir_ids),
-            is_data_versioned=next(iter(kinds), None),
+            blocking=blocking,
         )
 
-    def _lock_target_from_cache(self, key: TableVersionKey, op_class: _TblOpClass) -> list[_LockTarget] | None:
+    def _lock_target_from_cache(
+        self, key: TableVersionKey, op_class: _TblOpClass, kinds: set[bool]
+    ) -> list[_LockTarget] | None:
         """Creates a LockTarget for a paritcular table, as a list so that a skipped table can return [].
+
+        Records the table's kind in `kinds`, which the caller reduces to the lock set's wait policy.
 
         Uses metadata cache only. Returns None on a cache miss.
         """
         tv = self._tbl_versions.get(key)
         if tv is None or not tv.is_initialized:
             return None
+        kinds.add(tv.is_data_versioned)
         return [
             _LockTarget(
                 store_tbl_name=_store_tbl_name(tv.id, is_view=tv.is_view),
                 mode=_tbl_lock_mode(op_class, tv.is_data_versioned),
-                is_data_versioned=tv.is_data_versioned,
             )
         ]
 
     def _path_lock_targets_from_cache(
-        self, keys: Sequence[TableVersionKey], leaf_op_class: _TblOpClass
+        self, keys: Sequence[TableVersionKey], leaf_op_class: _TblOpClass, kinds: set[bool]
     ) -> list[_LockTarget] | None:
         """Lock targets for the given path, represented by its keys in the view-before-base order.
 
@@ -934,7 +929,7 @@ class Catalog(CatalogBase):
         """
         result: list[_LockTarget] = []
         for i, key in enumerate(keys):
-            lock_targets = self._lock_target_from_cache(key, leaf_op_class if i == 0 else _TblOpClass.DATA_READ)
+            lock_targets = self._lock_target_from_cache(key, leaf_op_class if i == 0 else _TblOpClass.DATA_READ, kinds)
             if lock_targets is None:
                 return None
             # every element along the way except the last one is a view. The last one is a base table.
@@ -947,7 +942,7 @@ class Catalog(CatalogBase):
         return result
 
     def _ancestors_lock_targets_from_cache(
-        self, key: TableVersionKey, leaf_op_class: _TblOpClass
+        self, key: TableVersionKey, leaf_op_class: _TblOpClass, kinds: set[bool]
     ) -> list[_LockTarget] | None:
         """Lock targets for `key` and its ancestors, from cached metadata only.
 
@@ -962,21 +957,23 @@ class Catalog(CatalogBase):
             keys.append(current_key)
             # Uses TableVersion.base. Cannot rely on TableVersion.path because path is unset on snapshots.
             if tv.base is None:
-                return self._path_lock_targets_from_cache(keys, leaf_op_class)
+                return self._path_lock_targets_from_cache(keys, leaf_op_class, kinds)
             current_key = tv.base.key
 
-    def _mutable_tree_lock_targets_from_cache(self, tbl_id: UUID, op_class: _TblOpClass) -> list[_LockTarget] | None:
+    def _mutable_tree_lock_targets_from_cache(
+        self, tbl_id: UUID, op_class: _TblOpClass, kinds: set[bool]
+    ) -> list[_LockTarget] | None:
         """Returns lock targets for tbl_id's mutable tree: the target and its transitive mutable views.
 
         Doesn't talk to the store; uses cached metadata only to build the list. If the cached state is unsufficient to
         build the tree, returns None."""
         key = TableVersionKey(tbl_id, None)
-        targets = self._lock_target_from_cache(key, op_class)
+        targets = self._lock_target_from_cache(key, op_class, kinds)
         if targets is None:
             return None
         result = list(targets)
         for view in self._tbl_versions[key].mutable_views:
-            subtree = self._mutable_tree_lock_targets_from_cache(view.id, op_class)
+            subtree = self._mutable_tree_lock_targets_from_cache(view.id, op_class, kinds)
             if subtree is None:
                 return None
             result.extend(subtree)
@@ -1176,14 +1173,14 @@ class Catalog(CatalogBase):
                     dirs.setdefault(dir_id, self.get_dir_path(dir_id))
 
         targets = [
-            _LockTarget(
-                store_tbl_name=name,
-                mode=_tbl_lock_mode(roles[tbl_id], tbl_id in versioned),
-                is_data_versioned=tbl_id in versioned,
-            )
+            _LockTarget(store_tbl_name=name, mode=_tbl_lock_mode(roles[tbl_id], tbl_id in versioned))
             for tbl_id, name in names.items()
         ]
-        return self._make_lock_set(targets, [dir_id for dir_id, _ in sorted(dirs.items(), key=lambda item: item[1])])
+        return self._make_lock_set(
+            targets,
+            [dir_id for dir_id, _ in sorted(dirs.items(), key=lambda item: item[1])],
+            blocking=_lock_set_blocking(write_op_class, any(tbl_id in versioned for tbl_id in names)),
+        )
 
     def _lock_set_from_cache(
         self,
@@ -1210,6 +1207,7 @@ class Catalog(CatalogBase):
         Takes no write paths: resolving one is a store read, so _resolve_lock_set() sends a transaction that has
         one straight to _lock_set_from_store()."""
         targets: dict[str, _LockTarget] = {}
+        kinds: set[bool] = set()
 
         def add(new: Sequence[_LockTarget]) -> None:
             for target in new:
@@ -1218,32 +1216,32 @@ class Catalog(CatalogBase):
                     targets[target.store_tbl_name] = target
 
         for tvp in read_tvps:
-            path_targets = self._path_lock_targets_from_cache(tvp.tbl_keys, _TblOpClass.DATA_READ)
+            path_targets = self._path_lock_targets_from_cache(tvp.tbl_keys, _TblOpClass.DATA_READ, kinds)
             if path_targets is None:
                 return None
             add(path_targets)
         for tvp in write_tvps:
-            path_targets = self._path_lock_targets_from_cache(tvp.tbl_keys, write_op_class)
+            path_targets = self._path_lock_targets_from_cache(tvp.tbl_keys, write_op_class, kinds)
             if path_targets is None:
                 return None
             add(path_targets)
         for key in read_tbl_keys:
-            ancestors_targets = self._ancestors_lock_targets_from_cache(key, _TblOpClass.DATA_READ)
+            ancestors_targets = self._ancestors_lock_targets_from_cache(key, _TblOpClass.DATA_READ, kinds)
             if ancestors_targets is None:
                 return None
             add(ancestors_targets)
         for key in write_tbl_keys:
-            ancestors_targets = self._ancestors_lock_targets_from_cache(key, write_op_class)
+            ancestors_targets = self._ancestors_lock_targets_from_cache(key, write_op_class, kinds)
             if ancestors_targets is None:
                 return None
             add(ancestors_targets)
         if lock_mutable_tree:
             for write_tbl_id in self._mutable_write_tbl_ids(write_tvps, write_tbl_keys):
-                tree_targets = self._mutable_tree_lock_targets_from_cache(write_tbl_id, write_op_class)
+                tree_targets = self._mutable_tree_lock_targets_from_cache(write_tbl_id, write_op_class, kinds)
                 if tree_targets is None:
                     return None
                 add(tree_targets)
-        return self._make_lock_set(targets.values())
+        return self._make_lock_set(targets.values(), blocking=_lock_set_blocking(write_op_class, any(kinds)))
 
     def _resolve_lock_set(
         self,
@@ -1343,7 +1341,7 @@ class Catalog(CatalogBase):
 
         if lock_mutable_tree:
             for write_tbl_id in self._mutable_write_tbl_ids(write_tvps, write_tbl_keys):
-                mutable_tree = self._mutable_tree_lock_targets_from_cache(write_tbl_id, write_op_class)
+                mutable_tree = self._mutable_tree_lock_targets_from_cache(write_tbl_id, write_op_class, set())
                 if mutable_tree is None:
                     _logger.debug(f'lock set mismatch: mutable tree of {write_tbl_id} is not fully cached')
                     raise _StaleLockSetError
@@ -1488,7 +1486,6 @@ class Catalog(CatalogBase):
         write_tvps: Collection[TableVersionPath],
         write_tbl_keys: Collection[TableVersionKey],
         lock_set: LockSet,
-        blocking: bool,
         lock_mutable_tree: bool = False,
         finalize_pending_ops: bool = True,
     ) -> None:
@@ -1509,7 +1506,7 @@ class Catalog(CatalogBase):
         # the lock-set resolution consume a fault armed for the operation that follows it in the same thread
         if len(lock_set.tbl_targets) > 0:
             fault_injection.process_fault(FaultLocation.CATALOG_BEFORE_TBL_LOCK, op_class=op_class)
-            self._lock_tables(lock_set.tbl_targets, blocking=blocking)
+            self._lock_tables(lock_set.tbl_targets, blocking=lock_set.blocking)
             fault_injection.process_fault(FaultLocation.CATALOG_AFTER_TBL_LOCK, op_class=op_class)
         for dir_id in lock_set.dir_ids:
             self._acquire_dir_xlock(dir_id=dir_id)

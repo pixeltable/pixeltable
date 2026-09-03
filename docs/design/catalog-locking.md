@@ -48,10 +48,10 @@ compatible with `ACCESS SHARE`.
 
 **Readers are never blocked by writers of either kind, and writers are never blocked by readers.**
 
-**Lock Mode is per table; wait policy is per operation.** A single lock set mixes modes, because a write locks its
-target in `ACCESS EXCLUSIVE` and its base tables in `ACCESS SHARE`: it writes the one and reads the others. Each
+**Lock Mode is per table; wait policy is per transaction.** A single lock set mixes modes, because a write locks
+its target in `ACCESS EXCLUSIVE` and its base tables in `ACCESS SHARE`: it writes the one and reads the others. Each
 `LockTarget` therefore carries its own mode. The wait policy is a single decision for the transaction, since the
-caller either waits for the locks it needs or it doesn't.
+caller either waits for the locks it needs or it doesn't, and `LockSet` carries it.
 
 - **Operational reads and writes fail fast** (`NOWAIT`, reported as `SCHEMA_CHANGE_IN_PROGRESS`). Only a schema
   change conflicts with the modes they ask for.
@@ -59,9 +59,10 @@ caller either waits for the locks it needs or it doesn't.
 - **Schema changes and finalizations always wait**, on both kinds. §7 explains why a finalization can never fail
   fast.
 
-A lock set spanning both kinds would have two policies and no single answer. Nothing produces one today, because an
-operational table's queries are restricted to a single table in the from-clause, so `_make_lock_set()` asserts
-instead of choosing.
+The decision to wait or to fail fast applies to every lock in the lock set. Failing fast on reads and writes is what
+gets an operational table its bounded latency, so only a lock set consisting entirely of them gets it. If any of the
+tables to be locked is data-versioned, we assume a low performance expectation and wait for every lock rather than fail
+fast.
 
 ### Metadata-only reads take no locks
 
@@ -124,7 +125,7 @@ Where the guess comes from, in order of preference:
 
 1. **The existing metadata cache** (`Catalog._tbl_versions`). Everything a lock set needs is already on a cached
    `TableVersion`: `is_view` gives the store table name, `base` gives the ancestor chain, `mutable_views` gives the
-   tree, `is_data_versioned` gives the table kind.
+   tree, and `is_data_versioned` gives the table kind that selects the mode and the wait policy.
 2. **The store**, read in a separate read-only transaction before the operation's transaction opens
    (`_lock_set_from_store()`). It interprets plain `tables` rows instead of building `TableVersion`s in order to avoid
    dealing with pending table ops. What it returns is current and needs no validation. A transaction with a write path
