@@ -18,6 +18,7 @@ from pixeltable.config import Config
 from pixeltable_cli.types import TableDiff
 
 from .utils import (
+    LOCAL_EMBED_DIM,
     DatabaseRoot,
     assert_resultset_eq,
     assert_table_metadata_eq,
@@ -25,6 +26,7 @@ from .utils import (
     capture_console_output,
     dummy_embedding,
     get_image_files,
+    local_embedding,
     pxt_raises,
     reload_catalog,
     reload_env,
@@ -1871,6 +1873,83 @@ class TestTableModel:
         assert idx_md['ix']['parameters']['embedding'] == 'dummy_embedding(text, n=64)'
         assert idx_md['ix']['parameters']['precision'] == 'fp32'
 
+        assert TableModelV2.get_model_diff(p(''))['test_table'].resolution == 'up_to_date'
+
+    def test_diff_resolves_bare_embedding_fn(self, db_root: DatabaseRoot) -> None:
+        """An index stores its embedding function resolved, with defaults bound. A model that declares the same
+        function bare has to resolve to that same call, or an unchanged model reads as a changed one forever."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        # local_embedding carries a default `dim`, which resolution binds; the declaration leaves it implicit
+        class ExampleTable(TableModel, name='test_table'):
+            id: pxt.Int
+            img: pxt.Image | None
+
+            __indexes__ = [EmbeddingIndex(img, image_embed=local_embedding, name='ix')]
+
+        TableModel.create_all(p(''))
+        ExampleTable.insert([{'id': 1, 'img': get_image_files()[0]}])
+        assert ExampleTable.get_metadata()['indexes']['ix']['parameters']['embedding'] == (
+            f'local_embedding(img, dim={LOCAL_EMBED_DIM})'
+        )
+
+        TableModelV2 = pxt.model_base()
+
+        class ExampleTableV2(TableModelV2, name='test_table'):
+            id: pxt.Int
+            img: pxt.Image | None
+
+            __indexes__ = [EmbeddingIndex(img, image_embed=local_embedding, name='ix')]
+
+        assert TableModelV2.get_model_diff(p(''))['test_table'].resolution == 'up_to_date'
+
+    def test_update_all_replaces_index_on_query_side_embedding(self, db_root: DatabaseRoot) -> None:
+        """An image index's string_embed serves only similarity queries, so a change to it alters nothing the
+        indexed column's own embedding records, however the diff has to catch it anyway."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTable(TableModel, name='test_table'):
+            id: pxt.Int
+            img: pxt.Image | None
+
+            __indexes__ = [
+                EmbeddingIndex(
+                    img,
+                    image_embed=dummy_embedding.using(n=512),
+                    string_embed=local_embedding.using(dim=512),
+                    name='ix',
+                )
+            ]
+
+        TableModel.create_all(p(''))
+        ExampleTable.insert([{'id': 1, 'img': get_image_files()[0]}])
+
+        TableModelV2 = pxt.model_base()
+
+        class ExampleTableV2(TableModelV2, name='test_table'):
+            id: pxt.Int
+            img: pxt.Image | None
+
+            # only string_embed changes
+            __indexes__ = [
+                EmbeddingIndex(
+                    img, image_embed=dummy_embedding.using(n=512), string_embed=dummy_embedding.using(n=512), name='ix'
+                )
+            ]
+
+        diff = TableModelV2.get_model_diff(p(''))['test_table']
+        assert diff.resolution == 'update_destructive'
+        assert len(diff.ops) == 2, diff.ops
+        assert (diff.ops[0].target, diff.ops[0].name, diff.ops[0].op) == ('index', 'ix', 'drop')
+        assert (diff.ops[1].target, diff.ops[1].name, diff.ops[1].op) == ('index', 'ix', 'add')
+
+        TableModelV2.update_all(p(''), allow_destructive=True)
+
+        params = ExampleTableV2.get_metadata()['indexes']['ix']['parameters']
+        assert params['embedding'] == 'dummy_embedding(img, n=512)'
+        assert params['embedding_functions'] == ['dummy_embedding(text, n=512)', 'dummy_embedding(img, n=512)']
         assert TableModelV2.get_model_diff(p(''))['test_table'].resolution == 'up_to_date'
 
     def test_update_all_errors(self, db_root: DatabaseRoot) -> None:

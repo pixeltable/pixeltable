@@ -424,6 +424,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                             or idx_md['parameters']['metric'] != idx.metric
                             or idx_md['parameters']['precision'] != idx.precision
                             or idx_md['parameters']['embedding'] != str(idx.as_fn_call())
+                            or idx_md['parameters']['embedding_functions'] != idx.resolved_embedding_fns()
                         ):
                             # A different index with the same name: drop the old one, and add the new one.
                             ops.append(
@@ -441,6 +442,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         and idx_md['parameters']['metric'] == idx.metric
                         and idx_md['parameters']['precision'] == idx.precision
                         and idx_md['parameters']['embedding'] == str(idx.as_fn_call())
+                        and idx_md['parameters']['embedding_functions'] == idx.resolved_embedding_fns()
                     ]
                     assert len(matching_idxs) <= 1
                     if len(matching_idxs) == 0:
