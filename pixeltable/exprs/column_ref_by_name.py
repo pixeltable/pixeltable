@@ -19,7 +19,7 @@ class ColumnRefByName(Expr):
 
     name: str
 
-    # the model declaring this column, when this placeholder stands for one of its attributes; it identifies the
+    # the model defining this column, when this placeholder stands for one of its attributes; it identifies the
     # shape an expression method resolves against, and is deliberately not part of this expression's identity
     model_cls: Any
 
@@ -56,7 +56,7 @@ class ColumnRefByName(Expr):
     def similarity(self, item: Any = None, **kwargs: Any) -> Expr:
         """The similarity score between this column's values and the given item.
 
-        Resolves the embedding index against the shape the declaring model describes, so no table is needed.
+        Resolves the embedding index against the shape the defining model describes, so no table is needed.
         """
         from .column_ref import ColumnRef
 

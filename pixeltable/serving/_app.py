@@ -25,9 +25,9 @@ def create_app(app_file: str, name: str, base_path: str = '') -> tuple['fastapi.
     module = load_app_module(app_file, subject='application file')
     services = services_by_name(module, app_file)
     if name not in services:
-        declared = ', '.join(sorted(services))
+        defined = ', '.join(sorted(services))
         raise excs.NotFoundError(
-            excs.ErrorCode.SERVICE_NOT_FOUND, f'{app_file} declares no service named {name!r}; it declares: {declared}'
+            excs.ErrorCode.SERVICE_NOT_FOUND, f'{app_file} defines no service named {name!r}; it defines: {defined}'
         )
 
     routers = module_routers(module)

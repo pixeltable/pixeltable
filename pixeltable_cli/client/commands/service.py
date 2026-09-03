@@ -1,4 +1,4 @@
-"""`pxt service {diff,update,prune,stop,list,example}` - run the services an application file declares."""
+"""`pxt service {diff,update,prune,stop,list,example}` - run the services an application file defines."""
 
 from __future__ import annotations
 
@@ -27,14 +27,14 @@ One file holds both: the models, which name the tables, and the services, which 
 The target given on the command line says which catalog directory those tables live in, so the same file
 can be applied to a development directory and a production one.
 
-    pxt schema update app.py TARGET        # create the tables the models declare
+    pxt schema update app.py TARGET        # create the tables the models define
     pxt service update app.py TARGET       # serve this file's services against them
 
 A udf defined here is referenced by this file's path, so moving or renaming the file leaves the columns that
 call it unable to compute.
 """
 
-from __future__ import annotations  # required to declare a model on Python 3.14+
+from __future__ import annotations  # required to define a model on Python 3.14+
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -79,7 +79,7 @@ Hosted databases:
 _OWN_APP = """
 Your own application:
   A file may supply its own fastapi.FastAPI object rather than leave Pixeltable to build one, in which case it
-  declares one service, named after its module. All FastAPIRouters in that same file need to be included in
+  defines one service, named after its module. All FastAPIRouters in that same file need to be included in
   that application (via include_router()); they don't get turned into separate services. The file's models are bound
   at TARGET before it serves, so a handler reaches them by name.
 """
@@ -93,7 +93,8 @@ Project:
 
 DIFF_EPILOG = f"""\
 Examples:
-  pxt service diff app.py my_dir          # what update would change; exit 2 if anything is pending
+  pxt service diff app.py my_dir            # what update would change; exit 2 if anything is pending
+  pxt service diff app.py my_dir ingest     # only the named service
   pxt service diff app.py my_dir --json
   pxt service diff app.py my_dir --otel     # also report tracing that is off but was asked for
   pxt service diff app.py pxt://acme:main   # against a hosted database
@@ -107,10 +108,17 @@ Tracing:
 
 UPDATE_EPILOG = f"""\
 Examples:
-  pxt service update app.py my_dir                       # start what is declared, restart what changed
+  pxt service update app.py my_dir                       # start what is defined, restart what changed
+  pxt service update app.py my_dir ingest                # only the named service
+  pxt service update app.py my_dir ingest --port 8000    # serve it on port 8000
   pxt service update app.py my_dir --allow-destructive   # also stop serving routes that changed or went away
   pxt service update app.py my_dir --otel                # emit OpenTelemetry traces from what it starts
   pxt service update app.py pxt://acme:main              # start them in a hosted database
+
+Ports:
+  A restarted service keeps its previous port, so its callers keep their address; a service that was not
+  running gets one from the OS. --port pins it instead, and fails if that port is taken. It names one port,
+  so name the service too when the file defines more than one.
 
 Tracing:
   --otel needs the instrumentation package ('pip install pixeltable[otel]'). The setting belongs to the
@@ -120,8 +128,8 @@ Tracing:
 
 RUN_EPILOG = f"""\
 Examples:
-  pxt service run app.py my_dir              # the only service the file declares, until interrupted
-  pxt service run app.py my_dir ingest       # the named one, when the file declares several
+  pxt service run app.py my_dir              # the only service the file defines, until interrupted
+  pxt service run app.py my_dir ingest       # the named one, when the file defines several
   pxt service run app.py my_dir --port 9000
   pxt service run app.py my_dir --otel       # emit OpenTelemetry traces from this process
 
@@ -131,7 +139,7 @@ does. Use 'update' to run it in the background, where 'list' and 'stop' can find
 
 PRUNE_EPILOG = f"""\
 Examples:
-  pxt service prune app.py my_dir     # stop and forget the services the file does not declare
+  pxt service prune app.py my_dir     # stop and forget the services the file does not define
 
 A stopped service can be started again with 'pxt service update'.
 {_OWN_APP}{_HOSTED}{_APP_FILE}"""
@@ -160,7 +168,7 @@ Exit codes:
   1  error: bad arguments, the file failed to import, or a udf it records cannot be read back
 
 Notes:
-  Checks what the file says on its own: it imports without modifying the catalog, it declares a
+  Checks what the file says on its own: it imports without modifying the catalog, it defines a
   service and a model base, and every udf its columns call is named by a module path another
   process resolves. Takes no TARGET, so it says nothing about what a target can serve;
   'pxt service diff' answers that.
@@ -190,14 +198,14 @@ def run(argv: list[str]) -> None:
         print(
             'usage: pxt service <verb> APP TARGET [options]\n\nverbs:\n'
             '  diff     show the changes that update would make; exit 2 if any are pending\n'
-            '  update   start the services APP declares against TARGET, and restart the ones that changed\n'
+            '  update   start the services APP defines against TARGET, and restart the ones that changed\n'
             '  run      serve one of them from this process instead, until interrupted\n'
-            '  prune    stop and forget the services at TARGET that APP does not declare\n'
+            '  prune    stop and forget the services at TARGET that APP does not define\n'
             '  stop     stop the named services\n'
             '  list     what is running locally, and where\n'
             '  check    validate the application file on its own (takes no TARGET)\n'
             '  example  write a working application file to start from\n\n'
-            'APP is a Python file declaring FastAPIRouter services; TARGET is the catalog directory their\n'
+            'APP is a Python file defining FastAPIRouter services; TARGET is the catalog directory their\n'
             "models bind against. Run 'pxt service example' for a file to start from."
         )
         sys.exit(EXIT_IN_AGREEMENT if len(argv) > 0 else EXIT_ERROR)
@@ -216,7 +224,7 @@ def run(argv: list[str]) -> None:
 
     if verb == 'check':
         ap = Parser(prog='pxt service check', epilog=CHECK_EPILOG, usage_exit_code=EXIT_ERROR)
-        ap.add_argument('app', help='path to a Python file declaring FastAPIRouter services')
+        ap.add_argument('app', help='path to a Python file defining FastAPIRouter services')
         ap.add_argument('--json', action='store_true', dest='as_json')
         args = ap.parse_args(argv[1:])
         check_file('/api/service/check', 'app_file', args.app, verb='service check', as_json=args.as_json)
@@ -241,15 +249,17 @@ def run(argv: list[str]) -> None:
     epilogs = {'diff': DIFF_EPILOG, 'update': UPDATE_EPILOG, 'run': RUN_EPILOG, 'prune': PRUNE_EPILOG}
     # a usage error exits EXIT_ERROR, not argparse's 2, which here means that changes are pending
     ap = Parser(prog=f'pxt service {verb}', epilog=epilogs[verb], usage_exit_code=EXIT_ERROR)
-    ap.add_argument('app', help='path to a Python file declaring services')
+    ap.add_argument('app', help='path to a Python file defining services')
     ap.add_argument('target', help='catalog directory the services bind against')
     ap.add_argument('--json', action='store_true', dest='as_json')
     if verb in ('update', 'prune'):
         ap.add_argument('-f', '--force', action='store_true', help='skip confirmation')
         ap.add_argument('-n', '--dry-run', action='store_true', dest='dry_run')
     if verb == 'diff':
+        ap.add_argument('service', nargs='?', help='the service to compare; by default, every service')
         ap.add_argument('--otel', action='store_true', help='compare the running services against tracing being on')
     if verb == 'update':
+        ap.add_argument('service', nargs='?', help='the service to reconcile; by default, every service')
         ap.add_argument('--otel', action='store_true', help='emit OpenTelemetry traces (requires `pixeltable[otel]`)')
         ap.add_argument(
             '--allow-destructive',
@@ -266,9 +276,7 @@ def run(argv: list[str]) -> None:
             ),
         )
     if verb == 'run':
-        ap.add_argument(
-            'service', nargs='?', help='the service to serve; required when the file declares more than one'
-        )
+        ap.add_argument('service', nargs='?', help='the service to serve; required when the file defines more than one')
         ap.add_argument('--host', default='127.0.0.1', help='bind address (default: 127.0.0.1)')
         ap.add_argument('--port', type=int, default=8000, help='bind port (default: 8000)')
         ap.add_argument('--otel', action='store_true', help='emit OpenTelemetry traces (requires `pixeltable[otel]`)')
@@ -285,7 +293,7 @@ def run(argv: list[str]) -> None:
     app_file = str(path.resolve())
 
     if verb == 'diff':
-        _diff(app_file, args.target, as_json=args.as_json, otel=args.otel)
+        _diff(app_file, args.target, service_name=args.service, as_json=args.as_json, otel=args.otel)
     elif verb == 'prune':
         _prune(app_file, args.target, as_json=args.as_json, force=args.force, dry_run=args.dry_run)
     elif verb == 'run':
@@ -302,6 +310,7 @@ def run(argv: list[str]) -> None:
         _update(
             app_file,
             args.target,
+            service_name=args.service,
             as_json=args.as_json,
             force=args.force,
             dry_run=args.dry_run,
@@ -319,14 +328,18 @@ def _example(out: str | None) -> None:
     print(f'wrote {out}')
 
 
-def _service_plan(app_file: str, target: PxtPath, otel: bool = False) -> ServicePlan:
+def _service_plan(app_file: str, target: PxtPath, otel: bool = False, service_name: str | None = None) -> ServicePlan:
     return ServicePlan.model_validate(
-        post_request('/api/service/diff', {'app_file': app_file, 'target': target, 'otel': otel})
+        post_request(
+            '/api/service/diff', {'app_file': app_file, 'target': target, 'service_name': service_name, 'otel': otel}
+        )
     )
 
 
-def _diff(app_file: str, target: PxtPath, *, as_json: bool, otel: bool = False) -> None:
-    plan = _service_plan(app_file, target, otel)
+def _diff(
+    app_file: str, target: PxtPath, *, service_name: str | None = None, as_json: bool, otel: bool = False
+) -> None:
+    plan = _service_plan(app_file, target, otel, service_name=service_name)
     _print_plan(plan, as_json=as_json)
     sys.exit(EXIT_IN_AGREEMENT if plan.in_agreement else EXIT_CHANGES_PENDING)
 
@@ -335,6 +348,7 @@ def _update(
     app_file: str,
     target: PxtPath,
     *,
+    service_name: str | None = None,
     as_json: bool,
     force: bool,
     dry_run: bool,
@@ -342,7 +356,7 @@ def _update(
     otel: bool = False,
     port: int | None = None,
 ) -> None:
-    plan = _service_plan(app_file, target, otel)
+    plan = _service_plan(app_file, target, otel, service_name=service_name)
     if plan.in_agreement:
         # report the same shape as a run that applied something, so a caller reading --json sees one form
         for service in plan.services:
@@ -358,8 +372,8 @@ def _update(
         if len(starting) > 1:
             print(
                 f'pxt service update: --port names one port, and this would start {len(starting)} services: '
-                f'{", ".join(sorted(starting))}.\nLeave --port off to keep each service on the port it was '
-                'reached at, or declare the services in separate files.',
+                f'{", ".join(sorted(starting))}.\nName the service to start, or leave --port off to keep each '
+                'service on its current port.',
                 file=sys.stderr,
             )
             sys.exit(EXIT_ERROR)
@@ -379,6 +393,7 @@ def _update(
             {
                 'app_file': app_file,
                 'target': target,
+                'service_name': service_name,
                 'allow_destructive': allow_destructive,
                 'otel': otel,
                 'port': port,
@@ -417,9 +432,9 @@ def _run_foreground(
     if service_name is None:
         services = services_by_name(load_app_module(app_file, subject='application file'), app_file)
         if len(services) > 1:
-            declared = ', '.join(sorted(services))
+            defined = ', '.join(sorted(services))
             print(
-                f'pxt service run: {app_file} declares more than one service: {declared}\nname the one to serve',
+                f'pxt service run: {app_file} defines more than one service: {defined}\nname the one to serve',
                 file=sys.stderr,
             )
             sys.exit(EXIT_ERROR)
@@ -513,7 +528,7 @@ def _print_plan(plan: ServicePlan, *, as_json: bool, applied: bool = False) -> N
         if service.route_detail is not None and resolution == 'blocked':
             print(f'    {service.route_detail}')
     for name in plan.extras:
-        print(f'! {name:<24s} extra (not declared); stop it with prune')
+        print(f'! {name:<24s} extra (not defined); stop it with prune')
 
     s = plan.summary
     updates = s.update_additive + s.update_destructive

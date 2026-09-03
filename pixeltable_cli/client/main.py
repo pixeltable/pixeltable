@@ -33,7 +33,7 @@ COMMANDS: dict[str, str] = {
     'localproxy': 'manage local proxy daemons (create/start/stop/delete)',
     'dashboard': 'print and open the dashboard URL',
     'db': 'manage hosted databases (diff/update/create/list/status/start/stop/build-image/delete)',
-    'service': 'run the services an application file declares (diff/update/prune/stop/list/example)',
+    'service': 'run the services defined in an application file (diff/update/prune/stop/list/example)',
     'org': 'manage organizations (list/status)',
     'secret': 'manage the secrets an org or database holds (list/set/delete)',
 }

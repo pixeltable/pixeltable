@@ -60,7 +60,7 @@ def _annotate_code(body_code: types.CodeType) -> types.CodeType | None:
 
 
 def annotation_lines(body_code: types.CodeType) -> list[tuple[str, int]]:
-    """(name, line) for each annotation in `body_code`, in declaration order."""
+    """(name, line) for each annotation in `body_code`, in definition order."""
     annotate = _annotate_code(body_code)
     if annotate is None:
         return []
@@ -75,7 +75,7 @@ def annotation_lines(body_code: types.CodeType) -> list[tuple[str, int]]:
 
 
 def assignment_lines(body_code: types.CodeType) -> list[tuple[str, int]]:
-    """(name, line) for each top-level name assignment in `body_code`, in declaration order."""
+    """(name, line) for each top-level name assignment in `body_code`, in definition order."""
     lines = _line_map(body_code)
     return [
         (instr.argval, lines[instr.offset])

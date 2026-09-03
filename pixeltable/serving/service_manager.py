@@ -248,14 +248,13 @@ class ServiceManager(ServiceManagerBase):
             return instance
 
         # fail here, in the caller's process, on everything that can be detected without serving: an app file
-        # that does not declare the service is a request error, not a process that dies in the background
+        # that does not define the service is a request error, not a process that dies in the background
         module = load_app_module(app_file, subject='application file')
         services = services_by_name(module, app_file)
         if name not in services:
-            declared = ', '.join(sorted(services))
+            defined = ', '.join(sorted(services))
             raise excs.NotFoundError(
-                excs.ErrorCode.SERVICE_NOT_FOUND,
-                f'{app_file} declares no service named {name!r}; it declares: {declared}',
+                excs.ErrorCode.SERVICE_NOT_FOUND, f'{app_file} defines no service named {name!r}; it defines: {defined}'
             )
 
         log_path = self._log_path(name, base_path)

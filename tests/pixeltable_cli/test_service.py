@@ -1,5 +1,6 @@
 import pathlib
 import shutil
+import socket
 import time
 from textwrap import dedent
 from typing import Any, Callable, Iterator
@@ -706,6 +707,32 @@ class TestService:
         assert r.returncode == 1
         assert '--port names one port' in r.stderr, r.stderr
         assert services(cli) == {}, 'a refused update started nothing'
+
+        r = cli('service', 'update', str(two), target, 'third', '-f', check=False)
+        assert r.returncode == 1
+        assert "no service named 'third'" in r.stderr, r.stderr
+        assert services(cli) == {}, 'a refused update started nothing'
+
+        # naming one service leaves the other alone, and makes --port unambiguous
+        with socket.socket() as probe:
+            probe.bind(('127.0.0.1', 0))
+            free_port = probe.getsockname()[1]
+        r = cli('service', 'update', str(two), target, 'second', '-f', '--port', str(free_port), '--json')
+        assert [d['name'] for d in r.json['services']] == ['second'], r.json
+        running = services(cli)
+        assert sorted(running) == ['second'], running
+        assert running['second']['port'] == free_port
+        assert running['second']['endpoint'].endswith(f':{free_port}')
+
+        # diff takes the same name, and reports only that service
+        r = cli('service', 'diff', str(two), target, 'second', '--json')
+        assert [d['name'] for d in r.json['services']] == ['second'], r.json
+        r = cli('service', 'diff', str(two), target, '--json', check=False)
+        assert r.returncode == 2, r.stdout
+        assert sorted(d['name'] for d in r.json['services']) == ['first', 'second'], r.json
+        r = cli('service', 'diff', str(two), target, 'third', check=False)
+        assert r.returncode == 1
+        assert "no service named 'third'" in r.stderr, r.stderr
 
     def test_example(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """The file `example` writes declares both the tables and the services, and serves."""

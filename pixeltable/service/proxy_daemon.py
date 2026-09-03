@@ -411,6 +411,6 @@ if __name__ == '__main__':
                 raise
             # a database exists before `pxt db update` gives it a project: serve the catalog without one,
             # and a request that needs a udf from it says so
-            logging.getLogger('pixeltable').warning('%s has no project; udfs it declares cannot be resolved', parsed.db)
+            logging.getLogger('pixeltable').warning('%s has no project; udfs it defines cannot be resolved', parsed.db)
     Config.init(reinit=True, project_root=project_root)
     _serve(test_mode=parsed.test)

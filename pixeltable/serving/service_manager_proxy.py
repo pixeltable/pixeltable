@@ -70,10 +70,9 @@ class ServiceManagerProxy(ServiceManagerBase):
         module = load_app_module(app_file, subject='application file')
         services = services_by_name(module, app_file)
         if name not in services:
-            declared = ', '.join(sorted(services))
+            defined = ', '.join(sorted(services))
             raise excs.NotFoundError(
-                excs.ErrorCode.SERVICE_NOT_FOUND,
-                f'{app_file} declares no service named {name!r}; it declares: {declared}',
+                excs.ErrorCode.SERVICE_NOT_FOUND, f'{app_file} defines no service named {name!r}; it defines: {defined}'
             )
         spec = service_spec(name, services[name], module_routers(module))
         app_module = module_name(app_file, subject='application file')

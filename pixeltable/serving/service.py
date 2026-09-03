@@ -42,9 +42,18 @@ def _base_path(target: PxtPath) -> str:
     return '/'.join(catalog.Path.parse(target, allow_empty_path=True).components)
 
 
-def service_diff(app_file: str, target: PxtPath, *, otel: bool = False) -> ServicePlan:
-    """The plan to reconcile the services at target with what's in app_file."""
+def service_diff(app_file: str, target: PxtPath, *, service_name: str | None = None, otel: bool = False) -> ServicePlan:
+    """The plan to reconcile the services at target with what's in app_file.
+
+    service_name narrows the plan to that one service; the file has to define it.
+    """
     app_info = _get_app_info(app_file, target)
+    if service_name is not None and service_name not in app_info.services:
+        defined = ', '.join(sorted(app_info.services))
+        raise excs.NotFoundError(
+            excs.ErrorCode.SERVICE_NOT_FOUND,
+            f'{app_file} defines no service named {service_name!r}; it defines: {defined}',
+        )
     # one listing for every service: a proxied manager answers each get() with a round trip
     manager = get_manager(target)
     running = {i.service_name: i for i in manager.list(_base_path(target))}
@@ -54,6 +63,7 @@ def service_diff(app_file: str, target: PxtPath, *, otel: bool = False) -> Servi
         services=[
             _service_diff(name, service, running.get(name), app_info, target, otel)
             for name, service in sorted(app_info.services.items())
+            if service_name is None or name == service_name
         ],
         # extras are excluded from in_agreement: update never removes a service, which is what prune is for
         extras=sorted(name for name in running if name not in app_info.services),
@@ -61,27 +71,34 @@ def service_diff(app_file: str, target: PxtPath, *, otel: bool = False) -> Servi
 
 
 def service_update(
-    app_file: str, target: PxtPath, *, allow_destructive: bool = False, otel: bool = False, port: int | None = None
+    app_file: str,
+    target: PxtPath,
+    *,
+    service_name: str | None = None,
+    allow_destructive: bool = False,
+    otel: bool = False,
+    port: int | None = None,
 ) -> ServicePlan:
     """Reconcile the services at target with what's in app_file.
 
-    Starts a service that is not running, and restarts one whose declaration changed, since a service binds
-    its models once per process. A service the file does not declare is left alone, which is what prune is
+    Starts a service that is not running, and restarts one whose definition changed, since a service binds
+    its models once per process. A service the file does not define is left alone, which is what prune is
     for.
 
     Returns the plan that was applied, each service annotated with its status: 'applied' for one that was
-    started or restarted, 'skipped' for one already serving its declaration, 'refused' for one whose routes
-    the database cannot serve or whose application object Pixeltable did not declare.
+    started or restarted, 'skipped' for one already serving its definition, 'refused' for one whose routes
+    the database cannot serve or whose application object Pixeltable did not define.
 
     Args:
-        app_file: the application file declaring the services.
+        app_file: the application file defining the services.
         target: the catalog directory the services' models bind against.
+        service_name: the only service to reconcile. None reconciles every service.
         allow_destructive: whether to apply changes that stop serving a route callers may be using.
-        port: the loopback port to serve on. None keeps the port a restarted service was reached at, and asks
-            the OS for one when starting a service that was not running.
+        port: the loopback port to serve on. None keeps a restarted service on its current port, and asks the
+            OS for one when starting a service that was not running.
     """
     manager = get_manager(target)
-    plan = service_diff(app_file, target, otel=otel)
+    plan = service_diff(app_file, target, service_name=service_name, otel=otel)
     destructive = [d.name for d in plan.services if d.resolution == 'update_destructive']
     if len(destructive) > 0 and not allow_destructive:
         names = ', '.join(repr(name) for name in destructive)
@@ -101,12 +118,12 @@ def service_update(
             diff.status = 'skipped'
             continue
         instance = running.get(diff.name)
-        # a restart keeps the port it was reached at, so that callers pointed at it do not have to be redirected
+        # a restart keeps the service's port, so that its callers are not redirected
         service_port = port
         if instance is not None and instance.state is service_instance.ServiceInstanceState.AVAILABLE:
             if service_port is None:
                 service_port = instance.record.port
-            # the running service serves the old declaration; binding happens once per process, so it is replaced
+            # the running service serves the old definition; binding happens once per process, so it is replaced
             instance.stop()
         started = manager.start(app_file, diff.name, _base_path(target), otel=otel, port=service_port)
         diff.status = 'applied'
@@ -120,9 +137,9 @@ def service_update(
 
 def service_prune(app_file: str, target: PxtPath, *, dry_run: bool = False) -> ServicePlan:
     """Stop and forget the services that aren't in app_file. Returns the plan, with one drop operation per service."""
-    declared = services_by_name(load_app_module(app_file, subject='application file'), app_file)
+    defined = services_by_name(load_app_module(app_file, subject='application file'), app_file)
     extras = sorted(
-        i.service_name for i in get_manager(target).list(_base_path(target)) if i.service_name not in declared
+        i.service_name for i in get_manager(target).list(_base_path(target)) if i.service_name not in defined
     )
     ops = (
         [ServiceChangeOp.delete_service(name, None, 'skipped') for name in extras]
@@ -182,7 +199,7 @@ def service_list(target: PxtPath | None = None) -> list[ServiceInstance]:
 def service_check(app_file: str) -> CheckReport:
     """What checking an application file on its own reports: whether it is valid, and what to fix."""
     module = load_app_module(app_file, subject='application file')
-    get_module_services(module, app_file)  # refuses a file whose service declarations are invalid
+    get_module_services(module, app_file)  # refuses a file whose service definitions are invalid
     return check_report(app_file, get_model_bases(module))
 
 
@@ -263,11 +280,11 @@ def _service_diff(
     if running is None:
         route_comparison: RouteComparison = 'unavailable'
         route_detail = 'the service is not running at this target'
-        # nothing is serving yet, so every declared route is an addition. Copying the declared spec keeps
+        # nothing is serving yet, so every defined route is an addition. Copying the defined spec keeps
         # its prefix, so this does not rely on _prefix_change() ignoring an empty route list.
         ops += compare_specs(service.spec.model_copy(update={'routes': [], 'app_paths': []}), service.spec)
     else:
-        # a declarative service is compared by its route declarations, an application object by the paths it
+        # a declarative service is compared by its route definitions, an application object by the paths it
         # serves itself
         route_comparison = 'declarative' if service.kind == 'declarative' else 'openapi'
         ops += compare_specs(running.spec, service.spec)
@@ -314,7 +331,7 @@ def _service_diff(
     elif running is None:
         resolution = 'create'
     elif running.state is not service_instance.ServiceInstanceState.AVAILABLE:
-        # registered but not serving, whatever its declaration says: an update starts it
+        # registered but not serving, whatever its definition says: an update starts it
         resolution = 'create'
     elif any(op.destructive for op in ops):
         resolution = 'update_destructive'
@@ -355,25 +372,25 @@ def _forget_services(names: list[str], target: PxtPath, *, delete: bool) -> list
     return ops
 
 
-def compare_specs(current: ServiceSpec, declared: ServiceSpec) -> list[ServiceChangeOp]:
-    """The operations that would bring the current service definition to the declared one.
+def compare_specs(current: ServiceSpec, defined: ServiceSpec) -> list[ServiceChangeOp]:
+    """The operations that would bring the current service definition to the defined one.
 
     Two routes with the same method and path serve the same callers, so a difference between them is an
     alteration of one route rather than a drop and an add. Only adding a route leaves what is already served
     untouched; every other operation changes a route callers may be relying on.
     """
     ops: list[ServiceChangeOp] = []
-    ops += _path_ops(current.app_paths, declared.app_paths)
+    ops += _path_ops(current.app_paths, defined.app_paths)
 
-    prefix_op = _prefix_change(current, declared)
+    prefix_op = _prefix_change(current, defined)
     if prefix_op is not None:
         # every route moved, so the routes below would each read as a drop and an add of the same route
         return [*ops, prefix_op]
 
-    # keyed by method and path, which ignores declaration order: valid paths don't contain parameters, which avoids
+    # keyed by method and path, which ignores definition order: valid paths don't contain parameters, which avoids
     # ambiguity
     current_routes = {(r.method, r.path): r for r in current.routes}
-    declared_routes = {(r.method, r.path): r for r in declared.routes}
+    declared_routes = {(r.method, r.path): r for r in defined.routes}
 
     for key, route in declared_routes.items():
         name = _route_name(route)
@@ -394,28 +411,28 @@ def compare_specs(current: ServiceSpec, declared: ServiceSpec) -> list[ServiceCh
     return ops
 
 
-def _prefix_change(current: ServiceSpec, declared: ServiceSpec) -> ServiceChangeOp | None:
+def _prefix_change(current: ServiceSpec, defined: ServiceSpec) -> ServiceChangeOp | None:
     """The one operation that accounts for every path difference, when a shared prefix moved.
 
     A prefix change breaks every caller at once, so it reads better as one operation than as a drop and an
     add of every route. It applies where stripping each side's shared prefix leaves the same routes.
     """
-    if len(current.routes) == 0 or len(declared.routes) == 0:
+    if len(current.routes) == 0 or len(defined.routes) == 0:
         return None
     current_prefix = _common_prefix([route.path for route in current.routes])
-    declared_prefix = _common_prefix([route.path for route in declared.routes])
+    declared_prefix = _common_prefix([route.path for route in defined.routes])
     if current_prefix == declared_prefix:
         return None
-    if _without_prefix(current.routes, current_prefix) != _without_prefix(declared.routes, declared_prefix):
+    if _without_prefix(current.routes, current_prefix) != _without_prefix(defined.routes, declared_prefix):
         return None
-    return ServiceChangeOp.prefix_moved(declared.name, current_prefix, declared_prefix)
+    return ServiceChangeOp.prefix_moved(defined.name, current_prefix, declared_prefix)
 
 
-def _path_ops(current: list[str], declared: list[str]) -> list[ServiceChangeOp]:
-    """The operations that would bring the served paths to the declared ones."""
+def _path_ops(current: list[str], defined: list[str]) -> list[ServiceChangeOp]:
+    """The operations that would bring the served paths to the defined ones."""
     ops: list[ServiceChangeOp] = []
-    ops += [ServiceChangeOp.path_added(path) for path in sorted(set(declared) - set(current))]
-    ops += [ServiceChangeOp.path_dropped(path) for path in sorted(set(current) - set(declared))]
+    ops += [ServiceChangeOp.path_added(path) for path in sorted(set(defined) - set(current))]
+    ops += [ServiceChangeOp.path_dropped(path) for path in sorted(set(current) - set(defined))]
     return ops
 
 
@@ -439,6 +456,6 @@ def _without_prefix(routes: list[RouteSpec], prefix: str) -> set[tuple[str, str]
     return {(route.method, route.path[len(prefix) :]) for route in routes}
 
 
-def _changed_fields(current: RouteSpec, declared: RouteSpec) -> list[str]:
-    """The fields in which two route declarations differ."""
-    return sorted(name for name in type(declared).model_fields if getattr(current, name) != getattr(declared, name))
+def _changed_fields(current: RouteSpec, defined: RouteSpec) -> list[str]:
+    """The fields in which two route definitions differ."""
+    return sorted(name for name in type(defined).model_fields if getattr(current, name) != getattr(defined, name))
