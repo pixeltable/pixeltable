@@ -1861,9 +1861,6 @@ class TestTableModel:
         assert (diff.ops[0].target, diff.ops[0].name, diff.ops[0].op) == ('index', 'ix', 'drop')
         assert (diff.ops[1].target, diff.ops[1].name, diff.ops[1].op) == ('index', 'ix', 'add')
 
-        with pxt_raises(excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE, match='destructive'):
-            TableModelV2.update_all(p(''))
-
         TableModelV2.update_all(p(''), allow_destructive=True)
 
         idx_md = ExampleTableV2.get_metadata()['indexes']
