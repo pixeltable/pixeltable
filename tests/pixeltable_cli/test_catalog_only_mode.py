@@ -11,10 +11,11 @@ from unittest.mock import patch
 import pytest
 
 from pixeltable.config import Config
+from pixeltable_cli.models import Method
 from pixeltable_cli.server import daemon, http_server, routes as routes_module
 
 # Reachable in both modes; must match routes.CATALOG_ROUTES, enumerated here independently.
-_CATALOG_ROUTES = {
+_CATALOG_ROUTES: set[tuple[Method, str]] = {
     ('GET', '/api/health'),
     ('GET', '/api/status'),
     ('GET', '/api/config'),
@@ -64,11 +65,11 @@ def full_routes() -> Iterator[None]:
     importlib.reload(routes_module)
 
 
-def _unreachable(routes: set[tuple[str, str]]) -> list[tuple[str, str]]:
+def _unreachable(routes: set[tuple[Method, str]]) -> list[tuple[Method, str]]:
     return sorted(r for r in routes if routes_module.router.match(*r) is None)
 
 
-def _registered() -> set[tuple[str, str]]:
+def _registered() -> set[tuple[Method, str]]:
     """Every route the module declares, whichever mode it was imported in.
 
     Derived rather than listed: the management surface is whatever is not in the allow-list, so a
