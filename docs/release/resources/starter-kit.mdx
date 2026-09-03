@@ -1,10 +1,65 @@
 ---
 title: 'Starter kit'
-description: 'Reference app and deployment configs for Pixeltable backends'
+description: 'uvx pixeltable-new copies a starter app. pxt schema update creates its tables. pxt service update starts the endpoints.'
 ---
 
-The [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) is a reference implementation for shipping multimodal backends: FastAPI + React, batch jobs, declarative serving, and deploy configs for Docker, Helm, Terraform, and CDK.
+The [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) is two apps.
+`uvx pixeltable-new` copies one into a new directory.
 
-<Card title="pixeltable/pixeltable-starter-kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
-  Clone the starter kit on GitHub
-</Card>
+First create the tables (`pxt schema update`), then start the endpoints (`pxt service update`), then try the app by inserting rows, calling `/ask`, or opening the dashboard.
+A first run: [Quickstart](/overview/quick-start).
+
+```bash
+uvx pixeltable-new myapp
+cd myapp
+uv sync
+pxt schema update app.py agent
+pxt service update app.py agent
+```
+
+`agent` is the catalog name Pixeltable creates, not a folder on disk. For the video app, run `uvx pixeltable-new myapp --video` and use `videointel` as that catalog name.
+The scaffold includes `pixeltable.toml`. If you copied files by hand, run `pxt init` first.
+
+Routes live on a `FastAPIRouter` in the same file as the `TableModel` classes.
+If you already have a FastAPI app, mount the kit's router with `app.include_router(...)`. [HTTP serving](/howto/deployment/serving).
+To skip endpoints, see [Self-hosting](/howto/deployment/overview) for the insert-and-export path.
+
+## Apps
+
+<Columns cols={2}>
+  <Card title="Chat agent" icon="comments">
+    The default app is the chat agent. You can insert documents without an API key; `/ask` needs `ANTHROPIC_API_KEY`.
+
+    ```bash
+    uvx pixeltable-new myapp
+    pxt schema update app.py agent
+    ```
+  </Card>
+  <Card title="Video search" icon="film">
+    Extracts video frames at 1 FPS, indexes them with CLIP, and accepts image uploads.
+
+    ```bash
+    uvx pixeltable-new myapp --video
+    pxt schema update app.py videointel
+    ```
+  </Card>
+</Columns>
+
+To run the same starter app on Pixeltable Cloud, create the hosted database, then create tables and start services against that `pxt://` URI:
+
+```bash
+pxt db update pxt://org:mydb
+pxt schema update app.py pxt://org:mydb
+pxt service update app.py pxt://org:mydb
+```
+
+[Deploy to Pixeltable Cloud](/howto/deployment/cloud). `pxt service run` starts a service in your terminal and cannot target Cloud; use `pxt service update` for hosted endpoints.
+
+<CardGroup cols={2}>
+  <Card title="AI Skills" icon="robot" href="/resources/ai-skills">
+    Teach an agent to write `TableModel` in `app.py`.
+  </Card>
+  <Card title="Clone the kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
+    `chat-agent/` and `video-search/` in one repo.
+  </Card>
+</CardGroup>

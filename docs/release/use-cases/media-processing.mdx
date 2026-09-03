@@ -1,163 +1,56 @@
 ---
 title: 'Media processing'
-description: 'Process video, audio, documents, and images into training-ready datasets'
+sidebarTitle: 'Datasets from media'
+description: 'Insert a video. Frames are rows. Export when the dataset is ready.'
 ---
 
-**Who:** ML Engineers, Data Scientists
-**Output:** Training/evaluation datasets
+Insert media. Iterators explode it into rows. Computed columns run on the new rows. Export when you are ready to train.
 
-**Pixeltable is your system of record**—all data, cached results, and references stay in sync.
+Create the tables with `pxt schema update app.py my_app`, then open them with `t = pxt.get_table('my_app.videos')`. Cookbooks on this topic use `pxt.create_table()` so you can run cells without a project. An app puts the same columns on a `TableModel` in `app.py` and creates the tables with `pxt schema update`.
 
----
+```python
+import pixeltable as pxt
+import pixeltable.functions as pxtf
 
-## Data Lifecycle
+TableModel = pxt.model_base()
 
-<Tabs>
-  <Tab title="1. Acquire Data">
-    <Steps>
-      <Step title="Ingest" icon="download">
-        Load from any source: [`import_csv()`](/sdk/latest/io#func-import_csv), [`import_parquet()`](/sdk/latest/io#func-import_parquet), [`import_sql()`](/howto/cookbooks/data/data-export-sql), [HuggingFace](/howto/cookbooks/data/data-import-huggingface), [S3/GCS/Azure](/integrations/cloud-storage)
 
-        <CardGroup cols={2}>
-          <Card title="Import from S3" icon="aws" href="/howto/cookbooks/data/data-import-s3">
-            Load images/videos from cloud storage
-          </Card>
-          <Card title="Import HuggingFace" icon="face-smile" href="/howto/cookbooks/data/data-import-huggingface">
-            Load datasets from HuggingFace Hub
-          </Card>
-        </CardGroup>
-      </Step>
-      <Step title="Explore" icon="magnifying-glass">
-        Statistics & sampling: [`select()`](/tutorials/queries-and-expressions), [`.sample()`](/howto/cookbooks/data/data-sampling), `.head()`
+class Videos(TableModel, name='videos'):
+    video: pxt.Video
 
-        <Card title="Data Sampling" icon="filter" href="/howto/cookbooks/data/data-sampling">
-          Sample and filter large datasets efficiently
-        </Card>
-      </Step>
-    </Steps>
-  </Tab>
-  <Tab title="2. Enrich & Annotate">
-    <Steps>
-      <Step title="Enrich" icon="wand-magic-sparkles">
-        Transform & extract: [`add_computed_column()`](/tutorials/computed-columns), [`FrameIterator`](/platform/iterators), [`DocumentSplitter`](/platform/iterators)
 
-        <CardGroup cols={2}>
-          <Card title="Extract Video Frames" icon="film" href="/howto/cookbooks/video/video-extract-frames">
-            Process video into frame-level data
-          </Card>
-          <Card title="Transcribe Audio" icon="microphone" href="/howto/cookbooks/audio/audio-transcribe">
-            Audio to text with Whisper
-          </Card>
-        </CardGroup>
-      </Step>
-      <Step title="Pre-Annotate" icon="robot">
-        **Model-in-the-loop:** Auto-generate labels with AI models
+class Frames(
+    TableModel,
+    name='frames',
+    base=Videos,
+    iterator=pxtf.video.frame_iterator(Videos.video, fps=1),
+):
+    thumb = frame.resize((256, 256))  # type: ignore[name-defined]  # iterator output
+```
 
-        - **Object Detection:** [`yolox.yolox()`](/sdk/latest/yolox), [`huggingface.detr_for_object_detection()`](/sdk/latest/huggingface)
-        - **Vision LLMs:** [`openai.chat_completions()`](/sdk/latest/openai), [`anthropic.messages()`](/sdk/latest/anthropic), [`gemini.generate_content()`](/sdk/latest/gemini)
-        - **Classification:** [`huggingface.image_classification()`](/sdk/latest/huggingface)
+```bash
+pxt schema update app.py my_app
+```
 
-        <CardGroup cols={2}>
-          <Card title="Object Detection" icon="bullseye" href="/howto/cookbooks/images/img-detect-objects">
-            Run YOLOX detection on images
-          </Card>
-          <Card title="Vision Batch Analysis" icon="images" href="/howto/cookbooks/images/vision-batch-analysis">
-            Analyze images with GPT-4o
-          </Card>
-        </CardGroup>
-      </Step>
-      <Step title="Annotate" icon="user">
-        **Human-in-the-loop:** Refine labels with human annotators
+```python
+videos = pxt.get_table('my_app.videos')
+videos.insert([{'video': 'demo.mp4'}])
+frames = pxt.get_table('my_app.frames')
+frames.select(frames.thumb).head(10)
+```
 
-        [FiftyOne](/howto/working-with-fiftyone) export, [`add_embedding_index()`](/platform/embedding-indexes) for curation search
+Add Whisper, YOLOX, and other models from the cookbooks as computed columns on these tables. When the rows look ready for training, export with `to_pytorch_dataset()`. Skip `pxt service update` on this path. [Self-hosting](/howto/deployment/overview).
 
-        <CardGroup cols={1}>
-          <Card title="FiftyOne Export" icon="eye" href="/howto/working-with-fiftyone">
-            Visualize and curate datasets
-          </Card>
-        </CardGroup>
-      </Step>
-    </Steps>
-    <Tip>
-    **Model-in-the-loop vs Human-in-the-loop:** Use pre-annotation to generate initial labels with AI models, then refine with human annotators. Pixeltable keeps both in sync—model outputs and human corrections live in the same table.
-    </Tip>
-  </Tab>
-  <Tab title="3. Curate">
-    <Steps>
-      <Step title="Search & Filter" icon="magnifying-glass-plus">
-        Find similar examples with embedding search, filter by quality metrics
+A video search app with endpoints: `uvx pixeltable-new myapp --video`, then pass `videointel` to `pxt schema update`. Live search over chunks: [RAG and live APIs](/use-cases/multimodal-backend).
 
-        [`add_embedding_index()`](/platform/embedding-indexes), [`.similarity()`](/platform/embedding-indexes), `.where()`, `.order_by()`
-
-        <CardGroup cols={2}>
-          <Card title="Similar Image Search" icon="images" href="/howto/cookbooks/search/search-similar-images">
-            Find visually similar samples
-          </Card>
-          <Card title="Semantic Text Search" icon="font" href="/howto/cookbooks/search/search-semantic-text">
-            Search by meaning, not keywords
-          </Card>
-        </CardGroup>
-      </Step>
-      <Step title="Experiment" icon="flask">
-        **Test transformations before committing:** Run `SELECT` to preview results on samples before adding computed columns
-
-        ```python
-        # Test on 5 rows first (no storage cost)
-        t.select(t.image, new_label=my_classifier(t.image)).head(5)
-
-        # Happy? Commit to full dataset
-        t.add_computed_column(new_label=my_classifier(t.image))
-        ```
-
-        <Card title="Iterative Development" icon="rotate" href="/howto/cookbooks/core/dev-iterative-workflow">
-          Test UDFs and expressions before committing
-        </Card>
-      </Step>
-      <Step title="Snapshot" icon="camera">
-        Version control: [`create_snapshot()`](/platform/version-control), [`create_view()`](/platform/views), [`history()`](/platform/version-control), lineage tracking
-
-        <Card title="Version Control Guide" icon="code-branch" href="/howto/cookbooks/core/version-control-history">
-          Track changes and revert to previous states
-        </Card>
-      </Step>
-    </Steps>
-    <Tip>
-    **Why curate?** ML models are only as good as their training data. Use Pixeltable's search and filtering to find edge cases, remove duplicates, balance classes, and iterate on your data quality before export.
-    </Tip>
-  </Tab>
-  <Tab title="4. Export">
-    <Steps>
-      <Step title="Export" icon="file-export">
-        Training and data formats: [`export_csv()`](/sdk/latest/io#func-export_csv), [`export_json()`](/sdk/latest/io#func-export_json), [`export_parquet()`](/sdk/latest/io#func-export_parquet), [`to_pytorch_dataset()`](/sdk/latest/query#method-to_pytorch_dataset), [`to_coco_dataset()`](/sdk/latest/query#method-to_coco_dataset), [`export_lancedb()`](/sdk/latest/io#func-export_lancedb)
-
-        <CardGroup cols={2}>
-          <Card title="Export to PyTorch" icon="fire" href="/howto/cookbooks/data/data-export-pytorch">
-            Convert to PyTorch DataLoader format
-          </Card>
-          <Card title="Data Interoperability" icon="arrows-rotate" href="/howto/deployment/infrastructure#data-interoperability">
-            All import/export formats
-          </Card>
-        </CardGroup>
-      </Step>
-    </Steps>
-  </Tab>
-</Tabs>
-
----
-
-## End-to-End Examples
-
-<CardGroup cols={2}>
-  <Card title="Object Detection Pipeline" icon="bullseye" href="/howto/use-cases/object-detection-in-videos">
-    Complete workflow: ingest video → extract frames → detect objects → export
+<CardGroup cols={3}>
+  <Card title="Extract video frames" icon="film" href="/howto/cookbooks/video/video-extract-frames">
+    Frames as rows from a `pxt.Video` column.
   </Card>
-  <Card title="Audio Transcription Pipeline" icon="microphone" href="/howto/use-cases/audio-transcriptions">
-    Transcribe and analyze audio at scale
+  <Card title="Transcribe audio" icon="waveform" href="/howto/cookbooks/audio/audio-transcribe">
+    Transcripts as computed columns.
   </Card>
-  <Card title="Structured Vision Output" icon="table" href="/howto/cookbooks/images/vision-structured-output">
-    Extract structured data from images with GPT-4o
-  </Card>
-  <Card title="Generate Captions" icon="closed-captioning" href="/howto/cookbooks/images/img-generate-captions">
-    Auto-generate image descriptions
+  <Card title="Export to PyTorch" icon="download" href="/howto/cookbooks/data/data-export-pytorch">
+    `to_pytorch_dataset()` when the rows are ready.
   </Card>
 </CardGroup>
