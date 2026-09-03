@@ -39,7 +39,7 @@ from pixeltable.utils.process import is_pid, pid_alive
 
 from . import proxy_dispatch
 from .db import unpack_project_archive
-from .proxy_protocol import decode_body, encode_body
+from .proxy_protocol import decode_body
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -297,12 +297,10 @@ def _build_app(test_mode: bool = False) -> 'FastAPI':
     async def rpc(request: Request) -> Response:
         request_json, request_parts = decode_body(await request.body())
         # dispatch is synchronous and touches the database; keep it off the event loop
-        response_json, response_parts = await run_in_threadpool(
+        body = await run_in_threadpool(
             proxy_dispatch.handle, request_json.decode(), request_parts, include_error_detail=test_mode
         )
-        return Response(
-            content=encode_body(response_json.encode(), response_parts), media_type='application/octet-stream'
-        )
+        return Response(content=body, media_type='application/octet-stream')
 
     if test_mode:
 

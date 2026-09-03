@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import abc
 import http.client
+import json
 import logging
 import socket
 import ssl
@@ -44,7 +45,6 @@ from .proxy_protocol import (
     ProxyRequest,
     ProxyResponse,
     PxtStorePartSink,
-    decode_body,
     encode_body,
 )
 
@@ -320,12 +320,6 @@ class ProxyClient:
         """Connect to the Pixeltable cloud service's proxy daemon over an authenticated TLS tunnel."""
         return cls(TunnelTransport(org, db, api_key, host=host, port=port))
 
-    def _send(self, request_json: str, parts: list[bytes]) -> tuple[str, list[bytes]]:
-        """Encode the request (json head + binary parts), POST it to /rpc, and decode the response."""
-        body = encode_body(request_json.encode(), parts)
-        head, response_parts = decode_body(self._transport.post(body))
-        return head.decode(), response_parts
-
     def _prepare(self, args: dict[str, Any]) -> tuple[dict[str, Any], list[bytes]]:
         """Serialize args for the wire, exactly once per logical request (media files are read, and for a
         hosted catalog uploaded, here; CAS retries must reuse the result rather than repeating that work)."""
@@ -341,8 +335,8 @@ class ProxyClient:
         *,
         path_key: TablePathKey | None = None,
         snapshot_key: TablePathKey | None = None,
-    ) -> ProxyResponse:
-        """POST one attempt of a prepared request and return the raw response."""
+    ) -> tuple[ProxyResponse, list[bytes]]:
+        """POST one attempt of a prepared request and return the response head with its binary parts."""
         request = ProxyRequest(
             class_name=class_name,
             method=method,
@@ -350,10 +344,9 @@ class ProxyClient:
             path_key=None if path_key is None else path_key.as_dict(),
             snapshot_path_key=None if snapshot_key is None else snapshot_key.as_dict(),
         )
-        response_json, response_parts = self._send(request.model_dump_json(), parts)
-        response = ProxyResponse.model_validate_json(response_json)
-        response._binary_parts = response_parts
-        return response
+        body = encode_body(request.model_dump_json().encode(), parts)
+        response_head, response_parts = proxy_protocol.decode_body(self._transport.post(body))
+        return json.loads(response_head), response_parts
 
     def send(
         self,
@@ -363,17 +356,18 @@ class ProxyClient:
         *,
         path_key: TablePathKey | None = None,
         snapshot_key: TablePathKey | None = None,
-    ) -> ProxyResponse:
-        """Run class_name.method(**args) on the server and return the raw response."""
+    ) -> tuple[ProxyResponse, list[bytes]]:
+        """Run class_name.method(**args) on the server and return its head with its binary parts."""
         wire_args, parts = self._prepare(args)
         return self._post(class_name, method, wire_args, parts, path_key=path_key, snapshot_key=snapshot_key)
 
     def send_request(self, class_name: str, method: str, args: dict[str, Any]) -> Any:
         """Run a (path-less) catalog method and return its (deserialized) result."""
-        response = self.send(class_name, method, args)
-        if response.error is not None:
-            raise excs.Error.from_dict(response.error)
-        return self._localize_media(proxy_protocol.deserialize_response(response, response.result))
+        response, parts = self.send(class_name, method, args)
+        error = response.get('error')
+        if error is not None:
+            raise excs.Error.from_dict(error)
+        return self._localize_media(proxy_protocol.deserialize_value(response.get('result'), parts))
 
     def dispatch_table_method(
         self,
@@ -388,14 +382,18 @@ class ProxyClient:
         wire_args, parts = self._prepare(args)
         while True:
             snapshot_key = get_snapshot_key()
-            response = self._post('Table', method, wire_args, parts, path_key=path_key, snapshot_key=snapshot_key)
-            if response.current_md is not None:
-                refresh(proxy_protocol.deserialize_response(response, response.current_md))
-            if response.error is not None:
-                raise excs.Error.from_dict(response.error)
-            if response.is_stale_md:
+            response, resp_parts = self._post(
+                'Table', method, wire_args, parts, path_key=path_key, snapshot_key=snapshot_key
+            )
+            current_md = response.get('current_md')
+            if current_md is not None:
+                refresh(proxy_protocol.deserialize_value(current_md, resp_parts))
+            error = response.get('error')
+            if error is not None:
+                raise excs.Error.from_dict(error)
+            if response.get('is_stale_md', False):
                 continue  # server withheld a stale mutation; retry against the refreshed schema
-            return self._localize_media(proxy_protocol.deserialize_response(response, response.result))
+            return self._localize_media(proxy_protocol.deserialize_value(response.get('result'), resp_parts))
 
     def run_query(self, method: str, query_dict: dict, **extra: Any) -> Any:
         """Execute a Query method against the hosted catalog."""

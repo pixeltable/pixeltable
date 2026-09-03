@@ -539,6 +539,21 @@ class Query(QueryBase):
         """
         return self._head(n)
 
+    def _rowid_order_by(self) -> list[exprs.Expr]:
+        """The rowid components of this query's first table, in order, as an insertion-order sort key.
+
+        Built from the table's md path, so it works against a proxy table too: a TableProxy carries no
+        TableVersion, and RowidRef takes the ids in that case.
+        """
+        tbl = self._from_clause.tbls[0]
+        if self._from_clause.is_local:
+            tbl_version = self._first_tbl.tbl_version
+            return [exprs.RowidRef(tbl_version, idx) for idx in range(tbl_version.get().num_rowid_columns())]
+        return [
+            exprs.RowidRef(None, idx, tbl_id=tbl.tbl_id, normalized_base_id=tbl.rowid_normalized_base_id(idx))
+            for idx in range(tbl.num_rowid_columns())
+        ]
+
     def _head(self, n: int = 10, *, media_as_urls: bool = False) -> ResultSet:
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with order_by()')
@@ -548,12 +563,7 @@ class Query(QueryBase):
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with sample()')
         if self.group_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with group_by()')
-        if not self._from_clause.is_local:
-            # the rowid order_by needs the table's local store; run head() on the hosting catalog instead
-            return self._exec_proxy('head', n=n).as_result_set()
-        num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
-        order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
-        return self.order_by(*order_by_clause, asc=True).limit(n)._collect(media_as_urls=media_as_urls)
+        return self.order_by(*self._rowid_order_by(), asc=True).limit(n)._collect(media_as_urls=media_as_urls)
 
     def tail(self, n: int = 10) -> ResultSet:
         """Return the last n rows of the Query, in insertion order of the underlying Table.
@@ -581,12 +591,7 @@ class Query(QueryBase):
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with sample()')
         if self.group_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with group_by()')
-        if not self._from_clause.is_local:
-            # the rowid order_by needs the table's local store; run tail() on the hosting catalog instead
-            return self._exec_proxy('tail', n=n).as_result_set()
-        num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
-        order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
-        result = self.order_by(*order_by_clause, asc=False).limit(n)._collect(media_as_urls=media_as_urls)
+        result = self.order_by(*self._rowid_order_by(), asc=False).limit(n)._collect(media_as_urls=media_as_urls)
         result._reverse()
         return result
 
@@ -628,7 +633,7 @@ class Query(QueryBase):
     def collect(self) -> ResultSet:
         return self._collect()
 
-    _ProxyMethodNames = Literal['collect', 'head', 'tail']
+    _ProxyMethodNames = Literal['collect']
 
     def _exec_proxy(self, method: _ProxyMethodNames, **extra: Any) -> ProxyResultCursor:
         from pixeltable.catalog.catalog_proxy import CatalogProxy
@@ -653,6 +658,25 @@ class Query(QueryBase):
                 for data in self._output_row_iterator(args=args, media_as_urls=media_as_urls)
             ]
             return ResultSet(rows, schema)
+
+    def _collect_content(self, args: dict[str, Any] | None = None) -> bytes:
+        """Returns the proxy response body (content arg of FastAPI.Response()) for this query's rows.
+
+        The content is a json-serialized string containing the schema and rows objects needed to construct a
+        ProxyResultCursor.
+        """
+        from pixeltable.service import proxy_protocol
+
+        assert self._from_clause.is_local
+        # only a media column can name a file, so only those cells are worth examining
+        schema = self.schema
+        media_idxs = [i for i, col_type in enumerate(schema.values()) if col_type.is_media_type()]
+        rows: list[list] = []
+        for data in self._output_row_iterator(args=args, media_as_urls=True):
+            for idx in media_idxs:
+                data[idx] = proxy_protocol.encode_local_path(data[idx])
+            rows.append(data)
+        return proxy_protocol.encode_response({'result': {'schema': schema, 'rows': rows}})
 
     def cursor(self) -> ResultCursor:
         """Return a [`ResultCursor`][pixeltable.ResultCursor] that iterates over the query results row by row.

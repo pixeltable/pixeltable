@@ -1,3 +1,4 @@
+import json
 import pathlib
 from typing import Any
 
@@ -125,7 +126,11 @@ class TestProxyDaemon:
 
         # a stale-md response makes dispatch_table_method retry the POST without re-serializing (and thus
         # without re-reading/re-uploading media)
-        responses = [proxy_protocol.ProxyResponse(is_stale_md=True), proxy_protocol.ProxyResponse(result='ok')]
+        # _post() hands back the response head with the body's binary parts
+        responses: list[tuple[proxy_protocol.ProxyResponse, list[bytes]]] = [
+            (proxy_protocol.ProxyResponse(is_stale_md=True), []),
+            (proxy_protocol.ProxyResponse(result='ok'), []),
+        ]
         monkeypatch.setattr(ProxyClient, '_prepare', counting_prepare)
         monkeypatch.setattr(ProxyClient, '_post', lambda self, *args, **kwargs: responses.pop(0))
         result = client.dispatch_table_method(
@@ -285,9 +290,8 @@ class TestProxyDaemon:
 
         # success: the handler saw the localized file; handle() unlinked it afterwards
         request = self._remote_file_request('uploads/req/0.png')
-        response_json, _ = proxy_dispatch.handle(request.model_dump_json(), [])
-        response = proxy_protocol.ProxyResponse.model_validate_json(response_json)
-        assert response.error is None
+        head, _ = proxy_protocol.decode_body(proxy_dispatch.handle(request.model_dump_json(), []))
+        assert json.loads(head).get('error') is None
         assert len(localized) == 1
         assert not pathlib.Path(localized[0]).exists()
 
@@ -298,9 +302,8 @@ class TestProxyDaemon:
 
         monkeypatch.setitem(proxy_dispatch._HANDLERS, ('CatalogBase', 'echo_test'), failing_handler)
         request = self._remote_file_request('uploads/req/0.png')
-        response_json, _ = proxy_dispatch.handle(request.model_dump_json(), [])
-        response = proxy_protocol.ProxyResponse.model_validate_json(response_json)
-        assert response.error is not None
-        assert 'boom' in response.error['message']
+        head, _ = proxy_protocol.decode_body(proxy_dispatch.handle(request.model_dump_json(), []))
+        error = json.loads(head)['error']
+        assert 'boom' in error['message']
         assert len(localized) == 2
         assert not pathlib.Path(localized[1]).exists()

@@ -12,12 +12,13 @@ import abc
 import dataclasses
 import datetime
 import io
+import json
 import math
 import pathlib
 import shutil
 import struct
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypedDict, TypeVar
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -32,9 +33,11 @@ from pixeltable.catalog.path import Path
 from pixeltable.catalog.table_path import TablePath, TablePathKey, TableVersionPath
 from pixeltable.catalog.types import TableVersionMd
 from pixeltable.catalog.update_status import RowCountStats, UpdateStatus
+from pixeltable.env import Env
 from pixeltable.metadata import VERSION as MD_SCHEMA_VERSION, schema
 from pixeltable.query_clauses import SampleClause
 from pixeltable.row import RowBatch
+from pixeltable.utils import parse_local_file_path
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectStoreBase
 
@@ -212,18 +215,21 @@ class ProxyRequest(BaseModel):
     _remote_parts: dict[str, str] = PrivateAttr(default_factory=dict)
 
 
-class ProxyResponse(BaseModel):
-    result: Any = None  # return value
-    error: dict[str, Any] | None = None  # excs.Error.to_dict(), set instead of result on failure
+class ProxyResponse(TypedDict, total=False):
+    """The JSON head of a proxy response, as required by the content arg of FastAPI.Response().
+
+    total=False: it is legal for fields to be absent
+    values referenced by 'blob' tags travel beside the head rather than in it; see encode_body().
+    """
+
+    result: Any  # return value
+    error: dict[str, Any]  # excs.Error.to_dict(), set instead of result on failure
 
     # serialized TableMdPath (list[TableVersionMd]); returned after a mutation so the client refreshes its md
-    current_md: Any = None
+    current_md: Any
 
     # True if the request's snapshot_path_key was behind the current schema version
-    is_stale_md: bool = False
-
-    # raw binary parts referenced by 'blob' tags in result/current_md
-    _binary_parts: list[bytes] = PrivateAttr(default_factory=list)
+    is_stale_md: bool
 
 
 def _serialize(obj: Any, sink: PartSink) -> Any:
@@ -561,17 +567,47 @@ def deserialize_request(request: ProxyRequest) -> dict[str, Any]:
     return _deserialize(request.args, request._binary_parts, request._uploaded_names, request._remote_parts or None)
 
 
-def serialize_response(response: ProxyResponse) -> None:
-    """Encode response.result and response.current_md in place, appending binary values to response._binary_parts."""
+def encode_local_path(value: Any) -> Any:
+    """Encode local file paths as LocalFile/MediaPath."""
+    if not isinstance(value, str):
+        return value
+    path = parse_local_file_path(value)
+    if path is None:
+        return value  # remote URL: the client fetches it directly
+    if TempStore.contains_path(path):
+        return LocalFile(str(path))
+    media_dir = Env.get().media_dir.resolve()
+    resolved = path.resolve()
+    if resolved == media_dir or media_dir in resolved.parents:
+        return MediaPath(resolved.relative_to(media_dir).as_posix())
+    cache_dir = Env.get().file_cache_dir.resolve()
+    if resolved == cache_dir or cache_dir in resolved.parents:
+        # a file-cache copy of remote media (e.g. from .localpath): send its bytes, since the daemon's local
+        # path can't be resolved by the client
+        # TODO: send the url and have the client fetch it directly?
+        return LocalFile(str(path))
+    return value
+
+
+def deserialize_value(value: Any, parts: list[bytes]) -> Any:
+    """Decode a value carried by a response, resolving its binary references from parts."""
+    return _deserialize(value, parts)
+
+
+# the separators pydantic emitted, so that a body reads the same as the ones written before this
+_dumps = json.JSONEncoder(separators=(',', ':')).encode
+
+
+def encode_response(response: ProxyResponse) -> bytes:
+    """The wire body for a response, moving any binary values in it out to the body's parts."""
     sink = InlinePartSink()
-    response.result = _serialize(response.result, sink)
-    response.current_md = _serialize(response.current_md, sink)
-    response._binary_parts = sink.binary_parts
-
-
-def deserialize_response(response: ProxyResponse, value: Any) -> Any:
-    """Decode a value carried by response (its result or current_md), resolving binary references from it."""
-    return _deserialize(value, response._binary_parts)
+    head = {
+        'result': _serialize(response.get('result'), sink),
+        'error': response.get('error'),
+        'current_md': _serialize(response.get('current_md'), sink),
+        'is_stale_md': response.get('is_stale_md', False),
+    }
+    return encode_body(_dumps(head).encode(), sink.binary_parts)
 
 
 def encode_dir_tree(dir_path: pathlib.Path) -> list[dict[str, Any]]:
