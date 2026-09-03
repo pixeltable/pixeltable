@@ -337,7 +337,7 @@ def _tbl_lock_blocking(op_class: _TblOpClass, is_data_versioned: bool) -> bool:
 
 
 @dataclasses.dataclass(frozen=True)
-class LockTarget:
+class _LockTarget:
     """A store table of a lock set, and the mode it is to be locked in.
 
     The wait policy is not here: it is one decision per operation (see _tbl_lock_blocking()), where the mode varies
@@ -355,7 +355,7 @@ class LockTarget:
 class LockSet:
     """Everything a transaction locks, in acquisition order: store tables first, then `dirs` rows."""
 
-    tbl_targets: tuple[LockTarget, ...] = ()  # sorted by store table name
+    tbl_targets: tuple[_LockTarget, ...] = ()  # sorted by store table name
     dir_ids: tuple[UUID, ...] = ()  # sorted by directory path
     # The kind of the tables this transaction touches, which selects its wait policy; None when it touches none.
     # A set spanning both kinds would have two policies and no single answer. Nothing produces one today, because a
@@ -893,7 +893,7 @@ class Catalog(CatalogBase):
             pass
 
     @classmethod
-    def _make_lock_set(cls, targets: Collection[LockTarget], dir_ids: Collection[UUID] = ()) -> LockSet:
+    def _make_lock_set(cls, targets: Collection[_LockTarget], dir_ids: Collection[UUID] = ()) -> LockSet:
         """Assemble a LockSet from every target the operation touches, in acquisition order.
 
         Callers pass targets in whatever order they collected them; sorting is this function's job, since
@@ -907,7 +907,7 @@ class Catalog(CatalogBase):
             is_data_versioned=next(iter(kinds), None),
         )
 
-    def _lock_target_from_cache(self, key: TableVersionKey, op_class: _TblOpClass) -> list[LockTarget] | None:
+    def _lock_target_from_cache(self, key: TableVersionKey, op_class: _TblOpClass) -> list[_LockTarget] | None:
         """Creates a LockTarget for a paritcular table, as a list so that a skipped table can return [].
 
         Uses metadata cache only. Returns None on a cache miss.
@@ -916,7 +916,7 @@ class Catalog(CatalogBase):
         if tv is None or not tv.is_initialized:
             return None
         return [
-            LockTarget(
+            _LockTarget(
                 store_tbl_name=_store_tbl_name(tv.id, is_view=tv.is_view),
                 mode=_tbl_lock_mode(op_class, tv.is_data_versioned),
                 is_data_versioned=tv.is_data_versioned,
@@ -925,14 +925,14 @@ class Catalog(CatalogBase):
 
     def _path_lock_targets_from_cache(
         self, keys: Sequence[TableVersionKey], leaf_op_class: _TblOpClass
-    ) -> list[LockTarget] | None:
+    ) -> list[_LockTarget] | None:
         """Lock targets for the given path, represented by its keys in the view-before-base order.
 
         leaf_op_class applies to the leaf only. For the ancestors, read operation is assumed.
 
         Uses metadata cache only. Returns None if not all LockTargets can be created from the cache.
         """
-        result: list[LockTarget] = []
+        result: list[_LockTarget] = []
         for i, key in enumerate(keys):
             lock_targets = self._lock_target_from_cache(key, leaf_op_class if i == 0 else _TblOpClass.DATA_READ)
             if lock_targets is None:
@@ -948,7 +948,7 @@ class Catalog(CatalogBase):
 
     def _ancestors_lock_targets_from_cache(
         self, key: TableVersionKey, leaf_op_class: _TblOpClass
-    ) -> list[LockTarget] | None:
+    ) -> list[_LockTarget] | None:
         """Lock targets for `key` and its ancestors, from cached metadata only.
 
         Doesn't talk to the store; uses cached metadata only to build the list. If the cached state is insufficient to
@@ -965,7 +965,7 @@ class Catalog(CatalogBase):
                 return self._path_lock_targets_from_cache(keys, leaf_op_class)
             current_key = tv.base.key
 
-    def _mutable_tree_lock_targets_from_cache(self, tbl_id: UUID, op_class: _TblOpClass) -> list[LockTarget] | None:
+    def _mutable_tree_lock_targets_from_cache(self, tbl_id: UUID, op_class: _TblOpClass) -> list[_LockTarget] | None:
         """Returns lock targets for tbl_id's mutable tree: the target and its transitive mutable views.
 
         Doesn't talk to the store; uses cached metadata only to build the list. If the cached state is unsufficient to
@@ -1176,7 +1176,7 @@ class Catalog(CatalogBase):
                     dirs.setdefault(dir_id, self.get_dir_path(dir_id))
 
         targets = [
-            LockTarget(
+            _LockTarget(
                 store_tbl_name=name,
                 mode=_tbl_lock_mode(roles[tbl_id], tbl_id in versioned),
                 is_data_versioned=tbl_id in versioned,
@@ -1209,9 +1209,9 @@ class Catalog(CatalogBase):
 
         Takes no write paths: resolving one is a store read, so _resolve_lock_set() sends a transaction that has
         one straight to _lock_set_from_store()."""
-        targets: dict[str, LockTarget] = {}
+        targets: dict[str, _LockTarget] = {}
 
-        def add(new: Sequence[LockTarget]) -> None:
+        def add(new: Sequence[_LockTarget]) -> None:
             for target in new:
                 held = targets.get(target.store_tbl_name)
                 if held is None or target.mode.is_at_least(held.mode):
@@ -1334,7 +1334,7 @@ class Catalog(CatalogBase):
             StaleLockSetError: the locks do not cover it.
         """
 
-        def validate_targets_locked(targets: Collection[LockTarget]) -> None:
+        def validate_targets_locked(targets: Collection[_LockTarget]) -> None:
             for target in targets:
                 held = self._locks_held.get(target.store_tbl_name)
                 if held is None or not held.is_at_least(target.mode):
@@ -1437,7 +1437,7 @@ class Catalog(CatalogBase):
                 stacklevel=2,
             )
 
-    def _lock_tables(self, targets: Sequence[LockTarget], *, blocking: bool) -> None:
+    def _lock_tables(self, targets: Sequence[_LockTarget], *, blocking: bool) -> None:
         """Acquire the given targets' store tables, in the given order.
 
         A LOCK TABLE statement carries a single mode, so a lock set that spans several takes more than one. They are
