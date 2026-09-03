@@ -43,4 +43,14 @@ Add Whisper, YOLOX, and other models from the cookbooks as computed columns on t
 
 A video search app with endpoints: `uvx pixeltable-new myapp --video`, then pass `videointel` to `pxt schema update`. Live search over chunks: [RAG and live APIs](/use-cases/multimodal-backend).
 
-[Extract video frames](/howto/cookbooks/video/video-extract-frames) · [Transcribe audio](/howto/cookbooks/audio/audio-transcribe) · [Export to PyTorch](/howto/cookbooks/data/data-export-pytorch)
+<CardGroup cols={3}>
+  <Card title="Extract video frames" icon="film" href="/howto/cookbooks/video/video-extract-frames">
+    Frames as rows from a `pxt.Video` column.
+  </Card>
+  <Card title="Transcribe audio" icon="waveform" href="/howto/cookbooks/audio/audio-transcribe">
+    Transcripts as computed columns.
+  </Card>
+  <Card title="Export to PyTorch" icon="download" href="/howto/cookbooks/data/data-export-pytorch">
+    `to_pytorch_dataset()` when the rows are ready.
+  </Card>
+</CardGroup>

@@ -56,6 +56,7 @@ Defining the class does not create the table. Run `pxt schema update app.py my_a
         sku: pxt.String
         qty: pxt.Int
         note: pxt.String | None
+        __indexes__ = [pxt.BtreeIndex(sku)]
     ```
 
     ```python

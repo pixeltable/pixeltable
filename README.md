@@ -20,6 +20,7 @@
 [**Cloud**](https://docs.pixeltable.com/howto/deployment/cloud) |
 [**Skill**](https://github.com/pixeltable/pixeltable-skill) |
 [**llms-full.txt**](https://docs.pixeltable.com/llms-full.txt) |
+[**skill.md**](https://docs.pixeltable.com/skill.md) |
 [**Discord**](https://discord.gg/QPyqFYx2UN)
 
 ## A unified multimodal backend that is one schema you keep, not a stack you assemble
@@ -101,7 +102,7 @@ To mount the routes on an existing FastAPI app, `app.include_router(...)`. [HTTP
 
 ## Coding agents
 
-Hand the agent [get-started.md](https://www.pixeltable.com/get-started.md). That playbook installs the package, the skill, and MCP. How the skill writes `app.py`: [AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms).
+Hand the agent [get-started.md](https://www.pixeltable.com/get-started.md). That playbook installs the package, the skill, and MCP. How the skill writes `app.py`: [AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms). Docs capability file: [skill.md](https://docs.pixeltable.com/skill.md).
 
 ```bash
 npx skills add pixeltable/pixeltable-skill

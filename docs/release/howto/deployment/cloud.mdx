@@ -29,7 +29,7 @@ Sign in from the browser, create a key, then export it. The CLI reads `PIXELTABL
     api_key = 'your-key'
     ```
 
-    [Configuration](/platform/configuration). This key authenticates Cloud CLI and hosted HTTP. Provider keys such as `OPENAI_API_KEY` go under **Secrets** in the dashboard, not here.
+    [Configuration](/platform/configuration). This key authenticates Cloud CLI and hosted HTTP. Provider keys such as `OPENAI_API_KEY` go under **Secrets** in the dashboard, or `pxt secret set pxt://org OPENAI_API_KEY=...`. They do not go in this API key. [CLI](/platform/cli#pxt-secret).
   </Step>
 </Steps>
 
@@ -72,7 +72,7 @@ The same file can hold `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document`:
 
 `pxt db update` creates the hosted database or updates its image, secrets, and size. It does not insert your data and does not start app endpoints. `pxt schema update` creates the tables. It does not start the endpoints. `pxt service update` starts hosted endpoints. Do not use `pxt service run` for Cloud; that command only starts endpoints in your local terminal.
 
-After the database is up, insert from the Cloud dashboard and run `pxt schema diff` to see pending schema changes.
+After the database is up, insert from the Cloud dashboard or from Python. A local file path on a Cloud table uploads the file. Run `pxt schema diff` to see pending schema changes.
 
 ## Media on the home bucket
 

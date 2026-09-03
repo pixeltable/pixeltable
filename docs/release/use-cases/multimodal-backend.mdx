@@ -68,4 +68,17 @@ On Cloud, create an API key in the [dashboard](/howto/deployment/cloud#get-an-ap
 
 Export those tables for training: [Datasets from media](/use-cases/media-processing). Tool calls as columns: [Agents](/use-cases/agentic-workflows).
 
-[RAG pipeline](/howto/cookbooks/agents/pattern-rag-pipeline) · [Semantic text search](/howto/cookbooks/search/search-semantic-text) · [Similar images](/howto/cookbooks/search/search-similar-images) · [HTTP serving](/howto/deployment/serving)
+<CardGroup cols={2}>
+  <Card title="RAG pipeline" icon="book" href="/howto/cookbooks/agents/pattern-rag-pipeline">
+    POST `/docs` to insert. Chunks stay current.
+  </Card>
+  <Card title="Semantic text search" icon="magnifying-glass" href="/howto/cookbooks/search/search-semantic-text">
+    Rank chunks with `{"query_text": "..."}`.
+  </Card>
+  <Card title="Similar images" icon="image" href="/howto/cookbooks/search/search-similar-images">
+    The same index pattern on images.
+  </Card>
+  <Card title="HTTP serving" icon="globe" href="/howto/deployment/serving">
+    Insert and search routes from the same file.
+  </Card>
+</CardGroup>

@@ -35,9 +35,9 @@ Full flags: [CLI](/platform/cli).
 
 ## Schema
 
-An annotation (`title: pxt.String`) is a stored column: you insert that value. An assignment (`title_upper = ...`) is a computed column. It runs on insert and on update. Use `pxt.Column(...)` when you need a primary key, `stored=False`, or a media option an annotation cannot express.
+An annotation (`title: pxt.String`) is a stored column: you insert that value. A bare type is required; use `pxt.String | None` when the value may be missing. An assignment (`title_upper = ...`) is a computed column. It runs on insert and on update. Use `pxt.Column(...)` when you need a primary key, `stored=False`, or a media option an annotation cannot express.
 
-Set `base=Docs` to make a view of `Docs`. Add an iterator when each input row should become many output rows, such as frames or chunks. Indexes belong on the model (`__indexes__` or an `EmbeddingIndex` assignment). Do not call `add_embedding_index()` after `pxt schema update`.
+Set `base=Docs` to make a view of `Docs`. The view can use columns from that base. Add an iterator when each input row should become many output rows, such as frames or chunks. Indexes belong on the model (`__indexes__` with `EmbeddingIndex` or `BtreeIndex`). B-tree indexes are not created automatically. Do not call `add_embedding_index()` after `pxt schema update`.
 
 `pxt schema example` writes a long sample. `--brief` writes only a small set of classes. Create tables with `pxt schema update app.py my_app`. Extra tables in that namespace stay until you run `pxt schema prune`, which deletes them.
 

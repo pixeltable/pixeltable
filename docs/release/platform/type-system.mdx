@@ -27,6 +27,10 @@ This page leads with a `TableModel` in `app.py`. Create those tables with `pxt s
 | `pxt.Audio` | `str` (file path) | Audio files |
 | `pxt.Document` | `str` (file path) | Documents (PDFs, markdown, html, etc.) |
 
+A bare type is required. `title: pxt.String` rejects a missing value. Use `pxt.String | None` when the column may be empty. A column added to a table that already has rows must be nullable, so existing rows can stay empty.
+
+Table, column, and database names match without regard to case.
+
 <Info>
 `pxt.Audio`, `pxt.Video`, and `pxt.Document` return file paths when queried. Pixeltable automatically downloads and caches remote media locally. Use `.fileurl` to get the original URL.
 </Info>

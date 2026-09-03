@@ -3,7 +3,35 @@ title: 'Why Pixeltable?'
 description: 'A unified multimodal backend that is one schema you keep, not a stack you assemble'
 ---
 
-Most stacks glue a blob store, a warehouse, a vector database, an orchestrator, and custom endpoints. You pay for the joints. Pixeltable is the database, the orchestration, and the serving: tables, computed columns, indexes, and endpoints in **one Python file** (`app.py`).
+## Before
+
+<CardGroup cols={2}>
+  <Card title="A glued stack" icon="layer-group">
+    Most stacks glue a blob store, a warehouse, a vector database, an orchestrator, and custom endpoints.
+  </Card>
+  <Card title="You pay for the joints" icon="link">
+    Each extra store or orchestrator is another system to operate.
+  </Card>
+</CardGroup>
+
+Pixeltable is the database, the orchestration, and the serving: tables, computed columns, indexes, and endpoints in **one Python file** (`app.py`).
+
+## With Pixeltable
+
+<CardGroup cols={2}>
+  <Card title="One catalog" icon="table">
+    Images, video, audio, documents, and ordinary columns.
+  </Card>
+  <Card title="Transforms as columns" icon="arrows-rotate">
+    Incremental, not a pipeline you re-run.
+  </Card>
+  <Card title="Indexes that follow the data" icon="magnifying-glass">
+    Embeddings stay current with the rows.
+  </Card>
+  <Card title="Endpoints from the same file" icon="globe">
+    Or skip `pxt service update` and insert from Python.
+  </Card>
+</CardGroup>
 
 If you process media and serve model pipelines, that file is the backend you keep. Insert a row. Transforms run. Indexes stay current.
 
@@ -15,23 +43,26 @@ Locally, create those tables with `pxt schema update`. Start the endpoints with 
 
 ## What you declare
 
-A `TableModel` class becomes a table when you run `pxt schema update`. An annotation (`title: pxt.String`) is a stored column: the value you insert. An assignment (`title_upper = ...`) is a computed column. It runs on insert and on update. An embedding index lives on the model, so new rows are searchable without a separate vector database. A `FastAPIRouter` in the same file defines endpoints, for example POST a row and get computed columns back.
+A `TableModel` class becomes a table when you run `pxt schema update`. An annotation (`title: pxt.String`) is a stored column: the value you insert. A bare type is required; use `pxt.String | None` when the value may be missing. An assignment (`title_upper = ...`) is a computed column. It runs on insert and on update. An embedding index lives on the model, so new rows are searchable without a separate vector database. A `FastAPIRouter` in the same file defines endpoints, for example POST a row and get computed columns back.
 
 Endpoints are optional. Skip `pxt service update` if you insert from Python, then export. Views, UDFs, versioning, and import/export start in the [User Guide](/platform/type-system).
 
 Notebooks and tests can still call `pxt.create_table()`. An app declares tables in `app.py`.
 
-## What this replaces
-
-- **One catalog** for images, video, audio, documents, and ordinary columns
-- **Transforms as columns**: incremental, not a pipeline you re-run
-- **Indexes that follow the data**: embeddings stay in sync with the rows
-- **Endpoints from the same file**, or skip `pxt service update` and insert from Python
-
-Coming from Pinecone, LangChain, or hand-rolled FastAPI? See [Migrate](/howto/coming-from).
-
 ## Built for
 
-Developers who process media and serve model pipelines: [multimodal backend](/use-cases/multimodal-backend) (RAG and live APIs), [agents](/use-cases/agentic-workflows) (tool calls as columns), and [media pipelines](/use-cases/media-processing) (frames and transcripts as rows).
+<CardGroup cols={3}>
+  <Card title="Multimodal backend" icon="file-lines" href="/use-cases/multimodal-backend">
+    RAG and live APIs.
+  </Card>
+  <Card title="Agents" icon="robot" href="/use-cases/agentic-workflows">
+    Tool calls as columns.
+  </Card>
+  <Card title="Media pipelines" icon="film" href="/use-cases/media-processing">
+    Frames and transcripts as rows.
+  </Card>
+</CardGroup>
+
+Coming from Pinecone, LangChain, or hand-rolled FastAPI? See [Migrate](/howto/coming-from).
 
 The longer argument: [Making Multimodal More Lovable](https://www.pixeltable.com/blog/making-multimodal-more-lovable).

@@ -7,7 +7,7 @@ description: "Inspect, query, and serve Pixeltable catalogs from the terminal wi
 The `pxt` CLI ships with the `pixeltable` package. It covers two surfaces:
 
 - **Catalog operations** -- inspect, query, and manage tables, views, and directories. Backed by a long-lived local daemon so each command takes ~40 ms after the first invocation.
-- **Service deployment** -- run the services an application file declares with `pxt service`, and publish them with `pxt deploy`. Both require the `serve` extra (which pulls in `fastapi[standard]` and `uvicorn`):
+- **Service deployment** -- run the services an application file declares with `pxt service`. Requires the `serve` extra (which pulls in `fastapi[standard]` and `uvicorn`):
 
   ```bash
   pip install 'pixeltable[serve]'
@@ -38,8 +38,8 @@ Use `pxt <command> --help` for per-subcommand flags and examples.
 | **Mutation** | `drop`, `drop-dir`, `rename`, `mv`, `revert` |
 | **Schema** | `schema diff`, `schema update`, `schema prune` |
 | **Interactive** | `shell` |
-| **Serving** | `serve` |
-| **Cloud** | `db`, `service`, `org` |
+| **Serving** | `service` |
+| **Cloud** | `db`, `secret`, `org` |
 | **Lifecycle** | `daemon`, `dashboard`, `health` |
 
 ### Universal flags
@@ -49,7 +49,7 @@ These flags work the same way across the catalog commands that support them and 
 | Flag | Available on | Description |
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
-| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `revert`), the `schema` and `service` verbs, plus `db`, `org`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), or the lifecycle subcommands that print plain status lines (`daemon start`/`stop`). |
+| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `revert`), the `schema` and `service` verbs, plus `db`, `secret`, `org`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), or the lifecycle subcommands that print plain status lines (`daemon start`/`stop`). |
 | `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `revert`), plus `schema update`, `schema prune`, `service update` and `service prune` | Print the intended action; don't execute. |
 | `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
 
@@ -116,6 +116,10 @@ pxt service list                     # what is running, and where
 pxt db update pxt://myorg:mydb   # create the database, or bring it up to what the project declares
 pxt db diff   pxt://myorg:mydb   # what 'update' would change
 pxt db list   pxt://myorg
+
+# cloud — secrets
+pxt secret set  pxt://myorg OPENAI_API_KEY=sk-...
+pxt secret list pxt://myorg
 ```
 
 ## Inspection commands
@@ -900,6 +904,21 @@ pxt org status pxt://myorg
 ```
 
 Show the organization's name, ID, and default database.
+
+### `pxt secret`
+
+```bash
+pxt secret list   pxt://myorg
+pxt secret list   pxt://myorg:mydb
+pxt secret set    pxt://myorg OPENAI_API_KEY=sk-...
+pxt secret delete pxt://myorg:mydb OLD_KEY
+```
+
+An org secret applies to every database in the org. A database secret applies to that database and wins on a key collision. `list` prints names, never values.
+
+A project can declare secrets in its `[[pixeltable.database]]` entry as the name of the environment variable holding each value. `pxt db update` sets them from there.
+
+A running database holds the values it started with. Run `pxt db stop` then `pxt db start` to pick up a change.
 
 ## What's next
 
