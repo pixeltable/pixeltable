@@ -544,11 +544,6 @@ class TestService:
         assert services(cli, first) == {}
         assert_serving(cli, app, second, 'ingest')
 
-    @pytest.mark.xfail(
-        reason='the daemon fails to start against a `test_handoff` database left behind at a newer '
-        'metadata version; not reproducible on a clean instance, so not strict',
-        strict=False,
-    )
     @pytest.mark.db_roots('local', reason='check reads no catalog, so the target axis adds nothing')
     @pytest.mark.db_roots('local', reason='drives the local proxy daemon directly, so the target axis adds nothing')
     def test_proxy_daemon_project_handoff(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
