@@ -270,9 +270,9 @@ class _TblOpClass(enum.Enum):
 
     DATA_READ = 'data_read'  # query table rows
     DATA_WRITE = 'data_write'  # insert/update/delete table rows
-    MD_READ = 'md_read'  # catalog metadata read
-    MD_WRITE = 'md_update'  # table metadata write
-    FINALIZE = 'finalize'  # pending op finalization
+    MD_READ = 'md_read'  # table or dir metadata read
+    MD_WRITE = 'md_update'  # table or dir metadata write
+    FINALIZE = 'finalize'  # table pending op finalization
 
 
 class _TblLockMode(enum.Enum):
