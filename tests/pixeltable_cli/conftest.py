@@ -21,6 +21,7 @@ from typing import Any, Callable, Iterator
 import pytest
 
 from pixeltable.config import Config
+from pixeltable_cli.client.utils import is_running
 
 from ..utils import DatabaseRoot
 
@@ -39,6 +40,9 @@ class PxtResult:
 
     @property
     def json(self) -> Any:
+        if self.stdout.strip() == '':
+            # a command that failed wrote its reason to stderr, and parsing '' would discard it
+            raise AssertionError(f'pxt produced no output (rc={self.returncode}): {self.stderr.strip()}')
         return json.loads(self.stdout)
 
 
@@ -105,12 +109,11 @@ def pxt_daemon(
             stdin=subprocess.DEVNULL,
         )
     try:
-        from pixeltable_cli.client.utils import is_running
-
         os.environ['PXT_PORT'] = str(port)
         # Allow for a cold pixeltable import in the daemon subprocess, which on a loaded CI runner can run
         # well past a warm import; matches the client's own startup health timeout.
         startup_timeout = 45
+        print(f'Waiting for the test daemon on port {port}, serving {session_project}', flush=True)
         deadline = time.time() + startup_timeout
         while time.time() < deadline:
             if is_running():
@@ -129,6 +132,7 @@ def pxt_daemon(
         # provoke that restart here, with the environment this fixture started the daemon with.
         subprocess.run(['pxt', 'ls', '/'], env=env, capture_output=True, check=False, timeout=60)
         assert is_running()
+        print(f'Test daemon is up on port {port}; log at {log_path}', flush=True)
         yield port
     finally:
         # a test may have restarted the daemon, in which case the process answering on the port is not the
@@ -155,6 +159,8 @@ PxtRunner = Callable[..., PxtResult]
 
 _RUN_TIMEOUT_SECS = 300
 
+_WHEEL_SUBDIR = 'wheels'
+
 
 def _as_text(stream: bytes | str | None) -> str:
     """Normalize captured output: TimeoutExpired carries bytes even when the run was text=True."""
@@ -163,15 +169,53 @@ def _as_text(stream: bytes | str | None) -> str:
     return stream if isinstance(stream, str) else stream.decode(errors='replace')
 
 
+def _copy_app_corpus(session_project: pathlib.Path) -> pathlib.Path:
+    """Put the shared app corpus in the session's project, and return where it landed."""
+    directory = session_project / 'apps'
+    if not directory.exists():
+        shutil.copytree(pathlib.Path(__file__).parent / 'apps', directory, ignore=shutil.ignore_patterns('__pycache__'))
+    return directory
+
+
+@pytest.fixture(scope='session')
+def pixeltable_wheel(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
+    """A wheel built from this working tree, for a project to install in place of the released pixeltable."""
+    repo_root = pathlib.Path(__file__).parents[2]
+    out_dir = tmp_path_factory.mktemp('pxt_wheel')
+    print(f'Building a Pixeltable wheel from {repo_root}', flush=True)
+    r = subprocess.run(
+        ['uv', 'build', '--wheel', '-o', str(out_dir), str(repo_root)],
+        text=True,
+        check=False,
+        timeout=_RUN_TIMEOUT_SECS,
+    )
+    assert r.returncode == 0, f'building a pixeltable wheel from {repo_root} failed:\n{r.stderr}'
+    wheels = list(out_dir.glob('*.whl'))
+    assert len(wheels) == 1, f'expected one wheel in {out_dir}, found {wheels}'
+    return wheels[0]
+
+
+def write_requirements(project: pathlib.Path, wheel: pathlib.Path, *extra: str) -> None:
+    """Write project's requirements.txt, installing pixeltable from wheel rather than from PyPI.
+
+    The wheel is copied into the project so that the archive carries it, and named by a path relative to
+    the project root, which is where the image build runs pip.
+    """
+    wheel_dir = project / _WHEEL_SUBDIR
+    wheel_dir.mkdir(exist_ok=True)
+    shutil.copy(wheel, wheel_dir / wheel.name)
+    (project / 'requirements.txt').write_text(
+        '\n'.join([f'./{_WHEEL_SUBDIR}/{wheel.name}', *extra]) + '\n', encoding='utf-8'
+    )
+
+
 @pytest.fixture
 def apps(session_project: pathlib.Path) -> Callable[[str], str]:
     """Returns a Callable that resolves the name of an app file in the shared app corpus to its path.
 
     The corpus needs to be copied into the session's project in order for cli commands to work.
     """
-    directory = session_project / 'apps'
-    if not directory.exists():
-        shutil.copytree(pathlib.Path(__file__).parent / 'apps', directory, ignore=shutil.ignore_patterns('__pycache__'))
+    directory = _copy_app_corpus(session_project)
 
     def _path(name: str) -> str:
         path = directory / name
@@ -252,6 +296,7 @@ def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -
         check: bool = True,
         cwd: str | os.PathLike[str] | None = None,
         env_overrides: dict[str, str | None] | None = None,
+        timeout: float = _RUN_TIMEOUT_SECS,
     ) -> PxtResult:
         # in the session's project, so that client and daemon agree on which project this is
         cwd = session_project if cwd is None else cwd
@@ -262,6 +307,8 @@ def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -
                 env.pop(name, None)
             else:
                 env[name] = value
+        print(f'Running: pxt {" ".join(args)}', flush=True)
+        started = time.monotonic()
         try:
             r = subprocess.run(
                 ['pxt', *args],
@@ -271,17 +318,19 @@ def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -
                 check=False,
                 stdin=subprocess.DEVNULL,
                 cwd=cwd,
-                timeout=_RUN_TIMEOUT_SECS,
+                timeout=timeout,
             )
         except subprocess.TimeoutExpired as exc:
             # subprocess.run has already killed the client; report whatever it managed to emit
             raise AssertionError(
-                f'{" ".join(("pxt", *args))} did not finish within {_RUN_TIMEOUT_SECS}s\n'
+                f'{" ".join(("pxt", *args))} did not finish within {timeout}s\n'
                 f'--- stdout ---\n{_as_text(exc.stdout)}\n'
                 f'--- stderr ---\n{_as_text(exc.stderr)}'
             ) from exc
+        print(f'Finished in {time.monotonic() - started:.1f}s (rc={r.returncode}): pxt {" ".join(args)}', flush=True)
         if check and r.returncode != 0:
             raise AssertionError(f'pxt {args} failed (rc={r.returncode}): {r.stderr}')
+        print(r.stdout)
         return PxtResult(r.returncode, r.stdout, r.stderr)
 
     return _run

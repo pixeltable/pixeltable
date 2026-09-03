@@ -11,8 +11,8 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import SECRET_SECTION, VAR_SECTION, Config
-from pixeltable.serving._config import lookup_database_config
 
 from .utils import get_image_files, pxt_raises
 
@@ -426,9 +426,13 @@ class TestConfig:
         )
         assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://local/bucket'
         assert config.get_string_value('openai_api_key', section=SECRET_SECTION) == 'sk-local'
-        assert lookup_database_config().vars == {'media_dest': 's3://local/bucket'}
-        assert lookup_database_config('pxt://myorg:prod').system_dependencies == ['ffmpeg']
-        assert lookup_database_config('pxt://myorg:staging') is None
+        local = config.get_database_config(PxtPath.parse('', allow_empty_path=True))
+        assert local is not None
+        assert local.vars == {'media_dest': 's3://local/bucket'}
+        prod = config.get_database_config(PxtPath.parse('pxt://myorg:prod', allow_empty_path=True))
+        assert prod is not None
+        assert prod.system_dependencies == ['ffmpeg']
+        assert config.get_database_config(PxtPath.parse('pxt://myorg:staging', allow_empty_path=True)) is None
 
         # a single table where the array goes is one entry, which is how a file written earlier reads
         config = load("[pixeltable.database]\nvars = { media_dest = 's3://single/bucket' }\n")

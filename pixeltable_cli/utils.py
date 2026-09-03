@@ -137,7 +137,7 @@ def resolve_dot_segments(path: str) -> str:
 
 
 PROJECT_CONFIG_FILE = 'pixeltable.toml'
-_PYPROJECT = 'pyproject.toml'
+PYPROJECT_FILE = 'pyproject.toml'
 
 
 def find_project_root(start: Path) -> Path | None:
@@ -149,7 +149,7 @@ def find_project_root(start: Path) -> Path | None:
     for dir in (start, *start.parents):
         if (dir / PROJECT_CONFIG_FILE).is_file():
             return dir
-        pyproject = dir / _PYPROJECT
+        pyproject = dir / PYPROJECT_FILE
         if pyproject.is_file():
             try:
                 with open(pyproject, 'rb') as fp:
@@ -219,13 +219,15 @@ def project_root() -> str | None:
     return None if found is None else str(found)
 
 
-def env_fingerprint(environ: dict[str, str] | None = None) -> dict[str, str]:
-    """Returns dict mapping every set environment variable to a hash of its value.
+def value_fingerprint(value: str) -> str:
+    """A hash of one config value, short enough to print and to compare by eye."""
+    return hashlib.sha256(value.encode('utf-8')).hexdigest()[:12]
 
-    The hash is the same as value_fingerprint() in config.py.
-    """
+
+def env_fingerprint(environ: dict[str, str] | None = None) -> dict[str, str]:
+    """Returns dict mapping every set environment variable to a hash of its value."""
     env = os.environ if environ is None else environ
-    return {name: hashlib.sha256(env[name].encode('utf-8')).hexdigest()[:12] for name in sorted(env) if env[name] != ''}
+    return {name: value_fingerprint(env[name]) for name in sorted(env) if env[name] != ''}
 
 
 def identity() -> dict[str, Any]:

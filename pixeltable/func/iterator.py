@@ -10,7 +10,7 @@ from types import MethodType
 from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, Self, TypeVar, overload
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
-from pixeltable.catalog.globals import _POS_COLUMN_NAME
+from pixeltable.catalog.globals import _POS_COLUMN_NAME, fold_identifier, fold_mapping_keys
 from pixeltable.exprs.expr import ValidationError
 from pixeltable.func.globals import resolve_symbol
 
@@ -66,6 +66,28 @@ class PxtIterator(abc.ABC, Iterator[T], Generic[T]):
         return None
 
 
+def _make_outputs(output_schema: dict[str, ts.ColumnType], unstored_cols: list[str]) -> dict[str, 'IteratorOutput']:
+    """Build the iterator's output map, keyed by the folded name of the view column each output becomes.
+
+    A component view exposes the pos column of its rowid; we create that column here, so it gets assigned a column id.
+    """
+    folded_name_to_col_schema = fold_mapping_keys({name: (name, col_type) for name, col_type in output_schema.items()})
+    unstored_cols = [fold_identifier(name) for name in unstored_cols]
+    if _POS_COLUMN_NAME in folded_name_to_col_schema:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'{_POS_COLUMN_NAME!r} is reserved and cannot be the name of an iterator output.',
+        )
+
+    # is_stored=False: it is not stored separately (it's already stored as part of the rowid).
+    outputs = {_POS_COLUMN_NAME: IteratorOutput(orig_name=_POS_COLUMN_NAME, is_stored=False, col_type=ts.IntType())}
+    for folded_name, (orig_name, col_type) in folded_name_to_col_schema.items():
+        outputs[folded_name] = IteratorOutput(
+            orig_name=orig_name, is_stored=(folded_name not in unstored_cols), col_type=col_type
+        )
+    return outputs
+
+
 class GeneratingFunction:
     """
     A function that evaluates to iterators over its inputs.
@@ -89,7 +111,7 @@ class GeneratingFunction:
 
     def __init__(self, decorated_callable: Callable, unstored_cols: list[str], fqn: str | None = None) -> None:
         self.decorated_callable = decorated_callable
-        self.unstored_cols = unstored_cols
+        self.unstored_cols = [fold_identifier(name) for name in unstored_cols]
         if fqn is None:
             self.fqn = f'{decorated_callable.__module__}.{decorated_callable.__qualname__}'
         else:
@@ -203,7 +225,7 @@ class GeneratingFunction:
         type_hints = typing.get_type_hints(output_schema_type, include_extras=True)
         self._default_output_schema = {}
         for name, type_ in type_hints.items():
-            if name == _POS_COLUMN_NAME:
+            if fold_identifier(name) == _POS_COLUMN_NAME:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
                     f'{_POS_COLUMN_NAME!r} is reserved and cannot be the name of an iterator output.',
@@ -274,16 +296,7 @@ class GeneratingFunction:
 
         output_schema = self.call_output_schema(bound_args)
 
-        # a component view exposes the pos column of its rowid;
-        # we create that column here, so it gets assigned a column id;
-        # stored=False: it is not stored separately (it's already stored as part of the rowid)
-        outputs = {_POS_COLUMN_NAME: IteratorOutput(orig_name=_POS_COLUMN_NAME, is_stored=False, col_type=ts.IntType())}
-        outputs.update(
-            {
-                name: IteratorOutput(orig_name=name, is_stored=(name not in self.unstored_cols), col_type=col_type)
-                for name, col_type in output_schema.items()
-            }
-        )
+        outputs = _make_outputs(output_schema, self.unstored_cols)
 
         return GeneratingFunctionCall(self, args, kwargs, bound_args, outputs, validation_error=None)
 
@@ -544,15 +557,7 @@ class GeneratingFunctionCall:
                 _, unstored_cols = it.decorated_callable.output_schema(literal_args)  # type: ignore[attr-defined]
             else:
                 unstored_cols = it.unstored_cols
-            outputs = {
-                _POS_COLUMN_NAME: IteratorOutput(orig_name=_POS_COLUMN_NAME, is_stored=False, col_type=ts.IntType())
-            }
-            outputs.update(
-                {
-                    name: IteratorOutput(orig_name=name, is_stored=(name not in unstored_cols), col_type=col_type)
-                    for name, col_type in output_schema.items()
-                }
-            )
+            outputs = _make_outputs(output_schema, unstored_cols)
         else:
             # Validate call_output_schema against stored outputs
             assert any(output.is_pos_column for output in outputs.values())

@@ -5,6 +5,7 @@
 import os
 import pathlib
 import textwrap
+from typing import Any
 
 import numpy as np
 import pytest
@@ -14,6 +15,7 @@ import pixeltable.functions as pxtf
 from pixeltable import exceptions as excs
 from pixeltable.catalog.model import BtreeIndex, Column, EmbeddingIndex
 from pixeltable.config import Config
+from pixeltable_cli.types import TableDiff
 
 from .utils import (
     DatabaseRoot,
@@ -31,6 +33,30 @@ from .utils import (
     validate_repr,
     validate_update_status,
 )
+
+
+def as_dict(diff: TableDiff) -> dict[str, Any]:
+    """The diff as a dict, including the model-side and catalog-side operands serialization excludes."""
+    return {
+        'path': diff.path,
+        'model_cls': diff.model_cls,
+        'kind': diff.kind,
+        'exists': diff.exists,
+        'resolution': diff.resolution,
+        'ops': [
+            {
+                'target': op.target,
+                'name': op.name,
+                'op': op.op,
+                'severity': op.severity,
+                'model': op.model,
+                'existing': op.existing,
+                'description': op.description,
+                'details': op.details.model_dump(exclude_none=True),
+            }
+            for op in diff.ops
+        ],
+    }
 
 
 @pxt.udf
@@ -485,10 +511,10 @@ class TestTableModel:
             extra: pxt.Int | None
 
         diff = TableModelV2.get_model_diff(root)['defaults_table']
-        assert diff['resolution'] == 'update_additive'
+        assert diff.resolution == 'update_additive'
         TableModelV2.update_all(root)
         assert set(btree_idxs(tbl_with_defaults).values()) == {'id', 'name', 'extra'}
-        assert TableModelV2.get_model_diff(root)['defaults_table']['resolution'] == 'up_to_date'
+        assert TableModelV2.get_model_diff(root)['defaults_table'].resolution == 'up_to_date'
 
         # has_default_idxs can't be changed
         TableModelV3 = pxt.model_base()
@@ -504,8 +530,8 @@ class TestTableModel:
             id: pxt.Int
             name: pxt.String | None
 
-        assert TableModelV3.get_model_diff(root)['defaults_table']['resolution'] == 'unsupported'
-        assert TableModelV3.get_model_diff(root)['no_defaults_table']['resolution'] == 'unsupported'
+        assert TableModelV3.get_model_diff(root)['defaults_table'].resolution == 'unsupported'
+        assert TableModelV3.get_model_diff(root)['no_defaults_table'].resolution == 'unsupported'
         with capture_console_output(
             match=r'the following table properties have changed \(FATAL\):\n'
             r'\s*has_default_idxs: model=False, existing=True'
@@ -538,8 +564,8 @@ class TestTableModel:
             id: pxt.Int
 
         diff = TableModelV2.get_model_diff(root)
-        assert diff['versioned']['resolution'] == 'unsupported'
-        assert diff['operational']['resolution'] == 'unsupported'
+        assert diff['versioned'].resolution == 'unsupported'
+        assert diff['operational'].resolution == 'unsupported'
         with capture_console_output(
             match=r'the following table properties have changed \(FATAL\):\n'
             r'\s*is_data_versioned: model=False, existing=True'
@@ -800,6 +826,7 @@ class TestTableModel:
             subview_col_1 = ExampleTableModel.img.rotate(180)
             subview_col_2 = ExampleViewModel.view_col_1.rotate(270)
             subview_col_3 = subview_col_2.rotate(30)
+            subview_col_4 = ExampleViewModel.img.rotate(90)  # Ensure base table columns are in scope for view
 
         class ExampleViewModelFromQuery(
             TableModel,
@@ -867,6 +894,7 @@ class TestTableModel:
         subview2.add_computed_column(subview_col_1=subview2.img.rotate(180))
         subview2.add_computed_column(subview_col_2=subview2.view_col_1.rotate(270))
         subview2.add_computed_column(subview_col_3=subview2.subview_col_2.rotate(30))
+        subview2.add_computed_column(subview_col_4=subview2.img.rotate(90))
 
         view_from_query2 = pxt.create_view(
             p(f'{prefix}test_view_from_query_2'),
@@ -908,56 +936,6 @@ class TestTableModel:
         ):
             assert schema_from_tbl_md(mtbl.get_metadata()) == schema_from_tbl_md(atbl.get_metadata())
             assert_resultset_eq(mtbl.order_by(mtbl.value).collect(), atbl.order_by(atbl.value).collect())
-
-    def test_view_model_shadows_base_column(self, db_root: DatabaseRoot) -> None:
-        """A view model column cannot shadow a base column, the same as create_view()."""
-        p = db_root.make_catalog_path
-        TableModel = pxt.model_base()
-
-        class ExampleTableModel(TableModel, name='test_table'):
-            id: pxt.Int
-            value: pxt.Float | None
-
-        class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel):
-            value = ExampleTableModel.value * 100.0
-
-        with pxt_raises(
-            excs.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'value' already exists in the base table 'test_table'"
-        ):
-            TableModel.create_all(p(''))
-
-    def test_update_all_adds_shadowing_column(self, db_root: DatabaseRoot) -> None:
-        """update_all() cannot add a view column that shadows a base column, the same as add_computed_column()."""
-        p = db_root.make_catalog_path
-        TableModel = pxt.model_base()
-
-        class ExampleTableModel(TableModel, name='test_table'):
-            id: pxt.Int
-            value: pxt.Float | None
-
-        class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel):
-            vc1 = ExampleTableModel.id + 1
-
-        TableModel.create_all(p(''))
-        ExampleTableModel.insert([{'id': 1, 'value': 2.0}])
-
-        TableModelV2 = pxt.model_base()
-
-        class ExampleTableModelV2(TableModelV2, name='test_table'):
-            id: pxt.Int
-            value: pxt.Float | None
-
-        class ExampleViewModelV2(TableModelV2, name='test_view', base=ExampleTableModelV2):
-            vc1 = ExampleTableModelV2.id + 1
-            value = ExampleTableModelV2.value * 100.0
-
-        with pxt_raises(
-            excs.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'value' already exists in the base table 'test_table'"
-        ):
-            TableModelV2.update_all(p(''))
-        # nothing was applied: value still reads through to the base's column
-        t = ExampleViewModel.table
-        assert t.select(t.value).collect()['value'] == [2.0]
 
     def test_view_model_index_on_iterator_column(self, db_root: DatabaseRoot) -> None:
         """An embedding index in a view model can name a column produced by the view's iterator."""
@@ -1196,7 +1174,7 @@ class TestTableModel:
         TableModel.create_all(root)
 
         # Re-diffing the original models reports no differences (in particular, the view's iterator round-trips).
-        assert all(d['resolution'] == 'up_to_date' for d in TableModel.get_model_diff(root).values())
+        assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(root).values())
         with capture_console_output() as out:
             TableModel.diff_all(root)
         assert out.getvalue().strip() == 'Catalog is up to date.'
@@ -1321,18 +1299,15 @@ class TestTableModel:
         # every diff records the table it was computed against, so that an update can tell whether the catalog
         # moved underneath it; a model whose table doesn't exist yet has nothing to record
         for d in diffs.values():
-            if not d['exists']:
-                assert d['tbl_id'] is None and d['schema_versions'] is None
+            if not d.exists:
+                assert d.tbl_id is None and d.schema_versions is None
                 continue
-            md = pxt.get_table(d['path']).get_metadata()
-            assert d['tbl_id'] == md['id']
-            assert d['schema_versions'][md['id']] == md['schema_version']
+            md = pxt.get_table(d.path).get_metadata()
+            assert d.tbl_id == md['id']
+            assert d.schema_versions is not None and d.schema_versions[md['id']] == md['schema_version']
 
         # those two are the catalog's ids and versions, so they are checked above instead of spelled out below
-        without_identity = {
-            name: {k: v for k, v in d.items() if k not in ('tbl_id', 'schema_versions')} for name, d in diffs.items()
-        }
-        assert without_identity == {
+        assert {name: as_dict(d) for name, d in diffs.items()} == {
             'test_table': {
                 'path': p('test_table'),
                 'model_cls': 'ExampleTableV2',
@@ -2181,7 +2156,22 @@ class TestTableModel:
                 id: pxt.Int | None
                 bad = object()
 
-        # A model column may not redefine a name already provided by the base query...
+        # A model column may not redefine a name already provided by the base table ...
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r"'id' is already defined by the base table; it cannot be redeclared."
+        ):
+
+            class TableColCollision(TableModel, name='table_col_collision', base=ValidTableModel):
+                id: pxt.Int | None
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r"'id' is already defined by the base table; it cannot be redeclared."
+        ):
+
+            class TableColCollisionComputed(TableModel, name='table_col_collision_computed', base=ValidTableModel):
+                id = ValidTableModel.id + 1
+
+        # ... or by the base query ...
         with pxt_raises(
             excs.ErrorCode.INVALID_SCHEMA,
             match=r"'doubled' is already defined by the base query; it cannot be redeclared.",
@@ -2192,7 +2182,7 @@ class TestTableModel:
             ):
                 doubled = ValidTableModel.id * 3
 
-        # ...or by the iterator.
+        # ... or by the iterator.
         class ImageModel(TableModel, name='image_model'):
             img: pxt.Image | None
 
@@ -2207,6 +2197,14 @@ class TestTableModel:
                 iterator=pxtf.image.tile_iterator(ImageModel.img, (256, 256)),
             ):
                 tile = 5
+
+        # Also test shadowing by a column name that differs only in case.
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r"'Id' is already defined by the base table; it cannot be redeclared."
+        ):
+
+            class CaseInsensitiveCollision(TableModel, name='test_view', base=ValidTableModel):
+                Id: pxt.Float | None
 
         # a Table method that a query cannot provide raises AttributeError while the model is unbound
         with pytest.raises(AttributeError, match=r'is not yet bound to an actual table'):
@@ -2605,7 +2603,7 @@ class TestTableModel:
             Config.init(reinit=True)
             reload_catalog()
             diffs = TableModel.get_model_diff(p(''))
-            assert [d['resolution'] for d in diffs.values()] == ['up_to_date']
+            assert [d.resolution for d in diffs.values()] == ['up_to_date']
 
             # a name the target has no binding for reports itself
             with pxt_raises(excs.ErrorCode.MISSING_REQUIRED, match=r"'no_such_var' is not set"):
@@ -2630,3 +2628,60 @@ class TestTableModel:
                 os.environ['PIXELTABLE_CONFIG'] = original_config
             reload_env()
             reload_catalog()
+
+    def test_model_case_insensitive_columns(self, db_root: DatabaseRoot) -> None:
+        """A model's column names fold, while the Python spellings it declared keep resolving."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class M(TableModel, name='M'):
+            MyCol: pxt.Int
+            doubled = MyCol * 2
+
+        TableModel.create_all(p(''))
+
+        # the stored column and the table itself are folded
+        assert M.table.columns() == ['mycol', 'doubled']
+
+        # and after binding, both spellings are synonyms
+        assert M.MyCol is M.mycol
+        # But only the original and the folded casing resolve at the class level
+        with pytest.raises(AttributeError, match="has no attribute 'MYCOL'"):
+            _ = M.MYCOL
+
+        M.insert([{'MYCOL': 3}])
+        assert M.collect()['Doubled'] == [6]
+
+        # Two declarations that Python allows, but that collide in Pixeltable
+        CollisionModel = pxt.model_base()
+
+        class TableWithCollision(CollisionModel, name='dup_annotations'):
+            Foo: pxt.Int
+            foo: pxt.Int
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"'Foo', 'foo' were specified"):
+            CollisionModel.create_all(p(''))
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"'Foo', 'foo' were specified"):
+            CollisionModel.get_model_diff(p(''))
+
+    def test_model_case_insensitive_declarations(self) -> None:
+        """Table and index names in a model declaration fold, so two that differ only in case collide."""
+        TableModel = pxt.model_base()
+
+        class First(TableModel, name='Foo'):
+            id: pxt.Int
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='previously used by `First`'):
+
+            class Second(TableModel, name='foo'):
+                id2: pxt.Int
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='index names must be unique'):
+
+            class M(TableModel, name='m'):
+                a: pxt.String
+                b: pxt.String
+                __indexes__ = [
+                    EmbeddingIndex(a, embedding=dummy_embedding.using(n=512), name='Idx'),
+                    EmbeddingIndex(b, embedding=dummy_embedding.using(n=512), name='idx'),
+                ]

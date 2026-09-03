@@ -7,8 +7,39 @@ import threading
 import time
 from typing import Mapping
 
-from pixeltable.config import Config, env_var_name
+from pixeltable.config import SECRET_ENV_PREFIX, VAR_ENV_PREFIX, Config, env_var_name
 from pixeltable_cli.models import InFlightRequest, Method
+from pixeltable_cli.utils import value_fingerprint
+
+
+def config_fingerprint() -> dict[str, str]:
+    """Fingerprints of the config values relevant to the daemon, as {env var name: hash}."""
+    config = Config.get()
+    out: dict[str, str] = {}
+    for ck in config.env_keys():
+        value: str | None
+        # settings from [[pixeltable.database]] are read per command
+        if (ck.section, ck.key) == ('pixeltable', 'database'):
+            value = None
+        else:
+            value = config.get_value(ck.key, str, section=ck.section)
+        if value is not None and value != '':
+            out[env_var_name(ck.section, ck.key)] = value_fingerprint(value)
+    return out
+
+
+def compare_env_values(other: Mapping[str, str], mine: Mapping[str, str]) -> tuple[list[str], list[str]]:
+    """Compare the env fingerprint other with mine, as produced by config_fingerprint().
+
+    Returns (set for other but not in mine, resolved differently in mine)
+    """
+    known = {env_var_name(ck.section, ck.key) for ck in Config.get().env_keys()}
+    relevant = {
+        name: h for name, h in other.items() if name.startswith((VAR_ENV_PREFIX, SECRET_ENV_PREFIX)) or name in known
+    }
+    missing = sorted(name for name in relevant if name not in mine)
+    differing = sorted(name for name, h in relevant.items() if name in mine and mine[name] != h)
+    return missing, differing
 
 
 class DaemonState:
@@ -60,7 +91,7 @@ class DaemonState:
 
     def record_env_fingerprint(self) -> None:
         """Record the fingerprints of the config values this daemon serves with."""
-        self._env_fingerprint = Config.get().env_fingerprint()
+        self._env_fingerprint = config_fingerprint()
 
     def known_env_vars(self) -> list[str]:
         """Every env var pixeltable reads config from, set or not."""

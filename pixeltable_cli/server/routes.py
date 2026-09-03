@@ -6,43 +6,33 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import PIL.Image
-import pydantic
 import sqlalchemy as sa
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.catalog import Path
+from pixeltable.catalog import Path, fold_identifier
+from pixeltable.catalog.model import schema
 from pixeltable.config import SECRET_SECTION, Config
 from pixeltable.env import Env
-from pixeltable.service import management_client
+from pixeltable.service import db, management_client
 from pixeltable.service.management_protocol import (
-    CreateDbRequest,
-    CreateServiceRequest,
     DeleteDbRequest,
     DeleteSecretRequest,
-    DeleteServiceRequest,
-    GetBundleUploadUrlRequest,
     GetDbRequest,
-    GetServiceRequest,
     ListDbRequest,
     ListOrgsRequest,
     ListSecretsRequest,
-    ListServicesRequest,
     SetSecretRequest,
     StartDbRequest,
-    StartServiceRequest,
     StopDbRequest,
-    StopServiceRequest,
-    UpdateDbRequest,
-    UpdateRuntimeRequest,
-    UpdateServiceRequest,
 )
+from pixeltable.serving import service
 from pixeltable.types import TreeNode
-from pixeltable_cli import models, schema_types, service_types
+from pixeltable_cli import models, types
 from pixeltable_cli.utils import identity
 
 from . import bridge
-from .daemon_state import state as daemon_state
+from .daemon_state import config_fingerprint, state as daemon_state
 from .router import RawResponse, Request, Router
 
 router = Router()
@@ -51,13 +41,6 @@ _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
 # Freeze the identity fingerprint at import time so /health reports what the daemon was
 # launched with, not what os.environ looks like right now. Used to trigger a daemon restart.
 _IDENTITY: dict[str, Any] = identity()
-
-# schema plans cross as plain dicts; this checks their shape in place of a response model
-_SCHEMA_PLAN = pydantic.TypeAdapter(schema_types.SchemaPlan)
-_CHECK_REPORT = pydantic.TypeAdapter(schema_types.CheckReport)
-_SERVICE_PLAN = pydantic.TypeAdapter(service_types.ServicePlan)
-_SERVICE_OPS = pydantic.TypeAdapter(list[service_types.ServiceChangeOp])
-_SERVICE_DEPLOYMENTS = pydantic.TypeAdapter(list[service_types.ServiceDeployment])
 
 
 def _project_root() -> str | None:
@@ -142,7 +125,7 @@ def config(_req: Request) -> models.ConfigResponse:
     return models.ConfigResponse(
         config_file=str(Config.get().config_file),
         entries=entries,
-        env_fingerprint=Config.get().env_fingerprint(),
+        env_fingerprint=config_fingerprint(),
         env_var_names=daemon_state.known_env_vars(),
     )
 
@@ -178,14 +161,14 @@ def set_cwd(req: Request) -> models.CwdResponse:
 def _require_dir(path: str) -> None:
     """Raise if path does not name an existing directory (reuses the ls tree navigation)."""
     path_obj = Path.parse(path, allow_empty_path=True)
-    _get_dir_children(pxt.get_dir_tree(path_obj.uri), '/'.join(path_obj.components))
+    _get_dir_children(pxt.get_dir_tree(path_obj.uri_str), '/'.join(path_obj.components))
 
 
 def _list_dir(path: str, *, tree: bool, details: bool, counts: bool) -> models.LsResponse:
     # A hosted path (pxt://<org>:<db>/...) lists a remote catalog; split off its catalog-root URI so we
     # fetch that catalog's tree and navigate by the in-catalog remainder. catalog_root is '' for a local path.
     path_obj = Path.parse(path, allow_empty_path=True)
-    db_uri = path_obj.uri
+    db_uri = path_obj.uri_str
     relative_path = '/'.join(path_obj.components)
     full_tree = pxt.get_dir_tree(db_uri)
     nodes = _get_dir_children(full_tree, relative_path)
@@ -213,6 +196,7 @@ def table_rows(req: Request) -> models.RowsResponse:
     path = req.resolve_path(req.query_str('path') or '')
     n = req.query_int('n', default=10, ge=1, le=1000)
     cols_list = _split_csv(req.query_str('cols'))
+    cols_list = [fold_identifier(c) for c in cols_list] if cols_list is not None else None
     if cols_list is not None and len(cols_list) > 1000:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'too many columns requested (max 1000)')
 
@@ -255,6 +239,7 @@ def table_row(req: Request) -> models.GetResponse:
     # force a string interpretation from the URL.
     pk_values: list[Any] = [_coerce_pk(v) for v in pk]
     cols_list = _split_csv(req.query_str('cols'))
+    cols_list = [fold_identifier(c) for c in cols_list] if cols_list is not None else None
 
     t = pxt.get_table(path)
     md = t.get_metadata()
@@ -314,6 +299,8 @@ def table_count(req: Request) -> models.CountResponse:
 def table_errors(req: Request) -> models.ErrorsResponse:
     path = req.resolve_path(req.query_str('path') or '')
     col = req.query_str('col')
+    if col is not None:
+        col = fold_identifier(col)
     t = pxt.get_table(path)
     md = t.get_metadata()
 
@@ -491,73 +478,69 @@ def move(req: Request) -> models.MoveResponse:
 
 
 @router.post('/api/schema/check')
-def schema_check(req: Request) -> schema_types.CheckReport:
+def schema_check(req: Request) -> types.CheckReport:
     body = req.body(models.SchemaCheckBody)
-    return _CHECK_REPORT.validate_python(bridge.schema_check(body.schema_file))
-
-
-@router.post('/api/localservice/check')
-def service_check(req: Request) -> schema_types.CheckReport:
-    body = req.body(models.ServiceCheckBody)
-    return _CHECK_REPORT.validate_python(bridge.service_check(body.app_file))
+    return schema.schema_check(body.app_file)
 
 
 @router.post('/api/schema/diff')
-def schema_diff(req: Request) -> schema_types.SchemaPlan:
+def schema_diff(req: Request) -> types.SchemaPlan:
     body = req.body(models.SchemaDiffBody)
-    return _SCHEMA_PLAN.validate_python(bridge.schema_diff(body.schema_file, req.resolve_path(body.catalog_dir)))
+    return schema.schema_diff(body.app_file, req.resolve_path(body.catalog_dir))
 
 
 @router.post('/api/schema/prune')
-def schema_prune(req: Request) -> schema_types.SchemaPlan:
+def schema_prune(req: Request) -> types.SchemaPlan:
     body = req.body(models.SchemaPruneBody)
-    return _SCHEMA_PLAN.validate_python(bridge.schema_prune(body.schema_file, req.resolve_path(body.catalog_dir)))
+    return schema.schema_prune(body.app_file, req.resolve_path(body.catalog_dir))
 
 
 @router.post('/api/schema/update')
-def schema_update(req: Request) -> schema_types.SchemaPlan:
+def schema_update(req: Request) -> types.SchemaPlan:
     body = req.body(models.SchemaUpdateBody)
-    applied = bridge.schema_update(
-        body.schema_file, req.resolve_path(body.catalog_dir), allow_destructive=body.allow_destructive
+    applied = schema.schema_update(
+        body.app_file, req.resolve_path(body.catalog_dir), allow_destructive=body.allow_destructive
     )
-    return _SCHEMA_PLAN.validate_python(applied)
+    return applied
 
 
-@router.post('/api/localservice/diff')
-def service_diff(req: Request) -> service_types.ServicePlan:
+@router.post('/api/service/check')
+def service_check(req: Request) -> types.CheckReport:
+    body = req.body(models.ServiceCheckBody)
+    return service.service_check(body.app_file)
+
+
+@router.post('/api/service/diff')
+def service_diff(req: Request) -> types.ServicePlan:
     body = req.body(models.ServiceDiffBody)
-    return _SERVICE_PLAN.validate_python(
-        bridge.service_diff(body.app_file, req.resolve_path(body.target), otel=body.otel)
-    )
+    return service.service_diff(body.app_file, req.resolve_path(body.target), otel=body.otel)
 
 
-@router.post('/api/localservice/update')
-def service_update(req: Request) -> service_types.ServicePlan:
+@router.post('/api/service/update')
+def service_update(req: Request) -> types.ServicePlan:
     body = req.body(models.ServiceUpdateBody)
-    applied = bridge.service_update(
+    applied = service.service_update(
         body.app_file, req.resolve_path(body.target), allow_destructive=body.allow_destructive, otel=body.otel
     )
-    return _SERVICE_PLAN.validate_python(applied)
+    return applied
 
 
-@router.post('/api/localservice/prune')
-def service_prune(req: Request) -> service_types.ServicePlan:
+@router.post('/api/service/prune')
+def service_prune(req: Request) -> types.ServicePlan:
     body = req.body(models.ServicePruneBody)
-    return _SERVICE_PLAN.validate_python(bridge.service_prune(body.app_file, req.resolve_path(body.target)))
+    return service.service_prune(body.app_file, req.resolve_path(body.target), dry_run=body.dry_run)
 
 
-@router.post('/api/localservice/stop')
-def service_stop(req: Request) -> list[service_types.ServiceChangeOp]:
+@router.post('/api/service/stop')
+def service_stop(req: Request) -> list[types.ServiceChangeOp]:
     body = req.body(models.ServiceStopBody)
-    return _SERVICE_OPS.validate_python(bridge.service_stop(body.names, req.resolve_path(body.target)))
+    return service.service_stop(body.names)
 
 
-@router.get('/api/localservice/list')
-def service_list(req: Request) -> list[service_types.ServiceDeployment]:
+@router.get('/api/service/list')
+def service_list(req: Request) -> list[types.ServiceInstance]:
     target = req.query_str('target')
-    return _SERVICE_DEPLOYMENTS.validate_python(
-        bridge.service_list(None if target is None else req.resolve_path(target))
-    )
+    return service.service_list(None if target is None else req.resolve_path(target))
 
 
 @router.get('/api/dashboard/search', checks_env=False)
@@ -583,18 +566,22 @@ def dashboard_pipeline(req: Request) -> dict[str, Any]:
 
 
 @router.get('/api/dashboard/pipeline', checks_env=False)
-def dashboard_pipeline_root(_req: Request) -> dict[str, Any]:
-    return bridge.get_pipeline(tbl_path=None)
+def dashboard_pipeline_root(req: Request) -> dict[str, Any]:
+    raw = req.query_str('path')
+    if raw is None or raw in ('', 'local'):
+        return bridge.get_pipeline(tbl_path=None)
+    return bridge.get_pipeline(tbl_path=req.resolve_path(raw))
 
 
 @router.get('/api/dashboard/tables/data')
 def dashboard_table_data(req: Request) -> dict[str, Any]:
     path = req.resolve_path(req.query_str('path') or '')
+    order_by = req.query_str('order_by')
     return bridge.get_table_data(
         path,
         offset=req.query_int('offset', default=0, ge=0),
         limit=req.query_int('limit', default=50, ge=1, le=500),
-        order_by=req.query_str('order_by'),
+        order_by=order_by,
         order_desc=req.query_bool('order_desc'),
         errors_only=req.query_bool('errors_only'),
     )
@@ -802,11 +789,6 @@ def delete_secret(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(DeleteSecretRequest))
 
 
-@router.post('/api/dbs')
-def create_db(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(CreateDbRequest))
-
-
 @router.get('/api/db')
 def get_db(req: Request) -> dict[str, Any]:
     return management_client.api_call(GetDbRequest(org=req.required_query_str('org'), db=req.required_query_str('db')))
@@ -827,61 +809,19 @@ def stop_db(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(StopDbRequest))
 
 
+# the verbs above forward a management-protocol request: the daemon is a pass-through to the control plane.
+# The three below read the project first, so they take a body of their own and call the bridge.
+@router.post('/api/db/diff')
+def db_diff(req: Request) -> types.DbPlan:
+    return db.db_diff(req.body(models.DbDiffBody).db_uri)
+
+
 @router.post('/api/db/update')
-def update_db(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(UpdateDbRequest))
+def db_update(req: Request) -> types.DbPlan:
+    body = req.body(models.DbUpdateBody)
+    return db.db_update(body.db_uri, allow_destructive=body.allow_destructive)
 
 
-@router.get('/api/db/upload-url')
-def get_upload_url(req: Request) -> dict[str, Any]:
-    return management_client.api_call(
-        GetBundleUploadUrlRequest(org=req.required_query_str('org'), db=req.required_query_str('db'))
-    )
-
-
-@router.post('/api/db/update-runtime')
-def trigger_runtime_update(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(UpdateRuntimeRequest))
-
-
-@router.get('/api/services')
-def list_services(req: Request) -> dict[str, Any]:
-    return management_client.api_call(
-        ListServicesRequest(org=req.required_query_str('org'), db=req.required_query_str('db'))
-    )
-
-
-@router.post('/api/services')
-def create_service(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(CreateServiceRequest))
-
-
-@router.get('/api/service')
-def get_service(req: Request) -> dict[str, Any]:
-    return management_client.api_call(
-        GetServiceRequest(
-            org=req.required_query_str('org'),
-            db=req.required_query_str('db'),
-            service_name=req.required_query_str('service_name'),
-        )
-    )
-
-
-@router.post('/api/service/delete')
-def delete_service(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(DeleteServiceRequest))
-
-
-@router.post('/api/service/start')
-def start_service(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(StartServiceRequest))
-
-
-@router.post('/api/service/stop')
-def stop_service(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(StopServiceRequest))
-
-
-@router.post('/api/service/update')
-def update_service(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(UpdateServiceRequest))
+@router.post('/api/db/build-image')
+def db_build_image(req: Request) -> list[types.DbChangeOp]:
+    return db.db_build_image(req.body(models.DbBuildImageBody).db_uri)

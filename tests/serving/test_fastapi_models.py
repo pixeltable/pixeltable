@@ -12,6 +12,7 @@ import json
 import pytest
 
 import pixeltable as pxt
+from pixeltable_cli.types import ServiceSpec
 
 from ..utils import DatabaseRoot, get_image_files, pxt_raises, skip_test_if_not_installed
 from .test_fastapi import add_one, make_test_client
@@ -70,26 +71,19 @@ class TestFastAPIModels:
 
         # the definition names the model each route was declared against, before the table exists
         service = router.service_spec(name='notes')
-        assert json.loads(json.dumps(service)) == service
-        specs = {(spec['method'], spec['path']): spec for spec in service['routes']}
-        assert all(spec['model'] == 'notes' for spec in specs.values()), specs
-        assert all(spec['table'] is None for spec in specs.values()), specs
-        assert specs['POST', '/ins']['inputs'] == ['note_id', 'val']
-        assert specs['POST', '/del']['match_columns'] == ['note_id']
-        assert specs['POST', '/thumb-file']['return_fileresponse']
-        assert specs['POST', '/thumb-json']['query'].endswith('note_thumb')
+        assert ServiceSpec.model_validate(json.loads(service.model_dump_json())) == service
+        specs = {(spec.method, spec.path): spec for spec in service.routes}
+        assert all(spec.model == 'notes' for spec in specs.values()), specs
+        assert all(spec.table is None for spec in specs.values()), specs
+        assert specs['POST', '/ins'].inputs == ['note_id', 'val']
+        assert specs['POST', '/del'].match_columns == ['note_id']
+        assert specs['POST', '/thumb-file'].return_fileresponse
+        thumb_json = specs['POST', '/thumb-json'].query
+        assert thumb_json is not None and thumb_json.endswith('note_thumb')
 
         # the routes are fully described before the table exists
         schema = client.get('/openapi.json').json()
-        assert sorted(path for path in schema['paths'] if not path.startswith('/_pxt/media')) == [
-            '/_pxt/jobs/{job_id}',
-            '/comp',
-            '/del',
-            '/ins',
-            '/thumb-file',
-            '/thumb-json',
-            '/upd',
-        ]
+        assert sorted(schema['paths']) == ['/comp', '/del', '/ins', '/thumb-file', '/thumb-json', '/upd']
 
         TableModel.create_all(p(''))
         router.bind(p(''))
@@ -141,8 +135,8 @@ class TestFastAPIModels:
         prefixed = FastAPIRouter(name='ingest', prefix='/v1')
         prefixed.add_insert_route(Notes, path='/ins')
         service = prefixed.service_spec()
-        assert service['name'] == 'ingest'  # the name the router was constructed with
-        assert (service['prefix'], service['routes'][0]['path']) == ('/v1', '/ins')
+        assert service.name == 'ingest'  # the name the router was constructed with
+        assert service.routes[0].path == '/v1/ins'  # a route records the path as it is served
 
         router = FastAPIRouter()
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown column 'nosuchcol'"):

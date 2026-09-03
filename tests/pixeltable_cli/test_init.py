@@ -67,7 +67,7 @@ class TestInit:
         assert str(tmp_path) in r.stderr
         assert not (nested / 'pixeltable.toml').exists()
 
-    def test_reports_unusable_directory(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+    def test_unusable_directory(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
         """A directory whose name is not an identifier is reported when it holds Python files."""
         (tmp_path / 'ad gen').mkdir()
         (tmp_path / 'ad gen' / 'app.py').write_text('', encoding='utf-8')

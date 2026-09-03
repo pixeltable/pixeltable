@@ -21,13 +21,16 @@ Examples:
 An org secret applies to every database in the org; a database secret applies to that database and
 wins on a key collision.
 
-Changes do not reach a running database. Run `pxt db stop` then `pxt db start`, or
-`pxt db update-runtime`, to pick them up.
+A project can declare its secrets instead, in its [[pixeltable.database]] entry, as the name of the
+environment variable holding each value; `pxt db update` sets them from there.
+
+Either way, a running database holds the values it started with. Run `pxt db stop` then `pxt db start`
+to pick up a change.
 """
 
 
 def run(argv: list[str]) -> None:
-    parser = Parser(prog='pxt secret', description='manage runtime secrets', epilog=EPILOG)
+    parser = Parser(prog='pxt secret', description='manage the secrets a database holds', epilog=EPILOG)
     sub = parser.add_subparsers(dest='action', required=True)
 
     p = sub.add_parser('list', help='list secret names in a scope (never their values)')

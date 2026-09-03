@@ -107,7 +107,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         # create_all() only creates tables; it never mutates an existing one. If any existing table differs from
         # its model, refuse.
         diffs = validate_models(registered_models, catalog_dir)
-        changed = [(name, d) for name, d in diffs.items() if d['exists'] and d['resolution'] != 'up_to_date']
+        changed = [(name, d) for name, d in diffs.items() if d.exists and d.resolution != 'up_to_date']
         if len(changed) > 0:
             detail = '\n'.join(line for name, d in changed for line in format_diff(name, d))
             raise excs.RequestError(
@@ -115,7 +115,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 f'One or more existing tables differ from their models.\n{detail}\n{_PY_MISMATCH_HINT}',
             )
 
-        _create_models(catalog_dir, {name for name, d in diffs.items() if not d['exists']})
+        _create_models(catalog_dir, {name for name, d in diffs.items() if not d.exists})
         return diffs
 
     def _get_model_diff(catalog_dir: str = '') -> dict[str, TableDiff]:
@@ -147,7 +147,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             Env.get().console_logger.info('Catalog is up to date.')
             return diffs
 
-        fatal = [(name, d) for name, d in diffs.items() if d['resolution'] == 'unsupported']
+        fatal = [(name, d) for name, d in diffs.items() if d.resolution == 'unsupported']
         if len(fatal) > 0:
             detail = '\n'.join(line for name, d in fatal for line in format_diff(name, d))
             raise excs.RequestError(
@@ -158,7 +158,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 'Adjust the existing table(s) manually, or adjust the models to be consistent with the catalog.',
             )
 
-        destructive = [(name, d) for name, d in diffs.items() if d['resolution'] == 'update_destructive']
+        destructive = [(name, d) for name, d in diffs.items() if d.resolution == 'update_destructive']
         if len(destructive) > 0 and not allow_destructive:
             detail = '\n'.join(line for name, d in destructive for line in format_diff(name, d))
             raise excs.RequestError(
@@ -168,7 +168,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
 
         # Apply column/index changes to existing tables. New tables are handled by _create_all() below.
         update_diffs = [
-            (name, d) for name, d in diffs.items() if d['resolution'] in ('update_additive', 'update_destructive')
+            (name, d) for name, d in diffs.items() if d.resolution in ('update_additive', 'update_destructive')
         ]
 
         if len(update_diffs) > 0:
@@ -176,12 +176,10 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             change_sets: list[TableSchemaChangeSet] = []
             for name, d in update_diffs:
                 model = registered_models[name]
-                new_col_names = {c['name'] for c in d['ops'] if c['target'] == 'column' and c['op'] == 'add'}
-                dropped_col_names = [c['name'] for c in d['ops'] if c['target'] == 'column' and c['op'] == 'drop']
-                new_idx_refs = [
-                    c['details']['index_ref'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'add'
-                ]
-                dropped_idx_names = [c['name'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'drop']
+                new_col_names = {c.name for c in d.ops if c.target == 'column' and c.op == 'add'}
+                dropped_col_names = [c.name for c in d.ops if c.target == 'column' and c.op == 'drop']
+                new_idx_refs = [c.details.index_ref for c in d.ops if c.target == 'index' and c.op == 'add']
+                dropped_idx_names = [c.name for c in d.ops if c.target == 'index' and c.op == 'drop']
                 # Resolve type annotations to ColumnTypes, mirroring _create(), and tag each column's origin.
                 # Iterate in declaration order (not the diff's sorted order), so a new column may depend on an
                 # earlier new column, as it can at create time.
@@ -210,15 +208,15 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     matching_idxs = [
                         idx
                         for idx in model.__indexes__
-                        if (idx_ref['index_type'] == 'btree') == isinstance(idx, BtreeIndex)
-                        and idx_ref['name'] == (idx.name if isinstance(idx, EmbeddingIndex) else None)
-                        and [idx.column.name] == idx_ref['columns']
+                        if (idx_ref.index_type == 'btree') == isinstance(idx, BtreeIndex)
+                        and idx_ref.name == (idx.name if isinstance(idx, EmbeddingIndex) else None)
+                        and [idx.column.name] == idx_ref.columns
                     ]
                     assert len(matching_idxs) == 1
                     new_idxs.append(matching_idxs[0])
 
                 # only an existing table is updated, so the diff recorded what it was computed against
-                assert d['tbl_id'] is not None and d['schema_versions'] is not None
+                assert d.tbl_id is not None and d.schema_versions is not None
                 change_sets.append(
                     TableSchemaChangeSet(
                         path=catalog.Path.parse(f'{catalog_dir}{name}'),
@@ -226,8 +224,8 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                         dropped_columns=dropped_col_names,
                         new_idxs=new_idxs,
                         dropped_idxs=dropped_idx_names,
-                        tbl_id=d['tbl_id'],
-                        schema_versions=d['schema_versions'],
+                        tbl_id=d.tbl_id,
+                        schema_versions=d.schema_versions,
                     )
                 )
 
@@ -238,13 +236,13 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         # Now create any new tables, and bind every model to its table. The diff computed above is the one being
         # applied, so the models it found up-to-date are not re-examined against the catalog.
         try:
-            _create_models(catalog_dir, {name for name, d in diffs.items() if d['resolution'] == 'create'})
+            _create_models(catalog_dir, {name for name, d in diffs.items() if d.resolution == 'create'})
         except excs.Error as e:
             # the migrations above are already committed; name them, so that a failure here doesn't read as
             # though the catalog were untouched. Augmenting in place keeps the exception's type and fields.
             # e.message excludes e.detail, which is diagnostic text that must not become part of the message
             if len(update_diffs) > 0:
-                migrated = ', '.join(repr(d['path']) for _, d in update_diffs)
+                migrated = ', '.join(repr(d.path) for _, d in update_diffs)
                 e.args = (
                     f'{e.message}\n\nThe following table(s) were already migrated: {migrated}. '
                     'Re-run update_all() to finish reconciling.',

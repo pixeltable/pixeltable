@@ -18,7 +18,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import exprs, functions as pxtf
+from pixeltable import catalog, exprs, functions as pxtf
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.functions.video import legacy_frame_iterator
@@ -2050,6 +2050,23 @@ class TestExprs:
             _, _ = t.c1
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'len\(\) of a Pixeltable expression'):
             len(t.c1)
+
+    def test_json_paths_case_sensitive(self, db_root: DatabaseRoot) -> None:
+        """JSON path components are data, not identifiers, so column name folding does not apply."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('t'), {'JsonCol': pxt.Json | None})
+        t.insert([{'jsoncol': {'someField': 1, 'somefield': 2}}])
+
+        res = t.select(exact=t.JSONCOL.someField, lowered=t.JSONCOL.somefield, uppered=t.JSONCOL.SOMEFIELD).collect()
+        assert res['exact'] == [1]
+        assert res['lowered'] == [2]
+        assert res['uppered'] == [None]
+
+        t.insert([{'jsoncol': {'café': 1}}])
+        res = t.select(t.JsonCol['café']).collect()
+        (name,) = res.schema.keys()
+        assert catalog.is_valid_identifier(name)
+        assert res[name] == [None, 1]
 
 
 @pxt.udf

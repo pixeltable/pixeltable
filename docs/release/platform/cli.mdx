@@ -113,9 +113,9 @@ pxt service update app.py my_app     # start them, restarting what changed
 pxt service list                     # what is running, and where
 
 # cloud — databases
-pxt db create pxt://myorg:mydb
-pxt db list pxt://myorg
-pxt db update-runtime pxt://myorg:mydb
+pxt db update pxt://myorg:mydb   # create the database, or bring it up to what the project declares
+pxt db diff   pxt://myorg:mydb   # what 'update' would change
+pxt db list   pxt://myorg
 ```
 
 ## Inspection commands
@@ -364,7 +364,7 @@ secrets.openai_api_key = '...'
 
 [[pixeltable.database]]
 name = 'pxt://myorg:prod'                   # a hosted database
-system_dependencies = ['ffmpeg']            # what goes into its runtime image
+system_dependencies = ['ffmpeg']            # what goes into its image
 ```
 
 In a directory that already holds a `pyproject.toml`, the same entry is appended there as `[[tool.pixeltable.database]]` instead, and that section is what marks the root.
@@ -379,7 +379,7 @@ Every directory from the root down to a file becomes one component of that file'
 
 Imports resolve from the root down. This is where a single-file recipe and a larger application diverge: a file directly under the root imports its neighbors by their bare names, so `recipe.py` and `functions.py` side by side use `from functions import ...`. Once an application moves into a subdirectory, that subdirectory joins the path: `from ad_gen.functions import ...`.
 
-A recorded path is how a later process -- the daemon, a serving worker, a hosted runtime -- finds the udf again, so a command given a file outside any project root is refused. `pxt schema check` and `pxt service check` validate a file on its own -- it imports without touching the catalog, it declares what the verb needs, and the udfs its columns call are named by paths another process can resolve:
+A recorded path is how a later process -- the daemon, a serving worker, a hosted pod -- finds the udf again, so a command given a file outside any project root is refused. `pxt schema check` and `pxt service check` validate a file on its own -- it imports without touching the catalog, it declares what the verb needs, and the udfs its columns call are named by paths another process can resolve:
 
 ```bash
 pxt schema check schema.py           # exit 0 valid, 1 invalid
@@ -586,8 +586,9 @@ The `schema` commands additionally report drift in their exit status (`0` in syn
 
 ## Serving
 
-`pxt service` runs the services an application file declares: a Python file holding models (which name the
-tables) and `FastAPIRouter` instances (which serve routes over them). It requires the `serve` extra
+`pxt service` runs the services in an application file. An application file is any Python source file containing
+table/view models and either `FastAPIRouter` instances (which serve routes over them) or a `fastapi.FastAPI`
+application of your own. It requires the `serve` extra
 (`pip install 'pixeltable[serve]'`), which pulls in `fastapi[standard]` and `uvicorn`.
 
 <Info>
@@ -605,6 +606,62 @@ pxt service update app.py my_dir    # serve this file's services against them
 
 `TARGET` is the catalog directory the models bind against, so one file can be applied to a development
 directory and a production one.
+
+### Serving your own application
+
+A file may supply its own `fastapi.FastAPI` object instead of leaving Pixeltable to build one. Then the
+file declares one service, named after its module, and `pxt service update` serves that application as it
+is:
+
+```python
+# notes_app.py
+TableModel = pxt.model_base()
+
+class Notes(TableModel, name='notes'):
+    note_id = pxt.Column(type=pxt.Int, primary_key=True)
+    text: pxt.String
+
+app = fastapi.FastAPI()
+
+@app.post('/notes')
+def add_note(note_id: int, text: str) -> dict[str, int]:
+    return {'rows': Notes.insert([{'note_id': note_id, 'text': text}]).num_rows}
+```
+
+```bash
+pxt schema update notes_app.py my_dir     # create the tables for the models in notes_app.py
+pxt service update notes_app.py my_dir    # serve the application, as service 'notes_app'
+```
+
+The models in the file are bound at `TARGET` before the application serves, so a handler reaches
+them by name (`Notes.insert(...)`).
+
+All `FastAPIRouter` instances in the same source file are expected to be included in the `FastAPI` application
+(via `include_router()`), and the application file still produces a single service:
+
+```python
+app.include_router(ingest, prefix='/v1')   # ingest's routes are served under /v1
+```
+
+A router not included in `app` would never be served, and in that situation `pxt service` returns with an error.
+The routes of an included `FastAPIRouter` are diffed by their declarations (i.e., they take the data types of path
+parameters into account); the paths the application serves itself are simply diffed as path strings.
+
+### Hosted targets
+
+`TARGET` may be a `pxt://org:db` uri, and the services then run in that database rather than on this
+machine. The database needs this project and its tables first, so the order is:
+
+```bash
+pxt db update pxt://acme:main               # create the database and put this project's code in it
+pxt schema update app.py pxt://acme:main    # create the tables the models declare
+pxt service update app.py pxt://acme:main   # start the services there
+```
+
+`diff`, `update`, `prune`, `stop` and `list` all accept a hosted target. `run` does not: it serves from the
+calling process, so it is local by definition. Two verbs differ in meaning against a hosted database, where
+a stopped service keeps its registration: `stop` stops it and leaves it there to be started again, while
+`prune` forgets it.
 
 ### `pxt service` verbs
 
@@ -690,45 +747,78 @@ All cloud commands accept `--json` for machine-readable output.
 
 ### Cloud configuration reference
 
-Cloud operations that affect a database's runtime image read the project configuration -- `pixeltable.toml`, or `pyproject.toml` under `[tool.pixeltable]` -- in the current directory.
+`pxt db diff` and `pxt db update` read the entry naming the target database from the project configuration -- `pixeltable.toml`, or `pyproject.toml` under `[tool.pixeltable]` -- found from the working directory.
 
-#### `[[pixeltable.database]]` — runtime image config
+#### `[[pixeltable.database]]` — what a project declares about one database
 
-Read by `pxt db update-runtime`, from the entry naming the target database. Defines which local files to package into the runtime image.
+Defines which project files the database gets, what its image holds, what it runs on, and which secrets it holds.
 
 ```toml
 [[pixeltable.database]]
-name = 'pxt://myorg:prod'
-# Include/exclude patterns for project files bundled into the runtime image.
-# Glob patterns relative to the project root.
+name = 'pxt://myorg:prod'           # matches the uri passed to pxt db update
+
+# the environment variable holding each secret's value, never the value itself
+secrets.openai_api_key = 'env:OPENAI_API_KEY'
+
+# which project files the database gets. Glob patterns relative to the project root; everything git
+# would not ignore is uploaded by default, and the lockfile always is.
 include = ["app/**", "models/**"]
 exclude = ["__pycache__", "*.pyc", ".git", ".env", "*.egg-info", ".venv"]
+
+# what the image holds
+system_dependencies = ['ffmpeg']    # conda-forge packages
+python_version = '3.11'
+
+# what the database runs on
+cpu = 2.0
+memory_mb = 4096
+disk_gb = 50
+workers = 2
+
+# fixed when the database is created
+location = 'aws'
+region = 'us-east-1'
 ```
 
-An entry with no `name` configures the local database. A project with a single entry uses it for whichever database is targeted, which is what a project written before `[[pixeltable.database]]` became an array does.
+An entry with no `name` configures the local database. A hosted database is configured by the entry naming its uri.
 
 ### `pxt db`
 
-Manage cloud-hosted Pixeltable databases. A database is a hosted Pixeltable instance with its own compute, storage, and Python runtime.
+Manage cloud-hosted Pixeltable databases. A database is a hosted Pixeltable instance with its own compute, storage, and Python environment.
 
 Database URIs use the form `pxt://org:db`. Valid states: `PROVISIONING`, `STARTING`, `AVAILABLE`, `UPDATING`, `STOPPING`, `STOPPED`, `FAILED`.
 
 The URI argument is optional: with it omitted, these commands use `db_uri` from the Pixeltable config file (see [Configuration](/platform/configuration)), so a project that sets it can run `pxt db status` and friends with no argument.
 
-#### `pxt db create`
+#### `pxt db update`
 
 ```bash
-pxt db create pxt://myorg:mydb
-pxt db create pxt://myorg:mydb --location aws --region us-east-1
+pxt db update pxt://myorg:mydb
+pxt db update pxt://myorg:mydb -n      # print the plan and stop
+pxt db update pxt://myorg:mydb --allow-destructive
 ```
 
-| Argument / flag | Description |
+| Flag | Description |
 |---|---|
-| `db_uri` | `pxt://org:db` |
-| `--location` | Cloud provider (default: `aws`) |
-| `--region` | Region (default: `us-east-1`) |
+| `-n`, `--dry-run` | Print the plan without applying it |
+| `-f`, `--force` | Skip the confirmation |
+| `--allow-destructive` | Permit taking capacity away or deleting a secret |
 
-Provisions a new database. Polls until state is `AVAILABLE`.
+This is the command that creates a hosted database, and the one that keeps it current afterwards. Declare the database in a `[[pixeltable.database]]` entry, then run `update` against the uri its `name` holds:
+
+```toml
+# pixeltable.toml
+[[pixeltable.database]]
+name = 'pxt://myorg:mydb'
+```
+
+```bash
+pxt db update pxt://myorg:mydb
+```
+
+The uri on the command line selects the entry by its `name`: an entry naming another database configures that one, and a target no entry names is an error. The first run creates the database, builds the image its environment describes and uploads the project files the pods run; every later run applies whatever has changed since. The [cloud configuration reference](#cloud-configuration-reference) lists everything an entry can declare.
+
+What it applies, in this order: secrets first, since code the pods run reads them as they start; then the image, if the declared environment has moved, and the project archive, if the files have; then one resize carrying every changed number, so the pods restart once. A secret is declared as the name of an environment variable (`openai_api_key = 'env:OPENAI_API_KEY'`), never as a value.
 
 #### `pxt db list`
 
@@ -761,29 +851,29 @@ pxt db stop pxt://myorg:mydb
 
 Stop a running database (releases compute; storage is preserved).
 
-#### `pxt db update`
+#### `pxt db diff`
 
 ```bash
-pxt db update pxt://myorg:mydb --workers 2
-pxt db update pxt://myorg:mydb --cpu 1 --memory 2048 --disk 20
+pxt db diff pxt://myorg:mydb
+pxt db diff pxt://myorg:mydb --json
 ```
 
-| Flag | Description |
-|---|---|
-| `--workers N` | Number of proxy daemon workers |
-| `--cpu N` | CPU cores per worker |
-| `--memory N` | Memory per worker in MB |
-| `--disk N` | Disk per worker in GB |
+Compares the database against the `[[pixeltable.database]]` entry naming it (see the [cloud configuration reference](#cloud-configuration-reference)): the capacity numbers, which secrets the database holds, and the two artifacts a project ships separately --
 
-Triggers a rolling restart; polls until `AVAILABLE`.
+| artifact | holds | moves when |
+|---|---|---|
+| the image | the Python environment, and no project code | the lockfile, `python_version`, `system_dependencies` or the Pixeltable version changes |
+| the project archive | every selected project file | any selected file changes |
 
-#### `pxt db update-runtime`
+so an edit to a source file is uploaded in seconds, and only a dependency change costs an image build. Exit status is 0 in agreement and 2 with changes pending; nothing is built, resized or set.
+
+#### `pxt db build-image`
 
 ```bash
-pxt db update-runtime pxt://myorg:mydb
+pxt db build-image pxt://myorg:mydb
 ```
 
-Reads `[[pixeltable.database]]` (see the [cloud configuration reference](#cloud-configuration-reference)), packages the project files, uploads them, and triggers a CodeBuild image rebuild. Polls until the build completes or fails. Running services are restarted on the new image automatically.
+Uploads the project files and builds the image from its environment, without comparing anything first. `pxt db update` does whichever of the two the project has moved on from; this one does both whatever the database already holds, which is how a build is forced after one has failed. Polls until the build completes or fails; the pods restart on the new image and the new sources.
 
 #### `pxt db delete`
 

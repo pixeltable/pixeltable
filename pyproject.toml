@@ -291,11 +291,19 @@ strict_optional = false
 warn_return_any = true
 warn_unused_ignores = true
 
+# the CLI tests' application corpus needs to be copied into the test session's project; the import paths
+# in their test directory location don't resolve
+[[tool.mypy.overrides]]
+module = ["apps.*"]
+ignore_missing_imports = true
+
 [[tool.pixeltable.database]]
 # we need the repo for the uv-dynamic-versioning install, and pixeltable/_version.py in order for the
 # package to function. Both are ignored by default
+name = 'pxt://pixeltable:pxttest'
 include = ['.git/**', 'pixeltable/_version.py']
 system_dependencies = ["libiconv", "ffmpeg==6.1.1=gpl*"]
+uv_options = "--no-dev"
 
 [tool.pyright]
 typeCheckingMode = "off"
@@ -384,7 +392,7 @@ builtins-ignorelist = ["format", "input"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
-known-first-party = ["pixeltable_cli", "pixeltable"]
+known-first-party = ["pixeltable_cli", "pixeltable", "apps"]
 split-on-trailing-comma = false
 
 [tool.ruff.format]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import keyword
 import linecache
+import re
 import sys
 import threading
 import traceback
@@ -14,10 +15,13 @@ from typing import TYPE_CHECKING
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog import ProhibitedWriteError, is_valid_identifier, model
+from pixeltable.catalog.model import diff
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.func import FunctionRegistry
 from pixeltable.runtime import get_runtime
+from pixeltable.utils.project import in_environment
+from pixeltable_cli.types import CheckReport, RouteSpec, ServiceSpec
 
 _lock = threading.RLock()
 
@@ -33,8 +37,8 @@ if TYPE_CHECKING:
     from pixeltable.serving import FastAPIRouter
 
 
-def load_app_module(file: str, *, subject: str) -> ModuleType:
-    """Import file under the module path relative to the project root."""
+def module_name(file: str, *, subject: str) -> str:
+    """The dotted import path of 'file', relative to the project root."""
     path = Path(file).resolve()
     if not path.is_file():
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{subject} not found: {file}')
@@ -44,16 +48,38 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
     root = Config.get().project_root
     if root is None or not path.is_relative_to(root):
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, _no_root_msg(path, subject, root))
-    module_name = _module_name(path, root, subject)
+    relative = path.relative_to(root).with_suffix('')
+    for part in relative.parts:
+        if not part.isidentifier() or keyword.iskeyword(part):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'{path}: {part!r} is not a module name, so this {subject} cannot be imported; rename it, or '
+                f'the directory holding it, to a Python identifier',
+            )
+    return '.'.join(relative.parts)
+
+
+def load_app_module(file: str, *, subject: str) -> ModuleType:
+    """Import file under the module path relative to the project root."""
+    path = Path(file).resolve()
+    name = module_name(file, subject=subject)
 
     # resolve the catalog first: initializing it writes, which freeze() would refuse
     catalog = get_runtime().catalog
     try:
+        registry = FunctionRegistry.get()
         with _lock, catalog.freeze():
-            _evict_project_modules(root)
+            _evict_project_modules()
             # a file written after this process started is invisible to a finder that cached its directory
             importlib.invalidate_caches()
-            return importlib.import_module(module_name)
+            registered = set(registry.module_fns)
+            try:
+                return importlib.import_module(name)
+            except BaseException:
+                # a module that raises partway through leaves the udfs it already defined registered, and
+                # Python drops it from sys.modules, so _evict_project_modules() cannot reach them again
+                registry.deregister_functions(set(registry.module_fns) - registered)
+                raise
     except ProhibitedWriteError as e:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, _prohibited_write_msg(str(path), subject, e)
@@ -83,12 +109,16 @@ def _no_root_msg(path: Path, subject: str, root: Path | None) -> str:
     )
 
 
-def _evict_project_modules(root: Path) -> None:
-    """Discard every loaded module read from root, and the udfs they registered, so this load reads them again.
+def _evict_project_modules() -> None:
+    """Remove the project's own modules from sys.modules, and their udfs from the registry.
 
-    Scanning sys.modules rather than tracking what an earlier load imported: resolving a stored udf reference
-    imports a project module too, and a module missing from the eviction set is never read again.
+    Removing project modules allows us to have them re-imported, in response to changes to the source files.
+
+    The standard library and installed packages stay loaded, including when the environment sits inside the
+    project root (eg, a .venv).
     """
+    root = Config.get().project_root
+    assert root is not None  # module_name() refuses a file outside a project root
     registry = FunctionRegistry.get()
     for name, module in list(sys.modules.items()):
         module_file = getattr(module, '__file__', None)
@@ -96,22 +126,13 @@ def _evict_project_modules(root: Path) -> None:
             continue
         if name.split('.', maxsplit=1)[0] in _RUNNING_PACKAGES:
             continue
-        if Path(module_file).resolve().is_relative_to(root):
+        # the file path lets us distinguish between a project module and a standard library module
+        resolved = Path(module_file).resolve()
+        if in_environment(resolved):
+            continue
+        if resolved.is_relative_to(root):
             registry.deregister_module(name)
             sys.modules.pop(name, None)
-
-
-def _module_name(path: Path, root: Path, subject: str) -> str:
-    """The dotted name an import of path reaches it by, with root on sys.path."""
-    relative = path.relative_to(root).with_suffix('')
-    for part in relative.parts:
-        if not part.isidentifier() or keyword.iskeyword(part):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                f'{path}: {part!r} is not a module name, so this {subject} cannot be imported; rename it, or '
-                f'the directory holding it, to a Python identifier',
-            )
-    return '.'.join(relative.parts)
 
 
 def _prohibited_write_msg(file: str, subject: str, exc: ProhibitedWriteError) -> str:
@@ -139,6 +160,50 @@ def get_model_bases(module: ModuleType) -> list[model.TableModelMeta]:
         if isinstance(v, model.TableModelMeta) and '__registered_models__' in v.__dict__
     ]
     return bases
+
+
+def visible_models(module: ModuleType) -> dict[str, model.TableModelMeta]:
+    """Every model the module reaches by name, keyed by the table name each declares."""
+    models: dict[str, model.TableModelMeta] = {}
+    for value in vars(module).values():
+        if not isinstance(value, model.TableModelMeta):
+            continue
+        # a model base carries __registered_models__ as its own class attribute
+        if '__registered_models__' in value.__dict__:
+            models.update({declared.__table_spec__['name']: declared for declared in value.declared_models()})
+        else:
+            models[value.__table_spec__['name']] = value
+    return models
+
+
+def model_mismatch_error_str(models: dict[str, model.TableModelMeta], base_path: str) -> str | None:
+    """Return an error string explaining a mismatch between the models and their corresponding tables in base_path, or
+    None if there is no mismatch."""
+    diffs = diff.validate_models(models, base_path)
+    mismatched = {name: d for name, d in diffs.items() if d.resolution != 'up_to_date'}
+    if len(mismatched) == 0:
+        return None
+
+    detail = '\n'.join(line for name, d in mismatched.items() for line in diff.format_diff(name, d))
+    target = '' if base_path == '' else f' {base_path}'
+    unsupported = sorted(name for name, d in mismatched.items() if d.resolution == 'unsupported')
+    if len(unsupported) == 0:
+        hint = f'Run `pxt schema update <app file>{target}` first.'
+    else:
+        hint = (
+            f'No schema update can reconcile {", ".join(repr(name) for name in unsupported)}: adjust the '
+            'existing table(s) manually, or adjust the models to be consistent with the catalog.'
+        )
+        if len(unsupported) < len(mismatched):
+            hint += f'\nRun `pxt schema update <app file>{target}` for the rest.'
+    names = ', '.join(repr(name) for name in sorted(mismatched))
+    return f'Cannot serve {names}:\n{detail}\n{hint}'
+
+
+def check_report(file: str, bases: list[model.TableModelMeta]) -> CheckReport:
+    """What checking a file on its own reports: whether it is valid, and what to fix or to know about."""
+    errors = check_udf_references(bases)
+    return CheckReport(file=file, valid=len(errors) == 0, errors=errors, warnings=shadowed_project_modules())
 
 
 def check_udf_references(bases: list[model.TableModelMeta]) -> list[str]:
@@ -208,18 +273,9 @@ def _first_on_path(module_name: str) -> Path | None:
     return Path(locations[0]).resolve() if len(locations) > 0 else None
 
 
-def load_services(app_file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
-    """The FastAPIRouter/FastAPI instances in an app file, keyed by service name.
-
-    - FastAPIRouter instances are either explicitly named (name parameter) or implicitly via variable assignment
-    - a FastAPI instance is named via variable assignment
+def get_module_services(module: ModuleType, file: str) -> tuple[fastapi.FastAPI | None, dict[str, FastAPIRouter]]:
     """
-    return get_module_services(load_app_module(app_file, subject='application file'), app_file)
-
-
-def get_module_services(module: ModuleType, file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
-    """
-    Returns the FastAPIRouter/FastAPI instances found in module, keyed by service name.
+    Returns from the module: (FastAPI instance, FastAPIRouter instances, keyed by service name).
     """
     # imported here rather than at module scope: pixeltable.serving pulls in fastapi, an optional dependency
     from pixeltable.serving import FastAPIRouter
@@ -231,33 +287,120 @@ def get_module_services(module: ModuleType, file: str) -> dict[str, FastAPIRoute
     except ImportError:
         app_type = None  # without fastapi, nothing in the file can be an application object
 
-    services: dict[str, FastAPIRouter | fastapi.FastAPI] = {}
+    routers: dict[str, FastAPIRouter] = {}
+    apps: dict[str, fastapi.FastAPI] = {}
     # the objects already collected, so that two variables naming one router declare a single service
     seen: set[int] = set()
+    seen_names: set[str] = set()
     for var_name, value in vars(module).items():
+        name: str
         if isinstance(value, FastAPIRouter):
             name = var_name if value.name is None else value.name
         elif app_type is not None and isinstance(value, app_type):
             name = var_name
         else:
             continue
+
         if id(value) in seen:
             continue
         seen.add(id(value))
+
         if not is_valid_identifier(name, allow_hyphens=True):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
-                f'{file}: {name!r} is not a name a service can have; name the service with FastAPIRouter(name=...)',
+                f'{file}: {name!r} is not a valid name for a service; name the service with FastAPIRouter(name=...)',
             )
-        if name in services:
+        if name in seen_names:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT, f'{file}: declares more than one service named {name!r}'
             )
-        services[name] = value
+        seen_names.add(name)
 
-    if len(services) == 0:
+        if isinstance(value, FastAPIRouter):
+            routers[name] = value
+        else:
+            apps[name] = value
+
+    if len(routers) == 0 and len(apps) == 0:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            f'no service found in {file}; a service is declared by creating a FastAPIRouter and adding routes to it',
+            f'{file}: needs to have at least one FastAPIRouter or FastAPI application object',
         )
-    return services
+    if len(apps) > 1:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'{file} contains more than one FastAPI application object'
+        )
+    app = apps.popitem()[1] if len(apps) > 0 else None
+
+    if app is not None:
+        # make sure every router is included in the application
+        app_endpoints = {id(route.endpoint) for route in app.routes if hasattr(route, 'endpoint')}
+        for name, router in routers.items():
+            router_endpoints = {id(route.endpoint) for route in router.routes if hasattr(route, 'endpoint')}
+            if not router_endpoints.issubset(app_endpoints):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'{file}: the FastAPI application does not include the router {name!r}; '
+                    f'include it with include_router(), or move it to a separate file',
+                )
+
+    return app, routers
+
+
+def services_by_name(module: ModuleType, file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
+    """The module's services, keyed by service name."""
+    app, routers = get_module_services(module, file)
+    if app is None:
+        return dict(routers)
+    return {module.__name__.rpartition('.')[2]: app}
+
+
+def service_spec(name: str, service: FastAPIRouter | fastapi.FastAPI, routers: list[FastAPIRouter]) -> ServiceSpec:
+    """The spec of the named service."""
+    from pixeltable.serving import FastAPIRouter
+
+    if isinstance(service, FastAPIRouter):
+        return service.service_spec(name)
+    routes: list[RouteSpec] = []
+    for router in routers:
+        prefix = _include_prefix(service, router)
+        routes += [
+            route.model_copy(update={'path': f'{prefix}{route.path}'}) for route in router.service_spec(name).routes
+        ]
+    return ServiceSpec(name=name, routes=routes, app_paths=_app_paths(service, routers))
+
+
+def _include_prefix(app: fastapi.FastAPI, router: FastAPIRouter) -> str:
+    """The prefix that app adds to router's paths, empty when absent."""
+    app_paths = {id(getattr(route, 'endpoint', None)): getattr(route, 'path', '') for route in app.routes}
+    for route in router.routes:
+        path = getattr(route, 'path', None)
+        app_path = app_paths.get(id(getattr(route, 'endpoint', None)))
+        if path is not None and app_path is not None and app_path.endswith(path):
+            return app_path[: len(app_path) - len(path)]
+    return ''
+
+
+def _app_paths(app: fastapi.FastAPI, routers: list[FastAPIRouter]) -> list[str]:
+    """The paths which app serves itself, minus the ones from routers."""
+    from_routers = {
+        id(endpoint) for router in routers for endpoint in (getattr(r, 'endpoint', None) for r in router.routes)
+    }
+    included: set[str] = set()
+    for route in app.routes:
+        path = getattr(route, 'path', None)
+        if path is not None and id(getattr(route, 'endpoint', None)) in from_routers:
+            # a route spells a path parameter with its converter, '/media/{path:path}', where the document
+            # names it '/media/{path}'
+            included.add(re.sub(r'{([^}:]+):[^}]+}', r'{\1}', path))
+    return sorted(set(app.openapi()['paths']) - included)
+
+
+def module_routers(module: ModuleType) -> list[FastAPIRouter]:
+    from pixeltable.serving import FastAPIRouter
+
+    routers: list[FastAPIRouter] = []
+    for value in vars(module).values():
+        if isinstance(value, FastAPIRouter) and not any(value is router for router in routers):
+            routers.append(value)
+    return routers

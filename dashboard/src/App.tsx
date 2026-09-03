@@ -635,7 +635,7 @@ export default function App() {
         <Panel className="flex flex-col min-h-0 overflow-hidden bg-card">
         <Routes>
           <Route path="/" element={<div className="flex-1 overflow-auto h-full"><WelcomeView /></div>} />
-          <Route path="/lineage" element={<PipelineInspector />} />
+          <Route path="/lineage" element={<PipelineInspector catalog={activeCatalog} />} />
           <Route path="/table/*" element={<div className="flex-1 flex flex-col h-full bg-card"><TableView /></div>} />
           <Route path="/dir/*" element={<div className="flex-1 overflow-auto h-full"><DirectoryView /></div>} />
         </Routes>

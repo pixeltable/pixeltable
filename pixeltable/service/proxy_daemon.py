@@ -31,12 +31,14 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.catalog import fold_identifier
 from pixeltable.config import Config
-from pixeltable.env import Env
+from pixeltable.env import Env, validate_db_name
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.process import is_pid, pid_alive
 
 from . import proxy_dispatch
+from .db import unpack_project_archive
 from .proxy_protocol import decode_body, encode_body
 
 if TYPE_CHECKING:
@@ -49,7 +51,7 @@ _STOP_TIMEOUT = 10.0
 
 def proxy_home(db: str) -> Path:
     """The daemon's home directory (its own media/tmp + port.lock), under the global home."""
-    return Config.get().home / f'proxy_{db}'
+    return Config.get().home / f'proxy_{fold_identifier(db)}'
 
 
 def _port_lock(db: str) -> Path:
@@ -114,6 +116,7 @@ def _tail_log(path: Path, n_lines: int = _LOG_TAIL_LINES) -> str:
 
 def create(db: str) -> None:
     """Create the daemon's home directory. The database itself is created on first start()."""
+    validate_db_name(db)
     proxy_home(db).mkdir(parents=True, exist_ok=True)
 
 
@@ -141,6 +144,8 @@ def start(db: str, test_mode: bool = False) -> str:
         **os.environ,
         'PIXELTABLE_HOME': str(proxy_home(db)),  # own media/tmp + port.lock
         'PIXELTABLE_PGDATA': pgdata,  # shared postmaster
+        # intentionally using the raw db name (without case-folding): Env has a fallback for legacy (case-sensitive)
+        # database names.
         'PIXELTABLE_DB': db,  # own database
         'PIXELTABLE_PROXY_DAEMON': '1',  # mark this process as a proxy daemon instance
     }
@@ -250,23 +255,28 @@ def _reinitialize() -> None:
     pxt.init()
 
 
-def _drop_database(db: str) -> None:
+def _drop_database(db_name: str) -> None:
     env = Env.get()
     if env._db_server is None:
         return  # not running against the embedded postmaster (e.g. external DB); nothing to drop
     engine = sql.create_engine(env._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
+    preparer = engine.dialect.identifier_preparer
     try:
         with engine.begin() as conn:
-            conn.execute(
-                sql.text(
-                    'SELECT pg_terminate_backend(pid) FROM pg_stat_activity '
-                    'WHERE datname = :db AND pid <> pg_backend_pid()'
-                ),
-                {'db': db},
-            )
-            conn.execute(sql.text(f'DROP DATABASE IF EXISTS "{db}"'))
+            # Same fallback as in Env._init_db: if the folded name does not exist, try the original spelling
+            target_db_name = fold_identifier(db_name)
+            if not _db_exists(conn, target_db_name):
+                if target_db_name != db_name and _db_exists(conn, db_name):
+                    target_db_name = db_name
+                else:
+                    return
+            conn.execute(sql.text(env._dbms.drop_db_stmt(preparer.quote(target_db_name))))
     finally:
         engine.dispose()
+
+
+def _db_exists(conn: sql.Connection, db: str) -> bool:
+    return conn.execute(sql.text('SELECT COUNT(*) FROM pg_database WHERE datname = :db'), {'db': db}).scalar() > 0
 
 
 def _build_app(test_mode: bool = False) -> 'FastAPI':
@@ -303,7 +313,7 @@ def _build_app(test_mode: bool = False) -> 'FastAPI':
             return Response(content='{"status": "ok"}', media_type='application/json')
 
     @app.get('/health')
-    def health() -> dict[str, str | None]:
+    async def health() -> dict[str, str | None]:
         root = Config.get().project_root
         return {'status': 'ok', 'project_root': None if root is None else str(root)}
 
@@ -386,6 +396,21 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='pixeltable.service.proxy_daemon')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--project-root', type=Path, default=None)
+    parser.add_argument('--db', help='pxt://org:db')
+    parser.add_argument('--project-dir', type=Path, default=None, help='unpack that database project here')
     parsed = parser.parse_args()
-    Config.init(reinit=True, project_root=parsed.project_root)
+    project_root = parsed.project_root
+    if parsed.db is not None:
+        if parsed.project_dir is None:
+            parser.error('--db requires --project-dir')
+        try:
+            unpack_project_archive(parsed.db, parsed.project_dir)
+            project_root = parsed.project_dir
+        except excs.ExternalServiceError as exc:
+            if exc.provider_http_status_code != 404:
+                raise
+            # a database exists before `pxt db update` gives it a project: serve the catalog without one,
+            # and a request that needs a udf from it says so
+            logging.getLogger('pixeltable').warning('%s has no project; udfs it declares cannot be resolved', parsed.db)
+    Config.init(reinit=True, project_root=project_root)
     _serve(test_mode=parsed.test)

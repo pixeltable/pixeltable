@@ -4,6 +4,7 @@ from typing import Any
 
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
+from pixeltable.catalog.globals import fold_identifier
 
 from .data_row import DataRow
 from .expr import Expr
@@ -28,7 +29,7 @@ class ColumnRefByName(Expr):
 
     def __init__(self, name: str, col_type: ts.ColumnType | None = None) -> None:
         super().__init__(col_type if col_type is not None else ts.InvalidType())
-        self.name = name
+        self.name = fold_identifier(name)
         self.model_cls = None
         self.id = self._create_id()
 

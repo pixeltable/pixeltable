@@ -39,18 +39,19 @@ from typing_extensions import TypeForm
 
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
-from pixeltable.catalog import model
+from pixeltable.catalog import fold_identifier, model
 from pixeltable.catalog.model.query import ModelQuery
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
 from pixeltable.runtime import close_threadpool_runtimes
 from pixeltable.serving import SqlExport
-from pixeltable.serving._spec import RouteSpec, ServiceSpec
 from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
+from pixeltable.utils.app_module import model_mismatch_error_str
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.local_store import LocalStore, TempStore
+from pixeltable_cli.types import RouteSpec, ServiceSpec
 
 # The columns a route declaration names, given either as names or as references.
 # TODO: make this work for TableModels. A model's column attribute is a ColumnRefByName at runtime, but a type checker
@@ -156,7 +157,7 @@ class _RegisteredRoute:
     @property
     def has_table_target(self) -> bool:
         """Whether the route operates on a table; False for a query route."""
-        return self.spec['route_type'] != 'query'
+        return self.spec.route_type != 'query'
 
     @property
     def needs_binding(self) -> bool:
@@ -368,7 +369,7 @@ class PxtEndpoint:
 
     @property
     def route_type(self) -> Literal['insert', 'update', 'delete', 'compute', 'query']:
-        return self.route.spec['route_type']
+        return self.route.spec.route_type
 
     def __call__(self, request: Request, **kwargs: Any) -> Any:
         sample_url = str(request.url_for(_MEDIA_ROUTE_NAME, path='_'))
@@ -379,15 +380,15 @@ class PxtEndpoint:
 
         # write out uploads while the request is still alive
         tmp_paths: list[Path] = []
-        if len(self.route.spec['uploadfile_inputs']) > 0:
+        if len(self.route.spec.uploadfile_inputs) > 0:
             # list(...): make sure that the sequence of name/val pairs can't change underneath us
             for input_name, val in list(kwargs.items()):
-                if input_name in self.route.spec['uploadfile_inputs']:
+                if input_name in self.route.spec.uploadfile_inputs:
                     path = self.router._write_to_temp(val)
                     tmp_paths.append(path)
                     kwargs[input_name] = str(path)
 
-        if self.route.spec['background']:
+        if self.route.spec.background:
             job_id = uuid.uuid4().hex
             fut = self.router._executor.submit(_run_endpoint_op, self.endpoint_op, kwargs, tmp_paths, url_for_media)
             with self.router._jobs_lock:
@@ -460,7 +461,7 @@ class FastAPIRouter(fastapi.APIRouter):
         # merges this handler into the app's on_shutdown list, so it fires on app shutdown.
         self.add_event_handler('shutdown', self.__shutdown)
         # A router with unresolved model targets cannot serve. include_router() merges this into the app's
-        # on_startup list, so a deployment that forgot to bind fails to start instead of failing per request.
+        # on_startup list, so a service that forgot to bind fails to start instead of failing per request.
         self.add_event_handler('startup', self.__check_bound)
 
     @property
@@ -468,39 +469,22 @@ class FastAPIRouter(fastapi.APIRouter):
         """The service name given to the constructor, or None if it was omitted."""
         return self._name
 
-    def _validate_model_routes(self, base_path: str = '') -> None:
-        """Check that every model a route references describes the table it names under `base_path`."""
-        referenced: dict[str, model.TableModelMeta] = {
+    def route_models(self) -> dict[str, model.TableModelMeta]:
+        """The models referenced by routes, keyed by their table names."""
+        return {
             route.model_cls.__table_spec__['name']: route.model_cls
             for route in self._routes
             if route.model_cls is not None
         }
+
+    def _validate_model_routes(self, base_path: str = '') -> None:
+        """Check that every model a route references describes the table it names under `base_path`."""
+        referenced = self.route_models()
         if len(referenced) == 0:
             return  # every route is already resolved to the table it serves
-
-        diffs = model.validate_models(referenced, base_path)
-        mismatched = {name: diff for name, diff in diffs.items() if diff['resolution'] != 'up_to_date'}
-        if len(mismatched) == 0:
-            return
-
-        # report every mismatch, so that one schema update settles all of them
-        detail = '\n'.join(line for name, diff in mismatched.items() for line in model.format_diff(name, diff))
-        target = '' if base_path == '' else f' {base_path}'
-        unsupported = sorted(name for name, diff in mismatched.items() if diff['resolution'] == 'unsupported')
-        if len(unsupported) == 0:
-            hint = f'Run `pxt schema update <app file>{target}` first.'
-        else:
-            hint = (
-                f'No schema update can reconcile {", ".join(repr(name) for name in unsupported)}: adjust the '
-                'existing table(s) manually, or adjust the models to be consistent with the catalog.'
-            )
-            if len(unsupported) < len(mismatched):
-                hint += f'\nRun `pxt schema update <app file>{target}` for the rest.'
-        raise excs.RequestError(
-            excs.ErrorCode.SCHEMA_MISMATCH,
-            f'Cannot serve the routes declared against '
-            f'{", ".join(repr(name) for name in sorted(mismatched))}:\n{detail}\n{hint}',
-        )
+        reason = model_mismatch_error_str(referenced, base_path)
+        if reason is not None:
+            raise excs.RequestError(excs.ErrorCode.SCHEMA_MISMATCH, reason)
 
     def service_spec(self, name: str | None = None) -> ServiceSpec:
         """The service this router declares, as a record that can be serialized, stored and compared.
@@ -515,7 +499,13 @@ class FastAPIRouter(fastapi.APIRouter):
                 'service_spec(): this router has no name; pass one, or construct the router with '
                 'FastAPIRouter(name=...)',
             )
-        return {'name': service_name, 'prefix': self.prefix, 'routes': [route.spec for route in self._routes]}
+        return ServiceSpec(
+            name=service_name,
+            # the router's own prefix is part of every path it serves, so each route records it
+            routes=[
+                route.spec.model_copy(update={'path': f'{self.prefix}{route.spec.path}'}) for route in self._routes
+            ],
+        )
 
     def bind(self, base_path: str = '') -> None:
         """Resolve every route declared against a model to the table it names under `base_path`.
@@ -540,10 +530,10 @@ class FastAPIRouter(fastapi.APIRouter):
             if not route.needs_binding or self._is_bound(route):
                 continue
             assert route.model_cls is not None
-            if route.spec['route_type'] == 'query':
+            if route.spec.route_type == 'query':
                 self._query_bindings[route.route_id] = self._media_rewritten(
                     self._unbound_queries[route.route_id].bind(base_path),
-                    return_fileresponse=route.spec['return_fileresponse'],
+                    return_fileresponse=route.spec.return_fileresponse,
                 )
             else:
                 tbl = route.model_cls._bind(base_path)
@@ -584,23 +574,23 @@ class FastAPIRouter(fastapi.APIRouter):
         is_model = isinstance(target, model.TableModelMeta)
         model_cls = cast(model.TableModelMeta, target) if is_model else None
         tbl = None if is_model else cast(pxt.Table | None, target)
-        spec: RouteSpec = {
-            'method': method,
+        spec = RouteSpec(
+            method=method,
             # the path the route declares, which the router serves at its prefix
-            'path': path,
-            'route_type': route_type,
-            'model': None if model_cls is None else model_cls.__table_spec__['name'],
-            'table': None if tbl is None else str(tbl._path()),
-            'inputs': list(inputs),
-            'uploadfile_inputs': list(uploadfile_inputs),
-            'outputs': list(outputs),
-            'match_columns': list(match_columns),
-            'background': background,
-            'return_fileresponse': return_fileresponse,
-            'one_row': one_row,
-            'export_sql': None if export_sql is None else export_sql.display_dict(),
-            'query': query_fn,
-        }
+            path=path,
+            route_type=route_type,
+            model=None if model_cls is None else model_cls.__table_spec__['name'],
+            table=None if tbl is None else str(tbl._path()),
+            inputs=list(inputs),
+            uploadfile_inputs=list(uploadfile_inputs),
+            outputs=list(outputs),
+            match_columns=list(match_columns),
+            background=background,
+            return_fileresponse=return_fileresponse,
+            one_row=one_row,
+            export_sql=None if export_sql is None else export_sql.display_dict(),
+            query=query_fn,
+        )
         route = _RegisteredRoute(
             route_id=len(self._routes),
             spec=spec,
@@ -617,7 +607,7 @@ class FastAPIRouter(fastapi.APIRouter):
 
     def _is_bound(self, route: _RegisteredRoute) -> bool:
         """Whether the route has what it needs to serve requests."""
-        if route.spec['route_type'] == 'query':
+        if route.spec.route_type == 'query':
             return route.route_id in self._query_bindings
         return route.route_id in self._route_bindings
 
@@ -1742,6 +1732,8 @@ class FastAPIRouter(fastapi.APIRouter):
         # a new name, not a reassignment: the endpoint below closes over it, and a closure sees a parameter's
         # declared type rather than what it was narrowed to
         match_col_names = _col_names(match_columns)
+        if match_col_names is not None:
+            match_col_names = [fold_identifier(name) for name in match_col_names]
         if match_col_names is None:
             pk = [c.name for c in declared_path.column_md() if c.is_pk and c.name is not None]
             if not pk:
@@ -2306,6 +2298,10 @@ class FastAPIRouter(fastapi.APIRouter):
         """
         Validate insert-/update-route args. Returns (pk_col_names, input_col_names, output_col_names, cols_by_name).
         """
+        inputs = None if inputs is None else [fold_identifier(name) for name in inputs]
+        uploadfile_inputs = None if uploadfile_inputs is None else [fold_identifier(name) for name in uploadfile_inputs]
+        outputs = None if outputs is None else [fold_identifier(name) for name in outputs]
+
         declared_path = _route_table_path(target)
         verb = 'insert into' if route_type == 'insert' else route_type
         kind = _path_kind(declared_path)
@@ -2601,6 +2597,7 @@ class FastAPIRouter(fastapi.APIRouter):
             methods=['GET'],
             response_class=FileResponse,
             name=_MEDIA_ROUTE_NAME,
+            include_in_schema=False,
         )
 
     def _register_jobs_route(self) -> None:
@@ -2624,6 +2621,7 @@ class FastAPIRouter(fastapi.APIRouter):
             methods=['GET'],
             response_model=JobStatusResponse,
             name=_JOB_STATUS_ROUTE_NAME,
+            include_in_schema=False,
         )
 
     def _build_response_field(self, col_type: ts.ColumnType, *, comment: str | None = None) -> tuple[Any, FieldInfo]:

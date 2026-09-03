@@ -20,43 +20,42 @@ import signal
 import socket
 import subprocess
 import sys
-import typing
 import urllib.error
+from collections.abc import Callable, Iterator
 from email.message import Message
 from types import ModuleType, SimpleNamespace
-from typing import Any, Callable, ClassVar, Iterator, Self
+from typing import Any, Self
 from unittest.mock import patch
 
 import pydantic
 import pytest
 import requests
-import typing_extensions
 
-from pixeltable import exceptions as excs
-from pixeltable.catalog import model
-from pixeltable.service import management_client
+from pixeltable import exceptions as excs, metadata
+from pixeltable.catalog import Path as PxtPath
+from pixeltable.config import Config
+from pixeltable.service import db, management_client
 from pixeltable.service.management_protocol import (
     CreateDbRequest,
-    CreateServiceRequest,
     DeleteDbRequest,
-    DeleteServiceRequest,
-    GetBundleUploadUrlRequest,
     GetDbRequest,
-    GetServiceRequest,
     ListDbRequest,
     ListOrgsRequest,
-    ListServicesRequest,
-    ServiceOperationType,
+    ManagementOperationType,
     StartDbRequest,
-    StartServiceRequest,
     StopDbRequest,
-    StopServiceRequest,
-    UpdateDbRequest,
-    UpdateRuntimeRequest,
-    UpdateServiceRequest,
 )
-from pixeltable_cli import schema_types as wire, utils
-from pixeltable_cli.client import confirm, hosted, main as client_main, parser as client_parser, utils as client_utils
+from pixeltable.utils import project
+from pixeltable.utils.app_module import (
+    _evict_project_modules,
+    load_app_module,
+    module_routers,
+    service_spec,
+    services_by_name,
+)
+from pixeltable.utils.project import project_fingerprint
+from pixeltable_cli import utils
+from pixeltable_cli.client import hosted, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import (
     daemon as daemon_cmd,
     db as db_cmd,
@@ -186,10 +185,46 @@ class TestProjectRootParity:
             client_copy(unreadable)
 
 
+class TestProjectModuleEviction:
+    """Loading an application file re-reads the project's modules, and leaves the environment's alone."""
+
+    def test_installed_packages_stay_loaded(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        root = tmp_path / 'project'
+        (root / 'apps').mkdir(parents=True)
+        (root / 'apps' / 'udfs.py').write_text('')
+        # where `python -m venv .venv` puts the packages of a project that holds its own environment;
+        # the daemon runs from it, which is what sysconfig reports and _ENV_DIRS is built from
+        installed = root / '.venv' / 'lib' / 'python3.11' / 'site-packages'
+        installed.mkdir(parents=True)
+        monkeypatch.setattr(project, '_ENV_DIRS', (installed,))
+        (installed / 'psycopg').mkdir()
+        (installed / 'psycopg' / '__init__.py').write_text('')
+
+        def loaded(name: str, file: pathlib.Path) -> ModuleType:
+            module = ModuleType(name)
+            module.__file__ = str(file)
+            monkeypatch.setitem(sys.modules, name, module)
+            return module
+
+        loaded('apps.udfs', root / 'apps' / 'udfs.py')
+        vendored = loaded('psycopg', installed / 'psycopg' / '__init__.py')
+        # a module the project no longer holds: the next import has to fail rather than find it cached
+        deleted = root / 'gone.py'
+        loaded('gone', deleted)
+
+        # project_root is read-only, and the eviction reads the one this process was configured with
+        monkeypatch.setattr(Config, 'project_root', property(lambda _: root))
+        _evict_project_modules()
+
+        assert sys.modules.get('apps.udfs') is None, 'the project module was not re-read'
+        assert sys.modules.get('gone') is None, 'a module whose source was deleted stayed cached'
+        assert sys.modules.get('psycopg') is vendored, 'an installed package was unloaded'
+
+
 class TestProbe:
     """Spawn / restart / kill safety paths."""
 
-    def test_auto_spawn_when_no_daemon_running(self, fresh_port: int) -> None:
+    def test_auto_spawn_no_daemon(self, fresh_port: int) -> None:
         """Cold start: no daemon on the port, the cli client spawns one and routes the command."""
         env = {**os.environ, 'PXT_PORT': str(fresh_port)}
         r = subprocess.run(
@@ -209,7 +244,7 @@ class TestProbe:
         # the spawned daemon's pidfile should now exist and contain that PID
         assert client_utils.read_pidfile() == body['pid']
 
-    def test_no_daemon_no_pidfile_just_spawns(self) -> None:
+    def test_no_pidfile_spawns(self) -> None:
         """Cold start with no pidfile: spawn straight away, nothing to reclaim."""
         with pytest.MonkeyPatch.context() as m:
             m.setattr(client_utils, 'fetch_health', lambda *a, **kw: None)
@@ -222,7 +257,7 @@ class TestProbe:
             client_utils.ensure_running()
             assert actions == ['spawn']
 
-    def test_hung_daemon_is_reclaimed(self) -> None:
+    def test_hung_daemon_reclaimed(self) -> None:
         """A daemon we started is alive (pidfile names a live PID that is one of ours) but stays
         silent past the grace window: it is hung, so kill it and spawn a replacement instead of
         failing to bind."""
@@ -240,7 +275,7 @@ class TestProbe:
             client_utils.ensure_running()
             assert actions == [('kill', 100), 'spawn']
 
-    def test_live_pid_not_our_daemon_is_not_killed(self) -> None:
+    def test_foreign_live_pid_kept(self) -> None:
         """The pidfile names a live PID, but the process is not one of our daemons (the PID was
         recycled after our daemon exited). It must be treated as a stale pidfile: do not kill the
         unrelated process, just spawn a fresh daemon."""
@@ -258,7 +293,7 @@ class TestProbe:
             client_utils.ensure_running()
             assert actions == ['spawn']
 
-    def test_slow_starting_daemon_is_not_killed(self) -> None:
+    def test_slow_daemon_kept(self) -> None:
         """A daemon we started is alive but still importing pixeltable; it answers health within the
         grace window. It must be used as-is, not killed as if it were hung."""
         with pytest.MonkeyPatch.context() as m:
@@ -275,7 +310,7 @@ class TestProbe:
             assert url == client_utils.base_url()
             assert actions == []
 
-    def test_dead_pidfile_just_spawns(self) -> None:
+    def test_dead_pidfile_spawns(self) -> None:
         """A stale pidfile naming a PID that is no longer alive (port already released): no reclaim,
         just spawn."""
         with pytest.MonkeyPatch.context() as m:
@@ -290,7 +325,7 @@ class TestProbe:
             client_utils.ensure_running()
             assert actions == ['spawn']
 
-    def test_identity_mismatch_restarts_without_pidfile(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_identity_mismatch_no_pidfile(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Version drift restarts the daemon even when the pidfile is missing/corrupt: the health response
         identifies the responder as ours, so its self-reported PID is the one terminated (no pidfile needed)."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
@@ -405,7 +440,7 @@ class TestProbe:
             ('pixeltable_env', {'PIXELTABLE_TIME_ZONE': 'America/New_York'}),
         ],
     )
-    def test_each_identity_field_triggers_restart(
+    def test_identity_field_restarts(
         self, monkeypatch: pytest.MonkeyPatch, drift_key: str, drift_value: object
     ) -> None:
         """Drift in any single identity field is sufficient to trigger a daemon restart.
@@ -534,9 +569,7 @@ class TestProbe:
         with pytest.raises(RuntimeError, match='pxt daemon log unavailable'):
             client_utils.spawn_detached()
 
-    def test_spawn_detached_does_not_inherit_cwd_on_sys_path(
-        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_spawn_detached_cwd_off_sys_path(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         # `python -m` puts the daemon's working directory at the front of sys.path. Pinning cwd to
         # the pixeltable home and setting PYTHONSAFEPATH keeps a pixeltable/ folder in the directory
         # pxt was invoked from out of the daemon's import path.
@@ -569,9 +602,7 @@ class TestProbe:
         tail = client_utils._tail_daemon_log(n_lines=3)
         assert tail.splitlines() == ['line 47', 'line 48', 'line 49']
 
-    def test_wait_for_health_timeout_includes_log_tail(
-        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_wait_for_health_timeout_log_tail(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path))
         log_path = client_utils._daemon_log_path()
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
@@ -582,7 +613,7 @@ class TestProbe:
             client_utils.wait_for_health(timeout=0.2)
         assert 'address already in use' in str(ei.value)
 
-    def test_kill_and_wait_falls_through_to_sigkill(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_kill_wait_sigkill(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """If SIGTERM doesn't bring the daemon down, kill_and_wait must follow up with SIGKILL.
 
         Liveness is checked via os.kill(pid, 0), not /health, so a hung-but-alive daemon
@@ -600,7 +631,7 @@ class TestProbe:
         # On non-Windows we have a real SIGKILL; on Windows it falls back to SIGTERM.
         assert getattr(signal, 'SIGKILL', signal.SIGTERM) in calls
 
-    def test_kill_and_wait_returns_when_pid_exits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_kill_wait_pid_exits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """SIGTERM goes through, then the PID exits -> return without escalating to SIGKILL."""
         calls: list[int] = []
 
@@ -618,7 +649,7 @@ class TestProbe:
         if sigkill != signal.SIGTERM:
             assert sigkill not in calls
 
-    def test_kill_and_wait_no_such_process(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_kill_wait_no_process(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def boom(pid: int, sig: int) -> None:
             raise ProcessLookupError
 
@@ -664,7 +695,7 @@ class TestProbe:
         monkeypatch.setattr(client_utils, '_pid_cmdline', lambda pid: '/usr/bin/vim notes.txt')
         assert client_utils._pid_is_our_daemon(100) is False
 
-    def test_pid_is_our_daemon_rejects_module_name_as_bare_substring(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_pid_is_our_daemon_rejects_substring(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A recycled PID whose argv merely mentions the module name (without the `-m <module>`
         launch form) must not be mistaken for our daemon."""
         monkeypatch.setattr(
@@ -672,7 +703,7 @@ class TestProbe:
         )
         assert client_utils._pid_is_our_daemon(100) is False
 
-    def test_pid_is_our_daemon_refuses_when_cmdline_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_pid_is_our_daemon_no_cmdline(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """If the command line can't be read, ownership is unconfirmed -> treat as not ours."""
         monkeypatch.setattr(client_utils, '_pid_cmdline', lambda pid: None)
         assert client_utils._pid_is_our_daemon(100) is False
@@ -684,7 +715,7 @@ class TestProbe:
         assert cmdline is not None
         assert 'python' in cmdline.lower() or 'pytest' in cmdline.lower()
 
-    def test_pid_cmdline_returns_none_on_windows(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_pid_cmdline_none_on_windows(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Windows has no cheap stdlib argv source, so _pid_cmdline reports unknown (None) and
         the caller falls back to refusing to kill rather than reclaiming."""
         monkeypatch.setattr(client_utils, '_IS_WINDOWS', True)
@@ -744,7 +775,7 @@ class TestIdentity:
     def test_is_sensitive_env_name(self, name: str, is_sensitive: bool) -> None:
         assert utils._is_sensitive_env_name(name) is is_sensitive
 
-    def test_redact_env_value_passthrough_for_plain(self) -> None:
+    def test_redact_env_value_plain(self) -> None:
         assert utils._redact_env_value('PIXELTABLE_HOME', '/x/y/z') == '/x/y/z'
 
     def test_redact_env_value_hashes_sensitive(self) -> None:
@@ -758,7 +789,7 @@ class TestIdentity:
         # different plaintexts -> different hashes (the drift detection invariant)
         assert v1 != v3
 
-    def test_snapshot_filters_to_pixeltable_prefix(self) -> None:
+    def test_snapshot_pixeltable_prefix(self) -> None:
         env = {'PIXELTABLE_HOME': '/h', 'PATH': '/usr/bin', 'OPENAI_API_KEY': 'sk-leak'}
         snap = utils._snapshot_pixeltable_env(env)
         assert snap == {'PIXELTABLE_HOME': '/h'}
@@ -778,9 +809,7 @@ class TestIdentity:
         # relies on this.
         assert utils._snapshot_pixeltable_env(env_a) == utils._snapshot_pixeltable_env(env_b)
 
-    def test_identity_dict_round_trips_through_json(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
-    ) -> None:
+    def test_identity_dict_json_round_trip(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
         """A daemon serializes identity through JSON before the client sees it; a Python dict
         and the JSON-round-tripped equivalent must compare equal so equality drives the
         restart decision rather than serialization artifacts."""
@@ -789,12 +818,12 @@ class TestIdentity:
         ident = utils.identity()
         assert json.loads(json.dumps(ident)) == ident
 
-    def test_identity_diff_lists_only_changed_keys(self) -> None:
+    def test_identity_diff_changed_keys(self) -> None:
         client = dict(_DEFAULT_IDENTITY)
         daemon = {**_DEFAULT_IDENTITY, 'pixeltable_home': '/elsewhere'}
         assert client_utils._identity_diff(client, daemon) == ['pixeltable_home']
 
-    def test_identity_diff_treats_missing_daemon_key_as_drift(self) -> None:
+    def test_identity_diff_missing_daemon_key(self) -> None:
         """An old daemon that doesn't report a given identity key is treated as 'differs',
         so an outdated daemon is restarted instead of trusted."""
         client = dict(_DEFAULT_IDENTITY)
@@ -808,7 +837,7 @@ class TestIdentity:
         monkeypatch.setattr(utils.importlib.metadata, 'distribution', boom)
         assert utils._pxt_install_dir() is None
 
-    def test_identity_includes_all_keys(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    def test_identity_all_keys(self, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
         """Smoke-test: identity() returns exactly the set of keys the comparison logic
         reads. A future field added to _IDENTITY_KEYS without populating it in identity()
         would silently always-mismatch; this test catches that."""
@@ -816,7 +845,7 @@ class TestIdentity:
         ident = utils.identity()
         assert set(ident.keys()) == set(utils._IDENTITY_KEYS)
 
-    def test_identity_fails_fast_on_missing_metadata(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_identity_missing_metadata(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """If importlib.metadata can't find the pixeltable distribution (broken install),
         identity() raises a clear error instead of returning a partially-None dict that
         would later cause /health to 500 and trigger a respawn loop."""
@@ -834,54 +863,54 @@ class TestIdentity:
 class TestConfirm:
     def test_force_short_circuits(self) -> None:
         # No TTY, no input - force=True must just return.
-        confirm.confirm_or_exit('drop something?', force=True)
+        client_utils.confirm_or_exit('drop something?', force=True)
 
     def test_no_tty_refuses(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: False)
+        monkeypatch.setattr(client_utils, 'stdin_is_a_tty', lambda: False)
         with pytest.raises(SystemExit) as ei:
-            confirm.confirm_or_exit('drop something?', force=False)
+            client_utils.confirm_or_exit('drop something?', force=False)
         assert ei.value.code == 2
         assert '--force' in capsys.readouterr().err
 
     def test_tty_yes(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: True)
-        monkeypatch.setattr(confirm.sys, 'stdin', io.StringIO('y\n'))
+        monkeypatch.setattr(client_utils, 'stdin_is_a_tty', lambda: True)
+        monkeypatch.setattr(client_utils.sys, 'stdin', io.StringIO('y\n'))
         # Should not raise.
-        confirm.confirm_or_exit('drop something?', force=False)
+        client_utils.confirm_or_exit('drop something?', force=False)
 
     def test_tty_no(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: True)
-        monkeypatch.setattr(confirm.sys, 'stdin', io.StringIO('n\n'))
+        monkeypatch.setattr(client_utils, 'stdin_is_a_tty', lambda: True)
+        monkeypatch.setattr(client_utils.sys, 'stdin', io.StringIO('n\n'))
         with pytest.raises(SystemExit) as ei:
-            confirm.confirm_or_exit('drop something?', force=False, refused_exit_code=3)
+            client_utils.confirm_or_exit('drop something?', force=False, refused_exit_code=3)
         # answering no is refusal, same as the non-tty path
         assert ei.value.code == 3
         assert 'aborted' in capsys.readouterr().err
 
     def test_tty_empty_aborts(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: True)
-        monkeypatch.setattr(confirm.sys, 'stdin', io.StringIO('\n'))
+        monkeypatch.setattr(client_utils, 'stdin_is_a_tty', lambda: True)
+        monkeypatch.setattr(client_utils.sys, 'stdin', io.StringIO('\n'))
         with pytest.raises(SystemExit):
-            confirm.confirm_or_exit('drop something?', force=False)
+            client_utils.confirm_or_exit('drop something?', force=False)
 
-    def test_stdin_is_a_tty_posix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_stdin_tty_posix(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Non-Windows path: isatty() True -> returns True without touching ctypes."""
 
         class FakeStdin:
             def isatty(self) -> bool:
                 return True
 
-        monkeypatch.setattr(confirm.sys, 'stdin', FakeStdin())
-        monkeypatch.setattr(confirm.sys, 'platform', 'linux')
-        assert confirm.stdin_is_a_tty() is True
+        monkeypatch.setattr(client_utils.sys, 'stdin', FakeStdin())
+        monkeypatch.setattr(client_utils.sys, 'platform', 'linux')
+        assert client_utils.stdin_is_a_tty() is True
 
-    def test_stdin_is_a_tty_not_a_tty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_stdin_tty_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class FakeStdin:
             def isatty(self) -> bool:
                 return False
 
-        monkeypatch.setattr(confirm.sys, 'stdin', FakeStdin())
-        assert confirm.stdin_is_a_tty() is False
+        monkeypatch.setattr(client_utils.sys, 'stdin', FakeStdin())
+        assert client_utils.stdin_is_a_tty() is False
 
 
 class TestParser:
@@ -913,7 +942,7 @@ class TestParser:
 
 
 class TestMain:
-    def test_print_help_lists_every_command(self, capsys: pytest.CaptureFixture) -> None:
+    def test_help_lists_commands(self, capsys: pytest.CaptureFixture) -> None:
         client_main._print_help()
         out = capsys.readouterr().out
         assert all(cmd in out for cmd in client_main.COMMANDS)
@@ -1031,7 +1060,7 @@ class TestHttp:
 class TestShell:
     """Exercise the REPL via subprocess to cover input/eof/error branches."""
 
-    def test_shell_runs_health_then_exits(self, pxt_daemon: int) -> None:
+    def test_shell_runs_health(self, pxt_daemon: int) -> None:
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
             ['pxt', 'shell'], input='health\nexit\n', capture_output=True, text=True, env=env, timeout=30, check=False
@@ -1040,7 +1069,7 @@ class TestShell:
         # the health response is JSON; should appear in stdout between two prompts
         assert '"service": "pxt"' in r.stdout
 
-    def test_shell_eof_exits_cleanly(self, pxt_daemon: int) -> None:
+    def test_shell_eof(self, pxt_daemon: int) -> None:
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
             ['pxt', 'shell'],
@@ -1053,7 +1082,7 @@ class TestShell:
         )
         assert r.returncode == 0
 
-    def test_shell_unknown_command_does_not_kill_session(self, pxt_daemon: int) -> None:
+    def test_shell_unknown_command(self, pxt_daemon: int) -> None:
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
             ['pxt', 'shell'],
@@ -1069,7 +1098,7 @@ class TestShell:
         assert 'unknown command' in r.stderr
         assert '"service": "pxt"' in r.stdout
 
-    def test_shell_rejects_nested_shell(self, pxt_daemon: int) -> None:
+    def test_shell_nested(self, pxt_daemon: int) -> None:
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
             ['pxt', 'shell'], input='shell\nexit\n', capture_output=True, text=True, env=env, timeout=30, check=False
@@ -1115,7 +1144,7 @@ class TestShell:
         assert r.returncode == 0
         assert 'parse error' in r.stderr
 
-    def test_shell_help_prints_every_command(self, capsys: pytest.CaptureFixture) -> None:
+    def test_shell_help_commands(self, capsys: pytest.CaptureFixture) -> None:
         shell_cmd._print_help(client_main.COMMANDS)
         out = capsys.readouterr().out
         # shell suppresses its own entry; every other command appears
@@ -1152,9 +1181,7 @@ class TestServerDaemon:
         with open(path, encoding='utf-8') as f:
             assert int(f.read().strip()) == os.getpid()
 
-    def test_remove_pidfile_if_ours_only_removes_own(
-        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_remove_pidfile_only_own(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         path = str(tmp_path / 'pid')
         monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: path)
         with open(path, 'w', encoding='utf-8') as f:
@@ -1166,9 +1193,7 @@ class TestServerDaemon:
         monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: str(tmp_path / 'never-existed'))
         server_daemon._remove_pidfile_if_ours()
 
-    def test_remove_pidfile_swallows_remove_oserror(
-        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_remove_pidfile_oserror(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Locks the `except OSError: pass` branch around os.remove()."""
         path = str(tmp_path / 'pid')
         monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: path)
@@ -1264,7 +1289,7 @@ class TestServerRouteHelpers:
     def test_redact_db_password_none(self) -> None:
         assert server_routes._redact_db_password(None) is None
 
-    def test_redact_db_password_hides_password(self) -> None:
+    def test_redact_db_password_hidden(self) -> None:
         out = server_routes._redact_db_password('postgresql://user:secret@host/db')
         assert out is not None
         assert 'secret' not in out
@@ -1273,7 +1298,7 @@ class TestServerRouteHelpers:
         # malformed URL -> caught and returns None rather than 500ing /status
         assert server_routes._redact_db_password('::: not a url :::') is None
 
-    def test_safe_count_swallows_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_safe_count_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class FakeT:
             def count(self) -> int:
                 raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, 'catalog gone')
@@ -1300,9 +1325,7 @@ class TestDaemonCmd:
     pixeltable_cli/client/commands/daemon.py thread through utils/client_utils helpers; tests mock those at
     the boundary so they verify the command's decision logic without spawning real daemons."""
 
-    def test_start_calls_ensure_running_and_prints(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
-    ) -> None:
+    def test_start_prints_endpoint(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
         monkeypatch.setattr(daemon_cmd, 'ensure_running', lambda: 'http://127.0.0.1:22090')
         monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: {'pid': 4242})
         daemon_cmd.run(['start'])
@@ -1322,7 +1345,7 @@ class TestDaemonCmd:
         assert ei.value.code == 1
         assert 'cannot spawn daemon' in capsys.readouterr().err
 
-    def test_stop_kills_when_pid_matches(
+    def test_stop_pid_matches(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
     ) -> None:
         monkeypatch.setattr(daemon_cmd, 'read_pidfile', lambda: 4242)
@@ -1342,7 +1365,7 @@ class TestDaemonCmd:
         assert ei.value.code == 1
         assert 'no daemon running' in capsys.readouterr().err
 
-    def test_stop_pidfile_but_no_responder_kills_tracked_pid(
+    def test_stop_pidfile_no_responder(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
     ) -> None:
         # Daemon hung or crashed: pidfile points somewhere, /health silent. kill_and_wait
@@ -1381,9 +1404,7 @@ class TestDaemonCmd:
         # --force on mismatch kills the responder, not the tracked pidfile PID
         assert killed == [200]
 
-    def test_stop_responder_without_pidfile_refuses_without_force(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
-    ) -> None:
+    def test_stop_no_pidfile_refuses(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
         monkeypatch.setattr(daemon_cmd, 'read_pidfile', lambda: None)
         monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: {'pid': 200})
         killed: list[int] = []
@@ -1418,7 +1439,7 @@ class TestDaemonCmd:
         assert '1.2.3' in out
         assert 'PIXELTABLE_TIME_ZONE' in out
 
-    def test_status_json_is_raw_dict(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    def test_status_json(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
         payload = {'pid': 4242, 'service': 'pxt', 'pixeltable_env': {}}
         monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda timeout=None: payload)
         daemon_cmd.run(['status', '--json'])
@@ -1443,7 +1464,7 @@ class TestDaemonCmd:
         assert 'busy with a request' in err
         assert 'no daemon running' not in err
 
-    def test_restart_stops_then_starts(
+    def test_restart(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
     ) -> None:
         # First cycle: daemon present with matching pids; stop kills it, then start spawns
@@ -1473,7 +1494,7 @@ class TestDaemonCmd:
         assert 'http://127.0.0.1:22090' in out
         assert '200' in out
 
-    def test_restart_with_no_existing_daemon(
+    def test_restart_no_daemon(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
     ) -> None:
         # Nothing to stop initially; restart should still proceed to start without erroring.
@@ -1490,7 +1511,7 @@ class TestDaemonCmd:
 class TestPxtPathValidator:
     """Pydantic validator that backs MoveBody.path / new_path."""
 
-    def test_accepts_none_and_empty(self) -> None:
+    def test_accepts_empty(self) -> None:
         from pixeltable_cli.models import _validate_pxt_path
 
         assert _validate_pxt_path(None) is None
@@ -1602,7 +1623,7 @@ class TestIdxsEmbeddingDisplay:
 class TestHardeningHeaders:
     """Daemon responses carry baseline security headers (X-Content-Type-Options etc.)."""
 
-    def test_health_response_has_hardening_headers(self, pxt_daemon: int) -> None:
+    def test_health_hardening_headers(self, pxt_daemon: int) -> None:
         with urllib.request.urlopen(f'http://127.0.0.1:{pxt_daemon}/api/health', timeout=5) as r:
             assert r.headers.get('X-Content-Type-Options') == 'nosniff'
             assert r.headers.get('X-Frame-Options') == 'DENY'
@@ -1610,7 +1631,7 @@ class TestHardeningHeaders:
 
 
 class TestConfigRoute:
-    def test_config_route_renders_every_known_option(self, init_env: None) -> None:
+    def test_config_route_options(self, init_env: None) -> None:
         """/api/config reports each option in KNOWN_CONFIG_OPTIONS, whatever its declared type.
 
         A declared type is coerced onto the configured value, which a parametric generic (eg list[X]) does
@@ -1656,8 +1677,8 @@ class TestHostedCommandHelp:
     @pytest.mark.parametrize(
         ('module', 'argv', 'expected'),
         [
-            (db_cmd, ['--help'], ['create', 'list', 'update', 'update-runtime', 'status']),
-            (db_cmd, ['update', '--help'], ['--workers', '--cpu']),
+            (db_cmd, ['--help'], ['diff', 'update', 'list', 'build-image', 'status']),
+            (db_cmd, ['update', '--help'], ['--allow-destructive', '--dry-run']),
             (org_cmd, ['--help'], ['list', 'status']),
         ],
     )
@@ -1695,82 +1716,15 @@ def _forwarded_request(
 
 
 _POST_ROUTE_REQUESTS = [
-    (
-        server_routes.create_db,
-        {'org': 'acme', 'db': 'main', 'location': 'aws', 'region': 'us-east-1'},
-        CreateDbRequest(org='acme', db='main', location='aws', region='us-east-1'),
-    ),
     (server_routes.delete_db, {'org': 'acme', 'db': 'main'}, DeleteDbRequest(org='acme', db='main')),
     (server_routes.start_db, {'org': 'acme', 'db': 'main'}, StartDbRequest(org='acme', db='main')),
     (server_routes.stop_db, {'org': 'acme', 'db': 'main'}, StopDbRequest(org='acme', db='main')),
-    (
-        server_routes.update_db,
-        {'org': 'acme', 'db': 'main', 'workers': 2, 'cpu': 1.5, 'memory_mb': 1024, 'disk_gb': 20},
-        UpdateDbRequest(org='acme', db='main', workers=2, cpu=1.5, memory_mb=1024, disk_gb=20),
-    ),
-    (
-        server_routes.trigger_runtime_update,
-        {'org': 'acme', 'db': 'main', 'bundle_s3_key': 'bundles/acme/main.tar.gz'},
-        UpdateRuntimeRequest(org='acme', db='main', bundle_s3_key='bundles/acme/main.tar.gz'),
-    ),
-    (
-        server_routes.create_service,
-        {
-            'org': 'acme',
-            'db': 'main',
-            'service_name': 'svc',
-            'base_path': 'dir',
-            'workers_min': 3,
-            'cpu': 1.5,
-            'memory_mb': 1024,
-            'disk_gb': 20,
-            'service_spec': json.dumps({'name': 'svc', 'prefix': '', 'routes': []}),
-        },
-        CreateServiceRequest(
-            org='acme',
-            db='main',
-            service_name='svc',
-            base_path='dir',
-            workers_min=3,
-            cpu=1.5,
-            memory_mb=1024,
-            disk_gb=20,
-            service_spec={'name': 'svc', 'prefix': '', 'routes': []},
-        ),
-    ),
-    (
-        server_routes.update_service,
-        {'org': 'acme', 'db': 'main', 'service_name': 'svc', 'workers_min': 4, 'service_spec': None},
-        UpdateServiceRequest(org='acme', db='main', service_name='svc', workers_min=4),
-    ),
-    (
-        server_routes.delete_service,
-        {'org': 'acme', 'db': 'main', 'service_name': 'svc'},
-        DeleteServiceRequest(org='acme', db='main', service_name='svc'),
-    ),
-    (
-        server_routes.start_service,
-        {'org': 'acme', 'db': 'main', 'service_name': 'svc'},
-        StartServiceRequest(org='acme', db='main', service_name='svc'),
-    ),
-    (
-        server_routes.stop_service,
-        {'org': 'acme', 'db': 'main', 'service_name': 'svc'},
-        StopServiceRequest(org='acme', db='main', service_name='svc'),
-    ),
 ]
 
 _GET_ROUTE_REQUESTS = [
     (server_routes.list_orgs, {}, ListOrgsRequest()),
     (server_routes.list_dbs, {'org': ['acme']}, ListDbRequest(org='acme')),
     (server_routes.get_db, {'org': ['acme'], 'db': ['main']}, GetDbRequest(org='acme', db='main')),
-    (server_routes.get_upload_url, {'org': ['acme'], 'db': ['main']}, GetBundleUploadUrlRequest(org='acme', db='main')),
-    (server_routes.list_services, {'org': ['acme'], 'db': ['main']}, ListServicesRequest(org='acme', db='main')),
-    (
-        server_routes.get_service,
-        {'org': ['acme'], 'db': ['main'], 'service_name': ['svc']},
-        GetServiceRequest(org='acme', db='main', service_name='svc'),
-    ),
 ]
 
 
@@ -1797,7 +1751,7 @@ class TestCloudRouteRequests:
     ) -> None:
         assert _forwarded_request(monkeypatch, handler, query=query) == expected
 
-    def test_get_org_picks_one_org_out_of_the_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_get_org_picks_one(self, monkeypatch: pytest.MonkeyPatch) -> None:
         orgs = {'orgs': [{'org': 'other', 'org_id': 'o0'}, {'org': 'acme', 'org_id': 'o1'}]}
         monkeypatch.setattr(management_client, 'api_call', lambda request: orgs)
         assert server_routes.get_org(server_router.Request(query={'org': ['acme']}, body_bytes=b'')) == {
@@ -1827,7 +1781,6 @@ class TestHostedCommandRequests:
         monkeypatch.setattr(module, 'post_request', post_request)
         monkeypatch.setattr(module, 'get_request', lambda path, params=None: {})
         monkeypatch.setattr(module, 'poll_db', poll, raising=False)
-        monkeypatch.setattr(module, 'poll_svc', poll, raising=False)
         module.run(argv)
         assert len(posted) == 1, posted
         return posted[0]
@@ -1835,18 +1788,6 @@ class TestHostedCommandRequests:
     @pytest.mark.parametrize(
         ('module', 'argv', 'handler', 'expected'),
         [
-            (
-                db_cmd,
-                ['create', 'pxt://acme:main'],
-                server_routes.create_db,
-                CreateDbRequest(org='acme', db='main', location='aws', region='us-east-1'),
-            ),
-            (
-                db_cmd,
-                ['update', 'pxt://acme:main', '--workers', '2'],
-                server_routes.update_db,
-                UpdateDbRequest(org='acme', db='main', workers=2),
-            ),
             (db_cmd, ['start', 'pxt://acme:main'], server_routes.start_db, StartDbRequest(org='acme', db='main')),
             (db_cmd, ['stop', 'pxt://acme:main'], server_routes.stop_db, StopDbRequest(org='acme', db='main')),
             (db_cmd, ['delete', 'pxt://acme:main'], server_routes.delete_db, DeleteDbRequest(org='acme', db='main')),
@@ -1879,12 +1820,11 @@ class TestServiceOtel:
         """--otel resolves the instrumentation package and wires init()/instrument_fastapi() into run."""
         skip_test_if_not_installed('fastapi', 'uvicorn', 'opentelemetry.instrumentation.pixeltable')
         app_file = tmp_path / 'app.py'
-        app_file.write_text('', encoding='utf-8')  # the routers it declares are patched out below
+        app_file.write_text('', encoding='utf-8')  # the app it declares is patched out below
         app = SimpleNamespace(routes=[])  # stands in for the FastAPI app, which run() counts the routes of
 
         with (
-            patch('pixeltable.serving._app.load_service_routers', return_value={'ingest': object()}),
-            patch('pixeltable.serving._app.create_app_for_services', return_value=app),
+            patch('pixeltable.serving._app.create_app', return_value=(app, {})),
             patch('uvicorn.run') as mock_run,
             patch('opentelemetry.instrumentation.pixeltable.init') as mock_otel_init,
             patch('opentelemetry.instrumentation.pixeltable.instrument_fastapi') as mock_instrument_fastapi,
@@ -1893,6 +1833,137 @@ class TestServiceOtel:
         mock_otel_init.assert_called_once_with()
         mock_instrument_fastapi.assert_called_once_with(app)
         mock_run.assert_called_once()
+
+
+def _declared_spec(app_file: str, name: str) -> Any:
+    """The spec of one of a file's services, as a manager computes it before starting the service."""
+    module = load_app_module(app_file, subject='application file')
+    return service_spec(name, services_by_name(module, app_file)[name], module_routers(module))
+
+
+class TestHostedDatabase:
+    """The order `pxt db update` sends its requests in, and what the image build is told.
+
+    Everything else `pxt db` does is covered end to end in test_db.py, against a hosted database. These two
+    are what the CLI's output cannot show: a plan lists its operations in the order they were planned, not
+    the order they were applied, and no command prints the request an image build was started with.
+    """
+
+    @pytest.fixture
+    def api(self, monkeypatch: pytest.MonkeyPatch) -> Any:
+        """A management API holding one database and its secrets, recording every request it is sent."""
+
+        class Api:
+            database: dict[str, Any] | None
+            secrets: dict[str, str]
+            sent: list[Any]
+
+            def __init__(self) -> None:
+                self.database = {
+                    'state': 'AVAILABLE',
+                    'cpu': 0.5,
+                    'memory_mb': 512,
+                    'disk_gb': 10,
+                    'worker_count': 1,
+                    'workers': [],
+                }
+                self.secrets = {}
+                self.sent = []
+
+            def __call__(self, request: Any) -> dict[str, Any]:
+                self.sent.append(request)
+                op = request.operation_type.value
+                if op == 'list_dbs':
+                    return {'databases': [] if self.database is None else [{'db_slug': 'main'}]}
+                if op == 'get_db':
+                    if self.database is None:
+                        raise excs.ExternalServiceError(
+                            excs.ErrorCode.PROVIDER_ERROR, 'Management API error 404', status_code=404
+                        )
+                    return {'database': self.database}
+                if op == 'list_secrets':
+                    return {'keys': sorted(self.secrets)}
+                if op == 'set_secret':
+                    self.secrets[request.key] = request.value
+                elif op == 'delete_secret':
+                    del self.secrets[request.key]
+                elif op in ('build_image', 'set_archive'):
+                    pass
+                elif op == 'create_db':
+                    self.database = {
+                        'state': 'AVAILABLE',
+                        'cpu': request.cpu,
+                        'memory_mb': request.memory_mb,
+                        'worker_count': request.workers,
+                    }
+                elif op == 'update_db':
+                    assert self.database is not None
+                    for field in ('cpu', 'memory_mb', 'disk_gb'):
+                        if getattr(request, field) is not None:
+                            self.database[field] = getattr(request, field)
+                return {}
+
+        api = Api()
+        monkeypatch.setattr(management_client, 'api_call', api)
+        return api
+
+    @pytest.fixture
+    def uploaded(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        """Records the key of each stored archive, in place of packaging and uploading one."""
+        keys: list[str] = []
+
+        def upload(config: Any, db_path: PxtPath, *, show_progress: bool = False) -> str:
+            keys.append(f'{db_path.org}/{db_path.db}/project.tar.bz2')
+            return keys[-1]
+
+        monkeypatch.setattr(db, '_upload_project_archive', upload)
+        return keys
+
+    def _project(self, tmp_path: pathlib.Path, entry: str) -> None:
+        """Declare one hosted database in a project at tmp_path, and make it this process's project."""
+        (tmp_path / 'app.py').write_text('import pixeltable as pxt\n')
+        (tmp_path / 'uv.lock').write_text('version = 1\n')
+        (tmp_path / 'pixeltable.toml').write_text(f'[[pixeltable.database]]\nname = "pxt://acme:main"\n{entry}')
+        Config.init(reinit=True, project_root=tmp_path)
+
+    def _fingerprint(self, tmp_path: pathlib.Path) -> dict[str, Any]:
+        """The project's fingerprint, in the form GET_DB reports it."""
+        entry = Config.get().get_database_config(PxtPath.parse('pxt://acme:main', allow_empty_path=True))
+        return project_fingerprint(tmp_path, entry).model_dump()
+
+    def test_update_order(
+        self, api: Any, uploaded: list[str], tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv('OPENAI_API_KEY', 'sk-test')
+        self._project(
+            tmp_path,
+            'cpu = 2.0\nsystem_dependencies = ["ffmpeg"]\n'
+            '[pixeltable.database.secrets]\nopenai_api_key = "env:OPENAI_API_KEY"\n',
+        )
+        (tmp_path / 'app.py').write_text('import pixeltable as pxt  # edited\n')
+
+        plan = db.db_update('pxt://acme:main')
+        # the archive is stored once, and the build runs from it
+        assert [r.operation_type.value for r in api.sent if r.operation_type.value not in ('get_db', 'list_dbs')] == [
+            'build_image'
+        ]
+        assert uploaded == ['acme/main/project.tar.bz2']
+        assert all(op.status == 'applied' for op in plan.ops)
+        assert plan.status == 'applied'
+
+    def test_update_image(self, api: Any, uploaded: list[str], tmp_path: pathlib.Path) -> None:
+        """The build request describes the environment the builder creates."""
+        self._project(tmp_path, 'system_dependencies = ["ffmpeg"]\n')
+        (tmp_path / 'uv.lock').write_text('version = 2\n')
+
+        db.db_update('pxt://acme:main')
+        build = next(r for r in api.sent if r.operation_type.value == 'build_image')
+        entry = Config.get().get_database_config(PxtPath.parse('pxt://acme:main', allow_empty_path=True))
+        assert build.archive_key == 'acme/main/project.tar.bz2'
+        assert build.system_dependencies == ['ffmpeg']
+        assert build.python_version == project_fingerprint(tmp_path, entry).python_version
+        assert build.image_digest == project_fingerprint(tmp_path, entry).image_digest()
+        assert build.pxt_md_version == metadata.VERSION
 
 
 class TestHostedUriHelpers:
@@ -1995,7 +2066,7 @@ class TestHostedUriHelpers:
 
 
 class TestPrintAligned:
-    def test_widths_fit_the_widest_cell(self, capsys: pytest.CaptureFixture) -> None:
+    def test_widths_fit_widest_cell(self, capsys: pytest.CaptureFixture) -> None:
         client_utils.print_aligned(['NAME', 'N'], [['a-very-long-name', '1'], ['b', '200']], right_align={1})
         header, first, second = capsys.readouterr().out.splitlines()
         assert header == 'NAME                N'
@@ -2027,11 +2098,11 @@ class TestPollState:
         monkeypatch.setattr(hosted, 'get_request', fake_get_request)
         return hosted.poll_state('/api/db', {}, 'database', {'PENDING'}, 0, timeout, None)
 
-    def test_returns_once_state_leaves_pending(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_returns_when_settled(self, monkeypatch: pytest.MonkeyPatch) -> None:
         responses = [{'database': {'state': 'PENDING'}}, {'database': {'state': 'AVAILABLE'}}]
         assert self._poll(responses, monkeypatch) == {'state': 'AVAILABLE'}
 
-    def test_retries_a_failed_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_retries_failed_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
         responses = [RuntimeError('connection refused'), {'database': {'state': 'AVAILABLE'}}]
         assert self._poll(responses, monkeypatch) == {'state': 'AVAILABLE'}
 
@@ -2042,48 +2113,6 @@ class TestPollState:
     def test_returns_last_read_on_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
         responses: list[Any] = [{'database': {'state': 'PENDING'}}] * 1000
         assert self._poll(responses, monkeypatch, timeout=0.05) == {'state': 'PENDING'}
-
-
-class TestWireTypes:
-    """The CLI's schema types mirror the catalog's diff types under the same names.
-
-    Two identically-named TypedDicts in different modules are unrelated as far as mypy is concerned, so a field
-    renamed on one side would otherwise reach the wire under a name that no longer matches its counterpart.
-    """
-
-    # what the wire adds on its own, and what the catalog keeps to itself
-    WIRE_ONLY: ClassVar[set[str]] = {'destructive', 'status'}
-    CATALOG_ONLY: ClassVar[dict[str, set[str]]] = {
-        'SchemaChangeOp': {'model', 'existing'},
-        'TableDiff': {'tbl_id', 'schema_versions'},
-    }
-
-    @pytest.mark.parametrize('name', ['SchemaChangeOp', 'TableDiff'])
-    def test_fields_match(self, name: str) -> None:
-        catalog_fields = set(typing.get_type_hints(getattr(model, name)))
-        wire_fields = set(typing.get_type_hints(getattr(wire, name)))
-        assert wire_fields - self.WIRE_ONLY == catalog_fields - self.CATALOG_ONLY[name]
-
-    @classmethod
-    def assert_typed_dicts_match(cls, catalog_cls: Any, wire_cls: Any) -> None:
-        """Recursively assert that two TypedDicts have the same structure."""
-        catalog_hints = typing.get_type_hints(catalog_cls)
-        wire_hints = typing.get_type_hints(wire_cls)
-        shared = (set(catalog_hints) & set(wire_hints)) - {'ops'}  # ops holds the mirrored op type on each side
-        for f in shared:
-            if typing_extensions.is_typeddict(catalog_hints[f]) and typing_extensions.is_typeddict(wire_hints[f]):
-                cls.assert_typed_dicts_match(catalog_hints[f], wire_hints[f])
-            else:
-                assert catalog_hints[f] == wire_hints[f]
-
-    @pytest.mark.parametrize('name', ['SchemaChangeOp', 'TableDiff'])
-    def test_shared_fields_have_the_same_type(self, name: str) -> None:
-        catalog_cls = getattr(model, name)
-        wire_cls = getattr(wire, name)
-        self.assert_typed_dicts_match(catalog_cls, wire_cls)
-
-    def test_resolutions_match(self) -> None:
-        assert typing.get_args(wire.DiffResolution) == typing.get_args(model.DiffResolution)
 
 
 class TestDotSegments:
@@ -2110,7 +2139,7 @@ class TestDotSegments:
     def test_resolves(self, path: str, expected: str) -> None:
         assert utils.resolve_dot_segments(path) == expected
 
-    def test_shape_check_admits_only_the_two_tokens(self) -> None:
+    def test_shape_check_two_tokens(self) -> None:
         assert utils.validate_path_shape('.') is None
         assert utils.validate_path_shape('..') is None
         assert utils.validate_path_shape('a/../b') is None
@@ -2184,8 +2213,8 @@ class TestManagementClient:
             management_client.api_call(CreateDbRequest(org='acme', db='main'))
         assert session.n_calls == 1
 
-    def test_read_ops_are_known_operation_types(self) -> None:
+    def test_read_ops_known(self) -> None:
         # _READ_OPS holds operation_type strings; a rename on the protocol side must not leave stale ones
-        op_values = {op.value for op in ServiceOperationType}
+        op_values = {op.value for op in ManagementOperationType}
         stale = management_client._READ_OPS - op_values
         assert len(stale) == 0, stale
