@@ -549,10 +549,19 @@ class Query(QueryBase):
         if self._from_clause.is_local:
             tbl_version = self._first_tbl.tbl_version
             return [exprs.RowidRef(tbl_version, idx) for idx in range(tbl_version.get().num_rowid_columns())]
-        return [
-            exprs.RowidRef(None, idx, tbl_id=tbl.tbl_id, normalized_base_id=tbl.rowid_normalized_base_id(idx))
-            for idx in range(tbl.num_rowid_columns())
-        ]
+        return [self._md_rowid_ref(tbl, idx) for idx in range(tbl.num_rowid_columns())]
+
+    def _md_rowid_ref(self, tbl: catalog.TablePath, idx: int) -> exprs.RowidRef:
+        """A reference to rowid component idx of tbl, addressed by key rather than by TableVersion."""
+        base = tbl.rowid_normalized_base(idx)
+        return exprs.RowidRef(
+            None,
+            idx,
+            tbl_id=tbl.tbl_id,
+            effective_version=tbl.effective_version(),
+            normalized_base_id=base.tbl_id,
+            normalized_base_effective_version=base.effective_version(),
+        )
 
     def _head(self, n: int = 10, *, media_as_urls: bool = False) -> ResultSet:
         if self.order_by_clause is not None:
@@ -659,6 +668,16 @@ class Query(QueryBase):
             ]
             return ResultSet(rows, schema)
 
+    def _file_ref_idxs(self) -> list[int]:
+        """The select list positions whose value can name a file: a media value, or a property naming its file."""
+        prop = exprs.ColumnPropertyRef.Property
+        return [
+            i
+            for i, (e, _) in enumerate(self._effective_select_list)
+            if e.col_type.is_media_type()
+            or (isinstance(e, exprs.ColumnPropertyRef) and e.prop in (prop.FILEURL, prop.LOCALPATH))
+        ]
+
     def _collect_content(self, args: dict[str, Any] | None = None) -> bytes:
         """Returns the proxy response body (content arg of FastAPI.Response()) for this query's rows.
 
@@ -668,12 +687,11 @@ class Query(QueryBase):
         from pixeltable.service import proxy_protocol
 
         assert self._from_clause.is_local
-        # only a media column can name a file, so only those cells are worth examining
         schema = self.schema
-        media_idxs = [i for i, col_type in enumerate(schema.values()) if col_type.is_media_type()]
+        file_ref_idxs = self._file_ref_idxs()
         rows: list[list[Any]] = []
         for data in self._output_row_iterator(args=args, media_as_urls=True):
-            for idx in media_idxs:
+            for idx in file_ref_idxs:
                 data[idx] = proxy_protocol.encode_local_path(data[idx])
             rows.append(data)
         return proxy_protocol.encode_response({'result': {'schema': schema, 'rows': rows}})

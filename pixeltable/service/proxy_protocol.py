@@ -44,7 +44,7 @@ from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectSto
 if TYPE_CHECKING:
     from pixeltable._query import Query
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 
 # Reserved key marking a type-tagged value: {_TAG: <type-name>, 'v': <payload>}.
 _TAG = '$pxt'

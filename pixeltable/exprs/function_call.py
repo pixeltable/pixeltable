@@ -231,10 +231,18 @@ class FunctionCall(Expr):
 
     def _create_rowid_refs(self, tbl: catalog.Table) -> list[Expr]:
         path = tbl._tbl_path
-        return [
-            RowidRef(tbl=None, idx=i, tbl_id=path.tbl_id, normalized_base_id=path.rowid_normalized_base_id(i))
-            for i in range(path.num_rowid_columns())
-        ]
+        return [self._rowid_ref(path, i) for i in range(path.num_rowid_columns())]
+
+    def _rowid_ref(self, path: catalog.TablePath, idx: int) -> RowidRef:
+        base = path.rowid_normalized_base(idx)
+        return RowidRef(
+            tbl=None,
+            idx=idx,
+            tbl_id=path.tbl_id,
+            effective_version=path.effective_version(),
+            normalized_base_id=base.tbl_id,
+            normalized_base_effective_version=base.effective_version(),
+        )
 
     def tbl_ids(self) -> set[UUID]:
         ids = super().tbl_ids()

@@ -51,7 +51,8 @@ class TestSnapshot:
         assert_resultset_eq(snap_query.collect(), orig_resultset)
 
         # verify head()
-        assert_resultset_eq(snap.select(*snap_select_list).head(), tbl.select(*tbl_select_list).head())
+        snap_head = snap.select(*snap_select_list).head()
+        assert_resultset_eq(snap_head, tbl.select(*tbl_select_list).head())
 
         # adding data to a base table doesn't change the snapshot
         rows = list(tbl.select(tbl.c1, tbl.c1n, tbl.c2, tbl.c3, tbl.c4, tbl.c5, tbl.c6, tbl.c7).collect())
@@ -60,6 +61,8 @@ class TestSnapshot:
         status = tbl.insert(rows)
         assert status.num_rows == len(rows)
         assert_resultset_eq(snap_query.collect(), orig_resultset)
+        # head() sorts by the snapshot's rowids, so the base's new rows cannot appear in it
+        assert_resultset_eq(snap.select(*snap_select_list).head(), snap_head)
 
         # update() doesn't affect the view
         status = tbl.update({'c3': tbl.c3 + 1.0})
