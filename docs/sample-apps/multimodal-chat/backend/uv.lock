@@ -1842,7 +1842,7 @@ requires-dist = [
     { name = "fastapi", extras = ["standard"] },
     { name = "openai" },
     { name = "pandas" },
-    { name = "pixeltable", specifier = ">=0.6.0" },
+    { name = "pixeltable", specifier = ">=0.7.4" },
     { name = "python-dotenv" },
     { name = "python-multipart" },
     { name = "sentence-transformers" },

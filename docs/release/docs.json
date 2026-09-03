@@ -19,29 +19,21 @@
             "pages": [
               "overview/pixeltable",
               "overview/quick-start",
-              {
-                "group": "Migration Guide",
-                "pages": [
-                  "migrate/from-diy-data-pipeline",
-                  "migrate/from-rdbms-vectordbs",
-                  "migrate/from-agent-frameworks",
-                  "migrate/from-hand-written-endpoints"
-                ]
-              }
+              "overview/how-it-works"
             ]
           },
           {
             "group": "Tools",
             "pages": [
-              "overview/building-pixeltable-with-llms",
-              "platform/dashboard",
               "platform/cli",
-              "overview/python-sdk"
+              "platform/dashboard",
+              "overview/building-pixeltable-with-llms"
             ]
           },
           {
             "group": "How to",
             "pages": [
+              "howto/coming-from",
               "platform/configuration",
               {
                 "group": "Self-hosting",
@@ -50,11 +42,10 @@
                   "howto/deployment/serving",
                   "howto/deployment/infrastructure",
                   "howto/deployment/operations",
-                  "howto/deployment/monitoring",
                   "howto/deployment/security"
                 ]
               },
-              "use-cases/services"
+              "howto/deployment/cloud"
             ]
           },
           {
@@ -350,6 +341,7 @@
               "howto/providers/working-with-jina",
               "howto/providers/working-with-llama-cpp",
               "howto/providers/working-with-mistralai",
+              "howto/providers/working-with-nebius",
               "howto/providers/working-with-ollama",
               "howto/providers/working-with-openai",
               "howto/providers/working-with-openrouter",
@@ -455,6 +447,30 @@
   },
   "redirects": [
     {
+      "source": "/overview/from-your-stack",
+      "destination": "/howto/coming-from"
+    },
+    {
+      "source": "/migrate",
+      "destination": "/howto/coming-from"
+    },
+    {
+      "source": "/migrate/from-diy-data-pipeline",
+      "destination": "/howto/coming-from#scripts-and-airflow"
+    },
+    {
+      "source": "/migrate/from-rdbms-vectordbs",
+      "destination": "/howto/coming-from#pinecone-and-milvus"
+    },
+    {
+      "source": "/migrate/from-agent-frameworks",
+      "destination": "/howto/coming-from#langgraph"
+    },
+    {
+      "source": "/migrate/from-hand-written-endpoints",
+      "destination": "/howto/deployment/serving"
+    },
+    {
       "source": "/platform/tables",
       "destination": "/tutorials/tables-and-data-operations"
     },
@@ -481,6 +497,10 @@
     {
       "source": "/platform/deployment",
       "destination": "/howto/deployment/overview"
+    },
+    {
+      "source": "/howto/deployment/monitoring",
+      "destination": "/howto/deployment/operations#monitoring"
     },
     {
       "source": "/overview/installation",
@@ -668,7 +688,23 @@
     },
     {
       "source": "/cloud/services",
-      "destination": "/use-cases/services"
+      "destination": "/howto/deployment/cloud"
+    },
+    {
+      "source": "/cloud",
+      "destination": "/howto/deployment/cloud"
+    },
+    {
+      "source": "/docs/cloud",
+      "destination": "/howto/deployment/cloud"
+    },
+    {
+      "source": "/use-cases/services",
+      "destination": "/howto/deployment/cloud"
+    },
+    {
+      "source": "/use-cases/cloud",
+      "destination": "/howto/deployment/cloud"
     },
     {
       "source": "/notebooks/integrations/working-with-bedrock",

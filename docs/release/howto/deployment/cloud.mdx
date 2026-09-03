@@ -1,0 +1,111 @@
+---
+title: 'Deploy to Pixeltable Cloud'
+sidebarTitle: 'Deploy to Pixeltable Cloud'
+description: 'Same application file against a hosted database'
+---
+
+Use the same `app.py` as the [Quickstart](/overview/quick-start). Create an API key in the Cloud dashboard, export it, then create the hosted database, the tables, and hosted HTTP.
+
+## Get an API key
+
+Sign in from the browser, create a key, then export it. The CLI reads `PIXELTABLE_API_KEY`. It does not log you in.
+
+<Steps>
+  <Step title="Sign in">
+    New account: [pixeltable.com/signup](https://www.pixeltable.com/signup). Existing account: [pixeltable.com/login](https://www.pixeltable.com/login). After sign-in, the [dashboard](https://www.pixeltable.com/dashboard) opens your organization.
+  </Step>
+  <Step title="Create a key">
+    Open **API Keys** in the organization sidebar, or go to `https://www.pixeltable.com/dashboard/your-org/api-keys`. Click **New**, or **Create API Key** if the list is empty. Name the key. Click **Create Key**. Copy the value now. The dashboard shows the full key once.
+  </Step>
+  <Step title="Export it">
+    ```bash
+    export PIXELTABLE_API_KEY='your-key'
+    ```
+
+    Or in `~/.pixeltable/config.toml`:
+
+    ```toml
+    [pixeltable]
+    api_key = 'your-key'
+    ```
+
+    [Configuration](/platform/configuration). This key authenticates Cloud CLI and hosted HTTP. Provider keys such as `OPENAI_API_KEY` go under **Secrets** in the dashboard, or `pxt secret set pxt://org OPENAI_API_KEY=...`. They do not go in this API key. [CLI](/platform/cli#pxt-secret).
+  </Step>
+</Steps>
+
+`pxt init` writes `pixeltable.toml`. Put the hosted URL in that file, then run the three commands:
+
+```toml
+[[pixeltable.database]]
+name = 'pxt://org:mydb'
+```
+
+```bash
+pxt db update pxt://org:mydb
+pxt schema update app.py pxt://org:mydb
+pxt service update app.py pxt://org:mydb
+```
+
+A Cloud table path uses the URI plus `/table`. Open it with `t = pxt.get_table('pxt://org:mydb/docs')`. A local table uses dotted `namespace.table`, such as `pxt.get_table('my_app.docs')`.
+
+```python
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+from pixeltable.serving import FastAPIRouter
+
+TableModel = pxt.model_base()
+
+
+class Docs(TableModel, name='docs'):
+    title: pxt.String
+    body: pxt.String | None
+    title_upper = pxtf.string.upper(title)
+
+
+ingest = FastAPIRouter(name='ingest')
+ingest.add_insert_route(
+    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.title, Docs.title_upper]
+)
+```
+
+The same file can hold `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document`: [media pipelines](/use-cases/media-processing), [RAG](/use-cases/multimodal-backend).
+
+`pxt db update` creates the hosted database or updates its image, secrets, and size. It does not insert your data and does not start app endpoints. `pxt schema update` creates the tables. It does not start the endpoints. `pxt service update` starts hosted endpoints. Do not use `pxt service run` for Cloud; that command only starts endpoints in your local terminal.
+
+After the database is up, insert from the Cloud dashboard or from Python. A local file path on a Cloud table uploads the file. Run `pxt schema diff` to see pending schema changes.
+
+## Media on the home bucket
+
+Every Cloud database includes a managed bucket. No provider account, no credentials file. Set `destination=` on that computed column:
+
+```python
+class Images(TableModel, name='images'):
+    photo: pxt.Image
+    thumbnail = pxt.Column(
+        value=photo.resize((256, 256)),
+        destination='pxtfs://org:mydb/home',
+    )
+```
+
+Or set `output_media_dest` as the default for computed media. Details: [Cloud storage](/integrations/cloud-storage#pixeltable-cloud-home-bucket).
+
+## Local vs Cloud
+
+| | Local | Cloud |
+|---|---|---|
+| Hosted database | not needed | `pxt db update pxt://org:mydb` |
+| Tables | `pxt schema update app.py my_app` | `pxt schema update app.py pxt://org:mydb` |
+| HTTP | `pxt service update app.py my_app` | `pxt service update app.py pxt://org:mydb` |
+| Try a change | insert, `pxt dashboard`, `pxt schema diff` | dashboard insert, `pxt schema diff` |
+| Media | local disk | `pxtfs://org:mydb/home` |
+
+`pxt db` also lists, starts, stops, diffs, and deletes hosted databases. `pxt db build-image` rebuilds the Python image without waiting for drift. [CLI](/platform/cli#cloud).
+
+<CardGroup cols={2}>
+  <Card title="Join the waitlist" icon="envelope" href="https://www.pixeltable.com/waitlist">
+    Early access to Pixeltable Cloud.
+  </Card>
+  <Card title="Book a demo" icon="calendar" href="https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM">
+    Talk through a Cloud deployment.
+  </Card>
+</CardGroup>

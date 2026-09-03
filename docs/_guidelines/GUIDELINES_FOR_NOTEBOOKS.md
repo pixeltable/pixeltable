@@ -30,17 +30,17 @@ Every notebook MUST start with a **raw cell** (not markdown) containing YAML fro
 ---
 title: "Your Notebook Title"
 icon: "notebook"
-description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/path/to/your-notebook.ipynb) | [Open in Colab](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/path/to/your-notebook.ipynb) | [View on GitHub](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/path/to/your-notebook.ipynb)"
+description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/release/path/to/your-notebook.ipynb) | [Open in Colab](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/path/to/your-notebook.ipynb) | [View on GitHub](https://github.com/pixeltable/pixeltable/blob/release/docs/release/path/to/your-notebook.ipynb)"
 ---
 ```
 
-**Example for a notebook at `docs/notebooks/use-cases/rag-operations.ipynb`:**
+**Example for a notebook at `docs/release/howto/cookbooks/agents/pattern-rag-pipeline.ipynb`:**
 
 ```yaml
 ---
 title: "RAG Operations"
 icon: "notebook"
-description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/rag-operations.ipynb) | [Open in Colab](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/rag-operations.ipynb) | [View on GitHub](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/rag-operations.ipynb)"
+description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/release/howto/cookbooks/agents/pattern-rag-pipeline.ipynb) | [Open in Colab](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/cookbooks/agents/pattern-rag-pipeline.ipynb) | [View on GitHub](https://github.com/pixeltable/pixeltable/blob/release/docs/release/howto/cookbooks/agents/pattern-rag-pipeline.ipynb)"
 ---
 ```
 
@@ -55,7 +55,7 @@ description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://gi
   - **Colab link**: Opens notebook in Google Colab
   - **GitHub link**: Views notebook source on GitHub
   - All three links use the `release` branch for stability
-  - Path must be relative to `docs/notebooks/` directory
+  - Path must be relative to `docs/release/` directory
 
 ## Required: Remove H1 Headers from Markdown
 

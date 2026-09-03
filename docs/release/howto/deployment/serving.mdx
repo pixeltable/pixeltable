@@ -1,91 +1,18 @@
 ---
-title: Serving Tables and Queries over HTTP
-sidebarTitle: HTTP Serving
-description: Configure and deploy Pixeltable endpoints from an application file or in Python code.
+title: 'HTTP serving'
+sidebarTitle: 'HTTP serving'
+description: 'HTTP routes for insert, compute, update, delete, and query, plus uploads, background jobs, and SqlExport.'
 ---
 
-## Overview
-
-Pixeltable can expose table operations and queries as HTTP endpoints via
-`pixeltable.serving.FastAPIRouter`. You can build the application yourself in Python, or declare the
-services in an application file and let `pxt service` run them.
-
-This page builds on the HTTP-based paths from the
-[Deployment Strategies](/howto/deployment/overview#deployment-strategies)
-overview:
-
-- [Approach 2: Pixeltable as Full Backend](/howto/deployment/overview#approach-2-pixeltable-as-full-backend):
-  use the Pixeltable SDK's `FastAPIRouter` when you already have, or are
-  building, a FastAPI app.
-- [Approach 3: Declarative Serving](/howto/deployment/overview#approach-3-declarative-serving-pxt-service):
-  use `pxt service` when you want Pixeltable to create and run the FastAPI app from an application file.
-
-The two combine: an application file may supply its own FastAPI app, and `pxt service` runs that one
-instead of building its own. See [Your own application, run by `pxt service`](#your-own-application-run-by-pxt-service).
-
-FastAPI and uvicorn are optional dependencies. Install them before using
-`pxt service` or the Python serving API:
+Install FastAPI and uvicorn first:
 
 ```bash
-pip install 'fastapi[standard]'
+pip install 'pixeltable[serve]'
 ```
 
-## Quickstart (application file)
+How the process starts is on [Self-hosting](/howto/deployment/overview). This page covers the route API once you have chosen which process serves it. After a service is running, FastAPI's OpenAPI UI is at `http://<host>:<port>/docs`.
 
-This is the declarative path: one file declares the models that name the tables and the services that serve
-routes over them, and `pxt service` runs it. Start by marking the directory as a project root: a table
-records a udf by a module path relative to it.
-
-```bash
-cd ~/proj && pxt init                # writes pixeltable.toml, making ~/proj the project root
-```
-
-Then write a file to start from with `pxt service example --out app.py`:
-
-```python
-# app.py
-from __future__ import annotations
-
-import pixeltable as pxt
-from pixeltable.serving import FastAPIRouter
-
-TableModel = pxt.model_base()
-
-
-class Docs(TableModel, name='docs'):
-    doc_id: pxt.Int
-    prompt: pxt.String
-    result = generate(prompt)  # a computed column
-
-
-ingest = FastAPIRouter(name='ingest')
-ingest.add_insert_route(Docs, path='/insert', inputs=[Docs.prompt], outputs=[Docs.result])
-```
-
-Create the tables the models declare, then serve the file against them:
-
-```bash
-pxt schema update app.py my_dir      # my_dir is the catalog directory the models bind to
-pxt service update app.py my_dir     # start the services in the background
-```
-
-`pxt service run app.py my_dir` serves one of them from the calling process instead, until interrupted --
-the mode for a container entrypoint or a development loop. It takes the service to serve as a third argument,
-which a file declaring a single service can omit.
-
-The service exposes auto-generated [OpenAPI docs](https://fastapi.tiangolo.com/features/#automatic-docs)
-at `/docs`, and `pxt service list` reports where each one is listening:
-
-```bash
-curl -X POST http://localhost:8000/insert \
-  -H 'Content-Type: application/json' \
-  -d '{"prompt": "a sunset over the ocean"}'
-# {"result": "..."}
-```
-
-## Quickstart (Python)
-
-This is the SDK path for [Approach 2: Pixeltable as Full Backend](/howto/deployment/overview#approach-2-pixeltable-as-full-backend).
+## Mount on your own FastAPI app
 
 ```python
 import fastapi
@@ -93,102 +20,52 @@ import uvicorn
 import pixeltable as pxt
 from pixeltable.serving import FastAPIRouter
 
-t = pxt.get_table('my_dir.my_table')
+t = pxt.get_table('my_app.docs')
 
 app = fastapi.FastAPI()
 router = FastAPIRouter()
-router.add_insert_route(t, path='/insert', inputs=['prompt'], outputs=['prompt', 'result'])
-router.add_update_route(t, path='/update', inputs=['prompt'], outputs=['id', 'prompt', 'result'])
+router.add_insert_route(
+    t,
+    path='/insert',
+    inputs=['prompt'],
+    outputs=['prompt', 'result'],
+)
+router.add_update_route(
+    t,
+    path='/update',
+    inputs=['prompt'],
+    outputs=['id', 'prompt', 'result'],
+)
 app.include_router(router)
 
 uvicorn.run(app, host='0.0.0.0', port=8000)
 ```
 
-### Your own application, run by `pxt service`
+`@pxt.query` evaluates the function body at decoration time. Define `@pxt.query` functions only after `pxt schema update`, because the decorator runs the function body immediately. Use a plain FastAPI `@app.post()` when one `FastAPIRouter` helper cannot express the request.
 
-An application file may hold your own `fastapi.FastAPI` object. `pxt service` then serves that application
-as it is, so you keep the routes you wrote by hand and still get `diff`, `update`, `list` and `stop`
-instead of running `uvicorn` yourself.
+## Compute without inserting
 
-```python
-# notes_app.py, under a project root
-import fastapi
-import pixeltable as pxt
-
-TableModel = pxt.model_base()
-
-
-class Notes(TableModel, name='notes'):
-    note_id = pxt.Column(type=pxt.Int, primary_key=True)
-    text: pxt.String
-
-
-app = fastapi.FastAPI()
-
-
-@app.post('/notes')
-def add_note(note_id: int, text: str) -> dict[str, int]:
-    return {'rows': Notes.insert([{'note_id': note_id, 'text': text}]).num_rows}
-```
-
-```bash
-pxt schema update notes_app.py my_dir     # create the tables the models declare
-pxt service update notes_app.py my_dir    # serve the application, as service 'notes_app'
-```
-
-Three things to know:
-
-- The file declares **one** service, named after its module (not the variable holding the app object).
-- The models in the file are bound at the target before the application serves, and can be used in handler logic
-  just like table names (e.g., `Notes.insert(...)`).
-- All `FastAPIRouter` instances in the application file are part of the app service, not separate services of their own:
-
-  ```python
-  app.include_router(ingest, prefix='/v1')   # ingest's routes are served under /v1
-  ```
-
-A router not included in `app` would never be served, and in that situation `pxt service` returns with an error.
-The routes of an included `FastAPIRouter` are diffed by their declarations (i.e., they take the data types of path
-parameters into account); the paths the application serves itself are simply diffed as path strings.
-
-### Compute without persisting
-
-[`Table.compute()`](/sdk/latest/table#method-compute) materializes computed columns for
-input rows and returns the results **without writing to the table**. Use it for previews,
-dry-runs, or request/response APIs that should not store every call.
+[`Table.compute()`](/sdk/latest/table#method-compute) runs computed columns and returns the values without writing a row.
 
 ```python
-# Same schema rules as insert(); nothing is persisted
 rows = t.compute([{'prompt': 'hello'}])
 print(rows[0]['result'])
 ```
 
-Expose the same behavior over HTTP with `add_compute_route` (or `@router.compute_route`):
+Same over HTTP:
 
 ```python
 router.add_compute_route(
-    t, path='/preview', inputs=['prompt'], outputs=['prompt', 'result']
+    t,
+    path='/preview',
+    inputs=['prompt'],
+    outputs=['prompt', 'result'],
 )
-# POST /preview {"prompt": "..."} → computed fields; table unchanged
 ```
-
-This is identical to `add_insert_route`, except no row is inserted.
-
-<Warning>
-`@pxt.query` eagerly evaluates the function body at decoration time. Create tables
-**before** defining queries that reference them. Use `if_exists='ignore'` to keep
-table creation idempotent. See the
-[migration guide](/migrate/from-hand-written-endpoints) for examples.
-</Warning>
 
 ## Decorator-style routes
 
-`add_insert_route()` / `add_compute_route()` / `add_update_route()` build a response
-model automatically from the column schema. When you need a *different* response
-shape -- e.g. a richer API envelope, derived fields, or a stripped-down payload --
-use the `@router.insert_route` / `@router.compute_route` / `@router.update_route`
-decorators. The decorated function receives the requested output columns as keyword
-arguments and returns a `pydantic.BaseModel` subclass that defines the HTTP response body.
+`add_insert_route()` builds the response model from the column schema. To return a custom JSON body, use `@router.insert_route` instead of `add_insert_route()`. The function receives `outputs` as keyword arguments and returns a `pydantic.BaseModel`.
 
 ```python
 import pydantic
@@ -196,44 +73,52 @@ from pixeltable.serving import FastAPIRouter
 
 router = FastAPIRouter()
 
+
 class GenerateResponse(pydantic.BaseModel):
     caption: str
     score: float
 
-@router.insert_route(t, path='/generate', inputs=['prompt'], outputs=['caption', 'score'])
-def format_insert(*, caption: str, score: float) -> GenerateResponse:
-    return GenerateResponse(caption=caption.strip(), score=round(score, 3))
 
-@router.update_route(t, path='/update', inputs=['prompt'], outputs=['id', 'caption', 'score'])
-def format_update(*, id: int, caption: str, score: float) -> GenerateResponse:
-    return GenerateResponse(caption=caption.strip(), score=round(score, 3))
+@router.insert_route(
+    t,
+    path='/generate',
+    inputs=['prompt'],
+    outputs=['caption', 'score'],
+)
+def format_insert(
+    *, caption: str, score: float
+) -> GenerateResponse:
+    return GenerateResponse(
+        caption=caption.strip(), score=round(score, 3)
+    )
+
+
+@router.update_route(
+    t,
+    path='/update',
+    inputs=['prompt'],
+    outputs=['id', 'caption', 'score'],
+)
+def format_update(
+    *, id: int, caption: str, score: float
+) -> GenerateResponse:
+    return GenerateResponse(
+        caption=caption.strip(), score=round(score, 3)
+    )
 ```
 
-Rules the framework enforces at registration time:
+At registration:
 
-- Every parameter must be keyword-only and have a type annotation.
-- Every parameter name must appear in `outputs`, and every `outputs` entry must
-  be a parameter.
-- Parameter annotations must match the column types (strict nullability: a
-  nullable column requires `T | None`). Media columns are delivered as URL
-  strings, so annotate them as `str`.
-- The return annotation must be a `pydantic.BaseModel` subclass.
+- Every parameter is keyword-only and annotated.
+- Parameter names match `outputs` exactly.
+- Annotations match column types (nullable column: `T | None`). Media columns arrive as URL strings: annotate `str`.
+- Return type is a `pydantic.BaseModel` subclass.
 
-Decorator routes support the same `background=True` flag as the non-decorator
-forms; when enabled, the decorated function's return value is delivered as the
-background-job result.
+`background=True` works the same as the non-decorator forms. Decorator routes are Python-only.
 
-The decorator forms are Python-only.
+## Export to an external database
 
-## Exporting rows to an external database
-
-Insert and update routes can export each successful request as a row in an
-external SQL database, specified by `SqlExport`. Each request performs the
-Pixeltable insert/update first; only if it succeeds does the row get written to
-the external table.
-
-**Python API.** Pass an `export_sql=SqlExport(...)` argument to
-`add_insert_route`, `add_update_route`, or the decorator forms.
+`SqlExport` writes each successful insert or update to another SQL table. Pixeltable commits first; then the external write. If the external write fails, the request is HTTP 500. No rollback.
 
 ```python
 from pixeltable.serving import FastAPIRouter, SqlExport
@@ -251,53 +136,28 @@ router.add_insert_route(
 )
 ```
 
-The row written to the target is the response body: the same columns as
-`outputs`, with media-typed columns rendered as URL strings (so the
-corresponding target columns must be string-typed). Schema compatibility is
-validated once at registration; the target table must already exist or
-registration fails. The engine and connection pool are cached per
-`db_connect`, so multiple routes pointing at the same database share one pool.
+The row is the response body (`outputs`). Media columns are URL strings. The target table must already exist.
 
-`SqlExport.method` controls how each row is written:
+`SqlExport.method`:
 
-- `'insert'` (default): append the row via `INSERT ... VALUES`. The target
-  acts as an audit log -- replaying the same request produces a duplicate.
-- `'update'`: update the row by primary-key match. The target is treated as a
-  current-state view keyed on its primary key. The response columns must
-  include all primary-key columns of the target plus at least one non-PK
-  column to set; the target table itself must declare a primary key. This is a
-  strict update, not an upsert -- if no row matches, the request fails with
-  HTTP 500.
-- `'merge'` (upsert): not yet supported.
+- `'insert'` (default): append. Replaying the request duplicates the row.
+- `'update'`: match on the target primary key. Not an upsert. No match: HTTP 500. Response columns must include every target PK plus at least one non-PK.
+- `'merge'`: not supported.
 
-When paired with `add_insert_route` and `method='update'`, a Pixeltable insert
-triggers a target-side update. This is intentional: it supports the pattern
-where the Pixeltable table is append-only (e.g. an event log) but the target
-is a deduplicated, current-state view.
+A Pixeltable insert with `method='update'` is allowed: append-only here, current-state there.
 
-If the external write fails after the Pixeltable insert/update has already
-committed, the request returns HTTP 500; no rollback is performed.
+`export_sql=` cannot combine with `return_fileresponse=True`. It works with `background=True` (the SQL write runs in the worker).
 
-`export_sql=` is mutually exclusive with `return_fileresponse=True` and is
-compatible with `background=True` (the SQL write runs in the worker thread).
-
-See [`SqlExport`](https://docs.pixeltable.com/sdk/latest/pixeltable/serving/SqlExport)
-for the full target specification.
+[`SqlExport`](https://docs.pixeltable.com/sdk/latest/pixeltable/serving/SqlExport)
 
 <Warning>
-A connection string with an embedded password lands in plaintext in the
-application file. Prefer one that pulls its credentials from the environment or
-a `.pgpass`-style file, or bind it to a `pxt.Secret` config var.
+A connection string with an embedded password is plaintext in the application file. Pull credentials from the environment, a `.pgpass`-style file, or a `pxt.Secret` config var.
 </Warning>
 
 ## Full example
 
-One application file, declaring the models and every kind of route over them:
-
 ```python
 # app.py
-from __future__ import annotations
-
 import pixeltable as pxt
 from pixeltable.serving import FastAPIRouter
 
@@ -319,7 +179,6 @@ def search_images(text: str) -> pxt.Query:
 
 images = FastAPIRouter(name='image-processing')
 
-# insert an image and get back the processed outputs; the image arrives as a file upload
 images.add_insert_route(
     Images,
     path='/process',
@@ -328,92 +187,79 @@ images.add_insert_route(
     outputs=[Images.thumbnail],
 )
 
-# background processing, for a pipeline too slow to answer in one request
 images.add_insert_route(Images, path='/ingest', background=True)
 
-# update a row by primary key; the response carries the recomputed columns
-images.add_update_route(Images, path='/images/update', inputs=[Images.tag], outputs=[Images.thumbnail])
+images.add_update_route(
+    Images,
+    path='/images/update',
+    inputs=[Images.tag],
+    outputs=[Images.thumbnail],
+)
 
-# delete by primary key, and by a non-key column
 images.add_delete_route(Images, path='/images/delete')
-images.add_delete_route(Images, path='/images/delete-by-tag', match_columns=['tag'])
+images.add_delete_route(
+    Images, path='/images/delete-by-tag', match_columns=['tag']
+)
 
-# a query route serves a @pxt.query function
 images.add_query_route(path='/search', query=search_images)
 
-# a single-row lookup over GET, returning the image itself rather than JSON
-images.add_query_route(path='/thumbnail', query=search_images, one_row=True, method='get', return_fileresponse=True)
+images.add_query_route(
+    path='/thumbnail',
+    query=search_images,
+    one_row=True,
+    method='get',
+    return_fileresponse=True,
+)
 ```
 
-## Reading Back Computed Columns After Insert
+## Return computed columns
 
-Use `return_rows=True` to get all column values (including computed columns)
-directly from `insert()`, `update()`, or `batch_update()` without a follow-up
-query.
+`insert()`, `update()`, and `batch_update()` can return computed columns without a follow-up query:
 
 ```python
-# Anti-pattern: insert then query
-table.insert([row])
-result = table.where(table.id == value).select(...).collect()
-data = result[0]
-
-# Correct: return_rows=True
 status = table.insert([row], return_rows=True)
-data = status.rows[0]  # dict with ALL columns including computed
+data = status.rows[0]
 ```
 
-`status.rows` is a list of plain dicts. For typed access, use Pydantic's
-`model_validate()` with `extra="ignore"` (row dicts contain every column;
-ignore the ones you don't need):
+`status.rows` is a list of dicts. For typed access, `model_validate()` with `extra="ignore"`:
 
 ```python
 from pydantic import BaseModel
 
-class AgentResult(BaseModel):
-    model_config = {"extra": "ignore"}
-    answer: str | None = None
-    tool_output: Any = None
 
-status = agent_table.insert([{"prompt": user_input}], return_rows=True)
+class AgentResult(BaseModel):
+    model_config = {'extra': 'ignore'}
+    answer: str | None = None
+
+
+status = agent_table.insert(
+    [{'prompt': user_input}], return_rows=True
+)
 result = AgentResult.model_validate(status.rows[0])
 ```
 
-**When to use which:**
-- `return_rows=True` -- any time you insert a row with computed columns and need the results back
-- `to_pydantic()` -- when reading from a `ResultSet` (after `.collect()`)
-- `model_validate()` -- when reading from `status.rows` (plain dicts from `return_rows=True`)
+After `.collect()`, use `to_pydantic()`. After `return_rows=True`, use `model_validate()`.
 
 ## Background jobs
 
-Any route can set `background = true`. The endpoint returns immediately with a
-job handle:
+`background=True` returns a job handle immediately:
 
 ```json
-{"id": "abc123", "job_url": "http://localhost:8000/_pxt/jobs/abc123"}
+{
+  "id": "abc123",
+  "job_url": "http://127.0.0.1:<port>/_pxt/jobs/abc123"
+}
 ```
 
-Poll the job URL:
+Poll `job_url` (`pxt service list` prints the base URL):
 
 ```bash
-curl http://localhost:8000/_pxt/jobs/abc123
+curl http://127.0.0.1:<port>/_pxt/jobs/abc123
 # {"status": "pending"}
-# ... later ...
 # {"status": "done", "result": {...}}
-# or
 # {"status": "error", "error": "..."}
 ```
 
-`background` is mutually exclusive with `return_fileresponse`.
+`background` cannot combine with `return_fileresponse`.
 
-## CLI Reference
-
-For the full `pxt` command-line reference (all subcommands, flags, and usage patterns), see the dedicated [CLI Reference](/platform/cli) page.
-
-Quick examples:
-
-```bash
-pxt service diff   app.py my_dir     # what 'update' would change
-pxt service update app.py my_dir     # start the services in the background
-pxt service run    app.py my_dir     # serve one of them from this process, until interrupted
-pxt service list                     # what is running, and where
-```
+Flags: [CLI](/platform/cli).
