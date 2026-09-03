@@ -681,7 +681,13 @@ class TestService:
         assert r.returncode != 0
         assert 'serves from this process' in r.stderr, r.stderr
 
-        # --port names one port, and two_services.py declares two
+    def test_named_service(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
+        """Name one service of a file that defines two, and pin its port."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        target = db_root.make_catalog_path('app')
+
+        # --port names one port, and two_services.py defines two
         two = project_dir / 'two_services.py'
         two.write_text(
             dedent("""
