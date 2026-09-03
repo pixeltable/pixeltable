@@ -11,7 +11,7 @@ be injected in the fault manager:
 - `BlockFault`: pauses the thread at the fault point, letting the test inspect or manipulate shared state before calling
 `unblock()`
 
-A fault can carry a `filter` over the kwargs its call site passes, for a location that serves more than one caller.
+A fault can carry a `filter` over the kwargs its call site passes, so that it can be triggered selectively.
 """
 
 import copy
