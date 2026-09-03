@@ -322,15 +322,16 @@ def _tbl_lock_mode(op_class: _TblOpClass, is_data_versioned: bool) -> _TblLockMo
 def _tbl_lock_blocking(op_class: _TblOpClass, is_data_versioned: bool) -> bool:
     """Whether an operation of `op_class` waits for the locks to become available, rather than failing fast.
 
-    The wait policy belongs to the entire operation, not individual tables involved. Today we only support operations
-    involving only data-versioned tables or only operational tables, but not both. TBD: the wait policy when mixed
-    table types are involved.
+    The wait policy applies to the entire operation, not individual tables that need locking. Today we only support
+    operations involving only data-versioned tables, or only operational tables, but not both. TBD: the wait policy when
+    mixed table types are involved.
     """
     if op_class in (_TblOpClass.MD_WRITE, _TblOpClass.FINALIZE):
         return True
     if op_class is _TblOpClass.MD_READ:
         # MD_READ doesn't take any locks, so the response is immaterial
         return False
+    assert op_class in (_TblOpClass.DATA_READ, _TblOpClass.DATA_WRITE):
     # Reads and data writes wait on a data-versioned table, but fail fast on an operational one.
     return is_data_versioned
 
