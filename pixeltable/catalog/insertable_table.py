@@ -157,7 +157,7 @@ class InsertableTable(LocalTable):
         read_tbl_keys = (
             data_source.pxt_query.referenced_tbl_keys() if isinstance(data_source, QueryTableDataConduit) else None
         )
-        with get_runtime().catalog.begin_write_xact(tvps=[self._tbl_version_path], read_tbl_keys=read_tbl_keys):
+        with get_runtime().catalog.begin_write_xact(read_tbl_keys=read_tbl_keys, tvps=[self._tbl_version_path]):
             # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;
             # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
             try:
