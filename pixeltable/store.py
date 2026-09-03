@@ -251,6 +251,12 @@ class StoreBase:
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs, *extra_constraints)
 
+    @classmethod
+    def drop(cls, tbl_id: UUID, is_view: bool) -> None:
+        """Drop the store table of the given table id in the current transaction."""
+        assert get_runtime().in_xact
+        get_runtime().conn.execute(sql.text(f'DROP TABLE {cls.storage_name(tbl_id, is_view)}'))
+
     @abc.abstractmethod
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
         """Return predicate for rowid joins to all bases"""

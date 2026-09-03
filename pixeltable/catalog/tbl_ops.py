@@ -12,8 +12,6 @@ import uuid
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
 
-import sqlalchemy as sql
-
 import pixeltable.metadata.schema as schema
 from pixeltable.runtime import get_runtime
 from pixeltable.utils import fault_injection
@@ -85,15 +83,6 @@ class TableOp:
         raise NotImplementedError(f'{self.__class__.__name__}.undo()')
 
 
-def _drop_store_tbl(tbl_id: str, is_view: bool) -> None:
-    """Drop the store table of the given table id in the current transaction."""
-    from pixeltable.store import StoreBase
-
-    assert get_runtime().in_xact
-    drop_stmt = f'DROP TABLE {StoreBase.storage_name(uuid.UUID(tbl_id), is_view)}'
-    get_runtime().conn.execute(sql.text(drop_stmt))
-
-
 @dataclasses.dataclass
 class CreateStoreIdxsOp(TableOp):
     needs_tv: ClassVar[bool] = True
@@ -160,9 +149,11 @@ class CreateTableMdOp(TableOp):
         pass
 
     def undo(self, tv: TableVersion | None) -> None:
+        from pixeltable.store import StoreBase
+
         assert get_runtime().in_xact
         get_runtime().catalog.delete_tbl_md(uuid.UUID(self.tbl_id))
-        _drop_store_tbl(self.tbl_id, self.is_view)
+        StoreBase.drop(uuid.UUID(self.tbl_id), self.is_view)
 
 
 @dataclasses.dataclass
@@ -175,10 +166,12 @@ class DeleteTableMdOp(TableOp):
     is_view: bool
 
     def exec(self, tv: TableVersion | None) -> None:
+        from pixeltable.store import StoreBase
+
         assert get_runtime().in_xact
         cat = get_runtime().catalog
         cat.delete_tbl_md(uuid.UUID(self.tbl_id))
-        _drop_store_tbl(self.tbl_id, self.is_view)
+        StoreBase.drop(uuid.UUID(self.tbl_id), self.is_view)
 
     def undo(self, tv: TableVersion | None) -> None:
         raise AssertionError()
