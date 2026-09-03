@@ -258,7 +258,7 @@ class _StaleLockSetError(Exception):
         super().__init__('lock set does not match the tables this operation touches')
 
 
-class LockNotAvailableError(Exception):
+class _LockNotAvailableError(Exception):
     """A lock is taken by another transaction."""
 
     def __init__(self) -> None:
@@ -798,7 +798,7 @@ class Catalog(CatalogBase):
                     yield conn
                     return
 
-            except LockNotAvailableError as e:
+            except _LockNotAvailableError as e:
                 has_exc = True
                 # NOWAIT was refused. The holder is not necessarily the schema change: an ACCESS EXCLUSIVE request
                 # queued behind an ordinary read refuses everything arriving after it. But a schema change that is
@@ -1469,7 +1469,7 @@ class Catalog(CatalogBase):
             _logger.debug(f'{stmt} failed: {e}')
             if isinstance(e.orig, psycopg.errors.LockNotAvailable):
                 assert not blocking
-                raise LockNotAvailableError from e
+                raise _LockNotAvailableError from e
             if isinstance(e.orig, psycopg.errors.UndefinedTable):
                 raise _StaleLockSetError from e
             raise
