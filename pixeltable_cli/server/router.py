@@ -148,13 +148,13 @@ class Router:
     # routes registered with checks_env=False
     _skips_env_check: set[tuple[Method, str]]  # set of route ids
 
-    # when set, the only routes this router will match; catalog-only mode serves a subset
-    _allowed: frozenset[tuple[Method, str]] | None
+    # when set, only these routes are served; otherwise every route is served
+    _served_routes: frozenset[tuple[Method, str]] | None
 
-    def __init__(self, allowed: Iterable[tuple[Method, str]] | None = None) -> None:
+    def __init__(self, served_routes: Iterable[tuple[Method, str]] | None = None) -> None:
+        self._served_routes = None if served_routes is None else frozenset(served_routes)
         self._routes = {}
         self._skips_env_check = set()
-        self._allowed = None if allowed is None else frozenset(allowed)
 
     def get(self, path: str, *, checks_env: bool = True) -> Callable[[Handler], Handler]:
         return self._register('GET', path, checks_env)
@@ -164,6 +164,8 @@ class Router:
 
     def _register(self, method: Method, path: str, checks_env: bool) -> Callable[[Handler], Handler]:
         def decorator(fn: Handler) -> Handler:
+            if self._served_routes is not None and (method, path) not in self._served_routes:
+                return fn
             assert (method, path) not in self._routes, f'duplicate route {method} {path}'
             self._routes[method, path] = fn
             if not checks_env:
@@ -173,8 +175,6 @@ class Router:
         return decorator
 
     def match(self, method: Method, url_path: str) -> Handler | None:
-        if self._allowed is not None and (method, url_path) not in self._allowed:
-            return None
         return self._routes.get((method, url_path))
 
     def checks_env(self, method: Method, url_path: str) -> bool:

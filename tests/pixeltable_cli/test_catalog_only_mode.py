@@ -1,11 +1,7 @@
-"""Route surface in catalog-only mode (cli_server.catalog_only) vs a full daemon.
-
-The allow-list is read at import time, so each case reloads the module under a config override.
-"""
+"""Route surface in catalog-only mode vs a full daemon."""
 
 import importlib
 from collections.abc import Iterator
-from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -14,7 +10,7 @@ from pixeltable.config import Config
 from pixeltable_cli.models import Method
 from pixeltable_cli.server import daemon, http_server, routes as routes_module
 
-# Reachable in both modes; must match routes.CATALOG_ROUTES, enumerated here independently.
+# enumerated independently of routes.CATALOG_ROUTES: a change to the boundary should take two edits
 _CATALOG_ROUTES: set[tuple[Method, str]] = {
     ('GET', '/api/health'),
     ('GET', '/api/status'),
@@ -65,32 +61,20 @@ def full_routes() -> Iterator[None]:
     importlib.reload(routes_module)
 
 
-def _unreachable(routes: set[tuple[Method, str]]) -> list[tuple[Method, str]]:
-    return sorted(r for r in routes if routes_module.router.match(*r) is None)
-
-
-def _registered() -> set[tuple[Method, str]]:
-    """Every route the module declares, whichever mode it was imported in.
-
-    Derived rather than listed: the management surface is whatever is not in the allow-list, so a
-    route renamed or added upstream lands on the right side of the boundary without editing a
-    transcript of the router here. _CATALOG_ROUTES stays written out on purpose -- it is the
-    boundary itself, and a change to it should have to be made twice.
-    """
+def _served() -> set[tuple[Method, str]]:
     return set(routes_module.router._routes)
 
 
 class TestCatalogOnlyRouteSurface:
     def test_catalog_only_serves_the_catalog_and_nothing_else(self, catalog_only_routes: None) -> None:
-        reachable = {r for r in _registered() if routes_module.router.match(*r) is not None}
-        assert reachable == _CATALOG_ROUTES, (
-            f'reachable in a hosted pod but not in the allow-list: {sorted(reachable - _CATALOG_ROUTES)}; '
-            f'in the allow-list but not reachable: {sorted(_CATALOG_ROUTES - reachable)}'
+        served = _served()
+        assert served == _CATALOG_ROUTES, (
+            f'served in a hosted pod but not in the allow-list: {sorted(served - _CATALOG_ROUTES)}; '
+            f'in the allow-list but not served: {sorted(_CATALOG_ROUTES - served)}'
         )
 
     def test_every_route_is_served_when_not_catalog_only(self, full_routes: None) -> None:
-        assert not _unreachable(_registered())
-        assert _registered() > _CATALOG_ROUTES, 'a full daemon serves more than the catalog'
+        assert _served() > _CATALOG_ROUTES, 'a full daemon serves more than the catalog'
 
     def test_catalog_only_is_read_from_config(self) -> None:
         try:
@@ -108,13 +92,14 @@ class TestFixedAddressMode:
     """A configured cli_server host/port makes the daemon a plain foreground server, as a pod needs."""
 
     @staticmethod
-    def _configured(host: str | None, port: int | None) -> None:
-        overrides: dict[str, Any] = {}
+    def _configured(monkeypatch: pytest.MonkeyPatch, host: str | None, port: int | None) -> None:
+        # env vars, as the pod is given them: daemon.main reinitialises Config, which drops overrides
+        monkeypatch.delenv('CLI_SERVER_HOST', raising=False)
+        monkeypatch.delenv('CLI_SERVER_PORT', raising=False)
         if host is not None:
-            overrides['cli_server.host'] = host
+            monkeypatch.setenv('CLI_SERVER_HOST', host)
         if port is not None:
-            overrides['cli_server.port'] = port
-        Config.init(overrides, reinit=True)
+            monkeypatch.setenv('CLI_SERVER_PORT', str(port))
 
     def test_bind_defaults_to_loopback(self) -> None:
         server = http_server.bind(0)
@@ -123,8 +108,8 @@ class TestFixedAddressMode:
         finally:
             server.server_close()
 
-    def test_host_skips_the_pidfile_handshake(self) -> None:
-        self._configured('0.0.0.0', 0)
+    def test_host_skips_the_pidfile_handshake(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._configured(monkeypatch, '0.0.0.0', 0)
         with (
             patch('pixeltable_cli.server.daemon.run') as run,
             patch('pixeltable_cli.server.daemon.bind') as bind,
@@ -138,8 +123,8 @@ class TestFixedAddressMode:
         write_pidfile.assert_not_called()
         is_running.assert_not_called()
 
-    def test_port_alone_selects_fixed_address_mode(self) -> None:
-        self._configured(None, 0)
+    def test_port_alone_selects_fixed_address_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._configured(monkeypatch, None, 0)
         with (
             patch('pixeltable_cli.server.daemon.run'),
             patch('pixeltable_cli.server.daemon.bind') as bind,
@@ -150,8 +135,8 @@ class TestFixedAddressMode:
         bind.assert_called_once_with(0, '127.0.0.1')
         write_pidfile.assert_not_called()
 
-    def test_without_cli_server_config_the_local_path_is_unchanged(self) -> None:
-        self._configured(None, None)
+    def test_without_cli_server_config_the_local_path_is_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._configured(monkeypatch, None, None)
         with (
             patch('pixeltable_cli.server.daemon.get_port', return_value=0),
             patch('pixeltable_cli.server.daemon.run'),

@@ -42,7 +42,7 @@ def in_catalog_only_mode() -> bool:
     return Config.get().get_bool_value('catalog_only', section='cli_server') is True
 
 
-# Everything a catalog-only daemon serves. An allow-list rather than a list of exclusions.
+# an allow-list rather than a list of exclusions: a new route is unreachable until named here
 CATALOG_ROUTES: frozenset[tuple[models.Method, str]] = frozenset(
     {
         ('GET', '/api/health'),
@@ -73,7 +73,7 @@ CATALOG_ROUTES: frozenset[tuple[models.Method, str]] = frozenset(
     }
 )
 
-router = Router(CATALOG_ROUTES if in_catalog_only_mode() else None)
+router = Router(served_routes=CATALOG_ROUTES if in_catalog_only_mode() else None)
 
 
 # Freeze the identity fingerprint at import time so /health reports what the daemon was
