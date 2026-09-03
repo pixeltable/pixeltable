@@ -42,30 +42,6 @@ _CATALOG_ROUTES = {
     ('GET', '/api/dashboard/tables/export'),
 }
 
-# Control-plane proxy plus the stateful working directory.
-_MANAGEMENT_ROUTES = {
-    ('GET', '/api/cwd'),
-    ('POST', '/api/cwd'),
-    ('GET', '/api/orgs'),
-    ('GET', '/api/org'),
-    ('GET', '/api/dbs'),
-    ('POST', '/api/dbs'),
-    ('GET', '/api/db'),
-    ('POST', '/api/db/delete'),
-    ('POST', '/api/db/start'),
-    ('POST', '/api/db/stop'),
-    ('POST', '/api/db/update'),
-    ('GET', '/api/db/upload-url'),
-    ('POST', '/api/db/update-runtime'),
-    ('GET', '/api/services'),
-    ('POST', '/api/services'),
-    ('GET', '/api/service'),
-    ('POST', '/api/service/delete'),
-    ('POST', '/api/service/start'),
-    ('POST', '/api/service/stop'),
-    ('POST', '/api/service/update'),
-}
-
 
 def _reload(catalog_only: bool) -> Iterator[None]:
     Config.init({'cli_server.catalog_only': catalog_only}, reinit=True)
@@ -92,14 +68,28 @@ def _unreachable(routes: set[tuple[str, str]]) -> list[tuple[str, str]]:
     return sorted(r for r in routes if routes_module.router.match(*r) is None)
 
 
+def _registered() -> set[tuple[str, str]]:
+    """Every route the module declares, whichever mode it was imported in.
+
+    Derived rather than listed: the management surface is whatever is not in the allow-list, so a
+    route renamed or added upstream lands on the right side of the boundary without editing a
+    transcript of the router here. _CATALOG_ROUTES stays written out on purpose -- it is the
+    boundary itself, and a change to it should have to be made twice.
+    """
+    return set(routes_module.router._routes)
+
+
 class TestCatalogOnlyRouteSurface:
     def test_catalog_only_serves_the_catalog_and_nothing_else(self, catalog_only_routes: None) -> None:
-        reachable = sorted(r for r in _MANAGEMENT_ROUTES if routes_module.router.match(*r) is not None)
-        assert not reachable, f'reachable in a hosted pod: {reachable}'
-        assert not _unreachable(_CATALOG_ROUTES)
+        reachable = {r for r in _registered() if routes_module.router.match(*r) is not None}
+        assert reachable == _CATALOG_ROUTES, (
+            f'reachable in a hosted pod but not in the allow-list: {sorted(reachable - _CATALOG_ROUTES)}; '
+            f'in the allow-list but not reachable: {sorted(_CATALOG_ROUTES - reachable)}'
+        )
 
     def test_every_route_is_served_when_not_catalog_only(self, full_routes: None) -> None:
-        assert not _unreachable(_CATALOG_ROUTES | _MANAGEMENT_ROUTES)
+        assert not _unreachable(_registered())
+        assert _registered() > _CATALOG_ROUTES, 'a full daemon serves more than the catalog'
 
     def test_catalog_only_is_read_from_config(self) -> None:
         try:
@@ -140,7 +130,7 @@ class TestFixedAddressMode:
             patch('pixeltable_cli.server.daemon._write_pidfile') as write_pidfile,
             patch('pixeltable_cli.server.daemon.is_running') as is_running,
         ):
-            daemon.main()
+            daemon.main([])
         Config.init({}, reinit=True)
         bind.assert_called_once_with(0, '0.0.0.0')
         run.assert_called_once()
@@ -154,7 +144,7 @@ class TestFixedAddressMode:
             patch('pixeltable_cli.server.daemon.bind') as bind,
             patch('pixeltable_cli.server.daemon._write_pidfile') as write_pidfile,
         ):
-            daemon.main()
+            daemon.main([])
         Config.init({}, reinit=True)
         bind.assert_called_once_with(0, '127.0.0.1')
         write_pidfile.assert_not_called()
@@ -166,6 +156,6 @@ class TestFixedAddressMode:
             patch('pixeltable_cli.server.daemon.run'),
             patch('pixeltable_cli.server.daemon._write_pidfile') as write_pidfile,
         ):
-            daemon.main()
+            daemon.main([])
         Config.init({}, reinit=True)
         write_pidfile.assert_called_once()

@@ -40,8 +40,6 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog='pxt daemon', description=__doc__)
     ap.add_argument('--project-root', type=pathlib.Path, default=None)
     args = ap.parse_args(argv)
-    # before the config is read: the project root decides which config file that is
-    Config.init(reinit=True, project_root=args.project_root)
 
     config = Config.get()
     host = config.get_string_value('host', section='cli_server')
@@ -64,6 +62,7 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
     _write_pidfile()
     atexit.register(_remove_pidfile_if_ours)
+    Config.init(reinit=True, project_root=args.project_root)
     run(server)
 
 
