@@ -1258,10 +1258,10 @@ class TestTableModel:
                 'value'
               the following indexes are new to the model, and will be ADDED:
                 EmbeddingIndex(column=image, embedding=dummy_embedding(text, n=256), name='idx4')
+              the following indexes have changed, and will be REPLACED:
+                EmbeddingIndex(column=image, embedding=dummy_embedding(text, n=1024), precision='fp32', name='idx3')
               the following indexes are no longer in the model, and will be DROPPED:
                 'idx2'
-              the following named indexes have altered properties (FATAL):
-                'idx3'
             View 'test_view' (from model `ExampleViewV2`) has differences:
               iterator mismatch (FATAL):
                 model iterator   : tile_iterator(image, [128, 128])
@@ -1418,28 +1418,26 @@ class TestTableModel:
                         'details': {},
                     },
                     {
-                        'description': "named index 'idx3' has altered properties",
+                        'target': 'index',
+                        'name': 'idx3',
+                        'op': 'drop',
+                        'severity': 'destructive',
+                        'model': None,
+                        'existing': None,
+                        'description': "index 'idx3' on column 'image' will be dropped and re-created "
+                        'from its new definition',
                         'details': {'index_ref': {'index_type': 'embedding', 'columns': ['image'], 'name': 'idx3'}},
-                        'existing': {
-                            'columns': ['image'],
-                            'index_type': 'embedding',
-                            'name': 'idx3',
-                            'parameters': {
-                                'embedding': 'dummy_embedding(image, n=1024)',
-                                'embedding_functions': [
-                                    'dummy_embedding(text, n=1024)',
-                                    'dummy_embedding(img, n=1024)',
-                                ],
-                                'metric': 'cosine',
-                                'precision': 'fp16',
-                            },
-                        },
+                    },
+                    {
+                        'target': 'index',
+                        'name': 'idx3',
+                        'op': 'add',
+                        'severity': 'additive',
                         'model': 'EmbeddingIndex(column=image, embedding=dummy_embedding(text, '
                         "n=1024), precision='fp32', name='idx3')",
-                        'name': 'idx3',
-                        'op': 'alter',
-                        'severity': 'unsupported',
-                        'target': 'index',
+                        'existing': None,
+                        'description': "EmbeddingIndex 'idx3' will be re-created",
+                        'details': {'index_ref': {'index_type': 'embedding', 'columns': ['image'], 'name': 'idx3'}},
                     },
                     {
                         'target': 'index',
@@ -1458,7 +1456,7 @@ class TestTableModel:
                         'severity': 'destructive',
                         'model': None,
                         'existing': None,
-                        'description': "index 'idx2' will be dropped",
+                        'description': "index 'idx2' on column 'image' will be dropped",
                         'details': {'index_ref': {'index_type': 'embedding', 'columns': ['image'], 'name': 'idx2'}},
                     },
                 ],
@@ -1834,6 +1832,46 @@ class TestTableModel:
             tbl.insert([{'id': 5, 'value': 5.0, 'image': images[0], 'label': 'five'}]), expected_rows
         )
         assert tbl.where(tbl.id == 5).collect()['doubled'] == [10.0]
+
+    def test_update_all_replaces_index(self, db_root: DatabaseRoot) -> None:
+        """A named embedding index whose definition changed is replaced."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTable(TableModel, name='test_table'):
+            id: pxt.Int
+            text: pxt.String | None
+
+            __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=32), name='ix')]
+
+        TableModel.create_all(p(''))
+        ExampleTable.insert([{'id': 1, 'text': 'one sentence'}, {'id': 2, 'text': 'zero sentence'}])
+
+        TableModelV2 = pxt.model_base()
+
+        class ExampleTableV2(TableModelV2, name='test_table'):
+            id: pxt.Int
+            text: pxt.String | None
+
+            __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=64), precision='fp32', name='ix')]
+
+        diff = TableModelV2.get_model_diff(p(''))['test_table']
+        assert diff.resolution == 'update_destructive'
+        assert len(diff.ops) == 2, diff.ops
+        assert (diff.ops[0].target, diff.ops[0].name, diff.ops[0].op) == ('index', 'ix', 'drop')
+        assert (diff.ops[1].target, diff.ops[1].name, diff.ops[1].op) == ('index', 'ix', 'add')
+
+        with pxt_raises(excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE, match='destructive'):
+            TableModelV2.update_all(p(''))
+
+        TableModelV2.update_all(p(''), allow_destructive=True)
+
+        idx_md = ExampleTableV2.get_metadata()['indexes']
+        assert set(idx_md.keys()) == {'ix'}
+        assert idx_md['ix']['parameters']['embedding'] == 'dummy_embedding(text, n=64)'
+        assert idx_md['ix']['parameters']['precision'] == 'fp32'
+
+        assert TableModelV2.get_model_diff(p(''))['test_table'].resolution == 'up_to_date'
 
     def test_update_all_errors(self, db_root: DatabaseRoot) -> None:
         """`update_all()` raises an error if a model's schema is inconsistent with the existing table."""
