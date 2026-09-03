@@ -33,9 +33,6 @@ can be applied to a development directory and a production one.
 A udf defined here is referenced by this file's path, so moving or renaming the file leaves the columns that
 call it unable to compute.
 """
-
-from __future__ import annotations  # required to define a model on Python 3.14+
-
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.serving import FastAPIRouter

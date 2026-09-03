@@ -1,13 +1,26 @@
 ---
 title: 'Ecosystem'
-description: 'Explore Pixeltable ecosystem of built-in integrations for AI/ML workflows'
+description: 'Built-in AI provider integrations as computed columns'
 ---
 
-From language models to computer vision frameworks, Pixeltable integrates with the entire ecosystem. All integrations are available out-of-the-box with Pixeltable installation. No additional setup required unless specified.
+Each AI provider is a function you assign as a computed column on a `TableModel`. Create the table with `pxt schema update`. In notebooks you can still call `add_computed_column()`. Each provider page lists its API key and optional extras.
 
-<Note>
-Missing an integration? Build your own with Pixeltable [UDFs](/platform/udfs-in-pixeltable), or suggest one on [GitHub Discussions](https://github.com/pixeltable/pixeltable/discussions).
-</Note>
+If a provider is missing, wrap it in a [`@pxt.udf`](/platform/udfs-in-pixeltable) or ask on [GitHub Discussions](https://github.com/pixeltable/pixeltable/discussions).
+
+```python
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+
+TableModel = pxt.model_base()
+
+
+class Articles(TableModel, name='articles'):
+    body: pxt.String
+    response = pxtf.openai.chat_completions(
+        messages=[{'role': 'user', 'content': body}],
+        model='gpt-4o-mini',
+    )
+```
 
 ## Cloud LLM providers
 
@@ -17,7 +30,7 @@ Missing an integration? Build your own with Pixeltable [UDFs](/platform/udfs-in-
     icon="brain"
     href="/howto/providers/working-with-anthropic"
   >
-    Integrate Claude models for advanced language understanding and generation with multimodal capabilities
+    Claude models for language and multimodal generation
   </Card>
 
   <Card
@@ -25,7 +38,7 @@ Missing an integration? Build your own with Pixeltable [UDFs](/platform/udfs-in-
     icon="sparkles"
     href="/howto/providers/working-with-gemini"
   >
-    Access Google's Gemini models via Google AI Studio or Vertex AI for state-of-the-art multimodal AI capabilities
+    Gemini via Google AI Studio or Vertex AI
   </Card>
 
   <Card
@@ -33,7 +46,7 @@ Missing an integration? Build your own with Pixeltable [UDFs](/platform/udfs-in-
     icon="square-code"
     href="/howto/providers/working-with-openai"
   >
-    Leverage GPT models for text generation, embeddings, and image analysis
+    GPT models for text, embeddings, and image analysis
   </Card>
 
   <Card
@@ -41,7 +54,7 @@ Missing an integration? Build your own with Pixeltable [UDFs](/platform/udfs-in-
     icon="microsoft"
     href="/howto/providers/working-with-openai"
   >
-    Use OpenAI models via Azure with enterprise security and compliance
+    OpenAI models via Azure
   </Card>
 
   <Card
@@ -49,7 +62,7 @@ Missing an integration? Build your own with Pixeltable [UDFs](/platform/udfs-in-
     icon="wind"
     href="/howto/providers/working-with-mistralai"
   >
-    Use Mistral's efficient language models for various NLP tasks
+    Mistral language models
   </Card>
 
   <Card
@@ -57,7 +70,7 @@ Missing an integration? Build your own with Pixeltable [UDFs](/platform/udfs-in-
     icon="robot"
     href="/howto/providers/working-with-deepseek"
   >
-    Leverage DeepSeek's powerful language and code models for text and code generation
+    DeepSeek language and code models
   </Card>
 
   <Card
@@ -65,7 +78,7 @@ Missing an integration? Build your own with Pixeltable [UDFs](/platform/udfs-in-
     icon="microchip"
     href="/howto/providers/working-with-groq"
   >
-    Access Groq's models for text generation
+    Groq-hosted models
   </Card>
 </CardGroup>
 
@@ -79,7 +92,7 @@ Platforms that host or route many models from a shared catalog.
     icon="face-smile"
     href="/howto/providers/working-with-hugging-face"
   >
-    Access thousands of pre-trained models across vision, text, and audio domains
+    CLIP, DETR, sentence-transformers, ViT, Speech2Text, and more
   </Card>
 
   <Card
@@ -87,7 +100,7 @@ Platforms that host or route many models from a shared catalog.
     icon="clone"
     href="/howto/providers/working-with-replicate"
   >
-    Deploy and run ML models through Replicate's cloud infrastructure
+    Run models on Replicate
   </Card>
 
   <Card
@@ -95,7 +108,7 @@ Platforms that host or route many models from a shared catalog.
     icon="users"
     href="/howto/providers/working-with-together"
   >
-    Access a variety of open-source models through Together AI's platform
+    Open-source models via Together
   </Card>
 
   <Card
@@ -103,7 +116,7 @@ Platforms that host or route many models from a shared catalog.
     icon="rocket"
     href="/howto/providers/working-with-fireworks"
   >
-    Use Fireworks.ai's optimized model inference infrastructure
+    Fireworks inference
   </Card>
 
   <Card
@@ -111,7 +124,7 @@ Platforms that host or route many models from a shared catalog.
     icon="route"
     href="/howto/providers/working-with-openrouter"
   >
-    Unified access to 100+ LLMs from various providers through a single API
+    One API across many LLM providers
   </Card>
 
   <Card
@@ -119,19 +132,19 @@ Platforms that host or route many models from a shared catalog.
     icon="aws"
     href="/howto/providers/working-with-bedrock"
   >
-    Access a variety of AI models through AWS Bedrock's unified API
+    Models through Bedrock
   </Card>
 
   <Card
     title="Nebius"
     icon="cloud"
-    href="/sdk/latest/nebius"
+    href="/howto/providers/working-with-nebius"
   >
-    Nebius Token Factory language and embedding models via an OpenAI-compatible API
+    Nebius Token Factory via an OpenAI-compatible API
   </Card>
 </CardGroup>
 
-## Embeddings & Reranking
+## Embeddings and reranking
 
 <CardGroup cols={3}>
   <Card
@@ -139,7 +152,7 @@ Platforms that host or route many models from a shared catalog.
     icon="compass"
     href="/howto/providers/working-with-voyageai"
   >
-    High-quality embeddings and reranking for text, images, and video
+    Embeddings and reranking for text, images, and video
   </Card>
 
   <Card
@@ -147,7 +160,7 @@ Platforms that host or route many models from a shared catalog.
     icon="magnifying-glass"
     href="/howto/providers/working-with-jina"
   >
-    Embeddings and reranking optimized for search and RAG pipelines
+    Embeddings and reranking for search
   </Card>
 
   <Card
@@ -155,11 +168,11 @@ Platforms that host or route many models from a shared catalog.
     icon="clapperboard"
     href="/howto/providers/working-with-twelvelabs"
   >
-    Multimodal embeddings for text, image, audio, and video via the TwelveLabs Embed API
+    Multimodal embeddings via the TwelveLabs Embed API
   </Card>
 </CardGroup>
 
-## Media Generation
+## Media generation
 
 <CardGroup cols={3}>
   <Card
@@ -167,7 +180,7 @@ Platforms that host or route many models from a shared catalog.
     icon="image"
     href="/howto/providers/working-with-bfl"
   >
-    Image generation, editing, fill, and expansion with FLUX models from Black Forest Labs
+    FLUX image generation and editing from Black Forest Labs
   </Card>
 
   <Card
@@ -175,7 +188,7 @@ Platforms that host or route many models from a shared catalog.
     icon="wand-magic-sparkles"
     href="/howto/providers/working-with-fal"
   >
-    Fast image generation with Flux, Stable Diffusion, and other models
+    Flux, Stable Diffusion, and other image models
   </Card>
 
   <Card
@@ -183,7 +196,7 @@ Platforms that host or route many models from a shared catalog.
     icon="film"
     href="/howto/providers/working-with-runwayml"
   >
-    AI video generation with Gen-4 and other Runway models
+    Runway video generation
   </Card>
 </CardGroup>
 
@@ -195,7 +208,7 @@ Platforms that host or route many models from a shared catalog.
     icon="microchip"
     href="/howto/providers/working-with-llama-cpp"
   >
-    High-performance C++ implementation for running LLMs on CPU and GPU
+    Local LLMs on CPU and GPU
   </Card>
 
   <Card
@@ -203,7 +216,7 @@ Platforms that host or route many models from a shared catalog.
     icon="box"
     href="/howto/providers/working-with-ollama"
   >
-    Easy-to-use toolkit for running and managing open-source models locally
+    Local open-source models via Ollama
   </Card>
 
   <Card
@@ -211,150 +224,9 @@ Platforms that host or route many models from a shared catalog.
     icon="microchip"
     href="/howto/providers/working-with-vllm"
   >
-    High-throughput local LLM inference with PagedAttention and continuous batching
+    High-throughput local inference
   </Card>
 </CardGroup>
-
-## Hugging Face models
-
-Pixeltable provides seamless integration with Hugging Face's transformers library through built-in UDFs. These functions allow you to use state-of-the-art models directly in your data workflows.
-
-<Note>
-Requirements: Install required dependencies with `pip install transformers`. Some models may require additional packages like `sentence-transformers` or `torch`.
-</Note>
-
-### CLIP models
-```python
-from pixeltable.functions.huggingface import clip
-
-# For text embedding
-t.add_computed_column(
-    text_embedding=clip(
-        t.text_column,
-        model_id='openai/clip-vit-base-patch32'
-    )
-)
-
-# For image embedding
-t.add_computed_column(
-    image_embedding=clip(
-        t.image_column,
-        model_id='openai/clip-vit-base-patch32'
-    )
-)
-```
-Perfect for multimodal applications combining text and image understanding.
-
-### Cross-encoders
-```python
-from pixeltable.functions.huggingface import cross_encoder
-
-t.add_computed_column(
-    similarity_score=cross_encoder(
-        t.sentence1,
-        t.sentence2,
-        model_id='cross-encoder/ms-marco-MiniLM-L-4-v2'
-    )
-)
-```
-Ideal for semantic similarity tasks and sentence pair classification.
-
-### DETR object detection
-```python
-from pixeltable.functions.huggingface import detr_for_object_detection
-
-t.add_computed_column(
-    detections=detr_for_object_detection(
-        t.image,
-        model_id='facebook/detr-resnet-50',
-        threshold=0.8
-    )
-)
-
-# Convert to COCO format if needed
-t.add_computed_column(
-    coco_format=detr_to_coco(t.image, t.detections)
-)
-```
-Powerful object detection with end-to-end transformer architecture.
-
-### Sentence transformers
-```python
-from pixeltable.functions.huggingface import sentence_transformer
-
-t.add_computed_column(
-    embeddings=sentence_transformer(
-        t.text,
-        model_id='sentence-transformers/all-mpnet-base-v2',
-        normalize_embeddings=True
-    )
-)
-```
-State-of-the-art sentence and document embeddings for semantic search and similarity.
-
-### Speech2Text models
-```python
-from pixeltable.functions.huggingface import speech2text_for_conditional_generation
-
-# Basic transcription
-t.add_computed_column(
-    transcript=speech2text_for_conditional_generation(
-        t.audio,
-        model_id='facebook/s2t-small-librispeech-asr'
-    )
-)
-
-# Multilingual translation
-t.add_computed_column(
-    translation=speech2text_for_conditional_generation(
-        t.audio,
-        model_id='facebook/s2t-medium-mustc-multilingual-st',
-        language='fr'
-    )
-)
-```
-Support for both transcription and translation of audio content.
-
-### Vision Transformer (ViT)
-```python
-from pixeltable.functions.huggingface import vit_for_image_classification
-
-t.add_computed_column(
-    classifications=vit_for_image_classification(
-        t.image,
-        model_id='google/vit-base-patch16-224',
-        top_k=5
-    )
-)
-```
-Modern image classification using transformer architecture.
-
-## Model selection guide
-
-<Steps>
-  <Step title="Choose Task">
-    Select the appropriate model family based on your task:
-    - Text/Image Similarity → CLIP
-    - Object Detection → DETR
-    - Text Embeddings → Sentence Transformers
-    - Speech Processing → Speech2Text
-    - Image Classification → ViT
-  </Step>
-
-  <Step title="Check Requirements">
-    Install necessary dependencies:
-    ```bash
-    pip install transformers torch sentence-transformers
-    ```
-  </Step>
-
-  <Step title="Setup Integration">
-    Import and use the model in your Pixeltable workflow:
-    ```python
-    from pixeltable.functions.huggingface import clip, sentence_transformer
-    ```
-  </Step>
-</Steps>
 
 ## Computer vision
 
@@ -364,7 +236,7 @@ Modern image classification using transformer architecture.
     icon="camera"
     href="/howto/use-cases/object-detection-in-videos"
   >
-    State-of-the-art object detection with YOLOX models
+    Object detection with YOLOX
   </Card>
 
   <Card
@@ -372,124 +244,38 @@ Modern image classification using transformer architecture.
     icon="cube"
     href="/howto/working-with-fiftyone"
   >
-    Advanced video and image dataset management with Voxel51
+    Image and video datasets with FiftyOne
   </Card>
 </CardGroup>
 
-## Audio processing
+## Audio
 
 <Card
-  title="Whisper/WhisperX"
+  title="Whisper / WhisperX"
   icon="waveform"
   href="/howto/use-cases/audio-transcriptions"
 >
-  High-quality speech recognition and transcription using OpenAI's Whisper models
+  Speech recognition with Whisper
 </Card>
 
-## Enterprise Platforms
+## Enterprise
 
 <Card
   title="Microsoft Fabric"
   icon="microsoft"
   href="/howto/providers/working-with-fabric"
 >
-  Azure OpenAI integration through Microsoft Fabric for enterprise AI workloads
+  Azure OpenAI through Microsoft Fabric
 </Card>
 
-## Data Wrangling
+## DataFrames
 
 <Card
   title="Pandas"
   icon="table"
   href="/tutorials/tables-and-data-operations"
 >
-  Import and export from and to Pandas DataFrames
+  Import and export pandas DataFrames. Do not use pandas as the database that holds your app data.
 </Card>
 
-## Usage examples
-
-<AccordionGroup>
-  <Accordion title="LLM Integration">
-    ```python
-    import pixeltable as pxt
-    from pixeltable.functions import openai
-
-    # Create a table with computed column for OpenAI completion
-    table = pxt.create_table('responses', {'prompt': pxt.String})
-
-    table.add_computed_column(
-        response=openai.chat_completions(
-            messages=[{'role': 'user', 'content': table.prompt}],
-            model='gpt-4'
-        )
-    )
-    ```
-  </Accordion>
-
-  <Accordion title="Computer Vision">
-    ```python
-    from pixeltable.functions.yolox import yolox
-
-    # Add object detection to video frames
-    frames_view.add_computed_column(
-        detections=yolox(
-            frames_view.frame,
-            model_id='yolox_l'
-        )
-    )
-    ```
-  </Accordion>
-
-  <Accordion title="Audio Processing">
-    ```python
-    from pixeltable.functions import openai
-
-    # Transcribe audio files
-    audio_table.add_computed_column(
-        transcription=openai.transcriptions(
-            audio=audio_table.file,
-            model='whisper-1'
-        )
-    )
-    ```
-  </Accordion>
-
-  <Accordion title="Model Output Format">
-    ```python
-    # Object Detection Output
-    {
-        'scores': [0.99, 0.98],  # confidence scores
-        'labels': [25, 30],      # class labels
-        'label_text': ['cat', 'dog'], # human-readable labels
-        'boxes': [[x1, y1, x2, y2], ...] # bounding boxes
-    }
-
-    # Image Classification Output
-    {
-        'scores': [0.8, 0.15],   # class probabilities
-        'labels': [340, 353],    # class IDs
-        'label_text': ['zebra', 'gazelle'] # class names
-    }
-    ```
-  </Accordion>
-</AccordionGroup>
-
-## Integration features
-
-<Steps>
-  <Step title="Easy Setup">
-    Most integrations work out-of-the-box with simple API configuration
-  </Step>
-
-  <Step title="Computed Columns">
-    Use integrations directly in computed columns for automated processing
-  </Step>
-
-  <Step title="Batch Processing">
-    Efficient handling of batch operations with automatic optimization
-  </Step>
-</Steps>
-
-<Tip>
-  Check the [provider notebooks](https://github.com/pixeltable/pixeltable/tree/main/docs/release/howto/providers) for detailed usage instructions for each integration.
-</Tip>
+Provider notebooks: [docs/release/howto/providers](https://github.com/pixeltable/pixeltable/tree/main/docs/release/howto/providers).

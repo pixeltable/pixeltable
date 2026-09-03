@@ -1,9 +1,55 @@
 ---
 title: 'AI Skills'
 sidebarTitle: 'AI Skills'
-description: 'Teach AI coding assistants to write correct Pixeltable code'
+description: 'Install the Pixeltable skill. The coding agent writes TableModel classes in app.py.'
 ---
 
-{typeof window !== 'undefined' && window.location.replace('/overview/building-pixeltable-with-llms#set-up-your-ai-tool')}
+One skill file teaches the coding agent to declare tables as `TableModel` classes in `app.py` and create them with `pxt schema update`.
+The skill's workflow is: create tables from the file, start the endpoints with `pxt service update`, then try the app by inserting rows or opening the dashboard.
+Install details: [AI coding agents](/overview/building-pixeltable-with-llms).
 
-[Set Up Your AI Tool](/overview/building-pixeltable-with-llms#set-up-your-ai-tool)
+The hosted capability file is [skill.md](https://docs.pixeltable.com/skill.md). Install is still `npx skills add pixeltable/pixeltable-skill`.
+
+```bash
+npx skills add pixeltable/pixeltable-skill
+```
+
+Source: [pixeltable/pixeltable-skill](https://github.com/pixeltable/pixeltable-skill).
+
+<Note>
+Skill **2.7.0+** is the version that writes `app.py`. If the agent writes `create_table` in app code, `schema.py`, or `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`.
+</Note>
+
+## What it teaches
+
+| Do | Do not |
+|---|---|
+| `class Docs(TableModel, name='docs')` in `app.py` | LangChain / LlamaIndex for chunking and retrieval |
+| Assignments as computed columns | pandas as the database that holds your app data |
+| `__indexes__` on the model | A separate vector database |
+| `pxt init`, then `pxt schema update`, then `pxt service update` | Per-row `for` loops that call a model |
+| Use the same `app.py` with a `pxt://` Cloud URI | Call `add_embedding_index()` in application code |
+| `from pixeltable.serving import FastAPIRouter` | Declare HTTP routes in TOML |
+
+Scaffold: `uvx pixeltable-new myapp`, then `pxt schema update app.py agent`.
+[Starter kit](/resources/starter-kit).
+
+## How to invoke it
+
+Compatible agents pick the skill up when the task is a Pixeltable app. To call it by name:
+
+| Tool | Invoke |
+|---|---|
+| Cursor | `/pixeltable` |
+| Claude Code | `/pixeltable` |
+| GitHub Copilot | `/pixeltable` |
+| Codex | `$pixeltable` |
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="bolt" href="/overview/quick-start">
+    Write `app.py`, then `pxt schema update` and `pxt service update`.
+  </Card>
+  <Card title="AI coding agents" icon="robot" href="/overview/building-pixeltable-with-llms">
+    Install details and which file the agent should write.
+  </Card>
+</CardGroup>

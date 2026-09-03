@@ -1,0 +1,86 @@
+---
+title: 'How it works'
+sidebarTitle: 'How it works'
+description: 'pxt schema creates tables. pxt service starts the endpoints. diff shows what would change.'
+---
+
+[Quickstart](/overview/quick-start) is the first run. This page explains what `pxt schema` and `pxt service` do, and what the last argument names.
+
+One Python file declares tables and, if you want endpoints, routes. `pxt schema update` creates the tables. `pxt service update` starts the endpoints on an assigned port. The last argument is a namespace name such as `my_app`, or a Cloud URL such as `pxt://org:db`. It does not create a folder beside `app.py`.
+
+<CardGroup cols={3}>
+  <Card title="Schema" icon="table" href="#schema">
+    A `TableModel` becomes a table. `pxt schema update` creates and migrates it.
+  </Card>
+  <Card title="Services" icon="globe" href="#services">
+    A `FastAPIRouter` in the same file. `pxt service update` binds it to the tables.
+  </Card>
+  <Card title="Database" icon="database" href="#database">
+    A local namespace name, or a `pxt://` Cloud URL.
+  </Card>
+</CardGroup>
+
+Your repo holds `app.py` and usually `pixeltable.toml`. After `pxt schema update`, Python loads the table as `pxt.get_table('my_app.docs')`. Inspect with `pxt ls my_app`. Layout: [Infrastructure](/howto/deployment/infrastructure).
+
+`pxt schema` and `pxt service` both have these subcommands:
+
+| Command | What it does |
+|---|---|
+| `diff` | Prints pending changes without applying them |
+| `update` | Creates or migrates tables or services so they match `app.py` |
+| `prune` | Deletes tables or services that are no longer in the file |
+| `example` | Write a working file to start from |
+
+Full flags: [CLI](/platform/cli).
+
+## Schema
+
+An annotation (`title: pxt.String`) is a stored column: you insert that value. A bare type is required; use `pxt.String | None` when the value may be missing. An assignment (`title_upper = ...`) is a computed column. It runs on insert and on update. Use `pxt.Column(...)` when you need a primary key, `stored=False`, or a media option an annotation cannot express.
+
+Set `base=Docs` to make a view of `Docs`. The view can use columns from that base. Add an iterator when each input row should become many output rows, such as frames or chunks. Indexes belong on the model (`__indexes__` with `EmbeddingIndex` or `BtreeIndex`). B-tree indexes are not created automatically. Do not call `add_embedding_index()` after `pxt schema update`.
+
+`pxt schema example` writes a long sample. `--brief` writes only a small set of classes. Create tables with `pxt schema update app.py my_app`. Extra tables in that namespace stay until you run `pxt schema prune`, which deletes them.
+
+A `@pxt.udf` defined in the file is recorded by file path. Renaming the file leaves columns that call it unable to compute.
+
+## Services
+
+The same file declares a `FastAPIRouter`. `pxt service update` starts it against tables that already exist. Run `pxt schema update` first. `pxt service list` prints the URL; the port is assigned. Do not hard-code `:8000` for `pxt service update`.
+
+An insert route writes a row and returns the columns listed in `outputs`. A compute route runs those columns and writes no row. Update and delete match a row (primary key by default). File uploads, background jobs, query routes, and mounting on your own FastAPI app: [HTTP serving](/howto/deployment/serving).
+
+A schema change with a service already running needs `pxt service update` after `pxt schema update`. If you only change routes, run `pxt service update` again; it restarts the services whose routes changed. Inspect with `pxt dashboard`, `pxt ls`, and `pxt errors`.
+
+## Database
+
+<Tabs>
+  <Tab title="Local">
+    No Cloud account. Follow the [Quickstart](/overview/quick-start). For which process should listen, see [Self-hosting](/howto/deployment/overview).
+
+    ```bash
+    pxt init
+    pxt schema update app.py my_app
+    pxt service update app.py my_app
+    ```
+  </Tab>
+  <Tab title="Cloud">
+    Use the same `app.py` with a `pxt://` URL as the last argument after `pxt db update`. [Deploy to Pixeltable Cloud](/howto/deployment/cloud). `pxt service run` only starts endpoints in your local terminal.
+
+    ```bash
+    pxt db update pxt://org:mydb
+    pxt schema update app.py pxt://org:mydb
+    pxt service update app.py pxt://org:mydb
+    ```
+  </Tab>
+</Tabs>
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Cloud" icon="cloud" href="/howto/deployment/cloud">
+    Use the same `app.py` with a hosted URL such as `pxt://your-org:your-db`.
+  </Card>
+  <Card title="Self-hosting" icon="server" href="/howto/deployment/overview">
+    Which process: nothing listening, your FastAPI, or `pxt service`.
+  </Card>
+</CardGroup>

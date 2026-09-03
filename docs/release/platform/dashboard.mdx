@@ -28,7 +28,7 @@ The dashboard is a **read-only inspector**. You browse and debug your data visua
 
 ### Browse the catalog
 
-The left sidebar has a sticky **Local / Cloud** catalog switcher. You browse **one active catalog** at a time: the in-process local home by default, or a hosted database you attach with a `pxt://org:db` URI. The tree under the switcher shows that catalog’s directories, tables, views, snapshots, and replicas. Each entry shows its kind (icon next to the name), version (`vN` when present), and error marks when relevant. Click a table to open it, or a directory for a summary and child list.
+The left sidebar has a sticky **Local / Cloud** catalog switcher. You browse **one active catalog** at a time: the local catalog on this machine by default, or a hosted database you attach with a `pxt://org:db` URI. The tree under the switcher shows that catalog’s directories, tables, views, snapshots, and replicas. Each entry shows its kind (icon next to the name), version (`vN` when present), and error marks when relevant. Click a table to open it, or a directory for a summary and child list.
 
 Large catalogs get a **Filter…** field under the switcher to narrow the tree by name. That is separate from global search: **Cmd/Ctrl + K** (search icon in the sidebar header) finds directories, tables, and columns across attached catalogs.
 
@@ -40,7 +40,7 @@ The main table view has three tabs:
 - **Lineage** - shows the table's position in the pipeline: its base table, derived views, and column-level dependency graphs.
 - **History** - version list with change types (inserts, updates, deletes) and timestamps.
 
-Above the data grid, a collapsible **COLUMNS** panel lists every column with its type, whether it is computed, stored vs. unstored, and any embedding indexes. Collapse it to a compact chip summary of the schema; expand for the full table. Click a computed expression to open a readable view (with a Raw toggle); Copy keeps the original string.
+Above the data grid, a collapsible **COLUMNS** panel lists every column with its type, whether it is computed, stored vs. unstored, and any embedding indexes. Collapse it to a compact chip summary of the schema; expand for the full table. Click a computed expression to open a readable view (with a Raw toggle). The Copy button copies the original expression text, not the pretty-printed view.
 
 ### Filter and search rows
 

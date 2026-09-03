@@ -1,38 +1,13 @@
 ---
-title: "Production Operations"
-description: "Concurrency, error handling, schema evolution, and deployment patterns"
+title: 'Operations'
+description: 'Sync request handlers, one process writing pgdata, on_error, and pxt schema update after you change the file.'
 ---
 
-## Concurrent Access & Scaling
+## Concurrent requests
 
-| Aspect | Details |
-|--------|---------|
-| **Thread Safety** | Each thread gets its own database connection and transaction context automatically |
-| **Locking** | Automatic table-level locking for schema changes |
-| **Isolation** | PostgreSQL `SERIALIZABLE` isolation prevents data race conditions |
-| **Retries** | Built-in retry logic handles transient serialization failures |
+Use sync (`def`) endpoint handlers, not `async def`. FastAPI puts `def` on a thread pool. Pixeltable gives each thread its own connection. `async def` that calls Pixeltable blocks the event loop.
 
-| Scaling Dimension | Current Approach | Limitation |
-|-------------------|------------------|------------|
-| **Metadata Storage** | Single embedded PostgreSQL instance | Vertical scaling (larger EC2/VM) |
-| **Compute** | Multiple API workers connected to same instance | Shared access to storage volume required |
-| **High Availability** | Single attached storage volume | Failover requires volume detach/reattach |
-
-<Info>
-Multi-node HA and horizontal scaling planned for Pixeltable Cloud (2026).
-</Info>
-
-## Web Framework Concurrency
-
-<Tip>
-**For standard insert, query, and delete endpoints,** consider [built-in HTTP serving](/howto/deployment/serving) with `FastAPIRouter` or a TOML config before writing custom endpoint handlers. It handles request/response schemas, media serving, and background jobs automatically.
-</Tip>
-
-Pixeltable is thread-safe and works with FastAPI, Flask, Django, and other web frameworks out of the box. The key rule: **use sync (`def`) endpoint handlers**, not `async def`.
-
-### Why Sync Endpoints
-
-FastAPI (and Starlette) dispatches sync (`def`) handlers to a thread pool. Each concurrent request gets its own thread, and Pixeltable automatically creates an isolated database connection per thread. This gives you true parallel request handling with no extra configuration.
+Use `FastAPIRouter` unless you need custom FastAPI handlers. If you write your own, use `def`, not `async def`:
 
 ```python
 from pydantic import BaseModel
@@ -41,19 +16,22 @@ import pixeltable as pxt
 
 app = FastAPI()
 
+
 class SearchResult(BaseModel):
     text: str
     score: float
 
-@app.post("/ingest")
+
+@app.post('/ingest')
 def ingest(text: str):
-    t = pxt.get_table('myapp/documents')
+    t = pxt.get_table('myapp.documents')
     status = t.insert([{'text': text}])
     return {'inserted': status.num_rows}
 
-@app.get("/search")
+
+@app.get('/search')
 def search(query: str, limit: int = 10) -> list[SearchResult]:
-    t = pxt.get_table('myapp/documents')
+    t = pxt.get_table('myapp.documents')
     sim = t.text.similarity(string=query)
     results = (
         t.order_by(sim, asc=False)
@@ -64,308 +42,118 @@ def search(query: str, limit: int = 10) -> list[SearchResult]:
     return list(results.to_pydantic(SearchResult))
 ```
 
-<Warning>
-**Do not use `async def` for endpoints that call Pixeltable.** Pixeltable's API is synchronous. Inside an `async def` handler, Pixeltable calls block the event loop, serializing all requests and starving other coroutines. With `def` handlers, FastAPI's thread pool handles concurrency for you.
-</Warning>
+`.collect()` returns a `ResultSet`; call `to_pydantic()` before FastAPI returns the value. Or `to_pandas().to_dict(orient='records')`.
 
-### Returning Query Results
+One Python process writes to `~/.pixeltable/pgdata`. Several API workers need a shared volume and still one writer. Two pods on the same `pgdata` corrupt the database.
 
-`table.select(...).collect()` returns a `ResultSet` object, which Pydantic cannot serialize directly. You have two options:
+| Limit | What you get |
+|--|-----|
+| Metadata | One embedded PostgreSQL |
+| Compute | Several workers, one volume |
+| Failover | Detach and reattach the volume |
 
-**Option 1: `to_pydantic()` (recommended for FastAPI)**
+If you need more than one process writing the database, use [Pixeltable Cloud](/howto/deployment/cloud).
 
-Define a Pydantic model and let Pixeltable validate and convert each row. FastAPI serializes these natively.
+## GPU
 
-```python
-class Item(BaseModel):
-    name: str
-    score: float
+Local Hugging Face / Ollama models use CUDA when present, otherwise CPU. Restrict devices with `CUDA_VISIBLE_DEVICES`.
 
-@app.get("/rows")
-def get_rows() -> list[Item]:
-    t = pxt.get_table('myapp/items')
-    return list(t.select(t.name, t.score).collect().to_pydantic(Item))
-```
+## Errors
 
-**Option 2: `to_pandas()` + `to_dict()`**
+| | Mode | Effect |
+|--|------|--------|
+| Computed column | `on_error='abort'` (default) | The operation fails |
+| | `on_error='ignore'` | That row stores `None` plus error metadata |
+| Media | `media_validation='on_write'` (default) | Invalid media fails the insert |
+| | `media_validation='on_read'` | Insert succeeds; failure on first access |
 
-Convert via pandas when you don't need a Pydantic model.
+Read failures with `table.column.errortype` and `table.column.errormsg`.
 
-```python
-@app.get("/rows")
-def get_rows():
-    t = pxt.get_table('myapp/items')
-    df = t.select(t.name, t.score).collect().to_pandas()
-    return {'rows': df.to_dict(orient='records')}
-```
+## Schema after the first `pxt schema update`
 
-### uvloop Compatibility
+Adding a column or index computes values only for that new object. Replacing a computed column recomputes it. Dropping a column deletes its data.
 
-Pixeltable is compatible with [uvloop](https://github.com/MagicStack/uvloop), the high-performance event loop used by default in many production deployments. No special configuration is needed — sync endpoints work identically whether the server uses the default asyncio loop or uvloop.
+Change the class in `app.py` and run `pxt schema update` again. Notebooks: [Iterative workflow cookbook](/howto/cookbooks/core/dev-iterative-workflow).
 
-```bash
-# uvicorn with uvloop (the default when uvloop is installed)
-uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1
-```
+`table.revert()` undoes the last change on that table. [Version control](/platform/version-control) for what counts as one change.
 
-## GPU Acceleration
+## Run it
 
-- **Automatic GPU Detection:** Pixeltable uses CUDA GPUs for local models (Hugging Face, Ollama) when available.
-- **CPU Fallback:** Models run on CPU if no GPU detected (functional but slower).
-- **Configuration:** Control via `CUDA_VISIBLE_DEVICES` environment variable.
-
-## Error Handling
-
-| Error Type | Mode | Behavior |
-|------------|------|----------|
-| **Computed Column Errors** | `on_error='abort'` (default) | Fails entire operation if any row errors |
-| | `on_error='ignore'` | Continues processing; stores `None` with error metadata |
-| **Media Validation** | `media_validation='on_write'` (default) | Validates media during insert (catches errors early) |
-| | `media_validation='on_read'` | Defers validation until media accessed (faster inserts) |
-
-Access error details via `table.column.errortype` and `table.column.errormsg`.
-
-```python
-# Example: Graceful error handling in production
-table.add_computed_column(
-    analysis=llm_analyze(table.document),
-    on_error='ignore'  # Continue processing despite individual failures
-)
-
-# Query for errors
-errors = table.where(table.analysis.errortype != None).collect()
-```
-
-## Testing Transformations Before Deployment
-
-When you add a computed column, Pixeltable executes it immediately for all existing rows. For expensive operations (LLM calls, model inference), validate your logic on a sample first using `select()`; nothing is stored until you commit with `add_computed_column()`.
-
-```python
-# 1. Test transformation on sample rows (nothing stored)
-table.select(
-    table.text,
-    summary=summarize_with_llm(table.text)
-).head(3)  # Only processes 3 rows
-
-# 2. Once satisfied, persist to table (processes all rows)
-table.add_computed_column(summary=summarize_with_llm(table.text))
-```
-
-This "iterate-then-add" workflow lets you catch errors early without wasting API calls or compute on your full dataset.
-
-<Tip>
-**Pro tip:** Save expressions as variables to guarantee identical logic in both steps:
-```python
-summary_expr = summarize_with_llm(table.text)
-table.select(table.text, summary=summary_expr).head(3)  # Test
-table.add_computed_column(summary=summary_expr)          # Commit
-```
-</Tip>
-
-<Card title="Full Tutorial" icon="flask" href="/howto/cookbooks/core/dev-iterative-workflow">
-  Step-by-step guide with examples for built-in functions, expressions, and custom UDFs
-</Card>
-
-## Schema Evolution
-
-| Operation Type | Examples | Impact |
-|----------------|----------|--------|
-| **Safe** | Add columns, Add computed columns, Add indexes | Incremental computation only |
-| **Destructive** | Modify computed columns (`if_exists='replace'`), Drop columns/tables/views | Full recomputation or data loss |
-
-**Production Safety:**
-```python
-# Use if_exists='ignore' for idempotent schema migrations
-import pixeltable as pxt
-import config
-
-docs_table = pxt.get_table(f'{config.APP_NAMESPACE}/documents')
-docs_table.add_computed_column(
-    embedding=embed_model(docs_table.document),
-    if_exists='ignore'  # No-op if column exists
-)
-```
-- Version control `schema.py` like database migration scripts.
-- Rollback via `table.revert()` (single operation) or Git revert (complex changes).
-
-### Updating Models
-
-The most common schema evolution is switching an embedding or LLM model. In a traditional stack this requires a migration script, a compute cluster, reprocessing every row, and a maintenance window. In Pixeltable it's one line — the old column keeps working while the new one backfills.
-
-**Traditional approach:**
-```python
-# 1. Write migration script
-# 2. Spin up compute to re-embed all rows (hours of downtime)
-# 3. Swap the column in application code
-# 4. Deploy during maintenance window
-# 5. Monitor for consistency issues
-
-data = db.query("SELECT id, content FROM documents")
-for row in data:
-    new_vec = new_model.encode(row["content"])
-    db.execute("UPDATE documents SET embedding = %s WHERE id = %s", (new_vec, row["id"]))
-```
-
-**Pixeltable approach:**
-```python
-# Add a new computed column. Old column still serves queries — zero downtime.
-docs.add_computed_column(
-    embedding_v2=sentence_transformer(docs.text, model_id='intfloat/e5-large-v2'),
-    if_exists='ignore'
-)
-# Pixeltable backfills in batches, rate-limited, with automatic retries.
-# Switch your queries to embedding_v2 when ready.
-```
-
-<Info>
-Because both columns coexist, you can A/B test retrieval quality before cutting over — no rollback plan needed.
-</Info>
-
-## Deployment Patterns
-
-**Web Applications:**
-- For standard endpoints, use [`pxt service`](/howto/deployment/serving) with an application file, or [`FastAPIRouter`](/howto/deployment/serving#quickstart-python)
-- Run `python schema.py` once before starting workers to create tables
-- Each router calls `pxt.get_table()` directly and defines its own `@pxt.query` functions
-- Use sync (`def`) endpoint handlers for concurrent request support
-
-<Card title="Pixeltable Starter Kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
-  Clone a production-ready FastAPI + React app with multimodal upload, search, and agent endpoints — plus deployment configs for Docker Compose, Helm, Terraform, and AWS CDK.
-</Card>
-
-**Batch Processing:**
-- Schedule via `cron`, Airflow, AWS EventBridge, GCP Cloud Scheduler, or webhooks
-- Deploy to Cloud Run Jobs, Lambda, ECS Fargate, Kubernetes Jobs
-- Isolate batch workloads from real-time serving (separate containers/instances)
-- Use Pixeltable's incremental computation to process only new data
-- The starter kit includes a [batch processing pipeline](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/batch) with `export_sql` and the `destination` parameter, plus ready-to-use deploy configs for Lambda, Cloud Run, ECS Fargate, and K8s Jobs
-
-**Containers:**
-- Docker provides reproducible builds across environments
-- **Full Backend:** Mount persistent volume at `~/.pixeltable` (or set `PIXELTABLE_HOME`)
-- **Kubernetes:** Use `ReadWriteOnce` PVC (single-pod write access)
-- Docker Compose or Kubernetes for multi-container deployments
-- The starter kit includes a [multi-stage Dockerfile](https://github.com/pixeltable/pixeltable-starter-kit/blob/main/Dockerfile) and ready-to-use deployment configs:
-
-| Method | Directory | Use case |
-|---|---|---|
-| **Docker Compose** | [root](https://github.com/pixeltable/pixeltable-starter-kit/blob/main/docker-compose.yml) | Local / single server |
-| **Helm** | [`deploy/helm/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/deploy/helm) | Any existing K8s cluster |
-| **Terraform (EKS)** | [`deploy/terraform-k8s/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/deploy/terraform-k8s) | AWS from scratch |
-| **Terraform (GKE)** | [`deploy/terraform-gke/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/deploy/terraform-gke) | GCP from scratch |
-| **Terraform (AKS)** | [`deploy/terraform-aks/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/deploy/terraform-aks) | Azure from scratch |
-| **AWS CDK** | [`deploy/aws-cdk/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/deploy/aws-cdk) | ECS Fargate + EFS |
+Each starter-kit app ships a `Dockerfile` and `docker-compose.yml`. In the container, run `pxt schema update app.py agent -f` once (`-f` skips the yes/no prompt), then start HTTP. Pass `agent` or `videointel` as the last argument, matching the starter app you copied. `pxt service run` starts HTTP in this container's foreground. Locally you usually run `pxt service update` instead:
 
 ```dockerfile
-# Multi-stage Dockerfile (from the starter kit)
-FROM node:20-slim AS frontend-build
-WORKDIR /app/frontend
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
-COPY frontend/ ./
-RUN npm run build
-
-FROM python:3.12-slim AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential libpq-dev curl && \
-    rm -rf /var/lib/apt/lists/*
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-WORKDIR /app
-COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv sync --frozen --no-dev --python /usr/local/bin/python3
-COPY backend/ ./
-COPY --from=frontend-build /app/backend/static ./static
 ENV PIXELTABLE_HOME=/data/pixeltable
-EXPOSE 8000
-CMD ["sh", "-c", "uv run python schema.py && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4"]
+CMD sh -c "uv run pxt schema update app.py agent -f \
+  && uv run pxt service run app.py agent --host 0.0.0.0 --port 8000"
 ```
 
-## Environment Management
-
-### Multi-Tenancy and Isolation
-
-| Isolation Type | Implementation | Use Case | Overhead |
-|----------------|----------------|----------|----------|
-| **Logical** | Single Pixeltable instance with directory namespaces (`pxt.create_dir(f"user_{user_id}")`) | Dev/staging environments, simple multi-user apps | Low |
-| **Physical** | Separate container instances per tenant | SaaS with strict data isolation | High |
-
-**Logical Isolation Example:**
-```python
-# Per-user isolation via namespaces
-pxt.create_dir(f"user_{user_id}", if_exists='ignore')
-user_table = pxt.create_table(f"user_{user_id}/chat_history", schema={...})
-```
-
-### High Availability Constraints
-
-| Configuration | Status | Details |
-|---------------|--------|---------|
-| **Single Pod + ReadWriteOnce PVC** | ✅ Supported | One active pod writes to dedicated volume. Failover requires volume detach/reattach. |
-| **Multiple Pods + Shared Volume (NFS/EFS)** | ❌ Not Supported | **Will cause database corruption.** Do not mount same `pgdata` to multiple pods. |
-| **Multi-Node HA** | 🔜 Coming 2026 | Available in Pixeltable Cloud (serverless scaling, API endpoints). [Join waitlist](https://www.pixeltable.com/waitlist) |
+Use `pxt.create_dir(...)` for per-user namespaces in one database. Use separate containers if each tenant must not share `pgdata`.
 
 <Warning>
-**Single-Writer Limitation:** Pixeltable's storage layer uses an embedded PostgreSQL instance. **Only one process can write to `~/.pixeltable/pgdata` at a time**.
+Only one process writes `~/.pixeltable/pgdata`. Do not mount the same `pgdata` on two pods.
 </Warning>
+
+## Monitoring
+
+Insert/compute traces: `pip install 'pixeltable[otel]'`, then [Observability](/platform/observability).
+
+```python
+import logging
+import time
+import pixeltable as pxt
+
+logger = logging.getLogger(__name__)
+
+
+@pxt.udf
+def process_video(video: pxt.Video) -> pxt.Json:
+    start = time.time()
+    try:
+        result = {'processed': True}
+        logger.info('Processed in %.2fs', time.time() - start)
+        return result
+    except Exception as e:
+        logger.error('Processing failed: %s', e)
+        raise
+```
+
+```python
+from pixeltable.func import Batch
+
+
+@pxt.udf(batch_size=32)
+def embed_batch(texts: Batch[str]) -> Batch[list[float]]:
+    return model.encode(texts)
+```
+
+Provider limits in `config.toml`. [Configuration](/platform/configuration#rate-limit-configuration).
+
+```toml
+[openai.rate_limits]
+gpt-4o = 500
+```
+
+Throttle a custom endpoint with `resource_pool`. Default is 600 requests per minute.
+
+```python
+@pxt.udf(resource_pool='request-rate:my_service')
+async def call_custom_api(prompt: str) -> dict:
+    return await custom_api_call(prompt)
+```
 
 ## Troubleshooting
 
-### Reset Database (Development Only)
-
-To completely reset Pixeltable's local state during development:
+Development reset (deletes data):
 
 ```bash
-# Stop all Pixeltable processes first, then:
-rm -rf ~/.pixeltable/pgdata ~/.pixeltable/media ~/.pixeltable/file_cache
+rm -rf ~/.pixeltable/pgdata \
+  ~/.pixeltable/media \
+  ~/.pixeltable/file_cache
 ```
 
-<Warning>
-**This deletes all data.** Only use in development. For production, use backups and `table.revert()` or snapshots instead.
-</Warning>
-
-### Common Issues
-
-| Symptom | Cause | Solution |
-|---------|-------|----------|
-| "Cannot connect to database" | Stale lock file | Remove `~/.pixeltable/pgdata/postmaster.pid` if no process is running |
-| Slow first query | File cache miss | Files download on first access; subsequent queries are fast |
-| "Table not found" | Wrong namespace | Check `pxt.list_tables()` and verify `config.APP_NAMESPACE` |
-| OOM on large media | Full file loaded to memory | Use iterators (`FrameIterator`, `DocumentSplitter`) to process incrementally |
-
-### Environment Separation
-
-Use environment-specific namespaces to manage dev/staging/prod configurations:
-
-```python
-# config.py
-import os
-
-ENV = os.getenv('ENVIRONMENT', 'dev')
-APP_NAMESPACE = f'{ENV}_myapp'  # Creates: dev_myapp, staging_myapp, prod_myapp
-
-# Model and API configuration
-EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'intfloat/e5-large-v2')
-OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
-
-# Optional: Cloud storage for generated media
-MEDIA_STORAGE_BUCKET = os.getenv('MEDIA_STORAGE_BUCKET')
-```
-
-## Testing
-
-**Staging Environment:**
-- Mirror production configuration.
-- Test schema changes, UDF updates, application code changes.
-- Use representative data (anonymized or synthetic).
-
-```python
-# Test environment with isolated namespace
-import pixeltable as pxt
-
-TEST_NS = 'test_myapp'
-pxt.create_dir(TEST_NS, if_exists='replace')
-# Run setup targeting test namespace
-# Execute tests
-# pxt.drop_dir(TEST_NS, force=True)  # Cleanup
-```
-
+| Symptom | What to do |
+|---------|------------|
+| Cannot connect | If no process is running, remove `~/.pixeltable/pgdata/postmaster.pid` |
+| Slow first query | First access downloads into the file cache |
+| Table not found | `pxt.list_tables()`; check the directory name |
+| OOM on large media | Use [iterators](/platform/iterators) |
