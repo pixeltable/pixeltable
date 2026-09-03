@@ -307,6 +307,9 @@ def _tbl_lock_mode(op_class: _TblOpClass, is_data_versioned: bool) -> _TblLockMo
     is self-compatible, so concurrent operational writers share the table; EXCLUSIVE conflicts with itself, which is
     the write-serialization point a data-versioned table needs. Both are compatible with ACCESS SHARE, so neither
     blocks readers.
+
+    A metadata update and a pending table ops resolution obtain the most exclusive lock preventing any concurrent
+    access.
     """
     if op_class is _TblOpClass.DATA_READ:
         return _TblLockMode.ACCESS_SHARE
