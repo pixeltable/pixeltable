@@ -6,6 +6,7 @@ Lookup is an exact (method, path) match; catalog paths travel in the query strin
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Callable, TypeVar, overload
 
@@ -147,9 +148,13 @@ class Router:
     # routes registered with checks_env=False
     _skips_env_check: set[tuple[Method, str]]  # set of route ids
 
-    def __init__(self) -> None:
+    # when set, the only routes this router will match; catalog-only mode serves a subset
+    _allowed: frozenset[tuple[Method, str]] | None
+
+    def __init__(self, allowed: Iterable[tuple[Method, str]] | None = None) -> None:
         self._routes = {}
         self._skips_env_check = set()
+        self._allowed = None if allowed is None else frozenset(allowed)
 
     def get(self, path: str, *, checks_env: bool = True) -> Callable[[Handler], Handler]:
         return self._register('GET', path, checks_env)
@@ -168,6 +173,8 @@ class Router:
         return decorator
 
     def match(self, method: Method, url_path: str) -> Handler | None:
+        if self._allowed is not None and (method, url_path) not in self._allowed:
+            return None
         return self._routes.get((method, url_path))
 
     def checks_env(self, method: Method, url_path: str) -> bool:

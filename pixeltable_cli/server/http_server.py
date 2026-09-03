@@ -323,9 +323,9 @@ class _QuietServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def bind(port: int) -> _QuietServer:
+def bind(port: int, host: str = '127.0.0.1') -> _QuietServer:
     """Bind the listen socket. Raises OSError if the port is already taken."""
-    return _QuietServer(('127.0.0.1', port), _DaemonHandler)
+    return _QuietServer((host, port), _DaemonHandler)
 
 
 def run(server: _QuietServer) -> None:
