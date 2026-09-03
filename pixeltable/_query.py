@@ -671,7 +671,7 @@ class Query(QueryBase):
         # only a media column can name a file, so only those cells are worth examining
         schema = self.schema
         media_idxs = [i for i, col_type in enumerate(schema.values()) if col_type.is_media_type()]
-        rows: list[list] = []
+        rows: list[list[Any]] = []
         for data in self._output_row_iterator(args=args, media_as_urls=True):
             for idx in media_idxs:
                 data[idx] = proxy_protocol.encode_local_path(data[idx])

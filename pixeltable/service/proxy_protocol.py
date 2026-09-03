@@ -204,7 +204,7 @@ class ProxyRequest(BaseModel):
     args: dict[str, Any]  # method kwargs
     request_id: str | None = None  # set for mutating methods (idempotency); unused for now
 
-    # raw binary parts referenced by 'blob' tags in args
+    # raw binary parts, referenced by index from the tagged values in args
     _binary_parts: list[bytes] = PrivateAttr(default_factory=list)
 
     # temp path -> the client's original filename; needed for informative error messages
@@ -216,10 +216,9 @@ class ProxyRequest(BaseModel):
 
 
 class ProxyResponse(TypedDict, total=False):
-    """The JSON head of a proxy response, as required by the content arg of FastAPI.Response().
+    """The fields a proxy response carries; encode_response() turns them into the body's JSON head.
 
-    total=False: it is legal for fields to be absent
-    values referenced by 'blob' tags travel beside the head rather than in it; see encode_body().
+    A response sets either result or error, and current_md only after a mutation or a stale-md refusal.
     """
 
     result: Any  # return value

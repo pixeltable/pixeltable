@@ -34,7 +34,6 @@ from .proxy_protocol import PROTOCOL_VERSION, ProxyRequest
 _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from pixeltable._query import Query
     from pixeltable.catalog import LocalTable
     from pixeltable.catalog.types import TableVersionMd
     from pixeltable.catalog.update_status import UpdateStatus
@@ -82,21 +81,20 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
             _logger.debug('%s.%s %s (%.2fs)', request.class_name, request.method, path_label, time.monotonic() - t0)
             return proxy_protocol.encode_response({'result': result, 'current_md': md})
 
-        body_handler = _BODY_HANDLERS.get(key)
-        if body_handler is not None:
-            _prefetch_remote_parts(request)
-            body = body_handler(request)
-            _logger.debug('%s.%s (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
-            return body
         handler = _HANDLERS.get(key)
         if handler is None:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported proxy method: {request.class_name}.{request.method}'
             )
         _prefetch_remote_parts(request)
-        result = _convert_result(key, handler(request))
+        result = handler(request)
+        body: bytes
+        if key in _BODY_METHODS:
+            body = result
+        else:
+            body = proxy_protocol.encode_response({'result': _convert_result(key, result)})
         _logger.debug('%s.%s (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
-        return proxy_protocol.encode_response({'result': result})
+        return body
 
     except excs.Error as e:
         if e.detail is not None:
@@ -393,8 +391,6 @@ def _insert_sql_source(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 
 def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
-    from pixeltable._query import Query
-
     # only an InsertableTableProxy dispatches 'insert_query', so a non-InsertableTable here is an internal error
     assert isinstance(tbl, InsertableTable), tbl
     kwargs = _deserialize_args(request)
@@ -529,9 +525,7 @@ def _describe(request: ProxyRequest, tbl: LocalTable) -> Any:
     return {'str': helper.to_string(), 'html': helper.to_html()}
 
 
-def _build_query(query_dict: dict) -> 'Query':
-    from pixeltable._query import Query
-
+def _build_query(query_dict: dict) -> Query:
     # from_dict() loads metadata
     @retry_loop(for_write=False)
     def build() -> Query:
@@ -547,15 +541,7 @@ def _query_collect(request: ProxyRequest) -> bytes:
 
 
 def _query_count(request: ProxyRequest) -> int:
-    from pixeltable._query import Query
-
-    query_dict = proxy_protocol.deserialize_request(request)['query']
-
-    @retry_loop(for_write=False)
-    def build() -> Query:
-        return Query.from_dict(query_dict)
-
-    return build().count()
+    return _build_query(proxy_protocol.deserialize_request(request)['query']).count()
 
 
 def _encode_row_media(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -591,6 +577,7 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('CatalogBase', 'get_dir_contents'): _catalog_method,
     ('CatalogBase', 'create_dir'): _catalog_method,
     ('CatalogBase', 'drop_dir'): _catalog_method,
+    ('Query', 'collect'): _query_collect,
     ('Query', 'count'): _query_count,
 }
 
@@ -621,11 +608,10 @@ _MUTATION_METHODS: frozenset[str] = frozenset(
     }
 )
 
+# methods whose handler returns the encoded response body, rather than a value for encode_response()
+_BODY_METHODS: frozenset[tuple[str, str]] = frozenset({('Query', 'collect')})
+
 # Path-bearing Table methods: handler(request, tbl) -> result; handle() resolves tbl and sends current md back.
-# handlers that write their own response body, rather than returning a value for encode_response()
-_BODY_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], bytes]] = {('Query', 'collect'): _query_collect}
-
-
 _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], Any]] = {
     ('Table', 'alter_column'): _alter_column,
     ('Table', 'get_metadata'): _get_metadata,

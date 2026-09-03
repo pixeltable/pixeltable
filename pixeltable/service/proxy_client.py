@@ -45,6 +45,7 @@ from .proxy_protocol import (
     ProxyRequest,
     ProxyResponse,
     PxtStorePartSink,
+    decode_body,
     encode_body,
 )
 
@@ -345,7 +346,7 @@ class ProxyClient:
             snapshot_path_key=None if snapshot_key is None else snapshot_key.as_dict(),
         )
         body = encode_body(request.model_dump_json().encode(), parts)
-        response_head, response_parts = proxy_protocol.decode_body(self._transport.post(body))
+        response_head, response_parts = decode_body(self._transport.post(body))
         return json.loads(response_head), response_parts
 
     def send(
