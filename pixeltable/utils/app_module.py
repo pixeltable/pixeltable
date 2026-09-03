@@ -9,9 +9,10 @@ import re
 import sys
 import threading
 import traceback
+from collections.abc import Iterable
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog import ProhibitedWriteError, is_valid_identifier, model
@@ -334,7 +335,7 @@ def get_module_services(module: ModuleType, file: str) -> tuple[fastapi.FastAPI 
 
     if app is not None:
         # make sure every router is included in the application
-        app_endpoints = {id(route.endpoint) for route in app.routes if hasattr(route, 'endpoint')}
+        app_endpoints = {id(route.endpoint) for route in _app_routes(app) if hasattr(route, 'endpoint')}
         for name, router in routers.items():
             router_endpoints = {id(route.endpoint) for route in router.routes if hasattr(route, 'endpoint')}
             if not router_endpoints.issubset(app_endpoints):
@@ -370,9 +371,21 @@ def service_spec(name: str, service: FastAPIRouter | fastapi.FastAPI, routers: l
     return ServiceSpec(name=name, routes=routes, app_paths=_app_paths(service, routers))
 
 
+def _app_routes(app: fastapi.FastAPI) -> Iterable[Any]:
+    """app.routes, with every router that include_router() added expanded into its routes.
+
+    FastAPI 0.137 stores an included router as one tree node in app.routes instead of copying its routes in;
+    iter_route_contexts() (0.137.2+) flattens that tree, and earlier versions have nothing to flatten.
+    """
+    import fastapi.routing
+
+    flatten = getattr(fastapi.routing, 'iter_route_contexts', None)
+    return app.routes if flatten is None else flatten(app.routes)
+
+
 def _include_prefix(app: fastapi.FastAPI, router: FastAPIRouter) -> str:
     """The prefix that app adds to router's paths, empty when absent."""
-    app_paths = {id(getattr(route, 'endpoint', None)): getattr(route, 'path', '') for route in app.routes}
+    app_paths = {id(getattr(route, 'endpoint', None)): getattr(route, 'path', '') for route in _app_routes(app)}
     for route in router.routes:
         path = getattr(route, 'path', None)
         app_path = app_paths.get(id(getattr(route, 'endpoint', None)))
@@ -387,7 +400,7 @@ def _app_paths(app: fastapi.FastAPI, routers: list[FastAPIRouter]) -> list[str]:
         id(endpoint) for router in routers for endpoint in (getattr(r, 'endpoint', None) for r in router.routes)
     }
     included: set[str] = set()
-    for route in app.routes:
+    for route in _app_routes(app):
         path = getattr(route, 'path', None)
         if path is not None and id(getattr(route, 'endpoint', None)) in from_routers:
             # a route spells a path parameter with its converter, '/media/{path:path}', where the document
