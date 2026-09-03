@@ -55,7 +55,7 @@ _DB_DESTRUCTIVE_HINT = "Re-run 'pxt db update' with --allow-destructive to apply
 _ENV_BINDING = 'env:'
 
 # how long a hosted database may stay in a transitional state before an update gives up on it
-_DB_SETTLE_TIMEOUT = 1200.0
+_DB_SETTLE_TIMEOUT = 3600.0
 _DB_POLL_INTERVAL = 5.0
 
 # the states a database passes through while it applies something

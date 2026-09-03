@@ -300,8 +300,10 @@ ignore_missing_imports = true
 [[tool.pixeltable.database]]
 # we need the repo for the uv-dynamic-versioning install, and pixeltable/_version.py in order for the
 # package to function. Both are ignored by default
+name = 'pxt://pixeltable:pxttest'
 include = ['.git/**', 'pixeltable/_version.py']
 system_dependencies = ["libiconv", "ffmpeg==6.1.1=gpl*"]
+uv_options = "--no-dev"
 
 [tool.pyright]
 typeCheckingMode = "off"

@@ -313,7 +313,7 @@ def _build_app(test_mode: bool = False) -> 'FastAPI':
             return Response(content='{"status": "ok"}', media_type='application/json')
 
     @app.get('/health')
-    def health() -> dict[str, str | None]:
+    async def health() -> dict[str, str | None]:
         root = Config.get().project_root
         return {'status': 'ok', 'project_root': None if root is None else str(root)}
 
