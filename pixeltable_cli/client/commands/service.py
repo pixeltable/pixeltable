@@ -257,6 +257,14 @@ def run(argv: list[str]) -> None:
             dest='allow_destructive',
             help='permit changes that stop serving a route callers may be using',
         )
+        ap.add_argument(
+            '--port',
+            type=int,
+            help=(
+                'serve on this port; only valid if applied to a single service. If omitted and this command is '
+                'restarting a running service, the same port is used'
+            ),
+        )
     if verb == 'run':
         ap.add_argument(
             'service', nargs='?', help='the service to serve; required when the file declares more than one'
@@ -299,6 +307,7 @@ def run(argv: list[str]) -> None:
             dry_run=args.dry_run,
             allow_destructive=args.allow_destructive,
             otel=args.otel,
+            port=args.port,
         )
 
 
@@ -331,6 +340,7 @@ def _update(
     dry_run: bool,
     allow_destructive: bool,
     otel: bool = False,
+    port: int | None = None,
 ) -> None:
     plan = _service_plan(app_file, target, otel)
     if plan.in_agreement:
@@ -342,6 +352,17 @@ def _update(
     if dry_run:
         _print_plan(plan, as_json=as_json)
         sys.exit(EXIT_CHANGES_PENDING)
+
+    if port is not None:
+        starting = [d.name for d in plan.services if d.resolution != 'up_to_date' and d.status != 'refused']
+        if len(starting) > 1:
+            print(
+                f'pxt service update: --port names one port, and this would start {len(starting)} services: '
+                f'{", ".join(sorted(starting))}.\nLeave --port off to keep each service on the port it was '
+                'reached at, or declare the services in separate files.',
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_ERROR)
 
     s = plan.summary
     restarts = f', interrupting {s.restarts} running service(s)' if s.restarts > 0 else ''
@@ -355,7 +376,13 @@ def _update(
     applied = ServicePlan.model_validate(
         post_request(
             '/api/service/update',
-            {'app_file': app_file, 'target': target, 'allow_destructive': allow_destructive, 'otel': otel},
+            {
+                'app_file': app_file,
+                'target': target,
+                'allow_destructive': allow_destructive,
+                'otel': otel,
+                'port': port,
+            },
         )
     )
     _print_plan(applied, as_json=as_json, applied=True)

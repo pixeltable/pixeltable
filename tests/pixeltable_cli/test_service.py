@@ -185,6 +185,8 @@ class TestService:
         assert [s['status'] for s in r.json['services']] == ['applied']
         after = assert_serving(cli, apps('basic_added_route.py'), target, 'ingest')['ingest']
         assert after['pid'] != before['pid'], 'a changed declaration is applied by replacing the process'
+        assert after['port'] == before['port'], 'a restart serves on the port callers were given'
+        assert after['endpoint'] == before['endpoint']
 
         # the added route serves, and so do the routes that were already there
         assert _post(after['endpoint'], '/shout', doc_id=3, title='new route', published=True).json() == {
@@ -677,6 +679,33 @@ class TestService:
         r = cli('service', 'run', apps('basic.py'), 'pxt://acme:main/app', check=False)
         assert r.returncode != 0
         assert 'serves from this process' in r.stderr, r.stderr
+
+        # --port names one port, and two_services.py declares two
+        two = project_dir / 'two_services.py'
+        two.write_text(
+            dedent("""
+            import pixeltable as pxt
+            from pixeltable.serving import FastAPIRouter
+
+            TableModel = pxt.model_base()
+
+
+            class Notes(TableModel, name='notes'):
+                s: pxt.String
+
+
+            first = FastAPIRouter(name='first')
+            first.add_insert_route(Notes, path='/a', inputs=[Notes.s], outputs=[Notes.s])
+            second = FastAPIRouter(name='second')
+            second.add_insert_route(Notes, path='/b', inputs=[Notes.s], outputs=[Notes.s])
+            """),
+            encoding='utf-8',
+        )
+        cli('schema', 'update', str(two), target)
+        r = cli('service', 'update', str(two), target, '-f', '--port', '8123', check=False)
+        assert r.returncode == 1
+        assert '--port names one port' in r.stderr, r.stderr
+        assert services(cli) == {}, 'a refused update started nothing'
 
     def test_example(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """The file `example` writes declares both the tables and the services, and serves."""

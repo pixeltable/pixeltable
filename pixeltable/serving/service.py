@@ -61,7 +61,7 @@ def service_diff(app_file: str, target: PxtPath, *, otel: bool = False) -> Servi
 
 
 def service_update(
-    app_file: str, target: PxtPath, *, allow_destructive: bool = False, otel: bool = False
+    app_file: str, target: PxtPath, *, allow_destructive: bool = False, otel: bool = False, port: int | None = None
 ) -> ServicePlan:
     """Reconcile the services at target with what's in app_file.
 
@@ -77,6 +77,8 @@ def service_update(
         app_file: the application file declaring the services.
         target: the catalog directory the services' models bind against.
         allow_destructive: whether to apply changes that stop serving a route callers may be using.
+        port: the loopback port to serve on. None keeps the port a restarted service was reached at, and asks
+            the OS for one when starting a service that was not running.
     """
     manager = get_manager(target)
     plan = service_diff(app_file, target, otel=otel)
@@ -99,10 +101,14 @@ def service_update(
             diff.status = 'skipped'
             continue
         instance = running.get(diff.name)
+        # a restart keeps the port it was reached at, so that callers pointed at it do not have to be redirected
+        service_port = port
         if instance is not None and instance.state is service_instance.ServiceInstanceState.AVAILABLE:
+            if service_port is None:
+                service_port = instance.record.port
             # the running service serves the old declaration; binding happens once per process, so it is replaced
             instance.stop()
-        started = manager.start(app_file, diff.name, _base_path(target), otel=otel)
+        started = manager.start(app_file, diff.name, _base_path(target), otel=otel, port=service_port)
         diff.status = 'applied'
         diff.state = started.state
         diff.endpoint = started.endpoint

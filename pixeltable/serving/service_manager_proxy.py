@@ -59,7 +59,14 @@ class ServiceManagerProxy(ServiceManagerBase):
         )
         return [ServiceInstance(r, self) for r in response.instances if self._serves(r, base_path, recursive)]
 
-    def start(self, app_file: str, name: str, base_path: str = '', *, otel: bool = False) -> ServiceInstance:
+    def start(
+        self, app_file: str, name: str, base_path: str = '', *, otel: bool = False, port: int | None = None
+    ) -> ServiceInstance:
+        if port is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'A hosted service is reached at its own hostname, not a port; --port applies to a local target',
+            )
         module = load_app_module(app_file, subject='application file')
         services = services_by_name(module, app_file)
         if name not in services:

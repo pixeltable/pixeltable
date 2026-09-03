@@ -254,6 +254,7 @@ class ServiceUpdateBody(BaseModel):
     target: PxtPath
     allow_destructive: bool = False
     otel: bool = False
+    port: int | None = None  # the loopback port to serve on; None keeps the one a restarted service had
 
 
 class DbDiffBody(BaseModel):

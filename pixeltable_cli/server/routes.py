@@ -520,7 +520,11 @@ def service_diff(req: Request) -> types.ServicePlan:
 def service_update(req: Request) -> types.ServicePlan:
     body = req.body(models.ServiceUpdateBody)
     applied = service.service_update(
-        body.app_file, req.resolve_path(body.target), allow_destructive=body.allow_destructive, otel=body.otel
+        body.app_file,
+        req.resolve_path(body.target),
+        allow_destructive=body.allow_destructive,
+        otel=body.otel,
+        port=body.port,
     )
     return applied
 
