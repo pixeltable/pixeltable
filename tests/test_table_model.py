@@ -2333,6 +2333,8 @@ class TestTableModel:
 
         assert [c.name for c in Projected.table_path().column_md()] == ['v', 'plus']
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
         """A computed column calling a @pxt.query UDF over another model queries that model's table."""
         TableModel = pxt.model_base()
@@ -2361,6 +2363,8 @@ class TestTableModel:
         rows = probe.order_by(probe.cutoff).select(probe.matches).collect()['matches']
         assert rows == [[{'title': 'alpha'}, {'title': 'beta'}], [{'title': 'beta'}]]
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_query_udf_column_shapes(self, db_root: DatabaseRoot) -> None:
         """Several columns over one query udf, and one that wraps its result, each hold their own value."""
         TableModel = pxt.model_base()

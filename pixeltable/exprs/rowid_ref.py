@@ -27,6 +27,7 @@ class RowidRef(Expr):
     tbl: catalog.TableVersionHandle | None
     normalized_base: catalog.TableVersionHandle | None
     tbl_id: UUID
+    tbl_effective_version: int | None
     normalized_base_id: UUID
     rowid_component_idx: int
 
@@ -36,6 +37,7 @@ class RowidRef(Expr):
         idx: int,
         tbl_id: UUID | None = None,
         normalized_base_id: UUID | None = None,
+        tbl_effective_version: int | None = None,
     ):
         super().__init__(ts.IntType(nullable=False))
         self.tbl = tbl
@@ -52,6 +54,7 @@ class RowidRef(Expr):
 
         # if we're initialized by _from_dict(), we only have the ids, not the TableVersion itself
         self.tbl_id = tbl.id if tbl is not None else tbl_id
+        self.tbl_effective_version = tbl.effective_version if tbl is not None else tbl_effective_version
         self.normalized_base_id = self.normalized_base.id if self.normalized_base is not None else normalized_base_id
         self.rowid_component_idx = idx
         self.id = self._create_id()
@@ -64,6 +67,11 @@ class RowidRef(Expr):
             self.normalized_base_id == other.normalized_base_id
             and self.rowid_component_idx == other.rowid_component_idx
         )
+
+    @property
+    def tbl_key(self) -> catalog.TableVersionKey:
+        """The table version this rowid belongs to."""
+        return catalog.TableVersionKey(self.tbl_id, self.tbl_effective_version)
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [
@@ -86,11 +94,7 @@ class RowidRef(Expr):
         # check if this is the pos column of a component view
         from pixeltable import store
 
-        tbl = (
-            self.tbl.get()
-            if self.tbl is not None
-            else get_runtime().catalog.get_tbl_version(catalog.TableVersionKey(self.tbl_id, None))
-        )
+        tbl = self.tbl.get() if self.tbl is not None else get_runtime().catalog.get_tbl_version(self.tbl_key)
         if (
             tbl.is_component_view
             and self.rowid_component_idx == cast(store.StoreComponentView, tbl.store_tbl).pos_col_idx
@@ -115,13 +119,10 @@ class RowidRef(Expr):
         assert self.tbl_id in base_ids  # our current TableVersion is a base of the new TableVersion
         self.tbl = tbl.tbl_version
         self.tbl_id = self.tbl.id
+        self.tbl_effective_version = self.tbl.effective_version
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
-        tbl = (
-            self.tbl.get()
-            if self.tbl is not None
-            else get_runtime().catalog.get_tbl_version(catalog.TableVersionKey(self.tbl_id, None))
-        )
+        tbl = self.tbl.get() if self.tbl is not None else get_runtime().catalog.get_tbl_version(self.tbl_key)
         assert tbl.is_validated
         rowid_cols = tbl.store_tbl.rowid_columns()
         assert self.rowid_component_idx <= len(rowid_cols), (
@@ -133,9 +134,9 @@ class RowidRef(Expr):
         data_row[self.slot_idx] = data_row.pk[self.rowid_component_idx]
 
     def _as_dict(self) -> dict:
-        # TODO: Serialize the full TableVersionHandle, not just the UUID
         return {
             'tbl_id': str(self.tbl_id),
+            'tbl_effective_version': self.tbl_effective_version,
             'normalized_base_id': str(self.normalized_base_id),
             'idx': self.rowid_component_idx,
         }
@@ -143,4 +144,13 @@ class RowidRef(Expr):
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> RowidRef:
         tbl_id, normalized_base_id, idx = UUID(d['tbl_id']), UUID(d['normalized_base_id']), d['idx']
-        return cls(tbl=None, idx=idx, tbl_id=tbl_id, normalized_base_id=normalized_base_id)
+        # Legacy records created before this change carry no effective version; for them we assume live version, which
+        # is not always correct, but also is no worse than the current behavior that makes the same assumption less
+        # explicitly.
+        return cls(
+            tbl=None,
+            idx=idx,
+            tbl_id=tbl_id,
+            normalized_base_id=normalized_base_id,
+            tbl_effective_version=d.get('tbl_effective_version'),
+        )

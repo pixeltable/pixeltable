@@ -217,12 +217,12 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
     """
     import pixeltable as pxt
 
-    from ..catalog import retry_loop
+    from ..catalog import retry_read_md_loop
     from .declaration import BtreeIndex
 
     catalog_dir = catalog.Path.dir_prefix(catalog_dir)
 
-    @retry_loop(for_write=False)
+    @retry_read_md_loop()
     def op() -> dict[str, TableDiff]:
         results: dict[str, TableDiff] = {}
 

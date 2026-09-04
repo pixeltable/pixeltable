@@ -333,6 +333,8 @@ class TestSchema:
 
         assert_in_agreement(cli, apps('search.py'), target)
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_query_udf_column(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A column that calls a query udf reads that udf's table."""
         target = db_root.make_catalog_path('retrieval')
