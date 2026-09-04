@@ -156,10 +156,10 @@ class EmbeddingIndex:
             object.__setattr__(self, 'name', fold_identifier(self.name))
 
     def resolved_embeddings(self) -> dict[ts.ColumnType.Type, func.Function]:
-        """The embedding function serving each column type, resolved as the index will store them.
+        """The embedding function serving each column type.
 
-        Resolution binds a function's defaults and picks the overload matching each type, so a function declared
-        bare renders the way the stored index renders it.
+        The functions are rendered the way index renders them: the resolution binds a function's defaults and picks the
+        overload matching each type.
         """
         from pixeltable import index
 
@@ -168,7 +168,7 @@ class EmbeddingIndex:
         )
 
     def as_fn_call(self) -> exprs.FunctionCall:
-        """The embedding call for the indexed column's own type, which is the one an index materializes."""
+        """The embedding call for the indexed column's own type, which is what the index materializes."""
         assert isinstance(self.column, exprs.ColumnRefByName)
         col_type = self.column.col_type
         embeddings = self.resolved_embeddings()
@@ -179,7 +179,7 @@ class EmbeddingIndex:
         return embeddings[col_type._type](self.column)
 
     def resolved_embedding_fns(self) -> list[str]:
-        """The rendered embedding functions, as an index's metadata records them."""
+        """The rendered embedding functions, as the index's metadata records them."""
         return [str(fn) for fn in self.resolved_embeddings().values()]
 
     def __repr__(self) -> str:
