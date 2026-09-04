@@ -676,13 +676,16 @@ class Query(QueryBase):
         from pixeltable.service import proxy_protocol
 
         assert self._from_clause.is_local
-        schema = self.schema
-        file_ref_idxs = self._file_ref_idxs()
+        tvps = self._from_clause.tvps
         rows: list[list[Any]] = []
-        for data in self._output_row_iterator(args=args, media_as_urls=True):
-            for idx in file_ref_idxs:
-                data[idx] = proxy_protocol.encode_local_path(data[idx])
-            rows.append(data)
+        # the schema and the positions travel with the rows, so all three are resolved against one catalog state
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
+            schema = self.schema
+            file_ref_idxs = self._file_ref_idxs()
+            for data in self._output_row_iterator(args=args, media_as_urls=True):
+                for idx in file_ref_idxs:
+                    data[idx] = proxy_protocol.encode_local_path(data[idx])
+                rows.append(data)
         return proxy_protocol.encode_response({'result': {'schema': schema, 'rows': rows}})
 
     def cursor(self) -> ResultCursor:
