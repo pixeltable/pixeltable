@@ -75,8 +75,13 @@ def _is_gitignored(path: Path, is_dir: bool, specs: list[tuple[Path, PathSpec]])
     return False
 
 
+def _is_venv(dir_path: Path) -> bool:
+    """Whether dir_path is a Python virtual environment."""
+    return (dir_path / 'pyvenv.cfg').is_file() or (dir_path / 'conda-meta').is_dir()
+
+
 def _collect_unignored_files(project_dir: Path) -> set[Path]:
-    """All files under project_dir that git would not ignore.
+    """All files under project_dir that git would not ignore, minus any virtual environment.
 
     Honors the .gitignore at every level of the tree, not just project_dir's: tools such as ruff, mypy and
     pytest keep their caches out of git by writing a `.gitignore` containing `*` into the cache directory
@@ -87,7 +92,8 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
     them as symlinks rather than recursing).
 
     .git is skipped here, as git itself does, but only by default: an `include` pattern of `.git/**` still
-    reaches it, which a project that derives its version from VCS metadata needs.
+    reaches it, which a project that derives its version from VCS metadata needs. A virtual environment is
+    skipped whether or not a .gitignore covers it, since the pod installs the packages from the lockfile.
     """
     files: set[Path] = set()
 
@@ -100,6 +106,8 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
                 continue
             is_dir = entry.is_dir() and not entry.is_symlink()
             if _is_gitignored(entry, is_dir, specs):
+                continue
+            if is_dir and _is_venv(entry):
                 continue
             if is_dir:
                 visit(entry, specs)
