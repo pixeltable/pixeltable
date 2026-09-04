@@ -989,6 +989,84 @@ class TestMv:
         assert r.returncode != 0
 
 
+class TestRecompute:
+    @pxt.udf
+    @staticmethod
+    def _doubled(a: int) -> int:
+        if a < 0:
+            raise ValueError('negative')
+        return a * 2
+
+    def _table(self, path: str) -> pxt.Table:
+        """A table with a computed column that fails on one row, and a second column that depends on it."""
+        t = pxt.create_table(path, {'a': pxt.Int | None}, if_exists='replace')
+        t.add_computed_column(doubled=TestRecompute._doubled(t.a), on_error='ignore')
+        t.add_computed_column(quadrupled=t.doubled * 2)
+        t.insert([{'a': 1}, {'a': 2}, {'a': -1}], on_error='ignore')
+        return t
+
+    def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('cli_rc'), if_exists='ignore')
+        t = self._table(p('cli_rc/t'))
+
+        # dry-run reports the row count it would recompute over, and changes nothing
+        v_before = t.get_metadata()['version']
+        out = cli('recompute', p('cli_rc/t'), 'doubled', '-n').stdout
+        assert 'would recompute doubled' in out
+        assert '3 rows' in out
+        assert t.get_metadata()['version'] == v_before
+
+        out = cli('recompute', p('cli_rc/t'), 'doubled', '-f', '--json').json
+        assert out['num_rows'] == 3
+        # the dependent column recomputes too, so both are reported, qualified by the table holding them
+        assert sorted(out['columns']) == ['t.doubled', 't.quadrupled']
+        # the failing row leaves an error in the column and in the dependent computed from it
+        assert out['num_excs'] == 2
+        assert sorted(out['cols_with_excs']) == ['t.doubled', 't.quadrupled']
+
+        text = cli('recompute', p('cli_rc/t'), 'doubled', 'quadrupled', '-f').stdout
+        assert 'recomputed' in text
+        assert '2 errors in t.doubled' in text
+
+    def test_cascade_and_errors_only(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('cli_rc2'), if_exists='ignore')
+        t = self._table(p('cli_rc2/t'))
+
+        # --no-cascade leaves the dependent column out of the operation
+        out = cli('recompute', p('cli_rc2/t'), 'doubled', '--no-cascade', '-f', '--json').json
+        assert out['columns'] == ['t.doubled']
+
+        # --errors-only recomputes only the row whose value is an error
+        out = cli('recompute', p('cli_rc2/t'), 'doubled', '--errors-only', '-f', '--json').json
+        assert out['num_rows'] == 1
+        assert t.where(t.a == 2).select(t.doubled).collect()[0]['doubled'] == 4
+
+    def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('cli_rc_err'), if_exists='ignore')
+        t = self._table(p('cli_rc_err/t'))
+
+        # client preflight: errors_only takes one column
+        r = cli('recompute', p('cli_rc_err/t'), 'doubled', 'quadrupled', '--errors-only', '-f', check=False)
+        assert r.returncode != 0
+        assert '--errors-only takes a single column' in r.stderr
+
+        r = cli('recompute', p('cli_rc_err/t'), 'nosuch', '-f', check=False)
+        assert r.returncode != 0
+        assert 'Unknown column' in r.stderr, r.stderr
+
+        # a stored, non-computed column has nothing to recompute
+        r = cli('recompute', p('cli_rc_err/t'), 'a', '-f', check=False)
+        assert r.returncode != 0
+
+        # a snapshot is not mutable
+        snap = pxt.create_snapshot(p('cli_rc_err/snap'), t, if_exists='replace')
+        r = cli('recompute', str(snap._path()), 'doubled', '-f', check=False)
+        assert r.returncode != 0
+
+
 class TestRevert:
     def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

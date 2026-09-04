@@ -207,6 +207,22 @@ class RevertBody(BaseModel):
     steps: int = 1  # number of consecutive revert() calls
 
 
+class RecomputeBody(BaseModel):
+    path: str
+    columns: list[str]
+    errors_only: bool = False
+    cascade: bool = True
+
+
+class RecomputeResponse(BaseModel):
+    path: str
+    columns: list[str]  # <table>.<column> for each recomputed column, and for each dependent that cascaded
+    num_rows: int
+    num_computed_values: int
+    num_excs: int
+    cols_with_excs: list[str]
+
+
 class RevertResponse(BaseModel):
     path: str
     from_version: int
