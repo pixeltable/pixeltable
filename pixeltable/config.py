@@ -887,8 +887,6 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
             'Number of temporary database connections the engine may open beyond `db_pool_size` (default: 10)',
             int,
         ),
-        'daemon_host': 'Listen address for the proxy daemon in fixed-address mode (e.g. 0.0.0.0)',
-        'daemon_port': ('Listen port for the proxy daemon in fixed-address mode (e.g. 8000)', int),
         'db_uri': 'Base pxt:// URI for remote catalog access (e.g. pxt://myorg:mydb)',
     },
     'anthropic': {'api_key': 'Anthropic API key'},
@@ -972,8 +970,6 @@ _INSTALLATION_KEYS = frozenset(
         'db',
         'file_cache_size_g',
         'file_cache_lease_s',
-        'daemon_host',
-        'daemon_port',
         'db_pool_size',
         'db_pool_max_overflow',
     }

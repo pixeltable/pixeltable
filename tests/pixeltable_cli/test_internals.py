@@ -1211,25 +1211,30 @@ class TestServerDaemon:
         monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: str(tmp_path / 'pid'))
         monkeypatch.setattr(server_daemon, 'get_port', lambda: 12345)
         fake_server = object()
-        bound: list[int] = []
+        bound: list[tuple[str, int]] = []
         ran: list[object] = []
 
-        def fake_bind(p: int) -> object:
-            bound.append(p)
+        def fake_bind(h: str, p: int) -> object:
+            bound.append((h, p))
             return fake_server
 
         monkeypatch.setattr(server_daemon, 'bind', fake_bind)
         monkeypatch.setattr(server_daemon, 'run', lambda s: ran.append(s))
         monkeypatch.setattr(server_daemon.atexit, 'register', lambda _fn: None)
         server_daemon.main([])
-        assert bound == [12345]
+        assert bound == [('127.0.0.1', 12345)]
         assert ran == [fake_server]
+
+        # the flags a cloud pod passes name the address instead
+        bound.clear()
+        server_daemon.main(['--host', '0.0.0.0', '--port', '8000'])
+        assert bound == [('0.0.0.0', 8000)]
 
     def test_main_defers_to_live_peer(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """bind() OSError + a live pxt daemon on the port: exit 0 silently."""
         monkeypatch.setattr(server_daemon, 'get_port', lambda: 12345)
 
-        def fail(_p: int) -> None:
+        def fail(_h: str, _p: int) -> None:
             raise OSError('address already in use')
 
         monkeypatch.setattr(server_daemon, 'bind', fail)
@@ -1244,7 +1249,7 @@ class TestServerDaemon:
         """bind() OSError + nobody at /api/health: print the error, exit 1."""
         monkeypatch.setattr(server_daemon, 'get_port', lambda: 12345)
 
-        def fail(_p: int) -> None:
+        def fail(_h: str, _p: int) -> None:
             raise OSError('address already in use')
 
         monkeypatch.setattr(server_daemon, 'bind', fail)

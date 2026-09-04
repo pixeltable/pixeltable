@@ -331,15 +331,15 @@ def _build_app(test_mode: bool = False) -> 'FastAPI':
     return app
 
 
-def _serve(test_mode: bool = False) -> None:
+def _serve(test_mode: bool = False, host: str | None = None, port: int | None = None) -> None:
     """Daemon entrypoint.
 
     Local mode (default): binds to a random loopback port, writes a port.lock file
     for the SDK to discover, and manages the database lifecycle itself.
 
-    Fixed-address mode: when PIXELTABLE_DAEMON_HOST or PIXELTABLE_DAEMON_PORT is set,
-    binds to that address and port instead and skips the lock file. Used when an
-    external orchestrator (e.g. a sidecar) handles routing and discovery.
+    Fixed-address mode: with host or port, the daemon binds that address and writes no lock file, because
+    the caller already knows where it listens. A cloud pod runs it this way, with routing and discovery
+    handled outside.
 
     test_mode: exposes the test-only endpoints and returns diagnostic detail with errors.
     """
@@ -359,20 +359,16 @@ def _serve(test_mode: bool = False) -> None:
     # eagerly create/migrate this daemon's database before announcing readiness
     _ = get_runtime().catalog
 
-    config = Config.get()
-    daemon_host = config.get_string_value('daemon_host')
-    daemon_port = config.get_int_value('daemon_port')
-
     # pixeltable log level also drives uvicorn
     log_level = logging.getLogger('pixeltable').getEffectiveLevel()
 
     # log_config=None suppresses uvicorn's own logging setup which results in closing every handler registered so far.
     # Note: at this point, uvicorn logging has already been configured by Env.
-    if daemon_host is not None or daemon_port is not None:
-        uvicorn.run(
-            app, host=daemon_host or '127.0.0.1', port=daemon_port or 8000, log_level=log_level, log_config=None
-        )
+    if host is not None or port is not None:
+        uvicorn.run(app, host=host or '127.0.0.1', port=port or 8000, log_level=log_level, log_config=None)
         return
+
+    config = Config.get()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -392,13 +388,15 @@ def _serve(test_mode: bool = False) -> None:
     uvicorn.Server(uvicorn.Config(app, log_level=log_level, log_config=None)).run(sockets=[sock])
 
 
-if __name__ == '__main__':
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog='pixeltable.service.proxy_daemon')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--project-root', type=Path, default=None)
     parser.add_argument('--db', help='pxt://org:db')
     parser.add_argument('--project-dir', type=Path, default=None, help='unpack that database project here')
-    parsed = parser.parse_args()
+    parser.add_argument('--host', default=None, help='listen address; either flag serves without a lock file')
+    parser.add_argument('--port', type=int, default=None, help='listen port; either flag serves without a lock file')
+    parsed = parser.parse_args(argv)
     project_root = parsed.project_root
     if parsed.db is not None:
         if parsed.project_dir is None:
@@ -413,4 +411,8 @@ if __name__ == '__main__':
             # and a request that needs a udf from it says so
             logging.getLogger('pixeltable').warning('%s has no project; udfs it declares cannot be resolved', parsed.db)
     Config.init(reinit=True, project_root=project_root)
-    _serve(test_mode=parsed.test)
+    _serve(test_mode=parsed.test, host=parsed.host, port=parsed.port)
+
+
+if __name__ == '__main__':
+    main()
