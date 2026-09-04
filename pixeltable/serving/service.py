@@ -387,7 +387,7 @@ def compare_specs(current: ServiceSpec, defined: ServiceSpec) -> list[ServiceCha
         # every route moved, so the routes below would each read as a drop and an add of the same route
         return [*ops, prefix_op]
 
-    # keyed by method and path, which ignores definition order: valid paths don't contain parameters, which avoids
+    # keyed by method and path, which ignores declaration order: valid paths don't contain parameters, which avoids
     # ambiguity
     current_routes = {(r.method, r.path): r for r in current.routes}
     declared_routes = {(r.method, r.path): r for r in defined.routes}

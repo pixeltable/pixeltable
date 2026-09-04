@@ -252,7 +252,7 @@ linkscheck: docs
 
 .PHONY: clean
 clean:
-	@rm -f pixeltable/catalog/model.pyi pixeltable/catalog/model/definition.pyi || true
+	@rm -f pixeltable/catalog/model.pyi pixeltable/catalog/model/definition.pyi pixeltable/catalog/model/declaration.pyi || true
 	@rm -rf .make-install || true
 	@rm -rf .mypy_cache || true
 	@rm -rf pixeltable_cli/server/static || true

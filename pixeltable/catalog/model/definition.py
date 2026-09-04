@@ -276,7 +276,7 @@ class _ModelNamespace(dict):
     # the type check happens in the order it would under eager annotations.
     pending_ann_types: dict[str, Any]
 
-    # Column names in source-definition order; None on the eager path, where the body itself orders them.
+    # Column names in source-declaration order; None on the eager path, where the body itself orders them.
     decl_order: list[str] | None
 
     def __init__(self, table_spec: TableSpec, caller: FrameType) -> None:
@@ -435,7 +435,7 @@ class _ModelNamespace(dict):
                 self.set_col_type(col_name, annotation_types[col_name])
 
     def apply_decl_order(self) -> None:
-        """Reorder `known_cols` into source-definition order, if it is known independently of the body."""
+        """Reorder `known_cols` into source-declaration order, if it is known independently of the body."""
         if self.decl_order is None:
             return
         ordered = {name: self.known_cols[name] for name in self.decl_order if name in self.known_cols}
@@ -732,7 +732,7 @@ class TableModelMeta(type):
         return cls._catalog_dir is not None
 
     def defined_models(cls) -> list[TableModelMeta]:
-        """The models defined on this base, in definition order."""
+        """The models defined on this base, in declaration order."""
         return list(cls.__registered_models__.values())
 
     def referenced_functions(cls) -> list[func.Function]:

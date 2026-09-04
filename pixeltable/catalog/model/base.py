@@ -181,7 +181,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 new_idx_refs = [c.details.index_ref for c in d.ops if c.target == 'index' and c.op == 'add']
                 dropped_idx_names = [c.name for c in d.ops if c.target == 'index' and c.op == 'drop']
                 # Resolve type annotations to ColumnTypes, mirroring _create(), and tag each column's origin.
-                # Iterate in definition order (not the diff's sorted order), so a new column may depend on an
+                # Iterate in declaration order (not the diff's sorted order), so a new column may depend on an
                 # earlier new column, as it can at create time.
                 user_cols = user_columns(model)
                 base_query_cols = base_query_columns(model)
