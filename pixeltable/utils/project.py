@@ -28,10 +28,10 @@ from pixeltable.env import Env
 _logger = logging.getLogger('pixeltable')
 
 # how an image build installs the project's packages
-DepsType = Literal['uv', 'poetry', 'pip', 'none']
+DepsType = Literal['uv', 'pip', 'none']
 
 # a project declares its packages in one of these, each installed by the tool it names
-LOCK_FILES: dict[str, DepsType] = {'uv.lock': 'uv', 'poetry.lock': 'poetry', 'requirements.txt': 'pip'}
+LOCK_FILES: dict[str, DepsType] = {'uv.lock': 'uv', 'requirements.txt': 'pip'}
 
 
 class ProjectPart(enum.StrEnum):
@@ -169,7 +169,7 @@ def create_project_archive(
 
     if not has_lockfile:
         Env.get().console_logger.warning(
-            'No dependency lockfile (uv.lock, poetry.lock, requirements.txt) was found in '
+            'No dependency lockfile (uv.lock, requirements.txt) was found in '
             f'{project_dir}.\nThe image will hold Pixeltable and nothing else, so it may not have the '
             'Python dependencies the project needs. An active conda environment is not a substitute: '
             "run 'uv lock', or write a requirements.txt."
