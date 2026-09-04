@@ -99,6 +99,28 @@ Defining the class does not create the table. Run `pxt schema update app.py my_a
 
     [Tool calling cookbook](/howto/cookbooks/agents/llm-tool-calling)
   </Tab>
+  <Tab title="Pydantic AI" icon="brain">
+    <div id="pydantic-ai" />
+
+    If you already run [Pydantic AI Harness](https://github.com/pydantic/pydantic-ai-harness), keep the agent and persist `Memory` in Pixeltable. The store creates the table on first use.
+
+    ```python
+    from pydantic_ai import Agent
+    from pydantic_ai_harness import Memory
+    from pydantic_ai_pixeltable import PixeltableMemoryStore
+
+    agent = Agent(
+        'openai:gpt-4o',
+        capabilities=[Memory(PixeltableMemoryStore(table_name='my_app.memory'))],
+    )
+    ```
+
+    `pip install pydantic-ai-pixeltable`. Use `.table` for Pixeltable queries and computed columns. This is a bridge, not the default Pixeltable agent.
+
+    A native agent stays on a `TableModel`. After `pxt schema update`, insert `{'message': '...'}` and read `response` and `tool_output`.
+
+    [Pydantic AI Harness library](/libraries/pydantic-ai) · [Tool calling cookbook](/howto/cookbooks/agents/llm-tool-calling)
+  </Tab>
   <Tab title="Scripts and Airflow" icon="gears">
     <div id="scripts-and-airflow" />
 

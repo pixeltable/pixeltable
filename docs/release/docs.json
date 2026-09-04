@@ -355,6 +355,12 @@
               "howto/providers/working-with-voyageai",
               "howto/working-with-fiftyone"
             ]
+          },
+          {
+            "group": "Libraries",
+            "pages": [
+              "libraries/pydantic-ai"
+            ]
           }
         ]
       },

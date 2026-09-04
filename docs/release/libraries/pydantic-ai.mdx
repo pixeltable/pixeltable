@@ -1,0 +1,62 @@
+---
+title: 'Pydantic AI Harness'
+description: 'Persist Pydantic AI Harness memory in a Pixeltable table'
+---
+
+<Card title="pydantic-ai-pixeltable" icon="github" href="https://github.com/pixeltable/pydantic-ai-pixeltable">
+  Source, tests, and release history
+</Card>
+
+`pydantic-ai-pixeltable` is a [Pydantic AI Harness](https://github.com/pydantic/pydantic-ai-harness) `MemoryStore`. Keep the `Memory` capability. Swap `FileStore` or `PostgresMemoryStore` for a Pixeltable table.
+
+This is an interoperability bridge. Native Pixeltable agents still use a `TableModel` and computed columns. Typed insert/`to_pydantic()` is a different page: [Working with Pydantic](/howto/providers/working-with-pydantic).
+
+## When to use
+
+Use this package when a Pydantic AI agent already runs on Harness `Memory` and you want that notebook in Pixeltable: versions, queries, and computed columns on `.table`.
+
+Do not add this package to start a new Pixeltable agent. Insert a row and let computed columns run the turn. See [Migrate](/howto/coming-from#pydantic-ai).
+
+## Installation
+
+```bash
+pip install pydantic-ai-pixeltable
+```
+
+Requires Pixeltable >= 0.6.8 and pydantic-ai-harness >= 0.29.0.
+
+## Persist Harness memory
+
+The store creates the table on first use. You do not run `pxt schema update` for this table.
+
+```python
+from pydantic_ai import Agent
+from pydantic_ai_harness import Memory
+from pydantic_ai_pixeltable import PixeltableMemoryStore
+
+agent = Agent(
+    'openai:gpt-4o',
+    capabilities=[Memory(PixeltableMemoryStore(table_name='harness.memory'))],
+)
+```
+
+`Memory` keeps the notebook tools, injection, and compare-and-set retries. This package stores paths, versions, and operation receipts.
+
+## Escape hatch: `.table`
+
+```python
+from pydantic_ai_pixeltable import PixeltableMemoryStore
+
+store = PixeltableMemoryStore(table_name='harness.memory')
+t = store.table
+t.where(t.kind == 'file').select(t.path, t.content, t.version).collect()
+```
+
+File rows have `kind == 'file'`. Do not write paths whose first segment is `__meta__` or `__op__`; those rows hold the generation counter and operation receipts.
+
+## See also
+
+- [pydantic-ai-pixeltable on GitHub](https://github.com/pixeltable/pydantic-ai-pixeltable)
+- [Pydantic AI Harness](https://github.com/pydantic/pydantic-ai-harness)
+- [Migrate from your stack](/howto/coming-from#pydantic-ai)
+- [Tool calling cookbook](/howto/cookbooks/agents/llm-tool-calling)
