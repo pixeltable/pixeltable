@@ -399,13 +399,32 @@ def _deserialize(
 ) -> Any:
     """Inverse of _serialize(). When uploaded_names is provided, each 'file' arg maps its temp path to the
     original filename in it. remote_parts maps each out-of-band media part's object key to a pre-downloaded
-    local temp path."""
+    local temp path.
+
+    A container whose values all come back unchanged is returned as it was, so a large result that holds no
+    encoded value is walked rather than rebuilt."""
     if isinstance(obj, list):
-        return [_deserialize(x, binary_parts, uploaded_names, remote_parts) for x in obj]
+        deserialized_list: list[Any] | None = None
+        for i, elem in enumerate(obj):
+            deserialized_elem = _deserialize(elem, binary_parts, uploaded_names, remote_parts)
+            if deserialized_elem is not elem:
+                if deserialized_list is None:
+                    deserialized_list = list(obj)
+                deserialized_list[i] = deserialized_elem
+        return obj if deserialized_list is None else deserialized_list
+
     if isinstance(obj, dict):
         tag = obj.get(_TAG)
         if not isinstance(tag, str) or 'v' not in obj:
-            return {k: _deserialize(v, binary_parts, uploaded_names, remote_parts) for k, v in obj.items()}
+            decoded: dict[Any, Any] | None = None
+            for k, val in obj.items():
+                d = _deserialize(val, binary_parts, uploaded_names, remote_parts)
+                if d is not val:
+                    if decoded is None:
+                        decoded = dict(obj)
+                    decoded[k] = d
+            return obj if decoded is None else decoded
+
         v = obj['v']
         if tag == 'float':
             return float(v)  # nan/inf
@@ -602,16 +621,41 @@ def value_encoder(sink: PartSink) -> Callable[[Any], str]:
 
     Faster than encoding a _serialize()ed copy, since json walks the value in C. A value json writes itself
     reaches the receiver in json's form: nan and inf as NaN and Infinity, a tuple as an array, a dict key as
-    a string. A dict is written as-is, so a caller whose value may hold user json runs escape_reserved()
-    over it first.
+    a string. json writes a dict as-is, tag key and all, and an inlined object inside it never reaches the
+    hook, so a caller runs serialize_value() over a value that can hold json of its own.
     """
     return json.JSONEncoder(separators=(',', ':'), default=lambda obj: _serialize(obj, sink)).encode
 
 
-def escape_reserved(value: Any) -> Any:
-    """Rewrite the dicts in a json value that json alone cannot round-trip: ones carrying the reserved tag
-    key, and ones with a non-str key."""
-    return _serialize(value, InlinePartSink())  # a json value holds no binary, so nothing reaches the sink
+def escape_json(value: Any) -> Any:
+    """Rewrite the dicts in a json value that json cannot write as data: the ones carrying the reserved tag
+    key, and the ones with a key json would coerce to a string. Returns value itself if there is nothing to
+    rewrite, so an ordinary value costs no allocation.
+
+    An inlined object needs no rewriting: json cannot write it either way, so it reaches _serialize() through
+    the encoder's hook.
+    """
+    if isinstance(value, dict):
+        if _TAG in value or not all(isinstance(k, str) for k in value):
+            return {_TAG: 'rawdict', 'v': [[k, escape_json(v)] for k, v in value.items()]}
+        escaped: dict[str, Any] | None = None
+        for k, v in value.items():
+            e = escape_json(v)
+            if e is not v:
+                if escaped is None:
+                    escaped = dict(value)
+                escaped[k] = e
+        return value if escaped is None else escaped
+    if isinstance(value, list):
+        escaped_list: list[Any] | None = None
+        for i, v in enumerate(value):
+            e = escape_json(v)
+            if e is not v:
+                if escaped_list is None:
+                    escaped_list = list(value)
+                escaped_list[i] = e
+        return value if escaped_list is None else escaped_list
+    return value
 
 
 def response_body(

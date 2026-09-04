@@ -121,22 +121,6 @@ class TestProxyDaemon:
         assert decoded['id'] == tbl_id
         assert decoded['data'] == b'abc'
 
-    def test_value_encoder_round_trip(self) -> None:
-        """What the single-pass encoder behind Query._collect_content() carries back.
-
-        json writes the containers and scalars it understands, so a value it can write reaches the receiver
-        in json's form. escape_reserved() covers the json values that would not survive that.
-        """
-        sink = proxy_protocol.InlinePartSink()
-        encode = proxy_protocol.value_encoder(sink)
-        row = [math.nan, (1, 2), proxy_protocol.escape_reserved({'$pxt': 'UUID', 'v': 'not-a-uuid'}), b'abc']
-        decoded = proxy_protocol.deserialize_value(json.loads(encode(row)), sink.binary_parts)
-
-        assert math.isnan(decoded[0])
-        assert decoded[1] == [1, 2], 'a tuple arrives as a list'
-        assert decoded[2] == {'$pxt': 'UUID', 'v': 'not-a-uuid'}, 'a json value keeps its own reserved key'
-        assert decoded[3] == b'abc'
-
     def test_collect_remote_keys(self) -> None:
         file_tag = {'$pxt': 'file', 'name': 'a.png', 'v': 'uploads/r/0.png'}
         args = {

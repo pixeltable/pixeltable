@@ -691,7 +691,7 @@ class Query(QueryBase):
                 for idx in file_ref_idxs:
                     data[idx] = proxy_protocol.encode_local_path(data[idx])
                 for idx in json_idxs:
-                    data[idx] = proxy_protocol.escape_reserved(data[idx])
+                    data[idx] = proxy_protocol.escape_json(data[idx])
                 if i > 0:
                     result += b','
                 result += encode(data).encode()
