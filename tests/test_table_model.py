@@ -14,6 +14,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exceptions as excs
 from pixeltable.catalog.model import BtreeIndex, Column, EmbeddingIndex
+from pixeltable.catalog.model.diff import format_diff
 from pixeltable.config import Config
 from pixeltable_cli.types import TableDiff
 
@@ -2685,3 +2686,92 @@ class TestTableModel:
                     EmbeddingIndex(a, embedding=dummy_embedding.using(n=512), name='Idx'),
                     EmbeddingIndex(b, embedding=dummy_embedding.using(n=512), name='idx'),
                 ]
+
+    def test_update_all_altered_computed_column(self, db_root: DatabaseRoot) -> None:
+        """`update_all()` replaces a computed column's value expression without recomputing its stored values."""
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class ExampleTable(TableModel, name='test_table'):
+            id: pxt.Int
+            doubled = id * 2
+
+        class ExampleView(TableModel, name='test_view', base=ExampleTable):
+            vc1 = ExampleTable.doubled + 1
+
+        TableModel.create_all(root)
+        t = pxt.get_table(p('test_table'))
+        v = pxt.get_table(p('test_view'))
+        t.insert([{'id': 1}, {'id': 2}])
+        assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [2, 4]
+
+        AlteredModel = pxt.model_base()
+
+        class AlteredTable(AlteredModel, name='test_table'):
+            id: pxt.Int
+            doubled = id * 100
+
+        class AlteredView(AlteredModel, name='test_view', base=AlteredTable):
+            vc1 = AlteredTable.doubled + 1
+
+        diffs = AlteredModel.get_model_diff(root)
+        assert diffs['test_table'].resolution == 'update_additive'
+        (op,) = diffs['test_table'].ops
+        assert (op.target, op.op, op.severity, op.name) == ('column', 'alter', 'additive', 'doubled')
+        assert 'NOT recomputed' in '\n'.join(format_diff('test_table', diffs['test_table']))
+
+        # applies without allow_destructive, since no stored value is overwritten
+        AlteredModel.update_all(root)
+        t = pxt.get_table(p('test_table'))
+        assert all(d.resolution == 'up_to_date' for d in AlteredModel.get_model_diff(root).values())
+
+        # update_all does not recompute
+        assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [2, 4]
+
+        t.recompute_columns('doubled')
+        assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [100, 200]
+        v = pxt.get_table(p('test_view'))
+        assert v.select(v.vc1).order_by(v.id).collect()['vc1'] == [101, 201]
+
+    def test_update_all_altered_column_unsupported(self, db_root: DatabaseRoot) -> None:
+        """Unsupported column changes"""
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class ExampleTable(TableModel, name='test_table'):
+            id: pxt.Int
+            other: pxt.Int
+            derived = id * 2
+
+        TableModel.create_all(root)
+        pxt.get_table(p('test_table')).insert([{'id': 1, 'other': 5}])
+
+        # a reference the current expression doesn't have
+        NewRefModel = pxt.model_base()
+
+        class NewRefTable(NewRefModel, name='test_table'):
+            id: pxt.Int
+            other: pxt.Int
+            derived = id * 2 + other
+
+        diff = NewRefModel.get_model_diff(root)['test_table']
+        assert diff.resolution == 'unsupported'
+        assert diff.ops[0].severity == 'unsupported'
+        with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match='cannot be updated'):
+            NewRefModel.update_all(root)
+
+        # a different output type
+        NewTypeModel = pxt.model_base()
+
+        class NewTypeTable(NewTypeModel, name='test_table'):
+            id: pxt.Int
+            other: pxt.Int
+            derived = id / 2
+
+        diff = NewTypeModel.get_model_diff(root)['test_table']
+        assert diff.resolution == 'unsupported'
+        assert sorted(diff.ops[0].model.keys()) == ['type', 'value']

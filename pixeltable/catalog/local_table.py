@@ -581,15 +581,8 @@ class LocalTable(Table):
             col_schema['custom_metadata'] = custom_metadata
             col_schema['comment'] = comment
 
-            # Raise an error if the column expression refers to a column error property
             if isinstance(spec, exprs.Expr):
-                for e in spec.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
-                    if e.is_cellmd_prop():
-                        raise excs.RequestError(
-                            excs.ErrorCode.UNSUPPORTED_OPERATION,
-                            f'Use of a reference to the {e.prop.name.lower()!r} property of another column '
-                            f'is not allowed in a computed column.',
-                        )
+                self._verify_computed_col_value(col_name, spec)
 
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
@@ -610,6 +603,21 @@ class LocalTable(Table):
             return result
 
         return do_add_computed_column()
+
+    def _verify_computed_col_value(self, col_name: str, value_expr: 'exprs.Expr') -> None:
+        """Verify a user-supplied value expression for a computed column of this table."""
+        for e in value_expr.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
+            if e.is_cellmd_prop():
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Use of a reference to the {e.prop.name.lower()!r} property of another column '
+                    f'is not allowed in a computed column.',
+                )
+        if not value_expr.is_bound_by([self._tbl_version_path]):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'The value expression of column {col_name!r} ({value_expr}) is not bound by {self._display_str()}',
+            )
 
     @classmethod
     def _verify_column(cls, col: Column) -> None:
@@ -754,6 +762,51 @@ class LocalTable(Table):
             self._tbl_version.get().alter_column(col, new_col_type)
 
         do_alter_column()
+
+    def alter_computed_column(
+        self, *, recompute: bool = True, cascade: bool = True, **kwargs: 'exprs.Expr'
+    ) -> UpdateStatus:
+        from pixeltable.catalog import retry_loop
+
+        self._check_single_column_kwarg('alter_computed_column', '`col_name=expression`', kwargs)
+        col_name, spec = next(iter(kwargs.items()))
+
+        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        def do_alter_computed_column() -> UpdateStatus:
+            self._check_mutable('alter columns of')
+
+            col = self._tbl_version_path.get_column(fold_identifier(col_name))
+            if col is None:
+                raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {col_name}')
+            if col.get_tbl().id != self._tbl_version_path.tbl_id:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter base table column {col.name!r}'
+                )
+            if not col.is_computed:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col.name!r} is not a computed column'
+                )
+
+            new_value_expr = exprs.Expr.from_object(spec)
+            if new_value_expr is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_EXPRESSION,
+                    f'Column {col.name!r}: the new value needs to be a Pixeltable expression, but it is a {type(spec)}',
+                )
+            new_value_expr = new_value_expr.copy()
+            new_value_expr.bind_rel_paths()
+
+            self._verify_computed_col_value(col.name, new_value_expr)
+
+            tv = self._tbl_version.get()
+            if recompute:
+                assert tv.is_data_versioned, 'TODO: implement recompute for operational tables [PXT-1101]'
+
+            result = tv.alter_computed_column(col, new_value_expr, recompute=recompute, cascade=cascade)
+            FileCache.get().emit_eviction_warnings()
+            return result
+
+        return do_alter_computed_column()
 
     def add_btree_index(
         self, column: str | ColumnRef, *, idx_name: str | None = None, if_exists: Literal['error', 'ignore'] = 'error'

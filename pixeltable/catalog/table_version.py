@@ -6,7 +6,7 @@ import itertools
 import logging
 import time
 import warnings
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -839,6 +839,7 @@ class TableVersion:
         self,
         expected_schema_version: int,
         added_cols: list[Column],
+        altered_cols: Sequence[tuple[Column, exprs.Expr]],
         dropped_cols: list[Column],
         added_idxs: list[IndexSpec],
         dropped_idx_ids: list[int],
@@ -849,6 +850,8 @@ class TableVersion:
           referencing other columns in added_cols, which are resolved here once ids are assigned
         - Drops precede adds, and index drops precede column drops, so an index that is both explicitly dropped and
           attached to a dropped column is processed only once.
+        - altered_cols pair an existing computed column with its new, fully resolved value expression; they are
+          applied last, and only change metadata (no recomputing).
         """
         assert self.is_mutable
 
@@ -881,6 +884,11 @@ class TableVersion:
             assert isinstance(col, Column)
             status += self._add_index(col, idx_name, idx)
 
+        for col, new_value_expr in altered_cols:
+            self._alter_value_expr_in_version(col, new_value_expr)
+
+        get_runtime().catalog.record_column_dependencies(self)
+        self.path.clear_cached_md()
         self.set_version_update_status(status)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Applied model updates to table {self.name}, new version: {self.version}')
@@ -1002,6 +1010,63 @@ class TableVersion:
             f'Altered column {col.name!r} type from {old_type} to {type_} in table {self.name}, new version: '
             f'{self.version}'
         )
+
+    def _alter_value_expr_in_version(self, col: Column, new_value_expr: exprs.Expr) -> None:
+        """Replace a computed column's value expression within the current schema version."""
+        assert self.is_mutable
+        assert col.is_computed
+        assert col.get_tbl().id == self.id
+        self._validate_altered_value_expr(col, new_value_expr)
+        col.set_value_expr(new_value_expr)
+        col.check_value_expr()
+        self._schema_version_md.columns[col.id].value_expr = col.value_expr_dict
+
+    def _validate_altered_value_expr(self, col: Column, new_value_expr: exprs.Expr) -> None:
+        """Verify that new_value_expr can replace col's current value expression."""
+        assert col.is_computed
+        if new_value_expr.col_type != col.col_type:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Column {col.name!r}: the new value expression has type {new_value_expr.col_type}, but the column '
+                f'has type {col.col_type}. Changing the type of a computed column is not supported.',
+            )
+        old_refs = exprs.Expr.get_refd_column_ids(col.value_expr_dict)
+        new_refs = exprs.Expr.get_refd_column_ids(new_value_expr.as_dict())
+
+        # For now, the new dependencies must be a subset of the current dependencies.
+        if not new_refs <= old_refs:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Column {col.name!r}: the new value expression may only reference columns that the current one '
+                f'references.',
+            )
+
+    def alter_computed_column(
+        self, col: Column, new_value_expr: exprs.Expr, *, recompute: bool, cascade: bool
+    ) -> UpdateStatus:
+        """Replace the value expression of a computed column, optionally recomputing its stored values."""
+        assert self.is_mutable
+        assert col.is_computed
+        assert not recompute or self.is_data_versioned
+        if col.value_expr_dict == new_value_expr.as_dict():
+            # no-op: return early and do not create a new schema version
+            return UpdateStatus()
+
+        get_runtime().catalog.mark_modified_tv(self.handle)
+        self.bump_version(bump_schema_version=True)
+        old_value_expr = col.value_expr
+        self._alter_value_expr_in_version(col, new_value_expr)
+        get_runtime().catalog.record_column_dependencies(self)
+        self.path.clear_cached_md()
+        _logger.info(
+            f'Altered value expression of column {col.name!r} in table {self.name} from {old_value_expr} to '
+            f'{new_value_expr}, new version: {self.version}'
+        )
+
+        if not recompute:
+            self._write_md(new_version=True, new_schema_version=True)
+            return UpdateStatus()
+        return self.recompute_columns([col.name], cascade=cascade, bump_version=False)
 
     def set_comment(self, new_comment: str | None) -> None:
         _logger.info(f'[{self.name}] Updating comment: {new_comment}')
@@ -1142,13 +1207,15 @@ class TableVersion:
 
         plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], cascade)
 
-        result = self.propagate_update(
+        timestamp = time.time()
+        self.bump_version(timestamp, bump_schema_version=False)
+        result = self._propagate_update(
             [plan],
             where.sql_expr(SqlElementCache()) if where is not None else None,
             recomputed_cols,
             modified_cols=list(update_spec.keys()),
             base_versions=[],
-            timestamp=time.time(),
+            timestamp=timestamp,
             cascade=cascade,
             return_rows=return_rows,
         )
@@ -1179,13 +1246,15 @@ class TableVersion:
         plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = Planner.create_batch_update_plan(
             self.path, batch, rowids, cascade=cascade
         )
-        result = self.propagate_update(
+        timestamp = time.time()
+        self.bump_version(timestamp, bump_schema_version=False)
+        result = self._propagate_update(
             [plan],
             delete_where_clause,
             recomputed_cols,
             modified_cols=updated_cols,
             base_versions=[],
-            timestamp=time.time(),
+            timestamp=timestamp,
             cascade=cascade,
             return_rows=return_rows,
         )
@@ -1282,7 +1351,12 @@ class TableVersion:
         return update_targets
 
     def recompute_columns(
-        self, col_names: list[str], where: exprs.Expr | None = None, errors_only: bool = False, cascade: bool = True
+        self,
+        col_names: list[str],
+        where: exprs.Expr | None = None,
+        errors_only: bool = False,
+        cascade: bool = True,
+        bump_version: bool = True,
     ) -> UpdateStatus:
         from pixeltable.exprs import CompoundPredicate, SqlElementCache
         from pixeltable.plan import Planner
@@ -1311,19 +1385,22 @@ class TableVersion:
             self.path, update_targets={}, recompute_targets=target_columns, cascade=cascade
         )
 
-        result = self.propagate_update(
+        timestamp = time.time()
+        if bump_version:
+            self.bump_version(timestamp, bump_schema_version=False)
+        result = self._propagate_update(
             [plan],
             where_clause.sql_expr(SqlElementCache()) if where_clause is not None else None,
             recomputed_cols,
             modified_cols=target_columns,
             base_versions=[],
-            timestamp=time.time(),
+            timestamp=timestamp,
             cascade=cascade,
         )
         result += UpdateStatus(updated_cols=updated_cols)
         return result
 
-    def propagate_update(
+    def _propagate_update(
         self,
         plans: list[exec.ExecNode],
         where_clause: sql.ColumnElement | None,
@@ -1335,7 +1412,10 @@ class TableVersion:
         base_membership_change: bool = False,
         return_rows: bool = False,
     ) -> UpdateStatus:
-        """
+        """Records the plans' output as the current version, and propagates the change to this table's views.
+
+        plans: insert plans to execute. If plans is not empty, the caller is expected to have already bumped self's
+        version. Also if plans is not empty, this will write self's metadata in the end.
         base_membership_change: True if the update may have added rows to this table's base; a row appearing in the
             base is a row this view needs to add, whether or not it has a predicate of its own
         """
@@ -1344,9 +1424,7 @@ class TableVersion:
         assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         get_runtime().catalog.mark_modified_tv(self.handle)
         result = UpdateStatus()
-        create_new_table_version = len(plans) > 0
-        if create_new_table_version:
-            self.bump_version(timestamp, bump_schema_version=False)
+        if len(plans) > 0:
             # soft delete must be done before insert, otherwise we would have duplicate primary key values
             # upon insert since the rows would be duplicated until the soft delete occurs
             self.store_tbl.soft_delete_rows(
@@ -1407,7 +1485,9 @@ class TableVersion:
                 elif len(recomputed_cols) > 0:
                     view_plans.append(Planner.create_view_update_plan(view_tv.path, recompute_targets=recomputed_cols))
 
-                status = view_tv.propagate_update(
+                if len(view_plans) > 0:
+                    view_tv.bump_version(timestamp, bump_schema_version=False)
+                status = view_tv._propagate_update(
                     view_plans,
                     None,
                     recomputed_view_cols,
@@ -1419,9 +1499,9 @@ class TableVersion:
                 )
                 result += status.to_cascade()
 
-        if create_new_table_version:
+        if len(plans) > 0:
             self.set_version_update_status(result)
-            self._write_md(new_version=True, new_schema_version=False)
+            self._write_md(new_version=True, new_schema_version=self.version == self.schema_version)
         return result
 
     def _validate_where_clause(self, pred: exprs.Expr, error_prefix: str) -> None:

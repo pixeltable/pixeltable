@@ -1961,19 +1961,28 @@ class Catalog(CatalogBase):
                 pending_ancestor_ids = (set(tvp.tbl_ids[1:]) & updated_tbl_ids) - applied_tbl_ids
                 assert len(pending_ancestor_ids) == 0, f'{tv.name}: bases not yet applied: {pending_ancestor_ids}'
 
-                added_cols, added_idxs = prepare_model_updates(
-                    tvp, tv.display_str(), change_set['new_columns'], change_set['new_idxs']
+                added_cols, added_idxs, altered_exprs = prepare_model_updates(
+                    tvp,
+                    tv.display_str(),
+                    change_set['new_columns'],
+                    change_set['altered_columns'],
+                    change_set['new_idxs'],
                 )
+                altered_cols = [(tv.cols_by_name[name], expr) for name, expr in altered_exprs.items()]
                 dropped_cols = [tv.cols_by_name[name] for name in change_set['dropped_columns']]
                 dropped_idx_ids = [tv.idxs_by_name[name].id for name in change_set['dropped_idxs']]
                 expected_schema_version = change_set['schema_versions'][change_set['tbl_id']]
                 _logger.info(
                     f'Applying model updates to {tv.name!r} (id={tv.id}, schema_versions={expected_schema_version}): '
-                    f'add columns {[col.name for col in added_cols]}, drop columns {change_set["dropped_columns"]}, '
+                    f'add columns {[col.name for col in added_cols]}, '
+                    f'alter columns {[col.name for col, _ in altered_cols]}, '
+                    f'drop columns {change_set["dropped_columns"]}, '
                     f'add indexes {[spec.idx_name for spec in added_idxs]}, '
                     f'drop indexes {change_set["dropped_idxs"]}'
                 )
-                tv.apply_schema_change(expected_schema_version, added_cols, dropped_cols, added_idxs, dropped_idx_ids)
+                tv.apply_schema_change(
+                    expected_schema_version, added_cols, altered_cols, dropped_cols, added_idxs, dropped_idx_ids
+                )
                 applied_tbl_ids.add(tvp.tbl_id)
 
         try:

@@ -207,6 +207,61 @@ def _add_index_change(idx: IndexDefinition) -> SchemaChangeOp:
     )
 
 
+def _alter_value_change(
+    col_name: str,
+    spec: ColumnSpec,
+    model_props: _ColumnProperties,
+    existing_props: _ColumnProperties,
+    col_md: ColumnMetadata,
+) -> SchemaChangeOp | None:
+    """The op that applies a computed column's new value expression, or None if this change cannot be applied."""
+    new_value = spec.get('value')
+    # a computed column becoming a data column, or vice versa, is a different kind of change
+    if new_value is None or not col_md['is_computed']:
+        return None
+    new_value_expr = exprs.Expr.from_object(new_value)
+
+    # Adding new dependencies to the column computation is currently not supported.
+    # the column names the model expression depends on
+    model_refs = {ref.name for ref in new_value_expr.subexprs(exprs.ColumnRefByName)}
+    model_refs |= {ref.col.name for ref in new_value_expr.subexprs(exprs.ColumnRef) if ref.col.name is not None}
+    # the column names that the column currently depends on
+    catalog_refs = {name for _, name in (col_md['depends_on'] or ())}
+    if not model_refs <= catalog_refs:
+        return None
+
+    return SchemaChangeOp(
+        target='column',
+        name=col_name,
+        op='alter',
+        severity='additive',
+        model={'value': model_props.value},
+        existing={'value': existing_props.value},
+        description=(
+            f'the value expression of computed column {col_name!r} will be updated; '
+            f'existing values will NOT be recomputed'
+        ),
+        details=SchemaChangeOpDetails(
+            type=model_props.type, value=model_props.value, previous_value=existing_props.value
+        ),
+    )
+
+
+def _unsupported_alter(
+    col_name: str, model_props: _ColumnProperties, existing_props: _ColumnProperties, altered: list[str]
+) -> SchemaChangeOp:
+    """The op for a column whose properties differ in ways update_all() cannot apply."""
+    return SchemaChangeOp(
+        target='column',
+        name=col_name,
+        op='alter',
+        severity='unsupported',
+        model={prop: getattr(model_props, prop) for prop in altered},
+        existing={prop: getattr(existing_props, prop) for prop in altered},
+        description=f'column {col_name!r} has altered properties: {", ".join(altered)}',
+    )
+
+
 def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: str) -> dict[str, TableDiff]:
     """
     Analyze each registered model against the current catalog state, summarizing the schema changes that creating
@@ -340,29 +395,29 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         )
                     )
 
-            # Columns present in both, whose properties differ; unsupported for now (some alterations will later be
-            # applicable via allow_destructive=True).
+            # Columns present in both, whose properties differ. Some kinds of changes are supported, others are not.
             default_media_validation = model.__table_spec__['media_validation'].name.lower()
             for col_name in sorted(model_cols & existing_cols):
-                model_props = _ColumnProperties.from_spec(user_cols[col_name], default_media_validation)
-                existing_props = _ColumnProperties.from_metadata(existing_md['columns'][col_name])
+                spec = user_cols[col_name]
+                col_md = existing_md['columns'][col_name]
+                model_props = _ColumnProperties.from_spec(spec, default_media_validation)
+                existing_props = _ColumnProperties.from_metadata(col_md)
                 altered = [
                     prop
                     for prop in model_props.__dataclass_fields__
                     if getattr(model_props, prop) != getattr(existing_props, prop)
                 ]
-                if len(altered) > 0:
-                    ops.append(
-                        SchemaChangeOp(
-                            target='column',
-                            name=col_name,
-                            op='alter',
-                            severity='unsupported',
-                            model={prop: getattr(model_props, prop) for prop in altered},
-                            existing={prop: getattr(existing_props, prop) for prop in altered},
-                            description=f'column {col_name!r} has altered properties: {", ".join(altered)}',
-                        )
-                    )
+                if len(altered) == 0:
+                    continue
+
+                # 'value' is the only property update_all() can currently apply
+                op: SchemaChangeOp | None = None
+                if altered == ['value']:
+                    op = _alter_value_change(col_name, spec, model_props, existing_props, col_md)
+                if op is not None:
+                    ops.append(op)
+                else:
+                    ops.append(_unsupported_alter(col_name, model_props, existing_props, altered))
 
             # Additive/destructive column and index changes.
             for col_name in sorted(model_cols - existing_cols):
@@ -525,11 +580,22 @@ def format_diff(name: str, diff: TableDiff) -> list[str]:
             detail.append(f'    {c.name}: model={c.model!r}, existing={c.existing!r}')
 
     altered_cols = by('column', op='alter')
-    if len(altered_cols) > 0:
+    unsupported_alters = [c for c in altered_cols if c.severity == 'unsupported']
+    if len(unsupported_alters) > 0:
         detail.append('  the following columns have altered properties (FATAL):')
-        for c in altered_cols:
+        for c in unsupported_alters:
             for prop, model_val in c.model.items():
                 detail.append(f'    {c.name!r} {prop}: model={model_val!r}, existing={c.existing[prop]!r}')
+
+    supported_alters = [c for c in altered_cols if c.severity != 'unsupported']
+    if len(supported_alters) > 0:
+        detail.append('  the following computed columns have a new value expression, and will be UPDATED:')
+        for c in supported_alters:
+            detail.append(f'    {c.name!r}: {c.existing["value"]} -> {c.model["value"]}')
+        # If any computed column's expression changed, include the recompute notice
+        if any(c.details.previous_value is not None for c in supported_alters):
+            detail.append('  the current values of these columns are NOT recomputed automatically.')
+            detail.append('  run `pxt recompute` to do that.')
 
     new_cols = by('column', op='add')
     if len(new_cols) > 0:
