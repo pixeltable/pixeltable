@@ -25,7 +25,7 @@
 [**skill.md**](https://docs.pixeltable.com/skill.md) |
 [**Discord**](https://discord.gg/QPyqFYx2UN)
 
-## A unified multimodal backend that is one schema you keep, not a stack you assemble
+## The unified multimodal backend for AI data apps in one Python file.
 
 Most stacks glue a blob store, a warehouse, a vector database, an orchestrator, and custom endpoints. You pay for the joints. Pixeltable is the database, the orchestration, and the serving: tables, computed columns, indexes, and endpoints in one Python file (`app.py`). Insert a row. Transforms run.
 
