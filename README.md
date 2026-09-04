@@ -1,3 +1,5 @@
+> **Pixeltable Cloud is in Limited Beta.** Email [contact@pixeltable.com](mailto:contact@pixeltable.com) if you are interested.
+
 <picture class="github-only">
   <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/e9bf82b2-cace-4bd8-9523-b65495eb8131">
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/c5ab123e-806c-49bf-93e7-151353719b16">
