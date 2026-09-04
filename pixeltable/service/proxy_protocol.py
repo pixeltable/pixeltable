@@ -404,7 +404,7 @@ def _deserialize(
         return [_deserialize(x, binary_parts, uploaded_names, remote_parts) for x in obj]
     if isinstance(obj, dict):
         tag = obj.get(_TAG)
-        if tag is None:
+        if not isinstance(tag, str) or 'v' not in obj:
             return {k: _deserialize(v, binary_parts, uploaded_names, remote_parts) for k, v in obj.items()}
         v = obj['v']
         if tag == 'float':
@@ -514,7 +514,8 @@ def _deserialize(
             return datetime.datetime.fromisoformat(v)
         if tag == 'date':
             return datetime.date.fromisoformat(v)
-        raise AssertionError(f'unknown proxy serialization tag: {tag!r}')
+        # a json value of its own that happens to carry the reserved key
+        return {k: _deserialize(val, binary_parts, uploaded_names, remote_parts) for k, val in obj.items()}
     return obj
 
 
@@ -593,20 +594,20 @@ def deserialize_value(value: Any, parts: list[bytes]) -> Any:
     return _deserialize(value, parts)
 
 
-# the separators pydantic emitted, so that a body reads the same as the ones written before this
-_dumps = json.JSONEncoder(separators=(',', ':')).encode
-
-
 def encode_response(response: ProxyResponse) -> bytes:
     """The wire body for a response, moving any binary values in it out to the body's parts."""
     sink = InlinePartSink()
-    head = {
-        'result': _serialize(response.get('result'), sink),
-        'error': response.get('error'),
-        'current_md': _serialize(response.get('current_md'), sink),
-        'is_stale_md': response.get('is_stale_md', False),
-    }
-    return encode_body(_dumps(head).encode(), sink.binary_parts)
+    # we have encode() hand off the values it doesn't understand to _serialize()
+    encode = json.JSONEncoder(separators=(',', ':'), default=lambda obj: _serialize(obj, sink)).encode
+    head = encode(
+        {
+            'result': response.get('result'),
+            'error': response.get('error'),
+            'current_md': response.get('current_md'),
+            'is_stale_md': response.get('is_stale_md', False),
+        }
+    )
+    return encode_body(head.encode(), sink.binary_parts)
 
 
 def encode_dir_tree(dir_path: pathlib.Path) -> list[dict[str, Any]]:

@@ -150,6 +150,10 @@ class TableProxy(Table):
         output['path'] = self._rebase_path(output['path'])
         if output['base'] is not None:
             output['base'] = self._rebase_path(output['base'])
+        for col_md in output['columns'].values():
+            # json has no tuple of its own, so each dependency pair arrives as a list
+            if col_md['depends_on'] is not None:
+                col_md['depends_on'] = [(dep[0], dep[1]) for dep in col_md['depends_on']]
         return output
 
     def __getattr__(self, name: str) -> 'exprs.ColumnRef':

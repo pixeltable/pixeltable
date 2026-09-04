@@ -1,5 +1,7 @@
 import json
+import math
 import pathlib
+import uuid
 from typing import Any
 
 import numpy as np
@@ -94,6 +96,30 @@ class TestProxyDaemon:
         assert sink.binary_parts[0] == (tmp_path / 'cat.png').read_bytes()
         assert sink.binary_parts[2] == b'abc'
         assert proxy_protocol.collect_remote_keys(wire) == []
+
+    def test_response_round_trip(self) -> None:
+        """What a response carries back for the values json writes itself, and for the ones it hands off."""
+        tbl_id = uuid.uuid4()
+        result = {
+            'nan': math.nan,
+            'inf': math.inf,
+            'pair': (1, 2),
+            'int_keys': {1: 'x'},
+            'reserved': {'$pxt': 'not-a-tag', 'v': 1},
+            'id': tbl_id,
+            'data': b'abc',
+        }
+        body = proxy_protocol.encode_response({'result': result})
+        head, parts = proxy_protocol.decode_body(body)
+        decoded = proxy_protocol.deserialize_value(json.loads(head)['result'], parts)
+
+        assert math.isnan(decoded['nan'])
+        assert decoded['inf'] == math.inf
+        assert decoded['pair'] == [1, 2], 'a tuple arrives as a list'
+        assert decoded['int_keys'] == {'1': 'x'}, 'a non-str key arrives as a string'
+        assert decoded['reserved'] == {'$pxt': 'not-a-tag', 'v': 1}, 'the reserved key alone does not make a tag'
+        assert decoded['id'] == tbl_id
+        assert decoded['data'] == b'abc'
 
     def test_collect_remote_keys(self) -> None:
         file_tag = {'$pxt': 'file', 'name': 'a.png', 'v': 'uploads/r/0.png'}
