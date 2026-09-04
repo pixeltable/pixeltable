@@ -184,7 +184,7 @@ class TestGemini:
         skip_test_if_no_client('gemini')
         from google.genai.types import GenerateImagesConfigDict
 
-        from pixeltable.functions.gemini import _genai_client, generate_images
+        from pixeltable.functions.gemini import generate_images
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         t.add_computed_column(output=generate_images(t.prompt, model='imagen-4.0-generate-001'))
