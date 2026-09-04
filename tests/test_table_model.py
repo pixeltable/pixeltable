@@ -1905,8 +1905,8 @@ class TestTableModel:
         assert TableModelV2.get_model_diff(p(''))['test_table'].resolution == 'up_to_date'
 
     def test_update_all_replaces_index_on_query_side_embedding(self, db_root: DatabaseRoot) -> None:
-        """An image index's string_embed serves only similarity queries, so a change to it alters nothing the
-        indexed column's own embedding records, however the diff has to catch it anyway."""
+        """An image index's `string_embed` serves only similarity queries, so changing it does not alter the indexed
+        column's own embedding records; however, the diff must catch it."""
         p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 

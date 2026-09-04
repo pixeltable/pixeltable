@@ -371,7 +371,7 @@ class TestSchema:
         r = cli('schema', 'update', str(schema_file), target, '--allow-destructive', '-f')
         assert r.returncode == 0
 
-        # one index of that name remains, built from the new definition, and it answers a similarity query
+        # one index of that name remains, built from the new definition
         notes = pxt.get_table(f'{target}/notes')
         indexes = notes.get_metadata()['indexes']
         assert set(indexes.keys()) == {'ix'}
