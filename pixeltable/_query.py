@@ -15,7 +15,6 @@ from typing import (
     Hashable,
     Iterable,
     Iterator,
-    Literal,
     NoReturn,
     Self,
     TypeVar,
@@ -539,29 +538,25 @@ class Query(QueryBase):
         """
         return self._head(n)
 
-    def _rowid_order_by(self) -> list[exprs.Expr]:
-        """The rowid components of this query's first table, in order, as an insertion-order sort key.
-
-        Built from the table's md path, so it works against a proxy table too: a TableProxy carries no
-        TableVersion, and RowidRef takes the ids in that case.
-        """
+    def _rowid_order_by(self) -> list[exprs.RowidRef]:
+        """The rowid components of this query's first table, in order, as an insertion-order sort key."""
         tbl = self._from_clause.tbls[0]
         if self._from_clause.is_local:
             tbl_version = self._first_tbl.tbl_version
             return [exprs.RowidRef(tbl_version, idx) for idx in range(tbl_version.get().num_rowid_columns())]
-        return [self._md_rowid_ref(tbl, idx) for idx in range(tbl.num_rowid_columns())]
-
-    def _md_rowid_ref(self, tbl: catalog.TablePath, idx: int) -> exprs.RowidRef:
-        """A reference to rowid component idx of tbl, addressed by key rather than by TableVersion."""
-        base = tbl.rowid_normalized_base(idx)
-        return exprs.RowidRef(
-            None,
-            idx,
-            tbl_id=tbl.tbl_id,
-            effective_version=tbl.effective_version(),
-            normalized_base_id=base.tbl_id,
-            normalized_base_effective_version=base.effective_version(),
-        )
+        rowid_refs: list[exprs.RowidRef] = []
+        for rowid_column_idx in range(tbl.num_rowid_columns()):
+            base = tbl.rowid_normalized_base(rowid_column_idx)
+            ref = exprs.RowidRef(
+                None,
+                rowid_column_idx,
+                tbl_id=tbl.tbl_id,
+                effective_version=tbl.effective_version(),
+                normalized_base_id=base.tbl_id,
+                normalized_base_effective_version=base.effective_version(),
+            )
+            rowid_refs.append(ref)
+        return rowid_refs
 
     def _head(self, n: int = 10, *, media_as_urls: bool = False) -> ResultSet:
         if self.order_by_clause is not None:
@@ -642,19 +637,17 @@ class Query(QueryBase):
     def collect(self) -> ResultSet:
         return self._collect()
 
-    _ProxyMethodNames = Literal['collect']
-
-    def _exec_proxy(self, method: _ProxyMethodNames, **extra: Any) -> ProxyResultCursor:
+    def _exec_proxy(self, **extra: Any) -> ProxyResultCursor:
         from pixeltable.catalog.catalog_proxy import CatalogProxy
 
         cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
         assert isinstance(cat, CatalogProxy)
-        result = cat.client.run_query(method, self.as_dict(), **extra)
+        result = cat.client.run_query(self.as_dict(), **extra)
         return ProxyResultCursor(self, cat.client, result['schema'], result['rows'])
 
     def _collect(self, args: dict[str, Any] | None = None, *, media_as_urls: bool = False) -> ResultSet:
         if not self._from_clause.is_local:
-            return self._exec_proxy('collect', args=args).as_result_set()
+            return self._exec_proxy(args=args).as_result_set()
         tvps = self._from_clause.tvps
         with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
             schema = self.schema
@@ -679,11 +672,7 @@ class Query(QueryBase):
         ]
 
     def _collect_content(self, args: dict[str, Any] | None = None) -> bytes:
-        """Returns the proxy response body (content arg of FastAPI.Response()) for this query's rows.
-
-        The content is a json-serialized string containing the schema and rows objects needed to construct a
-        ProxyResultCursor.
-        """
+        """Encode this query's rows as a proxy response body, for the content arg of FastAPI.Response()."""
         from pixeltable.service import proxy_protocol
 
         assert self._from_clause.is_local
@@ -702,7 +691,7 @@ class Query(QueryBase):
         See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
         """
         if not self._from_clause.is_local:
-            return self._exec_proxy('collect')
+            return self._exec_proxy()
         return ResultCursor(self)
 
     async def _acollect(self, args: dict[str, Any] | None = None) -> ResultSet:
@@ -746,7 +735,7 @@ class Query(QueryBase):
 
             cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
             assert isinstance(cat, CatalogProxy)
-            return cat.client.run_query('count', self.as_dict())
+            return cat.client.send_request('Query', 'count', {'query': self.as_dict()})
 
         count_query = Query(
             from_clause=self._from_clause,

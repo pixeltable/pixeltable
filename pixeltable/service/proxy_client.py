@@ -396,9 +396,9 @@ class ProxyClient:
                 continue  # server withheld a stale mutation; retry against the refreshed schema
             return self._localize_media(proxy_protocol.deserialize_value(response.get('result'), resp_parts))
 
-    def run_query(self, method: str, query_dict: dict, **extra: Any) -> Any:
-        """Execute a Query method against the hosted catalog."""
-        return self.send_request('Query', method, {'query': query_dict, **extra})
+    def run_query(self, query_dict: dict, **extra: Any) -> Any:
+        """Collect the rows of a query against the hosted catalog."""
+        return self.send_request('Query', 'collect', {'query': query_dict, **extra})
 
     def _localize_media(self, result: Any) -> Any:
         """Resolve any MediaPath in the result to a fetchable daemon URL."""

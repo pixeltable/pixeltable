@@ -47,7 +47,7 @@ class RowidRef(Expr):
             self.normalized_base = normalized_base
         else:
             assert tbl_id is not None and normalized_base_id is not None
-            # a handle resolves lazily, so neither key is read from the catalog here
+            # constructing these handles does not cause catalog loads
             self.tbl = catalog.TableVersionHandle(catalog.TableVersionKey(tbl_id, effective_version))
             self.normalized_base = catalog.TableVersionHandle(
                 catalog.TableVersionKey(normalized_base_id, normalized_base_effective_version)
@@ -67,15 +67,14 @@ class RowidRef(Expr):
         return str(self)
 
     def _equals(self, other: RowidRef) -> bool:
-        return (
-            self.normalized_base_id == other.normalized_base_id
-            and self.rowid_component_idx == other.rowid_component_idx
-        )
+        return self.normalized_base == other.normalized_base and self.rowid_component_idx == other.rowid_component_idx
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
+        # must mirror the fields in _equals()
         return [
             *super()._id_attrs(),
             ('normalized_base_id', self.normalized_base_id),
+            ('normalized_base_effective_version', self.normalized_base.effective_version),
             ('idx', self.rowid_component_idx),
         ]
 
