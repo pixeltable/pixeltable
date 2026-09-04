@@ -55,7 +55,7 @@ def run(argv: list[str]) -> None:
             print(json.dumps(plan, indent=2))
             return
         scope = 'the rows with errors' if args.errors_only else f'{plural(table_rows, "row")} of {path}'
-        dependents = ', plus the dependent columns of its views' if args.cascade else ''
+        dependents = ', plus the dependent columns in this table and all of its views' if args.cascade else ''
         print(f'would recompute {columns} on {path} over {scope}{dependents}')
         return
 
