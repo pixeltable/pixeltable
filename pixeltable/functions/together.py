@@ -203,12 +203,12 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
         The generated image.
 
     Examples:
-        Add a computed column that applies the model `black-forest-labs/FLUX.1-schnell`
+        Add a computed column that applies the model `Rundiffusion/Juggernaut-Lightning-Flux`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> tbl.add_computed_column(
         ...     response=image_generations(
-        ...         tbl.prompt, model='black-forest-labs/FLUX.1-schnell'
+        ...         tbl.prompt, model='Rundiffusion/Juggernaut-Lightning-Flux'
         ...     )
         ... )
     """

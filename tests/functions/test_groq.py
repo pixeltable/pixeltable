@@ -27,8 +27,8 @@ class TestGroq:
                 model_kwargs={
                     'temperature': 0.8,
                     'top_p': 0.95,
-                    'max_tokens': 300,
-                    'stop': ['\n'],
+                    'max_tokens': 1000,
+                    'reasoning_effort': 'low',
                     'response_format': {'type': 'text'},
                 },
             )
