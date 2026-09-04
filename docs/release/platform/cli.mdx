@@ -339,7 +339,7 @@ predicate.
 | Flag | Description |
 |---|---|
 | `--errors-only` | Only the rows whose value is an error. Takes a single column |
-| `--no-cascade` | Leave the computed columns that depend on these alone |
+| `--no-cascade` | Do not recompute the computed columns and views that transitively depend on this one |
 
 ```bash
 pxt recompute my_dir/my_table summary -f                  # the column and its dependents
@@ -349,8 +349,9 @@ pxt recompute my_dir/my_table summary -n                  # what it would recomp
 ```
 
 <Warning>
-Recomputing evaluates the column over every row, so a udf that calls a model or an API costs real time and
-money. `-n` reports the row count first, and `--errors-only` narrows the work to the rows that failed.
+Recomputing evaluates the target columns over every row, which can require substantial computing resources.
+`--errors-only` limits that recomputation to only the rows that failed.
+`-n` reports the target table's own row count.
 </Warning>
 
 ### `pxt revert`

@@ -1,3 +1,5 @@
+import json
+
 from pixeltable_cli import models
 
 from ..parser import Parser
@@ -9,7 +11,7 @@ Examples:
   pxt recompute my_dir/my_table summary embedding -f        # several columns in one pass
   pxt recompute my_dir/my_table summary --no-cascade -f     # leave the columns that depend on it alone
   pxt recompute my_dir/my_table summary --errors-only -f    # only the rows whose value is an error
-  pxt recompute my_dir/my_table summary -n                  # dry-run: print what it would recompute
+  pxt recompute my_dir/my_table summary -n                  # dry-run: what it would recompute, and over how many rows
 
 Notes:
   Recomputing evaluates the column over every row, which for a udf that calls a model or an API costs
@@ -40,9 +42,22 @@ def run(argv: list[str]) -> None:
     columns = ', '.join(args.columns)
     cascade = '' if args.cascade else ', without their dependents'
     if args.dry_run:
-        count = models.CountResponse.model_validate(get_request('/api/tables/count', params={'path': path})).count
-        rows = 'the rows with errors' if args.errors_only else plural(count, 'row')
-        print(f'would recompute {columns} on {path} over {rows}{cascade}')
+        # TODO: compute the total number of affected rows across all transitive views as well, possibly even the
+        # exact columns that would be recomputed
+        table_rows = models.CountResponse.model_validate(get_request('/api/tables/count', params={'path': path})).count
+        if args.as_json:
+            plan = {
+                'path': path,
+                'columns': args.columns,
+                'errors_only': args.errors_only,
+                'cascade': args.cascade,
+                'table_rows': table_rows,
+            }
+            print(json.dumps(plan, indent=2))
+            return
+        scope = 'the rows with errors' if args.errors_only else f'{plural(table_rows, "row")} of {path}'
+        dependents = ', plus the dependent columns of its views' if args.cascade else ''
+        print(f'would recompute {columns} on {path} over {scope}{dependents}')
         return
 
     confirm_or_exit(f'recompute {columns} on {path}{cascade}?', args.force)

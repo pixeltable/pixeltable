@@ -1015,6 +1015,18 @@ class TestRecompute:
         out = cli('recompute', p('cli_rc/t'), 'doubled', '-n').stdout
         assert 'would recompute doubled' in out
         assert '3 rows' in out
+        assert 'dependent columns of its views' in out, 'the cascade is named, since its rows are not counted'
+        assert t.get_metadata()['version'] == v_before
+
+        # -n --json reports the same plan for a caller that parses it
+        plan = cli('recompute', p('cli_rc/t'), 'doubled', '-n', '--json').json
+        assert plan == {
+            'path': p('cli_rc/t'),
+            'columns': ['doubled'],
+            'errors_only': False,
+            'cascade': True,
+            'table_rows': 3,
+        }
         assert t.get_metadata()['version'] == v_before
 
         out = cli('recompute', p('cli_rc/t'), 'doubled', '-f', '--json').json
@@ -1062,8 +1074,8 @@ class TestRecompute:
         assert r.returncode != 0
 
         # a snapshot is not mutable
-        snap = pxt.create_snapshot(p('cli_rc_err/snap'), t, if_exists='replace')
-        r = cli('recompute', str(snap._path()), 'doubled', '-f', check=False)
+        pxt.create_snapshot(p('cli_rc_err/snap'), t, if_exists='replace')
+        r = cli('recompute', p('cli_rc_err/snap'), 'doubled', '-f', check=False)
         assert r.returncode != 0
 
 
