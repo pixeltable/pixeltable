@@ -39,6 +39,16 @@ class TestProject:
     def test_gitignore(self, project: pathlib.Path) -> None:
         assert self._names(project) == ['.gitignore', 'app.py', 'uv.lock']
 
+    def test_venv(self, project: pathlib.Path) -> None:
+        """A virtual environment is dropped even when nothing ignores it."""
+        for name, marker in (('.venv', 'pyvenv.cfg'), ('env', 'conda-meta/history')):
+            venv = project / name
+            (venv / 'lib').mkdir(parents=True)
+            (venv / 'lib' / 'pkg.py').write_text('z = 1\n')
+            (venv / marker).parent.mkdir(parents=True, exist_ok=True)
+            (venv / marker).write_text('')
+        assert self._names(project) == ['.gitignore', 'app.py', 'uv.lock']
+
     def test_patterns(self, project: pathlib.Path) -> None:
         assert self._names(project, DatabaseConfig(exclude=['*.py'])) == ['.gitignore', 'uv.lock']
         assert self._names(project, DatabaseConfig(include=['run.log'])) == [
