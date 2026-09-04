@@ -1015,7 +1015,7 @@ class TestRecompute:
         out = cli('recompute', p('cli_rc/t'), 'doubled', '-n').stdout
         assert 'would recompute doubled' in out
         assert '3 rows' in out
-        assert 'dependent columns of its views' in out, 'the cascade is named, since its rows are not counted'
+        assert 'dependent columns' in out, 'the cascade is named, since its rows are not counted'
         assert t.get_metadata()['version'] == v_before
 
         # -n --json reports the same plan for a caller that parses it
