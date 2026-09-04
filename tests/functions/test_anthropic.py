@@ -31,12 +31,12 @@ class TestAnthropic:
                 messages=messages,
                 model='claude-haiku-4-5',
                 max_tokens=300,
+                # the sampling params (temperature, top_k, top_p) are not part of the messages API
                 model_kwargs={
                     'metadata': {'user_id': 'pixeltable'},
                     'stop_sequences': ['STOP'],
                     'system': 'You are an ordinary person walking down the street.',
-                    'temperature': 0.7,
-                    'top_k': 40,
+                    'service_tier': 'auto',
                 },
             )
         )

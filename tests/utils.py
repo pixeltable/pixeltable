@@ -1114,6 +1114,7 @@ def open_async_resources() -> list[str]:
     gc.collect()
     ignored_loop_ids = _process_lifetime_loop_ids()
     resources: list[str] = []
+    httpx2 = sys.modules.get('httpx2')  # optional dependency
     for obj in gc.get_objects():
         if isinstance(obj, asyncio.AbstractEventLoop) and not obj.is_closed() and id(obj) not in ignored_loop_ids:
             resources.append(f'event loop {type(obj).__name__} at {id(obj):#x}')
@@ -1121,6 +1122,8 @@ def open_async_resources() -> list[str]:
             resources.append(f'aiohttp session at {id(obj):#x}')
         elif isinstance(obj, httpx.AsyncClient) and not obj.is_closed:
             resources.append(f'httpx client at {id(obj):#x}')
+        elif httpx2 is not None and isinstance(obj, httpx2.AsyncClient) and not obj.is_closed:
+            resources.append(f'httpx2 client at {id(obj):#x}')
     return resources
 
 

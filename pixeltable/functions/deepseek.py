@@ -8,8 +8,6 @@ and other AI capabilities.
 import json
 from typing import TYPE_CHECKING, Any
 
-import httpx
-
 import pixeltable as pxt
 from pixeltable import env
 from pixeltable.runtime import get_runtime
@@ -21,12 +19,13 @@ if TYPE_CHECKING:
 
 @env.register_client('deepseek', credential_param='api_key')
 def _(api_key: str) -> 'openai.AsyncOpenAI':
+    import httpx2
     import openai
 
     return openai.AsyncOpenAI(
         api_key=api_key,
         base_url='https://api.deepseek.com',
-        http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
+        http_client=httpx2.AsyncClient(limits=httpx2.Limits(max_keepalive_connections=100, max_connections=500)),
     )
 
 
