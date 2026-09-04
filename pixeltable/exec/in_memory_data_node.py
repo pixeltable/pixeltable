@@ -89,7 +89,7 @@ class InMemoryDataNode(ExecNode):
             self.output_batch.add_row(output_row)
 
     def _close(self) -> None:
-        # Free up memory taken by the last output batch. This can be significant if images are present.
+        # Free up memory taken by the last output batch. This can be significant if it has images.
         self.output_batch = None
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
