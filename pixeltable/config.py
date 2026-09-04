@@ -937,6 +937,12 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'app_name': 'Optional name for your application (for OpenRouter analytics)',
         'rate_limit': 'Rate limit for OpenRouter API requests',
     },
+    'orcarouter': {
+        'api_key': 'OrcaRouter API key',
+        'site_url': 'Optional URL for your application (for OrcaRouter analytics)',
+        'app_name': 'Optional name for your application (for OrcaRouter analytics)',
+        'rate_limit': 'Rate limit for OrcaRouter API requests',
+    },
     'otel': {
         'exporter_otlp_endpoint': 'OTLP collector endpoint (eg http://localhost:4318)',
         'exporter_otlp_protocol': "OTLP transport: 'http/protobuf' (default) or 'grpc'",
