@@ -677,16 +677,26 @@ class Query(QueryBase):
 
         assert self._from_clause.is_local
         tvps = self._from_clause.tvps
-        rows: list[list[Any]] = []
-        # the schema and the positions travel with the rows, so all three are resolved against one catalog state
+        sink = proxy_protocol.InlinePartSink()
+        encode = proxy_protocol.value_encoder(sink)
+        result = bytearray(b'{"schema":')
         with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
+            # look at the schema inside the transaction
             schema = self.schema
             file_ref_idxs = self._file_ref_idxs()
-            for data in self._output_row_iterator(args=args, media_as_urls=True):
+            json_idxs = [i for i, col_type in enumerate(schema.values()) if col_type.is_json_type()]
+            result += encode(schema).encode()
+            result += b',"rows":['
+            for i, data in enumerate(self._output_row_iterator(args=args, media_as_urls=True)):
                 for idx in file_ref_idxs:
                     data[idx] = proxy_protocol.encode_local_path(data[idx])
-                rows.append(data)
-        return proxy_protocol.encode_response({'result': {'schema': schema, 'rows': rows}})
+                for idx in json_idxs:
+                    data[idx] = proxy_protocol.escape_reserved(data[idx])
+                if i > 0:
+                    result += b','
+                result += encode(data).encode()
+            result += b']}'
+        return proxy_protocol.response_body(bytes(result), sink.binary_parts)
 
     def cursor(self) -> ResultCursor:
         """Return a [`ResultCursor`][pixeltable.ResultCursor] that iterates over the query results row by row.

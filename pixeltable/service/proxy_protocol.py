@@ -18,7 +18,7 @@ import pathlib
 import shutil
 import struct
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Generic, TypedDict, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Generic, TypedDict, TypeVar
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -594,20 +594,64 @@ def deserialize_value(value: Any, parts: list[bytes]) -> Any:
     return _deserialize(value, parts)
 
 
+_dumps = json.JSONEncoder(separators=(',', ':')).encode
+
+
+def value_encoder(sink: PartSink) -> Callable[[Any], str]:
+    """A json encoder that writes what json can and hands the rest to _serialize().
+
+    Faster than encoding a _serialize()ed copy, since json walks the value in C. A value json writes itself
+    reaches the receiver in json's form: nan and inf as NaN and Infinity, a tuple as an array, a dict key as
+    a string. A dict is written as-is, so a caller whose value may hold user json runs escape_reserved()
+    over it first.
+    """
+    return json.JSONEncoder(separators=(',', ':'), default=lambda obj: _serialize(obj, sink)).encode
+
+
+def escape_reserved(value: Any) -> Any:
+    """Rewrite the dicts in a json value that json alone cannot round-trip: ones carrying the reserved tag
+    key, and ones with a non-str key."""
+    return _serialize(value, InlinePartSink())  # a json value holds no binary, so nothing reaches the sink
+
+
+def response_body(
+    result_json: bytes,
+    parts: list[bytes],
+    *,
+    error_json: bytes = b'null',
+    current_md_json: bytes = b'null',
+    is_stale_md: bool = False,
+) -> bytes:
+    """The wire body for a response whose fields are already encoded.
+
+    Both the generic path and a caller that encodes its own result (see Query._collect_content()) write their
+    body here, so the head has one layout.
+    """
+    head = bytearray(b'{"result":')
+    head += result_json
+    head += b',"error":'
+    head += error_json
+    head += b',"current_md":'
+    head += current_md_json
+    head += b',"is_stale_md":'
+    head += b'true' if is_stale_md else b'false'
+    head += b'}'
+    return encode_body(bytes(head), parts)
+
+
 def encode_response(response: ProxyResponse) -> bytes:
     """The wire body for a response, moving any binary values in it out to the body's parts."""
     sink = InlinePartSink()
-    # we have encode() hand off the values it doesn't understand to _serialize()
-    encode = json.JSONEncoder(separators=(',', ':'), default=lambda obj: _serialize(obj, sink)).encode
-    head = encode(
-        {
-            'result': response.get('result'),
-            'error': response.get('error'),
-            'current_md': response.get('current_md'),
-            'is_stale_md': response.get('is_stale_md', False),
-        }
+    result_json = _dumps(_serialize(response.get('result'), sink)).encode()
+    current_md_json = _dumps(_serialize(response.get('current_md'), sink)).encode()
+    error = response.get('error')
+    return response_body(
+        result_json,
+        sink.binary_parts,
+        error_json=b'null' if error is None else _dumps(error).encode(),
+        current_md_json=current_md_json,
+        is_stale_md=response.get('is_stale_md', False),
     )
-    return encode_body(head.encode(), sink.binary_parts)
 
 
 def encode_dir_tree(dir_path: pathlib.Path) -> list[dict[str, Any]]:

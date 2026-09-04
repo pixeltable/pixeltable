@@ -98,14 +98,14 @@ class TestProxyDaemon:
         assert proxy_protocol.collect_remote_keys(wire) == []
 
     def test_response_round_trip(self) -> None:
-        """What a response carries back for the values json writes itself, and for the ones it hands off."""
+        """The generic response path preserves every value it is given."""
         tbl_id = uuid.uuid4()
         result = {
             'nan': math.nan,
             'inf': math.inf,
             'pair': (1, 2),
             'int_keys': {1: 'x'},
-            'reserved': {'$pxt': 'not-a-tag', 'v': 1},
+            'reserved': {'$pxt': 'UUID', 'v': 'not-a-uuid'},
             'id': tbl_id,
             'data': b'abc',
         }
@@ -115,11 +115,27 @@ class TestProxyDaemon:
 
         assert math.isnan(decoded['nan'])
         assert decoded['inf'] == math.inf
-        assert decoded['pair'] == [1, 2], 'a tuple arrives as a list'
-        assert decoded['int_keys'] == {'1': 'x'}, 'a non-str key arrives as a string'
-        assert decoded['reserved'] == {'$pxt': 'not-a-tag', 'v': 1}, 'the reserved key alone does not make a tag'
+        assert decoded['pair'] == (1, 2)
+        assert decoded['int_keys'] == {1: 'x'}
+        assert decoded['reserved'] == result['reserved']
         assert decoded['id'] == tbl_id
         assert decoded['data'] == b'abc'
+
+    def test_value_encoder_round_trip(self) -> None:
+        """What the single-pass encoder behind Query._collect_content() carries back.
+
+        json writes the containers and scalars it understands, so a value it can write reaches the receiver
+        in json's form. escape_reserved() covers the json values that would not survive that.
+        """
+        sink = proxy_protocol.InlinePartSink()
+        encode = proxy_protocol.value_encoder(sink)
+        row = [math.nan, (1, 2), proxy_protocol.escape_reserved({'$pxt': 'UUID', 'v': 'not-a-uuid'}), b'abc']
+        decoded = proxy_protocol.deserialize_value(json.loads(encode(row)), sink.binary_parts)
+
+        assert math.isnan(decoded[0])
+        assert decoded[1] == [1, 2], 'a tuple arrives as a list'
+        assert decoded[2] == {'$pxt': 'UUID', 'v': 'not-a-uuid'}, 'a json value keeps its own reserved key'
+        assert decoded[3] == b'abc'
 
     def test_collect_remote_keys(self) -> None:
         file_tag = {'$pxt': 'file', 'name': 'a.png', 'v': 'uploads/r/0.png'}
