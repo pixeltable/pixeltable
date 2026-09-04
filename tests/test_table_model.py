@@ -1847,7 +1847,11 @@ class TestTableModel:
             __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=32), name='ix')]
 
         TableModel.create_all(p(''))
-        ExampleTable.insert([{'id': 1, 'text': 'one sentence'}, {'id': 2, 'text': 'zero sentence'}])
+
+        idx_md = ExampleTable.get_metadata()['indexes']
+        assert set(idx_md.keys()) == {'ix'}
+        assert idx_md['ix']['parameters']['embedding'] == 'dummy_embedding(text, n=32)'
+        assert idx_md['ix']['parameters']['precision'] == 'fp16'
 
         TableModelV2 = pxt.model_base()
 
@@ -1874,7 +1878,7 @@ class TestTableModel:
 
     def test_diff_resolves_bare_embedding_fn(self, db_root: DatabaseRoot) -> None:
         """An index stores its embedding function resolved, with defaults bound. A model that declares the same
-        function bare has to resolve to that same call, or an unchanged model reads as a changed one forever."""
+        function bare has to resolve to that same call."""
         p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
@@ -1886,7 +1890,6 @@ class TestTableModel:
             __indexes__ = [EmbeddingIndex(img, image_embed=local_embedding, name='ix')]
 
         TableModel.create_all(p(''))
-        ExampleTable.insert([{'id': 1, 'img': get_image_files()[0]}])
         assert ExampleTable.get_metadata()['indexes']['ix']['parameters']['embedding'] == (
             f'local_embedding(img, dim={LOCAL_EMBED_DIM})'
         )
