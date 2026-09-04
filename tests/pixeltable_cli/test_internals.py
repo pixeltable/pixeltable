@@ -1165,38 +1165,38 @@ class TestStatusFmtSize:
 class TestServerDaemon:
     def test_write_pidfile(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         path = str(tmp_path / 'sub' / 'pid')
-        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: path)
-        server_daemon._write_pidfile()
+        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda _port: path)
+        server_daemon._write_pidfile(12345)
         with open(path, encoding='utf-8') as f:
             assert int(f.read().strip()) == os.getpid()
-        server_daemon._remove_pidfile_if_ours()
+        server_daemon._remove_pidfile_if_ours(12345)
         assert not os.path.exists(path)
 
     def test_write_pidfile_overwrites_stale(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         path = str(tmp_path / 'pid')
-        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: path)
+        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda _port: path)
         with open(path, 'w', encoding='utf-8') as f:
             f.write('999999999')
-        server_daemon._write_pidfile()
+        server_daemon._write_pidfile(12345)
         with open(path, encoding='utf-8') as f:
             assert int(f.read().strip()) == os.getpid()
 
     def test_remove_pidfile_only_own(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         path = str(tmp_path / 'pid')
-        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: path)
+        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda _port: path)
         with open(path, 'w', encoding='utf-8') as f:
             f.write('12345')
-        server_daemon._remove_pidfile_if_ours()
+        server_daemon._remove_pidfile_if_ours(12345)
         assert os.path.exists(path)
 
     def test_remove_pidfile_missing_no_raise(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: str(tmp_path / 'never-existed'))
-        server_daemon._remove_pidfile_if_ours()
+        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda _port: str(tmp_path / 'never-existed'))
+        server_daemon._remove_pidfile_if_ours(12345)
 
     def test_remove_pidfile_oserror(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Locks the `except OSError: pass` branch around os.remove()."""
         path = str(tmp_path / 'pid')
-        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: path)
+        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda _port: path)
         with open(path, 'w', encoding='utf-8') as f:
             f.write(str(os.getpid()))
 
@@ -1204,32 +1204,53 @@ class TestServerDaemon:
             raise OSError('vanished')
 
         monkeypatch.setattr(server_daemon.os, 'remove', boom)
-        server_daemon._remove_pidfile_if_ours()  # must not raise
+        server_daemon._remove_pidfile_if_ours(12345)  # must not raise
 
     def test_main_bind_succeeds(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Happy path: bind succeeds -> write pidfile, register atexit, run server."""
-        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda: str(tmp_path / 'pid'))
+        monkeypatch.setattr(server_daemon, 'pidfile_path', lambda _port: str(tmp_path / 'pid'))
         monkeypatch.setattr(server_daemon, 'get_port', lambda: 12345)
         fake_server = object()
-        bound: list[int] = []
+        bound: list[tuple[str, int]] = []
         ran: list[object] = []
 
-        def fake_bind(p: int) -> object:
-            bound.append(p)
+        def fake_bind(h: str, p: int) -> object:
+            bound.append((h, p))
             return fake_server
 
         monkeypatch.setattr(server_daemon, 'bind', fake_bind)
         monkeypatch.setattr(server_daemon, 'run', lambda s: ran.append(s))
         monkeypatch.setattr(server_daemon.atexit, 'register', lambda _fn: None)
         server_daemon.main([])
-        assert bound == [12345]
+        assert bound == [('127.0.0.1', 12345)]
         assert ran == [fake_server]
+
+        # the flags a cloud pod passes name the address instead
+        bound.clear()
+        server_daemon.main(['--host', '0.0.0.0', '--port', '8000'])
+        assert bound == [('0.0.0.0', 8000)]
+
+    def test_main_named_address_reports_bind_failure(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A caller that named an address gets the bind failure, even with a daemon on this machine's port."""
+        monkeypatch.setattr(server_daemon, 'get_port', lambda: 12345)
+
+        def fail(_h: str, _p: int) -> None:
+            raise OSError('address already in use')
+
+        monkeypatch.setattr(server_daemon, 'bind', fail)
+        monkeypatch.setattr(server_daemon, 'is_running', lambda: True)
+        with pytest.raises(SystemExit) as info:
+            server_daemon.main(['--port', '8000'])
+        assert info.value.code == 1
+        assert 'bind to 127.0.0.1:8000 failed' in capsys.readouterr().err
 
     def test_main_defers_to_live_peer(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """bind() OSError + a live pxt daemon on the port: exit 0 silently."""
         monkeypatch.setattr(server_daemon, 'get_port', lambda: 12345)
 
-        def fail(_p: int) -> None:
+        def fail(_h: str, _p: int) -> None:
             raise OSError('address already in use')
 
         monkeypatch.setattr(server_daemon, 'bind', fail)
@@ -1244,7 +1265,7 @@ class TestServerDaemon:
         """bind() OSError + nobody at /api/health: print the error, exit 1."""
         monkeypatch.setattr(server_daemon, 'get_port', lambda: 12345)
 
-        def fail(_p: int) -> None:
+        def fail(_h: str, _p: int) -> None:
             raise OSError('address already in use')
 
         monkeypatch.setattr(server_daemon, 'bind', fail)
