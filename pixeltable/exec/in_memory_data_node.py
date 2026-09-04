@@ -88,6 +88,10 @@ class InMemoryDataNode(ExecNode):
                 output_row[col_info.slot_idx] = None
             self.output_batch.add_row(output_row)
 
+    def _close(self) -> None:
+        # Free up memory taken by the last output batch. This can be significant if images are present.
+        self.output_batch = None
+
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         _logger.debug(f'InMemoryDataNode: created row batch with {len(self.output_batch)} rows')
         yield self.output_batch
