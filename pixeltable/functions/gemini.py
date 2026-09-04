@@ -263,7 +263,7 @@ async def generate_images(prompt: str, *, model: str, config: dict | None = None
 
     Note: This function is for Imagen models only. For Gemini image-generation models (Nano Banana,
     e.g. `gemini-3.1-flash-image-preview`), use [`generate_content`][pixeltable.functions.gemini.generate_content]
-    instead.
+    instead. Imagen requires Vertex AI mode; `google-genai` 2.x no longer reaches it through the Developer API.
 
     Request throttling:
     Applies the rate limit set in the config (section `imagen.rate_limits`; use the model id as the key). If no rate
@@ -335,7 +335,11 @@ async def _generate_videos_impl(
     model: str, prompt: str | None, image: 'genai.types.Image | None', config: 'genai.types.GenerateVideosConfig | None'
 ) -> str:
     """Shared implementation for video generation: submit request, poll for completion, download result."""
-    operation = await _genai_client().aio.models.generate_videos(model=model, prompt=prompt, image=image, config=config)
+    from google.genai import types
+
+    # the prompt/image parameters are deprecated in favor of source
+    source = types.GenerateVideosSource(prompt=prompt, image=image)
+    operation = await _genai_client().aio.models.generate_videos(model=model, source=source, config=config)
 
     try:
         operation = await asyncio.wait_for(_poll_gemini_operation(operation), timeout=300)
@@ -800,7 +804,7 @@ async def _embed_file_content(
 
     async with _gemini_file_uploads(large_files) as uploaded:
         upload_map = dict(zip(large_files, uploaded))
-        contents_: list[types.ContentUnion] = []
+        contents_: list[types.PartUnion] = []
         for item in contents:
             if item in upload_map:
                 contents_.append(upload_map[item])
@@ -825,9 +829,10 @@ async def _embed_file_content(
 
 
 async def _embed_content(
-    contents: Sequence['genai.types.ContentUnion'], model: str, config: dict[str, Any] | None
+    contents: Sequence['genai.types.PartUnion'], model: str, config: dict[str, Any] | None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     env.Env.get().require_package('google.genai')
+    from google.genai import types
 
     resource_pool_id = f'rate-limits:gemini:{model}'
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
@@ -835,7 +840,10 @@ async def _embed_content(
     client = _genai_client()
     config_ = _embedding_config(config)
 
-    result = await client.aio.models.embed_content(model=model, contents=list(contents), config=config_)
+    # one Content per item: a flat list of parts is a single multimodal input to the newer embedding models,
+    # which then return one embedding for the whole batch
+    contents_: list[types.ContentUnion] = [types.UserContent(parts=item) for item in contents]
+    result = await client.aio.models.embed_content(model=model, contents=contents_, config=config_)
     if len(result.embeddings) != len(contents):
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,

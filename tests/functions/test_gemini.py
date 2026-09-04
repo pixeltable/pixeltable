@@ -25,13 +25,12 @@ from ..utils import (
 )
 from .tool_utils import run_tool_invocations_test
 
-pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
-
 _logger = logging.getLogger('pixeltable_test')
 
 
 @pytest.mark.remote_api
 @pytest.mark.very_expensive
+@pytest.mark.db_roots('local', reason='UDF/integration test')
 @rerun_on_network_error()
 class TestGemini:
     @pytest.mark.parametrize('model', ['gemini-2.5-flash-lite', 'gemini-3.1-pro-preview'])
@@ -178,12 +177,14 @@ class TestGemini:
 
         run_tool_invocations_test(make_table)
 
+    # TODO: Test in vertexai or deprecate the imagen UDFs
+    @pytest.mark.skip('google-genai 2.x reaches Imagen only in Vertex AI mode, not through the Developer API')
     def test_generate_images(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
         from google.genai.types import GenerateImagesConfigDict
 
-        from pixeltable.functions.gemini import generate_images
+        from pixeltable.functions.gemini import _genai_client, generate_images
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         t.add_computed_column(output=generate_images(t.prompt, model='imagen-4.0-generate-001'))
@@ -209,7 +210,7 @@ class TestGemini:
         )
         t.add_computed_column(
             output=generate_videos(
-                t.prompt, t.image, model='veo-3.0-generate-001', config={'duration_seconds': duration}
+                t.prompt, t.image, model='veo-3.1-fast-generate-preview', config={'duration_seconds': duration}
             )
         )
         prompts = [
