@@ -372,11 +372,6 @@ def service_spec(name: str, service: FastAPIRouter | fastapi.FastAPI, routers: l
 
 
 def _app_routes(app: fastapi.FastAPI) -> Iterable[Any]:
-    """app.routes, with every router that include_router() added expanded into its routes.
-
-    FastAPI 0.137 stores an included router as one tree node in app.routes instead of copying its routes in;
-    iter_route_contexts() (0.137.2+) flattens that tree, and earlier versions have nothing to flatten.
-    """
     import fastapi.routing
 
     flatten = getattr(fastapi.routing, 'iter_route_contexts', None)
