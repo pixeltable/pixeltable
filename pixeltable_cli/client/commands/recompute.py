@@ -40,7 +40,6 @@ def run(argv: list[str]) -> None:
 
     path = validate_path_arg(args.path)
     columns = ', '.join(args.columns)
-    cascade = '' if args.cascade else ', without their dependents'
     if args.dry_run:
         # TODO: compute the total number of affected rows across all transitive views as well, possibly even the
         # exact columns that would be recomputed
@@ -60,6 +59,7 @@ def run(argv: list[str]) -> None:
         print(f'would recompute {columns} on {path} over {scope}{dependents}')
         return
 
+    cascade = ', including all dependents' if args.cascade else ', without their dependents'
     confirm_or_exit(f'recompute {columns} on {path}{cascade}?', args.force)
 
     resp = models.RecomputeResponse.model_validate(
