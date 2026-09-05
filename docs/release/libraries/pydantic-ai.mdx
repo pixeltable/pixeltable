@@ -46,7 +46,11 @@ agent = Agent(
 )
 ```
 
-`tables` is an allowlist of table paths or directory prefixes. Omit it only for local use against the whole catalog.
+`tables` is a required allowlist of table paths or directory prefixes. Pass `tables=['*']` to allow the whole catalog.
+
+Two `Pixeltable(...)` instances share `id='pixeltable'` and merge. Give one a different `id` if you need both. Tool names match [pydantic-ai-chdb](https://ai.pydantic.dev/capabilities/third-party/). Wrap one side in [`PrefixTools`](https://ai.pydantic.dev/capabilities/prefix-tools/) when you pair them.
+
+A YAML spec can construct `Pixeltable` (`from_spec`, with `custom_capability_types=[Pixeltable]`). `Memory(PixeltableMemoryStore)` is Python-only. The package talks to the local catalog.
 
 ## Persist Harness memory
 
@@ -63,7 +67,7 @@ agent = Agent(
 )
 ```
 
-`Memory` keeps the notebook tools, injection, and compare-and-set retries. This package stores paths, versions, and operation receipts.
+`Memory` keeps the notebook tools, injection, and compare-and-set retries. This package stores paths, versions, and operation receipts. Receipts are a second write after the file mutation, not one SQL transaction and not a FileStore crash journal. A crash between those steps can raise `MemoryConflictError` on replay.
 
 ## Escape hatch: `.table`
 
@@ -79,23 +83,39 @@ File rows have `kind == 'file'`. Do not write paths whose first segment is `__me
 
 ## Search your Pixeltable tables
 
-`Pixeltable` does not create tables. Point it at a chunk view (or any table) that already has an embedding index. A handbook stays `pxt.Document` rows; the agent searches the splitter view.
+`Pixeltable` does not create tables. Point it at a chunk view that already has an embedding index. A handbook stays `pxt.Document` rows; the agent searches the splitter view.
+
+In `app.py`, declare the handbook and index on a `TableModel`. Create them with `pxt schema update`:
 
 ```python
 import pixeltable as pxt
-from pixeltable.functions.document import document_splitter
+import pixeltable.functions as pxtf
+from pixeltable.functions.huggingface import sentence_transformer
 
-docs = pxt.create_table('my_app.docs', {'doc': pxt.Document}, if_exists='ignore')
-chunks = pxt.create_view(
-    'my_app.doc_chunks',
-    docs,
-    iterator=document_splitter(docs.doc, separators='paragraph'),
-    if_exists='ignore',
-)
-chunks.add_embedding_index('text', embedding=your_embed_fn, if_exists='ignore')
+TableModel = pxt.model_base()
+embed_fn = sentence_transformer.using(model_id='intfloat/multilingual-e5-large-instruct')
+
+
+class Docs(TableModel, name='docs'):
+    document: pxt.Document
+
+
+class Chunks(
+    TableModel,
+    name='doc_chunks',
+    base=Docs,
+    iterator=pxtf.document.document_splitter(Docs.document, separators='paragraph'),
+):
+    __indexes__ = [pxt.EmbeddingIndex(text, embedding=embed_fn, name='chunks_embed')]  # type: ignore[name-defined]
 ```
 
-The capability tools are `list_tables`, `describe_table`, `query_table`, and `similarity_search`. `query_table` filters with equality only (`{'status': 'open'}`). `similarity_search` calls `column.similarity(string=query)`. Both cap rows and serialized characters. Media columns are returned as file URLs, not blobs. `read_only=False` is not implemented.
+```bash
+pxt schema update app.py my_app
+```
+
+A notebook or REPL can still call `create_table`, `create_view`, and `add_embedding_index`. Do not put those calls in `app.py`.
+
+The capability tools are `list_tables`, `describe_table`, `query_table`, and `similarity_search`. `query_table` filters with equality only (`{'status': 'open'}`). `similarity_search` calls `column.similarity(string=query)`. Both cap rows and serialized characters. Default columns skip media, array, and binary; a named media column comes back as a file URL, not a blob. `read_only=False` is not implemented.
 
 ## See also
 

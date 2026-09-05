@@ -112,14 +112,14 @@ Defining the class does not create the table. Run `pxt schema update app.py my_a
     agent = Agent(
         'openai:gpt-4o-mini',
         capabilities=[
-            Memory(PixeltableMemoryStore(table_name='my_app.memory')),
+            Memory(PixeltableMemoryStore(table_name='harness.memory')),
             Pixeltable(tables=['my_app.doc_chunks'], read_only=True),
             ToolOutputLimits(),
         ],
     )
     ```
 
-    `pip install pydantic-ai-pixeltable`. `Memory` is the notebook. `Pixeltable` searches a chunk view or other catalog table. Use `.table` for Pixeltable queries and computed columns. This is a bridge, not the default Pixeltable agent.
+    `pip install pydantic-ai-pixeltable`. `Memory` is the notebook; keep it at `harness.memory` so `pxt schema prune app.py my_app` does not drop it. `Pixeltable` searches a chunk view or other catalog table. Use `.table` for Pixeltable queries and computed columns. This is a bridge, not the default Pixeltable agent.
 
     A native agent stays on a `TableModel`. After `pxt schema update`, insert `{'message': '...'}` and read `response` and `tool_output`.
 
