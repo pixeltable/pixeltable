@@ -29,6 +29,15 @@ def log_explain(logger: logging.Logger, stmt: sql.sql.ClauseElement, conn: sql.e
         logger.warning('EXPLAIN failed')
 
 
+def redact_db_url(url: str | URL) -> str:
+    """Render a database URL with its password masked; the user, host and database stay readable."""
+    try:
+        return (sql.make_url(url) if isinstance(url, str) else url).render_as_string(hide_password=True)
+    except sql.exc.ArgumentError:
+        # the password cannot be located in a URL that does not parse, so none of it can be shown
+        return '<unparsable db url>'
+
+
 def add_option_to_db_url(url: str | URL, option: str) -> URL:
     """Add a connection option to a database URL.
 
