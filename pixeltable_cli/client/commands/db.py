@@ -1,4 +1,4 @@
-"""`pxt db {diff,update,list,status,start,stop,build-image,delete}` - manage hosted databases."""
+"""`pxt db {diff,update,list,status,logs,start,stop,build-image,delete}` - manage hosted databases."""
 
 from __future__ import annotations
 
@@ -7,7 +7,16 @@ import json
 import sys
 
 from ...types import DbChangeOp, DbPlan, Resolution
-from ..hosted import exit_unless_reached, parse_org_uri, poll_db, print_db, resolve_db_uri, spinner
+from ..hosted import (
+    add_logs_args,
+    exit_unless_reached,
+    parse_org_uri,
+    poll_db,
+    print_db,
+    print_logs,
+    resolve_db_uri,
+    spinner,
+)
 from ..parser import Parser
 from ..utils import EXIT_CHANGES_PENDING, EXIT_IN_AGREEMENT, EXIT_REFUSED, confirm_or_exit, get_request, post_request
 
@@ -17,6 +26,8 @@ Examples:
   pxt db update pxt://org:db   # apply it: secrets, then the artifacts, then capacity
   pxt db list pxt://org
   pxt db status pxt://org:db
+  pxt db logs pxt://org:db              # what the database's pod logged in the last hour
+  pxt db logs pxt://org:db --since 10m --tail 50
   pxt db start pxt://org:db
   pxt db stop pxt://org:db
   pxt db build-image pxt://org:db   # build an image without comparing first
@@ -61,6 +72,10 @@ def run(argv: list[str]) -> None:
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
+    p = sub.add_parser('logs', help="read the database pod's log")
+    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
+    add_logs_args(p)
+
     p = sub.add_parser('start', help='start (wake) a stopped hosted database')
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
@@ -87,6 +102,8 @@ def run(argv: list[str]) -> None:
         _list(args)
     elif args.action == 'status':
         _status(args)
+    elif args.action == 'logs':
+        _logs(args)
     elif args.action == 'start':
         _start(args)
     elif args.action == 'stop':
@@ -118,6 +135,11 @@ def _status(args: argparse.Namespace) -> None:
         print(json.dumps(result))
     else:
         print_db(result)
+
+
+def _logs(args: argparse.Namespace) -> None:
+    org, db = resolve_db_uri(args.db_uri, prog='pxt db logs')
+    print_logs(org, db, args)
 
 
 def _start(args: argparse.Namespace) -> None:

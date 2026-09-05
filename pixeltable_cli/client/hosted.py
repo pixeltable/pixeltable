@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import json
 import sys
@@ -73,6 +74,44 @@ def parse_service_uri(uri: str, prog: str = 'pxt') -> tuple[str, str, str]:
         )
         sys.exit(2)
     return parts.org, parts.db, svc_name
+
+
+def add_logs_args(parser: argparse.ArgumentParser) -> None:
+    """The options of `pxt db logs` and `pxt service logs`; print_logs() reads them back."""
+    parser.add_argument('--since', default='1h', help='how far back to read: 30s, 10m, 1h, 2d (default: 1h)')
+    parser.add_argument(
+        '--tail',
+        type=int,
+        default=200,
+        dest='limit',
+        help='the newest N lines in the window, at most 10000 (default: 200)',
+    )
+    parser.add_argument(
+        '--include-health', action='store_true', dest='include_health', help='keep the GET /health probe lines'
+    )
+    parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+
+
+def print_logs(org: str, db: str, args: argparse.Namespace, service_name: str | None = None) -> None:
+    """Print the log of the database's pod, or of service_name's pods when given."""
+    params = {
+        'org': org,
+        'db': db,
+        'service_name': service_name,
+        'since': args.since,
+        'limit': args.limit,
+        'include_health': args.include_health,
+    }
+    resp = get_request('/api/logs', params)
+    records = resp.get('records', []) if isinstance(resp, dict) else []
+    if args.json_output:
+        print(json.dumps(records))
+        return
+    if len(records) == 0:
+        print(f'No log records in the last {args.since}.')
+        return
+    for r in records:
+        print(r['line'])
 
 
 def _fmt_age(age_s: int) -> str:

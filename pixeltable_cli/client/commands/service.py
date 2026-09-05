@@ -1,4 +1,4 @@
-"""`pxt service {diff,update,prune,stop,list,example}` - run the services an application file declares."""
+"""`pxt service {diff,update,prune,stop,list,logs,example}` - run the services an application file declares."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ...types import Resolution, ServiceChangeOp, ServiceInstance, ServicePlan
 from ...utils import PxtPath, split_pxt_uri
+from ..hosted import add_logs_args, parse_service_uri, print_logs
 from ..parser import Parser
 from ..utils import (
     EXIT_CHANGES_PENDING,
@@ -164,7 +165,18 @@ Notes:
   'pxt service diff' answers that.
 {_OWN_APP}{_HOSTED}{_APP_FILE}"""
 
-VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'list', 'check', 'example')
+LOGS_EPILOG = """\
+Examples:
+  pxt service logs pxt://acme:main/services/ingest                       # what its pods logged in the last hour
+  pxt service logs pxt://acme:main/services/ingest --since 10m --tail 50
+  pxt service logs pxt://acme:main/services/ingest --json
+
+Reads the log of a hosted service: what the serving process logged, requests included, merged by time with
+what it wrote to its console, which is where a service that failed to start left its traceback. A line reaches
+the log a few seconds after it is written.
+"""
+
+VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'list', 'logs', 'check', 'example')
 
 
 _MARKERS: dict[Resolution, str] = {
@@ -193,6 +205,7 @@ def run(argv: list[str]) -> None:
             '  prune    stop and forget the services at TARGET that APP does not declare\n'
             '  stop     stop the named services\n'
             '  list     what is running locally, and where\n'
+            '  logs     read the log of a hosted service\n'
             '  check    validate the application file on its own (takes no TARGET)\n'
             '  example  write a working application file to start from\n\n'
             'APP is a Python file declaring FastAPIRouter services; TARGET is the catalog directory their\n'
@@ -234,6 +247,15 @@ def run(argv: list[str]) -> None:
         ap.add_argument('--json', action='store_true', dest='as_json')
         args = ap.parse_args(argv[1:])
         _list(args.target, as_json=args.as_json)
+        return
+
+    if verb == 'logs':
+        ap = Parser(prog='pxt service logs', epilog=LOGS_EPILOG, usage_exit_code=EXIT_ERROR)
+        ap.add_argument('service_uri', help='the service: pxt://org:db/services/NAME')
+        add_logs_args(ap)
+        args = ap.parse_args(argv[1:])
+        org, db, service_name = parse_service_uri(args.service_uri, prog='pxt service logs')
+        print_logs(org, db, args, service_name=service_name)
         return
 
     epilogs = {'diff': DIFF_EPILOG, 'update': UPDATE_EPILOG, 'run': RUN_EPILOG, 'prune': PRUNE_EPILOG}
