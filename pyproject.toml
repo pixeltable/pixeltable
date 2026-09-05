@@ -77,9 +77,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# `pxt serve` hosts a user-defined FastAPI app and shells out to uvicorn; the daemon
+# `pxt service` hosts a user-defined FastAPI app and shells out to uvicorn; the daemon
 # behind `pxt ls`/`pxt describe`/etc. is stdlib-only and does not need this extra.
-serve = ["fastapi[standard]>=0.120.0"]
+serve = ["fastapi[standard]>=0.120.0,!=0.137.0,!=0.137.1"]
 # OpenTelemetry instrumentation. Core pixeltable carries no OTEL dependency; the instrumentation is a
 # separate distribution, opt-in via opentelemetry.instrumentation.pixeltable. The SDK and exporters live
 # here rather than in that package so it stays api-only, per contrib convention.
@@ -211,8 +211,8 @@ dev = [
     "mdformat>=1.0.0",
     "nbqa>=1.9.1",
     "snowflake-sqlalchemy>=1.7.0",
-    # fastapi powers `pxt serve` (user-defined services); the pxt daemon itself is stdlib-only
-    "fastapi[standard]>=0.120.0",
+    # fastapi powers `pxt service` (user-defined services); the pxt daemon itself is stdlib-only
+    "fastapi[standard]>=0.120.0,!=0.137.0,!=0.137.1",
     "imagehash>=4.3",
     "scipy>=1 ; python_version < '3.14'",
     "scipy>=1.17 ; python_version >= '3.14'",
@@ -300,8 +300,10 @@ ignore_missing_imports = true
 [[tool.pixeltable.database]]
 # we need the repo for the uv-dynamic-versioning install, and pixeltable/_version.py in order for the
 # package to function. Both are ignored by default
+name = 'pxt://pixeltable:pxttest'
 include = ['.git/**', 'pixeltable/_version.py']
 system_dependencies = ["libiconv", "ffmpeg==6.1.1=gpl*"]
+uv_options = "--no-dev"
 
 [tool.pyright]
 typeCheckingMode = "off"

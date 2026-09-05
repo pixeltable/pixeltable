@@ -40,7 +40,7 @@ sequenceDiagram
 
 ## 🛠️ Prerequisites
 
-*   Python 3.10+ and [uv](https://docs.astral.sh/uv/)
+*   Python 3.11+ and [uv](https://docs.astral.sh/uv/)
 *   Running Pixeltable Instance ([Installation Guide](https://pixeltable.com/docs/installation/))
 *   Reddit Account & API Credentials:
     *   Go to <https://www.reddit.com/prefs/apps/> and click "create another app...".

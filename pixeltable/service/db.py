@@ -20,15 +20,16 @@ from pixeltable.service.management_protocol import (
     CreateDbRequest,
     DeleteDbRequest,
     DeleteSecretRequest,
+    GetArchiveRequest,
+    GetArchiveResponse,
+    GetArchiveUploadUrlRequest,
+    GetArchiveUploadUrlResponse,
     GetDbRequest,
-    GetProjectRequest,
-    GetProjectResponse,
-    GetProjectUploadUrlRequest,
-    GetProjectUploadUrlResponse,
+    ListDbRequest,
     ListSecretsRequest,
     ListSecretsResponse,
     ReportServiceInstanceRequest,
-    SetProjectRequest,
+    SetArchiveRequest,
     SetSecretRequest,
     UpdateDbRequest,
 )
@@ -55,7 +56,7 @@ _DB_DESTRUCTIVE_HINT = "Re-run 'pxt db update' with --allow-destructive to apply
 _ENV_BINDING = 'env:'
 
 # how long a hosted database may stay in a transitional state before an update gives up on it
-_DB_SETTLE_TIMEOUT = 1200.0
+_DB_SETTLE_TIMEOUT = 3600.0
 _DB_POLL_INTERVAL = 5.0
 
 # the states a database passes through while it applies something
@@ -84,7 +85,8 @@ class DatabaseState(pydantic.BaseModel):
     worker_status: list[dict[str, Any]] = pydantic.Field(default_factory=list, alias='workers')
 
     # the worker count the database is configured with, which the pod list does not give: pods come and go
-    worker_count: int
+    # TODO: require this once GET_DB reports it
+    worker_count: int | None = None
 
     fingerprint: ProjectFingerprint | None = None
 
@@ -243,8 +245,8 @@ def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | No
     different one would serve code nobody asked for.
     """
     db_path = _validated_db_uri(db_uri)
-    response = GetProjectResponse.model_validate(
-        management_client.api_call(GetProjectRequest(org=db_path.org, db=db_path.db))
+    response = GetArchiveResponse.model_validate(
+        management_client.api_call(GetArchiveRequest(org=db_path.org, db=db_path.db))
     )
     if expected_digest is not None and response.digest != expected_digest:
         raise excs.Error(
@@ -319,7 +321,7 @@ def _publish_artifacts(config: DatabaseConfig, db_path: catalog.Path, with_image
     key = _upload_project_archive(config, db_path)
     if with_image:
         _build_image(db_path, key, fingerprint)
-    _set_project(db_path, key, fingerprint)
+    _set_archive(db_path, key, fingerprint)
 
 
 def _capacity_settings(config: DatabaseConfig) -> dict[str, float | int]:
@@ -338,12 +340,12 @@ def _get_target_ops(plan: DbPlan, target: DbTarget) -> list[DbChangeOp]:
     return [op for op in plan.ops if op.target == target]
 
 
-def _build_image(db_path: catalog.Path, project_key: str, fingerprint: ProjectFingerprint) -> None:
+def _build_image(db_path: catalog.Path, archive_key: str, fingerprint: ProjectFingerprint) -> None:
     management_client.api_call(
         BuildImageRequest(
             org=db_path.org,
             db=db_path.db,
-            project_key=project_key,
+            archive_key=archive_key,
             image_digest=fingerprint.image_digest(),
             python_version=fingerprint.python_version,
             system_dependencies=fingerprint.system_dependencies,
@@ -361,10 +363,10 @@ def _build_image(db_path: catalog.Path, project_key: str, fingerprint: ProjectFi
         )
 
 
-def _set_project(db_path: catalog.Path, project_key: str, fingerprint: ProjectFingerprint) -> None:
+def _set_archive(db_path: catalog.Path, archive_key: str, fingerprint: ProjectFingerprint) -> None:
     """Point the database's pods at the stored archive, and wait for them to come back on it."""
     management_client.api_call(
-        SetProjectRequest(org=db_path.org, db=db_path.db, project_key=project_key, fingerprint=fingerprint)
+        SetArchiveRequest(org=db_path.org, db=db_path.db, archive_key=archive_key, fingerprint=fingerprint)
     )
     current = _await_db_settled(db_path)
     if current.state == 'FAILED':
@@ -464,13 +466,17 @@ def _get_db_config(db_uri: catalog.Path) -> DatabaseConfig:
 
 def _get_db_state(db_path: catalog.Path) -> DatabaseState | None:
     """The named database as the control plane reports it; None if it holds no such database."""
-    try:
-        response = management_client.api_call(GetDbRequest(org=db_path.org, db=db_path.db))
-    except excs.ExternalServiceError as e:
-        if e.provider_http_status_code != 404:
-            raise
+    # TODO: read 404 from GET_DB, once an absent database answers with one rather than 401
+    if not _db_exists(db_path):
         return None
+    response = management_client.api_call(GetDbRequest(org=db_path.org, db=db_path.db))
     return DatabaseState.model_validate(response.get('database', response))
+
+
+def _db_exists(db_path: catalog.Path) -> bool:
+    """Whether the org holds a database of this name."""
+    response = management_client.api_call(ListDbRequest(org=db_path.org))
+    return any(entry['db_slug'] == db_path.db for entry in response['databases'])
 
 
 def _compare_db(current: DatabaseState, config: DatabaseConfig, fingerprint: ProjectFingerprint) -> list[DbChangeOp]:
@@ -518,11 +524,11 @@ def _upload_project_archive(config: DatabaseConfig, db_path: catalog.Path, *, sh
     """
     project_root = _validated_project_root()
     digest = project_fingerprint(project_root, config).archive_digest()
-    response = GetProjectUploadUrlResponse.model_validate(
-        management_client.api_call(GetProjectUploadUrlRequest(org=db_path.org, db=db_path.db, digest=digest))
+    response = GetArchiveUploadUrlResponse.model_validate(
+        management_client.api_call(GetArchiveUploadUrlRequest(org=db_path.org, db=db_path.db, digest=digest))
     )
     if response.presigned_url is None:
-        return response.project_key
+        return response.archive_key
 
     archive_path = create_project_archive(project_root, config, show_progress=show_progress)
     try:
@@ -540,4 +546,4 @@ def _upload_project_archive(config: DatabaseConfig, db_path: catalog.Path, *, sh
                     )
     finally:
         archive_path.unlink(missing_ok=True)
-    return response.project_key
+    return response.archive_key

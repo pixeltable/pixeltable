@@ -959,6 +959,7 @@ class Table(SchemaObject):
         from .column import Column
 
         for name, spec in schema.items():
+            Column.validate_name(name)
             if isinstance(spec, dict):
                 Column._validate_column_spec(name, spec)
 

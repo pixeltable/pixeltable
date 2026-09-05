@@ -39,7 +39,7 @@ sequenceDiagram
 ### Local Development
 
 #### Prerequisites
-- Python 3.10+
+- Python 3.11+
 - Node.js 18+
 - OpenAI API Key
 
@@ -80,7 +80,7 @@ See [aws/README.md](aws/README.md) for details.
 ## Development Stack
 
 ### Backend
-- Python 3.10+
+- Python 3.11+
 - FastAPI for API endpoints
 - Dependencies managed with `uv`
 - Configuration via environment variables

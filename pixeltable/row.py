@@ -23,6 +23,8 @@ class Row(Mapping[str, Any]):
     The `errors` property holds error info (`{'errortype': ..., 'errormsg': ...}`) for each cell whose
     evaluation failed; the `index_values` property holds the values of embedding indexes defined on the
     row's table. Both are keyed by column or index name.
+
+    Keys are case-sensitive: every name is the folded (lower-case) spelling stored in the catalog.
     """
 
     _data: tuple[Any, ...]

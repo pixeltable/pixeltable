@@ -62,6 +62,11 @@ def assert_in_agreement(cli: PxtRunner, app: str, target: str, cwd: pathlib.Path
 
 
 class TestSchema:
+    @pytest.mark.db_roots(
+        'local',
+        'proxy',
+        reason='a hosted image holds the project it was built from, and this test writes its udf while running',
+    )
     def test_basic(
         self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
@@ -128,6 +133,11 @@ class TestSchema:
         assert 'update_all()' not in r.stderr
         assert 'pxt.move()' not in r.stderr
 
+    @pytest.mark.db_roots(
+        'local',
+        'proxy',
+        reason='a hosted image holds the project it was built from, and this test writes its udf while running',
+    )
     def test_in_place_edit(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """A second update of a path the daemon already served reads the file as it now stands."""
         p = db_root.make_catalog_path
@@ -780,6 +790,23 @@ class TestSchema:
         r = cli('schema', 'update', str(broken), p('app'), check=False)
         assert r.returncode == 1
         assert 'error loading' in r.stderr
+
+        # one that defines a udf before it fails: the udf is registered by the time the failure happens,
+        # and the fixed file redefines it, so a load that keeps it would refuse the second one
+        halfway = project_dir / 'halfway.py'
+        udf_src = dedent(
+            """
+            @pxt.udf
+            def shout(s: str) -> str:
+                return s.upper()
+            """
+        )
+        halfway.write_text(SCHEMA_SRC + udf_src + '\nraise RuntimeError("boom")\n')
+        r = cli('schema', 'update', str(halfway), p('halfway'), check=False)
+        assert r.returncode == 1
+        assert 'error loading' in r.stderr
+        halfway.write_text(SCHEMA_SRC + udf_src)
+        cli('schema', 'update', str(halfway), p('halfway'))
 
         # a schema file sits at the top of its project, so an import above it names no package
         above = project_dir / 'above.py'

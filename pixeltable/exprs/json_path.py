@@ -306,7 +306,7 @@ class JsonPath(Expr):
                 return '_'
             elif s == '*':
                 return 'star'
-            elif s.isalnum():
+            elif s.isalnum() and s.isascii():
                 return s
             else:
                 return ''

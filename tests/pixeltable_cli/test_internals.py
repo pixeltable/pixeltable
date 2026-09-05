@@ -45,7 +45,14 @@ from pixeltable.service.management_protocol import (
     StartDbRequest,
     StopDbRequest,
 )
-from pixeltable.utils.app_module import load_app_module, module_routers, service_spec, services_by_name
+from pixeltable.utils import project
+from pixeltable.utils.app_module import (
+    _evict_project_modules,
+    load_app_module,
+    module_routers,
+    service_spec,
+    services_by_name,
+)
 from pixeltable.utils.project import project_fingerprint
 from pixeltable_cli import utils
 from pixeltable_cli.client import hosted, main as client_main, parser as client_parser, utils as client_utils
@@ -176,6 +183,42 @@ class TestProjectRootParity:
             library_copy(unreadable)
         with pytest.raises(RuntimeError, match=r'cannot be parsed'):
             client_copy(unreadable)
+
+
+class TestProjectModuleEviction:
+    """Loading an application file re-reads the project's modules, and leaves the environment's alone."""
+
+    def test_installed_packages_stay_loaded(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        root = tmp_path / 'project'
+        (root / 'apps').mkdir(parents=True)
+        (root / 'apps' / 'udfs.py').write_text('')
+        # where `python -m venv .venv` puts the packages of a project that holds its own environment;
+        # the daemon runs from it, which is what sysconfig reports and _ENV_DIRS is built from
+        installed = root / '.venv' / 'lib' / 'python3.11' / 'site-packages'
+        installed.mkdir(parents=True)
+        monkeypatch.setattr(project, '_ENV_DIRS', (installed,))
+        (installed / 'psycopg').mkdir()
+        (installed / 'psycopg' / '__init__.py').write_text('')
+
+        def loaded(name: str, file: pathlib.Path) -> ModuleType:
+            module = ModuleType(name)
+            module.__file__ = str(file)
+            monkeypatch.setitem(sys.modules, name, module)
+            return module
+
+        loaded('apps.udfs', root / 'apps' / 'udfs.py')
+        vendored = loaded('psycopg', installed / 'psycopg' / '__init__.py')
+        # a module the project no longer holds: the next import has to fail rather than find it cached
+        deleted = root / 'gone.py'
+        loaded('gone', deleted)
+
+        # project_root is read-only, and the eviction reads the one this process was configured with
+        monkeypatch.setattr(Config, 'project_root', property(lambda _: root))
+        _evict_project_modules()
+
+        assert sys.modules.get('apps.udfs') is None, 'the project module was not re-read'
+        assert sys.modules.get('gone') is None, 'a module whose source was deleted stayed cached'
+        assert sys.modules.get('psycopg') is vendored, 'an installed package was unloaded'
 
 
 class TestProbe:
@@ -1830,6 +1873,8 @@ class TestHostedDatabase:
             def __call__(self, request: Any) -> dict[str, Any]:
                 self.sent.append(request)
                 op = request.operation_type.value
+                if op == 'list_dbs':
+                    return {'databases': [] if self.database is None else [{'db_slug': 'main'}]}
                 if op == 'get_db':
                     if self.database is None:
                         raise excs.ExternalServiceError(
@@ -1842,7 +1887,7 @@ class TestHostedDatabase:
                     self.secrets[request.key] = request.value
                 elif op == 'delete_secret':
                     del self.secrets[request.key]
-                elif op in ('build_image', 'set_project'):
+                elif op in ('build_image', 'set_archive'):
                     pass
                 elif op == 'create_db':
                     self.database = {
@@ -1899,10 +1944,11 @@ class TestHostedDatabase:
         (tmp_path / 'app.py').write_text('import pixeltable as pxt  # edited\n')
 
         plan = db.db_update('pxt://acme:main')
-        assert [r.operation_type.value for r in api.sent if r.operation_type.value != 'get_db'] == [
+        # only the archive moved, so the image is not rebuilt
+        assert [r.operation_type.value for r in api.sent if r.operation_type.value not in ('get_db', 'list_dbs')] == [
             'list_secrets',
             'set_secret',
-            'set_project',
+            'set_archive',
             'update_db',
         ]
         assert api.secrets == {'openai_api_key': 'sk-test'}
@@ -1913,14 +1959,14 @@ class TestHostedDatabase:
         assert plan.status == 'applied'
 
     def test_update_image(self, api: Any, uploaded: list[str], tmp_path: pathlib.Path) -> None:
+        """The build request describes the environment the builder creates."""
         self._project(tmp_path, 'system_dependencies = ["ffmpeg"]\n')
-        api.database['fingerprint'] = self._fingerprint(tmp_path)
         (tmp_path / 'uv.lock').write_text('version = 2\n')
 
         db.db_update('pxt://acme:main')
         build = next(r for r in api.sent if r.operation_type.value == 'build_image')
         entry = Config.get().get_database_config(PxtPath.parse('pxt://acme:main', allow_empty_path=True))
-        assert build.project_key == 'acme/main/project.tar.bz2'
+        assert build.archive_key == 'acme/main/project.tar.bz2'
         assert build.system_dependencies == ['ffmpeg']
         assert build.python_version == project_fingerprint(tmp_path, entry).python_version
         assert build.image_digest == project_fingerprint(tmp_path, entry).image_digest()

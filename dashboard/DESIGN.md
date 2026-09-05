@@ -64,6 +64,7 @@ Header: brand left | Search + Lineage icons right    ← stacked icons when coll
 Catalog switcher (Local | cloud URIs | Add cloud…)   ← sticky
 Filter… + Collapse all (when tree ≥ 10 nodes)        ← sticky under switcher
 Directory tree (active catalog only)                 ← scroll
+Lineage / table-detail lineage + History             ← same active catalog
 ──────────────── hairline ──────────────────────────
 Docs / Feedback / Theme                              ← sticky footer
 Collapse                                             ← sticky footer
@@ -120,6 +121,7 @@ Do **not** use square-letter KindBadge glyphs in the tree.
 - Computed / iterator → yellow Zap or colored `SquareFunction` in schema/lineage, not KindBadge letters; omit from data-grid headers
 - Inspector chrome → one `card` content surface (header + schema + data); kind word beside Lucide in headers; honest directory object counts
 - Lineage DetailPanel → quiet Column Data Flow CTA; Zap/UDF yellow kept; no yellow promo wash (esp. light mode)
+- Lineage (sidebar graph + table/column lineage + History) → **active** catalog, same root as the tree
 - Search unavailable → collapsed one-line “skipped” summary by default; path + short reason on expand; raw exception in `title`
 
 ## Component ownership (intended look)

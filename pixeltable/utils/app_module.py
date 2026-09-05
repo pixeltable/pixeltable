@@ -9,9 +9,10 @@ import re
 import sys
 import threading
 import traceback
+from collections.abc import Iterable
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog import ProhibitedWriteError, is_valid_identifier, model
@@ -20,6 +21,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.func import FunctionRegistry
 from pixeltable.runtime import get_runtime
+from pixeltable.utils.project import in_environment
 from pixeltable_cli.types import CheckReport, RouteSpec, ServiceSpec
 
 _lock = threading.RLock()
@@ -62,17 +64,23 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
     """Import file under the module path relative to the project root."""
     path = Path(file).resolve()
     name = module_name(file, subject=subject)
-    root = Config.get().project_root
-    assert root is not None  # module_name() refuses a file outside a project root
 
     # resolve the catalog first: initializing it writes, which freeze() would refuse
     catalog = get_runtime().catalog
     try:
+        registry = FunctionRegistry.get()
         with _lock, catalog.freeze():
-            _evict_project_modules(root)
+            _evict_project_modules()
             # a file written after this process started is invisible to a finder that cached its directory
             importlib.invalidate_caches()
-            return importlib.import_module(name)
+            registered = set(registry.module_fns)
+            try:
+                return importlib.import_module(name)
+            except BaseException:
+                # a module that raises partway through leaves the udfs it already defined registered, and
+                # Python drops it from sys.modules, so _evict_project_modules() cannot reach them again
+                registry.deregister_functions(set(registry.module_fns) - registered)
+                raise
     except ProhibitedWriteError as e:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, _prohibited_write_msg(str(path), subject, e)
@@ -102,12 +110,16 @@ def _no_root_msg(path: Path, subject: str, root: Path | None) -> str:
     )
 
 
-def _evict_project_modules(root: Path) -> None:
-    """Discard every loaded module read from root, and the udfs they registered, so this load reads them again.
+def _evict_project_modules() -> None:
+    """Remove the project's own modules from sys.modules, and their udfs from the registry.
 
-    Scanning sys.modules rather than tracking what an earlier load imported: resolving a stored udf reference
-    imports a project module too, and a module missing from the eviction set is never read again.
+    Removing project modules allows us to have them re-imported, in response to changes to the source files.
+
+    The standard library and installed packages stay loaded, including when the environment sits inside the
+    project root (eg, a .venv).
     """
+    root = Config.get().project_root
+    assert root is not None  # module_name() refuses a file outside a project root
     registry = FunctionRegistry.get()
     for name, module in list(sys.modules.items()):
         module_file = getattr(module, '__file__', None)
@@ -115,22 +127,13 @@ def _evict_project_modules(root: Path) -> None:
             continue
         if name.split('.', maxsplit=1)[0] in _RUNNING_PACKAGES:
             continue
-        if Path(module_file).resolve().is_relative_to(root):
+        # the file path lets us distinguish between a project module and a standard library module
+        resolved = Path(module_file).resolve()
+        if in_environment(resolved):
+            continue
+        if resolved.is_relative_to(root):
             registry.deregister_module(name)
             sys.modules.pop(name, None)
-
-
-def _module_name(path: Path, root: Path, subject: str) -> str:
-    """The dotted name an import of path reaches it by, with root on sys.path."""
-    relative = path.relative_to(root).with_suffix('')
-    for part in relative.parts:
-        if not part.isidentifier() or keyword.iskeyword(part):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                f'{path}: {part!r} is not a module name, so this {subject} cannot be imported; rename it, or '
-                f'the directory holding it, to a Python identifier',
-            )
-    return '.'.join(relative.parts)
 
 
 def _prohibited_write_msg(file: str, subject: str, exc: ProhibitedWriteError) -> str:
@@ -332,7 +335,7 @@ def get_module_services(module: ModuleType, file: str) -> tuple[fastapi.FastAPI 
 
     if app is not None:
         # make sure every router is included in the application
-        app_endpoints = {id(route.endpoint) for route in app.routes if hasattr(route, 'endpoint')}
+        app_endpoints = {id(route.endpoint) for route in _app_routes(app) if hasattr(route, 'endpoint')}
         for name, router in routers.items():
             router_endpoints = {id(route.endpoint) for route in router.routes if hasattr(route, 'endpoint')}
             if not router_endpoints.issubset(app_endpoints):
@@ -368,9 +371,16 @@ def service_spec(name: str, service: FastAPIRouter | fastapi.FastAPI, routers: l
     return ServiceSpec(name=name, routes=routes, app_paths=_app_paths(service, routers))
 
 
+def _app_routes(app: fastapi.FastAPI) -> Iterable[Any]:
+    import fastapi.routing
+
+    flatten = getattr(fastapi.routing, 'iter_route_contexts', None)
+    return app.routes if flatten is None else flatten(app.routes)
+
+
 def _include_prefix(app: fastapi.FastAPI, router: FastAPIRouter) -> str:
     """The prefix that app adds to router's paths, empty when absent."""
-    app_paths = {id(getattr(route, 'endpoint', None)): getattr(route, 'path', '') for route in app.routes}
+    app_paths = {id(getattr(route, 'endpoint', None)): getattr(route, 'path', '') for route in _app_routes(app)}
     for route in router.routes:
         path = getattr(route, 'path', None)
         app_path = app_paths.get(id(getattr(route, 'endpoint', None)))
@@ -385,7 +395,7 @@ def _app_paths(app: fastapi.FastAPI, routers: list[FastAPIRouter]) -> list[str]:
         id(endpoint) for router in routers for endpoint in (getattr(r, 'endpoint', None) for r in router.routes)
     }
     included: set[str] = set()
-    for route in app.routes:
+    for route in _app_routes(app):
         path = getattr(route, 'path', None)
         if path is not None and id(getattr(route, 'endpoint', None)) in from_routers:
             # a route spells a path parameter with its converter, '/media/{path:path}', where the document

@@ -1,4 +1,21 @@
-"""The declaration vocabulary a schema file is written in, and the metaclass that captures it."""
+"""The declaration vocabulary a schema file is written in, and the metaclass that captures it.
+
+Case sensitivity
+----------------
+A class body is Python; the catalog is Pixeltable. Names follow the rules of their own domain, and fold where they
+cross -- in resolution.prepare_model() and diff.user_columns()/base_query_columns(), not here.
+
+A column the model declares is a Python *binding* and keeps its spelling until the crossing: __columns__ is keyed as
+written, and a re-cased class-body reference is a NameError. Once the class is bound, M.MyCol and M.mycol are the same
+attribute, but M.MYCOL raises while M.table.MYCOL resolves. A name that is only a string denoting a Pixeltable
+identifier (name=, EmbeddingIndex(name=...)) folds on arrival.
+
+The namespace binds each key to a ColumnRefByName, which folds the name it carries: the binding is Python, the
+reference is Pixeltable, so _bind() needs no side table.
+
+Hence declaring one spelling twice fails here, while Foo and foo -- two good Python names -- collide only at
+the crossing, in create_all() and the update_all() diff.
+"""
 
 # ruff: noqa: N804  # Neither mypy nor ruff seems to understand metaclasses.
 
@@ -22,7 +39,7 @@ from pixeltable.exprs import ColumnRefByName
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
-from ..globals import MediaValidation, col_type_from_spec, is_valid_identifier
+from ..globals import MediaValidation, col_type_from_spec, fold_identifier, is_valid_identifier
 from ..table import Table
 from ..table_version_handle import TableVersionHandle
 from ..types import TableVersionMd
@@ -133,6 +150,11 @@ class EmbeddingIndex:
     precision: Literal['fp16', 'fp32'] = 'fp16'
     name: str | None = None
 
+    def __post_init__(self) -> None:
+        if isinstance(self.name, str):
+            # This is a frozen dataclass, we have to use __setattr__ to update it.
+            object.__setattr__(self, 'name', fold_identifier(self.name))
+
     def as_fn_call(self) -> exprs.FunctionCall:
         # Static resolution of the embedding function as a FunctionCall.
         assert isinstance(self.column, exprs.ColumnRefByName)
@@ -241,7 +263,8 @@ class _ModelNamespace(dict):
     known_cols: dict[str, ColumnSpec]
 
     # Names that are produced by the base query or iterator; these cannot be redefined in the model.
-    reserved_cols: dict[str, Literal['base query', 'iterator']]
+    # Keyed by folded name.
+    reserved_cols: dict[str, Literal['base table', 'base query', 'iterator']]
 
     # The scope in which the class body is defined; used to evaluate stringized type annotations (see
     # set_col_type()) and prebind annotations.
@@ -284,19 +307,21 @@ class _ModelNamespace(dict):
                 self.set_col_type(key, self.pending_ann_types.pop(key))
 
     def add_reserved_column_ref(
-        self, name: str, col_type: ts.ColumnType, kind: Literal['base query', 'iterator']
+        self, name: str, col_type: ts.ColumnType, kind: Literal['base table', 'base query', 'iterator']
     ) -> None:
         """Add `name` as a reserved column (it is resolvable in the class body, and its symbol cannot be reused,
         but it does not have a ColumnSpec and will not be included in the list of columns for the view to create).
         """
+        assert name == fold_identifier(name)
         self.reserved_cols[name] = kind
         super().__setitem__(name, ColumnRefByName(name, col_type))
 
     def _check_reserved(self, name: str) -> None:
-        if name in self.reserved_cols:
+        """Reject `name` if it is already produced by the base query or the iterator."""
+        kind = self.reserved_cols.get(fold_identifier(name))
+        if kind is not None:
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA,
-                f'{name!r} is already defined by the {self.reserved_cols[name]}; it cannot be redeclared.',
+                excs.ErrorCode.INVALID_SCHEMA, f'{name!r} is already defined by the {kind}; it cannot be redeclared.'
             )
 
     def set_col_value(self, name: str, value: Any) -> None:
@@ -490,11 +515,11 @@ class TableModelMeta(type):
             display_name = f'model `{cls_name}`'
 
             # Validate table name
-            tbl_name = name
-            if not isinstance(tbl_name, str) or not is_valid_identifier(tbl_name, allow_hyphens=True):
+            if not isinstance(name, str) or not is_valid_identifier(name, allow_hyphens=True):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT, f'{display_name}: `name` must be a valid Pixeltable identifier.'
                 )
+            tbl_name = fold_identifier(name)
 
             base_models = bases[0].__registered_models__  # type: ignore[attr-defined]
             if tbl_name in base_models:
@@ -578,13 +603,15 @@ class TableModelMeta(type):
                 caller=caller,
             )
 
-            if base is not None and base.select_list is not None:
+            if base is not None:
                 # Make the select list's named columns referenceable in the body.
-                for expr, col_name in base.select_list:
+                for expr, col_name in base._effective_select_list:
                     if col_name is None:
                         continue
                     assert is_valid_identifier(col_name)  # since it must be a Python symbol
-                    namespace.add_reserved_column_ref(col_name, expr.col_type, 'base query')
+                    namespace.add_reserved_column_ref(
+                        col_name, expr.col_type, 'base table' if base.select_list is None else 'base query'
+                    )
 
             if iterator is not None:
                 # Likewise for the iterator's outputs: referenceable, but created by the iterator.
@@ -753,6 +780,11 @@ class TableModelMeta(type):
             # Table ops succeeded; now update the class.
             for col_name, col_ref in col_refs.items():
                 setattr(cls, col_name, col_ref)
+            # Replace ColumnRefByName placeholders with actual column references. ColumnRefByName.name is a folded
+            # name, and so are the keys of col_refs.
+            for attr, value in list(vars(cls).items()):
+                if isinstance(value, exprs.ColumnRefByName) and value.name in col_refs:
+                    setattr(cls, attr, col_refs[value.name])
             cls._catalog_dir = catalog_dir
             return tbl
 

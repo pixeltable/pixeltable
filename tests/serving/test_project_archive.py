@@ -25,7 +25,7 @@ def local_entry() -> DatabaseConfig | None:
 
 class TestProjectArchive:
     def test_layout(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Every member is the project file it was packaged from, under project/, with nothing else."""
+        """Every project file is packaged under project/, alongside the build's metadata.json."""
         monkeypatch.chdir(tmp_path)
         Config.init(reinit=True)
 
@@ -37,7 +37,7 @@ class TestProjectArchive:
         archive_path = create_project_archive(tmp_path)
 
         with tarfile.open(archive_path, 'r:bz2') as tar:
-            assert sorted(tar.getnames()) == ['project/subdir/helper.py', 'project/udfs.py']
+            assert sorted(tar.getnames()) == ['metadata.json', 'project/subdir/helper.py', 'project/udfs.py']
             with tar.extractfile(tar.getmember('project/udfs.py')) as f:
                 assert f.read().decode() == 'import pixeltable as pxt\n'
 

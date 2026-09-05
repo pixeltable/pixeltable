@@ -26,7 +26,7 @@ jupyter notebook pixeltable-and-gradio-application.ipynb
 
 You'll also need:
 - A Mistral AI API key
-- Python 3.10 or later
+- Python 3.11 or later
 
 ### Running the Application
 

@@ -1150,10 +1150,6 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Required model fields .* are missing') as exc_info:
             _ = list(t.select(t.i).collect().to_pydantic(TestModel))
         assert extract_fields(exc_info) == {'s', 'f', 'b', 'ts', 'd'}
-        # case-sensitive field names
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Required model fields .* are missing') as exc_info:
-            _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, D=t.d).collect().to_pydantic(TestModel))
-        assert extract_fields(exc_info) == {'d'}
 
         # (s?): dotall mode, needed to match the embedded \n's
         with pxt_raises(
@@ -1168,6 +1164,30 @@ class TestQuery:
         ) as exc_info:
             _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, t.d, extra=t.i + t.f).collect().to_pydantic(StrictTestModel))
         assert extract_fields(exc_info) == {'extra'}
+
+    def test_to_pydantic_case_insensitive(self, db_root: DatabaseRoot) -> None:
+        """Model field names are matched against the folded result column names."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('t'), {'i': pxt.Int | None, 's': pxt.String | None})
+        t.insert([{'i': 1, 's': 'one'}, {'i': 2, 's': 'two'}])
+
+        class MixedCaseModel(pydantic.BaseModel):
+            MyInt: int
+            MyStr: str
+
+        mixed = list(t.select(MyInt=t.i, MYSTR=t.s).order_by(t.i).collect().to_pydantic(MixedCaseModel))
+        assert [m.MyInt for m in mixed] == [1, 2]
+        assert [m.MyStr for m in mixed] == ['one', 'two']
+
+        # two fields that fold onto each other cannot both be matched
+        class CollidingModel(pydantic.BaseModel):
+            Val: int = -1
+            val: int = -1
+
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"CollidingModel has fields 'Val' and 'val' which are the same"
+        ):
+            _ = list(t.select(val=t.i).collect().to_pydantic(CollidingModel))
 
     def test_cursor_lifecycle(self, test_tbl: pxt.Table) -> None:
         query = test_tbl.select(test_tbl.c1, test_tbl.c2, test_tbl.c3).order_by(test_tbl.c2)
@@ -1318,3 +1338,27 @@ class TestQuery:
         t.drop_column(t.c2)
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             _ = q.collect()
+
+    def test_case_insensitive_result_access(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('t'), {'MyCol': pxt.Int | None})
+        t.insert([{'mycol': 1}])
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Repeated column name'):
+            _ = t.select(A=t.MyCol, a=t.MyCol)
+
+        rs = t.select(t.MyCol).collect()
+        assert list(rs.schema.keys()) == ['mycol']
+        assert rs['MyCol'] == [1]
+        assert rs[0, 'MYCOL'] == 1
+
+        # a Row is keyed by the folded column names
+        row = next(iter(t.select(t.MyCol).cursor()))
+        assert list(row.keys()) == ['mycol']
+        assert row['mycol'] == 1
+
+        # same with Row.errors
+        t.add_computed_column(Inv=1 // t.MyCol)
+        out = t.compute([{'MYCOL': 0}], on_error='ignore')
+        assert list(out[0].errors.keys()) == ['inv']
+        assert out[0].errors['inv']['errortype'] == 'ZeroDivisionError'

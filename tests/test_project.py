@@ -1,12 +1,16 @@
 """The project's file selection and its fingerprint."""
 
 import pathlib
+import sys
+from types import ModuleType
+from unittest.mock import patch
 
 import pytest
 
 from pixeltable import exceptions as excs
 from pixeltable.config import DatabaseConfig
-from pixeltable.utils.project import ProjectPart, _archive_files, project_fingerprint
+from pixeltable.utils import project as project_mod
+from pixeltable.utils.project import ProjectPart, _archive_files, loaded_fingerprint, project_fingerprint
 
 from .utils import pxt_raises
 
@@ -33,6 +37,16 @@ class TestProject:
         return sorted(p.relative_to(root).as_posix() for p in _archive_files(root, config))
 
     def test_gitignore(self, project: pathlib.Path) -> None:
+        assert self._names(project) == ['.gitignore', 'app.py', 'uv.lock']
+
+    def test_venv(self, project: pathlib.Path) -> None:
+        """A virtual environment is dropped even when nothing ignores it."""
+        for name, marker in (('.venv', 'pyvenv.cfg'), ('env', 'conda-meta/history')):
+            venv = project / name
+            (venv / 'lib').mkdir(parents=True)
+            (venv / 'lib' / 'pkg.py').write_text('z = 1\n')
+            (venv / marker).parent.mkdir(parents=True, exist_ok=True)
+            (venv / marker).write_text('')
         assert self._names(project) == ['.gitignore', 'app.py', 'uv.lock']
 
     def test_patterns(self, project: pathlib.Path) -> None:
@@ -103,6 +117,22 @@ class TestProject:
         loaded = edited.model_copy(update={'files': _some(edited.files, 'app.py', 'uv.lock')})
         assert loaded.compare(published, own_files_only=True) == {ARCHIVE}
         assert loaded.changes(published, {ARCHIVE}, own_files_only=True) == ['app.py changed']
+
+    def test_environment_files_are_not_loaded_files(self, project: pathlib.Path) -> None:
+        """A project holding its own virtualenv fingerprints the same whatever it has loaded from it.
+
+        Each process imports a different set of the environment's packages, so counting them would make two
+        fingerprints of one application differ and restart the service for nothing.
+        """
+        installed = project / '.venv' / 'lib' / 'python3.11' / 'site-packages'
+        installed.mkdir(parents=True)
+        (installed / 'vendored.py').write_text('z = 1\n')
+
+        before = loaded_fingerprint(project, None)
+        module = ModuleType('vendored')
+        module.__file__ = str(installed / 'vendored.py')
+        with patch.dict(sys.modules, {'vendored': module}), patch.object(project_mod, '_ENV_DIRS', (installed,)):
+            assert loaded_fingerprint(project, None) == before
 
     def test_bindings(self, project: pathlib.Path) -> None:
         before = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://one'}))

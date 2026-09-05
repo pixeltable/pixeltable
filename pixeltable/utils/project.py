@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import enum
 import hashlib
+import io
 import json
 import logging
 import os
 import sys
+import sysconfig
 import tarfile
 import tempfile
 from collections.abc import Iterable
@@ -19,17 +21,17 @@ from pathspec import PathSpec
 from tqdm import tqdm
 
 import pixeltable
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, metadata
 from pixeltable.config import PROJECT_CONFIG_FILES, DatabaseConfig
 from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
 
 # how an image build installs the project's packages
-DepsType = Literal['uv', 'poetry', 'pip', 'none']
+DepsType = Literal['uv', 'pip', 'none']
 
 # a project declares its packages in one of these, each installed by the tool it names
-LOCK_FILES: dict[str, DepsType] = {'uv.lock': 'uv', 'poetry.lock': 'poetry', 'requirements.txt': 'pip'}
+LOCK_FILES: dict[str, DepsType] = {'uv.lock': 'uv', 'requirements.txt': 'pip'}
 
 
 class ProjectPart(enum.StrEnum):
@@ -73,8 +75,13 @@ def _is_gitignored(path: Path, is_dir: bool, specs: list[tuple[Path, PathSpec]])
     return False
 
 
+def _is_venv(dir_path: Path) -> bool:
+    """Whether dir_path is a Python virtual environment."""
+    return (dir_path / 'pyvenv.cfg').is_file() or (dir_path / 'conda-meta').is_dir()
+
+
 def _collect_unignored_files(project_dir: Path) -> set[Path]:
-    """All files under project_dir that git would not ignore.
+    """All files under project_dir that git would not ignore, minus any virtual environment.
 
     Honors the .gitignore at every level of the tree, not just project_dir's: tools such as ruff, mypy and
     pytest keep their caches out of git by writing a `.gitignore` containing `*` into the cache directory
@@ -85,7 +92,8 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
     them as symlinks rather than recursing).
 
     .git is skipped here, as git itself does, but only by default: an `include` pattern of `.git/**` still
-    reaches it, which a project that derives its version from VCS metadata needs.
+    reaches it, which a project that derives its version from VCS metadata needs. A virtual environment is
+    skipped whether or not a .gitignore covers it, since the pod installs the packages from the lockfile.
     """
     files: set[Path] = set()
 
@@ -98,6 +106,8 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
                 continue
             is_dir = entry.is_dir() and not entry.is_symlink()
             if _is_gitignored(entry, is_dir, specs):
+                continue
+            if is_dir and _is_venv(entry):
                 continue
             if is_dir:
                 visit(entry, specs)
@@ -167,7 +177,7 @@ def create_project_archive(
 
     if not has_lockfile:
         Env.get().console_logger.warning(
-            'No dependency lockfile (uv.lock, poetry.lock, requirements.txt) was found in '
+            'No dependency lockfile (uv.lock, requirements.txt) was found in '
             f'{project_dir}.\nThe image will hold Pixeltable and nothing else, so it may not have the '
             'Python dependencies the project needs. An active conda environment is not a substitute: '
             "run 'uv lock', or write a requirements.txt."
@@ -190,9 +200,28 @@ def create_project_archive(
             tf.add(f, arcname=f'project/{relpath}')
             bar.update(1)
         bar.set_postfix_str('', refresh=False)
+        _add_build_metadata(tf, project_dir, db_config)
 
     _logger.info(f'Project archive created: {archive_path}')
     return archive_path
+
+
+def _add_build_metadata(tf: tarfile.TarFile, project_dir: Path, db_config: DatabaseConfig | None) -> None:
+    """Add the archive's metadata.json, which tells the image build what environment to create.
+
+    TODO: remove this, and the tarfile the caller opens for it, once the build reads BuildImageRequest.
+    """
+    fingerprint = project_fingerprint(project_dir, db_config)
+    config = db_config if db_config is not None else DatabaseConfig()
+    payload = {
+        'deps_type': fingerprint.deps_type(),
+        'pxt_md_version': metadata.VERSION,
+        'db_config': config.model_dump(mode='json', exclude_none=True) | {'python_version': fingerprint.python_version},
+    }
+    encoded = json.dumps(payload).encode()
+    info = tarfile.TarInfo(name='metadata.json')
+    info.size = len(encoded)
+    tf.addfile(info, io.BytesIO(encoded))
 
 
 class ProjectFingerprint(pydantic.BaseModel):
@@ -325,23 +354,35 @@ def project_fingerprint(project_root: Path, config: DatabaseConfig | None) -> Pr
     return _fingerprint(_archive_files(project_root, config), project_root, config)
 
 
+# Where this interpreter keeps the standard library and installed packages.
+_ENV_DIRS = tuple(
+    Path(sysconfig.get_paths()[name]).resolve()
+    for name in ('stdlib', 'purelib', 'platlib')
+    if name in sysconfig.get_paths()
+)
+
+
+def in_environment(path: Path) -> bool:
+    """Returns True if path is a file of this interpreter's standard library or installed packages."""
+    return any(path.is_relative_to(env_dir) for env_dir in _ENV_DIRS)
+
+
 def loaded_fingerprint(project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
-    """Fingerprint the files the loaded application reached under project_root, plus the lockfile.
+    """Fingerprint the project's own files that the loaded application reached, plus the lockfile.
 
-    This decides whether a running service is out of date, so that a service restarts for a file it imports
-    and not for one its neighbour in the same project imports.
+    Excludes the environment's files.
 
-    Call it after load_app_module(), which evicts the project's modules before importing: what is loaded from
-    the project afterwards is what this application reached. A module imported inside a function body is
-    never reached, which is the limitation Modal's mounted-source rule has too, and the reason
-    'pxt service update --restart' exists.
+    Call it after load_app_module(), which removes the project's modules before importing: the project files
+    loaded afterwards are the ones this application reached.
     """
     loaded = {
         Path(file).resolve()
         for file in (getattr(module, '__file__', None) for module in list(sys.modules.values()))
         if file is not None
     }
-    files = [path for path in loaded if path.is_relative_to(project_root) and path.is_file()]
+    files = [
+        path for path in loaded if path.is_relative_to(project_root) and not in_environment(path) and path.is_file()
+    ]
     files += [project_root / name for name in LOCK_FILES if (project_root / name).is_file()]
     return _fingerprint(files, project_root, config)
 

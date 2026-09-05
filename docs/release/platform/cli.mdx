@@ -7,7 +7,7 @@ description: "Inspect, query, and serve Pixeltable catalogs from the terminal wi
 The `pxt` CLI ships with the `pixeltable` package. It covers two surfaces:
 
 - **Catalog operations** -- inspect, query, and manage tables, views, and directories. Backed by a long-lived local daemon so each command takes ~40 ms after the first invocation.
-- **Service deployment** -- run the services an application file declares with `pxt service`, and publish them with `pxt deploy`. Both require the `serve` extra (which pulls in `fastapi[standard]` and `uvicorn`):
+- **Service deployment** -- run the services an application file declares with `pxt service`. Requires the `serve` extra (which pulls in `fastapi[standard]` and `uvicorn`):
 
   ```bash
   pip install 'pixeltable[serve]'
@@ -38,8 +38,8 @@ Use `pxt <command> --help` for per-subcommand flags and examples.
 | **Mutation** | `drop`, `drop-dir`, `rename`, `mv`, `revert` |
 | **Schema** | `schema diff`, `schema update`, `schema prune` |
 | **Interactive** | `shell` |
-| **Serving** | `serve` |
-| **Cloud** | `db`, `service`, `org` |
+| **Serving** | `service` |
+| **Cloud** | `db`, `secret`, `org` |
 | **Lifecycle** | `daemon`, `dashboard`, `health` |
 
 ### Universal flags
@@ -49,7 +49,7 @@ These flags work the same way across the catalog commands that support them and 
 | Flag | Available on | Description |
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
-| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `revert`), the `schema` and `service` verbs, plus `db`, `org`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), or the lifecycle subcommands that print plain status lines (`daemon start`/`stop`). |
+| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `revert`), the `schema` and `service` verbs, plus `db`, `secret`, `org`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), or the lifecycle subcommands that print plain status lines (`daemon start`/`stop`). |
 | `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `revert`), plus `schema update`, `schema prune`, `service update` and `service prune` | Print the intended action; don't execute. |
 | `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
 
@@ -116,6 +116,10 @@ pxt service list                     # what is running, and where
 pxt db update pxt://myorg:mydb   # create the database, or bring it up to what the project declares
 pxt db diff   pxt://myorg:mydb   # what 'update' would change
 pxt db list   pxt://myorg
+
+# cloud — secrets
+pxt secret set  pxt://myorg OPENAI_API_KEY=sk-...
+pxt secret list pxt://myorg
 ```
 
 ## Inspection commands
@@ -417,9 +421,9 @@ import pixeltable.functions as pxtf
 TableModel = pxt.model_base()
 
 class Docs(TableModel, name='docs'):
-    title: pxt.String                         # a stored column; non-nullable
-    body: pxt.String | None                   # `| None` makes it nullable
-    title_upper = pxtf.string.upper(title)    # a computed column: an assignment, not an annotation
+    title: pxt.String
+    body: pxt.String | None
+    title_upper = pxtf.string.upper(title)
 
 class Titled(TableModel, name='titled', base=Docs.where(Docs.title != '')):
     headline = Docs.title_upper + '!'         # a view of Docs, filtered by its base= query
@@ -719,11 +723,10 @@ pxt service list
 pxt service stop ingest
 ```
 
-`run` serves one service from the calling process instead, until interrupted, which is the mode for a
-container entrypoint or a development loop. One service per process, as `update` deploys them, so the routes
-it serves are the ones deployment serves; name the service as a third argument when the file declares more
-than one. It has no idle outcome and records nothing, which is why it is a verb of its own rather than a mode
-of `update`:
+`run` stays in the foreground until you interrupt it and does not register the service for `list` or `stop`,
+so it is a separate command, not a flag on `update`. Use it as a container entrypoint or a development loop.
+One service per process, as `update` deploys them; name the service as a third argument when the file
+declares more than one:
 
 ```bash
 pxt service run app.py my_dir --port 9000
@@ -741,7 +744,7 @@ needs `--allow-destructive`.
 
 ## Cloud
 
-`pxt db` and `pxt org` manage cloud-hosted databases and organizations. All cloud commands require `PIXELTABLE_API_KEY` to be configured (see [Configuration](/platform/configuration)).
+`pxt db` and `pxt org` manage cloud-hosted databases and organizations. All cloud commands require `PIXELTABLE_API_KEY`. Create the key in the Cloud dashboard: [Get an API key](/howto/deployment/cloud#get-an-api-key). Then set it in the environment or `config.toml` ([Configuration](/platform/configuration)).
 
 All cloud commands accept `--json` for machine-readable output.
 
@@ -804,7 +807,7 @@ pxt db update pxt://myorg:mydb --allow-destructive
 | `-f`, `--force` | Skip the confirmation |
 | `--allow-destructive` | Permit taking capacity away or deleting a secret |
 
-This is the command that creates a hosted database, and the one that keeps it current afterwards. Declare the database in a `[[pixeltable.database]]` entry, then run `update` against the uri its `name` holds:
+This is the command that creates a hosted database, and the one that keeps it current afterwards. Put the database in a `[[pixeltable.database]]` entry, then run `update` against the URI its `name` holds:
 
 ```toml
 # pixeltable.toml
@@ -818,7 +821,7 @@ pxt db update pxt://myorg:mydb
 
 The uri on the command line selects the entry by its `name`: an entry naming another database configures that one, and a target no entry names is an error. The first run creates the database, builds the image its environment describes and uploads the project files the pods run; every later run applies whatever has changed since. The [cloud configuration reference](#cloud-configuration-reference) lists everything an entry can declare.
 
-What it applies, in this order: secrets first, since code the pods run reads them as they start; then the image, if the declared environment has moved, and the project archive, if the files have; then one resize carrying every changed number, so the pods restart once. A secret is declared as the name of an environment variable (`openai_api_key = 'env:OPENAI_API_KEY'`), never as a value.
+`update` applies secrets first so pods can read them on start, then a new image if dependencies changed, then uploaded project files if sources changed, then one resize for any changed CPU, memory, disk, or worker counts so the pods restart only once. A secret is the name of an environment variable (`openai_api_key = 'env:OPENAI_API_KEY'`), never a value.
 
 #### `pxt db list`
 
@@ -858,7 +861,7 @@ pxt db diff pxt://myorg:mydb
 pxt db diff pxt://myorg:mydb --json
 ```
 
-Compares the database against the `[[pixeltable.database]]` entry naming it (see the [cloud configuration reference](#cloud-configuration-reference)): the capacity numbers, which secrets the database holds, and the two artifacts a project ships separately --
+`pxt db diff` compares the hosted database to that config entry (see the [cloud configuration reference](#cloud-configuration-reference)): capacity, secrets, the Python image, and the project file archive --
 
 | artifact | holds | moves when |
 |---|---|---|
@@ -873,7 +876,7 @@ so an edit to a source file is uploaded in seconds, and only a dependency change
 pxt db build-image pxt://myorg:mydb
 ```
 
-Uploads the project files and builds the image from its environment, without comparing anything first. `pxt db update` does whichever of the two the project has moved on from; this one does both whatever the database already holds, which is how a build is forced after one has failed. Polls until the build completes or fails; the pods restart on the new image and the new sources.
+Uploads the project files and builds the image from its environment, without comparing anything first. `pxt db update` uploads project files or rebuilds the image only when they changed. `pxt db build-image` always does both, which is how you force a rebuild after a failed one. Polls until the build completes or fails; the pods restart on the new image and the new sources.
 
 #### `pxt db delete`
 
@@ -901,6 +904,21 @@ pxt org status pxt://myorg
 ```
 
 Show the organization's name, ID, and default database.
+
+### `pxt secret`
+
+```bash
+pxt secret list   pxt://myorg
+pxt secret list   pxt://myorg:mydb
+pxt secret set    pxt://myorg OPENAI_API_KEY=sk-...
+pxt secret delete pxt://myorg:mydb OLD_KEY
+```
+
+An org secret applies to every database in the org. A database secret applies to that database and wins on a key collision. `list` prints names, never values.
+
+A project can declare secrets in its `[[pixeltable.database]]` entry as the name of the environment variable holding each value. `pxt db update` sets them from there.
+
+A running database holds the values it started with. Run `pxt db stop` then `pxt db start` to pick up a change.
 
 ## What's next
 

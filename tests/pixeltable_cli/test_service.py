@@ -57,7 +57,9 @@ def assert_serving(cli: PxtRunner, app: str, target: str, *names: str) -> dict[s
         assert served.status_code == 200, served.text
         declared = {route['path'] for route in service['spec']['routes']}
         declared |= set(service['spec']['app_paths'])
-        assert declared <= set(served.json()['paths']), (declared, sorted(served.json()['paths']))
+        served_paths = set(served.json()['paths'])
+        assert declared <= served_paths, (declared, sorted(served_paths))
+        assert not any('/_pxt/' in path for path in served_paths), sorted(served_paths)
     return running
 
 
@@ -116,6 +118,12 @@ class TestService:
         r = cli('service', 'diff', app, target, '--json', check=False)
         assert r.returncode == 2
         assert [(s['name'], s['resolution']) for s in r.json['services']] == [('ingest', 'create')]
+        assert {op['name'] for op in r.json['services'][0]['ops']} == {
+            'POST /docs',
+            'POST /preview',
+            'POST /docs/update',
+            'POST /docs/delete',
+        }
         assert services(cli) == {}
 
         cli('service', 'update', app, target, '-f')

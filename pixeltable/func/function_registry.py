@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Collection
+
 from pixeltable import exceptions as excs, type_system as ts
 
 from .function import Function
@@ -44,8 +46,11 @@ class FunctionRegistry:
 
     def deregister_module(self, module_name: str) -> None:
         """Drop every function registered for module_name."""
-        dropped = [fqn for fqn in self.module_fns if fqn.startswith(f'{module_name}.')]
-        fns = {id(self.module_fns.pop(fqn)) for fqn in dropped}
+        self.deregister_functions([fqn for fqn in self.module_fns if fqn.startswith(f'{module_name}.')])
+
+    def deregister_functions(self, fqns: Collection[str]) -> None:
+        """Drop the named functions, and any type method for which they are registered."""
+        fns = {id(self.module_fns.pop(fqn)) for fqn in fqns}
         for methods in self.type_methods.values():
             for name in [name for name, fn in methods.items() if id(fn) in fns]:
                 del methods[name]

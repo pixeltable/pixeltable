@@ -19,22 +19,22 @@ class ManagementOperationType(str, Enum):
     LIST_DBS = 'list_dbs'
     DELETE_DB = 'delete_db'
 
-    CREATE_SERVICE_INSTANCE = 'create_service_instance'
-    GET_SERVICE_INSTANCE = 'get_service_instance'
-    LIST_SERVICE_INSTANCES = 'list_service_instances'
-    UPDATE_SERVICE_INSTANCE = 'update_service_instance'
+    CREATE_SERVICE_INSTANCE = 'create_service'
+    GET_SERVICE_INSTANCE = 'get_service'
+    LIST_SERVICE_INSTANCES = 'list_services'
+    UPDATE_SERVICE_INSTANCE = 'update_service'
     REPORT_SERVICE_INSTANCE = 'report_service_instance'
-    START_SERVICE_INSTANCE = 'start_service_instance'
-    STOP_SERVICE_INSTANCE = 'stop_service_instance'
-    DELETE_SERVICE_INSTANCE = 'delete_service_instance'
+    START_SERVICE_INSTANCE = 'start_service'
+    STOP_SERVICE_INSTANCE = 'stop_service'
+    DELETE_SERVICE_INSTANCE = 'delete_service'
 
     START_DB = 'start_db'
     STOP_DB = 'stop_db'
     UPDATE_DB = 'update_db'
     BUILD_IMAGE = 'build_image'
-    SET_PROJECT = 'set_project'
-    GET_PROJECT = 'get_project'
-    GET_PROJECT_UPLOAD_URL = 'get_project_upload_url'
+    SET_ARCHIVE = 'set_archive'
+    GET_ARCHIVE = 'get_archive'
+    GET_ARCHIVE_UPLOAD_URL = 'get_archive_upload_url'
 
     LIST_ORGS = 'list_orgs'
 
@@ -125,7 +125,7 @@ class BuildImageRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.BUILD_IMAGE] = ManagementOperationType.BUILD_IMAGE
     org: str | None = None
     db: str
-    project_key: str
+    archive_key: str
     # ProjectFingerprint.image_digest()
     image_digest: str
     python_version: str
@@ -137,36 +137,36 @@ class BuildImageRequest(BaseModel):
     pxt_md_version: int
 
 
-class SetProjectRequest(BaseModel):
+class SetArchiveRequest(BaseModel):
     """Point the database's pods at a stored project archive, restarting them to fetch it."""
 
-    operation_type: Literal[ManagementOperationType.SET_PROJECT] = ManagementOperationType.SET_PROJECT
+    operation_type: Literal[ManagementOperationType.SET_ARCHIVE] = ManagementOperationType.SET_ARCHIVE
     org: str | None = None
     db: str
-    project_key: str
+    archive_key: str
     # what the archive holds and the environment it runs in; GET_DB reports it back, and a diff compares
     # the project here against it
     fingerprint: ProjectFingerprint
 
 
-class GetProjectRequest(BaseModel):
+class GetArchiveRequest(BaseModel):
     """Ask for a url serving the database's current project archive; a pod sends this as it starts."""
 
-    operation_type: Literal[ManagementOperationType.GET_PROJECT] = ManagementOperationType.GET_PROJECT
+    operation_type: Literal[ManagementOperationType.GET_ARCHIVE] = ManagementOperationType.GET_ARCHIVE
     org: str | None = None
     db: str
 
 
-class GetProjectResponse(BaseModel):
+class GetArchiveResponse(BaseModel):
     presigned_url: str
-    project_key: str
+    archive_key: str
     # ProjectFingerprint.archive_digest() of the archive the url serves
     digest: str
 
 
-class GetProjectUploadUrlRequest(BaseModel):
-    operation_type: Literal[ManagementOperationType.GET_PROJECT_UPLOAD_URL] = (
-        ManagementOperationType.GET_PROJECT_UPLOAD_URL
+class GetArchiveUploadUrlRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.GET_ARCHIVE_UPLOAD_URL] = (
+        ManagementOperationType.GET_ARCHIVE_UPLOAD_URL
     )
     org: str | None = None
     db: str
@@ -174,8 +174,8 @@ class GetProjectUploadUrlRequest(BaseModel):
     digest: str
 
 
-class GetProjectUploadUrlResponse(BaseModel):
-    project_key: str
+class GetArchiveUploadUrlResponse(BaseModel):
+    archive_key: str
     # None when the digest names a stored archive: nothing left to upload
     presigned_url: str | None = None
 

@@ -257,6 +257,9 @@ def _service_diff(
     if running is None:
         route_comparison: RouteComparison = 'unavailable'
         route_detail = 'the service is not running at this target'
+        # nothing is serving yet, so every declared route is an addition. Copying the declared spec keeps
+        # its prefix, so this does not rely on _prefix_change() ignoring an empty route list.
+        ops += compare_specs(service.spec.model_copy(update={'routes': [], 'app_paths': []}), service.spec)
     else:
         # a declarative service is compared by its route declarations, an application object by the paths it
         # serves itself

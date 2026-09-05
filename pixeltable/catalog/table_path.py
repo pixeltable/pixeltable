@@ -14,7 +14,7 @@ from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 
 from .column import Column
-from .globals import MediaValidation
+from .globals import MediaValidation, fold_identifier
 from .path import ROOT_PATH, Path
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
@@ -162,8 +162,10 @@ class TablePath(abc.ABC):
     @abc.abstractmethod
     def get_column_md(self, qcolid: QColumnId) -> ColumnVersionMd: ...
 
-    @abc.abstractmethod
-    def get_column_md_by_name(self, name: str) -> ColumnVersionMd | None: ...
+    def get_column_md_by_name(self, name: str) -> ColumnVersionMd | None:
+        """Return metadata for the user column visible under the given name, or None if not found."""
+        folded_name = fold_identifier(name)
+        return next((col_md for col_md in self.column_md() if col_md.name == folded_name), None)
 
     @abc.abstractmethod
     def column_md(self) -> list[ColumnVersionMd]: ...
@@ -414,6 +416,7 @@ class TableVersionPath(TablePath):
 
     def get_column(self, name: str) -> Column | None:
         """Return the column with the given name, or None if not found"""
+        name = fold_identifier(name)
         tv = self._cached_tv()
         col = tv.cols_by_name.get(name)
         if col is not None:
@@ -456,11 +459,8 @@ class TableVersionPath(TablePath):
             raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Column {qcolid!r} not found')
         return col_md
 
-    def get_column_md_by_name(self, name: str) -> ColumnVersionMd | None:
-        """Return metadata for the user column visible under the given name, or None if not found."""
-        return next((col_md for col_md in self.column_md() if col_md.name == name), None)
-
     def get_idx_md(self, qcolid: QColumnId, name: str | None, idx_class: type[IndexBase]) -> schema.IndexMd:
+        name = None if name is None else fold_identifier(name)
         tv = self._cached_tv()
         # lookup_column() searches the whole path, so the index always resolves on this (path-context) tv:
         # an index on a base column accessed through a view is registered on the view's tv keyed by the base
@@ -659,11 +659,8 @@ class TableMdPath(TablePath):
             raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Column {qcolid!r} not found')
         return result
 
-    def get_column_md_by_name(self, name: str) -> ColumnVersionMd | None:
-        """Return metadata for the user column visible under the given name, or None if not found."""
-        return next((col_md for col_md in self.column_md() if col_md.name == name), None)
-
     def get_idx_md(self, qcolid: QColumnId, name: str | None, idx_class: type[IndexBase]) -> schema.IndexMd:
+        name = None if name is None else fold_identifier(name)
         # a pinned version (snapshot or historical version) does not support indices
         if self.effective_version() is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Snapshot does not support indices')

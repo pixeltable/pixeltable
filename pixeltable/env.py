@@ -72,6 +72,10 @@ def init_log_level(logger: logging.Logger, config: Config, config_key: str, *, d
     logger.setLevel(level)
 
 
+_DEFAULT_DB_POOL_SIZE = 5
+_DEFAULT_DB_POOL_MAX_OVERFLOW = 10
+
+
 def store_app_name() -> str:
     """The application_name that this process's connections report to the store.
 
@@ -79,6 +83,22 @@ def store_app_name() -> str:
     processes running against the same database.
     """
     return f'pixeltable-{os.getpid()}'
+
+
+# Pixeltable DB name is used verbatim as Postgres DB name. Postgres will truncate anything longer than 63 bytes.
+MAX_DB_NAME_LEN = 63
+
+
+def validate_db_name(db_name: str) -> None:
+    from pixeltable.catalog.globals import is_valid_identifier
+
+    if not is_valid_identifier(db_name, allow_hyphens=True):
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid database name: {db_name!r}')
+    if len(db_name) > MAX_DB_NAME_LEN:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'Database name is too long ({len(db_name)} characters; the limit is {MAX_DB_NAME_LEN}): {db_name}',
+        )
 
 
 class Env:
@@ -438,10 +458,10 @@ class Env:
 
         if self.is_local:
             # Embedded postmaster: create or reset the database as needed.
-            if reinit_db and self._store_db_exists():
+            if reinit_db and self._store_db_exists(self._db_name):
                 self._drop_store_db()
 
-            create_db = not self._store_db_exists()
+            create_db = not self._store_db_exists(self._db_name)
             if create_db:
                 _logger.info(f'creating database at: {self.db_url}')
                 self._create_store_db()
@@ -480,7 +500,7 @@ class Env:
             if dialect == 'cockroachdb':
                 self._dbms = CockroachDbms(db_url)
                 # Check if database exists (CockroachDB exposes pg_database via the system DB)
-                if not self._store_db_exists():
+                if not self._store_db_exists(self._db_name):
                     error = f'Database {self._db_name!r} does not exist'
                     _logger.error(error)
                     raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error)
@@ -495,11 +515,27 @@ class Env:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
             _logger.info(f'Using database at: {self.db_url}')
         else:
-            self._db_name = config.get_string_value('db') or 'pixeltable'
+            # the database name is an identifier, and is folded everywhere else it enters (Path, pxt localproxy)
+            from pixeltable.catalog.globals import fold_identifier
+
+            configured_name = config.get_string_value('db')
+            if configured_name:
+                validate_db_name(configured_name)
+            folded_name = fold_identifier(configured_name) if configured_name else 'pixeltable'
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
             self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
-            self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
-            self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
+            self._set_local_db(folded_name)
+            # Legacy database (with an unfolded name) fallback
+            if (
+                configured_name is not None
+                and configured_name != folded_name
+                and not self._store_db_exists(folded_name)
+                and self._store_db_exists(configured_name)
+            ):
+                self.console_logger.warning(
+                    f'Using database {configured_name!r}, which predates case-folded database names'
+                )
+                self._set_local_db(configured_name)
         assert self._dbms is not None
         assert self._db_url is not None
         assert self._db_name is not None
@@ -530,13 +566,27 @@ class Env:
         updated_url = add_option_to_db_url(self.db_url, f'-c timezone={time_zone_name}')
         updated_url = add_option_to_db_url(updated_url, f'-c application_name={store_app_name()}')
 
+        config = Config.get()
+        pool_size = config.get_int_value('db_pool_size')
+        if pool_size is None:
+            pool_size = _DEFAULT_DB_POOL_SIZE
+        pool_max_overflow = config.get_int_value('db_pool_max_overflow')
+        if pool_max_overflow is None:
+            pool_max_overflow = _DEFAULT_DB_POOL_MAX_OVERFLOW
+
         self._sa_engine = sql.create_engine(
-            updated_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level
+            updated_url,
+            echo=echo,
+            isolation_level=self._dbms.transaction_isolation_level,
+            pool_size=pool_size,
+            max_overflow=pool_max_overflow,
+            pool_pre_ping=True,
         )
 
         _logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
         _logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
         _logger.info(f'Engine driver : {self._sa_engine.dialect.driver}')
+        _logger.info(f'Engine connection pool: {pool_size} + {pool_max_overflow}')
 
         with self.engine.begin() as conn:
             tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
@@ -550,13 +600,19 @@ class Env:
                 assert isinstance(null_ordered_last, str)
                 _logger.info(f'Database null_ordered_last is now: {null_ordered_last}')
 
-    def _store_db_exists(self) -> bool:
-        assert self._db_name is not None
-        # don't try to connect to self.db_name, it may not exist
+    def _set_local_db(self, db_name: str) -> None:
+        """Point this Env at `db_name` on the embedded server."""
+        assert self._db_server is not None
+        self._db_name = db_name
+        self._db_url = self._db_server.get_uri(database=db_name, driver='psycopg')
+        self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
+
+    def _store_db_exists(self, db_name: str) -> bool:
+        """Whether `db_name`, defaulting to this Env's database, exists in the store."""
         engine = sql.create_engine(self._dbms.default_system_db_url(), future=True)
         try:
             with engine.begin() as conn:
-                stmt = f"SELECT COUNT(*) FROM pg_database WHERE datname = '{self._db_name}'"
+                stmt = f"SELECT COUNT(*) FROM pg_database WHERE datname = '{db_name}'"
                 result = conn.scalar(sql.text(stmt))
                 assert result <= 1
                 return result == 1

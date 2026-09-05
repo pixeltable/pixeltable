@@ -663,15 +663,15 @@ function NodeFinder({
 
 // ── Main Component ───────────────────────────────────────────────────────────
 
-export function PipelineInspector() {
+export function PipelineInspector({ catalog = 'local' }: { catalog?: string }) {
   return (
     <ReactFlowProvider>
-      <PipelineInspectorInner />
+      <PipelineInspectorInner catalog={catalog} />
     </ReactFlowProvider>
   )
 }
 
-function PipelineInspectorInner() {
+function PipelineInspectorInner({ catalog }: { catalog: string }) {
   const navigate = useNavigate()
   const [pipeline, setPipeline] = useState<PipelineResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -686,7 +686,7 @@ function PipelineInspectorInner() {
 
   const fetchPipeline = useCallback(() => {
     setIsLoading(true)
-    getPipeline()
+    getPipeline(catalog)
       .then((data) => {
         setPipeline(data)
         setLastRefreshed(new Date())
@@ -696,9 +696,11 @@ function PipelineInspectorInner() {
         setError(err instanceof Error ? err.message : 'Failed to load pipeline')
         setIsLoading(false)
       })
-  }, [])
+  }, [catalog])
 
   useEffect(() => {
+    setSelectedPath(null)
+    setColumnFlowNode(null)
     fetchPipeline()
   }, [fetchPipeline])
 

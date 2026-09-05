@@ -99,6 +99,56 @@ class scaled_iterator(pxt.PxtIterator):
         self.i = pos
 
 
+class MixedCaseRow(TypedDict):
+    MyOutput: int
+    Frame: int
+
+
+@pxt.iterator(unstored_cols=['Frame'])
+class mixed_case_iterator(pxt.PxtIterator):
+    """Declares mixed-case outputs."""
+
+    def __init__(self, n: int):
+        self.n = n
+        self.i = 0
+
+    def __next__(self) -> MixedCaseRow:
+        if self.i >= self.n:
+            raise StopIteration
+        row: MixedCaseRow = {'MyOutput': self.i * 2, 'Frame': self.i}
+        self.i += 1
+        return row
+
+    def close(self) -> None:
+        pass
+
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        self.i = pos
+
+
+class PosHolder(TypedDict):
+    Pos: int
+
+
+class CollidingRow(TypedDict):
+    Foo: int
+    foo: int
+
+
+@pxt.iterator
+class colliding_iterator(pxt.PxtIterator):
+    """Declares two outputs that differ only in case; they name one view column, so the call is rejected."""
+
+    def __init__(self, n: int):
+        self.n = n
+
+    def __next__(self) -> CollidingRow:
+        raise StopIteration
+
+    def close(self) -> None:
+        pass
+
+
 class TestComponentView:
     @pytest.mark.skip(reason='surfaces a bug (DuplicateAlias)')
     def test_same_base_join(self, db_root: DatabaseRoot) -> None:
@@ -564,3 +614,41 @@ class TestComponentView:
         assert [r['icol'] for r in v3_rows] == [0]
         assert [r['scol'] for r in v3_rows] == ['s 0']
         assert [r['derived'] for r in v3_rows] == ['t 1_suffix']
+
+    def test_case_insensitive_iterator_outputs(self, db_root: DatabaseRoot) -> None:
+        """Iterator output names become view columns and fold."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('base'), {'n': pxt.Int})
+        t.insert([{'n': 3}])
+        v = pxt.create_view(p('v'), t, iterator=mixed_case_iterator(n=t.n))
+
+        assert 'myoutput' in v.columns()
+        assert 'frame' in v.columns()
+        assert sorted(v.select(v.MyOutput).collect()['myoutput']) == [0, 2, 4]
+        assert sorted(v.select(v.FRAME).collect()['frame']) == [0, 1, 2]
+
+        # a declared view column that folds onto an iterator output is rejected
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_SCHEMA, match=r'Column.+are produced by the iterator and also declared by the view'
+        ):
+            pxt.create_view(
+                p('bad'), t, iterator=mixed_case_iterator(n=t.n), additional_columns={'MYOUTPUT': pxt.Int | None}
+            )
+
+        # and so is an iterator whose own outputs collide once folded
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match=r"'Foo', 'foo' were specified"):
+            pxt.create_view(p('bad'), t, iterator=colliding_iterator(n=t.n))
+
+        # pos is reserved in every casing
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='is reserved'):
+
+            @pxt.iterator
+            class pos_iterator(pxt.PxtIterator):
+                def __init__(self, n: int):
+                    self.n = n
+
+                def __next__(self) -> PosHolder:
+                    raise StopIteration
+
+                def close(self) -> None:
+                    pass

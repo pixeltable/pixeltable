@@ -20,11 +20,38 @@ Iterators are particularly useful when:
 - Creating analysis pipelines for multimedia data
 - Implementing feature extraction workflows
 
+<Note>
+In an app file, set `iterator=` on the view's `TableModel`. In a notebook, pass `iterator=` to `pxt.create_view()`.
+</Note>
+
+```python
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+
+TableModel = pxt.model_base()
+
+
+class Documents(TableModel, name='docs'):
+    document: pxt.Document
+
+
+class Chunks(
+    TableModel,
+    name='chunks',
+    base=Documents,
+    iterator=pxtf.document.document_splitter(
+        Documents.document, separators='sentence,token_limit', limit=300
+    ),
+):
+    pass
+```
+
+In a notebook:
+
 ```python
 import pixeltable as pxt
 from pixeltable.functions.document import document_splitter
 
-# Create a view using an iterator
 chunks = pxt.create_view(
     'docs/chunks',
     documents_table,

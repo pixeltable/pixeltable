@@ -17,23 +17,50 @@ Views in Pixeltable are best used when you need to:
 Choose views over tables when your data is derived from other base tables and needs to stay synchronized with its source. Use regular tables when you need to store original data or when the computation cost of deriving data on demand is too high.
 </Note>
 
+<Note>
+Production apps declare views as `TableModel` classes in a Python file and create them with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()` / `pxt.create_view()`.
+</Note>
+
 ## Phase 1: Define your base table and view structure
+
+```python
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+
+TableModel = pxt.model_base()
+
+
+class Documents(TableModel, name='collection'):
+    document: pxt.Document
+
+
+class Chunks(
+    TableModel,
+    name='chunks',
+    base=Documents,
+    iterator=pxtf.document.document_splitter(Documents.document, separators='token_limit', limit=300),
+):
+    pass
+```
+
+```bash
+pxt schema update app.py documents
+```
+
+In a notebook:
 
 ```python
 import pixeltable as pxt
 from pixeltable.functions.document import document_splitter
 
-# Create a directory to organize data (optional)
 pxt.drop_dir('documents', force=True)
 pxt.create_dir('documents')
 
-# Define your base table first
 documents = pxt.create_table(
     "documents/collection",
     {"document": pxt.Document}
 )
 
-# Create a view that splits documents into chunks
 chunks = pxt.create_view(
     'documents/chunks',
     documents,

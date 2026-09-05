@@ -29,6 +29,7 @@ import sqlalchemy.exc as sql_exc
 
 from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable._query_base import QueryBase
+from pixeltable.catalog import fold_identifier
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.env import Env
 from pixeltable.plan import Planner
@@ -132,17 +133,29 @@ class ResultSet:
         model_config = getattr(model, 'model_config', {})
         forbid_extra_fields = model_config.get('extra') == 'forbid'
 
-        # schema validation
-        required_fields = {name for name, field in model_fields.items() if field.is_required()}
+        # schema validation; model field names are Python attributes and case-sensitive, whereas result column names
+        # are always folded, so match the two on their folded forms.
+        folded_field_name_to_original: dict[str, str] = {}
+        for name in model_fields:
+            folded = fold_identifier(name)
+            if folded in folded_field_name_to_original:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Result column names are case-insensitive, but model {model.__name__} has fields '
+                    f'{folded_field_name_to_original[folded]!r} and {name!r} which are the same',
+                )
+            folded_field_name_to_original[folded] = name
+        required_fields = {fold_identifier(name) for name, field in model_fields.items() if field.is_required()}
         col_names = set(self._col_names)
-        missing_fields = required_fields - col_names
+        missing_fields = {folded_field_name_to_original[name] for name in required_fields - col_names}
         if len(missing_fields) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Required model fields {missing_fields} are missing from result set columns {self._col_names}',
+                f'Required model fields ({missing_fields}) are missing from '
+                f'result set columns ({", ".join(self._col_names)})',
             )
         if forbid_extra_fields:
-            extra_fields = col_names - set(model_fields.keys())
+            extra_fields = col_names - set(folded_field_name_to_original.keys())
             if len(extra_fields) > 0:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -150,8 +163,10 @@ class ResultSet:
                 )
 
         for row in self:
+            # remap to the model's original spelling
+            remapped_row = {folded_field_name_to_original.get(name, name): val for name, val in row.items()}
             try:
-                yield model(**row)
+                yield model(**remapped_row)
             except pydantic.ValidationError as e:
                 raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, str(e)) from e
 
@@ -160,9 +175,10 @@ class ResultSet:
 
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, str):
-            if index not in self._col_names:
+            col_name = fold_identifier(index)
+            if col_name not in self._col_names:
                 raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {index}')
-            return [row[index] for row in self._rows]
+            return [row[col_name] for row in self._rows]
         if isinstance(index, int):
             return self._row_to_dict(index)
         if isinstance(index, tuple) and len(index) == 2:
@@ -171,10 +187,13 @@ class ResultSet:
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Bad index, expected [<row idx>, <column name | column index>]: {index}',
                 )
-            if isinstance(index[1], str) and index[1] not in self._col_names:
-                raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {index[1]}')
-            col_idx = self._col_names[index[1]] if isinstance(index[1], int) else index[1]
-            return self._rows[index[0]][col_idx]
+            if isinstance(index[1], str):
+                col_name = fold_identifier(index[1])
+                if col_name not in self._col_names:
+                    raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {index[1]}')
+            else:
+                col_name = self._col_names[index[1]]
+            return self._rows[index[0]][col_name]
         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Bad index: {index}')
 
     def __iter__(self) -> Iterator[dict[str, Any]]:

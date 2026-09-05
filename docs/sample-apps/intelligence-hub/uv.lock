@@ -1229,7 +1229,7 @@ requires-dist = [
     { name = "llama-cpp-python", marker = "extra == 'local-llm'" },
     { name = "openai", specifier = ">=1.0" },
     { name = "pandas" },
-    { name = "pixeltable", specifier = ">=0.6.0" },
+    { name = "pixeltable", specifier = ">=0.7.4" },
     { name = "python-dotenv" },
     { name = "requests" },
     { name = "sentence-transformers" },
