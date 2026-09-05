@@ -1,4 +1,4 @@
-"""The query a model declares, before that model is bound to a table."""
+"""The query a model defines, before that model is bound to a table."""
 
 from __future__ import annotations
 
@@ -11,27 +11,27 @@ from pixeltable._query_base import QueryBase
 from pixeltable.exprs import ColumnRefByName
 from pixeltable.query_clauses import FromClause
 
-from .declaration import MODEL_BY_DECLARED_TBL_ID, TableModelMeta
+from .definition import MODEL_BY_DEFINED_TBL_ID, TableModelMeta
 
 
 class ModelQuery(QueryBase):
-    """A query declared over a model, before that model is bound to a table.
+    """A query defined over a model, before that model is bound to a table.
 
-    Its from-clause is the shape the model declares, so it carries every clause a query can, but nothing
+    Its from-clause is the shape the model defines, so it carries every clause a query can, but nothing
     that runs one: the columns it references belong to a table that does not exist yet. bind() produces the
     equivalent query over a real table.
     """
 
     @property
     def model_cls(self) -> TableModelMeta:
-        """The model whose declared shape this query is written against."""
-        model_cls = MODEL_BY_DECLARED_TBL_ID.get(self._from_clause.tbls[0].tbl_id)
+        """The model whose defined shape this query is written against."""
+        model_cls = MODEL_BY_DEFINED_TBL_ID.get(self._from_clause.tbls[0].tbl_id)
         assert model_cls is not None, self._from_clause.tbls[0].tbl_id
         return model_cls
 
     @classmethod
     def for_model(cls, model_cls: TableModelMeta) -> ModelQuery:
-        """A query over everything model_cls declares."""
+        """A query over everything model_cls defines."""
         return cls(from_clause=FromClause(tbls=[model_cls.table_path()]))
 
     def as_dict(self) -> dict[str, Any]:
@@ -50,10 +50,10 @@ class ModelQuery(QueryBase):
         """The select list with an implicit select * expanded, as references to the model's columns by name."""
         if self.select_list is not None:
             return super()._effective_select_list
-        declared_path = self._from_clause.tbls[0]
+        defined_path = self._from_clause.tbls[0]
         return [
             (ColumnRefByName(col_md.name, col_md.col_type), col_md.name)
-            for col_md in declared_path.column_md()
+            for col_md in defined_path.column_md()
             if col_md.name is not None
         ]
 
@@ -62,10 +62,10 @@ class ModelQuery(QueryBase):
         all_exprs = [*(e for e, _ in self._effective_select_list), *self._component_exprs()]
         result = {e.name for expr in all_exprs for e in expr.subexprs(ColumnRefByName)}
         # a similarity expression identifies the column it is indexed on, rather than referencing it by name
-        declared_path = self._from_clause.tbls[0]
+        defined_path = self._from_clause.tbls[0]
         for sim in (s for expr in all_exprs for s in expr.subexprs(exprs.SimilarityExpr)):
             assert sim.qcol_id is not None
-            col_name = declared_path.get_column_md(sim.qcol_id).name
+            col_name = defined_path.get_column_md(sim.qcol_id).name
             assert col_name is not None
             result.add(col_name)
         return result
@@ -88,18 +88,18 @@ class ModelQuery(QueryBase):
                     f'Use kwargs syntax to give it an explicit name: select(my_name=...)',
                 )
 
-    def to_declared_query(self) -> pxt.Query:
-        """The equivalent query whose column references identify the columns of the model's declared shape.
+    def to_defined_query(self) -> pxt.Query:
+        """The equivalent query whose column references identify the columns of the model's defined shape.
 
         Metadata assembly distinguishes a column reference from a computed expression, which a query that only
         names its columns cannot support.
         """
-        declared_path = self._from_clause.tbls[0]
+        defined_path = self._from_clause.tbls[0]
         subst: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
-        for col_md in declared_path.column_md():
+        for col_md in defined_path.column_md():
             if col_md.name is not None:
                 subst[ColumnRefByName(col_md.name)] = exprs.ColumnRef(col_md)
-        return self._substituted(declared_path, subst)
+        return self._substituted(defined_path, subst)
 
     def bind(self, catalog_dir: str) -> pxt.Query:
         """The equivalent query over the table this query's model resolves to under catalog_dir."""
@@ -113,12 +113,12 @@ class ModelQuery(QueryBase):
         """A plain Query over path, with this query's clauses rewritten by subst."""
         # a similarity expression names its indexed column and the table version holding the index, neither of
         # which a substitution by column name reaches
-        declared_path = self._from_clause.tbls[0]
+        defined_path = self._from_clause.tbls[0]
         for sim in {s.id: s for e in self._component_exprs() for s in e.subexprs(exprs.SimilarityExpr)}.values():
             assert sim.qcol_id is not None
             if sim.qcol_id.tbl_id == path.tbl_id:
                 continue  # already indexed against this path
-            col_name = declared_path.get_column_md(sim.qcol_id).name
+            col_name = defined_path.get_column_md(sim.qcol_id).name
             assert col_name is not None
             new_md = path.get_column_md_by_name(col_name)
             if new_md is None:
@@ -166,7 +166,7 @@ class ModelQuery(QueryBase):
         if hasattr(pxt.Query, item):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'{item}(): this query is declared over model `{self.model_cls.__name__}`, which is not bound '
+                f'{item}(): this query is defined over model `{self.model_cls.__name__}`, which is not bound '
                 f'to a table; create the table with `{self.model_cls.__name__}.create()`, or call this on a '
                 f'query over a bound model.',
             )

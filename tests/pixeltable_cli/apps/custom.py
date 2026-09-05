@@ -1,8 +1,4 @@
-"""An application object the file supplies itself, alongside a router.
-
-Pixeltable declared none of the application's routes, so it can neither compare nor serve them; the router
-in the same file is compared as usual. Serving this case is deferred -- see the plan's custom-app entry.
-"""
+"""An application object the file supplies itself, alongside a router."""
 
 # ruff: noqa: F821  # a model body refers to its own columns by bare name
 

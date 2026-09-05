@@ -106,7 +106,7 @@ class TestTableModel:
         # the view names the base's column rather than its expression, so only its own predicate is here
         assert {fn.name for fn in Long.referenced_functions()} == {'is_long'}
         assert {fn.name for fn in Chunks.referenced_functions()} == {'excerpt'}
-        assert Docs.declared_models() == [Docs, Long, Chunks]
+        assert Docs.defined_models() == [Docs, Long, Chunks]
 
     def test_table_path(self, db_root: DatabaseRoot) -> None:
         """A model describes its shape before the table exists, and the description matches what gets created."""

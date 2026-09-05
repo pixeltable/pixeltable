@@ -7,7 +7,6 @@ from uuid import UUID
 import sqlalchemy as sql
 
 from pixeltable import catalog, type_system as ts
-from pixeltable.runtime import get_runtime
 
 from .data_row import DataRow
 from .expr import Expr
@@ -19,15 +18,12 @@ class RowidRef(Expr):
     """A reference to a part of a table rowid
 
     This is used internally to support grouping by a base table and for references to the 'pos' column.
-    When a RowidRef is part of a computed column in a view, the view's TableVersion isn't available when
-    _from_dict()/init() is called, which is why this class effectively has two separate paths for construction
-    (with and without a TableVersion).
+    Construction either walks the given TableVersion down to the base that owns the component, or takes that
+    base's key directly, when no TableVersion is available.
     """
 
-    tbl: catalog.TableVersionHandle | None
-    normalized_base: catalog.TableVersionHandle | None
-    tbl_id: UUID
-    normalized_base_id: UUID
+    tbl: catalog.TableVersionHandle
+    normalized_base: catalog.TableVersionHandle
     rowid_component_idx: int
 
     def __init__(
@@ -35,11 +31,13 @@ class RowidRef(Expr):
         tbl: catalog.TableVersionHandle | None,
         idx: int,
         tbl_id: UUID | None = None,
+        effective_version: int | None = None,
         normalized_base_id: UUID | None = None,
+        normalized_base_effective_version: int | None = None,
     ):
         super().__init__(ts.IntType(nullable=False))
-        self.tbl = tbl
         if tbl is not None:
+            self.tbl = tbl
             # normalize to simplify comparisons: we refer to the lowest base table that has the requested rowid idx
             # (which has the same values as all its descendent views)
             normalized_base = tbl
@@ -48,27 +46,35 @@ class RowidRef(Expr):
                 normalized_base = normalized_base.get().base
             self.normalized_base = normalized_base
         else:
-            self.normalized_base = None
-
-        # if we're initialized by _from_dict(), we only have the ids, not the TableVersion itself
-        self.tbl_id = tbl.id if tbl is not None else tbl_id
-        self.normalized_base_id = self.normalized_base.id if self.normalized_base is not None else normalized_base_id
+            assert tbl_id is not None and normalized_base_id is not None
+            # constructing these handles does not cause catalog loads
+            self.tbl = catalog.TableVersionHandle(catalog.TableVersionKey(tbl_id, effective_version))
+            self.normalized_base = catalog.TableVersionHandle(
+                catalog.TableVersionKey(normalized_base_id, normalized_base_effective_version)
+            )
         self.rowid_component_idx = idx
         self.id = self._create_id()
+
+    @property
+    def tbl_id(self) -> UUID:
+        return self.tbl.id
+
+    @property
+    def normalized_base_id(self) -> UUID:
+        return self.normalized_base.id
 
     def default_column_name(self) -> str | None:
         return str(self)
 
     def _equals(self, other: RowidRef) -> bool:
-        return (
-            self.normalized_base_id == other.normalized_base_id
-            and self.rowid_component_idx == other.rowid_component_idx
-        )
+        return self.normalized_base == other.normalized_base and self.rowid_component_idx == other.rowid_component_idx
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
+        # must mirror the fields in _equals()
         return [
             *super()._id_attrs(),
             ('normalized_base_id', self.normalized_base_id),
+            ('normalized_base_effective_version', self.normalized_base.effective_version),
             ('idx', self.rowid_component_idx),
         ]
 
@@ -76,21 +82,15 @@ class RowidRef(Expr):
     def copy(self) -> RowidRef:
         # deepcopy(tvh) is needed to create a copy for the local thread/catalog
         result = super().copy()
-        if self.tbl is not None:
-            result.tbl = copy.deepcopy(self.tbl)
-        if self.normalized_base is not None:
-            result.normalized_base = copy.deepcopy(self.normalized_base)
+        result.tbl = copy.deepcopy(self.tbl)
+        result.normalized_base = copy.deepcopy(self.normalized_base)
         return result
 
     def __repr__(self) -> str:
         # check if this is the pos column of a component view
         from pixeltable import store
 
-        tbl = (
-            self.tbl.get()
-            if self.tbl is not None
-            else get_runtime().catalog.get_tbl_version(catalog.TableVersionKey(self.tbl_id, None))
-        )
+        tbl = self.tbl.get()
         if (
             tbl.is_component_view
             and self.rowid_component_idx == cast(store.StoreComponentView, tbl.store_tbl).pos_col_idx
@@ -114,14 +114,9 @@ class RowidRef(Expr):
         base_ids = [tbl_version.id for tbl_version in tbl.get_tbl_versions()]
         assert self.tbl_id in base_ids  # our current TableVersion is a base of the new TableVersion
         self.tbl = tbl.tbl_version
-        self.tbl_id = self.tbl.id
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
-        tbl = (
-            self.tbl.get()
-            if self.tbl is not None
-            else get_runtime().catalog.get_tbl_version(catalog.TableVersionKey(self.tbl_id, None))
-        )
+        tbl = self.tbl.get()
         assert tbl.is_validated
         rowid_cols = tbl.store_tbl.rowid_columns()
         assert self.rowid_component_idx <= len(rowid_cols), (
@@ -133,14 +128,22 @@ class RowidRef(Expr):
         data_row[self.slot_idx] = data_row.pk[self.rowid_component_idx]
 
     def _as_dict(self) -> dict:
-        # TODO: Serialize the full TableVersionHandle, not just the UUID
         return {
             'tbl_id': str(self.tbl_id),
+            'effective_version': self.tbl.effective_version,
             'normalized_base_id': str(self.normalized_base_id),
+            'normalized_base_effective_version': self.normalized_base.effective_version,
             'idx': self.rowid_component_idx,
         }
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> RowidRef:
-        tbl_id, normalized_base_id, idx = UUID(d['tbl_id']), UUID(d['normalized_base_id']), d['idx']
-        return cls(tbl=None, idx=idx, tbl_id=tbl_id, normalized_base_id=normalized_base_id)
+        # a dict written before the versions were recorded pins nothing, which is the live version
+        return cls(
+            tbl=None,
+            idx=d['idx'],
+            tbl_id=UUID(d['tbl_id']),
+            effective_version=d.get('effective_version'),
+            normalized_base_id=UUID(d['normalized_base_id']),
+            normalized_base_effective_version=d.get('normalized_base_effective_version'),
+        )

@@ -9,7 +9,7 @@ EPILOG = """\
 Examples:
   pxt get my_dir/my_table 42                    # single-column PK, int value
   pxt get my_dir/my_table some_string_id        # single-column PK, string value
-  pxt get my_dir/my_table 42 abc                # composite PK (2 cols), in declared PK order
+  pxt get my_dir/my_table 42 abc                # composite PK (2 cols), in defined PK order
   pxt get my_dir/my_table 42 --cols id,text     # restrict to listed columns
   pxt get my_dir/my_table 42 --json
 
@@ -20,7 +20,7 @@ Notes:
   Use 'pxt describe <table>' to see the primary_key columns and their order.
   Unstored computed columns are skipped by default; pass them explicitly via --cols to
   include them.
-  The table must have a primary key declared."""
+  The table must have a primary key defined."""
 
 
 def run(argv: list[str]) -> None:

@@ -207,6 +207,22 @@ class RevertBody(BaseModel):
     steps: int = 1  # number of consecutive revert() calls
 
 
+class RecomputeBody(BaseModel):
+    path: str
+    columns: list[str]
+    errors_only: bool = False
+    cascade: bool = True
+
+
+class RecomputeResponse(BaseModel):
+    path: str
+    columns: list[str]  # <table>.<column> for each recomputed column, and for each dependent that cascaded
+    num_rows: int
+    num_computed_values: int
+    num_excs: int
+    cols_with_excs: list[str]
+
+
 class RevertResponse(BaseModel):
     path: str
     from_version: int
@@ -240,6 +256,7 @@ class SchemaUpdateBody(BaseModel):
 class ServiceDiffBody(BaseModel):
     app_file: str  # absolute filesystem path to the application file on the daemon host
     target: PxtPath  # the catalog directory the services' models bind against
+    service_name: str | None = None  # the only service to compare; None compares all of them
     otel: bool = False  # compares the instances against this tracing setting
 
 
@@ -252,8 +269,10 @@ class ServicePruneBody(BaseModel):
 class ServiceUpdateBody(BaseModel):
     app_file: str  # absolute filesystem path to the application file on the daemon host
     target: PxtPath
+    service_name: str | None = None  # the only service to reconcile; None reconciles all of them
     allow_destructive: bool = False
     otel: bool = False
+    port: int | None = None  # the loopback port to serve on; None keeps the one a restarted service had
 
 
 class DbDiffBody(BaseModel):

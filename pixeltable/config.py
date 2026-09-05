@@ -174,11 +174,11 @@ class Secret(str):
 
 
 class ConfigVar(Generic[ConfVarT]):
-    """A reference to a database variable or secret, declared at module scope.
+    """A reference to a database variable or secret, defined at module scope.
 
-    A declaration names the variable; the target it is applied to supplies the value.
+    A definition names the variable; the target it is applied to supplies the value.
 
-    Declare a variable and apply it to a column:
+    Define a variable and apply it to a column:
 
     >>> MEDIA_DEST = pxt.ConfigVar('media_dest', pxt.URI)
     ...
@@ -266,12 +266,12 @@ class ConfigVar(Generic[ConfVarT]):
         return f'ConfigVar({self.name!r}, {self.type_.__name__})'
 
     def __str__(self) -> str:
-        """The reference form, `$<name>`, which is how a declared config var reads in metadata."""
+        """The reference form, `$<name>`, which is how a defined config var reads in metadata."""
         return f'${self.name}'
 
     def __format__(self, format_spec: str) -> str:
         # Interpolation is how a config var would be built into a larger value, which cannot work: the
-        # value is not known where the declaration is written. A composed value needs its own config var.
+        # value is not known where the definition is written. A composed value needs its own config var.
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'Config var {self.name!r} cannot be interpolated into a string.\n'
@@ -798,8 +798,8 @@ class Config:
         """The config vars from the config file and the environment."""
         result: list[ConfigKey] = []
         for section, prefix, description in (
-            (VAR_SECTION, VAR_ENV_PREFIX, 'user-declared config var'),
-            (SECRET_SECTION, SECRET_ENV_PREFIX, 'user-declared secret'),
+            (VAR_SECTION, VAR_ENV_PREFIX, 'user-defined config var'),
+            (SECRET_SECTION, SECRET_ENV_PREFIX, 'user-defined secret'),
         ):
             keys = set(self.__section_keys(section))
             for name, value in os.environ.items():
@@ -887,8 +887,6 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
             'Number of temporary database connections the engine may open beyond `db_pool_size` (default: 10)',
             int,
         ),
-        'daemon_host': 'Listen address for the proxy daemon in fixed-address mode (e.g. 0.0.0.0)',
-        'daemon_port': ('Listen port for the proxy daemon in fixed-address mode (e.g. 8000)', int),
         'db_uri': 'Base pxt:// URI for remote catalog access (e.g. pxt://myorg:mydb)',
     },
     'anthropic': {'api_key': 'Anthropic API key'},
@@ -972,8 +970,6 @@ _INSTALLATION_KEYS = frozenset(
         'db',
         'file_cache_size_g',
         'file_cache_lease_s',
-        'daemon_host',
-        'daemon_port',
         'db_pool_size',
         'db_pool_max_overflow',
     }

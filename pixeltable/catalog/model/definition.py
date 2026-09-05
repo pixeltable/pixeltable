@@ -1,11 +1,11 @@
-"""The declaration vocabulary a schema file is written in, and the metaclass that captures it.
+"""The definition vocabulary a schema file is written in, and the metaclass that captures it.
 
 Case sensitivity
 ----------------
 A class body is Python; the catalog is Pixeltable. Names follow the rules of their own domain, and fold where they
 cross -- in resolution.prepare_model() and diff.user_columns()/base_query_columns(), not here.
 
-A column the model declares is a Python *binding* and keeps its spelling until the crossing: __columns__ is keyed as
+A column the model defines is a Python *binding* and keeps its spelling until the crossing: __columns__ is keyed as
 written, and a re-cased class-body reference is a NameError. Once the class is bound, M.MyCol and M.mycol are the same
 attribute, but M.MYCOL raises while M.table.MYCOL resolves. A name that is only a string denoting a Pixeltable
 identifier (name=, EmbeddingIndex(name=...)) folds on arrival.
@@ -13,7 +13,7 @@ identifier (name=, EmbeddingIndex(name=...)) folds on arrival.
 The namespace binds each key to a ColumnRefByName, which folds the name it carries: the binding is Python, the
 reference is Pixeltable, so _bind() needs no side table.
 
-Hence declaring one spelling twice fails here, while Foo and foo -- two good Python names -- collide only at
+Hence defining one spelling twice fails here, while Foo and foo -- two good Python names -- collide only at
 the crossing, in create_all() and the update_all() diff.
 """
 
@@ -49,15 +49,15 @@ from .resolution import prepare_model
 if TYPE_CHECKING:
     from .query import ModelQuery
 
-# the model each declared path was synthesized for, keyed by its synthesized table id; a query over a model
-# consults this to name the model it is declared over and to bind itself to that model's table
-MODEL_BY_DECLARED_TBL_ID: dict[UUID, 'TableModelMeta'] = {}
+# the model each defined path was synthesized for, keyed by its synthesized table id; a query over a model
+# consults this to name the model it is defined over and to bind itself to that model's table
+MODEL_BY_DEFINED_TBL_ID: dict[UUID, 'TableModelMeta'] = {}
 
 # Table methods exposed as class-level operations on the model.
-# how an unbound model answers each method it forwards: a query over what it declares carries a clause or
+# how an unbound model answers each method it forwards: a query over what it defines carries a clause or
 # prints itself, and reading or writing rows needs the table that does not exist yet. Every other forwarded
 # method is the table's alone, and reports the model as unbound.
-DECLARABLE_QUERY_METHODS: frozenset[str] = frozenset(
+DEFINABLE_QUERY_METHODS: frozenset[str] = frozenset(
     ('describe', 'distinct', 'group_by', 'join', 'limit', 'order_by', 'sample', 'select', 'where')
 )
 ROW_METHODS: frozenset[str] = frozenset(
@@ -96,9 +96,9 @@ FORWARDED_TABLE_METHODS: frozenset[str] = frozenset(
 # Sanity check to guard against drift in the SDK surface.
 for method in FORWARDED_TABLE_METHODS:
     assert hasattr(Table, method), method
-assert DECLARABLE_QUERY_METHODS <= FORWARDED_TABLE_METHODS
+assert DEFINABLE_QUERY_METHODS <= FORWARDED_TABLE_METHODS
 assert ROW_METHODS <= FORWARDED_TABLE_METHODS
-assert not (DECLARABLE_QUERY_METHODS & ROW_METHODS)
+assert not (DEFINABLE_QUERY_METHODS & ROW_METHODS)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -216,8 +216,8 @@ class BtreeIndex:
         return f'BtreeIndex(column={self.column})'
 
 
-# An index specification declared as a class attribute in a TableModel or ViewModel definition.
-IndexDeclaration = EmbeddingIndex | BtreeIndex
+# An index specification defined as a class attribute in a TableModel or ViewModel definition.
+IndexDefinition = EmbeddingIndex | BtreeIndex
 
 
 class TableSpec(TypedDict):
@@ -242,7 +242,7 @@ def _contains_aggregate(expr: exprs.Expr) -> bool:
 class _AnnotationRecorder(dict):
     """
     Used to override the default behavior of a class namespace's `__annotations__` dict, so that we can register
-    bare annotations promptly as placeholder columns in the class namespace, in the order they are declared.
+    bare annotations promptly as placeholder columns in the class namespace, in the order they are defined.
     """
 
     namespace: _ModelNamespace
@@ -260,9 +260,9 @@ class _AnnotationRecorder(dict):
 
 class _ModelNamespace(dict):
     """
-    Class namespace that manages placeholder column references, ensuring that all declarations (bare annotations,
+    Class namespace that manages placeholder column references, ensuring that all definitions (bare annotations,
     computed column expressions, Column and index specifications) are registered promptly and in the exact
-    order of declaration.
+    order of definition.
     """
 
     table_spec: TableSpec
@@ -422,7 +422,7 @@ class _ModelNamespace(dict):
         found = {col_name for col_name, _line in ordered_anns}
         ordered_anns.extend((col_name, sys.maxsize) for col_name in annotation_types if col_name not in found)
 
-        # Declaration order is the source order of annotations and assignments interleaved. A name that is
+        # Definition order is the source order of annotations and assignments interleaved. A name that is
         # both annotated and assigned occupies a single position, contributed by whichever comes first.
         by_line = sorted(ordered_anns + assign_lines, key=lambda entry: entry[1])
         decl_order: list[str] = []
@@ -487,7 +487,7 @@ class TableModelMeta(type):
 
     __table_spec__: TableSpec
     __columns__: dict[str, ColumnSpec]
-    __indexes__: list[IndexDeclaration]
+    __indexes__: list[IndexDefinition]
     __bound_table__: Table | None
 
     _catalog_dir: str | None
@@ -637,7 +637,7 @@ class TableModelMeta(type):
 
     @classmethod
     def _validate_indexes(
-        mcs, cls_name: str, namespace: _ModelNamespace, known_idxs: Sequence[IndexDeclaration]
+        mcs, cls_name: str, namespace: _ModelNamespace, known_idxs: Sequence[IndexDefinition]
     ) -> None:
         for idx in known_idxs:
             if not isinstance(idx.column, exprs.ColumnRefByName):
@@ -658,7 +658,7 @@ class TableModelMeta(type):
         if namespace.table_spec['has_default_idxs'] and any(isinstance(idx, BtreeIndex) for idx in known_idxs):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
-                f'model `{cls_name}`: cannot combine `has_default_idxs=True` with explicitly declared B-tree '
+                f'model `{cls_name}`: cannot combine `has_default_idxs=True` with explicitly defined B-tree '
                 f'index(es); eligible columns are indexed automatically.',
             )
         all_indexed_cols = {idx.column.name for idx in known_idxs}
@@ -704,7 +704,7 @@ class TableModelMeta(type):
         namespace_dict['_table_path'] = None
 
         known_idxs = namespace_dict.get('__indexes__', [])
-        if not isinstance(known_idxs, Sequence) or not all(isinstance(idx, IndexDeclaration) for idx in known_idxs):
+        if not isinstance(known_idxs, Sequence) or not all(isinstance(idx, IndexDefinition) for idx in known_idxs):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
                 f'model `{cls_name}`: `__indexes__` must be a sequence of EmbeddingIndex or BtreeIndex instances.',
@@ -737,25 +737,25 @@ class TableModelMeta(type):
     def is_bound(cls) -> bool:
         return cls._catalog_dir is not None
 
-    def declared_models(cls) -> list[TableModelMeta]:
-        """The models declared on this base, in declaration order."""
+    def defined_models(cls) -> list[TableModelMeta]:
+        """The models defined on this base, in declaration order."""
         return list(cls.__registered_models__.values())
 
     def referenced_functions(cls) -> list[func.Function]:
         """Every function this model references, without duplicates."""
-        declared_exprs: list[exprs.Expr] = [
+        defined_exprs: list[exprs.Expr] = [
             col_spec['value'] for col_spec in cls.__columns__.values() if col_spec.get('value') is not None
         ]
         base = cls.__table_spec__['base']
         if base is not None:
-            declared_exprs.extend(e for e, _ in base._effective_select_list)
-            declared_exprs.extend(base._component_exprs())
+            defined_exprs.extend(e for e, _ in base._effective_select_list)
+            defined_exprs.extend(base._component_exprs())
         iterator = cls.__table_spec__['iterator']
         if iterator is not None:
-            declared_exprs.extend(iterator.args)
-            declared_exprs.extend(iterator.kwargs.values())
+            defined_exprs.extend(iterator.args)
+            defined_exprs.extend(iterator.kwargs.values())
 
-        fns = [fn_call.fn for e in declared_exprs for fn_call in e.subexprs(exprs.FunctionCall)]
+        fns = [fn_call.fn for e in defined_exprs for fn_call in e.subexprs(exprs.FunctionCall)]
         fns.extend(
             embedding
             for idx in cls.__indexes__
@@ -851,10 +851,10 @@ class TableModelMeta(type):
 
     def __getattr__(cls, item: str) -> Any:
         if item in FORWARDED_TABLE_METHODS:
-            if not cls.is_bound and item in DECLARABLE_QUERY_METHODS:
+            if not cls.is_bound and item in DEFINABLE_QUERY_METHODS:
                 from .query import ModelQuery
 
-                # a query over what this model declares, which carries the clause this call adds
+                # a query over what this model defines, which carries the clause this call adds
                 return getattr(ModelQuery.for_model(cls), item)
             if not cls.is_bound and item in ROW_METHODS:
                 raise excs.RequestError(
@@ -878,9 +878,9 @@ class TableModelMeta(type):
         spec = cls.__table_spec__
         tbl_id = uuid4()  # we need a table id
         handle = TableVersionHandle(catalog.TableVersionKey(tbl_id, None))
-        base = None if spec['base'] is None else spec['base'].to_declared_query()
+        base = None if spec['base'] is None else spec['base'].to_defined_query()
         # prepare_model() substitutes column references in place, so hand it copies: inspecting a model must
-        # leave what it declares untouched
+        # leave what it defines untouched
         columns: dict[str, ColumnSpec] = {}
         for col_name, col_spec in cls.__columns__.items():
             copied = col_spec.copy()
@@ -926,7 +926,7 @@ class TableModelMeta(type):
                 additional_columns=cols,
                 predicate=base.where_clause,
                 sample_clause=base.sample_clause,
-                is_snapshot=False,  # a model has no way to declare one
+                is_snapshot=False,  # a model has no way to define one
                 has_default_idxs=spec['has_default_idxs'],
                 comment=spec['comment'],
                 custom_metadata=spec['custom_metadata'],
@@ -941,7 +941,7 @@ class TableModelMeta(type):
                     break
                 base_path = base_path.base
 
-        MODEL_BY_DECLARED_TBL_ID[tbl_id] = cls
+        MODEL_BY_DEFINED_TBL_ID[tbl_id] = cls
         cls._table_path = catalog.TableMdPath.from_md(
             [md, *base_md], is_anon_snapshot=False, catalog_uri=catalog.path.ROOT_PATH
         )
