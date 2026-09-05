@@ -26,6 +26,7 @@ COMMANDS: dict[str, str] = {
     'drop-dir': "remove a directory (use 'drop' for tables/views)",
     'rename': 'rename a table/view/dir in place',
     'mv': 'move a table/view/dir to a different directory',
+    'recompute': 'recompute one or more computed columns of a table',
     'revert': 'undo the last op(s) on a table',
     'schema': 'reconcile a directory with a class-based schema file (diff/update/prune/example)',
     'shell': 'interactive REPL (avoids per-command Python startup)',

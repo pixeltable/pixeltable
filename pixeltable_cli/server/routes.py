@@ -366,6 +366,22 @@ def drop_table(req: Request) -> models.DropResponse:
     return models.DropResponse(path=path, dropped=True)
 
 
+@router.post('/api/tables/recompute')
+def recompute(req: Request) -> models.RecomputeResponse:
+    body = req.body(models.RecomputeBody)
+    path = req.resolve_path(body.path)
+    t = pxt.get_table(path)
+    status = t.recompute_columns(*body.columns, errors_only=body.errors_only, cascade=body.cascade)
+    return models.RecomputeResponse(
+        path=path,
+        columns=status.updated_cols,
+        num_rows=status.num_rows,
+        num_computed_values=status.num_computed_values,
+        num_excs=status.num_excs,
+        cols_with_excs=status.cols_with_excs,
+    )
+
+
 @router.post('/api/tables/revert')
 def revert(req: Request) -> models.RevertResponse:
     body = req.body(models.RevertBody)
