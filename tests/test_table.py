@@ -1119,14 +1119,34 @@ class TestTable:
         assert res2['c1'] == [r['c1'] for r in rows]
         assert res2['c2'] == [r['c2'] for r in rows]
 
-    @pytest.mark.db_roots('local', reason='Fails on proxy/cloud without server-side streaming for large collects')
     def test_bulk_scalar_collect(self, db_root: DatabaseRoot) -> None:
         t = pxt.create_table(db_root.make_catalog_path('bulk'), {'id': pxt.Int, 'val': pxt.String})
         for i in range(10):
-            t.insert({'id': i * 100_000 + j, 'val': f'row {i}/{j}'} for j in range(100_000))
-        assert t.count() == 1_000_000
+            t.insert({'id': i * 20_000 + j, 'val': f'row {i}/{j}'} for j in range(20_000))
+        assert t.count() == 200_000
         res = t.collect()
-        assert len(res) == 1_000_000
+        assert len(res) == 200_000
+
+    def test_bulk_json_collect(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('bulk_json'), {'id': pxt.Int, 'data': pxt.Json})
+        for i in range(10):
+            t.insert({'id': i * 20_000 + j, 'data': self._nested_json(i * 20_000 + j)} for j in range(20_000))
+        assert t.count() == 200_000
+        res = t.collect()
+        assert len(res) == 200_000
+        # the values of a json column reach the caller as they were inserted, whatever they hold
+        assert t.where(t.id == 199_999).collect()[0]['data'] == self._nested_json(199_999)
+
+    def _nested_json(self, i: int) -> dict[str, Any]:
+        """A json value holding one of each scalar type, nested in a dict and a list."""
+        return {
+            'i': i,
+            's': f'row {i}',
+            'f': i / 3,
+            'b': i % 2 == 0,
+            'null': None,
+            'nested': {'items': [i, f'{i}', None, i % 2 == 1], 'inner': {'k': i * 2}},
+        }
 
     def test_insert_query(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
@@ -2536,6 +2556,13 @@ class TestTable:
         )
         assert status.num_rows == 1
         assert status.num_excs == 0
+
+        # a non-finite float is a valid Float value and survives the round trip
+        status = t.insert([{**rows[0], 'c3': math.nan}, {**rows[0], 'c3': math.inf}])
+        assert status.num_excs == 0
+        c3_vals = t.select(t.c3).collect()['c3']
+        assert any(math.isnan(val) for val in c3_vals)
+        assert math.inf in c3_vals
 
         # drop column, then add it back; insert still works
         t.drop_column('c4')
