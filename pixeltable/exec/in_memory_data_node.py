@@ -48,7 +48,7 @@ class InMemoryDataNode(ExecNode):
 
     def _open(self) -> None:
         """Create row batch and populate with self.input_rows"""
-        assert not self._is_closed, "InMemoryDataNode is not reusable"
+        assert not self._is_closed, 'InMemoryDataNode is not reusable'
 
         # input rows can only provide values for this table's columns
         user_cols_by_name = {
