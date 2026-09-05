@@ -1,4 +1,4 @@
-"""Resolution of a model's declarations into the catalog objects a table is created and altered from."""
+"""Resolution of a model's definitions into the catalog objects a table is created and altered from."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     import pixeltable as pxt
 
 if TYPE_CHECKING:
-    from .declaration import IndexDeclaration
+    from .definition import IndexDefinition
 
 
 def prepare_model(
@@ -24,18 +24,18 @@ def prepare_model(
     display_name: str,
     iterator: func.GeneratingFunctionCall | None,
     base: 'pxt.Query | None',
-    idxs: list[IndexDeclaration],
+    idxs: list[IndexDefinition],
     is_data_versioned: bool,
 ) -> tuple[func.GeneratingFunctionCall | None, list[catalog.Column], list[catalog.IndexSpec]]:
     """
-    Given model declarations in the form of columns, base, iterator, and index specifications, along with
+    Given model definitions in the form of columns, base, iterator, and index specifications, along with
     the relevant metadata, assembles lists of additional columns and additional indices to be created in the table.
     The outputs will be fully resolved (ColumnRefByNames replaced with actual ColumnRefs and the index-spec
     dataclass instances replaced with actual instances of index.IndexBase).
 
     Returns: a tuple of (rebound iterator, additional columns, additional idxs).
     """
-    # This is where a model's declarations cross from the Python domain into the catalog's, and column names are folded.
+    # This is where a model's definitions cross from the Python domain into the catalog's, and column names are folded.
     columns = fold_mapping_keys(columns)
 
     # View columns always go in a specific order:
@@ -148,18 +148,18 @@ def prepare_model(
 
 
 def _resolve_model_idxs(
-    idxs: list[IndexDeclaration],
+    idxs: list[IndexDefinition],
     user_cols: Mapping[str, catalog.Column | catalog.ColumnVersionMd],
     display_name: str,
     is_data_versioned: bool,
 ) -> list[catalog.IndexSpec]:
-    """Resolve each declared index against the model's visible columns.
+    """Resolve each defined index against the model's visible columns.
 
     The returned specs record the indexed column by name. These column names need to be substituted with
     the corresponding catalog Columns.
     """
-    # imported here rather than at module scope: declaration imports this module
-    from .declaration import BtreeIndex, EmbeddingIndex
+    # imported here rather than at module scope: definition imports this module
+    from .definition import BtreeIndex, EmbeddingIndex
 
     resolved_idxs: list[catalog.IndexSpec] = []
     for idx_spec in idxs:
@@ -210,7 +210,7 @@ class TableSchemaChangeSet(TypedDict):
     # against the base table's columns; a 'model_body' column resolves against the view's own visible columns.
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
     dropped_columns: list[str]
-    new_idxs: list[IndexDeclaration]
+    new_idxs: list[IndexDefinition]
     dropped_idxs: list[str]
 
     # tbl_id of the table to update, and {tbl_id: schema_version} for its version path, captured when the diff was
@@ -223,10 +223,10 @@ def prepare_model_updates(
     tvp: catalog.TableVersionPath,
     display_name: str,
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]],
-    new_idxs: list[IndexDeclaration],
+    new_idxs: list[IndexDefinition],
 ) -> tuple[list[catalog.Column], list[catalog.IndexSpec]]:
     """
-    Given `new_columns` and `new_idxs` as declared by a model, resolves them into proper catalog abstractions
+    Given `new_columns` and `new_idxs` as defined by a model, resolves them into proper catalog abstractions
     in preparation for catalog changes. This is the analog of `prepare_model()` for `update_all()`.
 
     Each column in `new_columns` is a (spec, origin) pair. A 'base_query' column comes from the view's base query
@@ -300,7 +300,7 @@ def prepare_model_updates(
         preceding_names.add(name)
         user_cols[name] = catalog_col
 
-    # Resolve each declared index against the model's visible columns.
+    # Resolve each defined index against the model's visible columns.
     resolved_idxs: list[catalog.IndexSpec] = []
     for idx_spec in _resolve_model_idxs(new_idxs, user_cols, display_name, tvp.is_data_versioned()):
         assert isinstance(idx_spec.indexed_column, str)

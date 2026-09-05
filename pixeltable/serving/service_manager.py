@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -63,8 +64,15 @@ class ServiceManagerBase(abc.ABC):
         """The instances serving base_path, plus those serving below it if recursive."""
 
     @abc.abstractmethod
-    def start(self, app_file: str, name: str, base_path: str = '', *, otel: bool = False) -> ServiceInstance:
-        """Make the named service in app_file serve base_path, and return its instance."""
+    def start(
+        self, app_file: str, name: str, base_path: str = '', *, otel: bool = False, port: int | None = None
+    ) -> ServiceInstance:
+        """Make the named service in app_file serve base_path, and return its instance.
+
+        port: the loopback port to serve on; None asks the OS for a free one.
+
+        Raises RequestError if the service cannot be served, and Error if its process never becomes healthy.
+        """
 
     @abc.abstractmethod
     def stop(self, instance: ServiceInstance) -> None:
@@ -113,15 +121,11 @@ class ServiceManager(ServiceManagerBase):
         files = sorted(path.rglob('*.json') if recursive else path.glob('*.json'))
         return [i for i in (self._read(p) for p in files) if i is not None]
 
-    def start(self, app_file: str, name: str, base_path: str = '', *, otel: bool = False) -> ServiceInstance:
-        """
-        Atomically start and record the named service from app_file with its models bound at base_path, or return the
-        running one.
-
-        Raises RequestError if the service cannot be served, and Error if its process never becomes healthy.
-        """
+    def start(
+        self, app_file: str, name: str, base_path: str = '', *, otel: bool = False, port: int | None = None
+    ) -> ServiceInstance:
         with self._service_lock(name, base_path):
-            return self._start(app_file, name, base_path, otel)
+            return self._start(app_file, name, base_path, otel, port)
 
     def delete(self, instance: ServiceInstance) -> None:
         # a local instance has no registration apart from its process
@@ -178,6 +182,7 @@ class ServiceManager(ServiceManagerBase):
             service_name=service_name,
             base_path=base_path,
             endpoint=f'http://127.0.0.1:{port}',
+            port=port,
             pid=os.getpid(),
             process_started_at=process_timestamp(os.getpid()),
             app_module=module_name(app_file, subject='application file'),
@@ -236,21 +241,20 @@ class ServiceManager(ServiceManagerBase):
         with _service_locks_guard:
             return _service_locks.setdefault(path, threading.Lock())
 
-    def _start(self, app_file: str, name: str, base_path: str, otel: bool) -> ServiceInstance:
+    def _start(self, app_file: str, name: str, base_path: str, otel: bool, port: int | None = None) -> ServiceInstance:
         """Start the service and wait for it to report healthy, with self._service_lock() held."""
         instance = self.get(name, base_path)
         if instance is not None and self._health_ok(instance.record):
             return instance
 
         # fail here, in the caller's process, on everything that can be detected without serving: an app file
-        # that does not declare the service is a request error, not a process that dies in the background
+        # that does not define the service is a request error, not a process that dies in the background
         module = load_app_module(app_file, subject='application file')
         services = services_by_name(module, app_file)
         if name not in services:
-            declared = ', '.join(sorted(services))
+            defined = ', '.join(sorted(services))
             raise excs.NotFoundError(
-                excs.ErrorCode.SERVICE_NOT_FOUND,
-                f'{app_file} declares no service named {name!r}; it declares: {declared}',
+                excs.ErrorCode.SERVICE_NOT_FOUND, f'{app_file} defines no service named {name!r}; it defines: {defined}'
             )
 
         log_path = self._log_path(name, base_path)
@@ -268,9 +272,25 @@ class ServiceManager(ServiceManagerBase):
         ]
         if otel:
             argv.append('--otel')
+        if port is not None:
+            argv += ['--port', str(port)]
         project_root = Config.get().project_root
         assert project_root is not None
         argv += ['--project-root', str(project_root)]
+
+        if port is not None:
+            # bind here, so that a port already in use is reported by this call rather than read out of the
+            # log of a child that exited; the child binds it for real a moment later
+            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                probe.bind(('127.0.0.1', port))
+            except OSError as e:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot serve {name!r} on port {port}: {e.strerror}'
+                ) from e
+            finally:
+                probe.close()
 
         # the service outlives this call, so it must not inherit our stdio: attached to a pipe it would block
         # the reader on EOF, and attached to a terminal it would write into that session. Its own session keeps

@@ -1,8 +1,4 @@
-"""basic.py plus one route: the additive drift a diff reports and update applies.
-
-A corpus file the schema and service CLI tests share: `pxt schema update` creates what the models declare,
-`pxt service update` serves what the router declares over the same tables.
-"""
+"""basic.py plus one route: the additive drift a diff reports and update applies."""
 
 # ruff: noqa: F821  # a model body refers to its own columns by bare name
 

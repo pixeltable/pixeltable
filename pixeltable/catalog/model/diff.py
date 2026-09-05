@@ -1,4 +1,4 @@
-"""How a model's declared schema differs from the table it is bound to, and how that difference reads."""
+"""How a model's defined schema differs from the table it is bound to, and how that difference reads."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from ..globals import col_type_from_spec, fold_mapping_keys
 from ..table_metadata import ColumnMetadata, TableMetadata
 
 if TYPE_CHECKING:
-    from .declaration import IndexDeclaration, TableModelMeta
+    from .definition import IndexDefinition, TableModelMeta
 
 
 _TABLE_PROP_NAMES: tuple[str, ...] = (
@@ -54,7 +54,7 @@ class _ColumnProperties:
 
     @classmethod
     def from_spec(cls, spec: ColumnSpec, default_media_validation: str) -> _ColumnProperties:
-        """The comparable properties of a column declared by spec, resolved to match a stored column's metadata.
+        """The comparable properties of a column defined by spec, resolved to match a stored column's metadata.
 
         A computed column's value expression carries ColumnRefByName placeholders, but those render identically to
         the ColumnRefs in the stored expression, so the display strings are directly comparable. Defaults mirror
@@ -105,7 +105,7 @@ class _TableProperties:
 
     @classmethod
     def from_model(cls, model: TableModelMeta) -> _TableProperties:
-        """The comparable table-level properties declared by a model."""
+        """The comparable table-level properties defined by a model."""
         spec = model.__table_spec__
         return cls(
             media_validation=spec['media_validation'].name.lower(),
@@ -126,7 +126,7 @@ class _TableProperties:
 
 
 def user_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
-    """The model's declared columns, plus any its base query projects via a `select()` clause. Keyed by folded column
+    """The model's defined columns, plus any its base query projects via a `select()` clause. Keyed by folded column
     name."""
     specs: dict[str, ColumnSpec] = dict(model.__columns__)
     base = model.__table_spec__['base']
@@ -179,8 +179,8 @@ def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChangeOp:
     )
 
 
-def _as_idx_ref(idx: IndexDeclaration) -> SchemaChangeIndexRef:
-    from .declaration import BtreeIndex
+def _as_idx_ref(idx: IndexDefinition) -> SchemaChangeIndexRef:
+    from .definition import BtreeIndex
 
     if isinstance(idx, BtreeIndex):
         return SchemaChangeIndexRef(index_type='btree', columns=[idx.column.name], name=None)
@@ -188,7 +188,7 @@ def _as_idx_ref(idx: IndexDeclaration) -> SchemaChangeIndexRef:
         return SchemaChangeIndexRef(index_type='embedding', columns=[idx.column.name], name=idx.name)
 
 
-def _add_index_change(idx: IndexDeclaration) -> SchemaChangeOp:
+def _add_index_change(idx: IndexDefinition) -> SchemaChangeOp:
     idx_ref = _as_idx_ref(idx)
     idx_name = idx_ref.name
     return SchemaChangeOp(
@@ -218,7 +218,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
     import pixeltable as pxt
 
     from ..catalog import retry_loop
-    from .declaration import BtreeIndex
+    from .definition import BtreeIndex
 
     catalog_dir = catalog.Path.dir_prefix(catalog_dir)
 
@@ -262,7 +262,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
             tbl_path = existing._tbl_path
 
             # Restrict the existing columns to those defined in this table (i.e. not inherited from a base) and not
-            # produced by an iterator, so that they line up with the model's own declared columns.
+            # produced by an iterator, so that they line up with the model's own defined columns.
             existing_cols = {
                 col_name
                 for col_name, col_md in existing_md['columns'].items()
@@ -383,7 +383,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
             existing_idxs = list(existing_md['indexes'].values())
 
             if model_default_idxs or existing_default_idxs:
-                # If has_default_idxs is declared, then we don't need to compare B-tree indexes, since B-tree index
+                # If has_default_idxs is defined, then we don't need to compare B-tree indexes, since B-tree index
                 # comparison is implicit in column comparison.
                 model_idxs = [idx for idx in model_idxs if not isinstance(idx, BtreeIndex)]
                 existing_idxs = [idx_md for idx_md in existing_idxs if idx_md['index_type'] != 'btree']
