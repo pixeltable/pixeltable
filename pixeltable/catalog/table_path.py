@@ -148,8 +148,8 @@ class TablePath(abc.ABC):
             return 1 + self.base.num_rowid_columns()
         return 1
 
-    def rowid_normalized_base_id(self, idx: int) -> UUID:
-        """The id of the lowest base in this chain that carries rowid component idx.
+    def rowid_normalized_base(self, idx: int) -> TablePath:
+        """The lowest base in this chain that carries rowid component idx.
 
         All descendants of that base share the component's values, so this is the canonical owner used to
         identify a RowidRef.
@@ -157,7 +157,10 @@ class TablePath(abc.ABC):
         level: TablePath = self
         while level.base is not None and level.base.num_rowid_columns() > idx:
             level = level.base
-        return level.tbl_id
+        return level
+
+    def rowid_normalized_base_id(self, idx: int) -> UUID:
+        return self.rowid_normalized_base(idx).tbl_id
 
     @abc.abstractmethod
     def get_column_md(self, qcolid: QColumnId) -> ColumnVersionMd: ...

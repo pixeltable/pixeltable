@@ -1,4 +1,7 @@
+import json
+import math
 import pathlib
+import uuid
 from typing import Any
 
 import numpy as np
@@ -94,6 +97,30 @@ class TestProxyDaemon:
         assert sink.binary_parts[2] == b'abc'
         assert proxy_protocol.collect_remote_keys(wire) == []
 
+    def test_response_round_trip(self) -> None:
+        """The generic response path preserves every value it is given."""
+        tbl_id = uuid.uuid4()
+        result = {
+            'nan': math.nan,
+            'inf': math.inf,
+            'pair': (1, 2),
+            'int_keys': {1: 'x'},
+            'reserved': {'$pxt': 'UUID', 'v': 'not-a-uuid'},
+            'id': tbl_id,
+            'data': b'abc',
+        }
+        body = proxy_protocol.encode_response({'result': result})
+        head, parts = proxy_protocol.decode_body(body)
+        decoded = proxy_protocol.deserialize_value(json.loads(head)['result'], parts)
+
+        assert math.isnan(decoded['nan'])
+        assert decoded['inf'] == math.inf
+        assert decoded['pair'] == (1, 2)
+        assert decoded['int_keys'] == {1: 'x'}
+        assert decoded['reserved'] == result['reserved']
+        assert decoded['id'] == tbl_id
+        assert decoded['data'] == b'abc'
+
     def test_main_address_args(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The address a cloud pod names on the command line is what the daemon serves on."""
         served: list[tuple[bool, str | None, int | None]] = []
@@ -141,7 +168,11 @@ class TestProxyDaemon:
 
         # a stale-md response makes dispatch_table_method retry the POST without re-serializing (and thus
         # without re-reading/re-uploading media)
-        responses = [proxy_protocol.ProxyResponse(is_stale_md=True), proxy_protocol.ProxyResponse(result='ok')]
+        # _post() hands back the response head with the body's binary parts
+        responses: list[tuple[proxy_protocol.ProxyResponse, list[bytes]]] = [
+            (proxy_protocol.ProxyResponse(is_stale_md=True), []),
+            (proxy_protocol.ProxyResponse(result='ok'), []),
+        ]
         monkeypatch.setattr(ProxyClient, '_prepare', counting_prepare)
         monkeypatch.setattr(ProxyClient, '_post', lambda self, *args, **kwargs: responses.pop(0))
         result = client.dispatch_table_method(
@@ -301,9 +332,8 @@ class TestProxyDaemon:
 
         # success: the handler saw the localized file; handle() unlinked it afterwards
         request = self._remote_file_request('uploads/req/0.png')
-        response_json, _ = proxy_dispatch.handle(request.model_dump_json(), [])
-        response = proxy_protocol.ProxyResponse.model_validate_json(response_json)
-        assert response.error is None
+        head, _ = proxy_protocol.decode_body(proxy_dispatch.handle(request.model_dump_json(), []))
+        assert json.loads(head).get('error') is None
         assert len(localized) == 1
         assert not pathlib.Path(localized[0]).exists()
 
@@ -314,9 +344,8 @@ class TestProxyDaemon:
 
         monkeypatch.setitem(proxy_dispatch._HANDLERS, ('CatalogBase', 'echo_test'), failing_handler)
         request = self._remote_file_request('uploads/req/0.png')
-        response_json, _ = proxy_dispatch.handle(request.model_dump_json(), [])
-        response = proxy_protocol.ProxyResponse.model_validate_json(response_json)
-        assert response.error is not None
-        assert 'boom' in response.error['message']
+        head, _ = proxy_protocol.decode_body(proxy_dispatch.handle(request.model_dump_json(), []))
+        error = json.loads(head)['error']
+        assert 'boom' in error['message']
         assert len(localized) == 2
         assert not pathlib.Path(localized[1]).exists()
