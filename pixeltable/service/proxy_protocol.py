@@ -216,19 +216,16 @@ class ProxyRequest(BaseModel):
 
 
 class ProxyResponse(TypedDict, total=False):
-    """The fields a proxy response carries; encode_response() turns them into the body's JSON head.
+    """The header fields of a proxy response."""
 
-    A response sets either result or error, and current_md only after a mutation or a stale-md refusal.
-    """
-
-    result: Any  # return value
+    # only one of these is set
+    result: Any  # return value of the dispatched method
     error: dict[str, Any]  # excs.Error.to_dict(), set instead of result on failure
 
-    # serialized TableMdPath (list[TableVersionMd]); returned after a mutation so the client refreshes its md
-    current_md: Any
+    # only set after a mutation or when is_stale_md == True
+    current_md: list[TableVersionMd] | list[dict[str, Any]]
 
-    # True if the request's snapshot_path_key was behind the current schema version
-    is_stale_md: bool
+    is_stale_md: bool  # True if the request's snapshot_path_key was behind the current schema version
 
 
 def _serialize(obj: Any, sink: PartSink) -> Any:
