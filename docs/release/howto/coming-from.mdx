@@ -102,20 +102,24 @@ Defining the class does not create the table. Run `pxt schema update app.py my_a
   <Tab title="Pydantic AI" icon="brain">
     <div id="pydantic-ai" />
 
-    If you already run [Pydantic AI Harness](https://github.com/pydantic/pydantic-ai-harness), keep the agent and persist `Memory` in Pixeltable. The store creates the table on first use.
+    If you already run [Pydantic AI Harness](https://github.com/pydantic/pydantic-ai-harness), keep the agent. Persist `Memory` in Pixeltable. Add `Pixeltable` when the agent must search tables you already have.
 
     ```python
     from pydantic_ai import Agent
-    from pydantic_ai_harness import Memory
-    from pydantic_ai_pixeltable import PixeltableMemoryStore
+    from pydantic_ai_harness import Memory, ToolOutputLimits
+    from pydantic_ai_pixeltable import Pixeltable, PixeltableMemoryStore
 
     agent = Agent(
-        'openai:gpt-4o',
-        capabilities=[Memory(PixeltableMemoryStore(table_name='my_app.memory'))],
+        'openai:gpt-4o-mini',
+        capabilities=[
+            Memory(PixeltableMemoryStore(table_name='my_app.memory')),
+            Pixeltable(tables=['my_app.doc_chunks'], read_only=True),
+            ToolOutputLimits(),
+        ],
     )
     ```
 
-    `pip install pydantic-ai-pixeltable`. Use `.table` for Pixeltable queries and computed columns. This is a bridge, not the default Pixeltable agent.
+    `pip install pydantic-ai-pixeltable`. `Memory` is the notebook. `Pixeltable` searches a chunk view or other catalog table. Use `.table` for Pixeltable queries and computed columns. This is a bridge, not the default Pixeltable agent.
 
     A native agent stays on a `TableModel`. After `pxt schema update`, insert `{'message': '...'}` and read `response` and `tool_output`.
 

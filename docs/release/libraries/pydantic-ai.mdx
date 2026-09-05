@@ -1,19 +1,21 @@
 ---
 title: 'Pydantic AI Harness'
-description: 'Persist Pydantic AI Harness memory in a Pixeltable table'
+description: 'Persist Pydantic AI Harness memory in Pixeltable and search your tables'
 ---
 
 <Card title="pydantic-ai-pixeltable" icon="github" href="https://github.com/pixeltable/pydantic-ai-pixeltable">
   Source, tests, and release history
 </Card>
 
-`pydantic-ai-pixeltable` is a [Pydantic AI Harness](https://github.com/pydantic/pydantic-ai-harness) `MemoryStore`. Keep the `Memory` capability. Swap `FileStore` or `PostgresMemoryStore` for a Pixeltable table.
+`pydantic-ai-pixeltable` is a [Pydantic AI Harness](https://github.com/pydantic/pydantic-ai-harness) bridge. Keep the `Memory` capability and persist the notebook in a Pixeltable table. Add a separate `Pixeltable` capability when the agent must search tables you already have.
 
 This is an interoperability bridge. Native Pixeltable agents still use a `TableModel` and computed columns. Typed insert/`to_pydantic()` is a different page: [Working with Pydantic](/howto/providers/working-with-pydantic).
 
 ## When to use
 
 Use this package when a Pydantic AI agent already runs on Harness `Memory` and you want that notebook in Pixeltable: versions, queries, and computed columns on `.table`.
+
+Use `Pixeltable(tables=[...])` when the same agent must retrieve from a handbook, chunk view, or other catalog table. Do not put that corpus in Memory files.
 
 Do not add this package to start a new Pixeltable agent. Insert a row and let computed columns run the turn. See [Migrate](/howto/coming-from#pydantic-ai).
 
@@ -24,6 +26,27 @@ pip install pydantic-ai-pixeltable
 ```
 
 Requires Pixeltable >= 0.6.8 and pydantic-ai-harness >= 0.29.0.
+
+## Two layers
+
+`Memory` is the short notebook (`MEMORY.md` and other path-addressed files). `Pixeltable` searches application tables. Pair them. `ToolOutputLimits` bounds oversized tool returns.
+
+```python
+from pydantic_ai import Agent
+from pydantic_ai_harness import Memory, ToolOutputLimits
+from pydantic_ai_pixeltable import Pixeltable, PixeltableMemoryStore
+
+agent = Agent(
+    'openai:gpt-4o-mini',
+    capabilities=[
+        Memory(PixeltableMemoryStore(table_name='harness.memory')),
+        Pixeltable(tables=['my_app.doc_chunks'], read_only=True),
+        ToolOutputLimits(),
+    ],
+)
+```
+
+`tables` is an allowlist of table paths or directory prefixes. Omit it only for local use against the whole catalog.
 
 ## Persist Harness memory
 
@@ -53,6 +76,26 @@ t.where(t.kind == 'file').select(t.path, t.content, t.version).collect()
 ```
 
 File rows have `kind == 'file'`. Do not write paths whose first segment is `__meta__` or `__op__`; those rows hold the generation counter and operation receipts.
+
+## Search your Pixeltable tables
+
+`Pixeltable` does not create tables. Point it at a chunk view (or any table) that already has an embedding index. A handbook stays `pxt.Document` rows; the agent searches the splitter view.
+
+```python
+import pixeltable as pxt
+from pixeltable.functions.document import document_splitter
+
+docs = pxt.create_table('my_app.docs', {'doc': pxt.Document}, if_exists='ignore')
+chunks = pxt.create_view(
+    'my_app.doc_chunks',
+    docs,
+    iterator=document_splitter(docs.doc, separators='paragraph'),
+    if_exists='ignore',
+)
+chunks.add_embedding_index('text', embedding=your_embed_fn, if_exists='ignore')
+```
+
+The capability tools are `list_tables`, `describe_table`, `query_table`, and `similarity_search`. `query_table` filters with equality only (`{'status': 'open'}`). `similarity_search` calls `column.similarity(string=query)`. Both cap rows and serialized characters. Media columns are returned as file URLs, not blobs. `read_only=False` is not implemented.
 
 ## See also
 
