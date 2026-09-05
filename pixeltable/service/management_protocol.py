@@ -6,7 +6,7 @@ import re
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from pixeltable.serving import ServiceInstanceRecord
 from pixeltable.utils.project import DepsType, ProjectFingerprint
@@ -35,6 +35,7 @@ class ManagementOperationType(str, Enum):
     SET_ARCHIVE = 'set_archive'
     GET_ARCHIVE = 'get_archive'
     GET_ARCHIVE_UPLOAD_URL = 'get_archive_upload_url'
+    GET_LOGS = 'get_logs'
 
     LIST_ORGS = 'list_orgs'
 
@@ -178,6 +179,40 @@ class GetArchiveUploadUrlResponse(BaseModel):
     archive_key: str
     # None when the digest names a stored archive: nothing left to upload
     presigned_url: str | None = None
+
+
+# Logs
+
+# a Kubernetes object name (RFC 1123 label), the shape of a service name
+_K8S_NAME = r'^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'
+
+
+class GetLogsRequest(BaseModel):
+    """Read what a database's pods logged: the database pod's, or one service's when service_name is given.
+
+    The log merges what the pods' processes logged with what they wrote to their console, by time.
+    """
+
+    operation_type: Literal[ManagementOperationType.GET_LOGS] = ManagementOperationType.GET_LOGS
+    org: str | None = None
+    db: str
+    service_name: str | None = Field(default=None, pattern=_K8S_NAME, max_length=63)
+    since_seconds: int = Field(default=3600, ge=1)
+    # the tail of the window: only its newest limit lines are returned
+    limit: int = Field(default=200, ge=1, le=10000)
+    # the readiness and liveness probes are nearly the whole log, so they are left out by default
+    include_health: bool = False
+
+
+class LogRecord(BaseModel):
+    # milliseconds since the epoch, the time the line was written
+    ts_ms: int
+    line: str
+
+
+class GetLogsResponse(BaseModel):
+    # oldest first
+    records: list[LogRecord]
 
 
 # Secrets

@@ -109,6 +109,15 @@ class TestDb:
         assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
         assert db_status(cli, project, test_db_uri)['state'] == 'AVAILABLE'
 
+        # `db logs`: the pod that just came up has logged its startup
+        records = cli('db', 'logs', test_db_uri, '--json', cwd=project).json
+        assert records != [], 'the database pod logged nothing in the last hour'
+        assert records == sorted(records, key=lambda r: r['ts_ms'])
+        assert not any('GET /health' in r['line'] for r in records)
+        too_many = cli('db', 'logs', test_db_uri, '--tail', '50000', cwd=project, check=False)
+        assert too_many.returncode == EXIT_ERROR
+        assert 'less than or equal to 10000' in too_many.stderr, too_many.stderr
+
         # `db update`: Check that a second call is planned as an update
         # Every update rebuilds the image, since the database reports no fingerprint to compare
         plan = db_diff(cli, project, test_db_uri)

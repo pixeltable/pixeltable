@@ -111,11 +111,13 @@ pxt service check  app.py            # validate the file on its own, with no tar
 pxt service diff   app.py my_app     # what 'update' would change (exit 2 = drift)
 pxt service update app.py my_app     # start them, restarting what changed
 pxt service list                     # what is running, and where
+pxt service logs pxt://myorg:mydb/services/ingest   # what a hosted service logged
 
 # cloud — databases
 pxt db update pxt://myorg:mydb   # create the database, or bring it up to what the project declares
 pxt db diff   pxt://myorg:mydb   # what 'update' would change
 pxt db list   pxt://myorg
+pxt db logs   pxt://myorg:mydb   # what the database's pod logged
 
 # cloud — secrets
 pxt secret set  pxt://myorg OPENAI_API_KEY=sk-...
@@ -667,6 +669,19 @@ calling process, so it is local by definition. Two verbs differ in meaning again
 a stopped service keeps its registration: `stop` stops it and leaves it there to be started again, while
 `prune` forgets it.
 
+A hosted service's log is read with `pxt service logs`, and the database's own pod with `pxt db logs`:
+
+```bash
+pxt service logs pxt://acme:main/services/ingest              # what its pods logged in the last hour
+pxt service logs pxt://acme:main/services/ingest --since 10m --tail 50
+pxt db logs pxt://acme:main
+```
+
+The log holds what the serving process logged, requests included, merged by time with what it wrote to its
+console, which is where a service that failed to start left its traceback. Health probes are left out unless
+`--include-health` is given. The log outlives the pod, so a failed deploy can be read after its pod is gone, and
+a line reaches it a few seconds after it is written.
+
 ### `pxt service` verbs
 
 | Command | Description |
@@ -677,6 +692,7 @@ a stopped service keeps its registration: `stop` stops it and leaves it there to
 | `pxt service prune APP TARGET` | Stop and forget the services at `TARGET` that `APP` does not declare |
 | `pxt service stop NAME...` | Stop the named services |
 | `pxt service list [TARGET]` | What is running locally, and where |
+| `pxt service logs URI` | What a hosted service logged; see [Hosted targets](#hosted-targets) |
 | `pxt service check APP` | Validate the application file on its own. Takes no `TARGET` and reads no catalog |
 | `pxt service example` | Write a working application file to start from |
 
@@ -688,6 +704,7 @@ Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreeme
 | Flag | Verbs | Description |
 |---|---|---|
 | `--json` | all | Emit machine-readable JSON |
+| `--since`, `--tail`, `--include-health` | `logs` | How far back, how many lines, whether to keep health probes; see [Hosted targets](#hosted-targets) |
 | `-f`, `--force` | `update`, `prune` | Skip the `[y/N]` prompt |
 | `-n`, `--dry-run` | `update`, `prune` | Print the intended change; don't apply it |
 | `--allow-destructive` | `update` | Permit changes that stop serving a route callers may be using |
