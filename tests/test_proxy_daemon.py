@@ -10,7 +10,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.service import proxy_dispatch, proxy_protocol
+from pixeltable.service import proxy_daemon, proxy_dispatch, proxy_protocol
 from pixeltable.service.proxy_client import HttpTransport, ProxyClient, PxtStorePartSink, TunnelTransport
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps
@@ -120,6 +120,22 @@ class TestProxyDaemon:
         assert decoded['reserved'] == result['reserved']
         assert decoded['id'] == tbl_id
         assert decoded['data'] == b'abc'
+
+    def test_main_address_args(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The address a cloud pod names on the command line is what the daemon serves on."""
+        served: list[tuple[bool, str | None, int | None]] = []
+        monkeypatch.setattr(proxy_daemon.Config, 'init', classmethod(lambda cls, **kwargs: None))
+        monkeypatch.setattr(
+            proxy_daemon, '_serve', lambda test_mode=False, host=None, port=None: served.append((test_mode, host, port))
+        )
+
+        proxy_daemon.main(['--test', '--host', '0.0.0.0', '--port', '8000'])
+        assert served == [(True, '0.0.0.0', 8000)]
+
+        # without them the daemon picks its own port and publishes it in the lock file
+        served.clear()
+        proxy_daemon.main([])
+        assert served == [(False, None, None)]
 
     def test_collect_remote_keys(self) -> None:
         file_tag = {'$pxt': 'file', 'name': 'a.png', 'v': 'uploads/r/0.png'}
