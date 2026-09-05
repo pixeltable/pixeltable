@@ -1931,11 +1931,9 @@ class TestHostedUriHelpers:
         assert 'acme' in out and 'id=o1' in out and 'default_db=main' in out
 
     def test_print_db(self, capsys: pytest.CaptureFixture) -> None:
-        state = {'state': 'AVAILABLE', 'location': 'aws/us-east-1', 'services_hostname': 'acme-main.example'}
-        hosted.print_db({'db': 'main', 'status': state})
+        hosted.print_db({'db': 'main', 'status': {'state': 'AVAILABLE'}})
         out = capsys.readouterr().out
-        assert 'main' in out and 'state=AVAILABLE' in out and 'aws/us-east-1' in out
-        assert 'acme-main.example' in out
+        assert 'main' in out and 'state=AVAILABLE' in out
 
     def test_print_service_prints_routes(self, capsys: pytest.CaptureFixture) -> None:
         hosted.print_service(

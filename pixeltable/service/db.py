@@ -75,27 +75,29 @@ def published_fingerprint(db_path: catalog.Path) -> ProjectFingerprint | None:
     return None if state is None else state.status.fingerprint
 
 
-def db_plan(target: DatabaseSpec, current: DatabaseStatus) -> list[DbChangeOp]:
-    """The operations that take a database from current to target.
+def db_plan(db_uri: str, target: DatabaseSpec, current: DatabaseStatus | None) -> DbPlan:
+    """The plan that makes the database at db_uri provide target; current is None for one that does not exist.
 
     Comparing against what the database provides, rather than the spec it was last given, covers a changed
     project, an interrupted rollout and a failed build in one comparison.
     """
+    status = DatabaseStatus() if current is None else current
     ops: list[DbChangeOp] = []
     if target.fingerprint is not None:
-        ops += _artifact_ops(target.fingerprint, current.fingerprint)
+        ops += _artifact_ops(target.fingerprint, status.fingerprint)
 
     for field, wanted, running in (
-        ('cpu', target.cpu, current.cpu),
-        ('memory_mb', target.memory_mb, current.memory_mb),
-        ('disk_gb', target.disk_gb, current.disk_gb),
-        ('workers', target.workers, current.workers),
+        ('cpu', target.cpu, status.cpu),
+        ('memory_mb', target.memory_mb, status.memory_mb),
+        ('disk_gb', target.disk_gb, status.disk_gb),
+        ('workers', target.workers, status.workers),
     ):
         if wanted is None or wanted == running:
             continue
         ops.append(DbChangeOp.capacity(field, running, wanted))
 
-    return ops + _secret_ops(target, current)
+    ops += _secret_ops(target, status)
+    return DbPlan.from_ops(db_uri, None if current is None else status.state, ops)
 
 
 def _artifact_ops(target: ProjectFingerprint, running: ProjectFingerprint | None) -> list[DbChangeOp]:

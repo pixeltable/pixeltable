@@ -105,9 +105,7 @@ def _print_workers(workers: list[dict[str, Any]]) -> None:
 
 def print_db(db: dict[str, Any]) -> None:
     status = db.get('status') or {}
-    fields = [db.get('db', ''), f'state={status.get("state", "")}', status.get('location', '')]
-    fields.append(status.get('services_hostname') or '')
-    print('  '.join(field for field in fields if field != ''))
+    print(f'{db.get("db", "")}  state={status.get("state", "")}')
     _print_workers(status.get('worker_status') or [])
 
 
