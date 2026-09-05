@@ -678,6 +678,17 @@ class TestService:
         assert r.returncode != 0
         assert 'serves from this process' in r.stderr, r.stderr
 
+        # 'logs' names one hosted service, and the daemon checks the window and the tail before asking the cloud
+        r = cli('service', 'logs', 'pxt://acme:main', check=False)
+        assert r.returncode != 0
+        assert 'pxt://org:db/services/<name>' in r.stderr, r.stderr
+        r = cli('service', 'logs', 'pxt://acme:main/services/ingest', '--since', 'bogus', check=False)
+        assert r.returncode == 1
+        assert 'must be a duration' in r.stderr, r.stderr
+        r = cli('service', 'logs', 'pxt://acme:main/services/ingest', '--tail', '50000', check=False)
+        assert r.returncode == 1
+        assert 'less than or equal to 10000' in r.stderr, r.stderr
+
     def test_example(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """The file `example` writes declares both the tables and the services, and serves."""
         skip_test_if_not_installed('fastapi')
