@@ -1,5 +1,6 @@
 import pathlib
 import shutil
+import socket
 import time
 from textwrap import dedent
 from typing import Any, Callable, Iterator
@@ -185,6 +186,8 @@ class TestService:
         assert [s['status'] for s in r.json['services']] == ['applied']
         after = assert_serving(cli, apps('basic_added_route.py'), target, 'ingest')['ingest']
         assert after['pid'] != before['pid'], 'a changed declaration is applied by replacing the process'
+        assert after['port'] == before['port'], 'a restart serves on the port callers were given'
+        assert after['endpoint'] == before['endpoint']
 
         # the added route serves, and so do the routes that were already there
         assert _post(after['endpoint'], '/shout', doc_id=3, title='new route', published=True).json() == {
@@ -677,6 +680,65 @@ class TestService:
         r = cli('service', 'run', apps('basic.py'), 'pxt://acme:main/app', check=False)
         assert r.returncode != 0
         assert 'serves from this process' in r.stderr, r.stderr
+
+    def test_named_service(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
+        """Name one service of a file that defines two, and pin its port."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        target = db_root.make_catalog_path('app')
+
+        # --port names one port, and two_services.py defines two
+        two = project_dir / 'two_services.py'
+        two.write_text(
+            dedent("""
+            import pixeltable as pxt
+            from pixeltable.serving import FastAPIRouter
+
+            TableModel = pxt.model_base()
+
+
+            class Notes(TableModel, name='notes'):
+                s: pxt.String
+
+
+            first = FastAPIRouter(name='first')
+            first.add_insert_route(Notes, path='/a', inputs=[Notes.s], outputs=[Notes.s])
+            second = FastAPIRouter(name='second')
+            second.add_insert_route(Notes, path='/b', inputs=[Notes.s], outputs=[Notes.s])
+            """),
+            encoding='utf-8',
+        )
+        cli('schema', 'update', str(two), target)
+        r = cli('service', 'update', str(two), target, '-f', '--port', '8123', check=False)
+        assert r.returncode == 1
+        assert '--port names one port' in r.stderr, r.stderr
+        assert services(cli) == {}, 'a refused update started nothing'
+
+        r = cli('service', 'update', str(two), target, 'third', '-f', check=False)
+        assert r.returncode == 1
+        assert "no service named 'third'" in r.stderr, r.stderr
+        assert services(cli) == {}, 'a refused update started nothing'
+
+        # naming one service leaves the other alone, and makes --port unambiguous
+        with socket.socket() as probe:
+            probe.bind(('127.0.0.1', 0))
+            free_port = probe.getsockname()[1]
+        r = cli('service', 'update', str(two), target, 'second', '-f', '--port', str(free_port), '--json')
+        assert [d['name'] for d in r.json['services']] == ['second'], r.json
+        running = services(cli)
+        assert sorted(running) == ['second'], running
+        assert running['second']['port'] == free_port
+        assert running['second']['endpoint'].endswith(f':{free_port}')
+
+        # diff takes the same name, and reports only that service
+        r = cli('service', 'diff', str(two), target, 'second', '--json')
+        assert [d['name'] for d in r.json['services']] == ['second'], r.json
+        r = cli('service', 'diff', str(two), target, '--json', check=False)
+        assert r.returncode == 2, r.stdout
+        assert sorted(d['name'] for d in r.json['services']) == ['first', 'second'], r.json
+        r = cli('service', 'diff', str(two), target, 'third', check=False)
+        assert r.returncode == 1
+        assert "no service named 'third'" in r.stderr, r.stderr
 
     def test_example(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """The file `example` writes declares both the tables and the services, and serves."""

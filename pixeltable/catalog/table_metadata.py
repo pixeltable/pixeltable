@@ -37,10 +37,10 @@ class ColumnMetadata(TypedDict):
     is_iterator_col: bool
     """`True` if this column is produced by an iterator (only applicable to views)."""
     destination: str | None
-    """The object store destination declared for this column's computed files, if it declares one.
+    """The object store destination defined for this column's computed files, if it defines one.
 
     An instance-wide default destination is not reported here, because it is configuration rather than part of
-    the schema. A destination declared as a config var reads as `$<name>` rather than as the location it
+    the schema. A destination defined as a config var reads as `$<name>` rather than as the location it
     currently resolves to; see [`ConfigVar`][pixeltable.ConfigVar].
     """
 

@@ -256,6 +256,7 @@ class SchemaUpdateBody(BaseModel):
 class ServiceDiffBody(BaseModel):
     app_file: str  # absolute filesystem path to the application file on the daemon host
     target: PxtPath  # the catalog directory the services' models bind against
+    service_name: str | None = None  # the only service to compare; None compares all of them
     otel: bool = False  # compares the instances against this tracing setting
 
 
@@ -268,8 +269,10 @@ class ServicePruneBody(BaseModel):
 class ServiceUpdateBody(BaseModel):
     app_file: str  # absolute filesystem path to the application file on the daemon host
     target: PxtPath
+    service_name: str | None = None  # the only service to reconcile; None reconciles all of them
     allow_destructive: bool = False
     otel: bool = False
+    port: int | None = None  # the loopback port to serve on; None keeps the one a restarted service had
 
 
 class DbDiffBody(BaseModel):
