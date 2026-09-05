@@ -10,7 +10,14 @@ import pytest
 from pixeltable import exceptions as excs
 from pixeltable.config import DatabaseConfig
 from pixeltable.utils import project as project_mod
-from pixeltable.utils.project import ProjectPart, _archive_files, loaded_fingerprint, project_fingerprint
+from pixeltable.utils.project import (
+    ProjectPart,
+    _archive_files,
+    archive_object_name,
+    image_object_name,
+    loaded_fingerprint,
+    project_fingerprint,
+)
 
 from .utils import pxt_raises
 
@@ -97,6 +104,27 @@ class TestProject:
         assert after.changes(before, {IMAGE}) == ['uv.lock changed']
         assert after.changes(before, {ARCHIVE}) == ['uv.lock changed']
 
+    def test_pyproject(self, project: pathlib.Path) -> None:
+        (project / 'pyproject.toml').write_text('[project]\ndependencies = ["pixeltable"]\n')
+        before = project_fingerprint(project, None)
+        (project / 'pyproject.toml').write_text('[project]\ndependencies = ["pixeltable", "torch"]\n')
+        after = project_fingerprint(project, None)
+        # 'uv sync' reads pyproject.toml alongside the lockfile, so it declares the environment too
+        assert after.compare(before) == {IMAGE, ARCHIVE}
+        assert after.image_digest() != before.image_digest()
+
+    def test_object_names(self, project: pathlib.Path) -> None:
+        before = project_fingerprint(project, None)
+        (project / 'app.py').write_text('x = 2\n')
+        edited = project_fingerprint(project, None)
+        assert archive_object_name('org_1', edited.archive_digest()) != archive_object_name(
+            'org_1', before.archive_digest()
+        )
+        # an edit that leaves the environment alone leaves the image context where it is
+        assert image_object_name('org_1', edited.image_digest()) == image_object_name('org_1', before.image_digest())
+        # one org's artifacts are never another's
+        assert image_object_name('org_2', before.image_digest()) != image_object_name('org_1', before.image_digest())
+
     def test_loaded_files(self, project: pathlib.Path) -> None:
         """A published project holds every selected file; an application loads a part of it."""
         published = project_fingerprint(project, None)
@@ -141,9 +169,9 @@ class TestProject:
         assert after.compare(before) == {BINDINGS}
         assert after.changes(before) == ['var dest changed']
 
+        # a secret lives in the store, so declaring one leaves the project's own description alone
         with_secret = project_fingerprint(project, DatabaseConfig(secrets={'openai': 'env:OPENAI_API_KEY'}))
-        assert with_secret.compare(before) == {BINDINGS}
-        assert with_secret.changes(before) == ['var dest changed', 'secret openai changed']
+        assert with_secret.compare(project_fingerprint(project, None)) == set()
 
     def test_environment(self, project: pathlib.Path) -> None:
         before = project_fingerprint(project, DatabaseConfig(python_version='3.11'))

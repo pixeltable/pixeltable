@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from pixeltable.serving import ServiceInstanceRecord
-from pixeltable.utils.project import DepsType, ProjectFingerprint
-from pixeltable_cli.types import ServiceSpec
+from pixeltable.utils.project import ProjectFingerprint
+from pixeltable_cli.types import DbArtifact, DbPlan, ServiceSpec
 
 
 class ManagementOperationType(str, Enum):
-    CREATE_DB = 'create_db'
     GET_DB = 'get_db'
     LIST_DBS = 'list_dbs'
     DELETE_DB = 'delete_db'
@@ -31,10 +30,7 @@ class ManagementOperationType(str, Enum):
     START_DB = 'start_db'
     STOP_DB = 'stop_db'
     UPDATE_DB = 'update_db'
-    BUILD_IMAGE = 'build_image'
-    SET_ARCHIVE = 'set_archive'
     GET_ARCHIVE = 'get_archive'
-    GET_ARCHIVE_UPLOAD_URL = 'get_archive_upload_url'
 
     LIST_ORGS = 'list_orgs'
 
@@ -64,20 +60,75 @@ def _validate_hosted_name(value: str, kind: str) -> str:
     return value
 
 
-class CreateDbRequest(BaseModel):
-    operation_type: Literal[ManagementOperationType.CREATE_DB] = ManagementOperationType.CREATE_DB
-    org: str | None = None
-    db: str
-    db_name: str | None = None
-    cpu: float = 0.5
-    memory_mb: int = 512
-    disk_gb: int = 10
-    workers: int = 1
+class StoredSecret(BaseModel):
+    """What the secret store holds under one key."""
 
-    @field_validator('db')
-    @classmethod
-    def _validate_db_name(cls, value: str) -> str:
-        return _validate_hosted_name(value, 'Database name')
+    # an opaque digest of the value, which only the control plane produces
+    digest: str
+
+    # which binding the value came from, so that a rebinding is noticed
+    binding: str = ''
+
+
+class DatabaseSpec(BaseModel):
+    """The resources provided by a database, in the widest sense (everything available in the runtime environment)."""
+
+    fingerprint: ProjectFingerprint | None = None
+
+    # the metadata schema version of the Pixeltable that packaged the archive, which only that
+    # Pixeltable can report
+    pxt_md_version: int = 0
+
+    # the project's secret bindings: each key names the source of its value, never the value
+    secrets: dict[str, str] = Field(default_factory=dict)
+
+    # what the secret store holds. SET_SECRET changes it, not this field: the control plane fills it when
+    # reporting a spec and ignores it in a request
+    stored_secrets: dict[str, StoredSecret] = Field(default_factory=dict)
+
+    # None: take default
+    cpu: float | None = None
+    memory_mb: int | None = None
+    disk_gb: int | None = None
+    workers: int | None = None
+    default_bucket: str | None = None
+
+
+class DatabaseStatus(BaseModel):
+    """Information about the running system."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    state: str = ''
+
+    fingerprint: ProjectFingerprint | None = None
+
+    cpu: float | None = None
+    memory_mb: int | None = None
+    disk_gb: int | None = None
+    workers: int | None = None
+
+    # one entry per pod serving the database; workers is how many are running
+    worker_status: list[dict[str, Any]] = Field(default_factory=list)
+
+    # the pods' secret digests
+    secret_digests: dict[str, str] = Field(default_factory=dict)
+
+    last_build_outcome: str | None = None
+    last_build_error: str | None = None
+
+    # why the database is FAILED
+    failure_reason: str | None = None
+
+
+class DatabaseState(BaseModel):
+    """The state of a hosted db: its current spec and what is actually running."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    db: str = ''
+    spec: DatabaseSpec = Field(default_factory=DatabaseSpec)
+    status: DatabaseStatus = Field(default_factory=DatabaseStatus)
 
 
 class GetDbRequest(BaseModel):
@@ -86,21 +137,48 @@ class GetDbRequest(BaseModel):
     db: str
 
 
+class GetDbResponse(BaseModel):
+    database: DatabaseState
+
+
 class ListDbRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.LIST_DBS] = ManagementOperationType.LIST_DBS
     org: str | None = None
 
 
 class UpdateDbRequest(BaseModel):
+    """Request for changing the running system to match the spec."""
+
     operation_type: Literal[ManagementOperationType.UPDATE_DB] = ManagementOperationType.UPDATE_DB
     org: str | None = None
     db: str
-    db_name: str | None = None
-    default_bucket: str | None = None
-    workers: int | None = None
-    cpu: float | None = None
-    memory_mb: int | None = None
-    disk_gb: int | None = None
+    spec: DatabaseSpec
+
+    # compute the plan without recording the spec, acting on it, or handing out an upload url
+    dry_run: bool = False
+
+    # build the image even when one is already built for the spec's image digest
+    force_image_build: bool = False
+
+    @field_validator('db')
+    @classmethod
+    def _validate_db_name(cls, value: str) -> str:
+        return _validate_hosted_name(value, 'Database name')
+
+
+class ArtifactUpload(BaseModel):
+    """An artifact the spec names and the control plane does not hold, and where to put it."""
+
+    artifact: DbArtifact
+    url: str
+
+
+class UpdateDbResponse(BaseModel):
+    plan: DbPlan
+    state: DatabaseState
+
+    # if non-empty: perform the uploads first, then retry the request
+    uploads: list[ArtifactUpload] = Field(default_factory=list)
 
 
 class DeleteDbRequest(BaseModel):
@@ -121,34 +199,6 @@ class StopDbRequest(BaseModel):
     db: str
 
 
-class BuildImageRequest(BaseModel):
-    operation_type: Literal[ManagementOperationType.BUILD_IMAGE] = ManagementOperationType.BUILD_IMAGE
-    org: str | None = None
-    db: str
-    archive_key: str
-    # ProjectFingerprint.image_digest()
-    image_digest: str
-    python_version: str
-    system_dependencies: list[str] = []
-    # how the build installs the project's packages, and the options it passes to uv sync
-    deps_type: DepsType
-    uv_options: str | None = None
-    # the metadata schema version of the Pixeltable that packaged the archive
-    pxt_md_version: int
-
-
-class SetArchiveRequest(BaseModel):
-    """Point the database's pods at a stored project archive, restarting them to fetch it."""
-
-    operation_type: Literal[ManagementOperationType.SET_ARCHIVE] = ManagementOperationType.SET_ARCHIVE
-    org: str | None = None
-    db: str
-    archive_key: str
-    # what the archive holds and the environment it runs in; GET_DB reports it back, and a diff compares
-    # the project here against it
-    fingerprint: ProjectFingerprint
-
-
 class GetArchiveRequest(BaseModel):
     """Ask for a url serving the database's current project archive; a pod sends this as it starts."""
 
@@ -159,25 +209,8 @@ class GetArchiveRequest(BaseModel):
 
 class GetArchiveResponse(BaseModel):
     presigned_url: str
-    archive_key: str
     # ProjectFingerprint.archive_digest() of the archive the url serves
     digest: str
-
-
-class GetArchiveUploadUrlRequest(BaseModel):
-    operation_type: Literal[ManagementOperationType.GET_ARCHIVE_UPLOAD_URL] = (
-        ManagementOperationType.GET_ARCHIVE_UPLOAD_URL
-    )
-    org: str | None = None
-    db: str
-    # ProjectFingerprint.archive_digest(); the control plane keys the stored archive by it
-    digest: str
-
-
-class GetArchiveUploadUrlResponse(BaseModel):
-    archive_key: str
-    # None when the digest names a stored archive: nothing left to upload
-    presigned_url: str | None = None
 
 
 # Secrets

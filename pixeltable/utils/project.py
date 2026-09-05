@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import enum
 import hashlib
-import io
 import json
 import logging
 import os
@@ -17,12 +16,13 @@ from pathlib import Path
 from typing import Any, Literal
 
 import pydantic
+import toml
 from pathspec import PathSpec
 from tqdm import tqdm
 
 import pixeltable
-from pixeltable import exceptions as excs, metadata
-from pixeltable.config import PROJECT_CONFIG_FILES, DatabaseConfig
+from pixeltable import exceptions as excs
+from pixeltable.config import PROJECT_CONFIG_FILES, PYPROJECT_FILE, DatabaseConfig
 from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
@@ -33,16 +33,7 @@ DepsType = Literal['uv', 'pip', 'none']
 # a project declares its packages in one of these, each installed by the tool it names
 LOCK_FILES: dict[str, DepsType] = {'uv.lock': 'uv', 'requirements.txt': 'pip'}
 
-
-class ProjectPart(enum.StrEnum):
-    """The parts that make up a project's fingerprint."""
-
-    IMAGE = 'image'
-
-    ARCHIVE = 'archive'
-
-    # vars and secrets
-    BINDINGS = 'bindings'
+IMAGE_INPUT_FILES: tuple[str, ...] = (*LOCK_FILES, PYPROJECT_FILE)
 
 
 def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
@@ -200,28 +191,67 @@ def create_project_archive(
             tf.add(f, arcname=f'project/{relpath}')
             bar.update(1)
         bar.set_postfix_str('', refresh=False)
-        _add_build_metadata(tf, project_dir, db_config)
 
     _logger.info(f'Project archive created: {archive_path}')
     return archive_path
 
 
-def _add_build_metadata(tf: tarfile.TarFile, project_dir: Path, db_config: DatabaseConfig | None) -> None:
-    """Add the archive's metadata.json, which tells the image build what environment to create.
+def create_image_context(project_dir: Path | None = None) -> Path:
+    """Return the path to a tarfile containing the manifests needed for an image build."""
+    if project_dir is None:
+        project_dir = Path.cwd()
+    project_dir = project_dir.resolve()
+    files = [project_dir / name for name in IMAGE_INPUT_FILES if (project_dir / name).is_file()]
+    # validate the input files
+    for f in files:
+        if f.name == PYPROJECT_FILE:
+            sources = toml.load(f).get('tool', {}).get('uv', {}).get('sources', {})
+            for name, source in sources.items():
+                if not isinstance(source, dict) or ('path' not in source and 'workspace' not in source):
+                    continue
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'dependency {name!r} is declared as a local source in {f.name}, which cannot be '
+                    'installed in a hosted image; publish it to an index and depend on the published version',
+                )
+            continue
+        if f.name == 'requirements.txt':
+            for line in f.read_text(encoding='utf-8').splitlines():
+                if line.startswith(('-r', '--requirement')):
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_CONFIGURATION,
+                        f'{f.name} includes another requirements file ({line.strip()}), which cannot be '
+                        'installed in a hosted image; write one file naming every dependency',
+                    )
 
-    TODO: remove this, and the tarfile the caller opens for it, once the build reads BuildImageRequest.
-    """
-    fingerprint = project_fingerprint(project_dir, db_config)
-    config = db_config if db_config is not None else DatabaseConfig()
-    payload = {
-        'deps_type': fingerprint.deps_type(),
-        'pxt_md_version': metadata.VERSION,
-        'db_config': config.model_dump(mode='json', exclude_none=True) | {'python_version': fingerprint.python_version},
-    }
-    encoded = json.dumps(payload).encode()
-    info = tarfile.TarInfo(name='metadata.json')
-    info.size = len(encoded)
-    tf.addfile(info, io.BytesIO(encoded))
+    fd, name = tempfile.mkstemp(suffix='.tar', prefix='pxt_image_')
+    os.close(fd)
+    context_path = Path(name)
+    with tarfile.open(context_path, 'w') as tf:
+        for f in files:
+            tf.add(f, arcname=f.name)
+    _logger.info(f'Image context created: {context_path}')
+    return context_path
+
+
+def archive_object_name(org_id: str, archive_digest: str) -> str:
+    """The object name of the project archive with this digest."""
+    return f'archives/{org_id}/{archive_digest}.tar.bz2'
+
+
+def image_object_name(org_id: str, image_digest: str) -> str:
+    """The object name of the image context with this digest."""
+    return f'images/{org_id}/{image_digest}/context.tar'
+
+
+class ProjectPart(enum.StrEnum):
+    """The parts that make up a project's fingerprint."""
+
+    IMAGE = 'image'
+
+    ARCHIVE = 'archive'
+
+    BINDINGS = 'bindings'
 
 
 class ProjectFingerprint(pydantic.BaseModel):
@@ -239,9 +269,8 @@ class ProjectFingerprint(pydantic.BaseModel):
     pixeltable_version: str
     uv_options: str | None = None
 
-    # bindings, never resolved values: a secret names the source of its value
+    # bindings, never resolved values: a var names the source of its value
     vars: dict[str, str]
-    secrets: dict[str, str]
 
     def compare(self, other: ProjectFingerprint, *, own_files_only: bool = False) -> set[ProjectPart]:
         """The parts that differ from other.
@@ -254,29 +283,22 @@ class ProjectFingerprint(pydantic.BaseModel):
         files_differ = len(self._added_or_changed(other)) > 0 if own_files_only else self.files != other.files
         if files_differ:
             parts.add(ProjectPart.ARCHIVE)
-        if (self.vars, self.secrets) != (other.vars, other.secrets):
+        if self.vars != other.vars:
             parts.add(ProjectPart.BINDINGS)
         return parts
 
     def image_digest(self) -> str:
-        """The identity of an image built for this environment.
-
-        Two fingerprints share it exactly when compare() reports no IMAGE difference, so an environment
-        that has been built once is never built again, whichever project declares it.
-        """
+        """The image identity."""
         return _digest(self._image_inputs())
 
     def archive_digest(self) -> str:
-        """The identity of the archive this project's files package into.
-
-        Two fingerprints share it exactly when compare() reports no ARCHIVE difference.
-        """
+        """The archive identity."""
         return _digest(self.files)
 
     def changes(
         self, other: ProjectFingerprint, parts: set[ProjectPart] | None = None, *, own_files_only: bool = False
     ) -> list[str]:
-        """What differs from other in the given parts, one printable line each; every part by default.
+        """What differs from other in the given parts, one printable line each; defaults to every part.
 
         own_files_only compares only the files in this fingerprint and excludes files that exist only in other.
         """
@@ -289,8 +311,8 @@ class ProjectFingerprint(pydantic.BaseModel):
                 lines += [f'{path} removed' for path in sorted(set(other.files) - set(self.files))]
         if ProjectPart.IMAGE in parts:
             if ProjectPart.ARCHIVE not in parts:
-                # make sure to include the lock files
-                lines += _changed_paths(self._lock_files(), other._lock_files())
+                # make sure to include the manifests
+                lines += _changed_paths(self._image_files(), other._image_files())
             for field in ('python_version', 'pixeltable_version'):
                 was, now = getattr(other, field), getattr(self, field)
                 if was != now:
@@ -301,7 +323,6 @@ class ProjectFingerprint(pydantic.BaseModel):
                 lines.append('uv_options changed')
         if ProjectPart.BINDINGS in parts:
             lines += [f'var {name} changed' for name in _changed_keys(self.vars, other.vars)]
-            lines += [f'secret {name} changed' for name in _changed_keys(self.secrets, other.secrets)]
         return lines
 
     def _added_or_changed(self, other: ProjectFingerprint) -> list[str]:
@@ -316,15 +337,15 @@ class ProjectFingerprint(pydantic.BaseModel):
 
     def _image_inputs(self) -> tuple:
         return (
-            self._lock_files(),
+            self._image_files(),
             self.python_version,
             self.system_dependencies,
             self.pixeltable_version,
             self.uv_options,
         )
 
-    def _lock_files(self) -> dict[str, str]:
-        return {path: content_hash for path, content_hash in self.files.items() if path in LOCK_FILES}
+    def _image_files(self) -> dict[str, str]:
+        return {path: content_hash for path, content_hash in self.files.items() if path in IMAGE_INPUT_FILES}
 
 
 def _digest(value: Any) -> str:
@@ -407,5 +428,4 @@ def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConf
         pixeltable_version=pixeltable.__version__,
         uv_options=config.uv_options if config is not None else None,
         vars=(config.vars if config is not None else None) or {},
-        secrets=(config.secrets if config is not None else None) or {},
     )

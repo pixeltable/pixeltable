@@ -249,6 +249,11 @@ class ServiceChangeOp(ChangeOp):
         )
 
 
+# the two artifacts a hosted database is given: the manifests that build its image, and the files its pods
+# serve
+DbArtifact = Literal['image_context', 'archive']
+
+
 # what a DbChangeOp acts on. The two artifacts are separate: 'image' is the environment the pods run on,
 # 'archive' the sources they fetch, and a source edit moves only the second.
 DbTarget = Literal['image', 'archive', 'capacity', 'secret']
@@ -278,7 +283,12 @@ class DbChangeOp(ChangeOp):
     def secret(cls, key: str, op: Literal['add', 'drop']) -> DbChangeOp:
         if op == 'add':
             return cls(
-                target='secret', name=key, op='add', severity='additive', description=f'secret {key!r} will be set'
+                target='secret',
+                name=key,
+                op='add',
+                severity='additive',
+                description=f'secret {key!r} will be set',
+                requires_restart=True,
             )
         return cls(
             target='secret',
@@ -286,6 +296,19 @@ class DbChangeOp(ChangeOp):
             op='drop',
             severity='destructive',
             description=f'secret {key!r} will be deleted, and code reading it will fail',
+            requires_restart=True,
+        )
+
+    @classmethod
+    def stale_secret(cls, key: str) -> DbChangeOp:
+        """The operation for restarting the pods onto a secret's stored value."""
+        return cls(
+            target='secret',
+            name=key,
+            op='alter',
+            severity='additive',
+            description=f'the pods will restart to pick up secret {key!r}',
+            requires_restart=True,
         )
 
     @classmethod

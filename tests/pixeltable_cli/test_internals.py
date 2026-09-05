@@ -31,12 +31,11 @@ import pydantic
 import pytest
 import requests
 
-from pixeltable import exceptions as excs, metadata
-from pixeltable.catalog import Path as PxtPath
+from pixeltable import exceptions as excs
 from pixeltable.config import Config
-from pixeltable.service import db, management_client
+from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
-    CreateDbRequest,
+    DatabaseSpec,
     DeleteDbRequest,
     GetDbRequest,
     ListDbRequest,
@@ -44,6 +43,7 @@ from pixeltable.service.management_protocol import (
     ManagementOperationType,
     StartDbRequest,
     StopDbRequest,
+    UpdateDbRequest,
 )
 from pixeltable.utils import project
 from pixeltable.utils.app_module import (
@@ -53,7 +53,6 @@ from pixeltable.utils.app_module import (
     service_spec,
     services_by_name,
 )
-from pixeltable.utils.project import project_fingerprint
 from pixeltable_cli import utils
 from pixeltable_cli.client import hosted, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import (
@@ -1826,13 +1825,13 @@ class TestHostedCommandRequests:
         assert _forwarded_request(monkeypatch, handler, body=body) == expected
 
     @pytest.mark.parametrize('db', ['main', 'my-db', 'db1', 'video-search', 'a' * 29])
-    def test_create_db_accepts_valid_name(self, db: str) -> None:
-        assert CreateDbRequest(org='acme', db=db).db == db
+    def test_update_db_accepts_valid_name(self, db: str) -> None:
+        assert UpdateDbRequest(org='acme', db=db, spec=DatabaseSpec()).db == db
 
     @pytest.mark.parametrize('db', ['My_DB', 'a_b', 'ACME', 'db-', '-db', 'a' * 30, 'my db', 'my.db', 'main\n', ''])
-    def test_create_db_rejects_invalid_name(self, db: str) -> None:
+    def test_update_db_rejects_invalid_name(self, db: str) -> None:
         with pytest.raises(pydantic.ValidationError):
-            CreateDbRequest(org='acme', db=db)
+            UpdateDbRequest(org='acme', db=db, spec=DatabaseSpec())
 
 
 class TestServiceOtel:
@@ -1860,138 +1859,6 @@ def _declared_spec(app_file: str, name: str) -> Any:
     """The spec of one of a file's services, as a manager computes it before starting the service."""
     module = load_app_module(app_file, subject='application file')
     return service_spec(name, services_by_name(module, app_file)[name], module_routers(module))
-
-
-class TestHostedDatabase:
-    """The order `pxt db update` sends its requests in, and what the image build is told.
-
-    Everything else `pxt db` does is covered end to end in test_db.py, against a hosted database. These two
-    are what the CLI's output cannot show: a plan lists its operations in the order they were planned, not
-    the order they were applied, and no command prints the request an image build was started with.
-    """
-
-    @pytest.fixture
-    def api(self, monkeypatch: pytest.MonkeyPatch) -> Any:
-        """A management API holding one database and its secrets, recording every request it is sent."""
-
-        class Api:
-            database: dict[str, Any] | None
-            secrets: dict[str, str]
-            sent: list[Any]
-
-            def __init__(self) -> None:
-                self.database = {
-                    'state': 'AVAILABLE',
-                    'cpu': 0.5,
-                    'memory_mb': 512,
-                    'disk_gb': 10,
-                    'worker_count': 1,
-                    'workers': [],
-                }
-                self.secrets = {}
-                self.sent = []
-
-            def __call__(self, request: Any) -> dict[str, Any]:
-                self.sent.append(request)
-                op = request.operation_type.value
-                if op == 'list_dbs':
-                    return {'databases': [] if self.database is None else [{'db_slug': 'main'}]}
-                if op == 'get_db':
-                    if self.database is None:
-                        raise excs.ExternalServiceError(
-                            excs.ErrorCode.PROVIDER_ERROR, 'Management API error 404', status_code=404
-                        )
-                    return {'database': self.database}
-                if op == 'list_secrets':
-                    return {'keys': sorted(self.secrets)}
-                if op == 'set_secret':
-                    self.secrets[request.key] = request.value
-                elif op == 'delete_secret':
-                    del self.secrets[request.key]
-                elif op in ('build_image', 'set_archive'):
-                    pass
-                elif op == 'create_db':
-                    self.database = {
-                        'state': 'AVAILABLE',
-                        'cpu': request.cpu,
-                        'memory_mb': request.memory_mb,
-                        'worker_count': request.workers,
-                    }
-                elif op == 'update_db':
-                    assert self.database is not None
-                    for field in ('cpu', 'memory_mb', 'disk_gb'):
-                        if getattr(request, field) is not None:
-                            self.database[field] = getattr(request, field)
-                return {}
-
-        api = Api()
-        monkeypatch.setattr(management_client, 'api_call', api)
-        return api
-
-    @pytest.fixture
-    def uploaded(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
-        """Records the key of each stored archive, in place of packaging and uploading one."""
-        keys: list[str] = []
-
-        def upload(config: Any, db_path: PxtPath, *, show_progress: bool = False) -> str:
-            keys.append(f'{db_path.org}/{db_path.db}/project.tar.bz2')
-            return keys[-1]
-
-        monkeypatch.setattr(db, '_upload_project_archive', upload)
-        return keys
-
-    def _project(self, tmp_path: pathlib.Path, entry: str) -> None:
-        """Declare one hosted database in a project at tmp_path, and make it this process's project."""
-        (tmp_path / 'app.py').write_text('import pixeltable as pxt\n')
-        (tmp_path / 'uv.lock').write_text('version = 1\n')
-        (tmp_path / 'pixeltable.toml').write_text(f'[[pixeltable.database]]\nname = "pxt://acme:main"\n{entry}')
-        Config.init(reinit=True, project_root=tmp_path)
-
-    def _fingerprint(self, tmp_path: pathlib.Path) -> dict[str, Any]:
-        """The project's fingerprint, in the form GET_DB reports it."""
-        entry = Config.get().get_database_config(PxtPath.parse('pxt://acme:main', allow_empty_path=True))
-        return project_fingerprint(tmp_path, entry).model_dump()
-
-    def test_update_order(
-        self, api: Any, uploaded: list[str], tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv('OPENAI_API_KEY', 'sk-test')
-        self._project(
-            tmp_path,
-            'cpu = 2.0\nsystem_dependencies = ["ffmpeg"]\n'
-            '[pixeltable.database.secrets]\nopenai_api_key = "env:OPENAI_API_KEY"\n',
-        )
-        api.database['fingerprint'] = self._fingerprint(tmp_path)
-        (tmp_path / 'app.py').write_text('import pixeltable as pxt  # edited\n')
-
-        plan = db.db_update('pxt://acme:main')
-        # only the archive moved, so the image is not rebuilt
-        assert [r.operation_type.value for r in api.sent if r.operation_type.value not in ('get_db', 'list_dbs')] == [
-            'list_secrets',
-            'set_secret',
-            'set_archive',
-            'update_db',
-        ]
-        assert api.secrets == {'openai_api_key': 'sk-test'}
-        # one archive serves both artifacts, so it is stored once
-        assert uploaded == ['acme/main/project.tar.bz2']
-        assert api.database['cpu'] == 2.0
-        assert all(op.status == 'applied' for op in plan.ops)
-        assert plan.status == 'applied'
-
-    def test_update_image(self, api: Any, uploaded: list[str], tmp_path: pathlib.Path) -> None:
-        """The build request describes the environment the builder creates."""
-        self._project(tmp_path, 'system_dependencies = ["ffmpeg"]\n')
-        (tmp_path / 'uv.lock').write_text('version = 2\n')
-
-        db.db_update('pxt://acme:main')
-        build = next(r for r in api.sent if r.operation_type.value == 'build_image')
-        entry = Config.get().get_database_config(PxtPath.parse('pxt://acme:main', allow_empty_path=True))
-        assert build.archive_key == 'acme/main/project.tar.bz2'
-        assert build.system_dependencies == ['ffmpeg']
-        assert build.python_version == project_fingerprint(tmp_path, entry).python_version
-        assert build.image_digest == project_fingerprint(tmp_path, entry).image_digest()
-        assert build.pxt_md_version == metadata.VERSION
 
 
 class TestHostedUriHelpers:
@@ -2064,9 +1931,11 @@ class TestHostedUriHelpers:
         assert 'acme' in out and 'id=o1' in out and 'default_db=main' in out
 
     def test_print_db(self, capsys: pytest.CaptureFixture) -> None:
-        hosted.print_db({'db': 'main', 'state': 'AVAILABLE', 'location': 'aws', 'region': 'us-east-1'})
+        state = {'state': 'AVAILABLE', 'location': 'aws/us-east-1', 'services_hostname': 'acme-main.example'}
+        hosted.print_db({'db': 'main', 'status': state})
         out = capsys.readouterr().out
         assert 'main' in out and 'state=AVAILABLE' in out and 'aws/us-east-1' in out
+        assert 'acme-main.example' in out
 
     def test_print_service_prints_routes(self, capsys: pytest.CaptureFixture) -> None:
         hosted.print_service(
@@ -2238,7 +2107,7 @@ class TestManagementClient:
         # a mutating operation is never sent again: the management API may have applied it already
         session = self._install_session(monkeypatch, 1, {'database': {}})
         with pytest.raises(requests.exceptions.ConnectionError, match='RemoteDisconnected'):
-            management_client.api_call(CreateDbRequest(org='acme', db='main'))
+            management_client.api_call(DeleteDbRequest(org='acme', db='main'))
         assert session.n_calls == 1
 
     def test_read_ops_known(self) -> None:

@@ -13,7 +13,7 @@ import pytest
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config, DatabaseConfig
-from pixeltable.utils.project import create_project_archive
+from pixeltable.utils.project import create_image_context, create_project_archive
 
 from ..utils import pxt_raises
 
@@ -25,7 +25,7 @@ def local_entry() -> DatabaseConfig | None:
 
 class TestProjectArchive:
     def test_layout(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Every project file is packaged under project/, alongside the build's metadata.json."""
+        """Every project file is packaged under project/, and nothing else is."""
         monkeypatch.chdir(tmp_path)
         Config.init(reinit=True)
 
@@ -37,7 +37,7 @@ class TestProjectArchive:
         archive_path = create_project_archive(tmp_path)
 
         with tarfile.open(archive_path, 'r:bz2') as tar:
-            assert sorted(tar.getnames()) == ['metadata.json', 'project/subdir/helper.py', 'project/udfs.py']
+            assert sorted(tar.getnames()) == ['project/subdir/helper.py', 'project/udfs.py']
             with tar.extractfile(tar.getmember('project/udfs.py')) as f:
                 assert f.read().decode() == 'import pixeltable as pxt\n'
 
@@ -156,3 +156,32 @@ class TestProjectArchive:
         monkeypatch.chdir(tmp_path)
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid `DatabaseConfig`'):
             Config.init(reinit=True)
+
+
+class TestImageContext:
+    def test_layout(self, tmp_path: Path) -> None:
+        """The context holds the manifests an install reads, at its root, and none of the project's source."""
+        (tmp_path / 'app.py').write_text('import pixeltable as pxt\n')
+        (tmp_path / 'uv.lock').write_text('version = 1\n')
+        (tmp_path / 'pyproject.toml').write_text('[project]\nname = "app"\n')
+
+        with tarfile.open(create_image_context(tmp_path)) as tar:
+            assert sorted(tar.getnames()) == ['pyproject.toml', 'uv.lock']
+
+    def test_no_manifests(self, tmp_path: Path) -> None:
+        """A project declaring no dependencies still produces a context, so a build always has one input."""
+        (tmp_path / 'app.py').write_text('import pixeltable as pxt\n')
+
+        with tarfile.open(create_image_context(tmp_path)) as tar:
+            assert tar.getnames() == []
+
+    def test_refuses_external_manifests(self, tmp_path: Path) -> None:
+        """Refuse a manifest that names another file, which the context does not hold."""
+        (tmp_path / 'pyproject.toml').write_text('[tool.uv.sources]\nhelper = { path = "../helper" }\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match="dependency 'helper' is declared as a local"):
+            create_image_context(tmp_path)
+
+        (tmp_path / 'pyproject.toml').unlink()
+        (tmp_path / 'requirements.txt').write_text('-r base.txt\npixeltable\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='includes another requirements file'):
+            create_image_context(tmp_path)
