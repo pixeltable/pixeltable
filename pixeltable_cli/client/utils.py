@@ -477,6 +477,11 @@ def stdin_is_a_tty() -> bool:
     return bool(ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode)))
 
 
+def plural(n: int, noun: str) -> str:
+    """Count and noun, with an s on the noun for every count but one."""
+    return f'{n} {noun}' if n == 1 else f'{n} {noun}s'
+
+
 def confirm_or_exit(
     prompt: str, force: bool, *, refused_exit_code: int = 2, on_refusal: Callable[[], None] | None = None
 ) -> None:

@@ -6,7 +6,7 @@ from pixeltable.utils.app_module import check_report, check_udf_references, get_
 from pixeltable_cli.types import CheckReport, SchemaChangeOp, SchemaPlan, TableDiff
 from pixeltable_cli.utils import PxtPath
 
-from .declaration import TableModelMeta
+from .definition import TableModelMeta
 from .diff import PY_DESTRUCTIVE_HINT
 
 _DESTRUCTIVE_HINT = "Re-run 'pxt schema update' with --allow-destructive to apply these changes."
@@ -131,14 +131,14 @@ def _schema_plan(diffs: list[TableDiff], app_file: str, catalog_dir: PxtPath) ->
     tables = [d.model_copy(update={'ops': []}) if d.resolution in ('create', 'up_to_date') else d for d in diffs]
 
     # a table's path crosses from the catalog as a plain string
-    declared = {_path_key(PxtPath(d.path)) for d in tables}
+    defined = {_path_key(PxtPath(d.path)) for d in tables}
     return SchemaPlan(
         app_file=app_file,
         catalog_dir=catalog_dir,
         tables=tables,
         # extras are excluded from in_agreement: update() never removes them, so their presence is not
         # something it could reconcile
-        extras=sorted(p for p in _list_tables(catalog_dir) if _path_key(p) not in declared),
+        extras=sorted(p for p in _list_tables(catalog_dir) if _path_key(p) not in defined),
     )
 
 

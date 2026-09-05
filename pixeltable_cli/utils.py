@@ -47,10 +47,13 @@ def get_port() -> int:
         raise RuntimeError(f'PXT_PORT must be an integer port; got {raw!r}') from None
 
 
-def pidfile_path() -> str:
-    """Per-port pidfile path. The port parameterization isolates daemons running on
-    different ports so they don't read or stomp each other's PID."""
-    return os.path.join(_resolve_pixeltable_home(), f'pxt-daemon-{get_port()}.pid')
+def pidfile_path(port: int | None = None) -> str:
+    """Pidfile path for a daemon on port, or on the one PXT_PORT names.
+
+    The port parameterization isolates daemons running on different ports so they don't read or stomp each
+    other's PID.
+    """
+    return os.path.join(_resolve_pixeltable_home(), f'pxt-daemon-{port if port is not None else get_port()}.pid')
 
 
 class PxtUriParts(NamedTuple):

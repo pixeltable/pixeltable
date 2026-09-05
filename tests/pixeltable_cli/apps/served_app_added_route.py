@@ -1,8 +1,4 @@
-"""served_app.py with one more route, so that a diff reports an addition.
-
-`pxt schema update` creates what the model declares; `pxt service update` serves this application as it is,
-so its handlers reach the tables through the Pixeltable API like any other program.
-"""
+"""served_app.py with one more route, so that a diff reports an addition."""
 
 # ruff: noqa: F821  # a model body refers to its own columns by bare name
 

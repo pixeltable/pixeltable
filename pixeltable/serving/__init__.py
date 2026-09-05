@@ -10,9 +10,9 @@ from .service_instance import ServiceInstance, ServiceInstanceRecord, ServiceIns
 
 _NO_FASTAPI_MSG = "pixeltable.serving.FastAPIRouter requires fastapi; install it with `pip install 'pixeltable[serve]'`"
 
-# the methods an application file calls to declare its routes; mirrored by the stub below, and checked
+# the methods an application file calls to define its routes; mirrored by the stub below, and checked
 # against the real router by tests/serving/test_stub_router.py
-ROUTE_DECLARATION_METHODS = (
+ROUTE_DEFINITION_METHODS = (
     'add_compute_route',
     'add_delete_route',
     'add_insert_route',
@@ -30,8 +30,8 @@ except ImportError:
     class FastAPIRouter:  # type: ignore[no-redef]
         """Stand-in for the router when fastapi is not installed.
 
-        An application file declares its routes when it is imported, and importing that file is how schema
-        operations reach the models it declares, so declaring a route succeeds here and records nothing.
+        An application file defines its routes when it is imported, and importing that file is how schema
+        operations reach the models it defines, so defining a route succeeds here and records nothing.
         Serving needs fastapi, so everything else reports that it is missing.
         """
 
@@ -43,19 +43,19 @@ except ImportError:
             self.prefix = prefix
 
         def __getattr__(self, attr_name: str) -> Any:
-            if attr_name not in ROUTE_DECLARATION_METHODS:
+            if attr_name not in ROUTE_DEFINITION_METHODS:
                 raise ImportError(_NO_FASTAPI_MSG)
 
-            def declare(*args: Any, **kwargs: Any) -> Any:
+            def define(*args: Any, **kwargs: Any) -> Any:
                 # the decorator forms return the decorated function unchanged; the add_*_route forms ignore
                 # what they get back
                 return lambda fn: fn
 
-            return declare
+            return define
 
 
 __all__ = [
-    'ROUTE_DECLARATION_METHODS',
+    'ROUTE_DEFINITION_METHODS',
     'FastAPIRouter',
     'ServiceInstance',
     'ServiceInstanceRecord',

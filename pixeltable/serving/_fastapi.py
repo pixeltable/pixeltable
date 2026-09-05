@@ -53,12 +53,11 @@ from pixeltable.utils.http import fetch_url
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable_cli.types import RouteSpec, ServiceSpec
 
-# The columns a route declaration names, given either as names or as references.
+# The columns of a route definition, given either as names or as references.
 # TODO: make this work for TableModels. A model's column attribute is a ColumnRefByName at runtime, but a type checker
-# sees the column's declared value type, so a model-declared route does not satisfy this annotation yet.
+# sees the column's declared value type, so a model-defined route does not satisfy this annotation yet.
 ColumnsParam = Union[list[str], list[exprs.ColumnRef], list[exprs.ColumnRefByName]]
 
-# A route's target table, either directly or as the model that declares it.
 RouteTarget = Union[pxt.Table, model.TableModelMeta]
 
 
@@ -70,14 +69,14 @@ def _path_kind(path: catalog.TablePath) -> str:
 
 
 def _col_names(cols: ColumnsParam | None) -> list[str] | None:
-    """The names of the columns a route declaration lists."""
+    """The names of the columns a route definition lists."""
     if cols is None:
         return None
     return [_col_name(c) for c in cols]
 
 
 def _col_name(col: str | exprs.ColumnRef | exprs.ColumnRefByName) -> str:
-    """The name a column argument denotes, whether or not the model that declares it has been bound."""
+    """The column name of a column argument."""
     if isinstance(col, str):
         return col
     if isinstance(col, exprs.ColumnRefByName):
@@ -130,7 +129,7 @@ _N_BACKGROUND_WORKERS = 16
 
 @dataclasses.dataclass(frozen=True)
 class _RegisteredRoute:
-    """A route as it is registered on a router: the specification it declares, plus what that names.
+    """A route as it is registered on a router: the specification it defines, plus what that names.
 
     A specification names what the route operates on (a model's table name, or a catalog path); the objects
     those names resolve to live here.
@@ -143,12 +142,12 @@ class _RegisteredRoute:
     # the route as it reads in a diff, eg 'POST /v1/ingest': the method and the path the router serves it at
     display_name: str
 
-    # what the declaration names: at most one of these is set, and a query route sets model_cls only if its
+    # what the definition names: at most one of these is set, and a query route sets model_cls only if its
     # query is written against a model
     tbl: pxt.Table | None
     model_cls: model.TableModelMeta | None
 
-    # the declared shape of the table the route operates on; None for a query route written against tables
+    # the defined shape of the table the route operates on; None for a query route written against tables
     table_path: catalog.TablePath | None
 
     # query routes only: the columns the route's query references
@@ -161,7 +160,7 @@ class _RegisteredRoute:
 
     @property
     def needs_binding(self) -> bool:
-        """Whether the route is declared against a model rather than against the table(s) it serves."""
+        """Whether the route is defined against a model rather than against the table(s) it serves."""
         return self.model_cls is not None
 
 
@@ -415,12 +414,12 @@ class FastAPIRouter(fastapi.APIRouter):
     _allowed_media_dirs: list[Path]
     _engine_cache: dict[str, sql.Engine]  # keyed by SqlExport.db_connect; shared across routes
     _base_path: str | None  # the path the router was bound at; None until bind() runs
-    _name: str | None  # the service name this router declares; None if it was not given one
+    _name: str | None  # the service name; None if no name was provided
 
     _routes: list[_RegisteredRoute]
 
-    # the table each route serves, keyed by route_id; a route declared against a Table is resolved as soon
-    # as it is declared, one declared against a model when the router is bound
+    # the table each route serves, keyed by route_id; a route defined against a Table is resolved as soon
+    # as it is defined, one defined against a model when the router is bound
     _route_bindings: dict[int, tuple[pxt.Table, int]]
 
     # the executable query each query route runs, keyed by route_id, and the queries still waiting to be
@@ -487,7 +486,7 @@ class FastAPIRouter(fastapi.APIRouter):
             raise excs.RequestError(excs.ErrorCode.SCHEMA_MISMATCH, reason)
 
     def service_spec(self, name: str | None = None) -> ServiceSpec:
-        """The service this router declares, as a record that can be serialized, stored and compared.
+        """The service this router defines, as a record that can be serialized, stored and compared.
 
         Args:
             name: The service name to record, for a router that was not constructed with one.
@@ -508,10 +507,10 @@ class FastAPIRouter(fastapi.APIRouter):
         )
 
     def bind(self, base_path: str = '') -> None:
-        """Resolve every route declared against a model to the table it names under `base_path`.
+        """Resolve every route defined against a model to the table it names under `base_path`.
 
-        A router that declares any of its routes against a model cannot serve until it is bound to an actual table.
-        Routes declared against a `Table` are already resolved and are left alone.
+        A router that defines any of its routes against a model cannot serve until it is bound to an actual table.
+        Routes defined against a `Table` are already resolved and are left alone.
 
         Raises if a table a model names is missing, or if it no longer matches the model that names it.
 
@@ -547,7 +546,7 @@ class FastAPIRouter(fastapi.APIRouter):
         method: Literal['GET', 'POST'],
         path: str,
         route_type: Literal['insert', 'update', 'delete', 'compute', 'query'],
-        declared_path: catalog.TablePath | None,
+        defined_path: catalog.TablePath | None,
         inputs: Sequence[str] = (),
         outputs: Sequence[str] = (),
         match_columns: Sequence[str] = (),
@@ -576,7 +575,6 @@ class FastAPIRouter(fastapi.APIRouter):
         tbl = None if is_model else cast(pxt.Table | None, target)
         spec = RouteSpec(
             method=method,
-            # the path the route declares, which the router serves at its prefix
             path=path,
             route_type=route_type,
             model=None if model_cls is None else model_cls.__table_spec__['name'],
@@ -597,7 +595,7 @@ class FastAPIRouter(fastapi.APIRouter):
             display_name=f'{method} {self.prefix}{path}',
             tbl=tbl,
             model_cls=model_cls,
-            table_path=declared_path,
+            table_path=defined_path,
             query_cols=tuple(query_cols),
         )
         self._routes.append(route)
@@ -617,7 +615,7 @@ class FastAPIRouter(fastapi.APIRouter):
         return HTTPException(
             status_code=503,
             detail=(
-                f'route {route.display_name!r} is declared against model `{route.model_cls.__name__}`, '
+                f'route {route.display_name!r} is defined against model `{route.model_cls.__name__}`, '
                 'and this router has not been bound; call bind() before serving requests'
             ),
         )
@@ -662,7 +660,7 @@ class FastAPIRouter(fastapi.APIRouter):
         if len(unbound) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.NOT_BOUND,
-                'This router declares routes against models that are not bound to tables: '
+                'This router defines routes against models that are not bound to tables: '
                 f'{", ".join(repr(name) for name in unbound)}.\nCall bind() before serving.',
             )
 
@@ -737,7 +735,7 @@ class FastAPIRouter(fastapi.APIRouter):
           is a JSON array (empty when a filter drops the input row)
 
         Args:
-            t: The table or view over which to compute rows, or the model that declares it.
+            t: The table or view over which to compute rows, or the model that defines it.
             path: The URL path for the endpoint.
             inputs: Columns to accept as request fields. Defaults to all non-computed columns
                 (of the base table, if `t` is a view).
@@ -865,7 +863,7 @@ class FastAPIRouter(fastapi.APIRouter):
         when `return_fileresponse=True`.
 
         Args:
-            t: The table to insert into, or the model that declares it.
+            t: The table to insert into, or the model that defines it.
             path: The URL path for the endpoint.
             inputs: Columns to accept as request fields. Defaults to all non-computed columns.
             uploadfile_inputs: Columns to accept as
@@ -987,7 +985,7 @@ class FastAPIRouter(fastapi.APIRouter):
     ) -> None:
         """Shared implementation of add_insert_route()/add_compute_route()."""
         error_prefix = f'add_{route_type}_route()'
-        declared_path = _route_table_path(target)
+        defined_path = _route_table_path(target)
         _, input_col_names, output_col_names, cols_by_name = self._validate_dml_args(
             target,
             inputs=inputs,
@@ -1014,7 +1012,7 @@ class FastAPIRouter(fastapi.APIRouter):
         output_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
 
         # a compute route for a view whose path contains an iterator can produce multiple rows
-        array_response = route_type == 'compute' and not return_fileresponse and declared_path.has_iterator()
+        array_response = route_type == 'compute' and not return_fileresponse and defined_path.has_iterator()
 
         def rows_processor(rows: Sequence[Mapping[str, Any]], url_for_media: Callable[[str], str]) -> Any:
             if return_fileresponse or route_type == 'insert':
@@ -1102,7 +1100,7 @@ class FastAPIRouter(fastapi.APIRouter):
         URL strings -- annotate them as `str` (or `str | None` if the column is nullable).
 
         Args:
-            t: The table or view over which to compute rows, or the model that declares it.
+            t: The table or view over which to compute rows, or the model that defines it.
             path: The URL path for the endpoint.
             inputs: Columns to accept as request fields. Defaults to all non-computed columns
                 (of the base table, if `t` is a view).
@@ -1210,7 +1208,7 @@ class FastAPIRouter(fastapi.APIRouter):
         `pxt.Image` / `pxt.Video` / etc.
 
         Args:
-            t: The table to insert into, or the model that declares it.
+            t: The table to insert into, or the model that defines it.
             path: The URL path for the endpoint.
             inputs: Columns to accept as request fields. Defaults to all non-computed columns.
             uploadfile_inputs: Columns to accept as
@@ -1298,7 +1296,7 @@ class FastAPIRouter(fastapi.APIRouter):
     ) -> Callable[[Callable[..., pydantic.BaseModel]], Callable[..., pydantic.BaseModel]]:
         """Shared implementation of insert_route()/compute_route()."""
         error_prefix = f'{route_type}_route()'
-        declared_path = _route_table_path(target)
+        defined_path = _route_table_path(target)
         _, input_col_names, output_col_names, cols_by_name = self._validate_dml_args(
             target,
             inputs=inputs,
@@ -1320,7 +1318,7 @@ class FastAPIRouter(fastapi.APIRouter):
             )
             batch_param_name: str | None = None
             if batch_row_model is not None:
-                if not declared_path.has_iterator():
+                if not defined_path.has_iterator():
                     raise pxt.RequestError(
                         pxt.ErrorCode.UNSUPPORTED_OPERATION,
                         f'{error_prefix}: the batch form (a single list[M] parameter) requires a view whose path '
@@ -1406,7 +1404,7 @@ class FastAPIRouter(fastapi.APIRouter):
         and from the default input set.
 
         Args:
-            t: The table to update, or the model that declares it.
+            t: The table to update, or the model that defines it.
             path: The URL path for the endpoint.
             inputs: Columns to accept as request fields, excluding primary key and media-typed
                 columns (which cannot be updated). Defaults to all non-computed, non-primary-key,
@@ -1564,7 +1562,7 @@ class FastAPIRouter(fastapi.APIRouter):
         identification.
 
         Args:
-            t: The table to update, or the model that declares it.
+            t: The table to update, or the model that defines it.
             path: The URL path for the endpoint.
             inputs: Columns to accept as update fields. Defaults to all non-computed, non-primary-key,
                 non-media columns.
@@ -1703,7 +1701,7 @@ class FastAPIRouter(fastapi.APIRouter):
         where each match column equals the provided value, and returns the number of rows affected.
 
         Args:
-            t: The table to delete from, or the model that declares it.
+            t: The table to delete from, or the model that defines it.
             path: The URL path for the endpoint.
             match_columns: Columns to match on (AND-ed equality). Defaults to the table's primary key.
                 Must be non-empty.
@@ -1721,12 +1719,12 @@ class FastAPIRouter(fastapi.APIRouter):
             ```
         """
         target = t
-        declared_path = _route_table_path(target)
-        kind = _path_kind(declared_path)
+        defined_path = _route_table_path(target)
+        kind = _path_kind(defined_path)
         if kind != 'table':
             raise pxt.RequestError(
                 pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                f'add_delete_route(): cannot delete from {kind} {declared_path.tbl_name()!r}',
+                f'add_delete_route(): cannot delete from {kind} {defined_path.tbl_name()!r}',
             )
 
         # a new name, not a reassignment: the endpoint below closes over it, and a closure sees a parameter's
@@ -1735,7 +1733,7 @@ class FastAPIRouter(fastapi.APIRouter):
         if match_col_names is not None:
             match_col_names = [fold_identifier(name) for name in match_col_names]
         if match_col_names is None:
-            pk = [c.name for c in declared_path.column_md() if c.is_pk and c.name is not None]
+            pk = [c.name for c in defined_path.column_md() if c.is_pk and c.name is not None]
             if not pk:
                 raise pxt.RequestError(
                     pxt.ErrorCode.UNSUPPORTED_OPERATION,
@@ -1746,7 +1744,7 @@ class FastAPIRouter(fastapi.APIRouter):
             raise pxt.RequestError(
                 pxt.ErrorCode.MISSING_REQUIRED, 'add_delete_route(): `match_columns` must be non-empty'
             )
-        cols_by_name = {col.name: col for col in declared_path.column_md() if col.name is not None}
+        cols_by_name = {col.name: col for col in defined_path.column_md() if col.name is not None}
         for name in match_col_names:
             if name not in cols_by_name:
                 raise pxt.NotFoundError(pxt.ErrorCode.COLUMN_NOT_FOUND, f'add_delete_route(): unknown column {name!r}')
@@ -1758,7 +1756,7 @@ class FastAPIRouter(fastapi.APIRouter):
             method='POST',
             path=path,
             route_type='delete',
-            declared_path=declared_path,
+            defined_path=defined_path,
             match_columns=match_col_names,
             background=background,
         )
@@ -1779,7 +1777,7 @@ class FastAPIRouter(fastapi.APIRouter):
             return DeleteResponse(num_rows=status.num_rows)
 
         # use the metadata path (works for both local and hosted tables); skip system columns (name is None)
-        cols_by_name = {col.name: col for col in declared_path.column_md() if col.name is not None}
+        cols_by_name = {col.name: col for col in defined_path.column_md() if col.name is not None}
         match_cols = [cols_by_name[name] for name in match_col_names]
         sig = self._create_endpoint_signature(input_cols=match_cols)
         endpoint = PxtEndpoint(
@@ -1906,7 +1904,7 @@ class FastAPIRouter(fastapi.APIRouter):
             input_item_str='parameter',
             output_item_str='column',
         )
-        # restrict the schema to validated inputs so the endpoint only accepts the declared parameters
+        # restrict the schema to validated inputs so the endpoint only accepts the defined parameters
         input_schema = {name: query_schema[name] for name in input_param_names}
         # extract Python-level defaults so they appear in the endpoint signature and OpenAPI spec
         input_defaults = {
@@ -1954,7 +1952,7 @@ class FastAPIRouter(fastapi.APIRouter):
             method='GET' if method == 'get' else 'POST',
             path=path,
             route_type='query',
-            declared_path=None if declared_query is None else declared_query._from_clause.tbls[0],
+            defined_path=None if declared_query is None else declared_query._from_clause.tbls[0],
             inputs=list(input_schema.keys()),
             outputs=list(result_schema.keys()),
             uploadfile_inputs=uploadfile_inputs,
@@ -2096,13 +2094,13 @@ class FastAPIRouter(fastapi.APIRouter):
         and produces the response body. For insert routes, pk_col_names must be []; for update routes,
         uploadfile_inputs must be [].
         """
-        declared_path = _route_table_path(target)
+        defined_path = _route_table_path(target)
         route = self._register_route(
             target,
             method='POST',
             path=path,
             route_type=route_type,
-            declared_path=declared_path,
+            defined_path=defined_path,
             inputs=pk_col_names + input_col_names,
             outputs=output_col_names,
             uploadfile_inputs=uploadfile_inputs,
@@ -2112,11 +2110,11 @@ class FastAPIRouter(fastapi.APIRouter):
         )
 
         # use the metadata path (works for both local and hosted tables); skip system columns (name is None)
-        cols_by_name = {col.name: col for col in declared_path.column_md() if col.name is not None}
+        cols_by_name = {col.name: col for col in defined_path.column_md() if col.name is not None}
         pk_cols = [cols_by_name[name] for name in pk_col_names]
         # compute-route inputs conform to the insertable base's schema (see _validate_dml_args)
         input_cols_by_name = (
-            {col.name: col for col in declared_path.root.column_md() if col.name is not None}
+            {col.name: col for col in defined_path.root.column_md() if col.name is not None}
             if route_type == 'compute'
             else cols_by_name
         )
@@ -2173,7 +2171,7 @@ class FastAPIRouter(fastapi.APIRouter):
             if p.name not in output_col_names:
                 raise pxt.RequestError(
                     pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{error_prefix}: {fn_name!r} parameter {p.name!r} is not in the declared outputs '
+                    f'{error_prefix}: {fn_name!r} parameter {p.name!r} is not in the defined outputs '
                     f'{output_col_names}',
                 )
 
@@ -2195,7 +2193,7 @@ class FastAPIRouter(fastapi.APIRouter):
         if missing:
             raise pxt.RequestError(
                 pxt.ErrorCode.MISSING_REQUIRED,
-                f'{error_prefix}: {fn_name!r} is missing parameters for outputs {missing}; every declared '
+                f'{error_prefix}: {fn_name!r} is missing parameters for outputs {missing}; every defined '
                 'output must appear as a keyword-only parameter',
             )
 
@@ -2203,7 +2201,7 @@ class FastAPIRouter(fastapi.APIRouter):
 
     def _batch_row_model(self, user_fn: Callable, *, error_prefix: str) -> type[pydantic.BaseModel] | None:
         """The row model M if user_fn has the batch form (a single parameter annotated list[M], with M a pydantic
-        model), otherwise None. Detection only: it does not check M's fields against the declared outputs.
+        model), otherwise None. Detection only: it does not check M's fields against the defined outputs.
         """
         sig = inspect.signature(user_fn)
         params = list(sig.parameters.values())
@@ -2234,7 +2232,7 @@ class FastAPIRouter(fastapi.APIRouter):
         """Validate the batch form of a compute_route() function and return (parameter name, response model).
 
         The sole parameter's name must not collide with an output column, and row_model's fields must cover the
-        declared outputs with compatible types.
+        defined outputs with compatible types.
         """
         sig = inspect.signature(user_fn)
         fn_name = getattr(user_fn, '__name__', repr(user_fn))
@@ -2253,7 +2251,7 @@ class FastAPIRouter(fastapi.APIRouter):
             if field_name not in output_schema:
                 raise pxt.RequestError(
                     pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{error_prefix}: {fn_name!r} row model field {field_name!r} is not in the declared outputs '
+                    f'{error_prefix}: {fn_name!r} row model field {field_name!r} is not in the defined outputs '
                     f'{list(output_schema.keys())}',
                 )
             if field.annotation is None:
@@ -2271,7 +2269,7 @@ class FastAPIRouter(fastapi.APIRouter):
         if missing:
             raise pxt.RequestError(
                 pxt.ErrorCode.MISSING_REQUIRED,
-                f'{error_prefix}: {fn_name!r} row model is missing fields for outputs {missing}; every declared '
+                f'{error_prefix}: {fn_name!r} row model is missing fields for outputs {missing}; every defined '
                 'output must appear as a row model field',
             )
 
@@ -2302,27 +2300,26 @@ class FastAPIRouter(fastapi.APIRouter):
         uploadfile_inputs = None if uploadfile_inputs is None else [fold_identifier(name) for name in uploadfile_inputs]
         outputs = None if outputs is None else [fold_identifier(name) for name in outputs]
 
-        declared_path = _route_table_path(target)
+        defined_path = _route_table_path(target)
         verb = 'insert into' if route_type == 'insert' else route_type
-        kind = _path_kind(declared_path)
+        kind = _path_kind(defined_path)
         allowed_kinds = ('table', 'view') if route_type == 'compute' else ('table',)
         if kind not in allowed_kinds:
             raise pxt.RequestError(
-                pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                f'{error_prefix}: cannot {verb} {kind} {declared_path.tbl_name()!r}',
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: cannot {verb} {kind} {defined_path.tbl_name()!r}'
             )
         if route_type == 'compute':
             # mirrors the restrictions of Table.compute()
-            if declared_path.has_snapshot():
+            if defined_path.has_snapshot():
                 raise pxt.RequestError(
                     pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{error_prefix}: cannot compute view {declared_path.tbl_name()!r}: '
+                    f'{error_prefix}: cannot compute view {defined_path.tbl_name()!r}: '
                     'its base hierarchy contains a snapshot',
                 )
-            if declared_path.has_sample_clause():
+            if defined_path.has_sample_clause():
                 raise pxt.RequestError(
                     pxt.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{error_prefix}: cannot compute view {declared_path.tbl_name()!r}: '
+                    f'{error_prefix}: cannot compute view {defined_path.tbl_name()!r}: '
                     'it is defined with a sample clause',
                 )
         if return_fileresponse and background:
@@ -2332,13 +2329,13 @@ class FastAPIRouter(fastapi.APIRouter):
             )
 
         # skip system columns (name is None)
-        cols_by_name = {col.name: col for col in declared_path.column_md() if col.name is not None}
+        cols_by_name = {col.name: col for col in defined_path.column_md() if col.name is not None}
         pk_col_names = [name for name, c in cols_by_name.items() if c.is_pk]
         if route_type == 'update' and not pk_col_names:
             raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: table has no primary key')
         # compute() takes rows conforming to the insertable base table's schema, instead of the view schema
         input_cols_by_name = (
-            {col.name: col for col in declared_path.root.column_md() if col.name is not None}
+            {col.name: col for col in defined_path.root.column_md() if col.name is not None}
             if route_type == 'compute'
             else cols_by_name
         )

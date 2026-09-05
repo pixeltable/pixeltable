@@ -11,7 +11,7 @@ Examples:
   pxt errors my_dir/my_table --col embedding
   pxt errors my_dir/my_table --json
 
-Note: the table must have a primary key (declared via primary_key=)."""
+Note: the table must have a primary key (defined via primary_key=)."""
 
 
 def run(argv: list[str]) -> None:
