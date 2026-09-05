@@ -155,26 +155,32 @@ class EmbeddingIndex:
             # This is a frozen dataclass, we have to use __setattr__ to update it.
             object.__setattr__(self, 'name', fold_identifier(self.name))
 
+    def resolved_embeddings(self) -> dict[ts.ColumnType.Type, func.Function]:
+        """The embedding function serving each column type.
+
+        The functions are rendered the way index renders them: the resolution binds a function's defaults and picks the
+        overload matching each type.
+        """
+        from pixeltable import index
+
+        return index.EmbeddingIndex.resolve_embeddings(
+            self.embedding, self.string_embed, self.image_embed, self.audio_embed, self.video_embed, self.document_embed
+        )
+
     def as_fn_call(self) -> exprs.FunctionCall:
-        # Static resolution of the embedding function as a FunctionCall.
+        """The embedding call for the indexed column's own type, which is what the index materializes."""
         assert isinstance(self.column, exprs.ColumnRefByName)
         col_type = self.column.col_type
-        if col_type.is_string_type() and self.string_embed is not None:
-            return self.string_embed(self.column)
-        elif col_type.is_image_type() and self.image_embed is not None:
-            return self.image_embed(self.column)
-        elif col_type.is_audio_type() and self.audio_embed is not None:
-            return self.audio_embed(self.column)
-        elif col_type.is_video_type() and self.video_embed is not None:
-            return self.video_embed(self.column)
-        elif col_type.is_document_type() and self.document_embed is not None:
-            return self.document_embed(self.column)
-        elif self.embedding is not None:
-            return self.embedding(self.column)
-        else:
+        embeddings = self.resolved_embeddings()
+        if col_type._type not in embeddings:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA, f'EmbeddingIndex has no embedding function defined for type: {col_type}'
             )
+        return embeddings[col_type._type](self.column)
+
+    def resolved_embedding_fns(self) -> list[str]:
+        """The rendered embedding functions, as the index's metadata records them."""
+        return [str(fn) for fn in self.resolved_embeddings().values()]
 
     def __repr__(self) -> str:
         embeds = [

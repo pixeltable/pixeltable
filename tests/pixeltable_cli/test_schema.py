@@ -309,6 +309,76 @@ class TestSchema:
         assert "column 'author' will be added  safe" in r.stdout
         assert "column 'body' will be dropped  DESTRUCTIVE" in r.stdout
 
+    def test_diff_replaces_index(
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, project_dir: pathlib.Path
+    ) -> None:
+        """A named embedding index whose definition changed is replaced."""
+        p = db_root.make_catalog_path
+        apps('udfs.py')  # the schema below imports its embedding udf
+        schema_template = dedent(
+            """
+            from __future__ import annotations
+
+            import pixeltable as pxt
+            from apps.udfs import dummy_embedding
+            from pixeltable import EmbeddingIndex
+
+            TableModel = pxt.model_base()
+
+
+            class Notes(TableModel, name='notes'):
+                note_id: pxt.Int
+                body: pxt.String
+
+                __indexes__ = [{index}]
+            """
+        )
+        schema_file = project_dir / 'app_schema.py'
+        schema_file.write_text(
+            schema_template.format(index="EmbeddingIndex(body, embedding=dummy_embedding, name='ix')")
+        )
+        target = p('index_replace')
+        cli('schema', 'update', str(schema_file), target)
+        notes = pxt.get_table(f'{target}/notes')
+        indexes = notes.get_metadata()['indexes']
+        assert set(indexes.keys()) == {'ix'}
+        assert indexes['ix']['parameters']['precision'] == 'fp16'
+
+        # the same index name, with different properties
+        schema_file.write_text(
+            schema_template.format(index="EmbeddingIndex(body, embedding=dummy_embedding, precision='fp32', name='ix')")
+        )
+
+        r = cli('schema', 'diff', str(schema_file), target, '--json', check=False)
+        assert r.returncode == 2
+        tbl = r.json['tables'][0]
+        assert tbl['resolution'] == 'update_destructive'
+        assert [(op['op'], op['target'], op['name']) for op in tbl['ops']] == [
+            ('drop', 'index', 'ix'),
+            ('add', 'index', 'ix'),
+        ]
+
+        r = cli('schema', 'diff', str(schema_file), target, check=False)
+        assert (
+            re.search(
+                r"index 'ix' on column 'body' will be dropped and re-created from its new definition\s+DESTRUCTIVE",
+                r.stdout,
+            )
+            is not None
+        ), r.stdout
+        assert re.search(r"EmbeddingIndex 'ix' will be re-created\s+safe", r.stdout) is not None, r.stdout
+
+        r = cli('schema', 'update', str(schema_file), target, '--allow-destructive', '-f')
+        assert r.returncode == 0
+
+        # one index of that name remains, built from the new definition
+        notes = pxt.get_table(f'{target}/notes')
+        indexes = notes.get_metadata()['indexes']
+        assert set(indexes.keys()) == {'ix'}
+        assert indexes['ix']['parameters']['precision'] == 'fp32'
+
+        assert_in_agreement(cli, str(schema_file), target)
+
     def test_iterator_view_indexes(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A schema that declares an iterator view and indexes over what the iterator produces."""
         skip_test_if_not_installed('spacy')  # the view's iterator splits on sentences
