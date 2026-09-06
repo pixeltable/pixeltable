@@ -3,7 +3,7 @@ import shutil
 import socket
 import time
 from textwrap import dedent
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, ClassVar, Iterator
 
 import httpx
 import pytest
@@ -12,6 +12,19 @@ import pixeltable as pxt
 
 from ..utils import DatabaseRoot, get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
 from .conftest import BackgroundPxt, PxtRunner
+from .hosted import (
+    APP_FILE,
+    current_db,
+    db_update,
+    edit_app,
+    project,
+    schema_update,
+    service_diff,
+    service_list,
+    service_update,
+)
+
+__all__ = ['current_db', 'project']  # fixtures TestHostedService requests by name
 
 pytestmark = pytest.mark.db_roots('local', reason='a local service serves the in-process catalog')
 
@@ -755,3 +768,41 @@ class TestService:
             'title_upper': 'A LONG ENOUGH TITLE',
             'summary': 'a long enoug...',
         }
+
+
+class TestHostedService:
+    """`pxt service` against a hosted database."""
+
+    pytestmark: ClassVar = [pytest.mark.remote_api, pytest.mark.expensive]
+
+    def test_service_lifecycle(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+        app_file = str(project / APP_FILE)
+        schema_update(cli, project, app_file, current_db)
+        service_update(cli, project, app_file, current_db)
+
+        instance = service_list(cli, project, current_db)['ingest']
+        assert instance['state'] == 'AVAILABLE', instance
+        assert instance['catalog_path'] == current_db
+
+        # a new route requires a db update
+        edit_app(project, "ingest.add_delete_route(Docs, path='/docs/delete')")
+        [blocked] = service_diff(cli, project, app_file, current_db)['services']
+        assert blocked['resolution'] == 'blocked'
+        [op] = [op for op in blocked['ops'] if op['target'] == 'project']
+        assert f'pxt db update {current_db}' in op['description'], op['description']
+
+        # after the db update we can restart the service
+        db_update(cli, project, current_db)
+        [added] = service_diff(cli, project, app_file, current_db)['services']
+        assert added['resolution'] == 'update_additive', added['ops']
+        service_update(cli, project, app_file, current_db)
+        assert service_diff(cli, project, app_file, current_db)['in_agreement']
+
+        # stopping keeps the registration, so an update starts it again
+        cli('service', 'stop', f'{current_db}/ingest', cwd=project)
+        stopped = service_list(cli, project, current_db)['ingest']
+        assert stopped['state'] == 'STOPPED', stopped
+        assert not service_diff(cli, project, app_file, current_db)['in_agreement']
+
+        # TODO: what does this remove?
+        cli('service', 'prune', app_file, current_db, '-f', cwd=project)

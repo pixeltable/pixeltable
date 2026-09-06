@@ -75,8 +75,8 @@ def published_fingerprint(db_path: catalog.Path) -> ProjectFingerprint | None:
     return None if state is None else state.status.fingerprint
 
 
-def db_plan(db_uri: str, target: DatabaseSpec, current: DatabaseStatus | None) -> DbPlan:
-    """The plan that makes the database at db_uri provide target; current is None for one that does not exist.
+def create_db_update_ops(target: DatabaseSpec, current: DatabaseStatus | None) -> list[DbChangeOp]:
+    """The operations that make a database provide target; current is None for one that does not exist.
 
     Comparing against what the database provides, rather than the spec it was last given, covers a changed
     project, an interrupted rollout and a failed build in one comparison.
@@ -97,7 +97,7 @@ def db_plan(db_uri: str, target: DatabaseSpec, current: DatabaseStatus | None) -
         ops.append(DbChangeOp.capacity(field, running, wanted))
 
     ops += _secret_ops(target, status)
-    return DbPlan.from_ops(db_uri, None if current is None else status.state, ops)
+    return ops
 
 
 def _artifact_ops(target: ProjectFingerprint, running: ProjectFingerprint | None) -> list[DbChangeOp]:
@@ -212,6 +212,13 @@ def _apply_spec(
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
             f'The image build for {db_path.uri_str} failed: {reason}',
+            provider='pixeltable_cloud',
+        )
+    if settled.status.failure_reason is not None:
+        # a step that failed and left the database serving what it served before still failed
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'{db_path.uri_str} did not reach the state it was given: {settled.status.failure_reason}',
             provider='pixeltable_cloud',
         )
     return settled
