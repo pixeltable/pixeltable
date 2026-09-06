@@ -496,8 +496,10 @@ class Env:
             try:
                 db_url = sql.make_url(db_connect_str)
             except sql.exc.ArgumentError as e:
-                # SQLAlchemy quotes the whole string it could not parse, password and all
-                error = f'Invalid db connection string: {str(e).replace(db_connect_str, "<redacted>")}'
+                # SQLAlchemy quotes the whole string it could not parse, password and all; replacing the
+                # empty string would put the marker between every character of the message
+                detail = str(e) if db_connect_str == '' else str(e).replace(db_connect_str, '<redacted>')
+                error = f'Invalid db connection string: {detail}'
                 _logger.error(error)
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error) from e
             self._db_url = db_url.render_as_string(hide_password=False)

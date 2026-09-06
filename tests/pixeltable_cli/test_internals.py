@@ -1310,6 +1310,16 @@ class TestServerRouteHelpers:
 
     def test_redact_db_url(self) -> None:
         assert 'secret' not in redact_db_url('postgresql://user:secret@host/db')
+        # libpq reads a password from the query as well, under more than one name
+        assert 'secret' not in redact_db_url('postgresql://user@host/db?password=secret')
+        assert 'secret' not in redact_db_url('postgresql://user@host/db?sslpassword=secret')
+
+        both = redact_db_url('postgresql://user:secret@host/db?password=secret&sslmode=require')
+        assert 'secret' not in both, both
+        # everything the reader needs to tell one database from another survives
+        assert 'sslmode=require' in both, both
+        assert both.startswith('postgresql://user:') and '@host/db' in both, both
+
         # a malformed url is not reproduced at all: its password cannot be located
         assert redact_db_url('::: not a url :::') == '<unparsable db url>'
 

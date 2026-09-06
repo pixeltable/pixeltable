@@ -30,12 +30,17 @@ def log_explain(logger: logging.Logger, stmt: sql.sql.ClauseElement, conn: sql.e
 
 
 def redact_db_url(url: str | URL) -> str:
-    """Render a database URL with its password masked; the user, host and database stay readable."""
+    """Render a database URL with every password masked; the user, host and database stay readable."""
     try:
-        return (sql.make_url(url) if isinstance(url, str) else url).render_as_string(hide_password=True)
+        parsed = sql.make_url(url) if isinstance(url, str) else url
     except sql.exc.ArgumentError:
         # the password cannot be located in a URL that does not parse, so none of it can be shown
         return '<unparsable db url>'
+    # hide_password masks the user-info password alone, and libpq takes one in the query as well
+    in_query = {key: 'REDACTED' for key in parsed.query if 'password' in key.lower()}
+    if len(in_query) > 0:
+        parsed = parsed.set(query={**parsed.query, **in_query})
+    return parsed.render_as_string(hide_password=True)
 
 
 def add_option_to_db_url(url: str | URL, option: str) -> URL:
