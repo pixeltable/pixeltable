@@ -36,7 +36,7 @@ from pixeltable.utils.project import (
     project_fingerprint,
     unpacked_digest,
 )
-from pixeltable_cli.types import DbChangeOp, DbPlan, DbTarget
+from pixeltable_cli.types import DbArtifact, DbChangeOp, DbPlan, DbTarget
 
 _logger = logging.getLogger('pixeltable')
 
@@ -156,8 +156,6 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
     spec = _target_spec(config)
     plan = _update_db(db_path, spec, dry_run=True).plan
     if plan.destructive and not allow_destructive:
-        for op in plan.ops:
-            op.status = 'refused'
         destructive = ', '.join(op.name or '' for op in plan.ops if op.destructive)
         raise excs.RequestError(
             excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE,
@@ -169,7 +167,7 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
         if op.op != 'alter':
             _apply_secret_op(db_path, op, config)
 
-    settled = _apply_spec(db_path, config, spec)
+    settled, _ = _apply_spec(db_path, config, spec)
     for op in plan.ops:
         op.status = 'applied'
     plan.state = settled.status.state
@@ -182,46 +180,50 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
 
 def _apply_spec(
     db_path: catalog.Path, config: DatabaseConfig, spec: DatabaseSpec, *, force_image_build: bool = False
-) -> DatabaseState:
-    """Ask db_path to provide spec, store the artifacts it asks for, and wait for it to settle."""
+) -> tuple[DatabaseState, set[DbArtifact]]:
+    """Ask db_path to provide spec, store the artifacts it asks for, and wait for it to settle.
+
+    Returns the state it settled in and the artifacts this call stored; one the store already held is
+    not stored again.
+    """
     response = _update_db(db_path, spec, force_image_build=force_image_build)
+    stored: set[DbArtifact] = set()
     rounds = 0
     while len(response.uploads) > 0:
         rounds += 1
         if rounds > _MAX_UPLOAD_ROUNDS:
             wanted = ', '.join(upload.artifact for upload in response.uploads)
-            raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_ERROR,
-                f'{db_path.uri_str} still asks for {wanted} after it was stored',
-                provider='pixeltable_cloud',
+            raise excs.InternalError(
+                excs.ErrorCode.INTERNAL_ERROR, f'{db_path.uri_str} still asks for {wanted} after it was stored'
             )
+        stored.update(upload.artifact for upload in response.uploads)
         _store_artifacts(response.uploads, config)
         response = _update_db(db_path, spec, force_image_build=force_image_build)
 
     settled = _await_db_settled(db_path)
     if settled.status.state == 'FAILED':
         reason = settled.status.failure_reason or 'no reason was reported'
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
-            f'{db_path.uri_str} is FAILED after the update: {reason}',
-            provider='pixeltable_cloud',
+        raise excs.InternalError(
+            excs.ErrorCode.INTERNAL_ERROR, f'{db_path.uri_str} is FAILED after the update: {reason}'
         )
     if settled.status.last_build_outcome == 'FAILED':
         # a failed build leaves the database serving what it served before, rather than FAILED
         reason = settled.status.last_build_error or 'no reason was reported'
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
-            f'The image build for {db_path.uri_str} failed: {reason}',
-            provider='pixeltable_cloud',
+        raise excs.InternalError(
+            excs.ErrorCode.INTERNAL_ERROR, f'The image build for {db_path.uri_str} failed: {reason}'
         )
     if settled.status.failure_reason is not None:
         # a step that failed and left the database serving what it served before still failed
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
+        raise excs.InternalError(
+            excs.ErrorCode.INTERNAL_ERROR,
             f'{db_path.uri_str} did not reach the state it was given: {settled.status.failure_reason}',
-            provider='pixeltable_cloud',
         )
-    return settled
+    if spec.fingerprint is not None and settled.status.fingerprint != spec.fingerprint:
+        # settling on a project other than the one asked for reports nothing else, so say so here
+        raise excs.InternalError(
+            excs.ErrorCode.INTERNAL_ERROR, f'{db_path.uri_str} settled on a project other than the one it was given'
+        )
+    return settled, stored
 
 
 def _update_db(
@@ -239,7 +241,8 @@ def _update_db(
 def db_build_image(db_uri: str) -> list[DbChangeOp]:
     """Store this project's files at db_uri and rebuild its image, and wait for both.
 
-    Stores and builds whatever the project holds, without comparing it to the database first.
+    Builds whatever the project holds, without comparing it to the database first. Each returned operation
+    carries what it did: the archive is stored only where the store does not hold it already.
     """
     db_path = _validated_db_uri(db_uri)
     config = _get_db_config(db_path)
@@ -247,11 +250,13 @@ def db_build_image(db_uri: str) -> list[DbChangeOp]:
         raise excs.NotFoundError(
             excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'{db_path.uri_str} does not exist; run `pxt db update` to create it'
         )
-    ops = [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
-    _apply_spec(db_path, config, _target_spec(config), force_image_build=True)
-    for op in ops:
-        op.status = 'applied'
-    return ops
+    settled, stored = _apply_spec(db_path, config, _target_spec(config), force_image_build=True)
+    image_op = DbChangeOp.build_image()
+    # a build that did not run leaves nothing to report, whatever was asked for
+    image_op.status = 'applied' if settled.status.last_build_outcome == 'SUCCEEDED' else 'skipped'
+    archive_op = DbChangeOp.upload_archive()
+    archive_op.status = 'applied' if 'archive' in stored else 'skipped'
+    return [image_op, archive_op]
 
 
 def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | None = None) -> str:
@@ -265,7 +270,7 @@ def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | No
         management_client.api_call(GetArchiveRequest(org=db_path.org, db=db_path.db))
     )
     if expected_digest is not None and response.digest != expected_digest:
-        raise excs.Error(
+        raise excs.RequestError(
             excs.ErrorCode.INVALID_STATE,
             f'{db_path.uri_str} serves project {response.digest}, not the {expected_digest} this process runs',
         )
@@ -290,7 +295,7 @@ def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | No
                 if member.name == _ARCHIVE_DIR:
                     continue
                 if not member.name.startswith(prefix):
-                    raise excs.Error(
+                    raise excs.RequestError(
                         excs.ErrorCode.INVALID_DATA_FORMAT,
                         f'{db_path.uri_str} serves an archive holding {member.name!r}, which is outside {prefix}',
                     )
@@ -302,7 +307,7 @@ def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | No
         unpacked = unpacked_digest(project_dir)
         if unpacked != response.digest:
             # what arrived is not what the control plane named, whatever it named
-            raise excs.Error(
+            raise excs.RequestError(
                 excs.ErrorCode.INVALID_DATA_FORMAT,
                 f'{db_path.uri_str} served an archive holding project {unpacked}, not {response.digest}',
             )
@@ -418,10 +423,9 @@ def _await_db_settled(db_path: catalog.Path) -> DatabaseState:
         if current.status.state not in _DB_TRANSITIONAL:
             return current
         if time.monotonic() >= deadline:
-            raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_TIMEOUT,
+            raise excs.InternalError(
+                excs.ErrorCode.INTERNAL_ERROR,
                 f'{db_path.uri_str} is still {current.status.state} after {int(_DB_SETTLE_TIMEOUT)}s',
-                provider='pixeltable_cloud',
             )
         time.sleep(_DB_POLL_INTERVAL)
 

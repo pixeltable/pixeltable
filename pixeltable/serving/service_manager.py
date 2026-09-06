@@ -323,7 +323,7 @@ class ServiceManager(ServiceManagerBase):
         tail = self._tail_log(log_path)
         if tail != '':
             msg += f'\n--- service log tail ---\n{tail}'
-        raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, msg)
+        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, msg)
 
     def _terminate(self, proc: subprocess.Popen) -> None:
         """Stop proc and reap it, escalating to kill if it does not exit."""

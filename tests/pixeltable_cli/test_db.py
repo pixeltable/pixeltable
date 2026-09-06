@@ -9,6 +9,7 @@ which takes minutes. They run against the session's hosted database, the one the
 import hashlib
 import os
 import pathlib
+import shutil
 import socket
 import subprocess
 import time
@@ -120,6 +121,22 @@ class TestDb:
         assert (applied['in_agreement'], applied['returncode']) == (True, EXIT_IN_AGREEMENT)
         assert_in_agreement(cli, project, current_db)
 
+    def test_two_projects(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+        """A database holds one project: whichever was published last, whatever else declares it."""
+        other = project.parent / 'other'
+        shutil.copytree(project, other)
+        edit_app(other, 'the file the other project holds')
+        create_project_config(cli, other, current_db)
+
+        # publishing the other project moves the database off this one, and the two swap on every publish
+        db_update(cli, other, current_db)
+        assert_in_agreement(cli, other, current_db)
+        assert get_target_ops(db_diff(cli, project, current_db), 'archive') != []
+
+        db_update(cli, project, current_db)
+        assert_in_agreement(cli, project, current_db)
+        assert get_target_ops(db_diff(cli, other, current_db), 'archive') != []
+
     def test_excluded_files(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
         """A file the entry excludes is not part of the project, so writing it changes nothing."""
         # the entry itself is a project file, so the database has to be given the rewritten one
@@ -203,10 +220,13 @@ class TestDb:
         assert_in_agreement(cli, project, current_db)
 
     def test_build_image(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
-        """build-image sends and builds whatever the project holds, in agreement or not."""
-        ops = cli('db', 'build-image', current_db, '--json', cwd=project, timeout=APPLY_TIMEOUT).json
-        assert sorted(op['target'] for op in ops) == ['archive', 'image']
-        assert all(op['status'] == 'applied' for op in ops), ops
+        """build-image rebuilds the image whether or not anything changed, and stores what is missing."""
+        ops = {
+            op['target']: op
+            for op in cli('db', 'build-image', current_db, '--json', cwd=project, timeout=APPLY_TIMEOUT).json
+        }
+        # the database was given this project already, so the store holds its archive
+        assert (ops['image']['status'], ops['archive']['status']) == ('applied', 'skipped'), ops
         assert_in_agreement(cli, project, current_db)
 
     def test_errors(self, cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> None:
@@ -242,7 +262,8 @@ class TestPodRunner:
             assert (unpacked / APP_FILE).read_text() == (project / APP_FILE).read_text()
             assert (unpacked / 'requirements.txt').is_file()
             served = httpx.get(f'http://127.0.0.1:{port}/openapi.json', timeout=_REQUEST_TIMEOUT)
-            assert '/notes' in served.json()['paths'], served.json()['paths']
+            paths = served.json()['paths']
+            assert set(paths) == {'/docs', '/docs/update', '/docs/delete', '/preview'}, paths
         finally:
             pod.terminate()
             pod.wait(timeout=30)

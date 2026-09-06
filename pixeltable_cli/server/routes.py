@@ -273,7 +273,7 @@ def table_row(req: Request) -> models.GetResponse:
     if len(result) == 0:
         return models.GetResponse(pk_columns=pk_names, row=None)
     if len(result) > 1:
-        raise excs.Error(
+        raise excs.InternalError(
             excs.ErrorCode.INTERNAL_ERROR,
             f'{path}: {len(pk_names)}-column PK match returned multiple rows; catalog corruption?',
         )

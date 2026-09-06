@@ -113,7 +113,7 @@ class ServiceManagerProxy(ServiceManagerBase):
         started = self._wait_for_state(name, base_path, ServiceInstanceState.AVAILABLE)
         if started.state is not ServiceInstanceState.AVAILABLE:
             detail = '' if started.record.error is None else f': {started.record.error}'
-            raise excs.Error(
+            raise excs.InternalError(
                 excs.ErrorCode.INTERNAL_ERROR, f'Service {name!r} did not start; it is {started.state.value}{detail}'
             )
         return started
@@ -145,13 +145,13 @@ class ServiceManagerProxy(ServiceManagerBase):
         while True:
             instance = self.get(name, base_path)
             if instance is None:
-                raise excs.Error(
+                raise excs.InternalError(
                     excs.ErrorCode.INTERNAL_ERROR, f'Service {name!r} is no longer in {self.catalog_uri.uri_str}'
                 )
             if instance.state in (expected, ServiceInstanceState.FAILED):
                 return instance
             if time.monotonic() >= deadline:
-                raise excs.Error(
+                raise excs.InternalError(
                     excs.ErrorCode.INTERNAL_ERROR,
                     f'Service {name!r} is {instance.state.value} rather than {expected.value} '
                     f'after {self._POLL_TIMEOUT:.0f}s',
@@ -163,7 +163,7 @@ class ServiceManagerProxy(ServiceManagerBase):
         deadline = time.monotonic() + self._POLL_TIMEOUT
         while self.get(name, base_path) is not None:
             if time.monotonic() >= deadline:
-                raise excs.Error(
+                raise excs.InternalError(
                     excs.ErrorCode.INTERNAL_ERROR,
                     f'Service {name!r} is still in {self.catalog_uri.uri_str} after {self._POLL_TIMEOUT:.0f}s',
                 )

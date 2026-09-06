@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 import traceback
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, ClassVar, Iterator, NoReturn, Self
+from typing import TYPE_CHECKING, Any, ClassVar, NoReturn, Self
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -110,6 +110,8 @@ class Error(Exception):
 
     def __init__(self, error_code: ErrorCode, message: str = '', *, retry_after: float | None = None) -> None:
         cls = type(self)
+        # every error names what kind it is, so that a caller can catch one kind without catching all of them
+        assert cls is not Error, 'raise a subclass of Error, not Error itself'
         # make sure we got an error code appropriate for this exception class
         assert error_code.value // 1000 == cls._code_group
         super().__init__(message)
@@ -162,8 +164,7 @@ class Error(Exception):
     def from_dict(cls, d: dict[str, Any]) -> 'Error':
         """Reconstruct an Error from to_dict() output."""
         code = ErrorCode[d['error_code']]
-        subclass = _error_subclasses_by_group().get(code.value // 1000, Error)
-        return subclass._reconstruct(code, d)
+        return _error_class(code)._reconstruct(code, d)
 
     @classmethod
     def _reconstruct(cls, error_code: ErrorCode, d: dict[str, Any]) -> 'Error':
@@ -173,6 +174,18 @@ class Error(Exception):
         Error.__init__(err, error_code, d.get('message', ''), retry_after=d.get('retry_after'))
         err.detail = d.get('detail')
         return err
+
+
+class InternalError(Error):
+    """A Pixeltable-internal invalid state."""
+
+    _code_group = 0
+
+
+class UserError(Error):
+    """A user error that does not map to a more specific code."""
+
+    _code_group = 0
 
 
 class NotFoundError(Error):
@@ -337,12 +350,24 @@ def is_table_not_found_error(e: BaseException) -> bool:
     return isinstance(e, Error) and e.error_code == ErrorCode.TABLE_NOT_FOUND
 
 
-def _error_subclasses_by_group() -> dict[int, type[Error]]:
-    """Map each error-code group (thousands digit) to its Error subclass.from_dict."""
+_BY_GROUP: dict[int, type[Error]] = {
+    1: NotFoundError,
+    2: AlreadyExistsError,
+    3: RequestError,
+    4: AuthorizationError,
+    5: ExternalServiceError,
+    6: ServiceUnavailableError,
+    7: ConcurrencyError,
+}
 
-    def subclasses(c: type[Error]) -> Iterator[type[Error]]:
-        yield c
-        for sub in c.__subclasses__():
-            yield from subclasses(sub)
 
-    return {c._code_group: c for c in subclasses(Error)}
+def _error_class(code: ErrorCode) -> type[Error]:
+    """Map an error code to the Error subclass that carries it.
+
+    InternalError and UserError share group 0, so that group is resolved by the code itself.
+    """
+    if code is ErrorCode.INTERNAL_ERROR:
+        return InternalError
+    if code is ErrorCode.GENERIC_USER_ERROR:
+        return UserError
+    return _BY_GROUP[code.value // 1000]

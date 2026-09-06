@@ -7,6 +7,7 @@ import json
 import os
 import pathlib
 import shutil
+import time
 from typing import Any
 
 import pytest
@@ -22,6 +23,9 @@ EXIT_CHANGES_PENDING = 2
 APPLY_TIMEOUT = 2400.0
 
 APP_FILE = 'basic.py'  # the corpus file the project holds, and the pod serves
+
+# a database update restarts the services running its project, which redeploys their pods
+_SERVICE_RESTART_TIMEOUT = 600.0
 
 
 @pytest.fixture
@@ -53,10 +57,10 @@ def current_db(cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> str:
     return hosted_db
 
 
-def edit_app(project: pathlib.Path, comment: str) -> None:
-    """Append a comment to the project's application file."""
+def edit_app(project: pathlib.Path, added: str) -> None:
+    """Append to the project's application file."""
     with open(project / APP_FILE, 'a', encoding='utf-8') as f:
-        f.write(f'\n# {comment}\n')
+        f.write(f'\n{added}\n')
 
 
 def create_project_config(cli: PxtRunner, project: pathlib.Path, db_uri: str, **settings: Any) -> None:
@@ -111,6 +115,17 @@ def service_diff(cli: PxtRunner, project: pathlib.Path, app_file: str, db_uri: s
 def service_list(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> dict[str, dict[str, Any]]:
     """The instances `pxt service list` reports at db_uri, keyed by name."""
     return {i['name']: i for i in cli('service', 'list', db_uri, '--json', cwd=project).json}
+
+
+def await_service_available(cli: PxtRunner, project: pathlib.Path, db_uri: str, name: str) -> None:
+    """Block until the named instance is serving, which it stops doing while its database is updated."""
+    deadline = time.monotonic() + _SERVICE_RESTART_TIMEOUT
+    while True:
+        state = service_list(cli, project, db_uri)[name]['state']
+        if state == 'AVAILABLE':
+            return
+        assert time.monotonic() < deadline, f'{name} is {state} after {_SERVICE_RESTART_TIMEOUT:.0f}s'
+        time.sleep(5)
 
 
 def get_target_ops(plan: dict[str, Any], target: str) -> list[dict[str, Any]]:

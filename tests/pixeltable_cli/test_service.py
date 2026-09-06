@@ -14,9 +14,11 @@ from ..utils import DatabaseRoot, get_audio_files, get_documents, get_video_file
 from .conftest import BackgroundPxt, PxtRunner
 from .hosted import (
     APP_FILE,
+    await_service_available,
     current_db,
     db_update,
     edit_app,
+    hosted_db,
     project,
     schema_update,
     service_diff,
@@ -24,7 +26,7 @@ from .hosted import (
     service_update,
 )
 
-__all__ = ['current_db', 'project']  # fixtures TestHostedService requests by name
+__all__ = ['current_db', 'hosted_db', 'project']  # fixtures TestHostedService reaches, directly or through another
 
 pytestmark = pytest.mark.db_roots('local', reason='a local service serves the in-process catalog')
 
@@ -785,7 +787,7 @@ class TestHostedService:
         assert instance['catalog_path'] == current_db
 
         # a new route requires a db update
-        edit_app(project, "ingest.add_delete_route(Docs, path='/docs/delete')")
+        edit_app(project, "ingest.add_delete_route(Docs, path='/docs/purge')")
         [blocked] = service_diff(cli, project, app_file, current_db)['services']
         assert blocked['resolution'] == 'blocked'
         [op] = [op for op in blocked['ops'] if op['target'] == 'project']
@@ -793,6 +795,7 @@ class TestHostedService:
 
         # after the db update we can restart the service
         db_update(cli, project, current_db)
+        await_service_available(cli, project, current_db, 'ingest')
         [added] = service_diff(cli, project, app_file, current_db)['services']
         assert added['resolution'] == 'update_additive', added['ops']
         service_update(cli, project, app_file, current_db)
@@ -803,6 +806,3 @@ class TestHostedService:
         stopped = service_list(cli, project, current_db)['ingest']
         assert stopped['state'] == 'STOPPED', stopped
         assert not service_diff(cli, project, app_file, current_db)['in_agreement']
-
-        # TODO: what does this remove?
-        cli('service', 'prune', app_file, current_db, '-f', cwd=project)
