@@ -437,7 +437,7 @@ def sam3_for_segmentation(
 
     __Requirements:__
 
-    - `pip install torch transformers`
+    - `pip install torch torchvision transformers`
     - `facebook/sam3` is a gated repository. Request access on its
         [model page](https://huggingface.co/facebook/sam3), then authenticate with
         `huggingface-cli login` (or set the `HF_TOKEN` environment variable) before calling this UDF.
@@ -490,6 +490,7 @@ def sam3_for_segmentation(
         ... )
     """
     env.Env.get().require_package('torch')
+    env.Env.get().require_package('torchvision')
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
@@ -685,7 +686,7 @@ class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
 
     __Requirements:__
 
-    - `pip install torch transformers`
+    - `pip install torch torchvision transformers`
     - `facebook/sam3` is a gated repository. Request access on its
         [model page](https://huggingface.co/facebook/sam3), then authenticate with
         `huggingface-cli login` (or set the `HF_TOKEN` environment variable) before using this iterator.
@@ -767,6 +768,7 @@ class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
         revision: str | None = None,
     ) -> None:
         env.Env.get().require_package('torch')
+        env.Env.get().require_package('torchvision')
         env.Env.get().require_package('transformers')
         from pixeltable.functions.video import frame_iterator
 
