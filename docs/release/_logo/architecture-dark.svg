@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 300" width="860" height="300" role="img" aria-labelledby="t d">
+  <title id="t">Pixeltable: media in, computed columns, index and endpoint out</title>
+  <desc id="d">An image, a video and a document are inserted into one table. Annotated columns hold
+  inserted values; assigned columns are computed on insert, including a model call. A vector index
+  and an HTTP route are declared on the same table.</desc>
+  <g font-family="ui-sans-serif,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+
+    <!-- inputs -->
+    <text x="14" y="26" font-size="11" font-weight="600" fill="#93A7BC" letter-spacing="0.6">INSERT</text>
+    <g fill="#0B1622" stroke="#31465C" stroke-width="1.5">
+      <rect x="14" y="42" width="120" height="46" rx="8"/>
+      <rect x="14" y="104" width="120" height="46" rx="8"/>
+      <rect x="14" y="166" width="120" height="46" rx="8"/>
+    </g>
+    <g fill="#F1AE03">
+      <rect x="28" y="58" width="16" height="14" rx="2"/>
+      <path d="M28 120 h16 v14 h-16 z"/><path d="M46 122 l8 5 -8 5 z"/>
+      <rect x="28" y="180" width="13" height="16" rx="1.5"/>
+    </g>
+    <g fill="#E8EDF3" font-size="13">
+      <text x="54" y="70">image.jpg</text>
+      <text x="60" y="132">clip.mp4</text>
+      <text x="50" y="194">spec.pdf</text>
+    </g>
+
+    <!-- arrows into the table -->
+    <g stroke="#31465C" stroke-width="1.5" fill="none">
+      <path d="M138 65 C160 65 162 122 186 122"/>
+      <path d="M138 127 h48"/>
+      <path d="M138 189 C160 189 162 132 186 132"/>
+    </g>
+    <path d="M186 122 l-7 -4 v8 z" fill="#31465C" transform="translate(7,5)"/>
+
+    <!-- the table -->
+    <rect x="196" y="28" width="428" height="244" rx="10" fill="#0B1622" stroke="#31465C" stroke-width="1.5"/>
+    <rect x="196" y="28" width="428" height="34" rx="10" fill="#132234"/>
+    <path d="M196 56 h428" stroke="#31465C" stroke-width="1"/>
+    <text x="212" y="50" font-size="13" font-weight="700" fill="#E8EDF3">docs</text>
+    <text x="612" y="50" font-size="11" text-anchor="end" fill="#93A7BC">one app.py</text>
+
+    <g font-size="12.5">
+      <text x="212" y="84" font-weight="600" fill="#E8EDF3">title</text>
+      <text x="330" y="84" fill="#93A7BC">pxt.String</text>
+      <text x="212" y="108" font-weight="600" fill="#E8EDF3">image</text>
+      <text x="330" y="108" fill="#93A7BC">pxt.Image</text>
+      <text x="612" y="96" font-size="10.5" text-anchor="end" fill="#93A7BC">annotation: you insert</text>
+
+      <path d="M212 124 h400" stroke="#31465C" stroke-width="1" stroke-dasharray="3 3"/>
+
+      <text x="212" y="150" font-weight="600" fill="#F1AE03">summary</text>
+      <text x="330" y="150" fill="#93A7BC">= openai.chat_completions(...)</text>
+      <text x="212" y="176" font-weight="600" fill="#F1AE03">thumbnail</text>
+      <text x="330" y="176" fill="#93A7BC">= image.resize([224, 224])</text>
+      <text x="212" y="202" font-weight="600" fill="#F1AE03">embedding</text>
+      <text x="330" y="202" fill="#93A7BC">= embed(title)</text>
+      <text x="612" y="164" font-size="10.5" text-anchor="end" fill="#F1AE03">assignment: computed on insert</text>
+    </g>
+
+    <path d="M212 218 h400" stroke="#31465C" stroke-width="1"/>
+    <text x="212" y="240" font-size="12" fill="#93A7BC">__indexes__ = [pxt.EmbeddingIndex(embedding)]</text>
+    <text x="212" y="260" font-size="12" fill="#93A7BC">ingest.add_insert_route(Docs, path='/docs', ...)</text>
+
+    <!-- outputs -->
+    <g stroke="#31465C" stroke-width="1.5" fill="none">
+      <path d="M628 236 C652 236 656 96 676 96"/>
+      <path d="M628 256 C652 256 656 186 676 186"/>
+    </g>
+    <text x="688" y="26" font-size="11" font-weight="600" fill="#93A7BC" letter-spacing="0.6">SERVE</text>
+    <g fill="#0B1622" stroke="#31465C" stroke-width="1.5">
+      <rect x="676" y="70" width="170" height="52" rx="8"/>
+      <rect x="676" y="160" width="170" height="52" rx="8"/>
+    </g>
+    <g font-size="12.5">
+      <text x="690" y="92" font-weight="600" fill="#E8EDF3">similarity search</text>
+      <text x="690" y="110" font-size="11" fill="#93A7BC">similarity(string=q)</text>
+      <text x="690" y="182" font-weight="600" fill="#E8EDF3">HTTP</text>
+      <text x="690" y="200" font-size="11" fill="#93A7BC">POST /docs</text>
+    </g>
+
+    <text x="430" y="292" font-size="11.5" text-anchor="middle" fill="#93A7BC">Insert a row. Every column below it computes, the index updates, the route serves it.</text>
+  </g>
+</svg>

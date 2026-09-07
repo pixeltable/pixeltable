@@ -3,6 +3,11 @@
   <img alt="Pixeltable" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/_logo/pxt-light.svg" width="40%">
 </picture>
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/_logo/architecture-dark.svg">
+  <img alt="Media is inserted into one table; annotated columns hold inserted values, assigned columns compute on insert, and an index and an HTTP route are declared on the same table" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/_logo/architecture-light.svg" width="100%">
+</picture>
+
 **Declare tables, transforms, indexes, and endpoints in one `app.py`. Insert a row and the transforms run.**
 
 [**Quickstart**](https://docs.pixeltable.com/overview/quick-start) |
