@@ -79,7 +79,7 @@ curl -X POST http://127.0.0.1:<port>/docs \
   -d '{"doc_id": 1, "title": "Hello", "body": "world"}'
 ```
 
-`pxt schema update` creates the catalog namespace `my_app` and its tables. That is not a folder on disk. It does not start the endpoints. After the tables exist, `pxt service update` starts them.
+`pxt schema update` creates the catalog `my_app` and its tables. That is not a folder on disk. It does not start the endpoints. After the tables exist, `pxt service update` starts them.
 
 To put the same file on Pixeltable Cloud, create an API key in the [Cloud dashboard](https://docs.pixeltable.com/howto/deployment/cloud#get-an-api-key), set `PIXELTABLE_API_KEY`, name the database in `pixeltable.toml`, then run the three commands below. `pxt db update` creates or updates the hosted database. It does not insert rows and does not start app endpoints. `pxt schema update` creates tables there. `pxt service update` starts the endpoints on the host. `pxt service run` always serves from this process and cannot target Cloud:
 
@@ -115,7 +115,7 @@ Hand the agent [get-started.md](https://www.pixeltable.com/get-started.md). That
 npx skills add pixeltable/pixeltable-skill
 ```
 
-Skill **2.7.0+** writes a `TableModel` in `app.py`, then `pxt schema update`. If the agent writes `create_table` in app code, `schema.py`, or `pxt serve`, the installed skill is stale: this page wins. Reinstall the skill. Do not copy this repo's `AGENTS.md` into an application; that file is for Pixeltable contributors.
+Skill **2.8.0+** writes a `TableModel` in `app.py`, then `pxt schema update`. If the agent writes `create_table` in app code, `schema.py`, or `pxt serve`, the installed skill is stale: this page wins. Reinstall the skill. Do not copy this repo's `AGENTS.md` into an application; that file is for Pixeltable contributors.
 
 Notebooks and tests still use `pxt.create_table()`. An app puts tables in `app.py` and creates them with `pxt schema update`.
 

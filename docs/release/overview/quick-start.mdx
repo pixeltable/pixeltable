@@ -75,7 +75,7 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
     pxt service update app.py my_app
     ```
 
-    `pxt init` marks this directory as a project root. `pxt schema update` errors if you have not run it in this directory or a parent. `my_app` is the table-namespace name inside Pixeltable, not a folder beside `app.py`. `pxt schema update` creates that namespace and its tables. It does not start the endpoints. Run it before `pxt service update`, which starts the endpoints and does not create tables.
+    `pxt init` marks this directory as a project root. `pxt schema update` errors if you have not run it in this directory or a parent. `my_app`, the last argument, is a catalog inside Pixeltable, not a folder beside `app.py`. `pxt schema update` creates that catalog and its tables. It does not start the endpoints. Run it before `pxt service update`, which starts the endpoints and does not create tables.
   </Step>
   <Step title="Insert a row">
     Send a row with HTTP POST. Pixeltable computes `title_upper` during that insert. `pxt service list` prints the URL (the port is assigned):
@@ -140,7 +140,7 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
 </Tabs>
 
 <Note>
-This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`. Skill **2.7.0+** writes that `TableModel`. If the agent writes `create_table` in app code, `schema.py`, or `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`.
+This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`. Skill **2.8.0+** writes that `TableModel`. If the agent writes `create_table` in app code, `schema.py`, or `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`.
 </Note>
 
 ## Next

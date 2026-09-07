@@ -35,8 +35,7 @@ root. `schema update` creates tables and does not start endpoints; `service upda
 endpoints and does not create tables. Both prompt for confirmation unless you pass `-f`,
 and exit 3 when run non-interactively without it.
 
-The last argument (`my_app`) names a catalog directory inside Pixeltable. It is not a
-folder on disk.
+The last argument (`my_app`) names a catalog inside Pixeltable. It is not a folder on disk.
 
 ## The application file
 

@@ -6,7 +6,7 @@ description: 'pxt schema creates tables. pxt service starts the endpoints. diff 
 
 [Quickstart](/overview/quick-start) is the first run. This page explains what `pxt schema` and `pxt service` do, and what the last argument names.
 
-One Python file declares tables and, if you want endpoints, routes. `pxt schema update` creates the tables. `pxt service update` starts the endpoints on an assigned port. The last argument is a namespace name such as `my_app`, or a Cloud URL such as `pxt://org:db`. It does not create a folder beside `app.py`.
+One Python file declares tables and, if you want endpoints, routes. `pxt schema update` creates the tables. `pxt service update` starts the endpoints on an assigned port. The last argument is a catalog such as `my_app`, or a `pxt://org:db` URI for Cloud. It does not create a folder beside `app.py`.
 
 <CardGroup cols={3}>
   <Card title="Schema" icon="table" href="#schema">
@@ -16,7 +16,7 @@ One Python file declares tables and, if you want endpoints, routes. `pxt schema 
     A `FastAPIRouter` in the same file. `pxt service update` binds it to the tables.
   </Card>
   <Card title="Database" icon="database" href="#database">
-    A local namespace name, or a `pxt://` Cloud URL.
+    A local catalog, or a `pxt://` URI for Cloud.
   </Card>
 </CardGroup>
 
