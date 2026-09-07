@@ -403,6 +403,7 @@ class TestService:
         """The routes whose request or response is not JSON: file uploads, a file response, a background job."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
+        skip_test_if_not_installed('mistune')
         app, target = apps('media.py'), db_root.make_catalog_path('app')
         deploy(cli, app, target)
         running = assert_serving(cli, app, target, 'clips', 'frames', 'recordings')

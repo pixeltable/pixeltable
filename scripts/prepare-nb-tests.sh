@@ -2,6 +2,7 @@
 
 # Notebooks that are always skipped
 SKIP_NOTEBOOKS=(
+    observability                   # pixeltable[otel] extra needs opentelemetry-instrumentation-pixeltable, which is not on PyPI
     llm-tool-calling                # Relies on the user separately running an MCP server
     working-with-bfl                # [PXT-1111] Out of credits
     working-with-fabric             # [PXT-1113] Requires Microsoft Fabric environment
