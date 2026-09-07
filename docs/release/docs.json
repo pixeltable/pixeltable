@@ -199,6 +199,7 @@
                 "pages": [
                   "howto/cookbooks/agents/agentic-patterns",
                   "howto/cookbooks/agents/pattern-rag-pipeline",
+                  "howto/cookbooks/agents/pattern-llm-judge",
                   "howto/use-cases/rag-demo",
                   "howto/use-cases/rag-operations",
                   "howto/cookbooks/agents/pattern-agent-memory",
@@ -214,6 +215,7 @@
                   "howto/cookbooks/text/text-summarize",
                   "howto/cookbooks/text/text-translate",
                   "howto/cookbooks/text/text-extract-entities",
+                  "howto/cookbooks/text/doc-ingest-website",
                   "howto/cookbooks/text/doc-chunk-for-rag",
                   "howto/cookbooks/text/doc-extract-text-from-office-files"
                 ]
