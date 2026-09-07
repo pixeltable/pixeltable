@@ -16,7 +16,6 @@ import pathlib
 import re
 from typing import TYPE_CHECKING, Any, Type, TypedDict, TypeVar, cast
 
-import httpx
 import numpy as np
 import PIL
 from deprecated import deprecated
@@ -33,6 +32,7 @@ from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.system import set_file_descriptor_limit
 
 if TYPE_CHECKING:
+    import httpx2
     import openai
 
 _logger = logging.getLogger(__name__)
@@ -40,6 +40,7 @@ _logger = logging.getLogger(__name__)
 
 @env.register_client('openai', credential_param='api_key')
 def _(api_key: str, base_url: str | None = None, api_version: str | None = None) -> 'openai.AsyncOpenAI':
+    import httpx2
     import openai
 
     max_connections = Config.get().get_int_value('openai.max_connections') or 2000
@@ -54,17 +55,17 @@ def _(api_key: str, base_url: str | None = None, api_version: str | None = None)
     # Pixeltable scheduler's retry logic takes into account the rate limit-related response headers, so in theory we can
     # benefit from disabling retries in the OpenAI client (max_retries=0). However to do that, we need to get smarter
     # about idempotency keys and possibly more.
-    http_limits = httpx.Limits(max_keepalive_connections=max_keepalive_connections, max_connections=max_connections)
+    http_limits = httpx2.Limits(max_keepalive_connections=max_keepalive_connections, max_connections=max_connections)
     # Connect and pool timeouts should be unset because requests can spend an unbounded time waiting in the queue.
     # Note: the clock starts ticking for the connect timeout when the request enters the queue, not when it is put on
     # the wire.
-    http_timeouts = httpx.Timeout(connect=None, read=read_timeout, write=write_timeout, pool=None)
+    http_timeouts = httpx2.Timeout(connect=None, read=read_timeout, write=write_timeout, pool=None)
     _logger.debug(f'Initializing AsyncOpenAI client with httpx limits: {http_limits} and timeouts: {http_timeouts}')
     return openai.AsyncOpenAI(
         api_key=api_key,
         base_url=base_url,
         default_query=default_query,
-        http_client=httpx.AsyncClient(
+        http_client=httpx2.AsyncClient(
             limits=http_limits,
             # HTTP1 tends to perform better on this kind of workloads
             http2=False,
@@ -121,7 +122,7 @@ def _rate_limits_pool(model: str) -> str:
 
 
 def _get_header_info(
-    headers: httpx.Headers,
+    headers: 'httpx2.Headers',
 ) -> tuple[tuple[int, int, datetime.datetime] | None, tuple[int, int, datetime.datetime] | None]:
     """Parses rate limit related headers"""
     # Requests and project-requests are two separate limits of requests per minute. project-requests headers will be
@@ -160,7 +161,7 @@ def _get_header_info(
     return best_requests_info, best_tokens_info
 
 
-def _get_resource_info(headers: httpx.Headers, resource: str) -> tuple[int, int, datetime.datetime] | None:
+def _get_resource_info(headers: 'httpx2.Headers', resource: str) -> tuple[int, int, datetime.datetime] | None:
     remaining_str = headers.get(f'x-ratelimit-remaining-{resource}')
     if remaining_str is None:
         return None
@@ -317,6 +318,10 @@ class Logprob(TypedDict):
     logprob: float | None
 
 
+class TranscriptionLanguage(TypedDict):
+    code: str
+
+
 class TranscriptionResponse(TypedDict, total=False):
     # Present for response_format='text' / 'srt' / 'vtt' / 'json' / 'verbose_json'. Each path
     # populates a different subset; no field is present across all paths.
@@ -324,6 +329,7 @@ class TranscriptionResponse(TypedDict, total=False):
     srt: str
     vtt: str
     # Transcription (response_format='json')
+    languages: list[TranscriptionLanguage] | None
     logprobs: list[Logprob] | None
     # TranscriptionVerbose (response_format='verbose_json')
     duration: float
