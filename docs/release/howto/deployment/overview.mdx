@@ -8,7 +8,7 @@ Hosted catalog: [Cloud](/howto/deployment/cloud). This page is which local proce
 
 | If you want | What you run | What starts |
 |-------|----------------|-------------|
-| Python only | `pxt schema update`, insert from Python, then `export_sql` | Nothing listening |
+| Python only | `pxt schema update`, `bind_all()`, insert from Python, then `pxt.io.export_sql()` | Nothing listening |
 | Your FastAPI | `pxt schema update`, then `app.include_router(...)` | Your process. [HTTP serving](/howto/deployment/serving) |
 | `pxt service` | `pxt schema update`, then `pxt service update` | A process Pixeltable starts. [Quickstart](/overview/quick-start) |
 
@@ -22,15 +22,20 @@ This example expects the starter-kit chat agent (`Knowledge` in that repo's `app
 pxt schema update app.py agent
 ```
 
-```python
-from pixeltable.io.sql import export_sql
+Importing `app.py` declares the models; it does not attach them to the tables `pxt schema update`
+created. Call `bind_all()` with the same last argument first, or the model raises `NOT_BOUND`.
 
-from app import Knowledge
+```python
+import pixeltable as pxt
+
+from app import Knowledge, TableModel
+
+TableModel.bind_all('agent')
 
 Knowledge.insert(
     [{'body': 'One application file. Insert runs compute.', 'title': 'intro', 'source': 'docs'}]
 )
-export_sql(
+pxt.io.export_sql(
     Knowledge.select(Knowledge.title, Knowledge.body, Knowledge.uuid),
     'knowledge',
     db_connect_str='sqlite:///agent.db',

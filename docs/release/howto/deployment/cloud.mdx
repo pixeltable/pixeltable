@@ -76,7 +76,7 @@ The same file can hold `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document`:
 
 `pxt db update` creates the hosted database or updates its image, secrets, and size. It does not insert your data and does not start app endpoints. `pxt schema update` creates the tables. It does not start the endpoints. `pxt service update` starts hosted endpoints. Do not use `pxt service run` for Cloud; that command only starts endpoints in your local terminal.
 
-After the database is up, insert from the Cloud dashboard or from Python. A local file path on a Cloud table uploads the file. Run `pxt schema diff` to see pending schema changes.
+After the database is up, insert from the Cloud dashboard or from Python. A local file path on a Cloud table uploads the file. Run `pxt schema diff app.py pxt://org:mydb` to see pending schema changes.
 
 ## Media on the home bucket
 
@@ -100,7 +100,7 @@ Or set `output_media_dest` as the default for computed media. Details: [Cloud st
 | Hosted database | not needed | `pxt db update pxt://org:mydb` |
 | Tables | `pxt schema update app.py my_app` | `pxt schema update app.py pxt://org:mydb` |
 | HTTP | `pxt service update app.py my_app` | `pxt service update app.py pxt://org:mydb` |
-| Try a change | insert, `pxt dashboard`, `pxt schema diff` | dashboard insert, `pxt schema diff` |
+| Try a change | insert, `pxt dashboard`, `pxt schema diff app.py my_app` | dashboard insert, `pxt schema diff app.py pxt://org:mydb` |
 | Media | local disk | `pxtfs://org:mydb/home` |
 
 `pxt db` also lists, starts, stops, diffs, and deletes hosted databases. `pxt db build-image` rebuilds the Python image without waiting for drift. [CLI](/platform/cli#cloud).

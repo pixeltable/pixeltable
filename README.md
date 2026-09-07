@@ -39,7 +39,7 @@ pxt schema update app.py my_app
 pxt service update app.py my_app
 ```
 
-The generated file looks like this. `pxt service example` writes a longer file than the snippet (a UDF and a compute route), which you can delete.
+The generated file, with its module docstring and comments removed. Delete whatever you do not need.
 
 ```python
 import pixeltable as pxt
@@ -49,29 +49,34 @@ from pixeltable.serving import FastAPIRouter
 TableModel = pxt.model_base()
 
 
+@pxt.udf
+def excerpt(text: str, n: int = 12) -> str:
+    return text if len(text) <= n else f'{text[:n]}...'
+
+
 class Docs(TableModel, name='docs'):
+    doc_id: pxt.Int
     title: pxt.String
     body: pxt.String | None
     title_upper = pxtf.string.upper(title)
+    summary = excerpt(title)
 
 
 ingest = FastAPIRouter(name='ingest')
 ingest.add_insert_route(
-    Docs,
-    path='/docs',
-    inputs=[Docs.title, Docs.body],
-    outputs=[Docs.title, Docs.title_upper],
+    Docs, path='/docs', inputs=[Docs.doc_id, Docs.title, Docs.body], outputs=[Docs.title_upper, Docs.summary]
 )
+ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
 ```
 
 `title: pxt.String` is a value you insert. `title_upper = ...` is computed on insert and on update. The same file can hold `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document`: [media pipelines](https://docs.pixeltable.com/use-cases/media-processing), [RAG](https://docs.pixeltable.com/use-cases/multimodal-backend). `pxt service list` prints the URL (the port is assigned):
 
 ```bash
 pxt service list
-# ingest  http://127.0.0.1:<port>  ...
+# my_app/ingest  http://127.0.0.1:<port>  pid 12345  app.py
 curl -X POST http://127.0.0.1:<port>/docs \
   -H 'Content-Type: application/json' \
-  -d '{"title": "Hello", "body": "world"}'
+  -d '{"doc_id": 1, "title": "Hello", "body": "world"}'
 ```
 
 `pxt schema update` creates the catalog namespace `my_app` and its tables. That is not a folder on disk. It does not start the endpoints. After the tables exist, `pxt service update` starts them.

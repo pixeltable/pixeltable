@@ -27,7 +27,8 @@
             "pages": [
               "platform/cli",
               "platform/dashboard",
-              "overview/building-pixeltable-with-llms"
+              "overview/building-pixeltable-with-llms",
+              "platform/observability"
             ]
           },
           {
@@ -120,6 +121,7 @@
                       "sdk/latest/runwayml",
                       "sdk/latest/together",
                       "sdk/latest/twelvelabs",
+                      "sdk/latest/vllm",
                       "sdk/latest/voyageai",
                       "sdk/latest/whisper",
                       "sdk/latest/whisperx",
@@ -821,6 +823,30 @@
     {
       "source": "/overview/python-sdk",
       "destination": "/sdk/latest/pixeltable"
+    },
+    {
+      "source": "/platform/custom-functions",
+      "destination": "/platform/udfs-in-pixeltable"
+    },
+    {
+      "source": "/platform/vector-database",
+      "destination": "/platform/embedding-indexes"
+    },
+    {
+      "source": "/libraries/overview",
+      "destination": "/use-cases/agentic-workflows"
+    },
+    {
+      "source": "/libraries/mcp",
+      "destination": "/use-cases/agentic-workflows"
+    },
+    {
+      "source": "/libraries/pixelagent",
+      "destination": "/integrations/frameworks"
+    },
+    {
+      "source": "/libraries/yolox",
+      "destination": "/integrations/frameworks"
     }
   ]
 }

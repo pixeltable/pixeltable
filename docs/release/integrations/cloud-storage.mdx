@@ -222,8 +222,8 @@ https://www.pixeltable.com/dashboard/{org-slug}/{db-slug}/storage/home/browse
 
     # Or set destination per computed column
     t.add_computed_column(
-        frames=pxt.functions.video.frame_iterator(t.video, fps=1),
-        destination='gs://my-gcs-bucket/frames/'
+        audio=pxt.functions.video.extract_audio(t.video, format='mp3'),
+        destination='gs://my-gcs-bucket/audio/'
     )
     ```
   </Tab>
@@ -261,12 +261,12 @@ https://www.pixeltable.com/dashboard/{org-slug}/{db-slug}/storage/home/browse
   <Tab title="Example">
     ```python
     # With global config: output_media_dest = "wasbs://mycontainer@myaccount.blob.core.windows.net/output/"
-    t = pxt.create_table('app/docs', {'document': pxt.Document})
+    t = pxt.create_table('app/images', {'image': pxt.Image})
 
     # Or set destination per computed column
     t.add_computed_column(
-        chunks=pxt.functions.video.document_splitter(t.document),
-        destination='wasbs://mycontainer@myaccount.blob.core.windows.net/chunks/'
+        thumbnail=t.image.resize([224, 224]),
+        destination='wasbs://mycontainer@myaccount.blob.core.windows.net/thumbnails/'
     )
     ```
   </Tab>
