@@ -53,17 +53,16 @@ def excerpt(text: str, n: int = 12) -> str:
 
 
 class Docs(TableModel, name='docs'):
-    title: pxt.String                        # an annotation: a value you insert
+    doc_id: pxt.Int                          # an annotation: a value you insert
+    title: pxt.String
     body: pxt.String | None
-    image: pxt.Image | None                  # a media column: a URL or a local path
     title_upper = pxtf.string.upper(title)   # an assignment: computed on insert
     summary = excerpt(title)
-    thumbnail = image.resize([224, 224])     # computed over the media column
 
 
 ingest = FastAPIRouter(name='ingest')
 ingest.add_insert_route(
-    Docs, path='/docs', inputs=[Docs.title, Docs.body, Docs.image], outputs=[Docs.title_upper, Docs.summary]
+    Docs, path='/docs', inputs=[Docs.doc_id, Docs.title, Docs.body], outputs=[Docs.title_upper, Docs.summary]
 )
 ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
 ```
@@ -76,7 +75,7 @@ body:
 ```bash
 curl -X POST http://127.0.0.1:<port>/docs \
   -H 'Content-Type: application/json' \
-  -d '{"title": "Hello", "body": "world", "image": "https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg"}'
+  -d '{"doc_id": 1, "title": "Hello", "body": "world"}'
 # {"title_upper":"HELLO","summary":"Hello"}
 ```
 

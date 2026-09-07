@@ -50,22 +50,22 @@ def excerpt(text: str, n: int = 12) -> str:
 
 
 class Docs(TableModel, name='docs'):
-    title: pxt.String                           # an annotation: a value you insert
+    doc_id: pxt.Int                             # an annotation: a value you insert
+    title: pxt.String
     body: pxt.String | None
-    image: pxt.Image | None                     # a media column: a URL or a local path
     title_upper = pxtf.string.upper(title)      # an assignment: computed on insert and on update
-    summary = excerpt(title)
-    thumbnail = image.resize([224, 224])        # computed over the media column
+    summary = excerpt(title)                    # a computed column over a udf this file defines
 
 
 ingest = FastAPIRouter(name='ingest')
 ingest.add_insert_route(                        # POST /docs inserts and returns the computed columns
-    Docs, path='/docs', inputs=[Docs.title, Docs.body, Docs.image], outputs=[Docs.title_upper, Docs.summary]
+    Docs, path='/docs', inputs=[Docs.doc_id, Docs.title, Docs.body], outputs=[Docs.title_upper, Docs.summary]
 )
 ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
 ```
 
-Swap `pxt.Image` for `pxt.Video`, `pxt.Audio`, or `pxt.Document` and the shape is the same:
+The same file holds `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document` columns, and a
+computed column over one of them is another assignment:
 [media pipelines](https://docs.pixeltable.com/use-cases/media-processing),
 [RAG](https://docs.pixeltable.com/use-cases/multimodal-backend). The port is assigned, so read it
 back rather than hardcoding it:
@@ -74,7 +74,7 @@ back rather than hardcoding it:
 URL=$(pxt service list --json | jq -r '.[0].endpoint')
 curl -X POST "$URL/docs" \
   -H 'Content-Type: application/json' \
-  -d '{"title": "Hello", "body": "world", "image": "https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg"}'
+  -d '{"doc_id": 1, "title": "Hello", "body": "world"}'
 # {"title_upper":"HELLO","summary":"Hello"}
 ```
 
