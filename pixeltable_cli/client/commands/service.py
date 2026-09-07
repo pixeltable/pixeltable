@@ -47,19 +47,21 @@ def excerpt(text: str, n: int = 12) -> str:
 
 
 class Docs(TableModel, name='docs'):
-    doc_id: pxt.Int
-    title: pxt.String
+    title: pxt.String  # an annotation: a value you insert
     body: pxt.String | None
-    title_upper = pxtf.string.upper(title)  # a computed column: an assignment, not an annotation
+    image: pxt.Image | None  # a media column: insert a URL or a local path
+    title_upper = pxtf.string.upper(title)  # an assignment: a computed column, run on insert
     summary = excerpt(title)  # a computed column over a udf this file defines
+    thumbnail = image.resize([224, 224])  # a computed column over the media column
 
 
 # the router names the service; without name= it takes the name of the variable holding it
 ingest = FastAPIRouter(name='ingest')
 
-# POST /docs inserts a row and returns the computed column
+# POST /docs inserts a row and returns the computed columns it names. A media input takes a URL or
+# a path; pass it in uploadfile_inputs= instead to accept a file upload.
 ingest.add_insert_route(
-    Docs, path='/docs', inputs=[Docs.doc_id, Docs.title, Docs.body], outputs=[Docs.title_upper, Docs.summary]
+    Docs, path='/docs', inputs=[Docs.title, Docs.body, Docs.image], outputs=[Docs.title_upper, Docs.summary]
 )
 
 # POST /titles computes without storing a row
