@@ -495,7 +495,7 @@ class Env:
         if db_connect_str is not None:
             try:
                 db_url = sql.make_url(db_connect_str)
-            except sql.exc.ArgumentError as e:
+            except (sql.exc.ArgumentError, ValueError) as e:
                 # SQLAlchemy quotes the whole string it could not parse, password and all; replacing the
                 # empty string would put the marker between every character of the message
                 detail = str(e) if db_connect_str == '' else str(e).replace(db_connect_str, '<redacted>')

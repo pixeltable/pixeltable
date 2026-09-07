@@ -1322,6 +1322,8 @@ class TestServerRouteHelpers:
 
         # a malformed url is not reproduced at all: its password cannot be located
         assert redact_db_url('::: not a url :::') == '<unparsable db url>'
+        # a port that is not a number is rejected by int(), not by the url parser
+        assert redact_db_url('postgresql://user:secret@host:not-a-port/db') == '<unparsable db url>'
 
     def test_safe_count_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class FakeT:

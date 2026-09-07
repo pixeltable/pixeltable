@@ -33,8 +33,9 @@ def redact_db_url(url: str | URL) -> str:
     """Render a database URL with every password masked; the user, host and database stay readable."""
     try:
         parsed = sql.make_url(url) if isinstance(url, str) else url
-    except sql.exc.ArgumentError:
-        # the password cannot be located in a URL that does not parse, so none of it can be shown
+    except (sql.exc.ArgumentError, ValueError):
+        # ValueError: a port that is not a number reaches int() rather than the URL parser's own check.
+        # The password cannot be located in a URL that does not parse, so none of it can be shown.
         return '<unparsable db url>'
     # hide_password masks the user-info password alone, and libpq takes one in the query as well
     in_query = {key: 'REDACTED' for key in parsed.query if 'password' in key.lower()}
