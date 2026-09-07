@@ -8,7 +8,7 @@
   <img alt="Media is inserted into one table; annotated columns hold inserted values, assigned columns compute on insert, and an index and an HTTP route are declared on the same table" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/_logo/architecture-light.svg" width="100%">
 </picture>
 
-**Declare tables, transforms, indexes, and endpoints in one `app.py`. Insert a row and the transforms run.**
+## The unified multimodal backend for AI data apps in one Python file
 
 [**Quickstart**](https://docs.pixeltable.com/overview/quick-start) |
 [**Documentation**](https://docs.pixeltable.com/) |
@@ -18,10 +18,12 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
+[![nightly status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
+[![stress-tests status](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml)
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![Python](https://img.shields.io/pypi/pyversions/pixeltable)](https://pypi.org/project/pixeltable/)
 
-Pixeltable replaces the blob store, the vector database, the orchestrator, and the endpoint code with one application file. Images, video, audio, and documents live in tables. A transform is a computed column. An index is a declaration. A route is a declaration. Insert a row and everything below it runs.
+Pixeltable is the database, orchestration, and serving layers. Images, video, audio, and documents live in tables. A transform is a computed column. An index is a declaration, and so is an HTTP route. Insert a row and everything below it runs. Object storage, a vector database, an orchestrator, and the endpoint code that copies between them collapse into one application file.
 
 ```bash
 pip install 'pixeltable[serve]'
@@ -31,8 +33,8 @@ pxt schema update app.py my_app
 pxt service update app.py my_app
 ```
 
-Python 3.11+ on Linux, macOS, or Windows. `pxt schema update` creates the catalog `my_app` and its
-tables; it does not start HTTP. `pxt service update` starts HTTP; it does not create tables.
+`pxt schema update` creates the catalog `my_app` and its tables; it does not start HTTP.
+`pxt service update` starts HTTP; it does not create tables.
 
 `pxt service example` writes this application file.
 
