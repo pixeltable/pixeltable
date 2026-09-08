@@ -22,16 +22,14 @@ import sqlalchemy as sql
 from pixeltable import exceptions as excs
 from pixeltable._query import Query
 from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_loop
-from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
-from pixeltable.utils import parse_local_file_path
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
 from . import proxy_protocol
-from .proxy_protocol import PROTOCOL_VERSION, LocalFile, MediaPath, ProxyRequest, ProxyResponse
+from .proxy_protocol import PROTOCOL_VERSION, ProxyRequest
 
 _logger = logging.getLogger(__name__)
 
@@ -41,10 +39,8 @@ if TYPE_CHECKING:
     from pixeltable.catalog.update_status import UpdateStatus
 
 
-def handle(
-    request_json: str, request_parts: list[bytes], *, include_error_detail: bool = False
-) -> tuple[str, list[bytes]]:
-    """Entry point for an incoming proxy request; always returns a ProxyResponse as (JSON head, binary parts)."""
+def handle(request_json: str, request_parts: list[bytes], *, include_error_detail: bool = False) -> bytes:
+    """Entry point for an incoming proxy request; always returns an encoded response body."""
     request = ProxyRequest.model_validate_json(request_json)
     request._binary_parts = request_parts
     path_label = request.path_key.get('tbl_key', request.path_key) if request.path_key else ''
@@ -71,19 +67,19 @@ def handle(
                     md = cat.read_md_for_export(tbl)
                 if snapshot_key != _current_key(md):
                     # return the current md and is_stale_md=True so the client refreshes and retries
-                    return _encode_response(ProxyResponse(current_md=md, is_stale_md=True))
+                    return proxy_protocol.encode_response({'current_md': md, 'is_stale_md': True})
 
             _prefetch_remote_parts(request)
             result = _convert_result(key, table_handler(request, tbl))
             if not is_mutation:
                 # a read leaves the schema unchanged, so the client's md stays valid; no need to send it back
-                return _encode_response(ProxyResponse(result=result))
+                return proxy_protocol.encode_response({'result': result})
 
             # a mutation bumps the table version; return the new md so the client's path refreshes
             with cat.begin_xact(for_write=False):
                 md = cat.read_md_for_export(tbl)
             _logger.debug('%s.%s %s (%.2fs)', request.class_name, request.method, path_label, time.monotonic() - t0)
-            return _encode_response(ProxyResponse(result=result, current_md=md))
+            return proxy_protocol.encode_response({'result': result, 'current_md': md})
 
         handler = _HANDLERS.get(key)
         if handler is None:
@@ -91,9 +87,14 @@ def handle(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported proxy method: {request.class_name}.{request.method}'
             )
         _prefetch_remote_parts(request)
-        result = _convert_result(key, handler(request))
+        result = handler(request)
+        body: bytes
+        if key in _BODY_METHODS:
+            body = result
+        else:
+            body = proxy_protocol.encode_response({'result': _convert_result(key, result)})
         _logger.debug('%s.%s (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
-        return _encode_response(ProxyResponse(result=result))
+        return body
 
     except excs.Error as e:
         if e.detail is not None:
@@ -104,7 +105,7 @@ def handle(
         error_dict['message'] = _restore_upload_names(error_dict['message'], request._uploaded_names)
         if 'cause' in error_dict:
             error_dict['cause'] = _restore_upload_names(error_dict['cause'], request._uploaded_names)
-        return _encode_response(ProxyResponse(error=error_dict))
+        return proxy_protocol.encode_response({'error': error_dict})
 
     except Exception:
         # An unexpected server-side failure. Log the full traceback for debugging, but return only a short
@@ -124,7 +125,7 @@ def handle(
         error_dict = err.to_dict()
         if include_error_detail:
             error_dict['detail'] = tb
-        return _encode_response(ProxyResponse(error=error_dict))
+        return proxy_protocol.encode_response({'error': error_dict})
 
     finally:
         # best-effort removal of this request's uploaded temp files; missing_ok covers a file that a handler moved
@@ -182,38 +183,10 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
         list(executor.map(download, keys))
 
 
-def _encode_local_path(value: Any) -> Any:
-    """Encode local file paths as LocalFile/MediaPath."""
-    if not isinstance(value, str):
-        return value
-    path = parse_local_file_path(value)
-    if path is None:
-        return value  # remote URL: the client fetches it directly
-    if TempStore.contains_path(path):
-        return LocalFile(str(path))
-    media_dir = Env.get().media_dir.resolve()
-    resolved = path.resolve()
-    if resolved == media_dir or media_dir in resolved.parents:
-        return MediaPath(resolved.relative_to(media_dir).as_posix())
-    cache_dir = Env.get().file_cache_dir.resolve()
-    if resolved == cache_dir or cache_dir in resolved.parents:
-        # a file-cache copy of remote media (e.g. from .localpath): send its bytes, since the daemon's local
-        # path can't be resolved by the client
-        # TODO: send the url and have the client fetch it directly?
-        return LocalFile(str(path))
-    return value
-
-
 def _convert_result(key: tuple[str, str], result: Any) -> Any:
     """Apply this method's registered output converter (if any) to prepare its result for the wire."""
     converter = _RESULT_CONVERTERS.get(key)
     return result if converter is None else converter(result)
-
-
-def _encode_response(response: ProxyResponse) -> tuple[str, list[bytes]]:
-    """Encode a response as (JSON head, binary parts), moving any binary values in it out to the parts list."""
-    proxy_protocol.serialize_response(response)
-    return response.model_dump_json(), response._binary_parts
 
 
 def _restore_upload_names(text: str, uploaded_names: dict[str, str]) -> str:
@@ -418,8 +391,6 @@ def _insert_sql_source(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 
 def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
-    from pixeltable._query import Query
-
     # only an InsertableTableProxy dispatches 'insert_query', so a non-InsertableTable here is an internal error
     assert isinstance(tbl, InsertableTable), tbl
     kwargs = _deserialize_args(request)
@@ -554,57 +525,36 @@ def _describe(request: ProxyRequest, tbl: LocalTable) -> Any:
     return {'str': helper.to_string(), 'html': helper.to_html()}
 
 
-def _run_query(query_dict: dict, run: 'Callable[[Any], Any]') -> dict:
-    from pixeltable._query import Query
-
+def _build_query(query_dict: dict) -> Query:
     # from_dict() loads metadata
     @retry_loop(for_write=False)
     def build() -> Query:
         return Query.from_dict(query_dict)
 
-    query = proxy_protocol.check_query(build())
-    rs = run(query)
-    return {'schema': dict(rs._schema), 'rows': [list(row._data) for row in rs._rows]}
+    return proxy_protocol.check_query(build())
 
 
-def _query_collect(request: ProxyRequest) -> dict:
+def _query_collect(request: ProxyRequest) -> bytes:
     payload = proxy_protocol.deserialize_request(request)
-    return _run_query(payload['query'], lambda q: q._collect(args=payload.get('args'), media_as_urls=True))
-
-
-def _query_head(request: ProxyRequest) -> dict:
-    args = proxy_protocol.deserialize_request(request)
-    return _run_query(args['query'], lambda q: q._head(args['n'], media_as_urls=True))
-
-
-def _query_tail(request: ProxyRequest) -> dict:
-    args = proxy_protocol.deserialize_request(request)
-    return _run_query(args['query'], lambda q: q._tail(args['n'], media_as_urls=True))
+    query = _build_query(payload['query'])
+    return query._collect_content(args=payload.get('args'))
 
 
 def _query_count(request: ProxyRequest) -> int:
-    from pixeltable._query import Query
-
-    query_dict = proxy_protocol.deserialize_request(request)['query']
-
-    @retry_loop(for_write=False)
-    def build() -> Query:
-        return Query.from_dict(query_dict)
-
-    return build().count()
+    return _build_query(proxy_protocol.deserialize_request(request)['query']).count()
 
 
 def _encode_row_media(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Converter for row dicts containing references to local files."""
     for row in rows:
         for name in row:
-            row[name] = _encode_local_path(row[name])
+            row[name] = proxy_protocol.encode_local_path(row[name])
     return rows
 
 
 def _encode_row_batch(batch: RowBatch) -> RowBatch:
     """Converter for a RowBatch containing references to local files."""
-    return batch._map_values(_encode_local_path)
+    return batch._map_values(proxy_protocol.encode_local_path)
 
 
 def _encode_update_status(status: UpdateStatus) -> UpdateStatus:
@@ -612,12 +562,6 @@ def _encode_update_status(status: UpdateStatus) -> UpdateStatus:
     if status.rows is not None:
         _encode_row_media(status.rows)  # mutates the row dicts in place (UpdateStatus is frozen)
     return status
-
-
-def _encode_result_set(result: dict) -> dict:
-    """Converter for query terminals returning {schema, rows}."""
-    result['rows'] = [[_encode_local_path(v) for v in row] for row in result['rows']]
-    return result
 
 
 # Catalog methods: handler(request) -> serializable result.
@@ -634,8 +578,6 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('CatalogBase', 'create_dir'): _catalog_method,
     ('CatalogBase', 'drop_dir'): _catalog_method,
     ('Query', 'collect'): _query_collect,
-    ('Query', 'head'): _query_head,
-    ('Query', 'tail'): _query_tail,
     ('Query', 'count'): _query_count,
 }
 
@@ -665,6 +607,9 @@ _MUTATION_METHODS: frozenset[str] = frozenset(
         'recompute_columns',
     }
 )
+
+# methods whose handler returns the encoded response body, rather than a value for encode_response()
+_BODY_METHODS: frozenset[tuple[str, str]] = frozenset({('Query', 'collect')})
 
 # Path-bearing Table methods: handler(request, tbl) -> result; handle() resolves tbl and sends current md back.
 _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], Any]] = {
@@ -699,9 +644,6 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
 # (class, method) -> output converter, for the methods whose result can carry media. handle() applies the
 # converter (if any) to a handler's return value before serialization.
 _RESULT_CONVERTERS: dict[tuple[str, str], Callable[[Any], Any]] = {
-    ('Query', 'collect'): _encode_result_set,
-    ('Query', 'head'): _encode_result_set,
-    ('Query', 'tail'): _encode_result_set,
     ('Table', 'insert'): _encode_update_status,
     ('Table', 'insert_source'): _encode_update_status,
     ('Table', 'insert_hf_dataset'): _encode_update_status,
