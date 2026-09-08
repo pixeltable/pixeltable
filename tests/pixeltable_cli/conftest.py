@@ -238,8 +238,8 @@ def authenticated_http(db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -
 def no_hosted_services(db_root: DatabaseRoot) -> Iterator[None]:
     """Leave a hosted database holding no service instances.
 
-    A service name is unique per database, not per catalog path, so one test's instance is in the way of
-    the next test's however far apart their directories are. The hosted database outlives them both.
+    The hosted database outlives every test that runs against it, so a service one test leaves behind is
+    still deployed while the next one runs, and a recursive list finds it.
     """
     if db_root.id != 'cloud':
         yield
