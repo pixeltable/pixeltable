@@ -3,9 +3,10 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Any, Iterator
 
 import pytest
 
@@ -102,11 +103,31 @@ class TestMcp:
         assert res[0]['tool_calls'] == {'pixelmultiple': [str((7 + 22) * 9)], 'pixeldict': None}
 
 
-def _wait_for_port(port: int, timeout: float = 30.0) -> None:
+@contextmanager
+def _mcp_child(env: dict[str, str]) -> Iterator[tuple[subprocess.Popen[Any], Any]]:
+    # TemporaryFile, not PIPE: the server writes DEBUG logs and a full pipe stalls it.
+    with tempfile.TemporaryFile() as err:
+        process = subprocess.Popen(
+            [sys.executable, 'tests/example_mcp_server.py'], env=env, stdout=subprocess.DEVNULL, stderr=err
+        )
+        try:
+            yield process, err
+        finally:
+            process.kill()
+            process.wait()
+
+
+def _wait_for_port(port: int, process: subprocess.Popen[Any], stderr: Any, timeout: float = 30.0) -> None:
     # Poll until the server accepts a connection, so startup waits exactly as long as needed instead of a fixed
     # sleep that is both slower than necessary and flaky on a contended runner.
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        rc = process.poll()
+        if rc is not None:
+            stderr.seek(0)
+            err = stderr.read().decode(errors='replace').strip()
+            msg = f'MCP server on port {port} exited with {rc} before listening'
+            raise RuntimeError(f'{msg}: {err}' if err else msg)
         try:
             with socket.create_connection(('localhost', port), timeout=1.0):
                 return
@@ -129,23 +150,18 @@ def init_mcp_server(init_env: None, worker_id: str) -> Iterator[str]:
     port = _worker_base_port(worker_id)
     _logger.info('Starting MCP server pytest fixture.')
     env = {**os.environ, 'PIXELTABLE_MCP_PORT': str(port)}
-    mcp_process = subprocess.Popen([sys.executable, 'tests/example_mcp_server.py'], env=env)
-    _wait_for_port(port)
-    yield f'http://localhost:{port}/mcp'
-
-    _logger.info('Terminating MCP server pytest fixture.')
-    mcp_process.kill()
-    mcp_process.wait()
+    with _mcp_child(env) as (mcp_process, err):
+        try:
+            _wait_for_port(port, mcp_process, err)
+            yield f'http://localhost:{port}/mcp'
+        finally:
+            _logger.info('Terminating MCP server pytest fixture.')
 
 
 @contextmanager
 def _mcp_server_variant(variant: str, port: int) -> Iterator[None]:
     # Run the example server on the given port so its lifecycle is independent of the session-scoped server.
     env = {**os.environ, 'PIXELTABLE_MCP_PORT': str(port), 'PIXELTABLE_MCP_VARIANT': variant}
-    process = subprocess.Popen([sys.executable, 'tests/example_mcp_server.py'], env=env)
-    _wait_for_port(port)
-    try:
+    with _mcp_child(env) as (process, err):
+        _wait_for_port(port, process, err)
         yield
-    finally:
-        process.kill()
-        process.wait()

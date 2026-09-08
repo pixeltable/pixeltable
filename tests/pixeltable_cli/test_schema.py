@@ -513,6 +513,7 @@ class TestSchema:
     )
     def test_example(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         skip_test_if_not_installed('sentence_transformers')
+        skip_test_if_not_installed('spacy')  # the view's iterator splits on sentences
         p = db_root.make_catalog_path
         target = p('documented')
 

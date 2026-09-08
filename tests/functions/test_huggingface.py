@@ -216,7 +216,7 @@ class TestHuggingface:
 
     @pytest.mark.xdist_group('large_model')
     def test_sam3_for_segmentation(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('transformers', 'torchvision')
         from huggingface_hub import get_token
 
         if get_token() is None:
@@ -290,7 +290,7 @@ class TestHuggingface:
             assert 0.0 <= score <= 1.0
 
     def test_sam3_for_segmentation_invalid_args(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('transformers', 'torchvision')
         from pixeltable.functions.huggingface import sam3_for_segmentation
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image | None})
@@ -306,7 +306,7 @@ class TestHuggingface:
 
     @pytest.mark.xdist_group('large_model')
     def test_sam3_for_video_segmentation(self, uses_db: None) -> None:
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('transformers', 'torchvision')
         from huggingface_hub import get_token
 
         if get_token() is None:
@@ -350,7 +350,7 @@ class TestHuggingface:
 
     @pytest.mark.xdist_group('large_model')
     def test_sam3_for_segmentation_no_detections(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('transformers', 'torchvision')
         from huggingface_hub import get_token
 
         if get_token() is None:
