@@ -1,6 +1,6 @@
 """The router stub that stands in for FastAPIRouter when fastapi is not installed."""
 
-from pixeltable.serving import ROUTE_DECLARATION_METHODS
+from pixeltable.serving import ROUTE_DEFINITION_METHODS
 
 from ..utils import skip_test_if_not_installed
 
@@ -18,4 +18,4 @@ class TestStubRouter:
             for name in vars(FastAPIRouter)
             if name.endswith('_route') and not name.startswith('_') and name != 'add_api_route'
         }
-        assert declared == set(ROUTE_DECLARATION_METHODS), declared.symmetric_difference(ROUTE_DECLARATION_METHODS)
+        assert declared == set(ROUTE_DEFINITION_METHODS), declared.symmetric_difference(ROUTE_DEFINITION_METHODS)

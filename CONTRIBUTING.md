@@ -10,7 +10,7 @@ this step-by-step. Here are some guidelines to keep in mind for your first contr
 * Familiarize yourself with the Pixeltable documentation and codebase. Look through the Pixeltable
     [community issues](https://github.com/pixeltable/pixeltable/issues) and
     [discussions](https://github.com/orgs/pixeltable/discussions) to see if it's a problem or feature that's been
-    discussed before. Issues that are marked `good-first-issue` are particularly suitable for first-time contibutors.
+    discussed before. Issues that are marked `good first issue` are particularly suitable for first-time contributors.
 * If it's your first or second contribution, it's easiest to start out by adding a new UDF or integration, rather than
     trying to improve some core Pixeltable feature or make changes to our process or workflow. Once you've become more
     familiar with Pixeltable engineering, you'll be able to contribute to those areas as well.

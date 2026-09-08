@@ -43,11 +43,11 @@ class DirEntry:
 
 class IndexSpec(NamedTuple):
     """
-    A declared spec names its column; a resolved one identifies it. A column of the table being created is
+    A defined spec names its column; a resolved one identifies it. A column of the table being created is
     identified by the Column instance the builder assigns an id to; one that already exists, in this table or a
     base, by its metadata.
 
-    TODO: make this generic in the column type, so that a declared spec is an IndexSpec[str] and a
+    TODO: make this generic in the column type, so that a defined spec is an IndexSpec[str] and a
     resolved one an IndexSpec[Column].
     """
 

@@ -35,7 +35,7 @@ Use `pxt <command> --help` for per-subcommand flags and examples.
 | **Inspection** | `ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config` |
 | **Navigation** | `cd`, `pwd` |
 | **Query** | `rows`, `get`, `count`, `errors` |
-| **Mutation** | `drop`, `drop-dir`, `rename`, `mv`, `revert` |
+| **Mutation** | `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert` |
 | **Schema** | `schema diff`, `schema update`, `schema prune` |
 | **Interactive** | `shell` |
 | **Serving** | `service` |
@@ -49,9 +49,9 @@ These flags work the same way across the catalog commands that support them and 
 | Flag | Available on | Description |
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
-| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `revert`), the `schema` and `service` verbs, plus `db`, `secret`, `org`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), or the lifecycle subcommands that print plain status lines (`daemon start`/`stop`). |
-| `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `revert`), plus `schema update`, `schema prune`, `service update` and `service prune` | Print the intended action; don't execute. |
-| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
+| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs, plus `db`, `secret`, `org`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), or the lifecycle subcommands that print plain status lines (`daemon start`/`stop`). |
+| `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), plus `schema update`, `schema prune`, `service update` and `service prune` | Print the intended action; don't execute. |
+| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
 
 ### Working directory
 
@@ -88,6 +88,7 @@ pxt errors my_dir/my_table         # rows where a computed column failed
 # ops
 pxt drop my_dir/my_table -f
 pxt mv my_dir/my_table other_dir
+pxt recompute my_dir/my_table summary -f
 pxt revert my_dir/my_table --steps 3 -f
 
 # navigate
@@ -284,7 +285,7 @@ pxt errors my_dir/my_table --col embedding
 
 ## Mutation commands
 
-Every mutation accepts the universal `-n`/`--dry-run` and `--json` flags. The destructive ones (`drop`, `drop-dir`, `revert`) also prompt `[y/N]` with a TTY and accept `-f`/`--force` to skip the prompt; in non-interactive contexts they refuse to proceed without `-f`. `rename` and `mv` don't prompt: renaming or moving a catalog entry is reversible and doesn't lose data.
+Every mutation accepts the universal `-n`/`--dry-run` and `--json` flags. The destructive ones (`drop`, `drop-dir`, `recompute`, `revert`) also prompt `[y/N]` with a TTY and accept `-f`/`--force` to skip the prompt; in non-interactive contexts they refuse to proceed without `-f`. `rename` and `mv` don't prompt: renaming or moving a catalog entry is reversible and doesn't lose data.
 
 ### `pxt drop`
 
@@ -329,6 +330,29 @@ Move a table/view/dir under a different directory; the leaf name is preserved. `
 pxt mv my_dir/my_table other_dir              # -> other_dir/my_table
 pxt mv my_dir/my_table /                      # move to root
 ```
+
+### `pxt recompute`
+
+Recompute one or more computed columns of a table. Mirrors `Table.recompute_columns()`, without its `where`
+predicate.
+
+| Flag | Description |
+|---|---|
+| `--errors-only` | Only the rows whose value is an error. Takes a single column |
+| `--no-cascade` | Do not recompute the computed columns and views that transitively depend on this one |
+
+```bash
+pxt recompute my_dir/my_table summary -f                  # the column and its dependents
+pxt recompute my_dir/my_table summary embedding -f        # several columns in one pass
+pxt recompute my_dir/my_table summary --errors-only -f    # only the rows that failed
+pxt recompute my_dir/my_table summary -n                  # what it would recompute, and over how many rows
+```
+
+<Warning>
+Recomputing evaluates the target columns over every row, which can require substantial computing resources.
+`--errors-only` limits that recomputation to only the rows that failed.
+`-n` reports the target table's own row count.
+</Warning>
 
 ### `pxt revert`
 
@@ -392,7 +416,7 @@ pxt service check app.py --json
 
 ## Schema management
 
-The commands above act on one object at a time. `pxt schema` works differently: you describe the tables you want in a Python file, and the CLI reconciles a catalog directory to that description. Provisioning an empty target and evolving an existing one are the same command, so there is no separate first-time step.
+The commands above act on one object at a time. `pxt schema` works differently: you describe the tables you want in a Python file, and the CLI reconciles a catalog to that description. Provisioning an empty target and evolving an existing one are the same command, so there is no separate first-time step.
 
 | Command | Description |
 |---|---|
@@ -402,7 +426,7 @@ The commands above act on one object at a time. `pxt schema` works differently: 
 | `pxt schema check SCHEMA` | Validate the schema file on its own. Takes no `TARGET` and reads no catalog |
 | `pxt schema example` | Write a working schema file to start from |
 
-`SCHEMA` is a path to a Python file. `TARGET` is a catalog directory or a `pxt://` URI; it is created by `update` if it doesn't exist.
+`SCHEMA` is a path to a Python file. `TARGET` is a catalog: a local directory or a `pxt://` URI; it is created by `update` if it doesn't exist.
 
 ### The schema file
 
@@ -597,7 +621,7 @@ application of your own. It requires the `serve` extra
 
 <Info>
 A service is a full FastAPI application with auto-generated [OpenAPI docs](https://fastapi.tiangolo.com/features/#automatic-docs)
-at `/docs`. For the API the routes are declared with, see the [Python serving API](/howto/deployment/serving#quickstart-python).
+at `/docs`. For the API the routes are declared with, see the [Python serving API](/howto/deployment/serving#mount-on-your-own-fastapi-app).
 </Info>
 
 One file declares both halves, so the same file drives both commands:
@@ -608,7 +632,7 @@ pxt schema update app.py my_dir     # create the tables the models declare
 pxt service update app.py my_dir    # serve this file's services against them
 ```
 
-`TARGET` is the catalog directory the models bind against, so one file can be applied to a development
+`TARGET` is the catalog the models bind against, so one file can be applied to a development
 directory and a production one.
 
 ### Serving your own application

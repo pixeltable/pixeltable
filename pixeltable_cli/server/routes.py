@@ -246,7 +246,7 @@ def table_row(req: Request) -> models.GetResponse:
     pk_names = md.get('primary_key')
     if pk_names is None or len(pk_names) == 0:
         raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT, f'{path}: no primary key declared; row lookup requires one'
+            excs.ErrorCode.INVALID_ARGUMENT, f'{path}: no primary key defined; row lookup requires one'
         )
     if len(pk_values) != len(pk_names):
         raise excs.RequestError(
@@ -307,7 +307,7 @@ def table_errors(req: Request) -> models.ErrorsResponse:
     pk_names = md.get('primary_key')
     if pk_names is None or len(pk_names) == 0:
         raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT, f'{path}: no primary key declared; errors view requires one'
+            excs.ErrorCode.INVALID_ARGUMENT, f'{path}: no primary key defined; errors view requires one'
         )
 
     if col is not None:
@@ -364,6 +364,22 @@ def drop_table(req: Request) -> models.DropResponse:
     path = req.resolve_path(body.path)
     pxt.drop_table(path, force=body.cascade)
     return models.DropResponse(path=path, dropped=True)
+
+
+@router.post('/api/tables/recompute')
+def recompute(req: Request) -> models.RecomputeResponse:
+    body = req.body(models.RecomputeBody)
+    path = req.resolve_path(body.path)
+    t = pxt.get_table(path)
+    status = t.recompute_columns(*body.columns, errors_only=body.errors_only, cascade=body.cascade)
+    return models.RecomputeResponse(
+        path=path,
+        columns=status.updated_cols,
+        num_rows=status.num_rows,
+        num_computed_values=status.num_computed_values,
+        num_excs=status.num_excs,
+        cols_with_excs=status.cols_with_excs,
+    )
 
 
 @router.post('/api/tables/revert')
@@ -513,14 +529,21 @@ def service_check(req: Request) -> types.CheckReport:
 @router.post('/api/service/diff')
 def service_diff(req: Request) -> types.ServicePlan:
     body = req.body(models.ServiceDiffBody)
-    return service.service_diff(body.app_file, req.resolve_path(body.target), otel=body.otel)
+    return service.service_diff(
+        body.app_file, req.resolve_path(body.target), service_name=body.service_name, otel=body.otel
+    )
 
 
 @router.post('/api/service/update')
 def service_update(req: Request) -> types.ServicePlan:
     body = req.body(models.ServiceUpdateBody)
     applied = service.service_update(
-        body.app_file, req.resolve_path(body.target), allow_destructive=body.allow_destructive, otel=body.otel
+        body.app_file,
+        req.resolve_path(body.target),
+        service_name=body.service_name,
+        allow_destructive=body.allow_destructive,
+        otel=body.otel,
+        port=body.port,
     )
     return applied
 

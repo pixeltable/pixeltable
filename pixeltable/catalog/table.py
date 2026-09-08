@@ -228,7 +228,7 @@ class Table(SchemaObject):
         columns, use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
 
         The format of the `schema` argument is a dict mapping column names to their types. A bare type such as
-        `pxt.Int` declares a non-nullable column; use `pxt.Int | None` to allow nulls. Note that a column added
+        `pxt.Int` defines a non-nullable column; use `pxt.Int | None` to allow nulls. Note that a column added
         to a table that already has rows must be nullable.
 
         Args:

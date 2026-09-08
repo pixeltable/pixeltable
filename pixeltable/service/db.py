@@ -51,7 +51,7 @@ _ARCHIVE_DIR = 'project'
 
 _DB_DESTRUCTIVE_HINT = "Re-run 'pxt db update' with --allow-destructive to apply these changes."
 
-# a declared secret names the environment variable holding its value, as 'env:NAME'
+# a defined secret names the environment variable holding its value, as 'env:NAME'
 _ENV_BINDING = 'env:'
 
 # how long a hosted database may stay in a transitional state before an update gives up on it
@@ -383,7 +383,7 @@ def _secret_keys(db_path: catalog.Path) -> list[str]:
 
 
 def _apply_secret_op(db_path: catalog.Path, op: DbChangeOp, config: DatabaseConfig) -> None:
-    """Apply one secret operation: set the declared value, or delete the key."""
+    """Apply one secret operation: set the defined value, or delete the key."""
     key = op.name
     if op.op == 'drop':
         management_client.api_call(DeleteSecretRequest(org=db_path.org, db=db_path.db, key=key))
@@ -395,12 +395,12 @@ def _apply_secret_op(db_path: catalog.Path, op: DbChangeOp, config: DatabaseConf
 
 
 def _secret_value(key: str, binding: str) -> str:
-    """Read a declared secret's value from the environment variable its binding names."""
+    """Read a defined secret's value from the environment variable its binding names."""
     name = binding[len(_ENV_BINDING) :] if binding.startswith(_ENV_BINDING) else None
     if name is None:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            f"secret {key!r} is declared as {binding!r}; write '{_ENV_BINDING}NAME' to name the environment "
+            f"secret {key!r} is defined as {binding!r}; write '{_ENV_BINDING}NAME' to name the environment "
             'variable holding the value, which keeps the value out of the project',
         )
     value = os.environ.get(name)

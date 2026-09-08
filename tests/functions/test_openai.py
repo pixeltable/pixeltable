@@ -69,7 +69,8 @@ class TestOpenai:
         assert "'vtt': String" in tr_type
         assert "'segments':" in tr_type
         assert (
-            "optional_keys=['duration', 'language', 'logprobs', 'segments', 'srt', 'text', 'usage', 'vtt', 'words']"
+            "optional_keys=['duration', 'language', 'languages', 'logprobs', 'segments', 'srt', 'text', "
+            "'usage', 'vtt', 'words']"
         ) in tr_type
         tl_type = t.get_metadata()['columns']['translation']['type_']
         assert "'text': String" in tl_type

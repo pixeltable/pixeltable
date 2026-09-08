@@ -4,6 +4,10 @@ sidebarTitle: 'Deploy to Pixeltable Cloud'
 description: 'Same application file against a hosted database'
 ---
 
+<Note>
+  Pixeltable Cloud is in Limited Beta. Email [contact@pixeltable.com](mailto:contact@pixeltable.com) if you are interested.
+</Note>
+
 Use the same `app.py` as the [Quickstart](/overview/quick-start). Create an API key in the Cloud dashboard, export it, then create the hosted database, the tables, and hosted HTTP.
 
 ## Get an API key
@@ -12,7 +16,7 @@ Sign in from the browser, create a key, then export it. The CLI reads `PIXELTABL
 
 <Steps>
   <Step title="Sign in">
-    New account: [pixeltable.com/signup](https://www.pixeltable.com/signup). Existing account: [pixeltable.com/login](https://www.pixeltable.com/login). After sign-in, the [dashboard](https://www.pixeltable.com/dashboard) opens your organization.
+    Cloud is in Limited Beta. Email [contact@pixeltable.com](mailto:contact@pixeltable.com) to get an account. Once you have one, sign in at [pixeltable.com/login](https://www.pixeltable.com/login) and the [dashboard](https://www.pixeltable.com/dashboard) opens your organization.
   </Step>
   <Step title="Create a key">
     Open **API Keys** in the organization sidebar, or go to `https://www.pixeltable.com/dashboard/your-org/api-keys`. Click **New**, or **Create API Key** if the list is empty. Name the key. Click **Create Key**. Copy the value now. The dashboard shows the full key once.
@@ -72,7 +76,7 @@ The same file can hold `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document`:
 
 `pxt db update` creates the hosted database or updates its image, secrets, and size. It does not insert your data and does not start app endpoints. `pxt schema update` creates the tables. It does not start the endpoints. `pxt service update` starts hosted endpoints. Do not use `pxt service run` for Cloud; that command only starts endpoints in your local terminal.
 
-After the database is up, insert from the Cloud dashboard or from Python. A local file path on a Cloud table uploads the file. Run `pxt schema diff` to see pending schema changes.
+After the database is up, insert from the Cloud dashboard or from Python. A local file path on a Cloud table uploads the file. Run `pxt schema diff app.py pxt://org:mydb` to see pending schema changes.
 
 ## Media on the home bucket
 
@@ -96,14 +100,14 @@ Or set `input_media_dest` / `output_media_dest` to change the default for insert
 | Hosted database | not needed | `pxt db update pxt://org:mydb` |
 | Tables | `pxt schema update app.py my_app` | `pxt schema update app.py pxt://org:mydb` |
 | HTTP | `pxt service update app.py my_app` | `pxt service update app.py pxt://org:mydb` |
-| Try a change | insert, `pxt dashboard`, `pxt schema diff` | dashboard insert, `pxt schema diff` |
+| Try a change | insert, `pxt dashboard`, `pxt schema diff app.py my_app` | dashboard insert, `pxt schema diff app.py pxt://org:mydb` |
 | Media | local disk | `pxtfs://org:mydb/home` |
 
 `pxt db` also lists, starts, stops, diffs, and deletes hosted databases. `pxt db build-image` rebuilds the Python image without waiting for drift. [CLI](/platform/cli#cloud).
 
 <CardGroup cols={2}>
-  <Card title="Join the waitlist" icon="envelope" href="https://www.pixeltable.com/waitlist">
-    Early access to Pixeltable Cloud.
+  <Card title="Request an account" icon="envelope" href="mailto:contact@pixeltable.com">
+    Cloud is in Limited Beta.
   </Card>
   <Card title="Book a demo" icon="calendar" href="https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM">
     Talk through a Cloud deployment.

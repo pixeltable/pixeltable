@@ -1,4 +1,4 @@
-"""model_base(): the registry of declared models and the operations that reconcile them with the catalog."""
+"""model_base(): the registry of defined models and the operations that reconcile them with the catalog."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
-from .declaration import BtreeIndex, EmbeddingIndex, IndexDeclaration, TableModelMeta
+from .definition import BtreeIndex, EmbeddingIndex, IndexDefinition, TableModelMeta
 from .diff import (
     _PY_MISMATCH_HINT,
     PY_DESTRUCTIVE_HINT,
@@ -199,11 +199,11 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     )
                     new_columns[col_name] = (spec, origin)
 
-                # resolve idx_refs to IndexDeclarations. (We can't simply go by index name, since there may be unnamed
+                # resolve idx_refs to IndexDefinitions. (We can't simply go by index name, since there may be unnamed
                 # indexes.) Instead we compare the (index_type, name, columns) tuple; if there are two unnamed indexes
                 # with the same type, then they *must* have different columns, so the tuple uniquely identifies the
                 # index.
-                new_idxs: list[IndexDeclaration] = []
+                new_idxs: list[IndexDefinition] = []
                 for idx_ref in new_idx_refs:
                     matching_idxs = [
                         idx

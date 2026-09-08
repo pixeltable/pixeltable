@@ -40,7 +40,7 @@ def run(argv: list[str]) -> None:
     sub = parser.add_subparsers(dest='action', required=True)
 
     for verb in ('diff', 'update'):
-        p = sub.add_parser(verb, help=f'{"show" if verb == "diff" else "apply"} what the project declares')
+        p = sub.add_parser(verb, help=f'{"show" if verb == "diff" else "apply"} what the project defines')
         p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
         p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
         if verb == 'update':
@@ -199,7 +199,7 @@ _PENDING: dict[Resolution, str] = {
     'create': 'will be created',
     'update_additive': 'will be updated',
     'update_destructive': 'will be updated (destructive)',
-    'unsupported': 'declares what cannot be changed',
+    'unsupported': 'defines what cannot be changed',
 }
 
 
