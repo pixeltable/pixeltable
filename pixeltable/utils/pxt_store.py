@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import uuid
 import warnings
 from dataclasses import dataclass
@@ -18,8 +19,8 @@ from botocore.client import BaseClient
 from botocore.credentials import CredentialResolver, RefreshableCredentials
 from botocore.session import get_session as get_botocore_session
 
-from pixeltable import ErrorCode, env, exceptions as excs
-from pixeltable.runtime import get_runtime
+from pixeltable import ErrorCode, exceptions as excs
+from pixeltable.env import Env
 from pixeltable.utils.cloud_utils import get_bucket_credentials, get_presigned_url_from_cloud
 from pixeltable.utils.object_stores import (
     S3_COMPATIBLE_TARGETS,
@@ -28,7 +29,7 @@ from pixeltable.utils.object_stores import (
     StorageObjectAddress,
     StorageTarget,
 )
-from pixeltable.utils.s3_store import S3CompatClientDict, S3Store
+from pixeltable.utils.s3_store import S3Store
 
 _logger = logging.getLogger(__name__)
 
@@ -48,10 +49,7 @@ class _PxtStoreCacheEntry:
     no_space_warned: bool = False  # tracks whether warning has been issued for no space left in pixeltable store
 
 
-# pxt_store clients are thread-local (via Runtime._clients), consistent with r2/s3/b2/tigris.
-@env.register_client('pxt_store', credential_param=None)
-def _() -> S3CompatClientDict:
-    return S3CompatClientDict(profile=None, clients={})
+_pxt_store_entries_lock = threading.Lock()
 
 
 class _PxtStoreCredentialProvider(botocore.credentials.CredentialProvider):
@@ -172,12 +170,12 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) -> _PxtS
 def _get_or_create_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) -> _PxtStoreCacheEntry:
     """Return the cached entry for org:db:bucket:prefix"""
     cache_key = f'{org}:{db}:{bucket}:{prefix}'
-    # pxt_store_client is thread-local (Runtime is thread-local), so no lock is needed here.
-    pxt_store_client_dict = get_runtime().get_client('pxt_store')
-    entry = pxt_store_client_dict.clients.get(cache_key)
-    if entry is None:
-        entry = _build_pxt_store_entry(org, db, bucket, prefix)
-        pxt_store_client_dict.clients[cache_key] = entry
+    pxt_store_client_dict = Env.get().object_store_clients('pxt_store')
+    with _pxt_store_entries_lock:
+        entry = pxt_store_client_dict.clients.get(cache_key)
+        if entry is None:
+            entry = _build_pxt_store_entry(org, db, bucket, prefix)
+            pxt_store_client_dict.clients[cache_key] = entry
     return entry
 
 

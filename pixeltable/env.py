@@ -20,7 +20,7 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, NamedTuple, TypeVar
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -140,6 +140,8 @@ class Env:
     _default_input_media_dest: str | None
     _default_output_media_dest: str | None
     _pxt_api_key: str | None
+    _object_store_clients: dict[str, S3CompatClientDict]  # by storage target ('r2', 'r2_resource', 's3', ...)
+    _object_store_clients_lock: threading.Lock
     _default_video_encoder: str | None
     _default_video_encoder_lock: threading.Lock
     _initialized: bool
@@ -180,6 +182,8 @@ class Env:
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
 
         self._media_dir = None  # computed media files
+        self._object_store_clients = {}
+        self._object_store_clients_lock = threading.Lock()
         self._file_cache_dir = None  # cached object files with external URL
         self._dataset_cache_dir = None  # cached datasets (eg, pytorch or COCO)
         self._log_dir = None  # log files
@@ -715,6 +719,15 @@ class Env:
                     ) from err
         return f'{org}-{db}.{domain}', port
 
+    def object_store_clients(self, name: str) -> S3CompatClientDict:
+        """The process-wide client cache of an S3-compatible storage target ('r2', 'r2_resource', 's3', ...,
+        'pxt_store'), created on first use."""
+        with self._object_store_clients_lock:
+            if name not in self._object_store_clients:
+                profile = Config.get().get_string_value(f'{name.removesuffix("_resource")}_profile')
+                self._object_store_clients[name] = S3CompatClientDict(profile=profile, clients={})
+            return self._object_store_clients[name]
+
     def create_client(self, name: str) -> Any:
         """
         Resolves config parameters and calls the registered init function to create a new client instance.
@@ -1105,6 +1118,13 @@ def register_client(name: str, *, credential_param: str | None) -> Callable:
 
 _client_factories_lock: threading.Lock = threading.Lock()
 _client_factories: dict[str, ApiClientFactory] = {}
+
+
+class S3CompatClientDict(NamedTuple):
+    """Container for S3-compatible storage access objects (R2, B2, etc.)."""
+
+    profile: str | None  # AWS-style profile used to locate credentials
+    clients: dict[str, Any]  # Map of endpoint URL to boto3 client instance
 
 
 @dataclass
