@@ -36,6 +36,7 @@ COMMANDS: dict[str, str] = {
     'service': 'run the services an application file declares (diff/update/prune/stop/list/example)',
     'org': 'manage organizations (list/status)',
     'secret': 'manage the secrets an org or database holds (list/set/delete)',
+    'key': 'manage API keys and scoped runtime keys (list/create/update/delete)',
 }
 
 

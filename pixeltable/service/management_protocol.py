@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from pixeltable.serving import ServiceInstanceRecord
 from pixeltable.utils.project import DepsType, ProjectFingerprint
@@ -41,6 +42,16 @@ class ManagementOperationType(str, Enum):
     SET_SECRET = 'set_secret'
     DELETE_SECRET = 'delete_secret'
     LIST_SECRETS = 'list_secrets'
+
+    CREATE_API_KEY = 'create_api_key'
+    GET_API_KEY = 'get_api_key'
+    LIST_API_KEYS = 'list_api_keys'
+    DELETE_API_KEY = 'delete_api_key'
+
+    CREATE_RUNTIME_KEY = 'create_runtime_key'
+    LIST_RUNTIME_KEYS = 'list_runtime_keys'
+    UPDATE_RUNTIME_KEY = 'update_runtime_key'
+    DELETE_RUNTIME_KEY = 'delete_runtime_key'
 
 
 # Db operations
@@ -365,3 +376,126 @@ class ListOrgsRequest(BaseModel):
 
 class ListOrgsResponse(BaseModel):
     orgs: list[OrgRecord]
+
+
+# API keys
+#
+# A person's own key, keyed by user: it acts as whoever created it and carries no grants, which is
+# the whole difference from a runtime key below.
+
+
+class CreateApiKeyRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.CREATE_API_KEY] = ManagementOperationType.CREATE_API_KEY
+    name: str
+
+
+class CreateApiKeyResponse(BaseModel):
+    name: str
+    api_key: str | None  # List/Get api key will not use this field since api keys follow show-once pattern.
+    created_at: datetime
+
+
+class GetApiKeyRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.GET_API_KEY] = ManagementOperationType.GET_API_KEY
+    name: str
+
+
+class GetApiKeyResponse(BaseModel):
+    api_key: CreateApiKeyResponse
+
+
+class ListApiKeyRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.LIST_API_KEYS] = ManagementOperationType.LIST_API_KEYS
+
+
+class ListApiKeyResponse(BaseModel):
+    api_keys: list[CreateApiKeyResponse]
+
+
+class DeleteApiKeyRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.DELETE_API_KEY] = ManagementOperationType.DELETE_API_KEY
+    name: str
+
+
+class DeleteApiKeyResponse(BaseModel):
+    name: str
+
+
+# Runtime keys
+#
+# A runtime key is an API key held by something that is not a person — an agent, a job, another
+# service. It belongs to an organization, like the WorkOS key it is, and reaches only what it is
+# granted.
+#
+# A grant is a verb on a pxt:// resource, never a bare resource: naming a service does not say
+# whether the holder may call it or reconfigure it, and those are not the same permission. The split
+# follows the one every IAM makes — Cloud Run's run.invoker vs run.admin.
+#
+#     access:pxt://org:db                     reach the data: every service in the database, and its storage
+#     access:pxt://org:db/services            call any service in the database
+#     access:pxt://org:db/services/name       call that service: every route under it
+#     manage:pxt://org:db/services            create, list, and manage any service in the database
+#     manage:pxt://org:db/services/name       start, stop, update, delete that service
+#
+# `access` and `manage` are independent: neither implies the other, so a key that can call a service
+# cannot reconfigure it, and one that can stop it cannot read what flows through it.
+#
+# The org segment must be the organization the caller's own key belongs to. It is not how the control
+# plane decides whose keys these are — the credential settles that — so a grant naming another
+# organization is refused rather than quietly reinterpreted.
+#
+# No request here names an organization on its own, for the same reason: a field for it would
+# suggest a caller could act on another one, which no credential permits.
+
+
+class RuntimeKeyRecord(BaseModel):
+    name: str
+    grants: list[str]
+    created_at: datetime
+    # Set only in a create response: the secret is shown once and never stored in retrievable form.
+    api_key: str | None = None
+
+
+class CreateRuntimeKeyRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.CREATE_RUNTIME_KEY] = ManagementOperationType.CREATE_RUNTIME_KEY
+    name: str
+    # A key granted nothing could never be used, so an empty list is a mistake rather than a default.
+    grants: list[str] = Field(min_length=1)
+
+
+class CreateRuntimeKeyResponse(BaseModel):
+    runtime_key: RuntimeKeyRecord
+
+
+class ListRuntimeKeysRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.LIST_RUNTIME_KEYS] = ManagementOperationType.LIST_RUNTIME_KEYS
+
+
+class ListRuntimeKeysResponse(BaseModel):
+    runtime_keys: list[RuntimeKeyRecord]
+
+
+class UpdateRuntimeKeyRequest(BaseModel):
+    """Add and remove grants on an existing key, leaving the rest alone.
+
+    A delta rather than a replacement list, so granting one more resource does not depend on the
+    caller first knowing — and faithfully resending — everything the key already had.
+    """
+
+    operation_type: Literal[ManagementOperationType.UPDATE_RUNTIME_KEY] = ManagementOperationType.UPDATE_RUNTIME_KEY
+    name: str
+    allow: list[str] = Field(default_factory=list)
+    revoke: list[str] = Field(default_factory=list)
+
+
+class UpdateRuntimeKeyResponse(BaseModel):
+    runtime_key: RuntimeKeyRecord
+
+
+class DeleteRuntimeKeyRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.DELETE_RUNTIME_KEY] = ManagementOperationType.DELETE_RUNTIME_KEY
+    name: str
+
+
+class DeleteRuntimeKeyResponse(BaseModel):
+    name: str

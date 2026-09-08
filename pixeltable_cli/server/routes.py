@@ -16,15 +16,22 @@ from pixeltable.config import SECRET_SECTION, Config
 from pixeltable.env import Env
 from pixeltable.service import db, management_client
 from pixeltable.service.management_protocol import (
+    CreateApiKeyRequest,
+    CreateRuntimeKeyRequest,
+    DeleteApiKeyRequest,
     DeleteDbRequest,
+    DeleteRuntimeKeyRequest,
     DeleteSecretRequest,
     GetDbRequest,
+    ListApiKeyRequest,
     ListDbRequest,
     ListOrgsRequest,
+    ListRuntimeKeysRequest,
     ListSecretsRequest,
     SetSecretRequest,
     StartDbRequest,
     StopDbRequest,
+    UpdateRuntimeKeyRequest,
 )
 from pixeltable.serving import service
 from pixeltable.types import TreeNode
@@ -787,6 +794,48 @@ def set_secret(req: Request) -> dict[str, Any]:
 @router.post('/api/secrets/delete')
 def delete_secret(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(DeleteSecretRequest))
+
+
+@router.get('/api/keys')
+def list_keys(req: Request) -> dict[str, Any]:
+    """Both kinds in one response, since `pxt key list` shows them together.
+
+    Two control-plane calls rather than one: they are separate objects with separate scoping - a
+    person's own keys, and the organization's - and merging them server-side would hide that.
+    """
+    api = management_client.api_call(ListApiKeyRequest())
+    runtime = management_client.api_call(ListRuntimeKeysRequest())
+    return {'api_keys': api.get('api_keys', []), 'runtime_keys': runtime.get('runtime_keys', [])}
+
+
+@router.post('/api/keys')
+def create_key(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(CreateApiKeyRequest))
+
+
+@router.post('/api/keys/delete')
+def delete_key(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(DeleteApiKeyRequest))
+
+
+@router.get('/api/runtime-keys')
+def list_runtime_keys(req: Request) -> dict[str, Any]:
+    return management_client.api_call(ListRuntimeKeysRequest())
+
+
+@router.post('/api/runtime-keys')
+def create_runtime_key(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(CreateRuntimeKeyRequest))
+
+
+@router.post('/api/runtime-keys/update')
+def update_runtime_key(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(UpdateRuntimeKeyRequest))
+
+
+@router.post('/api/runtime-keys/delete')
+def delete_runtime_key(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(DeleteRuntimeKeyRequest))
 
 
 @router.get('/api/db')
