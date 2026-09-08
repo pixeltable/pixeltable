@@ -1,3 +1,5 @@
+> **Pixeltable Cloud is in Limited Beta.** Email [contact@pixeltable.com](mailto:contact@pixeltable.com) if you are interested.
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/_logo/pxt-dark.svg">
   <img alt="Pixeltable" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/_logo/pxt-light.svg" width="40%">
@@ -9,6 +11,10 @@
 [**Documentation**](https://docs.pixeltable.com/) |
 [**CLI**](https://docs.pixeltable.com/platform/cli) |
 [**Cloud**](https://docs.pixeltable.com/howto/deployment/cloud) |
+[**Skill**](https://github.com/pixeltable/pixeltable-skill) |
+[**get-started.md**](https://www.pixeltable.com/get-started.md) |
+[**skill.md**](https://docs.pixeltable.com/skill.md) |
+[**llms-full.txt**](https://docs.pixeltable.com/llms-full.txt) |
 [**Discord**](https://discord.gg/QPyqFYx2UN)
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -82,8 +88,6 @@ pxt db update pxt://org:mydb
 pxt schema update app.py pxt://org:mydb
 pxt service update app.py pxt://org:mydb
 ```
-
-Pixeltable Cloud is in Limited Beta. Email [contact@pixeltable.com](mailto:contact@pixeltable.com) for an account.
 
 ## Chat agent or video search
 
