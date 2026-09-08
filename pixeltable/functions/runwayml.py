@@ -220,7 +220,7 @@ async def image_to_video(
         >>> tbl.add_computed_column(
         ...     response=image_to_video(
         ...         tbl.image,
-        ...         model='gen4',
+        ...         model='gen4_turbo',
         ...         ratio='16:9',
         ...         prompt_text='Slow motion',
         ...         duration=5,
@@ -289,7 +289,7 @@ async def video_to_video(
 
         >>> tbl.add_computed_column(
         ...     response=video_to_video(
-        ...         tbl.video_url, 'Anime style', model='gen4_aleph', ratio='16:9'
+        ...         tbl.video_url, 'Anime style', model='aleph2', ratio='16:9'
         ...     )
         ... )
         >>> tbl.add_computed_column(video=tbl.response['output'].astype(pxt.Video))
