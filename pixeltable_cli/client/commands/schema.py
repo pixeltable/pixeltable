@@ -64,7 +64,7 @@ def excerpt(text: str, n: int = 80) -> str:
 class Docs(TableModel, name='docs'):
     """One model becomes one table, named by name=."""
 
-    # an annotation declares a stored column
+    # an annotation defines a stored column
     doc_id: pxt.Int
     title: pxt.String
     body: pxt.String | None
@@ -75,7 +75,7 @@ class Docs(TableModel, name='docs'):
     embedding: pxt.Array[(384,), pxt.Float] | None
     source: pxt.Document | None  # a media column takes a local path or a URL on insert
 
-    # an assignment declares a computed column, evaluated on insert and on update
+    # an assignment defines a computed column, evaluated on insert and on update
     title_upper = pxtf.string.upper(title)
     summary = pxtf.string.slice(body, 0, 80)
     title_excerpt = excerpt(title)  # a call to the udf this file defines
@@ -116,7 +116,7 @@ class Sentences(
 ):
     """A component view: one row per item the iterator produces from each base row."""
 
-    # 'text' is an output column of the iterator, not declared here
+    # 'text' is an output column of the iterator, not defined here
     length = pxtf.string.len(text)  # type: ignore[name-defined]  # noqa: F821
 '''
 
@@ -146,7 +146,7 @@ Output:
   + <path>      table will be created        + <column>   will be added
   ~ <path>      table will be migrated       - <column>   will be dropped
   = <path>      already matches its model
-  ! <path>      cannot be migrated in place, or is not declared by the schema
+  ! <path>      cannot be migrated in place, or is not defined by the schema
   Each operation is marked safe, DESTRUCTIVE, or UNSUPPORTED.
 
 Exit codes:
@@ -156,7 +156,7 @@ Exit codes:
 
 Notes:
   Read-only: never creates TARGET, never touches a table.
-  Tables under TARGET that no model declares are reported as extras. 'schema update' never
+  Tables under TARGET that no model defines are reported as extras. 'schema update' never
   removes them, so they do not count as pending changes and do not affect the exit code.
 
 {_SCHEMA_FILE}"""
@@ -183,7 +183,7 @@ Notes:
   or the table by hand.
   Dropping a column or an index destroys its data and needs --allow-destructive. Applying is
   all-or-nothing: without that flag a destructive plan applies nothing at all.
-  Tables under TARGET that no model declares are left alone; 'schema prune' removes them.
+  Tables under TARGET that no model defines are left alone; 'schema prune' removes them.
   The daemon imports the schema file, so it must be readable there; the file's own directory is
   added to sys.path, so it can import modules sitting next to it.
 
@@ -202,9 +202,9 @@ Exit codes:
   1  error: bad arguments, the schema file failed to import, or a drop failed
 
 Notes:
-  Drops every table under TARGET that no model declares. This is irreversible.
+  Drops every table under TARGET that no model defines. This is irreversible.
   Only tables under TARGET are considered, so nothing elsewhere in the catalog is affected.
-  Declared tables are never dropped, and never modified: a full reconcile is 'update' then 'prune'.
+  Defined tables are never dropped, and never modified: a full reconcile is 'update' then 'prune'.
   A view is dropped before its base. Prune never force-drops, so a table that something outside the
   pruned set depends on is left in place and the drop fails, naming what depends on it.
   Without -f, confirmation is read from the terminal; non-interactive callers must pass -f.
@@ -221,7 +221,7 @@ Exit codes:
   1  error: bad arguments, the file failed to import, or a udf it records cannot be read back
 
 Notes:
-  Checks what the file says on its own: it imports without modifying the catalog, it declares a
+  Checks what the file says on its own: it imports without modifying the catalog, it defines a
   model base, and every udf its columns call is named by a module path another process resolves.
   Takes no TARGET and reads no catalog, so it says nothing about what a target already holds;
   'pxt schema diff' answers that.
@@ -238,7 +238,7 @@ Examples:
   pxt schema example --out schema.py && pxt schema update schema.py my_app
 
 Notes:
-  The file is a working schema: applying it as-is creates the tables it declares.
+  The file is a working schema: applying it as-is creates the tables it defines.
   It covers every construct the DSL supports, so there is nothing to look up elsewhere; delete
   whatever the application does not need.
 
@@ -273,8 +273,8 @@ def run(argv: list[str]) -> None:
         print(
             'usage: pxt schema <verb> SCHEMA TARGET [options]\n\nverbs:\n'
             '  diff     show the changes that update would make; exit 2 if any are pending\n'
-            '  update   create and migrate the tables the schema declares under TARGET\n'
-            '  prune    drop the tables under TARGET that the schema does not declare\n'
+            '  update   create and migrate the tables the schema defines under TARGET\n'
+            '  prune    drop the tables under TARGET that the schema does not define\n'
             '  check    validate the schema file on its own (takes no TARGET)\n'
             '  example  write a working schema file to start from (takes no SCHEMA/TARGET)\n\n'
             'SCHEMA is a Python file defining models on a pxt.model_base(); TARGET is a catalog\n'
@@ -412,7 +412,7 @@ def _prune(app_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, d
         _prune_output(with_drops('refused'), as_json=as_json, verb='would drop')
 
     confirm_or_exit(
-        f'drop {len(extras)} table(s) not declared by the schema?',
+        f'drop {len(extras)} table(s) not defined by the schema?',
         force,
         refused_exit_code=EXIT_REFUSED,
         on_refusal=report_refusal,

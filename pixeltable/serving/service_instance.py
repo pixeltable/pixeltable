@@ -33,6 +33,10 @@ class ServiceInstanceRecord(pydantic.BaseModel):
 
     endpoint: str
 
+    # the loopback port the instance serves on, kept across a restart so callers keep their address;
+    # None for a hosted instance, which is reached at its own hostname
+    port: int | None = None
+
     # the app file's module path, relative to the project root
     app_module: str
 
@@ -66,6 +70,7 @@ class ServiceInstanceRecord(pydantic.BaseModel):
             name=self.service_name,
             catalog_path=PxtPath('/'.join(part for part in (catalog_uri, self.base_path) if part != '')),
             endpoint=self.endpoint,
+            port=self.port,
             state=self.state,
             error=self.error,
             app_module=self.app_module,

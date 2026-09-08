@@ -1,8 +1,4 @@
-"""basic.py with one route's outputs narrowed: the destructive drift a diff reports.
-
-A corpus file the schema and service CLI tests share: `pxt schema update` creates what the models declare,
-`pxt service update` serves what the router declares over the same tables.
-"""
+"""basic.py with one route's outputs narrowed: the destructive drift a diff reports."""
 
 # ruff: noqa: F821  # a model body refers to its own columns by bare name
 

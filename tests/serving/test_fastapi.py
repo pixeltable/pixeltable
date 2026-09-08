@@ -2467,7 +2467,7 @@ class TestFastAPI:
             def _(id: int) -> Resp:  # positional-or-keyword is rejected
                 return Resp(x=id)
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'doesnotexist' is not in the declared outputs"):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'doesnotexist' is not in the defined outputs"):
 
             @route(t, path='/e2', outputs=['id'])
             def _(*, doesnotexist: int) -> Resp:

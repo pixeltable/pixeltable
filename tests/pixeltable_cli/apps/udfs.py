@@ -1,9 +1,4 @@
-"""Udfs the corpus applications and the CLI tests share.
-
-A file of the app corpus, so it is copied into the session's project and reached by a module path relative
-to the project root. A hosted database runs the project it was given and never the test package, so a
-hosted table's udfs have to live here.
-"""
+"""Udfs the corpus applications and the CLI tests share."""
 
 import numpy as np
 

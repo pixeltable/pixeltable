@@ -21,7 +21,7 @@ Examples:
 An org secret applies to every database in the org; a database secret applies to that database and
 wins on a key collision.
 
-A project can declare its secrets instead, in its [[pixeltable.database]] entry, as the name of the
+A project can define its secrets instead, in its [[pixeltable.database]] entry, as the name of the
 environment variable holding each value; `pxt db update` sets them from there.
 
 Either way, a running database holds the values it started with. Run `pxt db stop` then `pxt db start`

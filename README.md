@@ -1,3 +1,5 @@
+> **Pixeltable Cloud is in Limited Beta.** Email [contact@pixeltable.com](mailto:contact@pixeltable.com) if you are interested.
+
 <picture class="github-only">
   <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/e9bf82b2-cace-4bd8-9523-b65495eb8131">
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/c5ab123e-806c-49bf-93e7-151353719b16">
@@ -23,7 +25,7 @@
 [**skill.md**](https://docs.pixeltable.com/skill.md) |
 [**Discord**](https://discord.gg/QPyqFYx2UN)
 
-## A unified multimodal backend that is one schema you keep, not a stack you assemble
+## The unified multimodal backend for AI data apps in one Python file.
 
 Most stacks glue a blob store, a warehouse, a vector database, an orchestrator, and custom endpoints. You pay for the joints. Pixeltable is the database, the orchestration, and the serving: tables, computed columns, indexes, and endpoints in one Python file (`app.py`). Insert a row. Transforms run.
 

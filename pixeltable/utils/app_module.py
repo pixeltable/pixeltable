@@ -9,9 +9,10 @@ import re
 import sys
 import threading
 import traceback
+from collections.abc import Iterable
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog import ProhibitedWriteError, is_valid_identifier, model
@@ -145,7 +146,7 @@ def _prohibited_write_msg(file: str, subject: str, exc: ProhibitedWriteError) ->
     return (
         f'{file}: this {subject} modifies the catalog while it is imported.\n'
         f'{location}'
-        'Declare a table with a model class, and insert rows from a route or a script; '
+        'Define a table with a model class, and insert rows from a route or a script; '
         "'pxt schema update' then creates and populates them."
     )
 
@@ -163,14 +164,14 @@ def get_model_bases(module: ModuleType) -> list[model.TableModelMeta]:
 
 
 def visible_models(module: ModuleType) -> dict[str, model.TableModelMeta]:
-    """Every model the module reaches by name, keyed by the table name each declares."""
+    """Every model the module reaches by name, keyed by the table name each defines."""
     models: dict[str, model.TableModelMeta] = {}
     for value in vars(module).values():
         if not isinstance(value, model.TableModelMeta):
             continue
         # a model base carries __registered_models__ as its own class attribute
         if '__registered_models__' in value.__dict__:
-            models.update({declared.__table_spec__['name']: declared for declared in value.declared_models()})
+            models.update({m.__table_spec__['name']: m for m in value.defined_models()})
         else:
             models[value.__table_spec__['name']] = value
     return models
@@ -211,7 +212,7 @@ def check_udf_references(bases: list[model.TableModelMeta]) -> list[str]:
     project_root = Config.get().project_root
     assert project_root is not None
     errors: list[str] = []
-    fn_paths = {fn.self_path for base in bases for cls in base.declared_models() for fn in cls.referenced_functions()}
+    fn_paths = {fn.self_path for base in bases for cls in base.defined_models() for fn in cls.referenced_functions()}
     for fn_path in sorted(p for p in fn_paths if p is not None):
         resolved = _resolved_module(fn_path)
         if resolved is None:
@@ -289,7 +290,7 @@ def get_module_services(module: ModuleType, file: str) -> tuple[fastapi.FastAPI 
 
     routers: dict[str, FastAPIRouter] = {}
     apps: dict[str, fastapi.FastAPI] = {}
-    # the objects already collected, so that two variables naming one router declare a single service
+    # the objects already collected, so that two variables naming one router define a single service
     seen: set[int] = set()
     seen_names: set[str] = set()
     for var_name, value in vars(module).items():
@@ -312,7 +313,7 @@ def get_module_services(module: ModuleType, file: str) -> tuple[fastapi.FastAPI 
             )
         if name in seen_names:
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT, f'{file}: declares more than one service named {name!r}'
+                excs.ErrorCode.INVALID_ARGUMENT, f'{file}: defines more than one service named {name!r}'
             )
         seen_names.add(name)
 
@@ -334,7 +335,7 @@ def get_module_services(module: ModuleType, file: str) -> tuple[fastapi.FastAPI 
 
     if app is not None:
         # make sure every router is included in the application
-        app_endpoints = {id(route.endpoint) for route in app.routes if hasattr(route, 'endpoint')}
+        app_endpoints = {id(route.endpoint) for route in _app_routes(app) if hasattr(route, 'endpoint')}
         for name, router in routers.items():
             router_endpoints = {id(route.endpoint) for route in router.routes if hasattr(route, 'endpoint')}
             if not router_endpoints.issubset(app_endpoints):
@@ -370,9 +371,16 @@ def service_spec(name: str, service: FastAPIRouter | fastapi.FastAPI, routers: l
     return ServiceSpec(name=name, routes=routes, app_paths=_app_paths(service, routers))
 
 
+def _app_routes(app: fastapi.FastAPI) -> Iterable[Any]:
+    import fastapi.routing
+
+    flatten = getattr(fastapi.routing, 'iter_route_contexts', None)
+    return app.routes if flatten is None else flatten(app.routes)
+
+
 def _include_prefix(app: fastapi.FastAPI, router: FastAPIRouter) -> str:
     """The prefix that app adds to router's paths, empty when absent."""
-    app_paths = {id(getattr(route, 'endpoint', None)): getattr(route, 'path', '') for route in app.routes}
+    app_paths = {id(getattr(route, 'endpoint', None)): getattr(route, 'path', '') for route in _app_routes(app)}
     for route in router.routes:
         path = getattr(route, 'path', None)
         app_path = app_paths.get(id(getattr(route, 'endpoint', None)))
@@ -387,7 +395,7 @@ def _app_paths(app: fastapi.FastAPI, routers: list[FastAPIRouter]) -> list[str]:
         id(endpoint) for router in routers for endpoint in (getattr(r, 'endpoint', None) for r in router.routes)
     }
     included: set[str] = set()
-    for route in app.routes:
+    for route in _app_routes(app):
         path = getattr(route, 'path', None)
         if path is not None and id(getattr(route, 'endpoint', None)) in from_routers:
             # a route spells a path parameter with its converter, '/media/{path:path}', where the document

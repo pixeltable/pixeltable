@@ -33,7 +33,7 @@ from .dir import Dir
 from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, fold_identifier
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
-from .model import IndexDeclaration, TableSchemaChangeSet, prepare_model, prepare_model_updates
+from .model import IndexDefinition, TableSchemaChangeSet, prepare_model, prepare_model_updates
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
@@ -1768,7 +1768,7 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
-        idxs: list[IndexDeclaration],
+        idxs: list[IndexDefinition],
         is_data_versioned: bool,
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
