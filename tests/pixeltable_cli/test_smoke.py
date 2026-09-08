@@ -511,6 +511,9 @@ class TestRows:
         t2.insert([{'a': 1, 's': None}])
         assert 'None' not in cli('rows', p('cli_rows/nulls')).stdout
 
+    @pytest.mark.db_roots(
+        'local', reason='TODO: run against a hosted database, once a pod carries an API key for home bucket access'
+    )
     def test_image_column(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """Image cells must render as `<Image WxH MODE>` in both text and JSON modes -
         not as raw bytes, base64, or a PIL repr."""
@@ -989,6 +992,9 @@ class TestMv:
         assert r.returncode != 0
 
 
+@pytest.mark.db_roots(
+    'local', reason='TODO: run against a hosted database, once a pod can fetch a project it was not built with'
+)
 class TestRecompute:
     @pxt.udf
     @staticmethod

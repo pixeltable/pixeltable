@@ -128,7 +128,7 @@ class TestDb:
         assert status['state'] == 'AVAILABLE', status
         listed = cli('db', 'list', 'pxt://pixeltable', '--json', cwd=project).json
         test_db_name = test_db_uri.rsplit(':', 1)[-1]
-        assert test_db_name in [entry['db_name'] for entry in listed], listed
+        assert test_db_name in [entry['db_slug'] for entry in listed], listed
 
         # `db update`: Check that a dry run of an update is planned as an update, but not applied
         planned = db_update(cli, project, test_db_uri, '-n')

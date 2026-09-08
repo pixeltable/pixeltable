@@ -157,6 +157,9 @@ def pxt_daemon(
 
 PxtRunner = Callable[..., PxtResult]
 
+# `pxt db update` against a hosted database builds its image, which runs CodeBuild
+_HOSTED_BUILD_TIMEOUT = 1800.0
+
 _RUN_TIMEOUT_SECS = 300
 
 _WHEEL_SUBDIR = 'wheels'
@@ -175,6 +178,82 @@ def _copy_app_corpus(session_project: pathlib.Path) -> pathlib.Path:
     if not directory.exists():
         shutil.copytree(pathlib.Path(__file__).parent / 'apps', directory, ignore=shutil.ignore_patterns('__pycache__'))
     return directory
+
+
+# the projects a hosted image has already been built from, so a session builds each one once
+_hosted_image_built_from: set[pathlib.Path] = set()
+
+
+@pytest.fixture
+def hosted_image(
+    db_root: DatabaseRoot, cli: PxtRunner, session_project: pathlib.Path, pixeltable_wheel: pathlib.Path
+) -> None:
+    """Put an image built from the session's project on a hosted target's pods.
+
+    The counterpart of what the proxy target does by starting a daemon on this project: a hosted service
+    runs the image its database was built with, so the project has to reach the pods that way. `pxt db
+    update` is the verb that builds one, and it is the only verb that creates a hosted database.
+
+    One build per project per session: a build runs CodeBuild and takes minutes.
+    """
+    if db_root.id != 'cloud':
+        return
+    if session_project in _hosted_image_built_from:
+        return
+    _copy_app_corpus(session_project)
+    write_requirements(session_project, pixeltable_wheel, 'spacy')
+    base_uri = os.environ['PXTTEST_CLOUD_DB_URI']
+    (session_project / 'pixeltable.toml').write_text(
+        f'[[pixeltable.database]]\nname = {json.dumps(base_uri)}\n', encoding='utf-8'
+    )
+    cli('daemon', 'restart', cwd=session_project)
+    cli('db', 'update', base_uri, '-f', cwd=session_project, timeout=_HOSTED_BUILD_TIMEOUT)
+    _hosted_image_built_from.add(session_project)
+
+
+@pytest.fixture
+def authenticated_http(db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Send the caller's API key with every request to a hosted service.
+
+    A local service answers whatever reaches its port. A hosted one sits behind the gateway, which
+    authenticates every request and reads the key from X-api-key. Patching the verbs rather than the
+    call sites keeps a test's request identical whichever target serves it.
+    """
+    if db_root.id != 'cloud':
+        return
+    import httpx
+
+    key = os.environ['PIXELTABLE_API_KEY']
+    for verb in ('get', 'post'):
+        original = getattr(httpx, verb)
+
+        def _send(url: Any, *args: Any, _original: Any = original, **kwargs: Any) -> Any:
+            headers = {**(kwargs.pop('headers', None) or {}), 'X-api-key': key}
+            return _original(url, *args, headers=headers, **kwargs)
+
+        monkeypatch.setattr(httpx, verb, _send)
+
+
+@pytest.fixture
+def no_hosted_services(db_root: DatabaseRoot) -> Iterator[None]:
+    """Leave a hosted database holding no service instances.
+
+    A service name is unique per database, not per catalog path, so one test's instance is in the way of
+    the next test's however far apart their directories are. The hosted database outlives them both.
+    """
+    if db_root.id != 'cloud':
+        yield
+        return
+    from pixeltable.serving.service_manager import get_manager
+
+    def _clear() -> None:
+        manager = get_manager(db_root.prefix)
+        for instance in manager.list(recursive=True):
+            manager.delete(instance)
+
+    _clear()
+    yield
+    _clear()
 
 
 @pytest.fixture(scope='session')
