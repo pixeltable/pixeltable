@@ -1154,6 +1154,18 @@ class TestExprs:
             t.array_col[1, 'string']
         assert 'Invalid array indices' in str(excinfo.value)
 
+    def test_array_slice_null(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'id': pxt.Int, 'arr': pxt.Array[(2, 3), np.float32] | None})
+        arr = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], np.float32)
+        t.insert([{'id': 0, 'arr': arr}, {'id': 1, 'arr': None}])
+        t.add_computed_column(sliced=t.arr[0:2])
+
+        for expr in (t.arr[1], t.arr[0:2], t.arr[:, 0], t.sliced):
+            vals = t.order_by(t.id).select(out=expr).collect()['out']
+            assert vals[1] is None, expr
+            assert vals[0] is not None, expr
+
     def test_in(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = test_tbl

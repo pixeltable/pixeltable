@@ -48,7 +48,7 @@ class ArraySlice(Expr):
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         val = data_row[self._array.slot_idx]
-        data_row[self.slot_idx] = val[self.index]
+        data_row[self.slot_idx] = None if val is None else val[self.index]
 
     def _as_dict(self) -> dict:
         index: list[Any] = []
