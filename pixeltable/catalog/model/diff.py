@@ -11,6 +11,7 @@ from pixeltable_cli.types import Resolution, SchemaChangeIndexRef, SchemaChangeO
 
 from ..globals import col_type_from_spec, fold_mapping_keys
 from ..table_metadata import ColumnMetadata, TableMetadata
+from .resolution import refd_column_names
 
 if TYPE_CHECKING:
     from .definition import IndexDefinition, TableModelMeta
@@ -222,9 +223,7 @@ def _alter_value_change(
     new_value_expr = exprs.Expr.from_object(new_value)
 
     # Adding new dependencies to the column computation is currently not supported.
-    # the column names the model expression depends on
-    model_refs = {ref.name for ref in new_value_expr.subexprs(exprs.ColumnRefByName)}
-    model_refs |= {ref.col.name for ref in new_value_expr.subexprs(exprs.ColumnRef) if ref.col.name is not None}
+    model_refs = refd_column_names(new_value_expr)
     # the column names that the column currently depends on
     catalog_refs = {name for _, name in (col_md['depends_on'] or ())}
     if not model_refs <= catalog_refs:

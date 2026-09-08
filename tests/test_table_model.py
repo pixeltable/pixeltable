@@ -2696,7 +2696,8 @@ class TestTableModel:
 
         class ExampleTable(TableModel, name='test_table'):
             id: pxt.Int
-            doubled = id * 2
+            extra: pxt.Int
+            doubled = id * 2 + extra
 
         class ExampleView(TableModel, name='test_view', base=ExampleTable):
             vc1 = ExampleTable.doubled + 1
@@ -2704,14 +2705,15 @@ class TestTableModel:
         TableModel.create_all(root)
         t = pxt.get_table(p('test_table'))
         v = pxt.get_table(p('test_view'))
-        t.insert([{'id': 1}, {'id': 2}])
+        t.insert([{'id': 1, 'extra': 0}, {'id': 2, 'extra': 0}])
         assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [2, 4]
 
         AlteredModel = pxt.model_base()
 
         class AlteredTable(AlteredModel, name='test_table'):
             id: pxt.Int
-            doubled = id * 100
+            extra: pxt.Int
+            doubled = id * 100 + extra
 
         class AlteredView(AlteredModel, name='test_view', base=AlteredTable):
             vc1 = AlteredTable.doubled + 1
@@ -2734,6 +2736,30 @@ class TestTableModel:
         assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [100, 200]
         v = pxt.get_table(p('test_view'))
         assert v.select(v.vc1).order_by(v.id).collect()['vc1'] == [101, 201]
+
+        # a single update that both narrows an expression and drops the column it no longer references
+        NarrowedModel = pxt.model_base()
+
+        class NarrowedTable(NarrowedModel, name='test_table'):
+            id: pxt.Int
+            doubled = id * 100
+
+        class NarrowedView(NarrowedModel, name='test_view', base=NarrowedTable):
+            vc1 = NarrowedTable.doubled + 1
+
+        diff = NarrowedModel.get_model_diff(root)['test_table']
+        assert diff.resolution == 'update_destructive'
+        assert {(op.target, op.op, op.name) for op in diff.ops} == {
+            ('column', 'alter', 'doubled'),
+            ('column', 'drop', 'extra'),
+        }
+
+        NarrowedModel.update_all(root, allow_destructive=True)
+        t = pxt.get_table(p('test_table'))
+        assert t.columns() == ['id', 'doubled']
+        assert all(d.resolution == 'up_to_date' for d in NarrowedModel.get_model_diff(root).values())
+        t.recompute_columns('doubled')
+        assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [100, 200]
 
     def test_update_all_altered_column_unsupported(self, db_root: DatabaseRoot) -> None:
         """Unsupported column changes"""

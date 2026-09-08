@@ -33,7 +33,7 @@ from .dir import Dir
 from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, fold_identifier
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
-from .model import IndexDefinition, TableSchemaChangeSet, prepare_model, prepare_model_updates
+from .model import IndexDefinition, TableSchemaChangeSet, prepare_model, prepare_model_updates, refd_column_names
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
@@ -1885,6 +1885,22 @@ class Catalog(CatalogBase):
                 for idx_info in dropped_idxs:
                     dropped_col_set.update(idx_info.columns)
 
+            # for columns whose value expression changed, the set of column names that it still depends on.
+            altered_refs: dict[QColumnId, set[str]] = {}
+            for _, tv, change_set in tbl_info:
+                for name, (spec, _) in change_set['altered_columns'].items():
+                    altered_refs[tv.cols_by_name[name].qid] = refd_column_names(spec['value'])
+
+            def blocks_drop(dependent: Column, dropped_col: Column) -> bool:
+                """Whether dependent still depends on dropped_col once this change set has been applied."""
+                if dependent in dropped_col_set:
+                    return False
+                if dropped_col.name is None:
+                    return True
+                # If dependent's computed expression changes, check the new expression
+                refs = altered_refs.get(dependent.qid)
+                return refs is None or dropped_col.name in refs
+
             def dependent_str(c: Column) -> str:
                 """How a column that blocks a drop is named in the error, which is by index if it belongs to one."""
                 # all user-visible columns have a name
@@ -1903,9 +1919,8 @@ class Catalog(CatalogBase):
                     # Index without value or undo columns -- nothing to do
                     return
                 col = dropped.val_col if isinstance(dropped, TableVersion.IndexInfo) else dropped
-                # we exclude dependents that themselves are being dropped
                 remaining_dependents = [
-                    c for c in self.get_column_dependents(col.get_tbl().id, col.id) if c not in dropped_col_set
+                    c for c in self.get_column_dependents(col.get_tbl().id, col.id) if blocks_drop(c, col)
                 ]
                 if len(remaining_dependents) > 0:
                     # sorted() for a deterministic error message

@@ -850,8 +850,8 @@ class TableVersion:
           referencing other columns in added_cols, which are resolved here once ids are assigned
         - Drops precede adds, and index drops precede column drops, so an index that is both explicitly dropped and
           attached to a dropped column is processed only once.
-        - altered_cols pair an existing computed column with its new, fully resolved value expression; they are
-          applied last, and only change metadata (no recomputing).
+        - altered_cols pair an existing computed column with its new, fully resolved value expression; they only
+          change metadata (no recomputing).
         """
         assert self.is_mutable
 
@@ -864,6 +864,9 @@ class TableVersion:
         self._validate_idx_drops(dropped_idx_ids)
 
         self.bump_version(bump_schema_version=True)
+
+        for col, new_value_expr in altered_cols:
+            self._alter_value_expr_in_version(col, new_value_expr)
 
         cols_to_drop: list[Column] = []
         for idx_id in dropped_idx_ids:
@@ -883,9 +886,6 @@ class TableVersion:
         for col, idx_name, idx in added_idxs:
             assert isinstance(col, Column)
             status += self._add_index(col, idx_name, idx)
-
-        for col, new_value_expr in altered_cols:
-            self._alter_value_expr_in_version(col, new_value_expr)
 
         get_runtime().catalog.record_column_dependencies(self)
         self.path.clear_cached_md()
