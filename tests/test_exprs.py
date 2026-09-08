@@ -1574,6 +1574,19 @@ class TestExprs:
             e_deserialized = Expr.deserialize(e_serialized)
             assert e.equals(e_deserialized)
 
+    def test_kwarg_order_after_reload(self, db_root: DatabaseRoot) -> None:
+        """A FunctionCall's kwargs are stored as a jsonb object, whose key order Postgres does not preserve."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'x': pxt.Int | None})
+        expr = _kwarg_order_udf(t.x, gamma_delta=3, b=2, alpha=1)
+        t.add_computed_column(y=expr)
+        expected = '_kwarg_order_udf(x, gamma_delta=3, b=2, alpha=1)'
+        assert t.get_metadata()['columns']['y']['computed_with'] == expected
+
+        reload_catalog()
+        t = pxt.get_table(p('test'))
+        assert t.get_metadata()['columns']['y']['computed_with'] == expected
+
     @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_print(
         self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]
@@ -2072,6 +2085,11 @@ class TestExprs:
 @pxt.udf
 def udf1(x: int, y: str) -> str:
     return f'{x} {y}'
+
+
+@pxt.udf
+def _kwarg_order_udf(x: int, *, alpha: int, b: int, gamma_delta: int) -> int:
+    return x + alpha + b + gamma_delta
 
 
 @pxt.udf
