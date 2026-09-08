@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import sqlalchemy as sql
+
+import pixeltable.type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
@@ -17,9 +20,8 @@ class ArraySlice(Expr):
     """
 
     def __init__(self, arr: Expr, index: tuple[int | slice, ...]):
-        assert arr.col_type.is_array_type()
-        # determine result type
-        super().__init__(arr.col_type)
+        assert isinstance(arr.col_type, ts.ArrayType)
+        super().__init__(arr.col_type.subscript_type(index))
         self.components = [arr]
         self.index = index
         self.id = self._create_id()
@@ -48,7 +50,12 @@ class ArraySlice(Expr):
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         val = data_row[self._array.slot_idx]
-        data_row[self.slot_idx] = None if val is None else val[self.index]
+        if val is None:
+            data_row[self.slot_idx] = None
+            return
+        result = val[self.index]
+        # an index that drops every dimension produces a numpy scalar; convert it to match the scalar column type
+        data_row[self.slot_idx] = result.item() if isinstance(result, np.generic) else result
 
     def _as_dict(self) -> dict:
         index: list[Any] = []
