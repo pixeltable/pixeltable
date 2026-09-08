@@ -163,6 +163,10 @@ _HOSTED_BUILD_TIMEOUT = 1800.0
 _RUN_TIMEOUT_SECS = 300
 
 _WHEEL_SUBDIR = 'wheels'
+_SPACY_MODEL = (
+    'en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/'
+    'en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl'
+)
 
 
 def _as_text(stream: bytes | str | None) -> str:
@@ -201,7 +205,8 @@ def hosted_image(
     if session_project in _hosted_image_built_from:
         return
     _copy_app_corpus(session_project)
-    write_requirements(session_project, pixeltable_wheel, 'spacy')
+    # the model as well as the package: spacy resolves 'en_core_web_sm' by import, not by download
+    write_requirements(session_project, pixeltable_wheel, 'spacy', _SPACY_MODEL)
     base_uri = os.environ['PXTTEST_CLOUD_DB_URI']
     (session_project / 'pixeltable.toml').write_text(
         f'[[pixeltable.database]]\nname = {json.dumps(base_uri)}\n', encoding='utf-8'
