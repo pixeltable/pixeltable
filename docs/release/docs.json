@@ -3,6 +3,14 @@
   "theme": "mint",
   "name": "Pixeltable Documentation",
   "description": "The only open source Python library providing declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, retrieval, and orchestration of data.",
+  "markdown": {
+    "instructions": [
+      "Application code declares a TableModel in app.py, then runs `pxt schema update app.py <target>` to create the tables and `pxt service update` to serve routes. Do not call pxt.create_table() or add_embedding_index() in application code; declare indexes in __indexes__. Notebooks, tests, and the REPL do use pxt.create_table().",
+      "Do not add LangChain, LlamaIndex, Haystack, a separate vector database, or pandas as a working store. Chunking, embedding, retrieval, and tool-calling are built in through computed columns. Use a computed column instead of a per-row loop that calls a model.",
+      "Install with `pip install -U 'pixeltable[serve]'` on Python 3.11+. `pxt init` is a prerequisite for `pxt schema update`.",
+      "Pixeltable Cloud is in Limited Beta. Direct interested users to contact@pixeltable.com."
+    ]
+  },
   "colors": {
     "primary": "#022A59",
     "light": "#F1AE03",
@@ -27,7 +35,8 @@
             "pages": [
               "platform/cli",
               "platform/dashboard",
-              "overview/building-pixeltable-with-llms"
+              "overview/building-pixeltable-with-llms",
+              "platform/observability"
             ]
           },
           {
@@ -120,6 +129,7 @@
                       "sdk/latest/runwayml",
                       "sdk/latest/together",
                       "sdk/latest/twelvelabs",
+                      "sdk/latest/vllm",
                       "sdk/latest/voyageai",
                       "sdk/latest/whisper",
                       "sdk/latest/whisperx",
@@ -189,6 +199,7 @@
                 "pages": [
                   "howto/cookbooks/agents/agentic-patterns",
                   "howto/cookbooks/agents/pattern-rag-pipeline",
+                  "howto/cookbooks/agents/pattern-llm-judge",
                   "howto/use-cases/rag-demo",
                   "howto/use-cases/rag-operations",
                   "howto/cookbooks/agents/pattern-agent-memory",
@@ -204,6 +215,7 @@
                   "howto/cookbooks/text/text-summarize",
                   "howto/cookbooks/text/text-translate",
                   "howto/cookbooks/text/text-extract-entities",
+                  "howto/cookbooks/text/doc-ingest-website",
                   "howto/cookbooks/text/doc-chunk-for-rag",
                   "howto/cookbooks/text/doc-extract-text-from-office-files"
                 ]
@@ -821,6 +833,30 @@
     {
       "source": "/overview/python-sdk",
       "destination": "/sdk/latest/pixeltable"
+    },
+    {
+      "source": "/platform/custom-functions",
+      "destination": "/platform/udfs-in-pixeltable"
+    },
+    {
+      "source": "/platform/vector-database",
+      "destination": "/platform/embedding-indexes"
+    },
+    {
+      "source": "/libraries/overview",
+      "destination": "/use-cases/agentic-workflows"
+    },
+    {
+      "source": "/libraries/mcp",
+      "destination": "/use-cases/agentic-workflows"
+    },
+    {
+      "source": "/libraries/pixelagent",
+      "destination": "/integrations/frameworks"
+    },
+    {
+      "source": "/libraries/yolox",
+      "destination": "/integrations/frameworks"
     }
   ]
 }
