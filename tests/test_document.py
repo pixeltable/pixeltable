@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 import PIL.Image
+import psutil
 import pytest
 
 import pixeltable as pxt
@@ -257,6 +258,10 @@ class TestDocument:
                     assert all(md in r for md in metadata)
 
             pxt.drop_table('chunks')
+
+        # Verify that the splitter closes the documents when the iteration ends
+        open_doc_files = [f for f in psutil.Process().open_files() if os.path.splitext(f.path)[1] in extensions]
+        assert len(open_doc_files) == 0, open_doc_files
 
     def test_doc_splitter_headings(self, uses_db: None) -> None:
         skip_test_if_not_installed('markitdown', 'spacy')
