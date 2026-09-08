@@ -1,3 +1,5 @@
+import json
+import os
 import pathlib
 import shutil
 import socket
@@ -11,9 +13,83 @@ import pytest
 import pixeltable as pxt
 
 from ..utils import DatabaseRoot, get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
-from .conftest import BackgroundPxt, PxtRunner
+from .conftest import BUILD_TIMEOUT, BackgroundPxt, PxtRunner, copy_app_corpus, disposable_db_uri, write_requirements
 
 _REQUEST_TIMEOUT = 30.0
+
+_SPACY_MODEL = (
+    'en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/'
+    'en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl'
+)
+
+
+@pytest.fixture(scope='session')
+def cloud_db_uri(
+    session_cli: PxtRunner, session_project: pathlib.Path, pixeltable_wheel: pathlib.Path
+) -> Iterator[str]:
+    """A hosted database of this module's own, built from the session's project.
+
+    These tests deploy the project's application files as services, and a service pod runs the image its
+    database was built with, so the project reaches the pods only by building one. That is why the database
+    the cloud axis normally uses cannot serve here: `pxt db update` would replace the image it runs.
+
+    Session-scoped, since creating a database provisions storage and runs CodeBuild.
+    """
+    copy_app_corpus(session_project)
+    write_requirements(session_project, pixeltable_wheel, 'spacy', _SPACY_MODEL)
+    with disposable_db_uri(session_cli, session_project) as uri:
+        (session_project / 'pixeltable.toml').write_text(
+            f'[[pixeltable.database]]\nname = {json.dumps(uri)}\n', encoding='utf-8'
+        )
+        # the daemon read the project config when it started
+        session_cli('daemon', 'restart', cwd=session_project)
+        session_cli('db', 'update', uri, '-f', cwd=session_project, timeout=BUILD_TIMEOUT)
+        yield uri
+
+
+@pytest.fixture
+def authenticated_http(db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Send the caller's API key with every request to a hosted service.
+
+    A local service answers whatever reaches its port. A hosted one sits behind the gateway, which
+    authenticates every request and reads the key from X-api-key. Patching the verbs rather than the
+    call sites keeps a test's request identical whichever target serves it.
+    """
+    if db_root.id != 'cloud':
+        return
+    import httpx
+
+    key = os.environ['PIXELTABLE_API_KEY']
+    for verb in ('get', 'post'):
+        original = getattr(httpx, verb)
+
+        def _send(url: Any, *args: Any, _original: Any = original, **kwargs: Any) -> Any:
+            headers = {**(kwargs.pop('headers', None) or {}), 'X-api-key': key}
+            return _original(url, *args, headers=headers, **kwargs)
+
+        monkeypatch.setattr(httpx, verb, _send)
+
+
+@pytest.fixture
+def no_hosted_services(db_root: DatabaseRoot) -> Iterator[None]:
+    """Leave a hosted database holding no service instances.
+
+    The hosted database outlives every test that runs against it, so a service one test leaves behind is
+    still deployed while the next one runs, and a recursive list finds it.
+    """
+    if db_root.id != 'cloud':
+        yield
+        return
+    from pixeltable.serving.service_manager import get_manager
+
+    def _clear() -> None:
+        manager = get_manager(db_root.prefix)
+        for instance in manager.list(recursive=True):
+            manager.delete(instance)
+
+    _clear()
+    yield
+    _clear()
 
 
 @pytest.fixture(autouse=True)
@@ -83,7 +159,7 @@ def _await_job(job_url: str, timeout: float = 120.0) -> Any:
 # proxy is excluded because get_manager() hands any non-local path to ServiceManagerProxy, so a
 # 'pxt://local:db' target reaches the cloud management API, which knows no org named 'local'.
 @pytest.mark.db_roots('local', 'cloud', reason='a proxy-daemon database has no service manager of its own')
-@pytest.mark.usefixtures('hosted_image', 'authenticated_http', 'no_hosted_services')
+@pytest.mark.usefixtures('authenticated_http', 'no_hosted_services')
 class TestService:
     def test_config_must_agree(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A service inherits the daemon's config values, so a caller resolving them differently cannot deploy."""

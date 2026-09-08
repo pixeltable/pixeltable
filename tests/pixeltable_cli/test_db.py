@@ -8,22 +8,18 @@ an entry declares rebuilds an image, which takes minutes.
 import json
 import pathlib
 import shutil
-import uuid
 from typing import Any, Iterator
 
 import pytest
 
 from tests.utils import skip_test_if_no_config
 
-from .conftest import PxtRunner, write_requirements
+from .conftest import BUILD_TIMEOUT, PxtRunner, disposable_db_uri, write_requirements
 
 # the exit statuses `pxt db diff` and `pxt db update` document
 EXIT_IN_AGREEMENT = 0
 EXIT_ERROR = 1
 EXIT_CHANGES_PENDING = 2
-
-# an update builds an image, which CodeBuild takes minutes to do
-_BUILD_TIMEOUT = 1800.0
 
 _APP_FILE = 'basic.py'  # the corpus file the project holds
 
@@ -46,11 +42,8 @@ def project(tmp_path: pathlib.Path, pixeltable_wheel: pathlib.Path) -> pathlib.P
 @pytest.fixture
 def test_db_uri(cli: PxtRunner, project: pathlib.Path) -> Iterator[str]:
     """A database URI of the test's own, naming nothing until the test creates it, deleted when it ends."""
-    uri = f'pxt://pixeltable:pxttest-{uuid.uuid4().hex[:12]}'
-    try:
+    with disposable_db_uri(cli, project) as uri:
         yield uri
-    finally:
-        cli('db', 'delete', uri, cwd=project, check=False)
 
 
 def create_project_config(cli: PxtRunner, project: pathlib.Path, db_uri: str, **settings: Any) -> None:
@@ -75,7 +68,7 @@ def db_diff(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> dict[str, Any
 
 def db_update(cli: PxtRunner, project: pathlib.Path, db_uri: str, *flags: str) -> dict[str, Any]:
     """What `pxt db update` applied, its exit status under 'returncode'."""
-    r = cli('db', 'update', db_uri, '-f', '--json', *flags, cwd=project, check=False, timeout=_BUILD_TIMEOUT)
+    r = cli('db', 'update', db_uri, '-f', '--json', *flags, cwd=project, check=False, timeout=BUILD_TIMEOUT)
     assert r.returncode in (EXIT_IN_AGREEMENT, EXIT_CHANGES_PENDING), r.stderr
     return {**r.json, 'returncode': r.returncode}
 
@@ -137,7 +130,7 @@ class TestDb:
         assert get_target_ops(planned, 'image') != []
 
         # `db build-image`: Sends whatever the project holds and builds it
-        ops = cli('db', 'build-image', test_db_uri, '--json', cwd=project, timeout=_BUILD_TIMEOUT).json
+        ops = cli('db', 'build-image', test_db_uri, '--json', cwd=project, timeout=BUILD_TIMEOUT).json
         assert [op['target'] for op in ops] == ['image']
         assert all(op['status'] == 'applied' for op in ops), ops
 

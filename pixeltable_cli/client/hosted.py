@@ -104,7 +104,7 @@ def _print_workers(workers: list[dict[str, Any]]) -> None:
 
 
 def print_db(db: dict[str, Any]) -> None:
-    name = db.get('db_slug') or db.get('db_name') or db.get('db', '')
+    name = db.get('db_slug')
     state = db.get('state', '')
     location = db.get('location', '')
     region = db.get('region', '')

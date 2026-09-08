@@ -6,6 +6,7 @@ our own daemon on a worker-specific port to avoid colliding with the user's
 real daemon on 22089.
 """
 
+import contextlib
 import json
 import os
 import pathlib
@@ -15,6 +16,7 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
@@ -158,15 +160,11 @@ def pxt_daemon(
 PxtRunner = Callable[..., PxtResult]
 
 # `pxt db update` against a hosted database builds its image, which runs CodeBuild
-_HOSTED_BUILD_TIMEOUT = 1800.0
+BUILD_TIMEOUT = 1800.0
 
 _RUN_TIMEOUT_SECS = 300
 
 _WHEEL_SUBDIR = 'wheels'
-_SPACY_MODEL = (
-    'en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/'
-    'en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl'
-)
 
 
 def _as_text(stream: bytes | str | None) -> str:
@@ -176,89 +174,12 @@ def _as_text(stream: bytes | str | None) -> str:
     return stream if isinstance(stream, str) else stream.decode(errors='replace')
 
 
-def _copy_app_corpus(session_project: pathlib.Path) -> pathlib.Path:
+def copy_app_corpus(session_project: pathlib.Path) -> pathlib.Path:
     """Put the shared app corpus in the session's project, and return where it landed."""
     directory = session_project / 'apps'
     if not directory.exists():
         shutil.copytree(pathlib.Path(__file__).parent / 'apps', directory, ignore=shutil.ignore_patterns('__pycache__'))
     return directory
-
-
-# the projects a hosted image has already been built from, so a session builds each one once
-_hosted_image_built_from: set[pathlib.Path] = set()
-
-
-@pytest.fixture
-def hosted_image(
-    db_root: DatabaseRoot, cli: PxtRunner, session_project: pathlib.Path, pixeltable_wheel: pathlib.Path
-) -> None:
-    """Put an image built from the session's project on a hosted target's pods.
-
-    The counterpart of what the proxy target does by starting a daemon on this project: a hosted service
-    runs the image its database was built with, so the project has to reach the pods that way. `pxt db
-    update` is the verb that builds one, and it is the only verb that creates a hosted database.
-
-    One build per project per session: a build runs CodeBuild and takes minutes.
-    """
-    if db_root.id != 'cloud':
-        return
-    if session_project in _hosted_image_built_from:
-        return
-    _copy_app_corpus(session_project)
-    # the model as well as the package: spacy resolves 'en_core_web_sm' by import, not by download
-    write_requirements(session_project, pixeltable_wheel, 'spacy', _SPACY_MODEL)
-    base_uri = os.environ['PXTTEST_CLOUD_DB_URI']
-    (session_project / 'pixeltable.toml').write_text(
-        f'[[pixeltable.database]]\nname = {json.dumps(base_uri)}\n', encoding='utf-8'
-    )
-    cli('daemon', 'restart', cwd=session_project)
-    cli('db', 'update', base_uri, '-f', cwd=session_project, timeout=_HOSTED_BUILD_TIMEOUT)
-    _hosted_image_built_from.add(session_project)
-
-
-@pytest.fixture
-def authenticated_http(db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Send the caller's API key with every request to a hosted service.
-
-    A local service answers whatever reaches its port. A hosted one sits behind the gateway, which
-    authenticates every request and reads the key from X-api-key. Patching the verbs rather than the
-    call sites keeps a test's request identical whichever target serves it.
-    """
-    if db_root.id != 'cloud':
-        return
-    import httpx
-
-    key = os.environ['PIXELTABLE_API_KEY']
-    for verb in ('get', 'post'):
-        original = getattr(httpx, verb)
-
-        def _send(url: Any, *args: Any, _original: Any = original, **kwargs: Any) -> Any:
-            headers = {**(kwargs.pop('headers', None) or {}), 'X-api-key': key}
-            return _original(url, *args, headers=headers, **kwargs)
-
-        monkeypatch.setattr(httpx, verb, _send)
-
-
-@pytest.fixture
-def no_hosted_services(db_root: DatabaseRoot) -> Iterator[None]:
-    """Leave a hosted database holding no service instances.
-
-    The hosted database outlives every test that runs against it, so a service one test leaves behind is
-    still deployed while the next one runs, and a recursive list finds it.
-    """
-    if db_root.id != 'cloud':
-        yield
-        return
-    from pixeltable.serving.service_manager import get_manager
-
-    def _clear() -> None:
-        manager = get_manager(db_root.prefix)
-        for instance in manager.list(recursive=True):
-            manager.delete(instance)
-
-    _clear()
-    yield
-    _clear()
 
 
 @pytest.fixture(scope='session')
@@ -277,6 +198,15 @@ def pixeltable_wheel(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
     wheels = list(out_dir.glob('*.whl'))
     assert len(wheels) == 1, f'expected one wheel in {out_dir}, found {wheels}'
     return wheels[0]
+
+
+@contextlib.contextmanager
+def disposable_db_uri(cli: PxtRunner, cwd: pathlib.Path) -> Iterator[str]:
+    uri = f'pxt://pixeltable:pxttest-{uuid.uuid4().hex[:12]}'
+    try:
+        yield uri
+    finally:
+        cli('db', 'delete', uri, cwd=cwd, check=False)
 
 
 def write_requirements(project: pathlib.Path, wheel: pathlib.Path, *extra: str) -> None:
@@ -299,7 +229,7 @@ def apps(session_project: pathlib.Path) -> Callable[[str], str]:
 
     The corpus needs to be copied into the session's project in order for cli commands to work.
     """
-    directory = _copy_app_corpus(session_project)
+    directory = copy_app_corpus(session_project)
 
     def _path(name: str) -> str:
         path = directory / name
@@ -370,11 +300,10 @@ def cli_bg(
             handle.proc.kill()
 
 
-@pytest.fixture
-def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -> PxtRunner:
-    # db_root resets the catalog (like uses_db) and pulls in the local/proxy/cloud axis, so a test
-    # using cli() auto-forks over all backends unless it is marked @pytest.mark.db_roots. The CLI daemon and
-    # this test process share PIXELTABLE_HOME, so both resolve a pxt:// path to the same local proxy daemon.
+@pytest.fixture(scope='session')
+def session_cli(pxt_daemon: int, session_project: pathlib.Path) -> PxtRunner:
+    """Run the CLI against the session's daemon and project, for work a session does once."""
+
     def _run(
         *args: str,
         check: bool = True,
@@ -418,3 +347,11 @@ def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -
         return PxtResult(r.returncode, r.stdout, r.stderr)
 
     return _run
+
+
+@pytest.fixture
+def cli(db_root: DatabaseRoot, session_cli: PxtRunner) -> PxtRunner:
+    # db_root resets the catalog (like uses_db) and pulls in the local/proxy/cloud axis, so a test
+    # using cli() auto-forks over all backends unless it is marked @pytest.mark.db_roots. The CLI daemon and
+    # this test process share PIXELTABLE_HOME, so both resolve a pxt:// path to the same local proxy daemon.
+    return session_cli
