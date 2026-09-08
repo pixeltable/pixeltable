@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import os
 import pathlib
 import shutil
 import time
@@ -153,13 +152,13 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT, f'Invalid uploaded media object key: {remote_key!r}'
             )
-    org = os.environ.get('PXTCLOUD_ORG')
-    db = os.environ.get('PXTCLOUD_DB')
-    if not (org and db):
+    hosted_db = Env.get().hosted_db
+    if hosted_db is None:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
             'Internal error: PXTCLOUD_ORG and PXTCLOUD_DB are not present in the container.',
         )
+    org, db = hosted_db
     store = ObjectOps.get_store(f'pxtfs://{org}:{db}/home/uploads/', False)
 
     def download(remote_key: str) -> None:

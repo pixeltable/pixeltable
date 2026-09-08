@@ -51,6 +51,7 @@ from pixeltable.utils import image as image_utils
 from pixeltable.utils.app_module import model_mismatch_error_str
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.local_store import LocalStore, TempStore
+from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 from pixeltable_cli.types import RouteSpec, ServiceSpec
 
 # The columns a route declaration names, given either as names or as references.
@@ -2644,7 +2645,8 @@ class FastAPIRouter(fastapi.APIRouter):
     def _convert_media_val(self, val: Any, url_for_media: Callable[[str], str]) -> Any:
         """
         If val is a local media file (a file:// uri or a bare absolute path) under an allowed media directory,
-        converts it to a fetchable url of the /media endpoint. Otherwise returns val unchanged.
+        converts it to a fetchable url of the /media endpoint. An object-store uri (pxtfs://, s3://, ...) is
+        converted to a presigned HTTP url. Otherwise returns val unchanged.
 
         Media values reach here in either form: a file:// uri (e.g. a column's fileurl) or a bare local path
         (e.g. a ResultSet's localpath, or a proxy-fetched file in the FileCache).
@@ -2656,7 +2658,14 @@ class FastAPIRouter(fastapi.APIRouter):
         elif os.path.isabs(val):
             file_path = Path(val)
         else:
-            return val  # a relative path or a remote (http/s3/...) url; leave for the client to fetch
+            try:
+                soa = ObjectPath.parse_object_storage_addr(val, allow_obj_name=True)
+            except ValueError:
+                return val  # not a uri Pixeltable knows how to read; leave for the client
+            if soa.storage_target in (StorageTarget.LOCAL_STORE, StorageTarget.HTTP_STORE):
+                return val  # a relative path, or an http url the client can fetch as is
+            # signed for an hour, so a client has time to fetch the media after reading the response
+            return ObjectOps.presigned_url(val, expiration_seconds=3600)
         if file_path is None:
             return val
         resolved = file_path.resolve()

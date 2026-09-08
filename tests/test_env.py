@@ -1,8 +1,11 @@
 import asyncio
 import os
-from typing import Iterator
+import uuid
+from pathlib import Path
+from typing import Any, Iterator
 
 import numpy as np
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -11,8 +14,9 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.object_stores import FileDestination, ObjectOps
 
-from .utils import pxt_raises, skip_test_if_not_local
+from .utils import get_image_files, pxt_raises, skip_test_if_not_local
 
 pytestmark = pytest.mark.db_roots('local', reason='exercises process-global Env/Config and runtime reset')
 
@@ -183,6 +187,100 @@ class TestApiKey:
             excs.ErrorCode.MISSING_CREDENTIALS, match='API key is required to create a database\\. Set it with'
         ):
             Env.get().require_api_key('create a database')
+
+
+class TestHostedMediaDefault:
+    def test_home_bucket_default(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """On a hosted db's pod, media that has no configured destination goes to the db's home bucket."""
+        monkeypatch.delenv('PIXELTABLE_INPUT_MEDIA_DEST', raising=False)
+        monkeypatch.delenv('PIXELTABLE_OUTPUT_MEDIA_DEST', raising=False)
+
+        # no hosted-db identity: the defaults stay as configured (here: unset, ie. the local media dir)
+        monkeypatch.delenv('PXTCLOUD_ORG', raising=False)
+        monkeypatch.delenv('PXTCLOUD_DB', raising=False)
+        _reset_env(reinit=False, db_name=None)
+        assert Env.get().hosted_db is None
+        assert Env.get().default_input_media_dest is None
+        assert Env.get().default_output_media_dest is None
+
+        # identity present: both defaults are the home bucket
+        monkeypatch.setenv('PXTCLOUD_ORG', 'org1')
+        monkeypatch.setenv('PXTCLOUD_DB', 'db1')
+        _reset_env(reinit=False, db_name=None)
+        assert Env.get().hosted_db == ('org1', 'db1')
+        assert Env.get().default_input_media_dest == 'pxtfs://org1:db1/home'
+        assert Env.get().default_output_media_dest == 'pxtfs://org1:db1/home'
+
+        # a user-configured default wins over the home bucket, per setting
+        monkeypatch.setenv('PIXELTABLE_OUTPUT_MEDIA_DEST', 's3://user-bucket/prefix')
+        _reset_env(reinit=False, db_name=None)
+        assert Env.get().default_input_media_dest == 'pxtfs://org1:db1/home'
+        assert Env.get().default_output_media_dest == 's3://user-bucket/prefix'
+        monkeypatch.delenv('PIXELTABLE_OUTPUT_MEDIA_DEST')
+        _reset_env(reinit=False, db_name=None)
+
+        # end to end, through a fake home bucket store: an inserted file, an inserted in-memory image and a
+        # computed image all land in the bucket, and dropping the table deletes them from it
+        objects: dict[str, bytes] = {}
+        deleted: list[tuple[uuid.UUID, int | None]] = []
+        home_bucket = 'pxtfs://org1:db1/home'
+
+        class FakeStore:
+            def validate(self, error_prefix: str) -> str | None:
+                return home_bucket
+
+            def resolve_destination(
+                self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None
+            ) -> FileDestination:
+                key = f'pixeltable/data/{tbl_id.hex}_{col_id}_{tbl_version}_{uuid.uuid4().hex}{ext or ""}'
+                return FileDestination(url=f'{home_bucket}/{key}', remote_key=key)
+
+            def move_local_file(self, src_path: Path, dest: FileDestination) -> str | None:
+                return None  # an object store cannot take a local file by moving it
+
+            def copy_local_file(self, src_path: Path, dest: FileDestination) -> str:
+                assert dest.remote_key is not None
+                objects[dest.remote_key] = src_path.read_bytes()
+                return dest.url
+
+            def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
+                # src_path is the object name, relative to the store's prefix (as S3Store expects it)
+                dest_path.write_bytes(objects[f'pixeltable/data/{src_path}'])
+
+            def delete(self, tbl_id: uuid.UUID, tbl_version: int | None = None) -> int | None:
+                deleted.append((tbl_id, tbl_version))
+                return 0
+
+        real_get_store = ObjectOps.get_store
+
+        def fake_get_store(dest: Any, allow_obj_name: bool, col_name: Any = None) -> Any:
+            if isinstance(dest, str) and dest.startswith(home_bucket):
+                return FakeStore()
+            return real_get_store(dest, allow_obj_name, col_name)
+
+        monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(fake_get_store))
+
+        t = pxt.create_table('hosted_media', {'img': pxt.Image})
+        t.add_computed_column(rot=t.img.rotate(90))
+        assert t._tbl_version.get().cols_by_name['img'].destination == home_bucket
+        assert t._tbl_version.get().cols_by_name['rot'].destination == home_bucket
+        img_path = get_image_files()[0]
+        mem_img = PIL.Image.new('RGB', (8, 6), color=(1, 2, 3))
+        t.insert([{'img': img_path}, {'img': mem_img}])
+
+        # 2 inputs + 2 computed outputs, none of them left on the local media dir
+        assert len(objects) == 4
+        urls = t.select(img=t.img.fileurl, rot=t.rot.fileurl).collect()
+        assert all(url.startswith(f'{home_bucket}/pixeltable/data/') for row in urls for url in row.values())
+        assert objects[urls[0]['img'].removeprefix(f'{home_bucket}/')] == Path(img_path).read_bytes()
+        assert ObjectOps.count(t._id, dest=str(Env.get().media_dir)) == 0
+        # the cells read back from the bucket
+        rows = t.select(t.img, t.rot).collect()
+        assert all(isinstance(row['img'], PIL.Image.Image) and isinstance(row['rot'], PIL.Image.Image) for row in rows)
+        assert (8, 6) in {row['img'].size for row in rows}  # the in-memory image came back from the bucket
+
+        pxt.drop_table(t)
+        assert deleted == [(t._id, None)]
 
 
 class TestProxyEndpoint:

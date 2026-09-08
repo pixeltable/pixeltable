@@ -228,6 +228,15 @@ class Env:
         return os.environ.get('PIXELTABLE_PROXY_DAEMON') == '1'
 
     @property
+    def hosted_db(self) -> tuple[str, str] | None:
+        """(org, db) of the hosted database this process serves; the cloud sets both variables on its pods."""
+        org = os.environ.get('PXTCLOUD_ORG')
+        db = os.environ.get('PXTCLOUD_DB')
+        if not (org and db):
+            return None
+        return org, db
+
+    @property
     def user(self) -> str | None:
         return Config.get().get_string_value('user')
 
@@ -363,6 +372,15 @@ class Env:
 
         self._default_input_media_dest = config.get_string_value('input_media_dest')
         self._default_output_media_dest = config.get_string_value('output_media_dest')
+        if self.hosted_db is not None:
+            # a hosted db's pods keep their media dir on ephemeral storage, so media that isn't sent to an explicitly
+            # configured destination goes to the db's home bucket
+            org, db = self.hosted_db
+            home_bucket = f'pxtfs://{org}:{db}/home'
+            if self._default_input_media_dest is None:
+                self._default_input_media_dest = home_bucket
+            if self._default_output_media_dest is None:
+                self._default_output_media_dest = home_bucket
         for mode, uri in (('input', self._default_input_media_dest), ('output', self._default_output_media_dest)):
             if uri is not None:
                 try:
