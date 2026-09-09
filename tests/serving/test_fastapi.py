@@ -5,6 +5,7 @@ import os
 import pathlib
 import time
 import urllib.parse
+import uuid
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal
 
 import httpx
@@ -17,13 +18,15 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.functions.json as pxt_json
 from pixeltable.env import Env
+from pixeltable.utils.object_stores import ObjectOps
 from pixeltable_cli.types import ServiceSpec
 from tests.utils import (
     DatabaseRoot,
     assert_audio_bytes,
     assert_image_bytes,
     assert_video_bytes,
-    fetch_home_bucket_presigned,
+    ensure_s3_pytest_resources_access,
+    fetch_presigned,
     get_audio_files,
     get_image_files,
     get_video_files,
@@ -1441,8 +1444,9 @@ class TestFastAPI:
             return t.select(t.rotated, t.frame, t.video, t.audio).order_by(t.id)
 
         router = FastAPIRouter()
+        # columns by name: resolving a ColumnRef of a hosted table reads the local catalog, which has no record of it
         router.add_insert_route(
-            t, path='/insert', inputs=[t.id, t.image, t.video, t.audio], outputs=[t.rotated, t.frame, t.video, t.audio]
+            t, path='/insert', inputs=['id', 'image', 'video', 'audio'], outputs=['rotated', 'frame', 'video', 'audio']
         )
         router.add_query_route(path='/all', query=all_rows)
         client = make_test_client(router)
@@ -1461,14 +1465,56 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         body = resp.json()
         for col, decode in decoders.items():
-            decode(fetch_home_bucket_presigned(body[col], expires_s=3600))
+            decode(fetch_presigned(body[col], expires_s=3600, host_suffix='.r2.cloudflarestorage.com'))
 
         resp = client.post('/all', json={})
         assert resp.status_code == 200, resp.text
         rows = resp.json()['rows']
         assert len(rows) == 1
         for col, decode in decoders.items():
-            decode(fetch_home_bucket_presigned(rows[0][col], expires_s=3600))
+            decode(fetch_presigned(rows[0][col], expires_s=3600, host_suffix='.r2.cloudflarestorage.com'))
+
+    @pytest.mark.very_expensive
+    def test_s3_media_urls(self, db_root: DatabaseRoot) -> None:
+        """Media stored in the user's own S3 bucket comes back from insert and query routes as a URL that S3Store
+        signed with the caller's AWS credentials; no control plane is involved."""
+        skip_test_if_not_installed('fastapi')
+        ensure_s3_pytest_resources_access()
+        from pixeltable.functions.video import extract_frame
+        from pixeltable.serving import FastAPIRouter
+
+        p = db_root.make_catalog_path
+        dest = f's3://pxt-test/pytest/{uuid.uuid4().hex}'
+        t = pxt.create_table(p('serve_s3_media'), {'id': pxt.Int, 'image': pxt.Image, 'video': pxt.Video})
+        t.add_computed_column(rotated=t.image.rotate(90), destination=dest)
+        t.add_computed_column(frame=extract_frame(t.video, timestamp=0.0), destination=dest)
+
+        @pxt.query
+        def all_rows() -> pxt.Query:
+            return t.select(t.rotated, t.frame).order_by(t.id)
+
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/insert', inputs=['id', 'image', 'video'], outputs=['rotated', 'frame'])
+        router.add_query_route(path='/all', query=all_rows)
+        client = make_test_client(router)
+
+        resp = client.post('/insert', json={'id': 1, 'image': get_image_files()[0], 'video': get_video_files()[0]})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        for col in ('rotated', 'frame'):
+            assert_image_bytes(fetch_presigned(body[col], expires_s=3600, host_suffix='.amazonaws.com'))
+
+        resp = client.post('/all', json={})
+        assert resp.status_code == 200, resp.text
+        rows = resp.json()['rows']
+        assert len(rows) == 1
+        for col in ('rotated', 'frame'):
+            assert_image_bytes(fetch_presigned(rows[0][col], expires_s=3600, host_suffix='.amazonaws.com'))
+
+        # the served bytes are the two objects in the bucket, which go away with the table
+        assert ObjectOps.count(t._id, dest=dest) == 2
+        pxt.drop_table(t)
+        assert ObjectOps.count(t._id, dest=dest) == 0
 
     def test_add_mirror_route_video(self, db_root: DatabaseRoot) -> None:
         """Round trip over a proxy table: an insert route ingests a local video; a query route returns the

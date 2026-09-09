@@ -1215,20 +1215,21 @@ def assert_audio_bytes(data: bytes, *, duration_s: float | None = None, tol: flo
             assert abs(actual - duration_s) <= tol, (actual, duration_s)
 
 
-def fetch_home_bucket_presigned(url: str, expires_s: int) -> bytes:
-    """Fetch a presigned URL of a home bucket object and return its bytes.
+def fetch_presigned(url: str, expires_s: int, host_suffix: str) -> bytes:
+    """Fetch a presigned URL of an object and return its bytes.
 
-    Asserts that the URL points at R2, was signed for expires_s seconds, is fetchable without credentials, and is
-    refused once its signature is stripped.
+    Asserts that the URL points at a host under host_suffix, was signed for expires_s seconds, is fetchable without
+    credentials, and is refused once its signature is stripped.
     """
     parsed = urllib.parse.urlparse(url)
     assert parsed.scheme == 'https', url
-    assert parsed.hostname is not None and parsed.hostname.endswith('.r2.cloudflarestorage.com'), url
+    assert parsed.hostname is not None and parsed.hostname.endswith(host_suffix), url
     assert urllib.parse.parse_qs(parsed.query).get('X-Amz-Expires') == [str(expires_s)], url
     resp = httpx.get(url, timeout=30)
     assert resp.status_code == 200, resp.text
     unsigned = httpx.get(parsed._replace(query='').geturl(), timeout=30)
-    assert unsigned.status_code in (401, 403), unsigned.status_code
+    # R2 answers a request that carries no signature with 400 InvalidArgument (Authorization); S3 with 403
+    assert unsigned.status_code in (400, 401, 403), (unsigned.status_code, unsigned.text)
     return resp.content
 
 

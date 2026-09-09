@@ -16,7 +16,7 @@ from ..conftest import SampleFileServer
 from ..utils import (
     DatabaseRoot,
     assert_image_bytes,
-    fetch_home_bucket_presigned,
+    fetch_presigned,
     get_audio_files,
     get_documents,
     get_video_files,
@@ -512,7 +512,7 @@ class TestService:
         # the persisted poster comes back as a URL: presigned from the home bucket for a hosted table, served by
         # the service for a local one
         if db_root.id == 'cloud':
-            assert_image_bytes(fetch_home_bucket_presigned(body['poster'], expires_s=3600))
+            assert_image_bytes(fetch_presigned(body['poster'], expires_s=3600, host_suffix='.r2.cloudflarestorage.com'))
         else:
             assert '/media/' in body['poster'], body
             poster = httpx.get(body['poster'], timeout=_REQUEST_TIMEOUT)
