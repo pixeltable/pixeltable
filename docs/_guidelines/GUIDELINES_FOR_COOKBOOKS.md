@@ -45,7 +45,7 @@ Write clear, practical how-to guides that help users solve problems with Pixelta
 Use this script to audit all cookbooks for style guide compliance:
 
 ```python
-# Save as: docs/cookbook/audit_recipes.py
+# Save as: tool/audit_recipes.py
 import json
 import re
 from pathlib import Path
