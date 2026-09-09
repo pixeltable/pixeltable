@@ -84,10 +84,12 @@ class RowBuilder:
 
     input_exprs: ExprSet
 
-    tbl: catalog.TableVersion | None  # reference table of the RowBuilder; used to identify pk columns for writes
+    tbl: catalog.TableVersion | None  # the table the output columns are written to; None for a read-only plan
     for_view_load: bool  # True if this RowBuilder represents a view load
 
-    table_columns: dict[catalog.Column, int | None]  # value: slot idx, if the result of an expr
+    # value: slot idx, if the result of an expr, or None if it's an identity column, i.e. if its value is simply copied
+    # from the input
+    table_columns: dict[catalog.Column, int | None]
     default_eval_ctx: EvalCtx
     unstored_iter_args: dict[UUID, Expr]
     unstored_iter_outputs: dict[UUID, list['ColumnRef']]
@@ -203,7 +205,7 @@ class RowBuilder:
                 else:
                     self.input_exprs.add(expr)
 
-            self.add_table_column(col, expr.slot_idx, allow_unstored=allow_unstored)
+            self._add_table_column(col, expr.slot_idx, allow_unstored=allow_unstored)
             self.output_exprs.add(expr)
 
         # default eval ctx: all output exprs
@@ -307,16 +309,33 @@ class RowBuilder:
         self.row_batch_output_map = None
         self.row_batch_col_types = None
 
-    def add_table_column(self, col: catalog.Column, slot_idx: int, *, allow_unstored: bool = False) -> None:
+    def set_table_output(
+        self,
+        tbl: catalog.TableVersion,
+        *,
+        identity_cols: Sequence[catalog.Column] = (),
+        expr_cols: Sequence[tuple[catalog.Column, int]] = (),
+    ) -> None:
+        """Record the table that receives the output columns, together with those columns.
+
+        Args:
+            tbl: the table the rows are written to
+            identity_cols: columns carried over from the input rows verbatim, not produced by an expr
+            expr_cols: columns paired with the slot idx of the expr that produces the value
+        """
+        assert self.tbl is None
+        assert len(self.table_columns) == 0
+        assert set(identity_cols).isdisjoint(col for col, _ in expr_cols), (tbl, identity_cols, expr_cols)
+        self.tbl = tbl
+        for col in identity_cols:
+            self.table_columns[col] = None
+        for col, slot_idx in expr_cols:
+            self._add_table_column(col, slot_idx)
+
+    def _add_table_column(self, col: catalog.Column, slot_idx: int, *, allow_unstored: bool = False) -> None:
         """Record an output column for which the value is produced via expr evaluation."""
-        assert self.tbl is not None
         assert allow_unstored or col.is_stored, col
         self.table_columns[col] = slot_idx
-
-    def add_table_columns(self, cols: list[catalog.Column]) -> None:
-        """Record output columns whose values are materialized into DataRow.cell_vals"""
-        for col in cols:
-            self.table_columns[col] = None
 
     @property
     def media_output_col_info(self) -> list[ColumnSlotIdx]:
