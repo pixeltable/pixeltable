@@ -1164,6 +1164,22 @@ class TestTable:
         t2.insert(t)
         assert len(t2.collect()) == 2 * len(t.collect())
 
+    def test_join_query_as_source(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t1 = pxt.create_table(p('ints'), {'id': pxt.Int, 'n': pxt.Int})
+        t1.insert({'id': i, 'n': i * 10} for i in range(3))
+        t2 = pxt.create_table(p('strs'), {'id': pxt.Int, 's': pxt.String})
+        t2.insert({'id': i, 's': f'str_{i}'} for i in range(3))
+        query = t1.join(t2, on=t1.id == t2.id).select(t1.n, t2.s)
+
+        t3 = pxt.create_table(p('from_join'), source=query)
+        assert list(t3.columns()) == ['n', 's']
+        expected = [{'n': 0, 's': 'str_0'}, {'n': 10, 's': 'str_1'}, {'n': 20, 's': 'str_2'}]
+        assert list(t3.select(t3.n, t3.s).order_by(t3.n).collect()) == expected
+
+        t3.insert(query)
+        assert list(t3.select(t3.n, t3.s).order_by(t3.n).collect()) == [row for row in expected for _ in range(2)]
+
     def _setup_pydantic_scalars(
         self, p: Callable[[str], str]
     ) -> tuple[
