@@ -12,7 +12,17 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import DatabaseRoot, get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
+from ..conftest import SampleFileServer
+from ..utils import (
+    DatabaseRoot,
+    assert_image_bytes,
+    fetch_home_bucket_presigned,
+    get_audio_files,
+    get_documents,
+    get_video_files,
+    home_bucket_uri,
+    skip_test_if_not_installed,
+)
 from .conftest import BUILD_TIMEOUT, BackgroundPxt, PxtRunner, copy_app_corpus, disposable_db_uri, write_requirements
 
 _REQUEST_TIMEOUT = 30.0
@@ -477,7 +487,9 @@ class TestService:
         out = cli('service', 'list', f'{target}/clips').stdout
         assert '/clips' in out and 'video (file)' in out, out
 
-    def test_media(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+    def test_media(
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, sample_file_server: SampleFileServer
+    ) -> None:
         """The routes whose request or response is not JSON: file uploads, a file response, a background job."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
@@ -494,20 +506,34 @@ class TestService:
                 timeout=_REQUEST_TIMEOUT,
             )
         assert resp.status_code == 200, resp.text
-        assert resp.json() == {'clip_id': 1}
+        body = resp.json()
+        assert body['clip_id'] == 1, body
         assert pxt.get_table(f'{target}/frames').count() > 0
+        # the persisted poster comes back as a URL: presigned from the home bucket for a hosted table, served by
+        # the service for a local one
+        if db_root.id == 'cloud':
+            assert_image_bytes(fetch_home_bucket_presigned(body['poster'], expires_s=3600))
+        else:
+            assert '/media/' in body['poster'], body
+            poster = httpx.get(body['poster'], timeout=_REQUEST_TIMEOUT)
+            assert poster.status_code == 200, poster.text
+            assert_image_bytes(poster.content)
 
-        # TODO: restore these two, which pass a file:// path a hosted pod cannot read
-        # video_url = pathlib.Path(video).as_uri()
-        #
-        # # a single media value comes back as the image itself
-        # resp = _post(running['clips']['endpoint'], '/poster', clip_id=2, video=video_url)
-        # assert resp.headers['content-type'].startswith('image/'), resp.headers
-        #
-        # # a route over the iterator view answers with a row per frame, media rendered as urls
-        # rows = _post(running['frames']['endpoint'], '/frames', clip_id=3, video=video_url).json()
-        # assert len(rows) > 1, rows
-        # assert all(row['thumb'].startswith('http') for row in rows), rows[0]
+        # a URL the pod can fetch, in place of a local path it cannot read
+        video_url = sample_file_server.url(video, db_root)
+
+        # a single media value comes back as the image itself
+        resp = _post(running['clips']['endpoint'], '/poster', clip_id=2, video=video_url)
+        assert resp.headers['content-type'].startswith('image/'), resp.headers
+        assert_image_bytes(resp.content)
+
+        # a route over the iterator view answers with a row per frame, media rendered as urls
+        rows = _post(running['frames']['endpoint'], '/frames', clip_id=3, video=video_url).json()
+        assert len(rows) > 1, rows
+        assert all(row['thumb'].startswith('http') for row in rows), rows[0]
+        thumb = httpx.get(rows[0]['thumb'], timeout=_REQUEST_TIMEOUT)
+        assert thumb.status_code == 200, thumb.text
+        assert_image_bytes(thumb.content)
 
         # a background route answers with a job to poll, and the two uploads arrive in one request
         audio = get_audio_files()[0]
@@ -525,14 +551,17 @@ class TestService:
         assert result['audio_metadata']['streams'][0]['codec_context']['name'] == 'flac', result
         recordings = pxt.get_table(f'{target}/recordings')
         assert recordings.where(recordings.recording_id == 1).count() == 1
+        # the uploaded audio is persisted in the home bucket for a hosted table, in the media dir for a local one
+        audio_url = recordings.select(recordings.audio.fileurl).collect()['audio_fileurl'][0]
+        expected_prefix = f'{home_bucket_uri(db_root.prefix)}/' if db_root.id == 'cloud' else 'file://'
+        assert audio_url.startswith(expected_prefix), audio_url
 
         # stopping one service of a file leaves the others serving
         cli('service', 'stop', f'{target}/frames')
         listed = services(cli, target)
         # TODO: assert frames is listed STOPPED, once a local stop keeps its record like a hosted one does
         assert listed['clips']['state'] == 'AVAILABLE'
-        # TODO: restore, same file:// path as above
-        # assert _post(running['clips']['endpoint'], '/poster', clip_id=4, video=video_url).status_code == 200
+        assert _post(running['clips']['endpoint'], '/poster', clip_id=4, video=video_url).status_code == 200
 
     def test_search(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """An iterator view and an embedding index over the column the iterator produces."""

@@ -1,15 +1,12 @@
 import asyncio
 import hashlib
-import io
 import json
 import os
 import pathlib
 import time
 import urllib.parse
-import uuid
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal
 
-import av
 import httpx
 import numpy as np
 import PIL.Image
@@ -20,10 +17,13 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.functions.json as pxt_json
 from pixeltable.env import Env
-from pixeltable.utils.object_stores import FileDestination, ObjectOps, StorageObjectAddress, StorageTarget
 from pixeltable_cli.types import ServiceSpec
 from tests.utils import (
     DatabaseRoot,
+    assert_audio_bytes,
+    assert_image_bytes,
+    assert_video_bytes,
+    fetch_home_bucket_presigned,
     get_audio_files,
     get_image_files,
     get_video_files,
@@ -209,32 +209,6 @@ def assert_fileresponse_ok(resp: Any, local_path: str, mime_prefix: str) -> None
     assert resp.headers['content-type'].startswith(mime_prefix), resp.headers['content-type']
     with open(local_path, 'rb') as f:
         assert resp.content == f.read()
-
-
-def assert_image_bytes(data: bytes, *, size: tuple[int, int] | None = None) -> None:
-    """Decode data as an image; optionally assert dimensions."""
-    PIL.Image.open(io.BytesIO(data)).verify()  # raises on truncated/corrupt
-    if size is not None:
-        assert PIL.Image.open(io.BytesIO(data)).size == size
-
-
-def assert_video_bytes(data: bytes, *, width: int | None = None, height: int | None = None) -> None:
-    """Decode data as video; optionally assert frame dimensions."""
-    with av.open(io.BytesIO(data)) as container:
-        stream = container.streams.video[0]
-        if width is not None:
-            assert stream.codec_context.width == width, (stream.codec_context.width, width)
-        if height is not None:
-            assert stream.codec_context.height == height, (stream.codec_context.height, height)
-
-
-def assert_audio_bytes(data: bytes, *, duration_s: float | None = None, tol: float = 0.1) -> None:
-    """Decode data as audio; optionally assert duration in seconds within tol."""
-    with av.open(io.BytesIO(data)) as container:
-        stream = container.streams.audio[0]
-        if duration_s is not None:
-            actual = float(stream.duration * stream.time_base)
-            assert abs(actual - duration_s) <= tol, (actual, duration_s)
 
 
 def fetch_and_decode_media(client: Any, url: str, decoder: Callable[..., None], **kwargs: Any) -> None:
@@ -1447,64 +1421,21 @@ class TestFastAPI:
         assert resp.headers['content-type'].startswith('image/')
         assert len(resp.content) > 0
 
-    @pytest.mark.db_roots('local', reason='patches the in-process object store registry')
-    def test_object_store_media_urls(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Media stored in an object store comes back from insert and query routes as a presigned HTTP URL that
-        serves the stored bytes, in place of the raw pxtfs:// uri."""
+    @pytest.mark.db_roots('local', 'cloud', reason='a local proxy daemon has no home bucket')
+    def test_media_urls(self, db_root: DatabaseRoot) -> None:
+        """Insert and query routes return every media column as a URL that serves the stored bytes. A hosted table
+        answers with a presigned home bucket URL for each; a local table serves its computed media from /media and
+        returns the inserted files as the file:// URLs it references in place."""
         skip_test_if_not_installed('fastapi')
-        from fastapi.responses import Response
-
         from pixeltable.functions.video import extract_frame
         from pixeltable.serving import FastAPIRouter
 
-        objects: dict[str, bytes] = {}
-        bucket = 'pxtfs://org1:db1/home'
-
-        class FakeStore:
-            def validate(self, error_prefix: str) -> str | None:
-                return bucket
-
-            def resolve_destination(
-                self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None
-            ) -> FileDestination:
-                key = f'pixeltable/data/{tbl_id.hex}_{col_id}_{tbl_version}_{uuid.uuid4().hex}{ext or ""}'
-                return FileDestination(url=f'{bucket}/{key}', remote_key=key)
-
-            def move_local_file(self, src_path: pathlib.Path, dest: FileDestination) -> str | None:
-                return None  # an object store cannot take a local file by moving it
-
-            def copy_local_file(self, src_path: pathlib.Path, dest: FileDestination) -> str:
-                assert dest.remote_key is not None
-                objects[dest.remote_key] = src_path.read_bytes()
-                return dest.url
-
-            def delete(self, tbl_id: uuid.UUID, tbl_version: int | None = None) -> int | None:
-                return 0
-
-            def create_presigned_url(self, soa: Any, expiration_seconds: int) -> str:
-                # served by the /bucket route below, so the url is fetchable through the TestClient
-                return f'http://testserver/bucket/{soa.key}?signature=fake'
-
-        real_get_store = ObjectOps.get_store
-
-        def fake_get_store(dest: Any, allow_obj_name: bool, col_name: Any = None) -> Any:
-            # a column destination arrives as the uri string; presigning arrives with the parsed object address
-            is_bucket_uri = isinstance(dest, str) and dest.startswith(bucket)
-            is_bucket_addr = (
-                isinstance(dest, StorageObjectAddress) and dest.storage_target == StorageTarget.PIXELTABLE_STORE
-            )
-            if is_bucket_uri or is_bucket_addr:
-                return FakeStore()
-            return real_get_store(dest, allow_obj_name, col_name)
-
-        monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(fake_get_store))
-        monkeypatch.setattr(Env.get(), '_default_input_media_dest', bucket)
-
+        p = db_root.make_catalog_path
         t = pxt.create_table(
-            'test_serve_bucket', {'id': pxt.Int, 'image': pxt.Image, 'video': pxt.Video, 'audio': pxt.Audio}
+            p('serve_media_urls'), {'id': pxt.Int, 'image': pxt.Image, 'video': pxt.Video, 'audio': pxt.Audio}
         )
-        t.add_computed_column(rotated=t.image.rotate(90), destination=bucket)
-        t.add_computed_column(frame=extract_frame(t.video, timestamp=0.0), destination=bucket)
+        t.add_computed_column(rotated=t.image.rotate(90))
+        t.add_computed_column(frame=extract_frame(t.video, timestamp=0.0))
 
         @pxt.query
         def all_rows() -> pxt.Query:
@@ -1515,43 +1446,36 @@ class TestFastAPI:
             t, path='/insert', inputs=[t.id, t.image, t.video, t.audio], outputs=[t.rotated, t.frame, t.video, t.audio]
         )
         router.add_query_route(path='/all', query=all_rows)
-
-        def serve_bucket(key: str) -> Response:
-            return Response(content=objects[key])
-
-        router.add_api_route('/bucket/{key:path}', serve_bucket, methods=['GET'])
         client = make_test_client(router)
 
-        def assert_presigned_fetchable(url: str, decode: Callable[[bytes], None]) -> None:
-            assert url.startswith('http://testserver/bucket/'), url
-            key = urllib.parse.urlparse(url).path.removeprefix('/bucket/')
-            resp = client.get(url)
-            assert resp.status_code == 200, resp.text
-            assert resp.content == objects[key]
-            decode(resp.content)
+        computed: dict[str, Callable[[bytes], None]] = {'rotated': assert_image_bytes, 'frame': assert_image_bytes}
+        inserted: dict[str, Callable[[bytes], None]] = {'video': assert_video_bytes, 'audio': assert_audio_bytes}
 
-        decoders: dict[str, Callable[[bytes], None]] = {
-            'rotated': assert_image_bytes,
-            'frame': assert_image_bytes,
-            'video': assert_video_bytes,
-            'audio': assert_audio_bytes,
-        }
+        def assert_served(col: str, url: str) -> None:
+            decode = (computed | inserted)[col]
+            if db_root.id == 'cloud':
+                decode(fetch_home_bucket_presigned(url, expires_s=3600))
+            elif col in computed:
+                fetch_and_decode_media(client, url, decode)
+            else:
+                assert url.startswith('file://'), url
+                decode(pathlib.Path(urllib.parse.unquote(urllib.parse.urlparse(url).path)).read_bytes())
+
         resp = client.post(
             '/insert',
             json={'id': 1, 'image': get_image_files()[0], 'video': get_video_files()[0], 'audio': get_audio_files()[0]},
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        assert len(objects) == 5
-        for col, decode in decoders.items():
-            assert_presigned_fetchable(body[col], decode)
+        for col in (*computed, *inserted):
+            assert_served(col, body[col])
 
         resp = client.post('/all', json={})
         assert resp.status_code == 200, resp.text
         rows = resp.json()['rows']
         assert len(rows) == 1
-        for col, decode in decoders.items():
-            assert_presigned_fetchable(rows[0][col], decode)
+        for col in (*computed, *inserted):
+            assert_served(col, rows[0][col])
 
     def test_add_mirror_route_video(self, db_root: DatabaseRoot) -> None:
         """Round trip over a proxy table: an insert route ingests a local video; a query route returns the
