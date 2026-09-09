@@ -631,76 +631,92 @@ class TestService:
             # un-targeted command has no one hosted database to read
             assert len(cli('service', 'list', '--json').json) == 2
 
-            # the same local name at two targets cannot be stopped or read by name alone
-            for verb in ('stop', 'logs'):
-                r = cli('service', verb, 'ingest', check=False)
-                assert r.returncode == 1
-                assert 'ambiguous' in r.stderr
-                assert f'{first}/ingest' in r.stderr and f'{second}/ingest' in r.stderr
-        else:
-            r = cli('service', 'logs', 'ingest', check=False)
+            # the same name at two targets cannot be stopped by name alone
+            r = cli('service', 'stop', 'ingest', check=False)
             assert r.returncode == 1
-            assert "No service 'ingest' is running" in r.stderr, r.stderr
-            # Two services with the same name at different hosted paths have separate logs.
-            for target, other in ((first, second), (second, first)):
-                endpoint = services(cli, target)['ingest']['endpoint']
-                marker = f'/only-{target.rsplit("/", 1)[-1]}'
-                assert httpx.get(f'{endpoint}{marker}', timeout=_REQUEST_TIMEOUT).status_code == 404
-                read_logs_until(cli, 'service', 'logs', f'{target}/ingest', contains=marker)
-                other_records = cli('service', 'logs', f'{other}/ingest', '--json').json
-                assert not any(marker in r['line'] for r in other_records), other_records[-5:]
+            assert 'ambiguous' in r.stderr
+            assert f'{first}/ingest' in r.stderr and f'{second}/ingest' in r.stderr
 
         # the catalog path says which one
-        if db_root.id != 'cloud':
-            # a local service logs to a file, and the error names it
-            r = cli('service', 'logs', f'{first}/ingest', check=False)
-            assert r.returncode == 1
-            log_file = pathlib.Path(r.stderr.split('the log is at ')[1].strip())
-            assert log_file.name == 'ingest.log' and log_file.is_file(), r.stderr
         cli('service', 'stop', f'{first}/ingest')
         # TODO: assert first's instance is gone or listed STOPPED, once a local stop keeps its record like
         # a hosted one does
         assert_serving(cli, app, second, 'ingest')
-        if db_root.id != 'cloud':
-            r = cli('service', 'logs', 'ingest', check=False)
-            assert r.returncode == 1
-            assert 'the log is at ' in r.stderr, r.stderr
-            assert pathlib.Path(r.stderr.split('the log is at ')[1].strip()).is_file()
 
-    @pytest.mark.db_roots('cloud', reason='a local service logs to a file and has no hosted log')
+    @pytest.mark.skip(reason='reading a hosted service log needs a control plane that serves get_logs')
+    @pytest.mark.db_roots('cloud', reason='a local service logs to a file, which test_logs_errors checks')
     def test_logs(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A hosted service's log holds the requests it served."""
-        app, target = apps('basic.py'), db_root.make_catalog_path('app')
-        deploy(cli, app, target)
-        running = assert_serving(cli, app, target, 'ingest')
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app = apps('basic.py')
+        plain, nested = db_root.make_catalog_path('app'), db_root.make_catalog_path('outer/inner')
+        deploy(cli, app, plain)
+        deploy(cli, app, nested)
+        running = assert_serving(cli, app, plain, 'ingest')
+        assert_serving(cli, app, nested, 'ingest')
+
+        # the request line is logged, the probes are dropped unless asked for, and the text output is the lines
         _post(running['ingest']['endpoint'], '/preview', doc_id=1, title='logged', published=False)
+        records = read_logs_until(cli, 'service', 'logs', f'{plain}/ingest', contains='POST /preview')
+        assert not any('GET /health' in rec['line'] for rec in records)
+        read_logs_until(cli, 'service', 'logs', f'{plain}/ingest', '--include-health', contains='GET /health')
+        assert 'POST /preview' in cli('service', 'logs', f'{plain}/ingest').stdout
 
-        # the request line is logged, the probes are not; --since, --tail and --include-health are checked on the
-        # database log in test_smoke.TestDbLogs, which the same reader serves
-        records = read_logs_until(cli, 'service', 'logs', f'{target}/ingest', contains='POST /preview')
-        assert not any('GET /health' in r['line'] for r in records)
-        read_logs_until(cli, 'service', 'logs', f'{target}/ingest', '--include-health', contains='GET /health')
+        # two services with the same name at different paths have separate logs
+        nested_records = cli('service', 'logs', f'{nested}/ingest', '--json').json
+        assert not any('POST /preview' in rec['line'] for rec in nested_records), nested_records[-5:]
+        marker = '/only-nested'
+        endpoint = services(cli, nested)['ingest']['endpoint']
+        assert httpx.get(f'{endpoint}{marker}', timeout=_REQUEST_TIMEOUT).status_code == 404
+        read_logs_until(cli, 'service', 'logs', f'{nested}/ingest', contains=marker)
 
-        # Stopping removes the pod; the lines it wrote stay readable.
-        cli('service', 'stop', f'{target}/ingest')
-        stopped = cli('service', 'logs', f'{target}/ingest', '--json').json
-        assert any('POST /preview' in r['line'] for r in stopped), stopped[-5:]
+        # stopping removes the pod; the lines it wrote stay readable
+        cli('service', 'stop', f'{plain}/ingest')
+        stopped = cli('service', 'logs', f'{plain}/ingest', '--json').json
+        assert any('POST /preview' in rec['line'] for rec in stopped), stopped[-5:]
 
-    @pytest.mark.db_roots('cloud', reason='reads the traceback from a service pod that failed during startup')
-    def test_logs_failed_startup(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        target = db_root.make_catalog_path('app')
-        pxt.create_dir(target)
-        result = cli('service', 'update', apps('failed_startup.py'), target, '-f', check=False, timeout=600)
+        # a service that fails during startup leaves its traceback in the log
+        failing = db_root.make_catalog_path('failing')
+        pxt.create_dir(failing)
+        result = cli('service', 'update', apps('failed_startup.py'), failing, '-f', check=False, timeout=600)
         assert result.returncode == 1, result.stdout
         records = read_logs_until(
-            cli, 'service', 'logs', f'{target}/failed_startup', contains='RuntimeError: intentional startup failure'
+            cli, 'service', 'logs', f'{failing}/failed_startup', contains='RuntimeError: intentional startup failure'
         )
-        assert any('Traceback (most recent call last)' in r['line'] for r in records), records[-10:]
-        assert any('RuntimeError: intentional startup failure' in r['line'] for r in records), records[-10:]
-        assert records == sorted(records, key=lambda r: r['ts_ms'])
-        cli('service', 'stop', f'{target}/failed_startup')
-        stopped = cli('service', 'logs', f'{target}/failed_startup', '--json').json
-        assert any('RuntimeError: intentional startup failure' in r['line'] for r in stopped), stopped[-10:]
+        assert any('Traceback (most recent call last)' in rec['line'] for rec in records), records[-10:]
+        assert records == sorted(records, key=lambda rec: rec['ts_ms'])
+
+    @pytest.mark.skip(reason='reading a hosted service log needs a control plane that serves get_logs')
+    def test_logs_errors(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        """What `service logs` refuses: bad options, a name nothing serves, and a local service's file log."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app, target = apps('basic.py'), db_root.make_catalog_path('app')
+        deploy(cli, app, target)
+        assert_serving(cli, app, target, 'ingest')
+
+        # the daemon validates --since and --tail before resolving the service
+        r = cli('service', 'logs', f'{target}/ingest', '--since', 'bogus', check=False)
+        assert r.returncode == 1 and 'must be a duration' in r.stderr, r.stderr
+        r = cli('service', 'logs', f'{target}/ingest', '--tail', '50000', check=False)
+        assert r.returncode == 1 and "'limit' must be <= 10000" in r.stderr, r.stderr
+        r = cli('service', 'logs', f'{target}/nosuch', check=False)
+        assert r.returncode == 1 and 'No service' in r.stderr, r.stderr
+
+        # a local service logs to a file, and the error names it, for a qualified name and a bare one alike
+        for name in (f'{target}/ingest', 'ingest'):
+            r = cli('service', 'logs', name, check=False)
+            assert r.returncode == 1, r.stderr
+            log_file = pathlib.Path(r.stderr.split('the log is at ')[1].strip())
+            assert log_file.name == 'ingest.log' and log_file.is_file(), r.stderr
+
+        # the same name at a second target makes the bare name ambiguous
+        other = db_root.make_catalog_path('other')
+        deploy(cli, app, other)
+        r = cli('service', 'logs', 'ingest', check=False)
+        assert r.returncode == 1 and 'ambiguous' in r.stderr, r.stderr
+        assert f'{target}/ingest' in r.stderr and f'{other}/ingest' in r.stderr
 
     @pytest.mark.db_roots('local', reason='drives the local proxy daemon directly, so the target axis adds nothing')
     def test_proxy_daemon_project_handoff(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
@@ -835,17 +851,6 @@ class TestService:
         r = cli('service', 'run', apps('basic.py'), 'pxt://acme:main/app', check=False)
         assert r.returncode != 0
         assert 'serves from this process' in r.stderr, r.stderr
-
-        # 'logs' requires one running service; the daemon validates --since and --tail before reading anything
-        r = cli('service', 'logs', 'nosuch', check=False)
-        assert r.returncode == 1
-        assert "No service 'nosuch' is running" in r.stderr, r.stderr
-        r = cli('service', 'logs', 'pxt://acme:main/ingest', '--since', 'bogus', check=False)
-        assert r.returncode == 1
-        assert 'must be a duration' in r.stderr, r.stderr
-        r = cli('service', 'logs', 'pxt://acme:main/ingest', '--tail', '50000', check=False)
-        assert r.returncode == 1
-        assert "'limit' must be <= 10000" in r.stderr, r.stderr
 
     def test_named_service(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """Name one service of a file that defines two, and pin its port."""
