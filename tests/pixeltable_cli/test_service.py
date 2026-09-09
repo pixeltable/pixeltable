@@ -631,12 +631,25 @@ class TestService:
             # un-targeted command has no one hosted database to read
             assert len(cli('service', 'list', '--json').json) == 2
 
-        # the same name at two targets cannot be stopped or read by name alone
-        for verb in ('stop', 'logs'):
-            r = cli('service', verb, 'ingest', check=False)
+            # the same local name at two targets cannot be stopped or read by name alone
+            for verb in ('stop', 'logs'):
+                r = cli('service', verb, 'ingest', check=False)
+                assert r.returncode == 1
+                assert 'ambiguous' in r.stderr
+                assert f'{first}/ingest' in r.stderr and f'{second}/ingest' in r.stderr
+        else:
+            r = cli('service', 'logs', 'ingest', check=False)
             assert r.returncode == 1
-            assert 'ambiguous' in r.stderr
-            assert f'{first}/ingest' in r.stderr and f'{second}/ingest' in r.stderr
+            assert "No service 'ingest' is running" in r.stderr, r.stderr
+            # Identical names at different hosted paths must read different deployments.
+            for target, other in ((first, second), (second, first)):
+                endpoint = services(cli, target)['ingest']['endpoint']
+                marker = f'/only-{target.rsplit("/", 1)[-1]}'
+                assert httpx.get(f'{endpoint}{marker}', timeout=_REQUEST_TIMEOUT).status_code == 404
+                records = read_logs_until(cli, 'service', 'logs', f'{target}/ingest', contains=marker)
+                assert any(marker in r['line'] for r in records), records[-5:]
+                other_records = cli('service', 'logs', f'{other}/ingest', '--json').json
+                assert not any(marker in r['line'] for r in other_records), other_records[-5:]
 
         # the catalog path says which one
         if db_root.id != 'cloud':
@@ -649,9 +662,13 @@ class TestService:
         # TODO: assert first's instance is gone or listed STOPPED, once a local stop keeps its record like
         # a hosted one does
         assert_serving(cli, app, second, 'ingest')
+        if db_root.id != 'cloud':
+            r = cli('service', 'logs', 'ingest', check=False)
+            assert r.returncode == 1
+            assert 'the log is at ' in r.stderr, r.stderr
+            assert pathlib.Path(r.stderr.split('the log is at ')[1].strip()).is_file()
 
     @pytest.mark.db_roots('cloud', reason='a local service logs to a file, which test_addressing checks')
-    @pytest.mark.skip(reason='TODO: enable once service pods have an identity the log read can address')
     def test_logs(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A hosted service's log holds the requests it served."""
         app, target = apps('basic.py'), db_root.make_catalog_path('app')
@@ -663,8 +680,40 @@ class TestService:
         assert any('POST /preview' in r['line'] for r in records), records[-5:]
         assert records == sorted(records, key=lambda r: r['ts_ms'])
         assert not any('GET /health' in r['line'] for r in records)
-        with_health = cli('service', 'logs', f'{target}/ingest', '--include-health', '--json').json
+        with_health = read_logs_until(
+            cli, 'service', 'logs', f'{target}/ingest', '--include-health', contains='GET /health'
+        )
         assert any('GET /health' in r['line'] for r in with_health), with_health[-5:]
+        tail = cli('service', 'logs', f'{target}/ingest', '--tail', '1', '--json').json
+        assert len(tail) == 1
+        assert tail[0]['ts_ms'] >= records[-1]['ts_ms'], (tail, records[-5:])
+
+        time.sleep(2)
+        read_started = time.time()
+        recent = cli('service', 'logs', f'{target}/ingest', '--since', '1s', '--json').json
+        assert not any('POST /preview' in r['line'] for r in recent), recent
+        assert all(r['ts_ms'] >= int((read_started - 1) * 1000) for r in recent), recent
+
+        # Stopping removes the serving pod, but its already-ingested records remain readable.
+        cli('service', 'stop', f'{target}/ingest')
+        stopped = cli('service', 'logs', f'{target}/ingest', '--json').json
+        assert any('POST /preview' in r['line'] for r in stopped), stopped[-5:]
+
+    @pytest.mark.db_roots('cloud', reason='reads the traceback from a service pod that failed during startup')
+    def test_logs_failed_startup(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        target = db_root.make_catalog_path('app')
+        pxt.create_dir(target)
+        result = cli('service', 'update', apps('failed_startup.py'), target, '-f', check=False, timeout=600)
+        assert result.returncode == 1, result.stdout
+        records = read_logs_until(
+            cli, 'service', 'logs', f'{target}/failed_startup', contains='RuntimeError: intentional startup failure'
+        )
+        assert any('Traceback (most recent call last)' in r['line'] for r in records), records[-10:]
+        assert any('RuntimeError: intentional startup failure' in r['line'] for r in records), records[-10:]
+        assert records == sorted(records, key=lambda r: r['ts_ms'])
+        cli('service', 'stop', f'{target}/failed_startup')
+        stopped = cli('service', 'logs', f'{target}/failed_startup', '--json').json
+        assert any('RuntimeError: intentional startup failure' in r['line'] for r in stopped), stopped[-10:]
 
     @pytest.mark.db_roots('local', reason='drives the local proxy daemon directly, so the target axis adds nothing')
     def test_proxy_daemon_project_handoff(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:

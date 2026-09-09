@@ -10,6 +10,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -792,19 +793,30 @@ class TestDbLogs:
         parts = split_pxt_uri(db_root.prefix)
         assert parts is not None
         db_uri = f'pxt://{parts.org}:{parts.db}'
-        table_name = f'cli_logs_{uuid.uuid4().hex}'
-        pxt.create_table(db_root.make_catalog_path(table_name), {'x': pxt.Int | None})
+        t = pxt.create_table(db_root.make_catalog_path(f'cli_logs_{uuid.uuid4().hex}'), {'x': pxt.Int | None})
 
-        created = f'Created table {table_name!r}'
+        # the pod finalizes the new table's pending ops under its id; the client-side 'Created table' line never
+        # reaches the pod
+        created = f'Finalize pending ops({t._id})'
         records = read_logs_until(cli, 'db', 'logs', db_uri, '--since', '5m', contains=created)
         assert any(created in r['line'] for r in records), records[-5:]
         assert records == sorted(records, key=lambda r: r['ts_ms'])
         assert not any('GET /health' in r['line'] for r in records)
 
         # the probes are kept on request, and the tail is the newest lines of the window
-        with_health = cli('db', 'logs', db_uri, '--include-health', '--json').json
+        with_health = read_logs_until(cli, 'db', 'logs', db_uri, '--include-health', contains='GET /health')
         assert any('GET /health' in r['line'] for r in with_health), with_health[-5:]
-        assert len(cli('db', 'logs', db_uri, '--tail', '1', '--json').json) == 1
+        tail = cli('db', 'logs', db_uri, '--tail', '1', '--json').json
+        assert len(tail) == 1
+        # More lines may arrive between reads, but the newest cannot precede a line already returned.
+        assert tail[0]['ts_ms'] >= records[-1]['ts_ms'], (tail, records[-5:])
+
+        # Let the known record age out of a short window; a backend ignoring --since would return it.
+        time.sleep(2)
+        read_started = time.time()
+        recent = cli('db', 'logs', db_uri, '--since', '1s', '--json').json
+        assert not any(created in r['line'] for r in recent), recent
+        assert all(r['ts_ms'] >= int((read_started - 1) * 1000) for r in recent), recent
 
         # the daemon validates the window and the tail before reading anything
         r = cli('db', 'logs', db_uri, '--since', 'bogus', check=False)

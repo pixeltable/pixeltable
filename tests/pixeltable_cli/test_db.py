@@ -14,7 +14,7 @@ import pytest
 
 from tests.utils import skip_test_if_no_config
 
-from .conftest import BUILD_TIMEOUT, PxtRunner, disposable_db_uri, write_requirements
+from .conftest import BUILD_TIMEOUT, PxtRunner, disposable_db_uri, read_logs_until, write_requirements
 
 # the exit statuses `pxt db diff` and `pxt db update` document
 EXIT_IN_AGREEMENT = 0
@@ -103,7 +103,9 @@ class TestDb:
         assert db_status(cli, project, test_db_uri)['state'] == 'AVAILABLE'
 
         # `db logs`: the pod that just came up has logged its startup
-        records = cli('db', 'logs', test_db_uri, '--json', cwd=project).json
+        records = read_logs_until(
+            cli, 'db', 'logs', test_db_uri, contains='Connected to Pixeltable database at:', cwd=project
+        )
         assert any('Connected to Pixeltable database at:' in r['line'] for r in records), records[-5:]
 
         # `db update`: Check that a second call is planned as an update
