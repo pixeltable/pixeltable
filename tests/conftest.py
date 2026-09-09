@@ -370,6 +370,18 @@ def served_project() -> pathlib.Path | None:
     return None
 
 
+@pytest.fixture(scope='session')
+def cloud_db_uri() -> str:
+    """The hosted database the cloud axis runs against.
+
+    A module whose tests must not alter it -- one that builds a database's image, say, which replaces what
+    that database runs -- overrides this with a database of its own.
+    """
+    uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
+    assert uri, 'This should have been intercepted in pytest_generate_tests().'
+    return uri
+
+
 @pytest.fixture(scope='function')
 def db_root(
     init_env: None, served_project: pathlib.Path | None, request: pytest.FixtureRequest
@@ -404,8 +416,7 @@ def db_root(
             yield DatabaseRoot('proxy', f'pxt://local:{db}')
 
         case 'cloud':
-            base_uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
-            assert base_uri, 'This should have been intercepted in pytest_generate_tests().'
+            base_uri = request.getfixturevalue('cloud_db_uri')
             test_dir = uuid.uuid4().hex
             prefix = f'{base_uri}/test_{test_dir}'
             _logger.info('Creating test directory in cloud catalog: %s', prefix)

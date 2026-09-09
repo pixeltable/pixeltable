@@ -68,7 +68,6 @@ class DatabaseState(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra='ignore', populate_by_name=True)
 
     state: str = ''
-    db_name: str | None = None
     default_bucket: str | None = None
     cpu: float | None = None
     memory_mb: int | None = None

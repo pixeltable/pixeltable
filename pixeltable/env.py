@@ -36,7 +36,7 @@ from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter,
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
 from pixeltable.utils.object_stores import ObjectPath, StorageTarget
-from pixeltable.utils.sql import add_option_to_db_url
+from pixeltable.utils.sql import add_option_to_db_url, redact_db_url
 
 if TYPE_CHECKING:
     # aliased to avoid clashing with pathlib.Path above; env<->catalog is circular, so this stays type-only
@@ -221,6 +221,11 @@ class Env:
     def db_url(self) -> str:
         assert self._db_url is not None
         return self._db_url
+
+    @property
+    def redacted_db_url(self) -> str:
+        """The db url with its password masked, for logging and for display."""
+        return redact_db_url(self.db_url)
 
     @property
     def http_address(self) -> str:
@@ -494,13 +499,13 @@ class Env:
 
             create_db = not self._store_db_exists(self._db_name)
             if create_db:
-                _logger.info(f'creating database at: {self.db_url}')
+                _logger.info(f'creating database at: {self.redacted_db_url}')
                 self._create_store_db()
             else:
-                _logger.info(f'found database at: {self.db_url}')
+                _logger.info(f'found database at: {self.redacted_db_url}')
         else:
             # External DB: pre-provisioned; no local setup needed.
-            _logger.info(f'Using external database at: {self.db_url}')
+            _logger.info(f'Using external database at: {self.redacted_db_url}')
 
         # Create the SQLAlchemy engine. This will also set the default time zone.
         self._create_engine(time_zone_name=tz_name, echo=echo)
@@ -508,7 +513,7 @@ class Env:
         # Create catalog tables and system metadata
         self._init_metadata()
 
-        self.console_logger.info(f'Connected to Pixeltable database at: {self.db_url}')
+        self.console_logger.info(f'Connected to Pixeltable database at: {self.redacted_db_url}')
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()
@@ -521,8 +526,11 @@ class Env:
         if db_connect_str is not None:
             try:
                 db_url = sql.make_url(db_connect_str)
-            except sql.exc.ArgumentError as e:
-                error = f'Invalid db connection string {db_connect_str}: {e}'
+            except (sql.exc.ArgumentError, ValueError) as e:
+                # SQLAlchemy quotes the whole string it could not parse, password and all; replacing the
+                # empty string would put the marker between every character of the message
+                detail = str(e) if db_connect_str == '' else str(e).replace(db_connect_str, '<redacted>')
+                error = f'Invalid db connection string: {detail}'
                 _logger.error(error)
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error) from e
             self._db_url = db_url.render_as_string(hide_password=False)
@@ -544,7 +552,7 @@ class Env:
                 # External PostgreSQL: database is pre-provisioned. Connect directly — no existence check needed.
             else:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
-            _logger.info(f'Using database at: {self.db_url}')
+            _logger.info(f'Using database at: {self.redacted_db_url}')
         else:
             # the database name is an identifier, and is folded everywhere else it enters (Path, pxt localproxy)
             from pixeltable.catalog.globals import fold_identifier
@@ -614,7 +622,7 @@ class Env:
             pool_pre_ping=True,
         )
 
-        _logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
+        _logger.info(f'Created SQLAlchemy engine at: {self.redacted_db_url}')
         _logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
         _logger.info(f'Engine driver : {self._sa_engine.dialect.driver}')
         _logger.info(f'Engine connection pool: {pool_size} + {pool_max_overflow}')
