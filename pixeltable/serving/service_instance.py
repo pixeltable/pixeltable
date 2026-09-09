@@ -12,6 +12,7 @@ from pixeltable_cli.utils import PxtPath
 
 if TYPE_CHECKING:
     from pixeltable.service.management_protocol import LogRecord
+
     from .service_manager import ServiceManagerBase
 
 
