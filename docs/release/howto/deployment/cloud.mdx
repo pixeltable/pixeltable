@@ -80,7 +80,7 @@ After the database is up, insert from the Cloud dashboard or from Python. A loca
 
 ## Media on the home bucket
 
-Every Cloud database includes a managed bucket, and it is where the database keeps its media by default: files you insert, files uploaded through an endpoint, and computed media all land there. No provider account, no credentials file. To send one computed column somewhere else, set `destination=` on it:
+Every Cloud database includes a managed bucket, and it is where the database keeps its media by default. No provider account, no credentials file. To send one computed column somewhere else, set `destination=` on it:
 
 ```python
 class Images(TableModel, name='images'):

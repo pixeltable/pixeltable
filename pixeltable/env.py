@@ -388,8 +388,6 @@ class Env:
         self._default_output_media_dest = config.get_string_value('output_media_dest')
         hosted_db = self.hosted_db()
         if hosted_db is not None:
-            # a hosted db's pods keep their media dir on ephemeral storage, so media that isn't sent to an explicitly
-            # configured destination goes to the db's home bucket
             org, db = hosted_db
             home_bucket = f'pxtfs://{org}:{db}/home'
             if self._default_input_media_dest is None:
@@ -731,7 +729,7 @@ class Env:
         return f'{org}-{db}.{domain}', port
 
     def object_store_clients(self, target: StorageTarget, kind: ObjectStoreClientKind = 'client') -> S3CompatClientDict:
-        """The boto3 client (or resource) cache of an S3-compatible storage target, shared by all threads."""
+        """The boto3 client (or resource) cache of an S3-compatible storage target."""
         with self._object_store_clients_lock:
             key = (target, kind)
             if key not in self._object_store_clients:
