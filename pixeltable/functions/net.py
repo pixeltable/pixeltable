@@ -2,10 +2,9 @@
 Pixeltable UDF for converting media file URIs to presigned HTTP URLs.
 """
 
-from pixeltable import exceptions as excs
 from pixeltable.func.udf import udf
 from pixeltable.utils.code import local_public_names
-from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
+from pixeltable.utils.object_stores import ObjectOps
 
 
 @udf
@@ -44,24 +43,7 @@ def presigned_url(uri: str, expiration_seconds: int) -> str:
     """
     if not uri:
         return uri
-
-    # Parse the object storage address from the URI
-    soa = ObjectPath.parse_object_storage_addr(uri, allow_obj_name=True)
-
-    # HTTP/HTTPS URLs are already publicly accessible
-    if soa.storage_target == StorageTarget.HTTP_STORE:
-        return uri
-
-    # For file:// URLs, we can't generate presigned URLs
-    if soa.storage_target == StorageTarget.LOCAL_STORE:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            'Cannot generate presigned URL for local file:// URLs. '
-            'Please use cloud storage (S3, GCS, Azure) for presigned URLs.',
-        )
-
-    store = ObjectOps.get_store(soa, allow_obj_name=True)
-    return store.create_presigned_url(soa, expiration_seconds)
+    return ObjectOps.presigned_url(uri, expiration_seconds)
 
 
 __all__ = local_public_names(__name__)

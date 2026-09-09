@@ -80,18 +80,18 @@ After the database is up, insert from the Cloud dashboard or from Python. A loca
 
 ## Media on the home bucket
 
-Every Cloud database includes a managed bucket. No provider account, no credentials file. Set `destination=` on that computed column:
+Every Cloud database includes a managed bucket, and it is where the database keeps its media by default. No provider account, no credentials file. To send one computed column somewhere else, set `destination=` on it:
 
 ```python
 class Images(TableModel, name='images'):
     photo: pxt.Image
     thumbnail = pxt.Column(
         value=photo.resize((256, 256)),
-        destination='pxtfs://org:mydb/home',
+        destination='s3://my-bucket/thumbnails',
     )
 ```
 
-Or set `output_media_dest` as the default for computed media. Details: [Cloud storage](/integrations/cloud-storage#pixeltable-cloud-home-bucket).
+Or set `input_media_dest` / `output_media_dest` to change the default for inserted or computed media. Details: [Cloud storage](/integrations/cloud-storage#pixeltable-cloud-home-bucket).
 
 ## Local vs Cloud
 

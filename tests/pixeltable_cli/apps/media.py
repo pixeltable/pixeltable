@@ -41,7 +41,7 @@ clips.add_insert_route(
     path='/clips',
     inputs=[Clips.clip_id, Clips.caption],  # type: ignore[arg-type]
     uploadfile_inputs=['video'],
-    outputs=[Clips.clip_id],  # type: ignore[arg-type]
+    outputs=[Clips.clip_id, Clips.poster],
 )
 
 # one image per clip, returned as the image itself rather than as JSON: a file response carries a single
