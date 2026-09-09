@@ -36,7 +36,7 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
     pxt service example --out app.py
     ```
 
-    The generated file looks like this. The command writes a longer file than the snippet (it includes a UDF and a compute route), which you can delete.
+    `pxt service example` writes this application file.
 
     ```python
     import pixeltable as pxt
@@ -46,19 +46,24 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
     TableModel = pxt.model_base()
 
 
+    @pxt.udf
+    def excerpt(text: str, n: int = 12) -> str:
+        return text if len(text) <= n else f'{text[:n]}...'
+
+
     class Docs(TableModel, name='docs'):
+        doc_id: pxt.Int                             # an annotation: a value you insert
         title: pxt.String
         body: pxt.String | None
-        title_upper = pxtf.string.upper(title)
+        title_upper = pxtf.string.upper(title)      # an assignment: computed on insert
+        summary = excerpt(title)
 
 
     ingest = FastAPIRouter(name='ingest')
     ingest.add_insert_route(
-        Docs,
-        path='/docs',
-        inputs=[Docs.title, Docs.body],
-        outputs=[Docs.title, Docs.title_upper],
+        Docs, path='/docs', inputs=[Docs.doc_id, Docs.title, Docs.body], outputs=[Docs.title_upper, Docs.summary]
     )
+    ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
     ```
 
     `title: pxt.String` is a value you insert. `title_upper = ...` is computed on insert and on update. The same file can hold `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document`: [media pipelines](/use-cases/media-processing), [RAG](/use-cases/multimodal-backend).
@@ -70,17 +75,17 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
     pxt service update app.py my_app
     ```
 
-    `pxt init` marks this directory as a project root. `pxt schema update` errors if you have not run it in this directory or a parent. `my_app` is the table-namespace name inside Pixeltable, not a folder beside `app.py`. `pxt schema update` creates that namespace and its tables. It does not start the endpoints. Run it before `pxt service update`, which starts the endpoints and does not create tables.
+    `pxt init` marks this directory as a project root. `pxt schema update` errors if you have not run it in this directory or a parent. `my_app`, the last argument, is a catalog inside Pixeltable, not a folder beside `app.py`. `pxt schema update` creates that catalog and its tables. It does not start the endpoints. Run it before `pxt service update`, which starts the endpoints and does not create tables.
   </Step>
   <Step title="Insert a row">
     Send a row with HTTP POST. Pixeltable computes `title_upper` during that insert. `pxt service list` prints the URL (the port is assigned):
 
     ```bash
     pxt service list
-    # ingest  http://127.0.0.1:<port>  ...
+    # my_app/ingest  http://127.0.0.1:<port>  pid 12345  app.py
     curl -X POST http://127.0.0.1:<port>/docs \
       -H 'Content-Type: application/json' \
-      -d '{"title": "Hello", "body": "world"}'
+      -d '{"doc_id": 1, "title": "Hello", "body": "world"}'
     ```
   </Step>
 </Steps>
@@ -135,7 +140,7 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
 </Tabs>
 
 <Note>
-This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`. Skill **2.7.0+** writes that `TableModel`. If the agent writes `create_table` in app code, `schema.py`, or `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`.
+This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`. Skill **2.8.0+** writes that `TableModel`. If the agent writes `create_table` in app code, `schema.py`, or `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`.
 </Note>
 
 ## Next
