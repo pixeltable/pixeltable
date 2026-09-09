@@ -109,6 +109,7 @@ class ServiceManagerProxy(ServiceManagerBase):
                 )
                 instance = self._wait_for_state(name, base_path, ServiceInstanceState.AVAILABLE)
             if instance.state is ServiceInstanceState.AVAILABLE:
+                self._wait_for_endpoint(instance)
                 return instance
             management_client.api_call(
                 StartServiceInstanceRequest(org=self._org, db=self._db, service_name=name, base_path=base_path)

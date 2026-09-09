@@ -799,8 +799,7 @@ class TestService:
         cli('schema', 'update', str(two), target)
         r = cli('service', 'update', str(two), target, '-f', '--port', '8123', check=False)
         assert r.returncode == 1
-        expected = 'not a port' if db_root.id == 'cloud' else '--port names one port'
-        assert expected in r.stderr, r.stderr
+        assert '--port names one port' in r.stderr, r.stderr
         assert services(cli, target) == {}, 'a refused update started nothing'
 
         r = cli('service', 'update', str(two), target, 'third', '-f', check=False)
@@ -812,6 +811,13 @@ class TestService:
         with socket.socket() as probe:
             probe.bind(('127.0.0.1', 0))
             free_port = probe.getsockname()[1]
+        if db_root.id == 'cloud':
+            # naming one service leaves only the hosted rule to refuse --port: a hosted service answers
+            # on its own hostname
+            r = cli('service', 'update', str(two), target, 'second', '-f', '--port', str(free_port), check=False)
+            assert r.returncode == 1
+            assert 'not a port' in r.stderr, r.stderr
+
         port_args = [] if db_root.id == 'cloud' else ['--port', str(free_port)]
         r = cli('service', 'update', str(two), target, 'second', '-f', *port_args, '--json')
         assert [d['name'] for d in r.json['services']] == ['second'], r.json
