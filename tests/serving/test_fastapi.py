@@ -6,6 +6,7 @@ import os
 import pathlib
 import time
 import urllib.parse
+import uuid
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal
 
 import av
@@ -19,6 +20,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.functions.json as pxt_json
 from pixeltable.env import Env
+from pixeltable.utils.object_stores import FileDestination, ObjectOps, StorageObjectAddress, StorageTarget
 from pixeltable_cli.types import ServiceSpec
 from tests.utils import (
     DatabaseRoot,
@@ -1444,6 +1446,98 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('image/')
         assert len(resp.content) > 0
+
+    @pytest.mark.db_roots('local', reason='patches the in-process object store registry')
+    def test_object_store_media_urls(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Media stored in an object store comes back from insert and query routes as a presigned HTTP URL that
+        serves the stored bytes, in place of the raw pxtfs:// uri."""
+        skip_test_if_not_installed('fastapi')
+        from fastapi.responses import Response
+
+        from pixeltable.functions.video import extract_frame
+        from pixeltable.serving import FastAPIRouter
+
+        objects: dict[str, bytes] = {}
+        bucket = 'pxtfs://org1:db1/home'
+
+        class FakeStore:
+            def validate(self, error_prefix: str) -> str | None:
+                return bucket
+
+            def resolve_destination(
+                self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None
+            ) -> FileDestination:
+                key = f'pixeltable/data/{tbl_id.hex}_{col_id}_{tbl_version}_{uuid.uuid4().hex}{ext or ""}'
+                return FileDestination(url=f'{bucket}/{key}', remote_key=key)
+
+            def move_local_file(self, src_path: pathlib.Path, dest: FileDestination) -> str | None:
+                return None  # an object store cannot take a local file by moving it
+
+            def copy_local_file(self, src_path: pathlib.Path, dest: FileDestination) -> str:
+                assert dest.remote_key is not None
+                objects[dest.remote_key] = src_path.read_bytes()
+                return dest.url
+
+            def delete(self, tbl_id: uuid.UUID, tbl_version: int | None = None) -> int | None:
+                return 0
+
+            def create_presigned_url(self, soa: Any, expiration_seconds: int) -> str:
+                # served by the /bucket route below, so the url is fetchable through the TestClient
+                return f'http://testserver/bucket/{soa.key}?signature=fake'
+
+        real_get_store = ObjectOps.get_store
+
+        def fake_get_store(dest: Any, allow_obj_name: bool, col_name: Any = None) -> Any:
+            # a column destination arrives as the uri string; presigning arrives with the parsed object address
+            is_bucket_uri = isinstance(dest, str) and dest.startswith(bucket)
+            is_bucket_addr = (
+                isinstance(dest, StorageObjectAddress) and dest.storage_target == StorageTarget.PIXELTABLE_STORE
+            )
+            if is_bucket_uri or is_bucket_addr:
+                return FakeStore()
+            return real_get_store(dest, allow_obj_name, col_name)
+
+        monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(fake_get_store))
+
+        t = pxt.create_table('test_serve_bucket', {'id': pxt.Int, 'image': pxt.Image, 'video': pxt.Video})
+        t.add_computed_column(rotated=t.image.rotate(90), destination=bucket)
+        t.add_computed_column(frame=extract_frame(t.video, timestamp=0.0), destination=bucket)
+
+        @pxt.query
+        def all_rows() -> pxt.Query:
+            return t.select(t.rotated, t.frame).order_by(t.id)
+
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/insert', inputs=[t.id, t.image, t.video], outputs=[t.rotated, t.frame])
+        router.add_query_route(path='/all', query=all_rows)
+
+        def serve_bucket(key: str) -> Response:
+            return Response(content=objects[key])
+
+        router.add_api_route('/bucket/{key:path}', serve_bucket, methods=['GET'])
+        client = make_test_client(router)
+
+        def assert_presigned_fetchable(url: str) -> None:
+            assert url.startswith('http://testserver/bucket/'), url
+            key = urllib.parse.urlparse(url).path.removeprefix('/bucket/')
+            resp = client.get(url)
+            assert resp.status_code == 200, resp.text
+            assert resp.content == objects[key]
+            assert_image_bytes(resp.content)
+
+        resp = client.post('/insert', json={'id': 1, 'image': get_image_files()[0], 'video': get_video_files()[0]})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert len(objects) == 2
+        for col in ('rotated', 'frame'):
+            assert_presigned_fetchable(body[col])
+
+        resp = client.post('/all', json={})
+        assert resp.status_code == 200, resp.text
+        rows = resp.json()['rows']
+        assert len(rows) == 1
+        for col in ('rotated', 'frame'):
+            assert_presigned_fetchable(rows[0][col])
 
     def test_add_mirror_route_video(self, db_root: DatabaseRoot) -> None:
         """Round trip over a proxy table: an insert route ingests a local video; a query route returns the
