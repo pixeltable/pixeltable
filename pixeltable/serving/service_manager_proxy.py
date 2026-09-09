@@ -10,6 +10,8 @@ from __future__ import annotations
 import time
 from typing import Sequence
 
+import httpx
+
 from pixeltable import catalog, exceptions as excs
 from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
@@ -35,6 +37,8 @@ class ServiceManagerProxy(ServiceManagerBase):
 
     _POLL_INTERVAL = 5.0
     _POLL_TIMEOUT = 300.0
+    _ENDPOINT_TIMEOUT = 60.0
+    _ENDPOINT_PROBE_TIMEOUT = 10.0
 
     catalog_uri: catalog.Path
 
@@ -109,6 +113,7 @@ class ServiceManagerProxy(ServiceManagerBase):
                 )
                 instance = self._wait_for_state(name, base_path, ServiceInstanceState.AVAILABLE)
             if instance.state is ServiceInstanceState.AVAILABLE:
+                self._wait_for_endpoint(instance)
                 return instance
             management_client.api_call(
                 StartServiceInstanceRequest(org=self._org, db=self._db, service_name=name, base_path=base_path)
@@ -120,6 +125,7 @@ class ServiceManagerProxy(ServiceManagerBase):
             raise excs.Error(
                 excs.ErrorCode.INTERNAL_ERROR, f'Service {name!r} did not start; it is {started.state.value}{detail}'
             )
+        self._wait_for_endpoint(started)
         return started
 
     def stop(self, instance: ServiceInstance) -> None:
@@ -177,6 +183,33 @@ class ServiceManagerProxy(ServiceManagerBase):
                     excs.ErrorCode.INTERNAL_ERROR,
                     f'Service {name!r} is {instance.state.value} rather than {expected.value} '
                     f'after {self._POLL_TIMEOUT:.0f}s',
+                )
+            time.sleep(self._POLL_INTERVAL)
+
+    def _wait_for_endpoint(self, instance: ServiceInstance) -> None:
+        """Poll an available instance's endpoint until a request reaches the pod behind it.
+
+        AVAILABLE says the pod is ready, not that the gateway routes to it: the instance replaces its pod
+        in place, so there is a window where the route resolves to no ready pod and the gateway answers
+        502. Any status the pod itself produced, 404 included, means the route is through.
+        """
+        endpoint = instance.record.endpoint
+        if endpoint is None:
+            return
+        deadline = time.monotonic() + self._ENDPOINT_TIMEOUT
+        while True:
+            try:
+                # /health needs no credential: the gateway authenticates every other path
+                status = httpx.get(f'{endpoint}/health', timeout=self._ENDPOINT_PROBE_TIMEOUT).status_code
+                if status not in (502, 503, 504):
+                    return
+            except httpx.HTTPError:
+                pass
+            if time.monotonic() >= deadline:
+                raise excs.Error(
+                    excs.ErrorCode.INTERNAL_ERROR,
+                    f'Service {instance.service_name!r} is available, but {endpoint} did not answer within '
+                    f'{self._ENDPOINT_TIMEOUT:.0f}s',
                 )
             time.sleep(self._POLL_INTERVAL)
 

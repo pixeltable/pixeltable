@@ -69,7 +69,6 @@ class CreateDbRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.CREATE_DB] = ManagementOperationType.CREATE_DB
     org: str | None = None
     db: str
-    db_name: str | None = None
     cpu: float = 0.5
     memory_mb: int = 512
     disk_gb: int = 10
@@ -96,7 +95,6 @@ class UpdateDbRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.UPDATE_DB] = ManagementOperationType.UPDATE_DB
     org: str | None = None
     db: str
-    db_name: str | None = None
     default_bucket: str | None = None
     workers: int | None = None
     cpu: float | None = None

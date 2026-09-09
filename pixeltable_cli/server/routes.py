@@ -6,7 +6,6 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import PIL.Image
-import sqlalchemy as sa
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
@@ -79,7 +78,7 @@ def status(req: Request) -> models.StatusResponse:
         started_at=_STARTED_AT,
         home=cfg.get('home'),
         project_root=cfg.get('project_root'),
-        db_url=_redact_db_password(cfg.get('db_url')),
+        db_url=cfg.get('db_url'),
         media_dir=media_dir,
         file_cache_dir=file_cache_dir,
         media_size_bytes=_dir_size(media_dir) if sizes else None,
@@ -764,16 +763,6 @@ def _dir_size(path: str | None) -> int | None:
             except OSError:
                 pass
     return total
-
-
-def _redact_db_password(url: str | None) -> str | None:
-    """Replace the password in a SQLAlchemy URL with '***'. Returns None if the URL can't be parsed."""
-    if url is None:
-        return None
-    try:
-        return sa.make_url(url).render_as_string(hide_password=True)
-    except Exception:
-        return None
 
 
 # Cloud management API proxy routes
