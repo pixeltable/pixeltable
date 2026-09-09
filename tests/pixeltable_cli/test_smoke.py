@@ -10,20 +10,17 @@ import os
 import pathlib
 import subprocess
 import sys
-import time
 import urllib.error
 import urllib.request
-import uuid
 from typing import Callable
 
 import pytest
 
 import pixeltable as pxt
 from pixeltable_cli.client.utils import display_path
-from pixeltable_cli.utils import split_pxt_uri
 
 from ..utils import DatabaseRoot, get_image_files
-from .conftest import PxtRunner, read_logs_until
+from .conftest import PxtRunner
 
 
 @pytest.mark.db_roots('local', reason='reports daemon liveness/version; not catalog-specific')
@@ -784,37 +781,6 @@ class TestConfig:
         # an unmatched source string returns no entries but exits cleanly
         out = cli('config', '--source', 'no-such-path', '--json').json
         assert out['entries'] == []
-
-
-@pytest.mark.db_roots('cloud', reason='reads the log of a hosted database pod; a local catalog has no pod')
-class TestDbLogs:
-    def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        """The pod log holds what the test did; --since, --tail and --include-health narrow it."""
-        parts = split_pxt_uri(db_root.prefix)
-        assert parts is not None
-        db_uri = f'pxt://{parts.org}:{parts.db}'
-        t = pxt.create_table(db_root.make_catalog_path(f'cli_logs_{uuid.uuid4().hex}'), {'x': pxt.Int | None})
-
-        # the pod logs the finalization of the new table's pending ops with the table id; the client's 'Created table'
-        # line is never in the pod log
-        created = f'Finalize pending ops({t._id})'
-        records = read_logs_until(cli, 'db', 'logs', db_uri, '--since', '5m', contains=created)
-        assert records == sorted(records, key=lambda r: r['ts_ms'])
-        assert not any('GET /health' in r['line'] for r in records)
-
-        # the probes are kept on request, and the tail is the newest lines of the window
-        read_logs_until(cli, 'db', 'logs', db_uri, '--include-health', contains='GET /health')
-        tail = cli('db', 'logs', db_uri, '--tail', '1', '--json').json
-        assert len(tail) == 1
-        # More lines may arrive between reads, but the newest cannot precede a line already returned.
-        assert tail[0]['ts_ms'] >= records[-1]['ts_ms'], (tail, records[-5:])
-
-        # Let the known record age out of a short window; a backend ignoring --since would return it.
-        time.sleep(2)
-        read_started = time.time()
-        recent = cli('db', 'logs', db_uri, '--since', '1s', '--json').json
-        assert not any(created in r['line'] for r in recent), recent
-        assert all(r['ts_ms'] >= int((read_started - 1) * 1000) for r in recent), recent
 
 
 class TestErrors:

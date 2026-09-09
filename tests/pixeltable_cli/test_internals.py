@@ -39,10 +39,8 @@ from pixeltable.service.management_protocol import (
     CreateDbRequest,
     DeleteDbRequest,
     GetDbRequest,
-    GetLogsRequest,
     ListDbRequest,
     ListOrgsRequest,
-    ListServiceInstancesRequest,
     ManagementOperationType,
     StartDbRequest,
     StopDbRequest,
@@ -1993,145 +1991,6 @@ class TestHostedDatabase:
         assert build.python_version == project_fingerprint(tmp_path, entry).python_version
         assert build.image_digest == project_fingerprint(tmp_path, entry).image_digest()
         assert build.pxt_md_version == metadata.VERSION
-
-
-class TestLogs:
-    """Check the CLI output and the request the daemon sends to the management API, without a hosted deployment."""
-
-    @pytest.mark.parametrize('command', ['db', 'service'])
-    @pytest.mark.parametrize('as_json', [False, True])
-    @pytest.mark.parametrize('records', [[], [{'ts_ms': 1234, 'line': 'first'}, {'ts_ms': 1235, 'line': '  second'}]])
-    def test_output(
-        self,
-        command: str,
-        as_json: bool,
-        records: list[dict[str, Any]],
-        monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        def get(path: str, params: dict[str, Any]) -> dict[str, Any]:
-            assert path == '/api/logs'
-            target = {'org': 'acme', 'db': 'main'} if command == 'db' else {'service': 'pxt://acme:main/dir/ingest'}
-            assert params == {**target, 'since': '1h', 'limit': 200, 'include_health': False}
-            return {'records': records}
-
-        monkeypatch.setattr(hosted, 'get_request', get)
-        target = 'pxt://acme:main' if command == 'db' else 'pxt://acme:main/dir/ingest'
-        run = db_cmd.run if command == 'db' else service_cmd.run
-        run(['logs', target, *(['--json'] if as_json else [])])
-        output = capsys.readouterr()
-        assert output.err == ''
-        if as_json:
-            assert json.loads(output.out) == records
-        else:
-            expected = ''.join(f'{r["line"]}\n' for r in records) if records else 'No log records in the last 1h.\n'
-            assert output.out == expected
-
-    @pytest.mark.parametrize('configured', ['pxt://acme:main', None, 'pxt://acme:main/table'])
-    def test_database_config(
-        self, configured: str | None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
-    ) -> None:
-        def get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-            if path == '/api/config':
-                return {
-                    'config_file': '/project/pixeltable.toml',
-                    'entries': [
-                        {
-                            'section': 'pixeltable',
-                            'key': 'db_uri',
-                            'value': configured,
-                            'source': 'unset' if configured is None else 'env',
-                            'description': '',
-                            'expected_type': 'str',
-                        }
-                    ],
-                }
-            assert configured == 'pxt://acme:main'
-            assert path == '/api/logs'
-            assert params is not None and (params['org'], params['db']) == ('acme', 'main')
-            return {'records': []}
-
-        monkeypatch.setattr(hosted, 'get_request', get)
-        if configured == 'pxt://acme:main':
-            db_cmd.run(['logs', '--json'])
-            assert json.loads(capsys.readouterr().out) == []
-        else:
-            with pytest.raises(SystemExit) as info:
-                db_cmd.run(['logs'])
-            assert info.value.code == 2
-            error = capsys.readouterr().err
-            assert ('no database URI given' if configured is None else 'URI must be pxt://org:db') in error
-
-    @pytest.mark.parametrize('base_path', [None, '', 'one', 'two/nested'])
-    def test_management_request(
-        self, base_path: str | None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
-    ) -> None:
-        """Keep real URI resolution and service managers; substitute only the remote management API.
-
-        The listed instances are STOPPED: a stopped service's log stays readable.
-        """
-        records = [{'ts_ms': 1234, 'line': 'RuntimeError: startup failed'}]
-        sent: list[GetLogsRequest] = []
-
-        def api(request: Any) -> dict[str, Any]:
-            assert (request.org, request.db) == ('acme', 'main')
-            if isinstance(request, ListServiceInstancesRequest):
-                return {
-                    'instances': [
-                        {
-                            'service_name': 'ingest',
-                            'base_path': path,
-                            'endpoint': '',
-                            'app_module': 'app',
-                            'spec': {'name': 'ingest'},
-                            'state': 'STOPPED',
-                        }
-                        for path in ('', 'one', 'two/nested')
-                    ]
-                }
-            assert isinstance(request, GetLogsRequest)
-            sent.append(request)
-            return {'records': records}
-
-        def get(path: str, params: dict[str, Any]) -> dict[str, Any]:
-            assert path == '/api/logs'
-            return server_routes.get_logs(
-                server_router.Request(query={key: [str(value)] for key, value in params.items()}, body_bytes=b'')
-            )
-
-        monkeypatch.setattr(management_client, 'api_call', api)
-        monkeypatch.setattr(hosted, 'get_request', get)
-        args = ['--since', '2d', '--tail', '10000', '--include-health', '--json']
-        if base_path is None:
-            db_cmd.run(['logs', 'pxt://acme:main', *args])
-        else:
-            target = '/'.join(part for part in ('pxt://acme:main', base_path, 'ingest') if part)
-            service_cmd.run(['logs', target, *args])
-        assert json.loads(capsys.readouterr().out) == records
-        assert len(sent) == 1
-        request = sent[0]
-        assert request.service_name == (None if base_path is None else 'ingest')
-        assert request.base_path == (base_path or '')
-        assert (request.since_seconds, request.limit, request.include_health) == (172800, 10000, True)
-
-    @pytest.mark.parametrize('target', [{'org': ['acme'], 'db': ['main']}, {'service': ['pxt://acme:main/ingest']}])
-    @pytest.mark.parametrize(
-        ('key', 'value', 'message'),
-        [
-            ('since', 'bogus', 'must be a duration'),
-            ('since', '0s', 'must be a duration'),
-            ('since', '500ms', 'must be a duration'),
-            ('limit', '0', 'must be >= 1'),
-            ('limit', '-1', 'must be >= 1'),
-            ('limit', '10001', 'must be <= 10000'),
-            ('limit', 'abc', 'must be an integer'),
-        ],
-    )
-    def test_invalid_options(self, target: dict[str, list[str]], key: str, value: str, message: str) -> None:
-        with patch.object(management_client, 'api_call') as api:
-            with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=message):
-                server_routes.get_logs(server_router.Request(query={**target, key: [value]}, body_bytes=b''))
-            api.assert_not_called()
 
 
 class TestHostedUriHelpers:

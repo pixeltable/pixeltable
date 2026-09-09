@@ -8,6 +8,7 @@ an entry declares rebuilds an image, which takes minutes.
 import json
 import pathlib
 import shutil
+import time
 from typing import Any, Iterator
 
 import pytest
@@ -102,8 +103,23 @@ class TestDb:
         assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
         assert db_status(cli, project, test_db_uri)['state'] == 'AVAILABLE'
 
-        # `db logs`: the pod that just came up has logged its startup
-        read_logs_until(cli, 'db', 'logs', test_db_uri, contains='Connected to Pixeltable database at:', cwd=project)
+        # `db logs`: the pod that just came up has logged its startup, and the probes are dropped unless asked for
+        started = 'Connected to Pixeltable database at:'
+        records = read_logs_until(cli, 'db', 'logs', test_db_uri, contains=started, cwd=project)
+        assert records == sorted(records, key=lambda r: r['ts_ms'])
+        assert not any('GET /health' in r['line'] for r in records)
+        read_logs_until(cli, 'db', 'logs', test_db_uri, '--include-health', contains='GET /health', cwd=project)
+        assert started in cli('db', 'logs', test_db_uri, cwd=project).stdout
+        tail = cli('db', 'logs', test_db_uri, '--tail', '1', '--json', cwd=project).json
+        assert len(tail) == 1
+        # More lines may arrive between reads, but the newest cannot precede a line already returned.
+        assert tail[0]['ts_ms'] >= records[-1]['ts_ms'], (tail, records[-5:])
+        # Let the startup line age out of a short window; a backend ignoring --since would return it.
+        time.sleep(2)
+        read_started = time.time()
+        recent = cli('db', 'logs', test_db_uri, '--since', '1s', '--json', cwd=project).json
+        assert not any(started in r['line'] for r in recent), recent
+        assert all(r['ts_ms'] >= int((read_started - 1) * 1000) for r in recent), recent
 
         # `db update`: Check that a second call is planned as an update
         # Every update rebuilds the image, since the database reports no fingerprint to compare
@@ -143,6 +159,14 @@ class TestDb:
 
         not_a_uri = cli('db', 'diff', 'my_dir', cwd=project, check=False)
         assert 'URI must be pxt://org:db' in not_a_uri.stderr, not_a_uri.stderr
+        table_uri = cli('db', 'logs', f'{test_db_uri}/table', cwd=project, check=False)
+        assert table_uri.returncode == 2 and 'URI must be pxt://org:db' in table_uri.stderr, table_uri.stderr
+
+        # the daemon validates --since and --tail before reading anything
+        r = cli('db', 'logs', test_db_uri, '--since', 'bogus', cwd=project, check=False)
+        assert r.returncode == EXIT_ERROR and 'must be a duration' in r.stderr, r.stderr
+        r = cli('db', 'logs', test_db_uri, '--tail', '50000', cwd=project, check=False)
+        assert r.returncode == EXIT_ERROR and "'limit' must be <= 10000" in r.stderr, r.stderr
 
         undeclared = cli('db', 'diff', 'pxt://pixeltable:pxttest-undeclared', cwd=project, check=False)
         assert undeclared.returncode == EXIT_ERROR
