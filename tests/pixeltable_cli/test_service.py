@@ -656,16 +656,17 @@ class TestService:
         running = assert_serving(cli, app, plain, 'ingest')
         assert_serving(cli, app, nested, 'ingest')
 
-        # the request line is logged, the probes are dropped unless asked for, and the text output is the lines
+        # the request line is logged under the router's name, the probes are dropped unless asked for, and the
+        # text output is the lines
         _post(running['ingest']['endpoint'], '/preview', doc_id=1, title='logged', published=False)
-        records = read_logs_until(cli, 'service', 'logs', f'{plain}/ingest', contains='POST /preview')
-        assert not any('GET /health' in rec['line'] for rec in records)
-        read_logs_until(cli, 'service', 'logs', f'{plain}/ingest', '--include-health', contains='GET /health')
-        assert 'POST /preview' in cli('service', 'logs', f'{plain}/ingest').stdout
+        records = read_logs_until(cli, 'service', 'logs', f'{plain}/ingest', contains='POST /ingest/preview')
+        assert not any('GET /ingest/health' in rec['line'] for rec in records)
+        read_logs_until(cli, 'service', 'logs', f'{plain}/ingest', '--include-health', contains='GET /ingest/health')
+        assert 'POST /ingest/preview' in cli('service', 'logs', f'{plain}/ingest').stdout
 
         # two services with the same name at different paths have separate logs
         nested_records = cli('service', 'logs', f'{nested}/ingest', '--json').json
-        assert not any('POST /preview' in rec['line'] for rec in nested_records), nested_records[-5:]
+        assert not any('POST /ingest/preview' in rec['line'] for rec in nested_records), nested_records[-5:]
         marker = '/only-nested'
         endpoint = services(cli, nested)['ingest']['endpoint']
         assert httpx.get(f'{endpoint}{marker}', timeout=_REQUEST_TIMEOUT).status_code == 404
@@ -674,7 +675,7 @@ class TestService:
         # stopping removes the pod; the lines it wrote stay readable
         cli('service', 'stop', f'{plain}/ingest')
         stopped = cli('service', 'logs', f'{plain}/ingest', '--json').json
-        assert any('POST /preview' in rec['line'] for rec in stopped), stopped[-5:]
+        assert any('POST /ingest/preview' in rec['line'] for rec in stopped), stopped[-5:]
 
         # a service that fails during startup leaves its traceback in the log
         failing = db_root.make_catalog_path('failing')
@@ -703,6 +704,12 @@ class TestService:
         assert r.returncode == 1 and "'limit' must be <= 10000" in r.stderr, r.stderr
         r = cli('service', 'logs', f'{target}/nosuch', check=False)
         assert r.returncode == 1 and 'No service' in r.stderr, r.stderr
+
+        if db_root.id == 'cloud':
+            # a bare name reaches local services only
+            r = cli('service', 'logs', 'ingest', check=False)
+            assert r.returncode == 1 and "No service 'ingest' is running" in r.stderr, r.stderr
+            return
 
         # a local service logs to a file, and the error names it, for a qualified name and a bare one alike
         for name in (f'{target}/ingest', 'ingest'):
