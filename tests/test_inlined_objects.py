@@ -66,7 +66,7 @@ class TestInlinedObjects:
         )
         rows: list[dict[str, Any]] = [
             {'id': i, 'ar1': next(vals), 'ar2': next(vals), 'ar3': next(vals), 'ar4': next(vals), 'ar5': next(vals)}
-            for i in range(5)
+            for i in range(5 if db_root.id == 'cloud' else 60)
         ]
         total_bytes = sum(
             row['ar1'].nbytes + row['ar2'].nbytes + row['ar3'].nbytes + row['ar4'].nbytes + row['ar5'].nbytes
@@ -122,7 +122,6 @@ class TestInlinedObjects:
         if db_root.id == 'local':
             assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails, possibly due to bytes/ndarray being inlined [PXT-1318]')
     def test_insert_inlined_objects(self, db_root: DatabaseRoot) -> None:
         """Test storing lists and dicts with arrays of various sizes and dtypes."""
         p = db_root.make_catalog_path
@@ -150,7 +149,7 @@ class TestInlinedObjects:
         imgs = inf_image_iterator()
         rng = np.random.default_rng(0)
         rows: list[dict[str, Any]] = []
-        for i in range(10):
+        for i in range(2 if db_root.id == 'cloud' else 10):
             img1 = next(imgs)
             img2 = next(imgs)
             img3 = next(imgs)
@@ -199,7 +198,6 @@ class TestInlinedObjects:
         if db_root.id == 'local':
             assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails, possibly due to bytes/ndarray being inlined [PXT-1318]')
     def test_nonstandard_json_construction(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         skip_test_if_not_installed('imagehash')
@@ -237,7 +235,7 @@ class TestInlinedObjects:
                 'img3': next(imgs),
                 'img4': next(imgs),
             }
-            for i in range(100)
+            for i in range(2 if db_root.id == 'cloud' else 100)
         ]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
