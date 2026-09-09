@@ -643,7 +643,6 @@ class TestService:
         # a hosted one does
         assert_serving(cli, app, second, 'ingest')
 
-    @pytest.mark.skip(reason='reading a hosted service log needs a control plane that serves get_logs')
     @pytest.mark.db_roots('cloud', reason='a local service logs to a file, which test_logs_errors checks')
     def test_logs(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A hosted service's log holds the requests it served."""
@@ -688,7 +687,6 @@ class TestService:
         assert any('Traceback (most recent call last)' in rec['line'] for rec in records), records[-10:]
         assert records == sorted(records, key=lambda rec: rec['ts_ms'])
 
-    @pytest.mark.skip(reason='reading a hosted service log needs a control plane that serves get_logs')
     def test_logs_errors(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """What `service logs` refuses: bad options, a name nothing serves, and a local service's file log."""
         skip_test_if_not_installed('fastapi')
