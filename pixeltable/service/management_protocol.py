@@ -181,9 +181,6 @@ class GetArchiveUploadUrlResponse(BaseModel):
     presigned_url: str | None = None
 
 
-# Logs
-
-
 class GetLogsRequest(BaseModel):
     """Read what a database's pods logged: the database pod's, or one service's when service_name is given.
 
