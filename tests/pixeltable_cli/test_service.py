@@ -116,7 +116,7 @@ def stop_services(cli: PxtRunner) -> Iterator[None]:
         cli('service', 'stop', f'{service["catalog_path"]}/{service["name"]}'.lstrip('/'))
 
 
-def services(cli: PxtRunner, target: str | None = None) -> dict[str, dict[str, Any]]:
+def get_services(cli: PxtRunner, target: str | None = None) -> dict[str, dict[str, Any]]:
     """What is running, keyed by service name."""
     args = ['service', 'list', '--json'] if target is None else ['service', 'list', target, '--json']
     return {s['name']: s for s in cli(*args).json}
@@ -136,27 +136,26 @@ def _db_update(cli: PxtRunner, db_root: DatabaseRoot) -> None:
 
 
 def assert_serving(cli: PxtRunner, app: str, target: str, *names: str) -> dict[str, dict[str, Any]]:
-    """Assert that what runs at the target is what the file declares, and that it answers.
-
-    Three independent readings, because each catches what the others miss: the diff agrees (nothing stale is
-    deployed), the registry lists exactly these services (nothing is missing or extra), and each endpoint
-    serves the paths its own spec claims (a recorded service that is not really serving them fails here).
-    """
-    r = cli('service', 'diff', app, target, '--json')
+    """Assert that what runs at the target is what's in the file, and that it answers."""
+    # rc 2 is 'changes pending', so the runner must not treat it as a failed command
+    r = cli('service', 'diff', app, target, '--json', check=False)
     assert r.returncode == 0, r.stdout
     assert r.json['in_agreement'], r.json
 
-    running = services(cli, target)
+    # the expected services are listed
+    running = get_services(cli, target)
     assert sorted(running) == sorted(names), running
 
     for name in names:
         service = running[name]
         served = httpx.get(f'{service["endpoint"]}/openapi.json', timeout=_REQUEST_TIMEOUT)
         assert served.status_code == 200, served.text
-        declared = {route['path'] for route in service['spec']['routes']}
-        declared |= set(service['spec']['app_paths'])
+        listed_paths = {route['path'] for route in service['spec']['routes']}
+        listed_paths |= set(service['spec']['app_paths'])
         served_paths = set(served.json()['paths'])
-        assert declared <= served_paths, (declared, sorted(served_paths))
+        # the listed paths are being served, as per the docs endpoint
+        assert listed_paths <= served_paths, (listed_paths, sorted(served_paths))
+        # internal paths are not exposed
         assert not any('/_pxt/' in path for path in served_paths), sorted(served_paths)
     return running
 
@@ -198,7 +197,7 @@ class TestService:
             assert r.returncode == 1, r.stdout
             assert 'OPENAI_API_KEY' in r.stderr
             assert 'pxt daemon restart' in r.stderr
-        assert services(cli, target) == {}, 'a refused update started something'
+        assert get_services(cli, target) == {}, 'a refused update started something'
 
         # the same commands run for a caller whose environment the daemon shares
         deploy(cli, app, target)
@@ -221,7 +220,7 @@ class TestService:
             'POST /docs/update',
             'POST /docs/delete',
         }
-        assert services(cli, target) == {}
+        assert get_services(cli, target) == {}
 
         cli('service', 'update', app, target, '-f')
         running = assert_serving(cli, app, target, 'ingest')
@@ -255,7 +254,7 @@ class TestService:
         pid = running['ingest']['pid']
         r = cli('service', 'update', app, target, '-f', '--json')
         assert [s['status'] for s in r.json['services']] == ['skipped']
-        assert services(cli, target)['ingest']['pid'] == pid
+        assert get_services(cli, target)['ingest']['pid'] == pid
 
         cli('service', 'stop', f'{target}/ingest'.lstrip('/'))
         # TODO: assert the instance is listed STOPPED, once a local stop keeps its record like a hosted one does
@@ -277,14 +276,23 @@ class TestService:
         # a dry run reports the same and changes nothing
         r = cli('service', 'update', apps('basic_added_route.py'), target, '-n', check=False)
         assert r.returncode == 2
-        assert services(cli, target)['ingest']['pid'] == before['pid']
+        if db_root.id != 'cloud':
+            # pid is only available for local
+            assert get_services(cli, target)['ingest']['pid'] == before['pid']
 
         r = cli('service', 'update', apps('basic_added_route.py'), target, '-f', '--json')
         assert [s['status'] for s in r.json['services']] == ['applied']
         after = assert_serving(cli, apps('basic_added_route.py'), target, 'ingest')['ingest']
-        assert after['pid'] != before['pid'], 'a changed declaration is applied by replacing the process'
-        assert after['port'] == before['port'], 'a restart serves on the port callers were given'
+        if db_root.id != 'cloud':
+            # pid and port are only available for local
+            assert after['pid'] != before['pid'], 'a changed declaration is applied by replacing the process'
+            assert after['port'] == before['port'], 'a restart serves on the port callers were given'
         assert after['endpoint'] == before['endpoint']
+
+        # TODO: restore once a service diff stops comparing the client's pixeltable_version against the pod's,
+        # which no restart can reconcile, so the second update reports 'applied' again
+        # r = cli('service', 'update', apps('basic_added_route.py'), target, '-f', '--json')
+        # assert [s['status'] for s in r.json['services']] == ['skipped'], r.json
 
         # the added route serves, and so do the routes that were already there
         assert _post(after['endpoint'], '/shout', doc_id=3, title='new route', published=True).json() == {
@@ -296,7 +304,7 @@ class TestService:
         r = cli('service', 'update', apps('basic_changed_route.py'), target, '-f', check=False)
         assert r.returncode == 1
         assert '--allow-destructive' in r.stderr
-        assert services(cli, target)['ingest']['pid'] == after['pid']
+        assert get_services(cli, target)['ingest']['pid'] == after['pid']
 
         cli('service', 'update', apps('basic_changed_route.py'), target, '-f', '--allow-destructive')
         assert_serving(cli, apps('basic_changed_route.py'), target, 'ingest')
@@ -331,7 +339,7 @@ class TestService:
         cli('service', 'update', str(app_file), target, '-f')
         after = assert_serving(cli, str(app_file), target, 'notes_app')['notes_app']
         if db_root.id != 'cloud':
-            # pid names a local process; a hosted record carries none, and the route below shows the replacement
+            # pid is only available for local
             assert after['pid'] != running['pid'], 'a changed application is applied by replacing the process'
         upper = httpx.get(f'{after["endpoint"]}/notes/upper', timeout=_REQUEST_TIMEOUT)
         assert upper.json() == {'upper': ['HELLO']}, upper.text
@@ -387,11 +395,11 @@ class TestService:
 
         r = cli('service', 'prune', apps('basic_renamed_service.py'), target, '-n', check=False)
         assert r.returncode == 2
-        assert 'ingest' in services(cli, target)
+        assert 'ingest' in get_services(cli, target)
 
         r = cli('service', 'prune', apps('basic_renamed_service.py'), target, '-f', '--json')
         assert [(op['name'], op['status']) for op in r.json] == [('ingest', 'applied')]
-        assert 'ingest' not in services(cli, target)
+        assert 'ingest' not in get_services(cli, target)
 
         # pruning is not destructive: declaring it again brings it back
         cli('service', 'update', apps('basic.py'), target, '-f')
@@ -414,7 +422,7 @@ class TestService:
         )
         docs = pxt.get_table(f'{target}/docs')
         assert docs.where(docs.doc_id == 7).count() == 1
-        assert services(cli, target) == {}, 'run records nothing'
+        assert get_services(cli, target) == {}, 'run records nothing'
 
         served.proc.terminate()
         served.proc.wait(timeout=30)
@@ -437,7 +445,7 @@ class TestService:
 
         r = cli('service', 'update', app, target, '-f', '--json')
         assert [s['status'] for s in r.json['services']] == ['refused']
-        assert services(cli, target) == {}
+        assert get_services(cli, target) == {}
 
         # applying the schema unblocks the service, and the new tables accept rows
         cli('schema', 'update', app, target)
@@ -470,7 +478,7 @@ class TestService:
 
         r = cli('service', 'update', app, target, '-f', '--json')
         assert [s['status'] for s in r.json['services']] == ['refused']
-        assert services(cli, target) == {}
+        assert get_services(cli, target) == {}
 
         # applying the schema unblocks it
         cli('schema', 'update', app, target)
@@ -487,7 +495,7 @@ class TestService:
 
         # a listing carries what each service serves, in Pixeltable's terms rather than OpenAPI's: a video
         # arrives as an upload, which a JSON schema would render as an indistinguishable string
-        clips = services(cli, target)['clips']['spec']
+        clips = get_services(cli, target)['clips']['spec']
         upload = next(r for r in clips['routes'] if r['path'] == '/clips')
         # every field the route accepts is an input; uploadfile_inputs marks the ones that arrive as files
         assert upload['inputs'] == ['clip_id', 'caption', 'video']
@@ -497,8 +505,8 @@ class TestService:
         assert poster['return_fileresponse']
 
         # the argument narrows the listing to one service, the way `describe` inspects one table
-        assert sorted(services(cli, f'{target}/clips')) == ['clips']
-        assert sorted(services(cli, target)) == ['clips', 'frames', 'recordings']
+        assert sorted(get_services(cli, f'{target}/clips')) == ['clips']
+        assert sorted(get_services(cli, target)) == ['clips', 'frames', 'recordings']
 
         # the plain rendering shows the routes under each service
         out = cli('service', 'list', f'{target}/clips').stdout
@@ -555,7 +563,7 @@ class TestService:
 
         # stopping one service of a file leaves the others serving
         cli('service', 'stop', f'{target}/frames')
-        listed = services(cli, target)
+        listed = get_services(cli, target)
         # TODO: assert frames is listed STOPPED, once a local stop keeps its record like a hosted one does
         assert listed['clips']['state'] == 'AVAILABLE'
         # TODO: restore, same file:// path as above
@@ -621,7 +629,7 @@ class TestService:
         cli('schema', 'update', app, target)
         cli('service', 'update', app, target, '-f')
 
-        running = services(cli, target)['prefixed_app']
+        running = get_services(cli, target)['prefixed_app']
         # the prefix is part of what the router serves, so the spec records it in the path
         assert [(r['method'], r['path']) for r in running['spec']['routes']] == [('POST', '/v1/notes')]
         assert running['spec']['app_paths'] == ['/hand-written']
@@ -643,7 +651,7 @@ class TestService:
         assert_serving(cli, app, second, 'ingest')
 
         # a listing narrows to one target
-        assert sorted(services(cli, first)) == ['ingest']
+        assert sorted(get_services(cli, first)) == ['ingest']
 
         if db_root.id != 'cloud':
             # a bare name reaches local services only: a project config may name several databases, so an
@@ -828,12 +836,12 @@ class TestService:
         r = cli('service', 'update', str(two), target, '-f', '--port', '8123', check=False)
         assert r.returncode == 1
         assert '--port names one port' in r.stderr, r.stderr
-        assert services(cli, target) == {}, 'a refused update started nothing'
+        assert get_services(cli, target) == {}, 'a refused update started nothing'
 
         r = cli('service', 'update', str(two), target, 'third', '-f', check=False)
         assert r.returncode == 1
         assert "no service named 'third'" in r.stderr, r.stderr
-        assert services(cli, target) == {}, 'a refused update started nothing'
+        assert get_services(cli, target) == {}, 'a refused update started nothing'
 
         # naming one service leaves the other alone, and makes --port unambiguous
         with socket.socket() as probe:
@@ -849,7 +857,7 @@ class TestService:
         port_args = [] if db_root.id == 'cloud' else ['--port', str(free_port)]
         r = cli('service', 'update', str(two), target, 'second', '-f', *port_args, '--json')
         assert [d['name'] for d in r.json['services']] == ['second'], r.json
-        running = services(cli, target)
+        running = get_services(cli, target)
         assert sorted(running) == ['second'], running
         if db_root.id != 'cloud':
             assert running['second']['port'] == free_port
