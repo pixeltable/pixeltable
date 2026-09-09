@@ -103,10 +103,7 @@ class TestDb:
         assert db_status(cli, project, test_db_uri)['state'] == 'AVAILABLE'
 
         # `db logs`: the pod that just came up has logged its startup
-        records = read_logs_until(
-            cli, 'db', 'logs', test_db_uri, contains='Connected to Pixeltable database at:', cwd=project
-        )
-        assert any('Connected to Pixeltable database at:' in r['line'] for r in records), records[-5:]
+        read_logs_until(cli, 'db', 'logs', test_db_uri, contains='Connected to Pixeltable database at:', cwd=project)
 
         # `db update`: Check that a second call is planned as an update
         # Every update rebuilds the image, since the database reports no fingerprint to compare

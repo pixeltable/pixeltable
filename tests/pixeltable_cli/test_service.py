@@ -641,13 +641,12 @@ class TestService:
             r = cli('service', 'logs', 'ingest', check=False)
             assert r.returncode == 1
             assert "No service 'ingest' is running" in r.stderr, r.stderr
-            # Identical names at different hosted paths must read different deployments.
+            # Two services with the same name at different hosted paths have separate logs.
             for target, other in ((first, second), (second, first)):
                 endpoint = services(cli, target)['ingest']['endpoint']
                 marker = f'/only-{target.rsplit("/", 1)[-1]}'
                 assert httpx.get(f'{endpoint}{marker}', timeout=_REQUEST_TIMEOUT).status_code == 404
-                records = read_logs_until(cli, 'service', 'logs', f'{target}/ingest', contains=marker)
-                assert any(marker in r['line'] for r in records), records[-5:]
+                read_logs_until(cli, 'service', 'logs', f'{target}/ingest', contains=marker)
                 other_records = cli('service', 'logs', f'{other}/ingest', '--json').json
                 assert not any(marker in r['line'] for r in other_records), other_records[-5:]
 
@@ -668,7 +667,7 @@ class TestService:
             assert 'the log is at ' in r.stderr, r.stderr
             assert pathlib.Path(r.stderr.split('the log is at ')[1].strip()).is_file()
 
-    @pytest.mark.db_roots('cloud', reason='a local service logs to a file, which test_addressing checks')
+    @pytest.mark.db_roots('cloud', reason='a local service logs to a file and has no hosted log')
     def test_logs(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A hosted service's log holds the requests it served."""
         app, target = apps('basic.py'), db_root.make_catalog_path('app')
@@ -676,25 +675,13 @@ class TestService:
         running = assert_serving(cli, app, target, 'ingest')
         _post(running['ingest']['endpoint'], '/preview', doc_id=1, title='logged', published=False)
 
-        records = read_logs_until(cli, 'service', 'logs', f'{target}/ingest', '--since', '5m', contains='POST /preview')
-        assert any('POST /preview' in r['line'] for r in records), records[-5:]
-        assert records == sorted(records, key=lambda r: r['ts_ms'])
+        # the request line is logged, the probes are not; --since, --tail and --include-health are checked on the
+        # database log in test_smoke.TestDbLogs, which the same reader serves
+        records = read_logs_until(cli, 'service', 'logs', f'{target}/ingest', contains='POST /preview')
         assert not any('GET /health' in r['line'] for r in records)
-        with_health = read_logs_until(
-            cli, 'service', 'logs', f'{target}/ingest', '--include-health', contains='GET /health'
-        )
-        assert any('GET /health' in r['line'] for r in with_health), with_health[-5:]
-        tail = cli('service', 'logs', f'{target}/ingest', '--tail', '1', '--json').json
-        assert len(tail) == 1
-        assert tail[0]['ts_ms'] >= records[-1]['ts_ms'], (tail, records[-5:])
+        read_logs_until(cli, 'service', 'logs', f'{target}/ingest', '--include-health', contains='GET /health')
 
-        time.sleep(2)
-        read_started = time.time()
-        recent = cli('service', 'logs', f'{target}/ingest', '--since', '1s', '--json').json
-        assert not any('POST /preview' in r['line'] for r in recent), recent
-        assert all(r['ts_ms'] >= int((read_started - 1) * 1000) for r in recent), recent
-
-        # Stopping removes the serving pod, but its already-ingested records remain readable.
+        # Stopping removes the pod; the lines it wrote stay readable.
         cli('service', 'stop', f'{target}/ingest')
         stopped = cli('service', 'logs', f'{target}/ingest', '--json').json
         assert any('POST /preview' in r['line'] for r in stopped), stopped[-5:]

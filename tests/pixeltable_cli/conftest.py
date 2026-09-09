@@ -205,14 +205,14 @@ def read_logs_until(
 ) -> list[dict[str, Any]]:
     """Run `pxt <args> --json` until a record's line contains the text, and return the records.
 
-    A line reaches the hosted log a few seconds after the pod writes it. On timeout the last records are returned
-    for the caller to assert on.
+    A line reaches the hosted log a few seconds after the pod writes it. Fail on timeout.
     """
     deadline = time.monotonic() + timeout
     while True:
         records: list[dict[str, Any]] = cli(*args, '--json', cwd=cwd).json
-        if any(contains in r['line'] for r in records) or time.monotonic() > deadline:
+        if any(contains in r['line'] for r in records):
             return records
+        assert time.monotonic() < deadline, (contains, records[-5:])
         time.sleep(2.0)
 
 

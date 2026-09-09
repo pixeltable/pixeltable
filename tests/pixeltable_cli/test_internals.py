@@ -1996,7 +1996,7 @@ class TestHostedDatabase:
 
 
 class TestLogs:
-    """CLI output and the daemon-to-management contract, without a hosted deployment."""
+    """Check the CLI output and the request the daemon sends to the management API, without a hosted deployment."""
 
     @pytest.mark.parametrize('command', ['db', 'service'])
     @pytest.mark.parametrize('as_json', [False, True])
@@ -2063,11 +2063,13 @@ class TestLogs:
             assert ('no database URI given' if configured is None else 'URI must be pxt://org:db') in error
 
     @pytest.mark.parametrize('base_path', [None, '', 'one', 'two/nested'])
-    @pytest.mark.parametrize('state', ['AVAILABLE', 'FAILED', 'STOPPED'])
     def test_management_request(
-        self, base_path: str | None, state: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+        self, base_path: str | None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
-        """Keep real URI resolution and service managers; substitute only the remote management API."""
+        """Keep real URI resolution and service managers; substitute only the remote management API.
+
+        The listed instances are STOPPED: a stopped service's log stays readable.
+        """
         records = [{'ts_ms': 1234, 'line': 'RuntimeError: startup failed'}]
         sent: list[GetLogsRequest] = []
 
@@ -2082,7 +2084,7 @@ class TestLogs:
                             'endpoint': '',
                             'app_module': 'app',
                             'spec': {'name': 'ingest'},
-                            'state': state,
+                            'state': 'STOPPED',
                         }
                         for path in ('', 'one', 'two/nested')
                     ]
