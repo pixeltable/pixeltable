@@ -22,7 +22,7 @@ pytestmark = pytest.mark.db_roots('local', reason='exercises ObjectOps/object-st
 
 
 def _pxt_dest_uri() -> str:
-    """The pytest prefix in the home bucket of the database PXTTEST_CLOUD_DB_URI names."""
+    """The pytest prefix in the home bucket of the database that PXTTEST_CLOUD_DB_URI names."""
     db_uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
     if db_uri is None:
         pytest.skip('PXTTEST_CLOUD_DB_URI is not set')

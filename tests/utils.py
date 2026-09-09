@@ -1183,7 +1183,7 @@ def check_media_store_count(
 
 
 def home_bucket_uri(catalog_path: str) -> str:
-    """The pxtfs:// home bucket of the hosted database that a pxt:// catalog path lives in."""
+    """The pxtfs:// home bucket of the hosted database holding catalog_path."""
     catalog = PxtPath.parse(catalog_path, allow_empty_path=True)
     assert catalog.org is not None and catalog.db is not None, catalog_path
     return f'pxtfs://{catalog.org}:{catalog.db}/home'
