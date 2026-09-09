@@ -180,10 +180,10 @@ Examples:
   pxt service logs pxt://acme:main/ingest --since 10m --tail 50
   pxt service logs pxt://acme:main/ingest --json
 
-A hosted service's log holds what the serving process logged, requests included, merged by time with what it
-wrote to its console, which is where a service that failed to start left its traceback. A line reaches it a few
-seconds after it is written. A service running on this machine logs to a file here instead, and asking for its
-log reports where that file is.
+A hosted service's log merges the serving process's log records, requests included, with its console output,
+ordered by time. The console output holds the traceback of a service that failed to start. A line appears in the
+log a few seconds after it is written. A service running on this machine logs to a local file instead, and
+'pxt service logs' reports the path of that file.
 """
 
 VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'list', 'logs', 'check', 'example')

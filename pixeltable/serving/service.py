@@ -170,14 +170,14 @@ def service_stop(names: list[str]) -> list[ServiceChangeOp]:
     return ops
 
 
-def service_logs(name: str, *, since_seconds: int, limit: int, include_health: bool) -> Sequence[LogRecord]:
-    """The log of the instance name addresses, the way service_stop() addresses one."""
-    found = _resolve_service_instances(name)
+def service_logs(target: PxtPath, *, since_seconds: int, limit: int, include_health: bool) -> Sequence[LogRecord]:
+    """Return the log records of the service instance at target."""
+    found = _resolve_service_instances(target)
     if len(found) == 0:
-        raise excs.NotFoundError(excs.ErrorCode.SERVICE_NOT_FOUND, f'No service {name!r} is running')
+        raise excs.NotFoundError(excs.ErrorCode.SERVICE_NOT_FOUND, f'No service {target!r} is running')
     if len(found) > 1:
         found_at = ', '.join(sorted(f'{i.base_path}/{i.service_name}'.lstrip('/') for i in found))
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} is ambiguous; it names {found_at}')
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{target!r} is ambiguous; it names {found_at}')
     return found[0].logs(since_seconds=since_seconds, limit=limit, include_health=include_health)
 
 

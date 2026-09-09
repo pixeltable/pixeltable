@@ -62,7 +62,7 @@ def parse_base_uri(uri: str, prog: str = 'pxt') -> tuple[str, str, str]:
 
 
 def add_logs_args(parser: argparse.ArgumentParser) -> None:
-    """The options of `pxt db logs` and `pxt service logs`; print_logs() reads them back."""
+    """Add the options shared by `pxt db logs` and `pxt service logs`."""
     parser.add_argument('--since', default='1h', help='how far back to read: 30s, 10m, 1h, 2d (default: 1h)')
     parser.add_argument(
         '--tail',
@@ -78,7 +78,7 @@ def add_logs_args(parser: argparse.ArgumentParser) -> None:
 
 
 def print_logs(target: dict[str, str], args: argparse.Namespace) -> None:
-    """Print the log of what target names: {'org', 'db'} for a database's pod, {'service'} for a service."""
+    """Print the log of target: {'org', 'db'} names a database's pod, {'service'} names a service."""
     params = {**target, 'since': args.since, 'limit': args.limit, 'include_health': args.include_health}
     resp = get_request('/api/logs', params)
     records = resp.get('records', []) if isinstance(resp, dict) else []

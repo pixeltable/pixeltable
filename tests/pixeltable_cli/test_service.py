@@ -630,7 +630,7 @@ class TestService:
             assert 'ambiguous' in r.stderr
             assert f'{first}/ingest' in r.stderr and f'{second}/ingest' in r.stderr
 
-        # the catalog path says which one; a local service's log is a file here, and the refusal says where
+        # the catalog path says which one; a local service logs to a file, and the error names it
         r = cli('service', 'logs', f'{first}/ingest', check=False)
         assert r.returncode == 1
         log_file = pathlib.Path(r.stderr.split('the log is at ')[1].strip())
@@ -774,7 +774,7 @@ class TestService:
         assert r.returncode != 0
         assert 'serves from this process' in r.stderr, r.stderr
 
-        # 'logs' names one running service, and the daemon checks the window and the tail before reading anything
+        # 'logs' requires one running service; the daemon validates --since and --tail before reading anything
         r = cli('service', 'logs', 'nosuch', check=False)
         assert r.returncode == 1
         assert "No service 'nosuch' is running" in r.stderr, r.stderr

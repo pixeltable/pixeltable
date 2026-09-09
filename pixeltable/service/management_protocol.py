@@ -180,9 +180,9 @@ class GetArchiveUploadUrlResponse(BaseModel):
 
 
 class GetLogsRequest(BaseModel):
-    """Read what a database's pods logged: the database pod's, or one service's when service_name is given.
+    """Read the log of the database pod, or of one service when service_name is given.
 
-    The log merges what the pods' processes logged with what they wrote to their console, by time.
+    The log merges the process's log records with its console output, ordered by time.
     """
 
     operation_type: Literal[ManagementOperationType.GET_LOGS] = ManagementOperationType.GET_LOGS
@@ -191,14 +191,14 @@ class GetLogsRequest(BaseModel):
     service_name: str | None = None
     base_path: str = ''
     since_seconds: int = Field(default=3600, ge=1)
-    # the tail of the window: only its newest limit lines are returned
+    # only the newest limit lines of the window are returned
     limit: int = Field(default=200, ge=1, le=10000)
     # the readiness and liveness probes are nearly the whole log, so they are left out by default
     include_health: bool = False
 
 
 class LogRecord(BaseModel):
-    # milliseconds since the epoch, the time the line was written
+    # the time the line was written, in milliseconds since the epoch
     ts_ms: int
     line: str
 

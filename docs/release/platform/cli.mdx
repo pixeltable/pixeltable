@@ -693,8 +693,8 @@ calling process, so it is local by definition. Two verbs differ in meaning again
 a stopped service keeps its registration: `stop` stops it and leaves it there to be started again, while
 `prune` forgets it.
 
-A service's log is read with `pxt service logs`, addressing the service the way `stop` does, and a hosted
-database's own pod with `pxt db logs`:
+`pxt service logs` reads a service's log and accepts the same service addresses as `stop`. `pxt db logs` reads
+the log of a hosted database's pod:
 
 ```bash
 pxt service logs ingest                          # a bare name, when only one target has a service of that name
@@ -704,11 +704,11 @@ pxt service logs pxt://acme:main/ingest --since 10m --tail 50
 pxt db logs pxt://acme:main
 ```
 
-A hosted log holds what the serving process logged, requests included, merged by time with what it wrote to its
-console, which is where a service that failed to start left its traceback. Health probes are left out unless
-`--include-health` is given. The log outlives the pod, so a failed deploy can be read after its pod is gone, and
-a line reaches it a few seconds after it is written. A service running on this machine logs to a file there
-instead, and asking for its log reports where that file is.
+A hosted log merges the serving process's log records, requests included, with its console output, ordered by
+time. The console output holds the traceback of a service that failed to start. Health probes are left out unless
+`--include-health` is given. The log outlives the pod, so the log of a failed deploy can be read after its pod is
+gone. A line appears in the log a few seconds after it is written. A service running on this machine logs to a
+local file instead, and `pxt service logs` reports the path of that file.
 
 ### `pxt service` verbs
 

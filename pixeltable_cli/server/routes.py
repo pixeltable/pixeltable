@@ -31,7 +31,7 @@ from pixeltable.serving import service
 from pixeltable.types import TreeNode
 from pixeltable.utils.http import parse_duration_str
 from pixeltable_cli import models, types
-from pixeltable_cli.utils import identity
+from pixeltable_cli.utils import PxtPath, identity
 
 from . import bridge
 from .daemon_state import config_fingerprint, state as daemon_state
@@ -826,7 +826,7 @@ def stop_db(req: Request) -> dict[str, Any]:
 
 @router.get('/api/logs')
 def get_logs(req: Request) -> dict[str, Any]:
-    """The log of a database's pod (org and db), or of one service (service: an address service_stop() accepts)."""
+    """Return the log of a database's pod (org and db), or of one service (service)."""
     since = req.query_str('since') or '1h'
     since_seconds = parse_duration_str(since)
     if since_seconds is None or since_seconds < 1:
@@ -838,7 +838,7 @@ def get_logs(req: Request) -> dict[str, Any]:
     service_address = req.query_str('service')
     if service_address is not None:
         records = service.service_logs(
-            service_address, since_seconds=int(since_seconds), limit=limit, include_health=include_health
+            PxtPath(service_address), since_seconds=int(since_seconds), limit=limit, include_health=include_health
         )
         return GetLogsResponse(records=list(records)).model_dump(mode='json')
     return management_client.api_call(

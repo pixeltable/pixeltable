@@ -87,7 +87,7 @@ class ServiceManagerBase(abc.ABC):
     def logs(
         self, instance: ServiceInstance, *, since_seconds: int, limit: int, include_health: bool
     ) -> Sequence[LogRecord]:
-        """The newest limit lines instance logged in the last since_seconds, oldest first.
+        """Return the newest limit lines that instance logged in the last since_seconds seconds, oldest first.
 
         include_health keeps the health probe lines, which are otherwise left out.
         """
