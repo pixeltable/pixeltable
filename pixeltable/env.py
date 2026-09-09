@@ -20,7 +20,7 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Literal, NamedTuple, TypeVar, overload
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -35,7 +35,7 @@ from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
-from pixeltable.utils.object_stores import ObjectPath
+from pixeltable.utils.object_stores import ObjectPath, StorageTarget
 from pixeltable.utils.sql import add_option_to_db_url
 
 if TYPE_CHECKING:
@@ -140,7 +140,7 @@ class Env:
     _default_input_media_dest: str | None
     _default_output_media_dest: str | None
     _pxt_api_key: str | None
-    _object_store_clients: dict[str, S3CompatClientDict]  # by storage target ('r2', 'r2_resource', 's3', ...)
+    _object_store_clients: dict[tuple[StorageTarget, ObjectStoreClientKind], S3CompatClientDict]
     _object_store_clients_lock: threading.Lock
     _default_video_encoder: str | None
     _default_video_encoder_lock: threading.Lock
@@ -231,14 +231,24 @@ class Env:
     def is_proxy_daemon(self) -> bool:
         return os.environ.get('PIXELTABLE_PROXY_DAEMON') == '1'
 
-    @property
-    def hosted_db(self) -> tuple[str, str] | None:
-        """(org, db) of the hosted database this process serves; the cloud sets both variables on its pods."""
+    @overload
+    def hosted_db(self, *, required: Literal[True]) -> tuple[str, str]: ...
+
+    @overload
+    def hosted_db(self, *, required: bool = False) -> tuple[str, str] | None: ...
+
+    def hosted_db(self, *, required: bool = False) -> tuple[str, str] | None:
+        """(org, db) of the hosted database; the cloud sets PXTCLOUD_ORG and PXTCLOUD_DB on its pods."""
         org = os.environ.get('PXTCLOUD_ORG')
         db = os.environ.get('PXTCLOUD_DB')
-        if not (org and db):
-            return None
-        return org, db
+        if org and db:
+            return org, db
+        if required:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                'Internal error: PXTCLOUD_ORG and PXTCLOUD_DB are not present in the container.',
+            )
+        return None
 
     @property
     def user(self) -> str | None:
@@ -376,10 +386,11 @@ class Env:
 
         self._default_input_media_dest = config.get_string_value('input_media_dest')
         self._default_output_media_dest = config.get_string_value('output_media_dest')
-        if self.hosted_db is not None:
+        hosted_db = self.hosted_db()
+        if hosted_db is not None:
             # a hosted db's pods keep their media dir on ephemeral storage, so media that isn't sent to an explicitly
             # configured destination goes to the db's home bucket
-            org, db = self.hosted_db
+            org, db = hosted_db
             home_bucket = f'pxtfs://{org}:{db}/home'
             if self._default_input_media_dest is None:
                 self._default_input_media_dest = home_bucket
@@ -719,14 +730,14 @@ class Env:
                     ) from err
         return f'{org}-{db}.{domain}', port
 
-    def object_store_clients(self, name: str) -> S3CompatClientDict:
-        """The process-wide client cache of an S3-compatible storage target ('r2', 'r2_resource', 's3', ...,
-        'pxt_store'), created on first use."""
+    def object_store_clients(self, target: StorageTarget, kind: ObjectStoreClientKind = 'client') -> S3CompatClientDict:
+        """The boto3 client (or resource) cache of an S3-compatible storage target, shared by all threads."""
         with self._object_store_clients_lock:
-            if name not in self._object_store_clients:
-                profile = Config.get().get_string_value(f'{name.removesuffix("_resource")}_profile')
-                self._object_store_clients[name] = S3CompatClientDict(profile=profile, clients={})
-            return self._object_store_clients[name]
+            key = (target, kind)
+            if key not in self._object_store_clients:
+                profile = Config.get().get_string_value(f'{target.value}_profile')
+                self._object_store_clients[key] = S3CompatClientDict(profile=profile, clients={})
+            return self._object_store_clients[key]
 
     def create_client(self, name: str) -> Any:
         """
@@ -1118,6 +1129,10 @@ def register_client(name: str, *, credential_param: str | None) -> Callable:
 
 _client_factories_lock: threading.Lock = threading.Lock()
 _client_factories: dict[str, ApiClientFactory] = {}
+
+
+# boto3 offers two access APIs per storage target, each with its own object type
+ObjectStoreClientKind = Literal['client', 'resource']
 
 
 class S3CompatClientDict(NamedTuple):

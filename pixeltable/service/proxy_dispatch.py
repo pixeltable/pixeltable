@@ -154,13 +154,7 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT, f'Invalid uploaded media object key: {remote_key!r}'
             )
-    hosted_db = Env.get().hosted_db
-    if hosted_db is None:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            'Internal error: PXTCLOUD_ORG and PXTCLOUD_DB are not present in the container.',
-        )
-    org, db = hosted_db
+    org, db = Env.get().hosted_db(required=True)
     store = ObjectOps.get_store(f'pxtfs://{org}:{db}/home/uploads/', False)
 
     def download(remote_key: str) -> None:

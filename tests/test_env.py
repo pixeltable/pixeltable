@@ -199,7 +199,7 @@ class TestHostedMediaDefault:
         monkeypatch.delenv('PXTCLOUD_ORG', raising=False)
         monkeypatch.delenv('PXTCLOUD_DB', raising=False)
         _reset_env(reinit=False, db_name=None)
-        assert Env.get().hosted_db is None
+        assert Env.get().hosted_db() is None
         assert Env.get().default_input_media_dest is None
         assert Env.get().default_output_media_dest is None
 
@@ -207,7 +207,7 @@ class TestHostedMediaDefault:
         monkeypatch.setenv('PXTCLOUD_ORG', 'org1')
         monkeypatch.setenv('PXTCLOUD_DB', 'db1')
         _reset_env(reinit=False, db_name=None)
-        assert Env.get().hosted_db == ('org1', 'db1')
+        assert Env.get().hosted_db() == ('org1', 'db1')
         assert Env.get().default_input_media_dest == 'pxtfs://org1:db1/home'
         assert Env.get().default_output_media_dest == 'pxtfs://org1:db1/home'
 

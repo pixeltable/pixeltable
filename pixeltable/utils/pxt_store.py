@@ -49,6 +49,8 @@ class _PxtStoreCacheEntry:
     no_space_warned: bool = False  # tracks whether warning has been issued for no space left in pixeltable store
 
 
+# guards the check-then-insert on the cached pxt_store entries: building one fetches credentials from the cloud,
+# so two threads must not build the same entry
 _pxt_store_entries_lock = threading.Lock()
 
 
@@ -170,7 +172,7 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) -> _PxtS
 def _get_or_create_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) -> _PxtStoreCacheEntry:
     """Return the cached entry for org:db:bucket:prefix"""
     cache_key = f'{org}:{db}:{bucket}:{prefix}'
-    pxt_store_client_dict = Env.get().object_store_clients('pxt_store')
+    pxt_store_client_dict = Env.get().object_store_clients(StorageTarget.PIXELTABLE_STORE)
     with _pxt_store_entries_lock:
         entry = pxt_store_client_dict.clients.get(cache_key)
         if entry is None:
