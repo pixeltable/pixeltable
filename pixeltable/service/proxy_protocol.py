@@ -44,7 +44,7 @@ from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectSto
 if TYPE_CHECKING:
     from pixeltable._query import Query
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 
 # Reserved key marking a type-tagged value: {_TAG: <type-name>, 'v': <payload>}.
 _TAG = '$pxt'
@@ -77,6 +77,14 @@ class PartSink(abc.ABC, Generic[T]):
     def add_media_file(self, path: str) -> T:
         """Add a file-backed media value; returns a part index (inline) or an object key (out of band)."""
 
+    @abc.abstractmethod
+    def add_scalar_bytes(self, data: bytes, extension: str) -> T:
+        """Add a non-media binary value (a Binary cell, an array); returns a reference to the value.
+
+        Sending a small value out of band costs more in round trips than it saves in request size, so a sink
+        may inline one even where it sends every media value out of band.
+        """
+
     def flush(self) -> None:
         """Complete any work the sink deferred while serializing."""
 
@@ -93,9 +101,12 @@ class InlinePartSink(PartSink[int]):
         with open(path, 'rb') as f:
             return self.add_inline(f.read())
 
+    def add_scalar_bytes(self, data: bytes, extension: str) -> int:
+        return self.add_inline(data)
+
 
 class PxtStorePartSink(PartSink[int | str]):
-    """PartSink that uploads media parts to the hosted db's home bucket. The parts will be deposited in the
+    """PartSink that uploads binary parts to the hosted db's home bucket. The parts will be deposited in the
     uploads/ folder of the db's home bucket, in a per-request subfolder uploads/<request-uuid>.
 
     The RPC then carries only the object keys; the daemon localizes the objects before dispatch; see
@@ -103,17 +114,19 @@ class PxtStorePartSink(PartSink[int | str]):
     they must never become stored cell values.
 
     Each part's key is minted during serialization, but the transfer itself is deferred to flush() so that a
-    request's uploads run concurrently rather than one per media value.
+    request's uploads run concurrently rather than one per part.
 
-    Scalars (tags 'bytes'/'ndarray') always stay inline.
+    Scalars (tags 'bytes'/'ndarray') take the same path once they reach _MIN_OUT_OF_BAND_SIZE.
     """
 
     _MAX_UPLOAD_THREADS = 16
+    # Below this, an upload plus a download costs more than the bytes do in the request itself.
+    _MIN_OUT_OF_BAND_SIZE = 512
 
     _org: str
     _db: str
     _key_prefix: str  # 'uploads/<request-uuid>/'
-    _num_media_parts: int
+    _num_parts: int
     _store: ObjectStoreBase | None  # built on the first flush, so scalar requests skip the overhead of construction
     _pending: list[tuple[pathlib.Path, str, bool]]  # (local path, object key, remove the path after uploading it)
 
@@ -122,7 +135,7 @@ class PxtStorePartSink(PartSink[int | str]):
         self._org = org
         self._db = db
         self._key_prefix = f'uploads/{uuid4().hex}/'
-        self._num_media_parts = 0
+        self._num_parts = 0
         self._store = None
         self._pending = []
 
@@ -142,15 +155,20 @@ class PxtStorePartSink(PartSink[int | str]):
     def add_media_file(self, path: str) -> str:
         return self._add_pending(pathlib.Path(path), remove_after_upload=False)
 
+    def add_scalar_bytes(self, data: bytes, extension: str) -> int | str:
+        if len(data) < self._MIN_OUT_OF_BAND_SIZE:
+            return self.add_inline(data)
+        return self.add_media_bytes(data, extension)
+
     def _add_pending(self, path: pathlib.Path, *, remove_after_upload: bool) -> str:
         """Mint this part's object key and queue its upload for flush()."""
-        key = f'{self._key_prefix}{self._num_media_parts}{path.suffix}'
-        self._num_media_parts += 1
+        key = f'{self._key_prefix}{self._num_parts}{path.suffix}'
+        self._num_parts += 1
         self._pending.append((path, key, remove_after_upload))
         return key
 
     def flush(self) -> None:
-        """Upload the queued media parts concurrently.
+        """Upload the queued parts concurrently.
 
         Repeated references to one path are not coalesced into a single object: the daemon moves each
         localized file into the media store (ObjectOps.put_file_resolved), which would consume a shared one.
@@ -317,15 +335,11 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
         return str(obj)  # filesystem paths travel as strings
     if isinstance(obj, bytes):
         # a Binary cell, or an array column's stored byte form as returned by compute()
-        # TODO: We should be coalescing these into out-of-band uploads via add_media_bytes(), not inlining them
-        #     in HTTP requests [PXT-1314]
-        return {_TAG: 'bytes', 'v': sink.add_inline(obj)}
+        return {_TAG: 'bytes', 'v': sink.add_scalar_bytes(obj, '.bin')}
     if isinstance(obj, np.ndarray):
-        # TODO: We should be coalescing these into out-of-band uploads via add_media_bytes(), not inlining them
-        #     in HTTP requests [PXT-1314]
         buf = io.BytesIO()
         np.save(buf, obj, allow_pickle=False)  # .npy carries dtype and shape
-        return {_TAG: 'ndarray', 'v': sink.add_inline(buf.getvalue())}
+        return {_TAG: 'ndarray', 'v': sink.add_scalar_bytes(buf.getvalue(), '.npy')}
     if isinstance(obj, PIL.Image.Image):
         # an in-memory image; file-backed media travels as a path
         buf = io.BytesIO()
@@ -435,9 +449,16 @@ def _deserialize(
         if tag == 'tuple':
             return tuple(_deserialize(x, binary_parts, uploaded_names, remote_parts) for x in v)
         if tag == 'bytes':
+            # a str v is an object key of an out-of-band part, resolved to a pre-downloaded local path
+            if isinstance(v, str):
+                with open(_remote_part_path(v, remote_parts), 'rb') as f:
+                    return f.read()
             return binary_parts[v]
         if tag == 'ndarray':
-            return np.load(io.BytesIO(binary_parts[v]), allow_pickle=False)
+            buf: str | io.BytesIO = (
+                _remote_part_path(v, remote_parts) if isinstance(v, str) else io.BytesIO(binary_parts[v])
+            )
+            return np.load(buf, allow_pickle=False)
         if tag == 'image':
             # a str v is an object key of an out-of-band media part, resolved to a pre-downloaded local path
             img = PIL.Image.open(
@@ -450,9 +471,8 @@ def _deserialize(
                 # an object key of an out-of-band media part; return its pre-downloaded local path
                 dest_str = _remote_part_path(v, remote_parts)
             else:
-                # write the sent bytes to an opaque temp path (extension preserved for media-type detection)
-                # TODO: We still need this because bytes/ndarrays are still inlined into HTTP requests; once that's
-                #     fixed, this code branch can be removed (v will always be a str) [PXT-1314]
+                # write the sent bytes to an opaque temp path (extension preserved for media-type detection);
+                # an inlining sink serves the local daemon and every response, so this branch stays
                 dest = TempStore.create_path(extension=pathlib.Path(obj['name']).suffix)
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 with open(dest, 'wb') as f:
@@ -536,23 +556,27 @@ def _deserialize(
 
 
 def _remote_part_path(key: str, remote_parts: dict[str, str] | None) -> str:
-    """Resolve an out-of-band media part's object key to its pre-downloaded local path."""
+    """Resolve an out-of-band part's object key to its pre-downloaded local path."""
     if remote_parts is None:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            f'Cannot localize uploaded media object {key!r}: this receiver has no access to uploaded objects',
+            f'Cannot localize uploaded object {key!r}: this receiver has no access to uploaded objects',
         )
     if key not in remote_parts:
         raise excs.RequestError(
             excs.ErrorCode.STORAGE_NOT_FOUND,
-            f'Cannot localize uploaded media object {key!r}: object was not prefetched on this receiver',
+            f'Cannot localize uploaded object {key!r}: object was not prefetched on this receiver',
         )
     return remote_parts[key]
 
 
+# the tags whose 'v' is an object key when the value went out of band, and a part index when it did not
+_BINARY_TAGS = ('file', 'image', 'bytes', 'ndarray')
+
+
 def collect_remote_keys(args: Any) -> list[str]:
-    """Return the object keys of all out-of-band media parts ('file'/'image' tags whose 'v' is a str) in
-    serialized args, deduplicated in encounter order."""
+    """Return the object keys of all out-of-band binary parts in serialized args, deduplicated in encounter
+    order."""
     keys: dict[str, None] = {}
 
     def walk(obj: Any) -> None:
@@ -560,7 +584,7 @@ def collect_remote_keys(args: Any) -> list[str]:
             for item in obj:
                 walk(item)
         elif isinstance(obj, dict):
-            if obj.get(_TAG) in ('file', 'image') and isinstance(obj.get('v'), str):
+            if obj.get(_TAG) in _BINARY_TAGS and isinstance(obj.get('v'), str):
                 keys[obj['v']] = None
             else:
                 for value in obj.values():

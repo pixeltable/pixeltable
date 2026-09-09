@@ -43,7 +43,6 @@ class TestInlinedObjects:
         assert all(row['data'] is not None for row in res)
         assert all(row['i'] % 2 == 0 for row in res)
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails, possibly due to bytes/ndarray being inlined [PXT-1318]')
     def test_insert_arrays(self, db_root: DatabaseRoot) -> None:
         """Test storing arrays of various sizes and dtypes."""
         p = db_root.make_catalog_path
