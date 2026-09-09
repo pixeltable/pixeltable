@@ -1,12 +1,12 @@
 import datetime
 import os
+import pathlib
 import typing
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import PIL.Image
-import pydantic
 import sqlalchemy as sa
 
 import pixeltable as pxt
@@ -21,6 +21,7 @@ from pixeltable.service.management_protocol import (
     DeleteSecretRequest,
     GetDbRequest,
     GetLogsRequest,
+    GetLogsResponse,
     ListDbRequest,
     ListOrgsRequest,
     ListSecretsRequest,
@@ -837,28 +838,32 @@ def stop_db(req: Request) -> dict[str, Any]:
 
 @router.get('/api/logs')
 def get_logs(req: Request) -> dict[str, Any]:
-    since = req.query_str('since', default='1h')
-    assert since is not None
+    """The log of a database's pod (org and db), or of one service (service: an address service_stop() accepts)."""
+    since = req.query_str('since') or '1h'
     since_seconds = parse_duration_str(since)
     if since_seconds is None or since_seconds < 1:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT, f"'since' must be a duration such as 30s, 10m, 1h or 2d; got {since!r}"
         )
-    fields = {
-        'org': req.required_query_str('org'),
-        'db': req.required_query_str('db'),
-        'service_name': req.query_str('service_name'),
-        'since_seconds': int(since_seconds),
-        'limit': req.query_int('limit', default=200),
-        'include_health': req.query_bool('include_health'),
-    }
-    try:
-        request = GetLogsRequest.model_validate(fields)
-    except pydantic.ValidationError as e:
-        msgs = [str(err.get('msg', '')).removeprefix('Value error, ') for err in e.errors()]
-        detail = '; '.join(m for m in msgs if m != '') or 'invalid request'
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, detail) from None
-    return management_client.api_call(request)
+    limit = req.query_int('limit', default=200, ge=1, le=10000)
+    include_health = req.query_bool('include_health')
+    service_address = req.query_str('service')
+    if service_address is not None:
+        logs = service.service_logs(
+            service_address, since_seconds=int(since_seconds), limit=limit, include_health=include_health
+        )
+        if isinstance(logs, pathlib.Path):
+            return {'log_file': str(logs)}
+        return GetLogsResponse(records=list(logs)).model_dump(mode='json')
+    return management_client.api_call(
+        GetLogsRequest(
+            org=req.required_query_str('org'),
+            db=req.required_query_str('db'),
+            since_seconds=int(since_seconds),
+            limit=limit,
+            include_health=include_health,
+        )
+    )
 
 
 # the verbs above forward a management-protocol request: the daemon is a pass-through to the control plane.

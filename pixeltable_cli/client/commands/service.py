@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ...types import Resolution, ServiceChangeOp, ServiceInstance, ServicePlan
 from ...utils import PxtPath, split_pxt_uri
-from ..hosted import add_logs_args, parse_service_uri, print_logs
+from ..hosted import add_logs_args, print_logs
 from ..parser import Parser
 from ..utils import (
     EXIT_CHANGES_PENDING,
@@ -174,13 +174,16 @@ Notes:
 
 LOGS_EPILOG = """\
 Examples:
-  pxt service logs pxt://acme:main/services/ingest                       # what its pods logged in the last hour
-  pxt service logs pxt://acme:main/services/ingest --since 10m --tail 50
-  pxt service logs pxt://acme:main/services/ingest --json
+  pxt service logs ingest                          # a bare name, when only one target has a service of that name
+  pxt service logs my_dir/ingest                   # the service of that name under my_dir
+  pxt service logs pxt://acme:main/my_dir/ingest   # the one in a hosted database
+  pxt service logs pxt://acme:main/ingest --since 10m --tail 50
+  pxt service logs pxt://acme:main/ingest --json
 
-Reads the log of a hosted service: what the serving process logged, requests included, merged by time with
-what it wrote to its console, which is where a service that failed to start left its traceback. A line reaches
-the log a few seconds after it is written.
+A hosted service's log holds what the serving process logged, requests included, merged by time with what it
+wrote to its console, which is where a service that failed to start left its traceback. A line reaches it a few
+seconds after it is written. For a service running on this machine, the log is a file here, and this prints its
+path; the options apply to hosted services.
 """
 
 VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'list', 'logs', 'check', 'example')
@@ -212,7 +215,7 @@ def run(argv: list[str]) -> None:
             '  prune    stop and forget the services at TARGET that APP does not define\n'
             '  stop     stop the named services\n'
             '  list     what is running locally, and where\n'
-            '  logs     read the log of a hosted service\n'
+            '  logs     read the log of the named service\n'
             '  check    validate the application file on its own (takes no TARGET)\n'
             '  example  write a working application file to start from\n\n'
             'APP is a Python file defining FastAPIRouter services; TARGET is the catalog directory their\n'
@@ -258,11 +261,10 @@ def run(argv: list[str]) -> None:
 
     if verb == 'logs':
         ap = Parser(prog='pxt service logs', epilog=LOGS_EPILOG, usage_exit_code=EXIT_ERROR)
-        ap.add_argument('service_uri', help='the service: pxt://org:db/services/NAME')
+        ap.add_argument('name', help='service name, or TARGET/NAME to disambiguate')
         add_logs_args(ap)
         args = ap.parse_args(argv[1:])
-        org, db, service_name = parse_service_uri(args.service_uri, prog='pxt service logs')
-        print_logs(org, db, args, service_name=service_name)
+        print_logs({'service': args.name}, args)
         return
 
     epilogs = {'diff': DIFF_EPILOG, 'update': UPDATE_EPILOG, 'run': RUN_EPILOG, 'prune': PRUNE_EPILOG}

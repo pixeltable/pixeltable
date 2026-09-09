@@ -183,9 +183,6 @@ class GetArchiveUploadUrlResponse(BaseModel):
 
 # Logs
 
-# a Kubernetes object name (RFC 1123 label), the shape of a service name
-_K8S_NAME = r'^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'
-
 
 class GetLogsRequest(BaseModel):
     """Read what a database's pods logged: the database pod's, or one service's when service_name is given.
@@ -196,7 +193,8 @@ class GetLogsRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.GET_LOGS] = ManagementOperationType.GET_LOGS
     org: str | None = None
     db: str
-    service_name: str | None = Field(default=None, pattern=_K8S_NAME, max_length=63)
+    service_name: str | None = None
+    base_path: str = ''
     since_seconds: int = Field(default=3600, ge=1)
     # the tail of the window: only its newest limit lines are returned
     limit: int = Field(default=200, ge=1, le=10000)

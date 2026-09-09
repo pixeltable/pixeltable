@@ -61,21 +61,6 @@ def parse_base_uri(uri: str, prog: str = 'pxt') -> tuple[str, str, str]:
     return parts.org, parts.db, parts.path or ''
 
 
-def parse_service_uri(uri: str, prog: str = 'pxt') -> tuple[str, str, str]:
-    """Parse pxt://org:db/services/<name> and return (org, db, svc_name). Exits on error."""
-    parts = split_pxt_uri(uri)
-    if parts is None or parts.db is None or parts.path is None or not parts.path.startswith('services/'):
-        print(f'{prog}: error: URI must be pxt://org:db/services/<name>, got {uri!r}', file=sys.stderr)
-        sys.exit(2)
-    svc_name = parts.path[len('services/') :]
-    if svc_name == '' or '/' in svc_name:
-        print(
-            f'{prog}: error: URI must be pxt://org:db/services/<name> with no extra path, got {uri!r}', file=sys.stderr
-        )
-        sys.exit(2)
-    return parts.org, parts.db, svc_name
-
-
 def add_logs_args(parser: argparse.ArgumentParser) -> None:
     """The options of `pxt db logs` and `pxt service logs`; print_logs() reads them back."""
     parser.add_argument('--since', default='1h', help='how far back to read: 30s, 10m, 1h, 2d (default: 1h)')
@@ -92,17 +77,14 @@ def add_logs_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
 
-def print_logs(org: str, db: str, args: argparse.Namespace, service_name: str | None = None) -> None:
-    """Print the log of the database's pod, or of service_name's pods when given."""
-    params = {
-        'org': org,
-        'db': db,
-        'service_name': service_name,
-        'since': args.since,
-        'limit': args.limit,
-        'include_health': args.include_health,
-    }
+def print_logs(target: dict[str, str], args: argparse.Namespace) -> None:
+    """Print the log of what target names: {'org', 'db'} for a database's pod, {'service'} for a service."""
+    params = {**target, 'since': args.since, 'limit': args.limit, 'include_health': args.include_health}
     resp = get_request('/api/logs', params)
+    if isinstance(resp, dict) and 'log_file' in resp:
+        # a service on this machine: its log is a file here, so the answer is where to find it
+        print(json.dumps(resp) if args.json_output else resp['log_file'])
+        return
     records = resp.get('records', []) if isinstance(resp, dict) else []
     if args.json_output:
         print(json.dumps(records))

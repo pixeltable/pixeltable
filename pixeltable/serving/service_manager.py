@@ -26,7 +26,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence
 
 import httpx
 import pydantic
@@ -34,6 +34,7 @@ import pydantic
 from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.service.management_protocol import LogRecord
 from pixeltable.utils.app_module import load_app_module, module_name, services_by_name
 from pixeltable.utils.process import is_pid, pid_alive, process_timestamp
 from pixeltable.utils.project import ProjectFingerprint
@@ -81,6 +82,16 @@ class ServiceManagerBase(abc.ABC):
     @abc.abstractmethod
     def delete(self, instance: ServiceInstance) -> None:
         """Stop instance and forget it."""
+
+    @abc.abstractmethod
+    def logs(
+        self, instance: ServiceInstance, *, since_seconds: int, limit: int, include_health: bool
+    ) -> Sequence[LogRecord] | Path:
+        """The newest limit lines instance logged in the last since_seconds, oldest first, or the path of the
+        file holding its log when that file is on this machine.
+
+        include_health keeps the health probe lines, which are otherwise left out.
+        """
 
 
 def get_manager(target: str = '') -> ServiceManagerBase:
@@ -130,6 +141,10 @@ class ServiceManager(ServiceManagerBase):
     def delete(self, instance: ServiceInstance) -> None:
         # a local instance has no registration apart from its process
         self.stop(instance)
+
+    def logs(self, instance: ServiceInstance, *, since_seconds: int, limit: int, include_health: bool) -> Path:
+        # the file holds the process's console; its own logging goes to a file of its own under logs/
+        return self._log_path(instance.service_name, instance.base_path)
 
     def stop(self, instance: ServiceInstance) -> None:
         record = instance.record

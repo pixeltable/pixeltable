@@ -536,13 +536,17 @@ class TestService:
         assert sorted(services(cli, first)) == ['ingest']
         assert len(cli('service', 'list', '--json').json) == 2
 
-        # the same name at two targets cannot be stopped by name alone
-        r = cli('service', 'stop', 'ingest', check=False)
-        assert r.returncode == 1
-        assert 'ambiguous' in r.stderr
-        assert f'{first}/ingest' in r.stderr and f'{second}/ingest' in r.stderr
+        # the same name at two targets cannot be stopped or read by name alone
+        for verb in ('stop', 'logs'):
+            r = cli('service', verb, 'ingest', check=False)
+            assert r.returncode == 1
+            assert 'ambiguous' in r.stderr
+            assert f'{first}/ingest' in r.stderr and f'{second}/ingest' in r.stderr
 
-        # the catalog path says which one
+        # the catalog path says which one; a local service's log is a file here, so its path is the answer
+        log_file = pathlib.Path(cli('service', 'logs', f'{first}/ingest').stdout.strip())
+        assert log_file.name == 'ingest.log' and log_file.is_file(), log_file
+        assert cli('service', 'logs', f'{first}/ingest', '--json').json == {'log_file': str(log_file)}
         cli('service', 'stop', f'{first}/ingest')
         assert services(cli, first) == {}
         assert_serving(cli, app, second, 'ingest')
@@ -681,16 +685,16 @@ class TestService:
         assert r.returncode != 0
         assert 'serves from this process' in r.stderr, r.stderr
 
-        # 'logs' names one hosted service, and the daemon checks the window and the tail before asking the cloud
-        r = cli('service', 'logs', 'pxt://acme:main', check=False)
-        assert r.returncode != 0
-        assert 'pxt://org:db/services/<name>' in r.stderr, r.stderr
-        r = cli('service', 'logs', 'pxt://acme:main/services/ingest', '--since', 'bogus', check=False)
+        # 'logs' names one running service, and the daemon checks the window and the tail before reading anything
+        r = cli('service', 'logs', 'nosuch', check=False)
+        assert r.returncode == 1
+        assert "No service 'nosuch' is running" in r.stderr, r.stderr
+        r = cli('service', 'logs', 'pxt://acme:main/ingest', '--since', 'bogus', check=False)
         assert r.returncode == 1
         assert 'must be a duration' in r.stderr, r.stderr
-        r = cli('service', 'logs', 'pxt://acme:main/services/ingest', '--tail', '50000', check=False)
+        r = cli('service', 'logs', 'pxt://acme:main/ingest', '--tail', '50000', check=False)
         assert r.returncode == 1
-        assert 'less than or equal to 10000' in r.stderr, r.stderr
+        assert "'limit' must be <= 10000" in r.stderr, r.stderr
 
     def test_named_service(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """Name one service of a file that defines two, and pin its port."""

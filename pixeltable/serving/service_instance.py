@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Sequence
 
 import pydantic
 
@@ -11,6 +12,7 @@ from pixeltable_cli.types import ServiceSpec
 from pixeltable_cli.utils import PxtPath
 
 if TYPE_CHECKING:
+    from pixeltable.service.management_protocol import LogRecord
     from .service_manager import ServiceManagerBase
 
 
@@ -126,3 +128,6 @@ class ServiceInstance:
     def delete(self) -> None:
         """Stop serving and forget this instance."""
         self._manager.delete(self)
+
+    def logs(self, *, since_seconds: int, limit: int, include_health: bool) -> Sequence[LogRecord] | Path:
+        return self._manager.logs(self, since_seconds=since_seconds, limit=limit, include_health=include_health)

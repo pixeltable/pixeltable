@@ -139,7 +139,7 @@ def _status(args: argparse.Namespace) -> None:
 
 def _logs(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db logs')
-    print_logs(org, db, args)
+    print_logs({'org': org, 'db': db}, args)
 
 
 def _start(args: argparse.Namespace) -> None:
