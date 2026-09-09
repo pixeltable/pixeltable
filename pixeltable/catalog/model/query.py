@@ -11,7 +11,7 @@ from pixeltable._query_base import QueryBase
 from pixeltable.exprs import ColumnRefByName
 from pixeltable.query_clauses import FromClause
 
-from .definition import MODEL_BY_DEFINED_TBL_ID, TableModelMeta
+from .definition import MODEL_BY_DEFINED_TBL_ID, TableModelMeta, _model_base_name
 
 
 class ModelQuery(QueryBase):
@@ -167,7 +167,7 @@ class ModelQuery(QueryBase):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'{item}(): this query is defined over model `{self.model_cls.__name__}`, which is not bound '
-                f'to a table; create the table with `{self.model_cls.__name__}.create()`, or call this on a '
-                f'query over a bound model.',
+                f'to a table; create the table with `{_model_base_name(self.model_cls)}.create_all(dir)` or '
+                f'`pxt schema update`, or call this on a query over a bound model.',
             )
         raise AttributeError(item)

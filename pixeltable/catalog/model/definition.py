@@ -137,7 +137,23 @@ class Column:
 
 @dataclasses.dataclass(frozen=True)
 class EmbeddingIndex:
-    """An embedding index specification used in a TableModel or ViewModel definition."""
+    """An embedding index specification used in a TableModel or ViewModel definition.
+
+    Put it on `__indexes__`. Do not call `add_embedding_index()` after `pxt schema update`.
+
+    Example:
+
+        >>> from pixeltable.functions.huggingface import clip
+        >>> TableModel = pxt.model_base()
+        >>> class Media(TableModel, name='media'):
+        ...     img: pxt.Image
+        ...     __indexes__ = [
+        ...         pxt.EmbeddingIndex(
+        ...             img,
+        ...             embedding=clip.using(model_id='openai/clip-vit-base-patch32'),
+        ...         )
+        ...     ]
+    """
 
     column: Any
     embedding: func.Function | None = None
@@ -208,7 +224,17 @@ class EmbeddingIndex:
 
 @dataclasses.dataclass(frozen=True)
 class BtreeIndex:
-    """A B-tree index specification used in a TableModel or ViewModel definition."""
+    """A B-tree index specification used in a TableModel or ViewModel definition.
+
+    Put it on `__indexes__`. Do not call `add_btree_index()` after `pxt schema update`.
+
+    Example:
+
+        >>> TableModel = pxt.model_base()
+        >>> class Items(TableModel, name='items'):
+        ...     sku: pxt.String
+        ...     __indexes__ = [pxt.BtreeIndex(sku)]
+    """
 
     column: Any
 
@@ -218,6 +244,11 @@ class BtreeIndex:
 
 # An index specification defined as a class attribute in a TableModel or ViewModel definition.
 IndexDefinition = EmbeddingIndex | BtreeIndex
+
+
+def _model_base_name(model_cls: type) -> str:
+    # __prepare__ requires a direct subclass of the class that model_base() returned
+    return model_cls.__bases__[0].__name__
 
 
 class TableSpec(TypedDict):
@@ -860,7 +891,7 @@ class TableModelMeta(type):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'{item}(): `{cls.__name__}`, which is not bound to a table, holds no rows; '
-                    f'create the table with `{cls.__name__}.create()` or `pxt.create_all()` first.',
+                    f'create the table with `{_model_base_name(cls)}.create_all(dir)` or `pxt schema update` first.',
                 )
             try:
                 return getattr(cls.table, item)
@@ -951,9 +982,10 @@ class TableModelMeta(type):
     def table(cls) -> Table:
         """The underlying [`Table`][pixeltable.Table] this model is bound to."""
         if not cls.is_bound:
+            base = _model_base_name(cls)
             raise excs.RequestError(
                 excs.ErrorCode.NOT_BOUND,
                 f'`{cls.__name__}` is not yet bound to an actual table. You must first call '
-                f'`{cls.__name__}.bind()`, `{cls.__name__}.create()`, `pxt.bind_all()`, or `pxt.create_all()`.',
+                f'`{base}.create_all(dir)` or `{base}.bind_all(dir)`, or run `pxt schema update`.',
             )
         return cls._resolve_tbl(cls._catalog_dir, if_not_exists='error')

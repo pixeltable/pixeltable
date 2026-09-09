@@ -2324,8 +2324,16 @@ class TestTableModel:
                 Id: pxt.Float | None
 
         # a Table method that a query cannot provide raises AttributeError while the model is unbound
-        with pytest.raises(AttributeError, match=r'is not yet bound to an actual table'):
+        with pytest.raises(AttributeError, match=r'is not yet bound to an actual table') as info:
             ValidTableModel.get_metadata()
+        unbound_msg = str(info.value)
+        assert 'TableModel.create_all' in unbound_msg
+        assert 'TableModel.bind_all' in unbound_msg
+        assert 'pxt schema update' in unbound_msg
+        assert 'pxt.create_all' not in unbound_msg
+        assert 'pxt.bind_all' not in unbound_msg
+        assert '.create()' not in unbound_msg
+        assert '.bind()' not in unbound_msg
 
         # every method that reads or writes rows refuses on an unbound model, naming it and how to create it
         for method, args in (
@@ -2341,9 +2349,16 @@ class TestTableModel:
         ):
             with pxt_raises(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                match=rf'{method}\(\): `ValidTableModel`, which is not bound to a table, holds no rows',
-            ):
+                match=(
+                    rf'{method}\(\): `ValidTableModel`, which is not bound to a table, holds no rows; '
+                    r'create the table with `TableModel.create_all\(dir\)` or `pxt schema update` first\.'
+                ),
+            ) as info:
                 getattr(ValidTableModel, method)(*args)
+            row_msg = info.value.message
+            assert 'pxt.create_all' not in row_msg
+            assert 'pxt.bind_all' not in row_msg
+            assert '.create()' not in row_msg
 
         # describe() needs no table: it renders what the model declares, in full
         ValidTableModel.describe()
@@ -2358,8 +2373,13 @@ class TestTableModel:
 
         # the same refusal from a declared query, rather than from the model
         declared = ValidTableModel.where(ValidTableModel.id > 0)  # type: ignore[arg-type]
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'`ValidTableModel`, which is not bound'):
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'`ValidTableModel`, which is not bound') as info:
             declared.collect()
+        query_msg = info.value.message
+        assert 'TableModel.create_all' in query_msg
+        assert 'pxt schema update' in query_msg
+        assert 'pxt.create_all' not in query_msg
+        assert '.create()' not in query_msg
 
         # similarity() on a column the model declares no embedding index on has nothing to resolve against
         with pxt_raises(excs.ErrorCode.INDEX_NOT_FOUND, match=r"No embedding index found for column 'id'"):

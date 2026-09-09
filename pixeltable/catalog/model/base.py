@@ -79,6 +79,11 @@ def _creation_order(registered_models: dict[str, TableModelMeta]) -> list[tuple[
 
 
 def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
+    """Returns the base class for table models in an application file.
+
+    Subclass the result in `app.py` and run `pxt schema update`. In a REPL, call
+    `TableModel.create_all(dir)` or `TableModel.bind_all(dir)`.
+    """
     # mypy fundamentally does not understand metaclasses.
     cls = TableModelMeta(cls_name, (), {}, name='')
     registered_models: dict[str, TableModelMeta] = {}
