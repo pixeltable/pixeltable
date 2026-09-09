@@ -417,6 +417,7 @@ class TestSchema:
         ]
         assert_in_agreement(cli, apps('retrieval.py'), target)
 
+    @pytest.mark.db_roots('local', reason='TODO: re-enable for hosted once cloud PR 199 is in')
     def test_media_columns(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A schema with media columns and a view over an iterator that extracts frames from them."""
         target = db_root.make_catalog_path('app')
