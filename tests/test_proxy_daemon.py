@@ -11,8 +11,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.service import proxy_daemon, proxy_dispatch, proxy_protocol
-from pixeltable.service import proxy_client
+from pixeltable.service import proxy_client, proxy_daemon, proxy_dispatch, proxy_protocol
 from pixeltable.service.proxy_client import HttpTransport, ProxyClient, PxtStorePartSink, TunnelTransport
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps
@@ -421,13 +420,11 @@ class TestTunnelRetries:
         transport, opened = self._transport(
             [_ScriptedConn(on_read=ConnectionResetError('Connection reset by peer')) for _ in range(3)]
         )
-        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match='stopped responding while handling this request') as exc:
+        with pxt_raises(
+            pxt.ErrorCode.INTERNAL_ERROR, match=r'became unresponsive while handling this request: pxt://org1:db1'
+        ):
             transport.post(b'body')
         assert len(opened) == 1  # no reissue
-        message = str(exc.value)
-        assert 'pxt://org1:db1' in message
-        assert 'ConnectionResetError' in message
-        assert 'smaller batches' in message
 
     def test_a_request_that_never_landed_is_retried(self) -> None:
         """A write that fails leaves the daemon with nothing to act on, so the request can go again."""
@@ -457,8 +454,8 @@ class TestTunnelRetries:
         request, and the request would fail instead of going onto a fresh connection."""
         dead, live = _ScriptedConn(), _ScriptedConn()
         dead.close_peer()
-        assert proxy_client._server_closed(dead)  # type: ignore[arg-type]
-        assert not proxy_client._server_closed(live)  # type: ignore[arg-type]
+        assert proxy_client._is_server_closed(dead)  # type: ignore[arg-type]
+        assert not proxy_client._is_server_closed(live)  # type: ignore[arg-type]
 
         opened: list[_ScriptedConn] = []
 

@@ -11,13 +11,13 @@ import abc
 import http.client
 import json
 import logging
-import select
 import socket
 import ssl
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
+from select import select
 from typing import TYPE_CHECKING, Any, Callable, Iterator
 from uuid import UUID
 
@@ -151,8 +151,8 @@ class _TunnelHTTPConnection(http.client.HTTPConnection):
         pass  # socket already set in __init__
 
 
-def _server_closed(conn: http.client.HTTPConnection) -> bool:
-    """Whether the far end of an idle connection has already closed it.
+def _is_server_closed(conn: http.client.HTTPConnection) -> bool:
+    """Return `True` if the remote end of an idle connection has already closed it.
 
     A socket that is readable before any request has been written to it carries the server's FIN (or bytes
     no request asked for); either way it cannot carry the next request.
@@ -161,7 +161,8 @@ def _server_closed(conn: http.client.HTTPConnection) -> bool:
     if sock is None:
         return True
     try:
-        return len(select.select([sock], [], [], 0)[0]) > 0
+        rlist, _, _ = select([sock], [], [], 0)
+        return len(rlist) > 0
     except (OSError, ValueError):
         return True
 
@@ -186,7 +187,7 @@ class _TunnelPool:
                 conn = self._idle.pop() if self._idle else None
             if conn is None:
                 return None
-            if not _server_closed(conn):
+            if not _is_server_closed(conn):
                 return conn
             conn.close()
 
@@ -278,26 +279,14 @@ class TunnelTransport(Transport):
             (ssl_sock or raw_sock).close()
             raise
 
-    def _daemon_gone(self, exc: BaseException) -> excs.Error:
-        """The error for a connection that broke while the daemon held the request."""
-        return excs.Error(
-            excs.ErrorCode.INTERNAL_ERROR,
-            f'The server for pxt://{self._org}:{self._db} stopped responding while handling this request '
-            f'({type(exc).__name__}: {exc}).\n'
-            'The request was not retried: the server had all of it, so it may have applied part of it, and '
-            'whatever ended the process would end it again.\n'
-            'A request carrying more data than the server has memory for is the usual cause; insert or update '
-            "in smaller batches, or raise the database's memory_mb. If the database was restarting instead, "
-            'the request can be reissued as it stands.',
-        )
-
     def _request(self, method: str, path: str, body: bytes | None = None, content_type: str | None = None) -> bytes:
         """Borrow a tunnel connection, issue one request, return the raw body.
 
-        A failure that leaves the request undelivered is retried with backoff on a fresh connection, as is a
-        5xx; auth rejection (PermissionError) and non-5xx HTTP errors are not. A connection that breaks once
-        the daemon has the whole request is reported rather than retried, since the daemon dying on a request
-        is not something reissuing it recovers from -- see _daemon_gone().
+        Transient transport failures (the server can restart and drop the connection) are retried with backoff
+        on a fresh connection; auth rejection (PermissionError) and non-5xx HTTP errors are not.
+
+        A connection that fails *after* the daemon has received the request is treated as a server crash and is
+        not retried; retries in this scenario can inadvertently DOS the pod.
         """
         headers = {'Content-Type': content_type} if content_type else {}
 
@@ -310,14 +299,20 @@ class TunnelTransport(Transport):
         )
         def _attempt() -> bytes:
             with self._pool.borrow() as conn:
-                # the daemon reads the body in full before dispatching, so a failure while writing left it
-                # nothing to act on and the request can go again
                 conn.request(method, path, body=body, headers=headers)
                 try:
                     response = conn.getresponse()
                     content = response.read()
                 except _TUNNEL_TRANSIENT_EXC as exc:
-                    raise self._daemon_gone(exc) from exc
+                    # Tunnel errors that occur after the request has been sent are converted to 5xx errors and
+                    # are not retried.
+                    raise excs.Error(
+                        excs.ErrorCode.INTERNAL_ERROR,
+                        f'The database became unresponsive while handling this request: pxt://{self._org}:{self._db}\n'
+                        'This may be caused by a query that was too large for the database to serve. If you get this '
+                        'error repeatedly,\n'
+                        'try splitting large inserts or queries into smaller batches.',
+                    ) from exc
                 if response.status == 200:
                     return content
                 msg = f'proxy {method} {path} error {response.status}: {content.decode(errors="replace")}'
