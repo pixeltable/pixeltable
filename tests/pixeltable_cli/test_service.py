@@ -11,6 +11,7 @@ import httpx
 import pytest
 
 import pixeltable as pxt
+from pixeltable import catalog
 
 from ..utils import DatabaseRoot, get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
 from .conftest import BUILD_TIMEOUT, BackgroundPxt, PxtRunner, copy_app_corpus, disposable_db_uri, write_requirements
@@ -125,6 +126,13 @@ def deploy(cli: PxtRunner, app: str, target: str) -> None:
     """Create the tables the models declare, then serve the file's services against them."""
     cli('schema', 'update', app, target)
     cli('service', 'update', app, target, '-f')
+
+
+def _db_update(cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    if db_root.id != 'cloud':
+        return
+    path = catalog.Path.parse(db_root.prefix, allow_empty_path=True)
+    cli('db', 'update', f'pxt://{path.org}:{path.db}', '-f', timeout=BUILD_TIMEOUT)
 
 
 def assert_serving(cli: PxtRunner, app: str, target: str, *names: str) -> dict[str, dict[str, Any]]:
@@ -301,6 +309,7 @@ class TestService:
         # the service takes its name from the module, so iterating on it means editing one file in place
         app_file = pathlib.Path(apps('served_app.py')).with_name('notes_app.py')
         shutil.copy(apps('served_app.py'), app_file)
+        _db_update(cli, db_root)
         deploy(cli, str(app_file), target)
 
         running = assert_serving(cli, str(app_file), target, 'notes_app')['notes_app']
@@ -314,13 +323,16 @@ class TestService:
 
         # a path the application adds is an addition, as a route added to a router is
         shutil.copy(apps('served_app_added_route.py'), app_file)
+        _db_update(cli, db_root)
         r = cli('service', 'diff', str(app_file), target, '--json', check=False)
         assert [s['resolution'] for s in r.json['services']] == ['update_additive']
         assert [(op['op'], op['name']) for s in r.json['services'] for op in s['ops']] == [('add', '/notes/upper')]
 
         cli('service', 'update', str(app_file), target, '-f')
         after = assert_serving(cli, str(app_file), target, 'notes_app')['notes_app']
-        assert after['pid'] != running['pid'], 'a changed application is applied by replacing the process'
+        if db_root.id != 'cloud':
+            # pid names a local process; a hosted record carries none, and the route below shows the replacement
+            assert after['pid'] != running['pid'], 'a changed application is applied by replacing the process'
         upper = httpx.get(f'{after["endpoint"]}/notes/upper', timeout=_REQUEST_TIMEOUT)
         assert upper.json() == {'upper': ['HELLO']}, upper.text
 
@@ -812,6 +824,7 @@ class TestService:
             encoding='utf-8',
         )
         cli('schema', 'update', str(two), target)
+        _db_update(cli, db_root)
         r = cli('service', 'update', str(two), target, '-f', '--port', '8123', check=False)
         assert r.returncode == 1
         assert '--port names one port' in r.stderr, r.stderr

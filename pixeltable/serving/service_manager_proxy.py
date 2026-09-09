@@ -184,7 +184,7 @@ class ServiceManagerProxy(ServiceManagerBase):
             except httpx.HTTPError:
                 pass
             if time.monotonic() >= deadline:
-                raise excs.Error(
+                raise excs.InternalError(
                     excs.ErrorCode.INTERNAL_ERROR,
                     f'Service {instance.service_name!r} is available, but {endpoint} did not answer within '
                     f'{self._ENDPOINT_TIMEOUT:.0f}s',
