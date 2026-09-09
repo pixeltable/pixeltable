@@ -21,6 +21,7 @@ import sqlalchemy as sql
 from pixeltable import exceptions as excs
 from pixeltable._query import Query
 from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_loop
+from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
