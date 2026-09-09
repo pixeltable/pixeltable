@@ -1498,17 +1498,23 @@ class TestFastAPI:
             return real_get_store(dest, allow_obj_name, col_name)
 
         monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(fake_get_store))
+        monkeypatch.setattr(Env.get(), '_default_input_media_dest', bucket)
 
-        t = pxt.create_table('test_serve_bucket', {'id': pxt.Int, 'image': pxt.Image, 'video': pxt.Video})
+        t = pxt.create_table(
+            'test_serve_bucket',
+            {'id': pxt.Int, 'image': pxt.Image, 'video': pxt.Video, 'audio': pxt.Audio},
+        )
         t.add_computed_column(rotated=t.image.rotate(90), destination=bucket)
         t.add_computed_column(frame=extract_frame(t.video, timestamp=0.0), destination=bucket)
 
         @pxt.query
         def all_rows() -> pxt.Query:
-            return t.select(t.rotated, t.frame).order_by(t.id)
+            return t.select(t.rotated, t.frame, t.video, t.audio).order_by(t.id)
 
         router = FastAPIRouter()
-        router.add_insert_route(t, path='/insert', inputs=[t.id, t.image, t.video], outputs=[t.rotated, t.frame])
+        router.add_insert_route(
+            t, path='/insert', inputs=[t.id, t.image, t.video, t.audio], outputs=[t.rotated, t.frame, t.video, t.audio]
+        )
         router.add_query_route(path='/all', query=all_rows)
 
         def serve_bucket(key: str) -> Response:
@@ -1517,27 +1523,36 @@ class TestFastAPI:
         router.add_api_route('/bucket/{key:path}', serve_bucket, methods=['GET'])
         client = make_test_client(router)
 
-        def assert_presigned_fetchable(url: str) -> None:
+        def assert_presigned_fetchable(url: str, decode: Callable[[bytes], None]) -> None:
             assert url.startswith('http://testserver/bucket/'), url
             key = urllib.parse.urlparse(url).path.removeprefix('/bucket/')
             resp = client.get(url)
             assert resp.status_code == 200, resp.text
             assert resp.content == objects[key]
-            assert_image_bytes(resp.content)
+            decode(resp.content)
 
-        resp = client.post('/insert', json={'id': 1, 'image': get_image_files()[0], 'video': get_video_files()[0]})
+        decoders: dict[str, Callable[[bytes], None]] = {
+            'rotated': assert_image_bytes,
+            'frame': assert_image_bytes,
+            'video': assert_video_bytes,
+            'audio': assert_audio_bytes,
+        }
+        resp = client.post(
+            '/insert',
+            json={'id': 1, 'image': get_image_files()[0], 'video': get_video_files()[0], 'audio': get_audio_files()[0]},
+        )
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        assert len(objects) == 2
-        for col in ('rotated', 'frame'):
-            assert_presigned_fetchable(body[col])
+        assert len(objects) == 5
+        for col, decode in decoders.items():
+            assert_presigned_fetchable(body[col], decode)
 
         resp = client.post('/all', json={})
         assert resp.status_code == 200, resp.text
         rows = resp.json()['rows']
         assert len(rows) == 1
-        for col in ('rotated', 'frame'):
-            assert_presigned_fetchable(rows[0][col])
+        for col, decode in decoders.items():
+            assert_presigned_fetchable(rows[0][col], decode)
 
     def test_add_mirror_route_video(self, db_root: DatabaseRoot) -> None:
         """Round trip over a proxy table: an insert route ingests a local video; a query route returns the

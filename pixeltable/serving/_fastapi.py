@@ -645,8 +645,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 if return_fileresponse and e.col_type.is_media_type():
                     # serve from a local path even if the media file is stored externally
                     prop = exprs.ColumnPropertyRef.Property.LOCALPATH
-                elif e.col_type.is_image_type():
-                    # avoid materializing PIL.Image in the response payload
+                elif e.col_type.is_media_type():
                     prop = exprs.ColumnPropertyRef.Property.FILEURL
             if prop is None:
                 rewritten.append(e)
