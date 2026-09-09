@@ -11,6 +11,7 @@ import abc
 import http.client
 import json
 import logging
+import select
 import socket
 import ssl
 import threading
@@ -134,7 +135,7 @@ _CONNECT_TIMEOUT = 30.0
 _RPC_TIMEOUT = 1800.0
 _MAX_POOL_SIZE = 16  # matches the fetch_media download threadpool
 
-# The server can restart and drop the connection mid-call; retry transient transport failures with backoff.
+# Failures that leave the request undelivered (connect, handshake, writing it); retried with backoff.
 _TUNNEL_TRANSIENT_EXC = (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError)
 _TUNNEL_RETRY_MAX_DELAY = 90.0  # seconds; > _CONNECT_TIMEOUT so a hung handshake still leaves retry budget
 
@@ -150,6 +151,21 @@ class _TunnelHTTPConnection(http.client.HTTPConnection):
         pass  # socket already set in __init__
 
 
+def _server_closed(conn: http.client.HTTPConnection) -> bool:
+    """Whether the far end of an idle connection has already closed it.
+
+    A socket that is readable before any request has been written to it carries the server's FIN (or bytes
+    no request asked for); either way it cannot carry the next request.
+    """
+    sock = conn.sock
+    if sock is None:
+        return True
+    try:
+        return len(select.select([sock], [], [], 0)[0]) > 0
+    except (OSError, ValueError):
+        return True
+
+
 class _TunnelPool:
     """Thread-safe pool of TLS + PXT/1.0 tunnel connections."""
 
@@ -159,11 +175,24 @@ class _TunnelPool:
         self._lock = threading.Lock()
         self._idle: list[http.client.HTTPConnection] = []
 
+    def _take_idle(self) -> http.client.HTTPConnection | None:
+        """A pooled connection the server has not closed, or None if the pool holds no such connection.
+
+        Dropping the closed ones here lets a caller read a broken response as the server having died on
+        its request, rather than as an idle connection the server had already finished with.
+        """
+        while True:
+            with self._lock:
+                conn = self._idle.pop() if self._idle else None
+            if conn is None:
+                return None
+            if not _server_closed(conn):
+                return conn
+            conn.close()
+
     @contextmanager
     def borrow(self) -> Iterator[http.client.HTTPConnection]:
-        with self._lock:
-            conn = self._idle.pop() if self._idle else None
-        conn = conn or self._connect()
+        conn = self._take_idle() or self._connect()
         try:
             yield conn
         except BaseException:
@@ -249,11 +278,26 @@ class TunnelTransport(Transport):
             (ssl_sock or raw_sock).close()
             raise
 
+    def _daemon_gone(self, exc: BaseException) -> excs.Error:
+        """The error for a connection that broke while the daemon held the request."""
+        return excs.Error(
+            excs.ErrorCode.INTERNAL_ERROR,
+            f'The server for pxt://{self._org}:{self._db} stopped responding while handling this request '
+            f'({type(exc).__name__}: {exc}).\n'
+            'The request was not retried: the server had all of it, so it may have applied part of it, and '
+            'whatever ended the process would end it again.\n'
+            'A request carrying more data than the server has memory for is the usual cause; insert or update '
+            "in smaller batches, or raise the database's memory_mb. If the database was restarting instead, "
+            'the request can be reissued as it stands.',
+        )
+
     def _request(self, method: str, path: str, body: bytes | None = None, content_type: str | None = None) -> bytes:
         """Borrow a tunnel connection, issue one request, return the raw body.
 
-        Transient transport failures (the server can restart and drop the connection) are retried with backoff
-        on a fresh connection; auth rejection (PermissionError) and non-5xx HTTP errors are not.
+        A failure that leaves the request undelivered is retried with backoff on a fresh connection, as is a
+        5xx; auth rejection (PermissionError) and non-5xx HTTP errors are not. A connection that breaks once
+        the daemon has the whole request is reported rather than retried, since the daemon dying on a request
+        is not something reissuing it recovers from -- see _daemon_gone().
         """
         headers = {'Content-Type': content_type} if content_type else {}
 
@@ -266,9 +310,14 @@ class TunnelTransport(Transport):
         )
         def _attempt() -> bytes:
             with self._pool.borrow() as conn:
+                # the daemon reads the body in full before dispatching, so a failure while writing left it
+                # nothing to act on and the request can go again
                 conn.request(method, path, body=body, headers=headers)
-                response = conn.getresponse()
-                content = response.read()
+                try:
+                    response = conn.getresponse()
+                    content = response.read()
+                except _TUNNEL_TRANSIENT_EXC as exc:
+                    raise self._daemon_gone(exc) from exc
                 if response.status == 200:
                     return content
                 msg = f'proxy {method} {path} error {response.status}: {content.decode(errors="replace")}'

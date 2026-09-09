@@ -1,6 +1,7 @@
 import json
 import math
 import pathlib
+import socket
 import uuid
 from typing import Any
 
@@ -11,6 +12,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.service import proxy_daemon, proxy_dispatch, proxy_protocol
+from pixeltable.service import proxy_client
 from pixeltable.service.proxy_client import HttpTransport, ProxyClient, PxtStorePartSink, TunnelTransport
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps
@@ -349,3 +351,124 @@ class TestProxyDaemon:
         assert 'boom' in error['message']
         assert len(localized) == 2
         assert not pathlib.Path(localized[1]).exists()
+
+
+class _ScriptedResponse:
+    def __init__(self, status: int, body: bytes) -> None:
+        self.status = status
+        self._body = body
+
+    def read(self) -> bytes:
+        return self._body
+
+
+class _ScriptedConn:
+    """A tunnel connection whose write and read phases do what the script says.
+
+    Its socket is a real one, so the pool's own health check runs against it: an open socketpair reads as
+    a live connection, and closing the peer makes it read as one the server has closed.
+    """
+
+    def __init__(self, on_write: BaseException | None = None, on_read: object = (200, b'ok')) -> None:
+        self.sock, self._peer = socket.socketpair()
+        self._on_write = on_write
+        self._on_read = on_read
+        self.writes = 0
+        self.closed = False
+
+    def request(self, method: str, path: str, body: bytes | None = None, headers: dict | None = None) -> None:
+        self.writes += 1
+        if self._on_write is not None:
+            raise self._on_write
+
+    def getresponse(self) -> _ScriptedResponse:
+        if isinstance(self._on_read, BaseException):
+            raise self._on_read
+        assert isinstance(self._on_read, tuple)
+        return _ScriptedResponse(*self._on_read)
+
+    def close(self) -> None:
+        self.closed = True
+        self.sock.close()
+        self._peer.close()
+
+    def close_peer(self) -> None:
+        """Make the connection read as closed by the server."""
+        self._peer.close()
+
+
+class TestTunnelRetries:
+    """What the client reissues, and what it refuses to reissue."""
+
+    @staticmethod
+    def _transport(conns: list[_ScriptedConn]) -> tuple[TunnelTransport, list[_ScriptedConn]]:
+        """A transport that hands out conns in order, and the list of the ones it actually opened."""
+        transport = TunnelTransport('org1', 'db1', 'key', host='h', port=443)
+        opened: list[_ScriptedConn] = []
+        queue = list(conns)
+
+        def connect() -> object:
+            conn = queue.pop(0)
+            opened.append(conn)
+            return conn
+
+        transport._pool = proxy_client._TunnelPool(connect)  # type: ignore[arg-type]
+        return transport, opened
+
+    def test_a_daemon_that_dies_holding_the_request_is_not_retried(self) -> None:
+        """The failure that motivated this: the daemon is OOM-killed mid-request, so reissuing it just
+        kills the daemon again."""
+        transport, opened = self._transport(
+            [_ScriptedConn(on_read=ConnectionResetError('Connection reset by peer')) for _ in range(3)]
+        )
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match='stopped responding while handling this request') as exc:
+            transport.post(b'body')
+        assert len(opened) == 1  # no reissue
+        message = str(exc.value)
+        assert 'pxt://org1:db1' in message
+        assert 'ConnectionResetError' in message
+        assert 'smaller batches' in message
+
+    def test_a_request_that_never_landed_is_retried(self) -> None:
+        """A write that fails leaves the daemon with nothing to act on, so the request can go again."""
+        transport, opened = self._transport(
+            [_ScriptedConn(on_write=ConnectionResetError('broken pipe')), _ScriptedConn(on_read=(200, b'second'))]
+        )
+        assert transport.post(b'body') == b'second'
+        assert len(opened) == 2
+        assert opened[0].closed
+
+    def test_a_server_error_is_retried(self) -> None:
+        """A 5xx comes from a daemon that is alive and answering; a rollout can produce one."""
+        transport, opened = self._transport(
+            [_ScriptedConn(on_read=(503, b'unavailable')), _ScriptedConn(on_read=(200, b'second'))]
+        )
+        assert transport.post(b'body') == b'second'
+        assert len(opened) == 2
+
+    def test_a_client_error_is_not_retried(self) -> None:
+        transport, opened = self._transport([_ScriptedConn(on_read=(404, b'nope')) for _ in range(2)])
+        with pytest.raises(RuntimeError, match='error 404'):
+            transport.post(b'body')
+        assert len(opened) == 1
+
+    def test_a_pooled_connection_the_server_closed_is_not_handed_out(self) -> None:
+        """Without this, an idle connection the server closed would read as a daemon that died on the
+        request, and the request would fail instead of going onto a fresh connection."""
+        dead, live = _ScriptedConn(), _ScriptedConn()
+        dead.close_peer()
+        assert proxy_client._server_closed(dead)  # type: ignore[arg-type]
+        assert not proxy_client._server_closed(live)  # type: ignore[arg-type]
+
+        opened: list[_ScriptedConn] = []
+
+        def connect() -> object:
+            opened.append(live)
+            return live
+
+        pool = proxy_client._TunnelPool(connect)  # type: ignore[arg-type]
+        pool._idle.append(dead)  # type: ignore[arg-type]
+        with pool.borrow() as conn:
+            assert conn is live
+        assert dead.closed
+        assert opened == [live]
