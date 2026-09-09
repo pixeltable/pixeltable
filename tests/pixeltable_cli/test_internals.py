@@ -54,6 +54,7 @@ from pixeltable.utils.app_module import (
     services_by_name,
 )
 from pixeltable.utils.project import project_fingerprint
+from pixeltable.utils.sql import redact_db_url
 from pixeltable_cli import utils
 from pixeltable_cli.client import hosted, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import (
@@ -1307,17 +1308,22 @@ class TestServerRouteHelpers:
             # the failing file is skipped; the walk still completes
             assert server_routes._dir_size(str(tmp_path)) == 0
 
-    def test_redact_db_password_none(self) -> None:
-        assert server_routes._redact_db_password(None) is None
+    def test_redact_db_url(self) -> None:
+        assert 'secret' not in redact_db_url('postgresql://user:secret@host/db')
+        # libpq reads a password from the query as well, under more than one name
+        assert 'secret' not in redact_db_url('postgresql://user@host/db?password=secret')
+        assert 'secret' not in redact_db_url('postgresql://user@host/db?sslpassword=secret')
 
-    def test_redact_db_password_hidden(self) -> None:
-        out = server_routes._redact_db_password('postgresql://user:secret@host/db')
-        assert out is not None
-        assert 'secret' not in out
+        both = redact_db_url('postgresql://user:secret@host/db?password=secret&sslmode=require')
+        assert 'secret' not in both, both
+        # everything the reader needs to tell one database from another survives
+        assert 'sslmode=require' in both, both
+        assert both.startswith('postgresql://user:') and '@host/db' in both, both
 
-    def test_redact_db_password_unparseable(self) -> None:
-        # malformed URL -> caught and returns None rather than 500ing /status
-        assert server_routes._redact_db_password('::: not a url :::') is None
+        # a malformed url is not reproduced at all: its password cannot be located
+        assert redact_db_url('::: not a url :::') == '<unparsable db url>'
+        # a port that is not a number is rejected by int(), not by the url parser
+        assert redact_db_url('postgresql://user:secret@host:not-a-port/db') == '<unparsable db url>'
 
     def test_safe_count_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class FakeT:
