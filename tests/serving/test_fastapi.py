@@ -1501,8 +1501,7 @@ class TestFastAPI:
         monkeypatch.setattr(Env.get(), '_default_input_media_dest', bucket)
 
         t = pxt.create_table(
-            'test_serve_bucket',
-            {'id': pxt.Int, 'image': pxt.Image, 'video': pxt.Video, 'audio': pxt.Audio},
+            'test_serve_bucket', {'id': pxt.Int, 'image': pxt.Image, 'video': pxt.Video, 'audio': pxt.Audio}
         )
         t.add_computed_column(rotated=t.image.rotate(90), destination=bucket)
         t.add_computed_column(frame=extract_frame(t.video, timestamp=0.0), destination=bucket)
