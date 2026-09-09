@@ -86,9 +86,8 @@ class ServiceManagerBase(abc.ABC):
     @abc.abstractmethod
     def logs(
         self, instance: ServiceInstance, *, since_seconds: int, limit: int, include_health: bool
-    ) -> Sequence[LogRecord] | Path:
-        """The newest limit lines instance logged in the last since_seconds, oldest first, or the path of the
-        file holding its log when that file is on this machine.
+    ) -> Sequence[LogRecord]:
+        """The newest limit lines instance logged in the last since_seconds, oldest first.
 
         include_health keeps the health probe lines, which are otherwise left out.
         """
@@ -142,9 +141,14 @@ class ServiceManager(ServiceManagerBase):
         # a local instance has no registration apart from its process
         self.stop(instance)
 
-    def logs(self, instance: ServiceInstance, *, since_seconds: int, limit: int, include_health: bool) -> Path:
-        # the file holds the process's console; its own logging goes to a file of its own under logs/
-        return self._log_path(instance.service_name, instance.base_path)
+    def logs(
+        self, instance: ServiceInstance, *, since_seconds: int, limit: int, include_health: bool
+    ) -> Sequence[LogRecord]:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'Reading the log of a service on this machine is not supported; the log is at '
+            f'{self._log_path(instance.service_name, instance.base_path)}',
+        )
 
     def stop(self, instance: ServiceInstance) -> None:
         record = instance.record

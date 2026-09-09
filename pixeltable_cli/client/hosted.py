@@ -81,10 +81,6 @@ def print_logs(target: dict[str, str], args: argparse.Namespace) -> None:
     """Print the log of what target names: {'org', 'db'} for a database's pod, {'service'} for a service."""
     params = {**target, 'since': args.since, 'limit': args.limit, 'include_health': args.include_health}
     resp = get_request('/api/logs', params)
-    if isinstance(resp, dict) and 'log_file' in resp:
-        # a service on this machine: its log is a file here, so the answer is where to find it
-        print(json.dumps(resp) if args.json_output else resp['log_file'])
-        return
     records = resp.get('records', []) if isinstance(resp, dict) else []
     if args.json_output:
         print(json.dumps(records))

@@ -543,10 +543,11 @@ class TestService:
             assert 'ambiguous' in r.stderr
             assert f'{first}/ingest' in r.stderr and f'{second}/ingest' in r.stderr
 
-        # the catalog path says which one; a local service's log is a file here, so its path is the answer
-        log_file = pathlib.Path(cli('service', 'logs', f'{first}/ingest').stdout.strip())
-        assert log_file.name == 'ingest.log' and log_file.is_file(), log_file
-        assert cli('service', 'logs', f'{first}/ingest', '--json').json == {'log_file': str(log_file)}
+        # the catalog path says which one; a local service's log is a file here, and the refusal says where
+        r = cli('service', 'logs', f'{first}/ingest', check=False)
+        assert r.returncode == 1
+        log_file = pathlib.Path(r.stderr.split('the log is at ')[1].strip())
+        assert log_file.name == 'ingest.log' and log_file.is_file(), r.stderr
         cli('service', 'stop', f'{first}/ingest')
         assert services(cli, first) == {}
         assert_serving(cli, app, second, 'ingest')

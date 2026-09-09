@@ -182,8 +182,8 @@ Examples:
 
 A hosted service's log holds what the serving process logged, requests included, merged by time with what it
 wrote to its console, which is where a service that failed to start left its traceback. A line reaches it a few
-seconds after it is written. For a service running on this machine, the log is a file here, and this prints its
-path; the options apply to hosted services.
+seconds after it is written. A service running on this machine logs to a file here instead, and asking for its
+log reports where that file is.
 """
 
 VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'list', 'logs', 'check', 'example')

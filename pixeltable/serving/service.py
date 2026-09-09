@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import dataclasses
-from pathlib import Path
 from typing import Literal, Sequence
 
 from pixeltable import catalog, exceptions as excs
@@ -171,8 +170,8 @@ def service_stop(names: list[str]) -> list[ServiceChangeOp]:
     return ops
 
 
-def service_logs(name: str, *, since_seconds: int, limit: int, include_health: bool) -> Sequence[LogRecord] | Path:
-    """The log of the instance name addresses, the way service_stop() addresses one; see ServiceManagerBase.logs()."""
+def service_logs(name: str, *, since_seconds: int, limit: int, include_health: bool) -> Sequence[LogRecord]:
+    """The log of the instance name addresses, the way service_stop() addresses one."""
     found = _resolve_service_instances(name)
     if len(found) == 0:
         raise excs.NotFoundError(excs.ErrorCode.SERVICE_NOT_FOUND, f'No service {name!r} is running')

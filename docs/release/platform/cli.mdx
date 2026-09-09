@@ -707,8 +707,8 @@ pxt db logs pxt://acme:main
 A hosted log holds what the serving process logged, requests included, merged by time with what it wrote to its
 console, which is where a service that failed to start left its traceback. Health probes are left out unless
 `--include-health` is given. The log outlives the pod, so a failed deploy can be read after its pod is gone, and
-a line reaches it a few seconds after it is written. For a service running on this machine the log is a file
-there, and the command prints its path; the options apply to hosted services.
+a line reaches it a few seconds after it is written. A service running on this machine logs to a file there
+instead, and asking for its log reports where that file is.
 
 ### `pxt service` verbs
 

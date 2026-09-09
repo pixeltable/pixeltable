@@ -1,6 +1,5 @@
 import datetime
 import os
-import pathlib
 import typing
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
@@ -849,12 +848,10 @@ def get_logs(req: Request) -> dict[str, Any]:
     include_health = req.query_bool('include_health')
     service_address = req.query_str('service')
     if service_address is not None:
-        logs = service.service_logs(
+        records = service.service_logs(
             service_address, since_seconds=int(since_seconds), limit=limit, include_health=include_health
         )
-        if isinstance(logs, pathlib.Path):
-            return {'log_file': str(logs)}
-        return GetLogsResponse(records=list(logs)).model_dump(mode='json')
+        return GetLogsResponse(records=list(records)).model_dump(mode='json')
     return management_client.api_call(
         GetLogsRequest(
             org=req.required_query_str('org'),

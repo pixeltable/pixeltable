@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from pathlib import Path
 from typing import TYPE_CHECKING, Sequence
 
 import pydantic
@@ -129,5 +128,5 @@ class ServiceInstance:
         """Stop serving and forget this instance."""
         self._manager.delete(self)
 
-    def logs(self, *, since_seconds: int, limit: int, include_health: bool) -> Sequence[LogRecord] | Path:
+    def logs(self, *, since_seconds: int, limit: int, include_health: bool) -> Sequence[LogRecord]:
         return self._manager.logs(self, since_seconds=since_seconds, limit=limit, include_health=include_health)
