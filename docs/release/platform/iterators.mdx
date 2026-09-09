@@ -386,8 +386,8 @@ Iterators are powerful tools for processing large media files. They work seamles
         )
     )
 
-    # Process frames (e.g., apply a filter)
-    frames.add_computed_column(processed=frames.frame.filter('BLUR'))
+    # Process frames (e.g., spread pixels to soften the image)
+    frames.add_computed_column(processed=frames.frame.effect_spread(2))
 
     # Create new videos from processed frames
     processed_videos = frames.select(

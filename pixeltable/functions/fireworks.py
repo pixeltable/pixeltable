@@ -5,7 +5,7 @@ first `pip install fireworks-ai` and configure your Fireworks AI credentials, as
 the [Working with Fireworks](https://docs.pixeltable.com/howto/providers/working-with-fireworks) tutorial.
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable, cast
 
 import pixeltable as pxt
 from pixeltable import env
@@ -14,17 +14,18 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    import fireworks.client  # type: ignore[import-untyped]
+    import fireworks
+    from fireworks.types.shared_params.chat_message import ChatMessage
 
 
 @env.register_client('fireworks', credential_param='api_key')
-def _(api_key: str) -> 'fireworks.client.Fireworks':
-    import fireworks.client
+def _(api_key: str) -> 'fireworks.AsyncFireworks':
+    import fireworks
 
-    return fireworks.client.Fireworks(api_key=api_key)
+    return fireworks.AsyncFireworks(api_key=api_key)
 
 
-def _fireworks_client() -> 'fireworks.client.Fireworks':
+def _fireworks_client() -> 'fireworks.AsyncFireworks':
     return get_runtime().get_client('fireworks')
 
 
@@ -56,72 +57,27 @@ async def chat_completions(
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `accounts/fireworks/models/mixtral-8x22b-instruct`
+        Add a computed column that applies the model `accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(
         ...     response=chat_completions(
-        ...         messages, model='accounts/fireworks/models/mixtral-8x22b-instruct'
+        ...         messages,
+        ...         model='accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b',
         ...     )
         ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
 
-    # for debugging purposes:
-    # res_sync = _fireworks_client().chat.completions.create(model=model, messages=messages, **kwargs_not_none)
-    # res_sync_dict = res_sync.dict()
+    if 'timeout' not in model_kwargs:
+        model_kwargs['timeout'] = Config.get().get_int_value('timeout', section='fireworks') or 600
 
-    if 'request_timeout' not in model_kwargs:
-        model_kwargs['request_timeout'] = Config.get().get_int_value('timeout', section='fireworks') or 600
-    # TODO: this timeout doesn't really work, I think it only applies to returning the stream, but not to the timing
-    # of the chunks; addressing this would require a timeout for the task running this udf
-    stream = _fireworks_client().chat.completions.acreate(model=model, messages=messages, **model_kwargs)
-    chunks = []
-    async for chunk in stream:
-        chunks.append(chunk)
-
-    res = {
-        'id': chunks[0].id,
-        'object': 'chat.completion',
-        'created': chunks[0].created,
-        'model': chunks[0].model,
-        'choices': [
-            {
-                'index': 0,
-                'message': {
-                    'role': None,
-                    'content': '',
-                    'tool_calls': None,
-                    'tool_call_id': None,
-                    'function': None,
-                    'name': None,
-                },
-                'finish_reason': None,
-                'logprobs': None,
-                'raw_output': None,
-            }
-        ],
-        'usage': {},
-    }
-    for chunk in chunks:
-        d = chunk.dict()
-        if 'usage' in d and d['usage'] is not None:
-            res['usage'] = d['usage']
-        if len(chunk.choices) == 0:
-            continue
-        if chunk.choices[0].finish_reason is not None:
-            res['choices'][0]['finish_reason'] = chunk.choices[0].finish_reason
-        if chunk.choices[0].delta.role is not None:
-            res['choices'][0]['message']['role'] = chunk.choices[0].delta.role
-        if chunk.choices[0].delta.content is not None:
-            res['choices'][0]['message']['content'] += chunk.choices[0].delta.content
-        if chunk.choices[0].delta.tool_calls is not None:
-            res['choices'][0]['message']['tool_calls'] = chunk.choices[0].delta.tool_calls
-        if chunk.choices[0].delta.function is not None:
-            res['choices'][0]['message']['function'] = chunk.choices[0].delta.function
-    return res
+    result = await _fireworks_client().chat.completions.create(
+        model=model, messages=cast(Iterable['ChatMessage'], messages), **model_kwargs
+    )
+    return result.model_dump(mode='json')
 
 
 __all__ = local_public_names(__name__)
