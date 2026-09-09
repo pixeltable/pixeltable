@@ -880,7 +880,8 @@ class TestHostedService:
     def test_service_lifecycle(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
         app_file = str(project / APP_FILE)
         schema_update(cli, project, app_file, current_db)
-        service_update(cli, project, app_file, current_db)
+        # the database is shared, so it serves whatever routes the run before this one left registered
+        service_update(cli, project, app_file, current_db, '--allow-destructive')
 
         instance = service_list(cli, project, current_db)['ingest']
         assert instance['state'] == 'AVAILABLE', instance
@@ -899,7 +900,8 @@ class TestHostedService:
         [added] = service_diff(cli, project, app_file, current_db)['services']
         assert added['resolution'] == 'update_additive', added['ops']
         service_update(cli, project, app_file, current_db)
-        assert service_diff(cli, project, app_file, current_db)['in_agreement']
+        reconciled = service_diff(cli, project, app_file, current_db)
+        assert reconciled['in_agreement'], reconciled['services']
 
         # stopping keeps the registration, so an update starts it again
         cli('service', 'stop', f'{current_db}/ingest', cwd=project)

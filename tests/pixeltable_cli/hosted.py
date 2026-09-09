@@ -100,9 +100,9 @@ def schema_update(cli: PxtRunner, project: pathlib.Path, app_file: str, db_uri: 
     cli('schema', 'update', app_file, db_uri, '-f', cwd=project)
 
 
-def service_update(cli: PxtRunner, project: pathlib.Path, app_file: str, db_uri: str) -> None:
+def service_update(cli: PxtRunner, project: pathlib.Path, app_file: str, db_uri: str, *flags: str) -> None:
     """Serve what app_file declares at db_uri."""
-    cli('service', 'update', app_file, db_uri, '-f', cwd=project)
+    cli('service', 'update', app_file, db_uri, '-f', *flags, cwd=project)
 
 
 def service_diff(cli: PxtRunner, project: pathlib.Path, app_file: str, db_uri: str) -> dict[str, Any]:

@@ -196,12 +196,37 @@ def create_project_archive(
     return archive_path
 
 
+def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path]:
+    """The files requirements.txt installs from a path in the project, rather than from an index or a url."""
+    files: list[Path] = []
+    for raw in requirements.read_text(encoding='utf-8').splitlines():
+        line = raw.split('#', 1)[0].strip()
+        if line == '' or line.startswith('-'):
+            continue
+        # 'name @ target' states where to get name; a bare line is itself the target
+        target = line.split('@', 1)[1].strip() if ' @ ' in line else line
+        if '://' in target:
+            continue
+        path = (project_dir / target).resolve()
+        if not path.is_file():
+            continue
+        if not path.is_relative_to(project_dir):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} installs {target}, which is outside the project; an image build '
+                'sends the project alone, so a file above it cannot be installed',
+            )
+        files.append(path)
+    return files
+
+
 def create_image_context(project_dir: Path | None = None) -> Path:
     """Return the path to a tarfile containing the manifests needed for an image build."""
     if project_dir is None:
         project_dir = Path.cwd()
     project_dir = project_dir.resolve()
     files = [project_dir / name for name in IMAGE_INPUT_FILES if (project_dir / name).is_file()]
+    installed_from_project: list[Path] = []
     # validate the input files
     for f in files:
         if f.name == PYPROJECT_FILE:
@@ -223,13 +248,17 @@ def create_image_context(project_dir: Path | None = None) -> Path:
                         f'{f.name} includes another requirements file ({line.strip()}), which cannot be '
                         'installed in a hosted image; write one file naming every dependency',
                     )
+            # pip runs in the context, so a requirement naming a path needs that file alongside the manifests
+            installed_from_project.extend(_local_requirement_files(project_dir, f))
+
+    files.extend(installed_from_project)
 
     fd, name = tempfile.mkstemp(suffix='.tar', prefix='pxt_image_')
     os.close(fd)
     context_path = Path(name)
     with tarfile.open(context_path, 'w') as tf:
         for f in files:
-            tf.add(f, arcname=f.name)
+            tf.add(f, arcname=str(f.relative_to(project_dir)))
     _logger.info(f'Image context created: {context_path}')
     return context_path
 
