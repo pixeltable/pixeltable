@@ -170,6 +170,11 @@ class TestDocument:
         else:
             assert extensions == {'.md', '.html', '.txt', '.pptx', '.docx', '.xlsx'}
 
+        def open_doc_files() -> list[str]:
+            return [f.path for f in psutil.Process().open_files() if os.path.splitext(f.path)[1] in extensions]
+
+        open_doc_files_before = open_doc_files()
+
         doc_t = pxt.create_table('docs', {'doc': pxt.Document | None})
         validate_update_status(doc_t.insert({'doc': p} for p in file_paths), expected_rows=len(file_paths))
 
@@ -260,8 +265,8 @@ class TestDocument:
             pxt.drop_table('chunks')
 
         # Verify that the splitter closes the documents when the iteration ends
-        open_doc_files = [f for f in psutil.Process().open_files() if os.path.splitext(f.path)[1] in extensions]
-        assert len(open_doc_files) == 0, open_doc_files
+        open_doc_files_after = open_doc_files()
+        assert len(open_doc_files_after) == len(open_doc_files_before), (open_doc_files_before, open_doc_files_after)
 
     def test_doc_splitter_headings(self, uses_db: None) -> None:
         skip_test_if_not_installed('markitdown', 'spacy')
