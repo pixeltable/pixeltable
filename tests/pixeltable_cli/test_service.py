@@ -13,7 +13,15 @@ import pytest
 import pixeltable as pxt
 
 from ..utils import DatabaseRoot, get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
-from .conftest import BUILD_TIMEOUT, BackgroundPxt, PxtRunner, copy_app_corpus, disposable_db_uri, write_requirements
+from .conftest import (
+    BUILD_TIMEOUT,
+    BackgroundPxt,
+    PxtRunner,
+    copy_app_corpus,
+    disposable_db_uri,
+    read_logs_until,
+    write_requirements,
+)
 
 _REQUEST_TIMEOUT = 30.0
 
@@ -630,15 +638,33 @@ class TestService:
             assert 'ambiguous' in r.stderr
             assert f'{first}/ingest' in r.stderr and f'{second}/ingest' in r.stderr
 
-        # the catalog path says which one; a local service logs to a file, and the error names it
-        r = cli('service', 'logs', f'{first}/ingest', check=False)
-        assert r.returncode == 1
-        log_file = pathlib.Path(r.stderr.split('the log is at ')[1].strip())
-        assert log_file.name == 'ingest.log' and log_file.is_file(), r.stderr
+        # the catalog path says which one
+        if db_root.id != 'cloud':
+            # a local service logs to a file, and the error names it
+            r = cli('service', 'logs', f'{first}/ingest', check=False)
+            assert r.returncode == 1
+            log_file = pathlib.Path(r.stderr.split('the log is at ')[1].strip())
+            assert log_file.name == 'ingest.log' and log_file.is_file(), r.stderr
         cli('service', 'stop', f'{first}/ingest')
         # TODO: assert first's instance is gone or listed STOPPED, once a local stop keeps its record like
         # a hosted one does
         assert_serving(cli, app, second, 'ingest')
+
+    @pytest.mark.db_roots('cloud', reason='a local service logs to a file, which test_addressing checks')
+    @pytest.mark.skip(reason='TODO: enable once service pods have an identity the log read can address')
+    def test_logs(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        """A hosted service's log holds the requests it served."""
+        app, target = apps('basic.py'), db_root.make_catalog_path('app')
+        deploy(cli, app, target)
+        running = assert_serving(cli, app, target, 'ingest')
+        _post(running['ingest']['endpoint'], '/preview', doc_id=1, title='logged', published=False)
+
+        records = read_logs_until(cli, 'service', 'logs', f'{target}/ingest', '--since', '5m', contains='POST /preview')
+        assert any('POST /preview' in r['line'] for r in records), records[-5:]
+        assert records == sorted(records, key=lambda r: r['ts_ms'])
+        assert not any('GET /health' in r['line'] for r in records)
+        with_health = cli('service', 'logs', f'{target}/ingest', '--include-health', '--json').json
+        assert any('GET /health' in r['line'] for r in with_health), with_health[-5:]
 
     @pytest.mark.db_roots('local', reason='drives the local proxy daemon directly, so the target axis adds nothing')
     def test_proxy_daemon_project_handoff(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:

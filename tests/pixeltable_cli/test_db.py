@@ -104,12 +104,7 @@ class TestDb:
 
         # `db logs`: the pod that just came up has logged its startup
         records = cli('db', 'logs', test_db_uri, '--json', cwd=project).json
-        assert records != [], 'the database pod logged nothing in the last hour'
-        assert records == sorted(records, key=lambda r: r['ts_ms'])
-        assert not any('GET /health' in r['line'] for r in records)
-        too_many = cli('db', 'logs', test_db_uri, '--tail', '50000', cwd=project, check=False)
-        assert too_many.returncode == EXIT_ERROR
-        assert "'limit' must be <= 10000" in too_many.stderr, too_many.stderr
+        assert any('Connected to Pixeltable database at:' in r['line'] for r in records), records[-5:]
 
         # `db update`: Check that a second call is planned as an update
         # Every update rebuilds the image, since the database reports no fingerprint to compare

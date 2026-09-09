@@ -12,15 +12,17 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+import uuid
 from typing import Callable
 
 import pytest
 
 import pixeltable as pxt
 from pixeltable_cli.client.utils import display_path
+from pixeltable_cli.utils import split_pxt_uri
 
 from ..utils import DatabaseRoot, get_image_files
-from .conftest import PxtRunner
+from .conftest import PxtRunner, read_logs_until
 
 
 @pytest.mark.db_roots('local', reason='reports daemon liveness/version; not catalog-specific')
@@ -781,6 +783,34 @@ class TestConfig:
         # an unmatched source string returns no entries but exits cleanly
         out = cli('config', '--source', 'no-such-path', '--json').json
         assert out['entries'] == []
+
+
+@pytest.mark.db_roots('cloud', reason='reads the log of a hosted database pod; a local catalog has no pod')
+class TestDbLogs:
+    def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        """The pod logged what the test did; the window, the tail and the health filter apply to the read."""
+        parts = split_pxt_uri(db_root.prefix)
+        assert parts is not None
+        db_uri = f'pxt://{parts.org}:{parts.db}'
+        table_name = f'cli_logs_{uuid.uuid4().hex}'
+        pxt.create_table(db_root.make_catalog_path(table_name), {'x': pxt.Int | None})
+
+        created = f'Created table {table_name!r}'
+        records = read_logs_until(cli, 'db', 'logs', db_uri, '--since', '5m', contains=created)
+        assert any(created in r['line'] for r in records), records[-5:]
+        assert records == sorted(records, key=lambda r: r['ts_ms'])
+        assert not any('GET /health' in r['line'] for r in records)
+
+        # the probes are kept on request, and the tail is the newest lines of the window
+        with_health = cli('db', 'logs', db_uri, '--include-health', '--json').json
+        assert any('GET /health' in r['line'] for r in with_health), with_health[-5:]
+        assert len(cli('db', 'logs', db_uri, '--tail', '1', '--json').json) == 1
+
+        # the daemon validates the window and the tail before reading anything
+        r = cli('db', 'logs', db_uri, '--since', 'bogus', check=False)
+        assert r.returncode == 1 and 'must be a duration' in r.stderr, r.stderr
+        r = cli('db', 'logs', db_uri, '--tail', '50000', check=False)
+        assert r.returncode == 1 and "'limit' must be <= 10000" in r.stderr, r.stderr
 
 
 class TestErrors:
