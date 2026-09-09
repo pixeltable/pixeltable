@@ -1421,11 +1421,10 @@ class TestFastAPI:
         assert resp.headers['content-type'].startswith('image/')
         assert len(resp.content) > 0
 
-    @pytest.mark.db_roots('local', 'cloud', reason='a local proxy daemon has no home bucket')
+    @pytest.mark.db_roots('cloud', reason='only a hosted table has a home bucket')
     def test_media_urls(self, db_root: DatabaseRoot) -> None:
-        """Insert and query routes return every media column as a URL that serves the stored bytes. A hosted table
-        answers with a presigned home bucket URL for each; a local table serves its computed media from /media and
-        returns the inserted files as the file:// URLs it references in place."""
+        """Insert and query routes return every media column of a hosted table, computed or inserted, as a presigned
+        home bucket URL that serves the stored bytes."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.functions.video import extract_frame
         from pixeltable.serving import FastAPIRouter
@@ -1448,18 +1447,12 @@ class TestFastAPI:
         router.add_query_route(path='/all', query=all_rows)
         client = make_test_client(router)
 
-        computed: dict[str, Callable[[bytes], None]] = {'rotated': assert_image_bytes, 'frame': assert_image_bytes}
-        inserted: dict[str, Callable[[bytes], None]] = {'video': assert_video_bytes, 'audio': assert_audio_bytes}
-
-        def assert_served(col: str, url: str) -> None:
-            decode = (computed | inserted)[col]
-            if db_root.id == 'cloud':
-                decode(fetch_home_bucket_presigned(url, expires_s=3600))
-            elif col in computed:
-                fetch_and_decode_media(client, url, decode)
-            else:
-                assert url.startswith('file://'), url
-                decode(pathlib.Path(urllib.parse.unquote(urllib.parse.urlparse(url).path)).read_bytes())
+        decoders: dict[str, Callable[[bytes], None]] = {
+            'rotated': assert_image_bytes,
+            'frame': assert_image_bytes,
+            'video': assert_video_bytes,
+            'audio': assert_audio_bytes,
+        }
 
         resp = client.post(
             '/insert',
@@ -1467,15 +1460,15 @@ class TestFastAPI:
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        for col in (*computed, *inserted):
-            assert_served(col, body[col])
+        for col, decode in decoders.items():
+            decode(fetch_home_bucket_presigned(body[col], expires_s=3600))
 
         resp = client.post('/all', json={})
         assert resp.status_code == 200, resp.text
         rows = resp.json()['rows']
         assert len(rows) == 1
-        for col in (*computed, *inserted):
-            assert_served(col, rows[0][col])
+        for col, decode in decoders.items():
+            decode(fetch_home_bucket_presigned(rows[0][col], expires_s=3600))
 
     def test_add_mirror_route_video(self, db_root: DatabaseRoot) -> None:
         """Round trip over a proxy table: an insert route ingests a local video; a query route returns the
