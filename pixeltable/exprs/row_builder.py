@@ -84,6 +84,7 @@ class RowBuilder:
 
     input_exprs: ExprSet
 
+    # TODO(PXT-1392): RowBuilder has 2 jobs: a query evaluation plan, and a table write spec. It needs a refactoring.
     tbl: catalog.TableVersion | None  # the table the output columns are written to; None for a read-only plan
     for_view_load: bool  # True if this RowBuilder represents a view load
 
