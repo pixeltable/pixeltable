@@ -1556,7 +1556,7 @@ class TestFastAPI:
     def test_add_mirror_route_video(self, db_root: DatabaseRoot) -> None:
         """Round trip over a proxy table: an insert route ingests a local video; a query route returns the
         persisted, computed `mirrored` video by id. Over proxy this exercises the upload path and the
-        persisted-media download (daemon media URL -> client FileCache)."""
+        persisted-media download from the daemon's media URL."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
@@ -1585,9 +1585,9 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         url = resp.json()['mirrored']
         assert '/media/' in url, url
-        media = client.get(url)
-        assert media.status_code == 200
-        assert len(media.content) > 0
+        media = get_media(client, url)
+        assert media.status_code == 200, media.text
+        assert_video_bytes(media.content)
 
     def test_duplicate_routes(self, db_root: DatabaseRoot) -> None:
         """Registering the same (path, method) twice must raise rather than silently shadow."""
