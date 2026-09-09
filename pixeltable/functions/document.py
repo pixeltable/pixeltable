@@ -2,6 +2,7 @@
 Pixeltable UDFs for `DocumentType`.
 """
 
+from contextlib import closing
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, TypedDict, cast
@@ -14,7 +15,7 @@ from pypdfium2 import PdfDocument  # type: ignore[import-untyped]
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs, type_system as ts
 from pixeltable.env import Env
-from pixeltable.utils.documents import get_document_handle
+from pixeltable.utils.documents import DocumentHandle, get_document_handle
 from pixeltable.utils.spacy import get_spacy_model
 
 if TYPE_CHECKING:
@@ -229,7 +230,7 @@ class document_splitter(pxt.PxtIterator):
         ... )
     """
 
-    _doc_handle: Any
+    _doc_handle: DocumentHandle
     _separators: list[Separator]
     _elements: list[Element]
     _metadata_fields: list[ChunkMetadata]
@@ -485,8 +486,13 @@ class document_splitter(pxt.PxtIterator):
             return txt
 
         for page_idx, page in enumerate(doc):
-            img = page.render().to_pil() if Element.IMAGE in self._elements else None
-            text = page.get_textpage().get_text_bounded()
+            with closing(page):
+                img: PIL.Image.Image | None = None
+                if Element.IMAGE in self._elements:
+                    with closing(page.render()) as bitmap:
+                        img = bitmap.to_pil().copy()
+                with closing(page.get_textpage()) as textpage:
+                    text = textpage.get_text_bounded()
             _add_cleaned(text)
             if accumulated_text and emit_on_page:
                 md = DocumentSectionMetadata(page=page_idx)
@@ -633,3 +639,6 @@ class document_splitter(pxt.PxtIterator):
                 schema[md_field.name.lower()] = _METADATA_COLUMN_TYPES[md_field]  # type: ignore[assignment]
 
         return schema
+
+    def close(self) -> None:
+        self._doc_handle.close()
