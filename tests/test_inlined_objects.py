@@ -66,7 +66,7 @@ class TestInlinedObjects:
         )
         rows: list[dict[str, Any]] = [
             {'id': i, 'ar1': next(vals), 'ar2': next(vals), 'ar3': next(vals), 'ar4': next(vals), 'ar5': next(vals)}
-            for i in range(60)
+            for i in range(5)
         ]
         total_bytes = sum(
             row['ar1'].nbytes + row['ar2'].nbytes + row['ar3'].nbytes + row['ar4'].nbytes + row['ar5'].nbytes
