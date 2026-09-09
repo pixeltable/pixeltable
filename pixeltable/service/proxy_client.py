@@ -282,8 +282,9 @@ class TunnelTransport(Transport):
     def _request(self, method: str, path: str, body: bytes | None = None, content_type: str | None = None) -> bytes:
         """Borrow a tunnel connection, issue one request, return the raw body.
 
-        Transient transport failures (the server can restart and drop the connection) are retried with backoff
-        on a fresh connection; auth rejection (PermissionError) and non-5xx HTTP errors are not.
+        A failure that leaves the request undelivered (connect, handshake, writing it) is retried with
+        backoff on a fresh connection, as is a 5xx; auth rejection (PermissionError) and non-5xx HTTP errors
+        are not.
 
         A connection that fails *after* the daemon has received the request is treated as a server crash and is
         not retried; retries in this scenario can inadvertently DOS the pod.
@@ -304,14 +305,13 @@ class TunnelTransport(Transport):
                     response = conn.getresponse()
                     content = response.read()
                 except _TUNNEL_TRANSIENT_EXC as exc:
-                    # Tunnel errors that occur after the request has been sent are converted to 5xx errors and
-                    # are not retried.
+                    # The request was successfully posted, so this is not a transport failure to reissue; retrying
+                    # could result in DOS'ing the pod
                     raise excs.Error(
                         excs.ErrorCode.INTERNAL_ERROR,
                         f'The database became unresponsive while handling this request: pxt://{self._org}:{self._db}\n'
-                        'This may be caused by a query that was too large for the database to serve. If you get this '
-                        'error repeatedly,\n'
-                        'try splitting large inserts or queries into smaller batches.',
+                        'This may be caused by a query that was too large for the database to serve.\n'
+                        'If this happens repeatedly, try splitting large queries or inserts into smaller batches.',
                     ) from exc
                 if response.status == 200:
                     return content
