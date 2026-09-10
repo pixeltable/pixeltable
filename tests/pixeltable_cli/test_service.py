@@ -27,6 +27,7 @@ from ..utils import (
 from .conftest import BUILD_TIMEOUT, BackgroundPxt, PxtRunner, copy_app_corpus, disposable_db_uri, write_requirements
 from .hosted import (
     APP_FILE,
+    EXIT_ERROR,
     await_service_available,
     current_db,
     db_update,
@@ -500,7 +501,8 @@ class TestService:
         commands = {op['details'].get('command') for s in r.json['services'] for op in s['ops']}
         assert any(c is not None and 'schema update' in c for c in commands), commands
 
-        r = cli('service', 'update', app, target, '-f', '--json')
+        r = cli('service', 'update', app, target, '-f', '--json', check=False)
+        assert r.returncode == EXIT_ERROR
         assert [s['status'] for s in r.json['services']] == ['refused']
         assert get_services(cli, target) == {}
 
@@ -533,7 +535,8 @@ class TestService:
         assert [op['details']['command'] for op in blocked] == [f'pxt schema update {app} {target}']
         assert "'notes'" in blocked[0]['description'], blocked[0]['description']
 
-        r = cli('service', 'update', app, target, '-f', '--json')
+        r = cli('service', 'update', app, target, '-f', '--json', check=False)
+        assert r.returncode == EXIT_ERROR
         assert [s['status'] for s in r.json['services']] == ['refused']
         assert get_services(cli, target) == {}
 

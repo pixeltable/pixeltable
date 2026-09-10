@@ -60,7 +60,6 @@ pytestmark = [
 
 class TestDb:
     def test_create(self, cli: PxtRunner, project: pathlib.Path) -> None:
-        """A database the control plane does not hold is planned as a create, and the update makes it."""
         absent = f'pxt://pixeltable:pxttest-absent-{uuid.uuid4().hex[:12]}'
         create_project_config(cli, project, absent)
 
@@ -214,7 +213,7 @@ class TestPodRunner:
 
         unpacked = tmp_path / 'app'
         port = _free_port()
-        pod = _run_pod(current_db, unpacked, '--base-path', current_db, '--host', '127.0.0.1', '--port', str(port))
+        pod = _run_pod(current_db, unpacked, '--host', '127.0.0.1', '--port', str(port))
         try:
             _wait_until_serving(f'http://127.0.0.1:{port}')
             assert (unpacked / APP_FILE).read_text() == (project / APP_FILE).read_text()

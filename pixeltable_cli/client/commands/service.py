@@ -417,6 +417,9 @@ def _update(
         )
     )
     _print_plan(applied, as_json=as_json, applied=True)
+    if applied.summary.blocked > 0:
+        # the database has to change before these services can serve, and this command does not change it
+        sys.exit(EXIT_ERROR)
 
 
 def _run_foreground(
