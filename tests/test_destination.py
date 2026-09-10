@@ -382,6 +382,33 @@ class TestDestination:
         # Ensure that local file is copied to a specified destination
         assert ObjectOps.count(t._id, dest=dest1_uri) == len(r)
 
+    @pytest.mark.db_roots('local', reason='monkeypatches ObjectOps.put_file_resolved in-process')
+    def test_dest_put_failure_on_error_ignore(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Persist failure with on_error='ignore' must record a cell error, not AssertionError (PXT-1385)."""
+        dest_uri = self.resolve_destination_uri(StorageTarget.LOCAL_STORE) + '/bucket1'
+        t = pxt.create_table('test_dest_put_fail', schema={'img': pxt.Image | None})
+        # Empty table: add_computed_column does not put yet.
+        t.add_computed_column(img_rot=t.img.rotate(90), destination=dest_uri)
+
+        def fail_put(_store: object, _src_path: Path, _dest: object, _relocate_or_delete: bool) -> str:
+            raise OSError('injected put failure')
+
+        monkeypatch.setattr(ObjectOps, 'put_file_resolved', staticmethod(fail_put))
+
+        rows = [{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]
+        with pytest.raises(OSError, match='injected put failure'):
+            t.insert(rows)
+
+        status = t.insert(rows, on_error='ignore')
+        assert status.num_rows == 1
+        assert status.num_excs >= 1
+        assert 'test_dest_put_fail.img_rot' in status.cols_with_excs
+        assert t.where(t.img_rot.errortype != None).count() == 1
+        err = t.select(msg=t.img_rot.errormsg, url=t.img_rot.fileurl).collect()[0]
+        assert 'injected put failure' in err['msg']
+        assert err['url'] is None
+        assert ObjectOps.count(t._id, dest=dest_uri) == 0
+
     @pytest.mark.very_expensive
     def test_dest_all(self, db_root: DatabaseRoot) -> None:
         """Test destination with all available storage targets"""
