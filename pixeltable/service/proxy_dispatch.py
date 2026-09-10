@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import os
 import pathlib
 import shutil
 import time
@@ -22,6 +21,7 @@ import sqlalchemy as sql
 from pixeltable import exceptions as excs
 from pixeltable._query import Query
 from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_loop
+from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
@@ -154,13 +154,7 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT, f'Invalid uploaded media object key: {remote_key!r}'
             )
-    org = os.environ.get('PXTCLOUD_ORG')
-    db = os.environ.get('PXTCLOUD_DB')
-    if not (org and db):
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            'Internal error: PXTCLOUD_ORG and PXTCLOUD_DB are not present in the container.',
-        )
+    org, db = Env.get().hosted_db(required=True)
     store = ObjectOps.get_store(f'pxtfs://{org}:{db}/home/uploads/', False)
 
     def download(remote_key: str) -> None:
