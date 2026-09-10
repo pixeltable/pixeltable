@@ -118,6 +118,39 @@ class TestAlterColumn:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot alter base table column'):
             v.alter_column(t.c1, type_=pxt.String | None)
 
+        # alter_computed_column() takes the column as the single keyword argument
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='exactly one keyword argument'):
+            t.alter_computed_column()
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='exactly one keyword argument'):
+            t.alter_computed_column(c3=t.c3, c4=t.c3)
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column'):
+            t.alter_computed_column(unknown=t.c3 + 1)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is not a computed column'):
+            t.alter_computed_column(c1=t.c3)
+
+        # a different output type
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='has type `Int`, but the column has type `Float`'):
+            t.alter_computed_column(c4=t.c5 + 1)
+
+        # a reference that makes the column depend on itself, directly or indirectly
+        t.add_computed_column(c6=t.c4 * 2)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='circular dependency'):
+            t.alter_computed_column(c4=t.c4 + 1)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='circular dependency'):
+            t.alter_computed_column(c4=t.c3 + t.c6)
+
+        # a reference to a cell metadata property
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'errortype' property"):
+            t.alter_computed_column(c4=t.c3 + (t.c4.errortype != None).astype(pxt.Float))
+
+        # a ColumnRef of a snapshot
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is not bound by'):
+            t.alter_computed_column(c4=s.c3 + 1)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot alter columns of a snapshot'):
+            s.alter_computed_column(c4=s.c3 + 1)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot alter base table column'):
+            v.alter_computed_column(c4=v.c3 + 1)
+
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_alter_computed_column(
         self, db_root: DatabaseRoot, do_reload_catalog: bool, is_data_versioned: bool
@@ -281,39 +314,3 @@ class TestAlterColumn:
         # a base table's column cannot be made to depend on one of its views
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is not bound by'):
             t.alter_computed_column(c=v.d + 1)
-
-    def test_alter_computed_column_errors(self, db_root: DatabaseRoot) -> None:
-        t = pxt.create_table(db_root.make_catalog_path('test_tbl'), {'n': pxt.Int, 'm': pxt.Int})
-        t.add_computed_column(c=t.n + t.m)
-        t.add_computed_column(d=t.c * 2)
-        validate_update_status(t.insert(n=1, m=2), 1)
-
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='exactly one keyword argument'):
-            t.alter_computed_column()
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='exactly one keyword argument'):
-            t.alter_computed_column(c=t.n, d=t.m)
-        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column'):
-            t.alter_computed_column(unknown=t.n + 1)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is not a computed column'):
-            t.alter_computed_column(n=t.m + 1)
-
-        # a different output type
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='has type `Float`, but the column has type `Int`'):
-            t.alter_computed_column(c=(t.n + t.m) / 2)
-        # a reference that makes the column depend on itself, directly or indirectly
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='circular dependency'):
-            t.alter_computed_column(c=t.c + 1)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='circular dependency'):
-            t.alter_computed_column(c=t.n + t.m + t.d)
-        # a reference to a cell metadata property
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'errortype' property"):
-            t.alter_computed_column(c=t.n + (t.c.errortype != None).astype(pxt.Int))
-
-        # use a ColumnRef of a snapshot
-        s = pxt.create_snapshot(db_root.make_catalog_path('snap'), t)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is not bound by'):
-            t.alter_computed_column(c=s.n + s.m)
-
-        # not allowed on a snapshot
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot alter columns of a snapshot'):
-            s.alter_computed_column(c=s.n + s.m)
