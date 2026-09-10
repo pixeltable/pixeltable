@@ -2858,16 +2858,17 @@ class TestTableModel:
         assert v.select(v.vc1).order_by(v.id).collect()['vc1'] == [101, 201]
 
         # one change set that adds a column an altered one depends on (bonus), and one that depends on an altered
-        # one (s).
+        # one (s). s is declared before bonus but reads it through unstored u, so Pixeltable needs to be smart about
+        # the order in which these columns are created and populated.
         WidenedModel = pxt.model_base()
 
         class WidenedTable(WidenedModel, name='test_table'):
             id: pxt.Int
             extra: pxt.Int
+            s = ExampleTable.u + 1  # type: ignore[operator]
             bonus = id * 1000
             doubled = id * 100 + extra + bonus
-            u = Column(value=id * 7, stored=False)
-            s = u + 1  # type: ignore[operator]
+            u = Column(value=bonus * 7, stored=False)
 
         class WidenedView(WidenedModel, name='test_view', base=WidenedTable):
             vc1 = WidenedTable.doubled + 1
@@ -2884,8 +2885,8 @@ class TestTableModel:
         WidenedModel.update_all(root)
         t = pxt.get_table(p('test_table'))
         assert all(d.resolution == 'up_to_date' for d in WidenedModel.get_model_diff(root).values())
-        # s must be populated using u's new expression
-        assert t.select(t.u, t.s).order_by(t.id).collect()[0] == {'u': 7, 's': 8}
+        # s must be populated using u's new expression, and after bonus
+        assert t.select(t.u, t.s).order_by(t.id).collect()[0] == {'u': 7000, 's': 7001}
         t.recompute_columns('doubled')
         assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [1100, 2200]
 

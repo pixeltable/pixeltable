@@ -430,9 +430,7 @@ class TableVersion:
         visible = {md.id: md for md in self.tbl_md.column_md.values() if md.is_visible_in_version(self.schema_version)}
         deps: dict[int, set[int]] = {}
         for col_id in visible:
-            value_expr = self._schema_version_md.columns[col_id].value_expr
-            refd = exprs.Expr.get_refd_column_ids(value_expr) if value_expr is not None else set()
-            own_refs = {qid.col_id for qid in refd if qid.tbl_id == self.id}
+            own_refs = self._own_col_refs(self._schema_version_md.columns[col_id].value_expr)
             non_visible_refs = own_refs - visible.keys()
             assert len(non_visible_refs) == 0, (
                 f'{self.name}: column {col_id} references dropped columns {non_visible_refs}'
@@ -791,6 +789,21 @@ class TableVersion:
             row_count_stats=row_counts,
         )
 
+    def _own_col_refs(self, value_expr_dict: dict[str, Any] | None) -> set[int]:
+        """The ids of the columns of this table that value_expr_dict references. value_expr_dict can be None for if
+        it's a regular non-computed column."""
+        if value_expr_dict is None:
+            return set()
+        return {qid.col_id for qid in exprs.Expr.get_refd_column_ids(value_expr_dict) if qid.tbl_id == self.id}
+
+    def _population_order(self, cols: list[Column]) -> list[Column]:
+        """Returns cols, reordered so that a column follows its dependencies. That includes its transitive dependencies
+        in this table regardless of whether they are in the provided list."""
+        assert all(col.id in self.cols_by_id for col in cols)
+        deps = {col.id: self._own_col_refs(col.value_expr_dict) for col in self.cols_by_id.values()}
+        input_cols_by_id = {col.id: col for col in cols}
+        return [input_cols_by_id[col_id] for col_id in _topological_sort(deps) if col_id in input_cols_by_id]
+
     def _col_ref_substitutions(self, cols: Sequence[Column]) -> 'exprs.ExprDict[exprs.Expr]':
         """Maps a ColumnRefByName placeholder to a ColumnRef."""
         assert all(col.id is not None for col in cols)
@@ -1003,7 +1016,7 @@ class TableVersion:
             # the altered value expressions are part of the CVMD that create_add_column_plan() reads below
             self.path.clear_cached_md()
 
-        status = self._populate_columns(all_cols, print_stats=print_stats, on_error=on_error)
+        status = self._populate_columns(self._population_order(all_cols), print_stats=print_stats, on_error=on_error)
         # create the indices and their md records only once the columns they index exist
         for col, (idx, val_col, undo_col) in index_cols.items():
             self._create_index(col, val_col, undo_col, idx_name=None, idx=idx)
@@ -1094,16 +1107,9 @@ class TableVersion:
         # Columns can depend on other columns in the same table or its ancestors but not descendants, therefore a cycle
         # is only possible among the column dependencies within this table. Ignore ancestor dependencies.
 
-        def own_col_refs(value_expr_dict: dict[str, Any]) -> set[int]:
-            """The ids of the columns of this table that value_expr_dict references."""
-            return {qid.col_id for qid in exprs.Expr.get_refd_column_ids(value_expr_dict) if qid.tbl_id == self.id}
-
         # Build the proposed graph of dependencies using the new value exprs overlaid on existing dependencies.
-        deps: dict[int, set[int]] = {
-            col.id: own_col_refs(col.value_expr_dict) if col.value_expr_dict is not None else set()
-            for col in self.cols_by_id.values()
-        }
-        deps.update({col_id: own_col_refs(e.as_dict()) for col_id, e in new_value_exprs.items()})
+        deps = {col.id: self._own_col_refs(col.value_expr_dict) for col in self.cols_by_id.values()}
+        deps.update({col_id: self._own_col_refs(e.as_dict()) for col_id, e in new_value_exprs.items()})
 
         try:
             _ = _topological_sort(deps)
