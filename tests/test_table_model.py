@@ -2517,6 +2517,55 @@ class TestTableModel:
         assert [r['from_two'] for r in rows] == [[{'title': 'gamma'}], [{'title': 'gamma'}]]
         assert [r['match_count'] for r in rows] == [3, 1]
 
+    def test_update_all_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
+        """`update_all()` binds query udfs over models in both altered and newly added computed columns."""
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            doc_id: pxt.Int
+            title: pxt.String
+
+        @pxt.query
+        def titles_after(cutoff: int) -> pxt.Query:
+            return Docs.where(Docs.doc_id > cutoff).order_by(Docs.doc_id).select(Docs.title)  # type: ignore[arg-type]
+
+        class Probe(TableModel, name='probe'):
+            cutoff: pxt.Int
+            matches = titles_after(cutoff)
+
+        target = db_root.make_catalog_path('qudf_update')
+        pxt.create_dir(target, parents=True)
+        TableModel.create_all(target)
+        pxt.get_table(f'{target}/docs').insert([{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 5, 'title': 'beta'}])
+        pxt.get_table(f'{target}/probe').insert([{'cutoff': 0}, {'cutoff': 1}])
+
+        reload_catalog()
+        TableModelV2 = pxt.model_base()
+
+        class DocsV2(TableModelV2, name='docs'):
+            doc_id: pxt.Int
+            title: pxt.String
+
+        @pxt.query
+        def titles_after_v2(cutoff: int) -> pxt.Query:
+            return DocsV2.where(DocsV2.doc_id > cutoff).order_by(DocsV2.doc_id).select(DocsV2.title)  # type: ignore[arg-type]
+
+        class ProbeV2(TableModelV2, name='probe'):
+            cutoff: pxt.Int
+            matches = titles_after_v2(cutoff + 1)
+            from_zero = titles_after_v2(0)
+
+        TableModelV2.update_all(target)
+
+        reload_catalog()
+        probe = pxt.get_table(f'{target}/probe')
+        rows = probe.order_by(probe.cutoff).select(probe.from_zero).collect()
+        assert [r['from_zero'] for r in rows] == [[{'title': 'alpha'}, {'title': 'beta'}]] * 2
+
+        probe.recompute_columns('matches')
+        rows = probe.order_by(probe.cutoff).select(probe.matches).collect()
+        assert [r['matches'] for r in rows] == [[{'title': 'beta'}], [{'title': 'beta'}]]
+
     def test_table_model_validation_errors(self, db_root: DatabaseRoot) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
         p = db_root.make_catalog_path

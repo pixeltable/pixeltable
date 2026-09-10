@@ -449,7 +449,7 @@ class _ModelNamespace(dict):
         self.known_cols = ordered
 
 
-def _bind_query_templates(e: exprs.Expr, catalog_dir: str) -> exprs.Expr:
+def bind_query_templates(e: exprs.Expr, catalog_dir: str) -> exprs.Expr:
     """Rebind QueryTemplateFunction calls of ModelQuery instances to the equivalent Query of the bound model."""
     from .query import ModelQuery
 
@@ -823,7 +823,7 @@ class TableModelMeta(type):
                     spec['type'], allow_builtin_types=False
                 )
             if 'value' in spec:
-                spec['value'] = _bind_query_templates(spec['value'].copy(), catalog_dir)
+                spec['value'] = bind_query_templates(spec['value'].copy(), catalog_dir)
             columns[name] = spec
 
         bound_path = f'{catalog_dir}{table_spec["name"]}'
