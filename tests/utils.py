@@ -3,6 +3,7 @@ import datetime
 import gc
 import glob
 import hashlib
+import io
 import itertools
 import json
 import logging
@@ -15,6 +16,7 @@ import subprocess
 import sys
 import sysconfig
 import time
+import urllib.parse
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -25,6 +27,7 @@ from unittest import TestCase
 from uuid import uuid4
 
 import aiohttp
+import av
 import httpx
 import more_itertools
 import numpy as np
@@ -36,7 +39,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable._query import ResultSet
-from pixeltable.catalog import retry_loop
+from pixeltable.catalog import Path as PxtPath, retry_loop
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
@@ -1177,6 +1180,57 @@ def check_media_store_count(
         )
 
     assert actual == expected_count, f'expected {expected_count} media objects, found {actual}'
+
+
+def home_bucket_uri(catalog_path: str) -> str:
+    """The pxtfs:// home bucket of the hosted database holding catalog_path."""
+    catalog = PxtPath.parse(catalog_path, allow_empty_path=True)
+    assert catalog.org is not None and catalog.db is not None, catalog_path
+    return f'pxtfs://{catalog.org}:{catalog.db}/home'
+
+
+def assert_image_bytes(data: bytes, *, size: tuple[int, int] | None = None) -> None:
+    """Decode data as an image; optionally assert dimensions."""
+    PIL.Image.open(io.BytesIO(data)).verify()  # raises on truncated/corrupt
+    if size is not None:
+        assert PIL.Image.open(io.BytesIO(data)).size == size
+
+
+def assert_video_bytes(data: bytes, *, width: int | None = None, height: int | None = None) -> None:
+    """Decode data as video; optionally assert frame dimensions."""
+    with av.open(io.BytesIO(data)) as container:
+        stream = container.streams.video[0]
+        if width is not None:
+            assert stream.codec_context.width == width, (stream.codec_context.width, width)
+        if height is not None:
+            assert stream.codec_context.height == height, (stream.codec_context.height, height)
+
+
+def assert_audio_bytes(data: bytes, *, duration_s: float | None = None, tol: float = 0.1) -> None:
+    """Decode data as audio; optionally assert duration in seconds within tol."""
+    with av.open(io.BytesIO(data)) as container:
+        stream = container.streams.audio[0]
+        if duration_s is not None:
+            actual = float(stream.duration * stream.time_base)
+            assert abs(actual - duration_s) <= tol, (actual, duration_s)
+
+
+def fetch_presigned(url: str, expires_s: int, host_suffix: str) -> bytes:
+    """Fetch a presigned URL of an object and return its bytes.
+
+    Asserts that the URL points at a host under host_suffix, was signed for expires_s seconds, is fetchable without
+    credentials, and is refused once its signature is stripped.
+    """
+    parsed = urllib.parse.urlparse(url)
+    assert parsed.scheme == 'https', url
+    assert parsed.hostname is not None and parsed.hostname.endswith(host_suffix), url
+    assert urllib.parse.parse_qs(parsed.query).get('X-Amz-Expires') == [str(expires_s)], url
+    resp = httpx.get(url, timeout=30)
+    assert resp.status_code == 200, resp.text
+    unsigned = httpx.get(parsed._replace(query='').geturl(), timeout=30)
+    # R2 answers a request that carries no signature with 400 InvalidArgument (Authorization); S3 with 403
+    assert unsigned.status_code in (400, 401, 403), (unsigned.status_code, unsigned.text)
+    return resp.content
 
 
 def get_temp_store_count(tbl: pxt.Table, db_root: DatabaseRoot) -> int:

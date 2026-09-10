@@ -185,6 +185,37 @@ class TestApiKey:
             Env.get().require_api_key('create a database')
 
 
+class TestHostedMediaDefault:
+    def test_home_bucket_default(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """On a hosted db's pod, media that has no configured destination goes to the db's home bucket."""
+        monkeypatch.delenv('PIXELTABLE_INPUT_MEDIA_DEST', raising=False)
+        monkeypatch.delenv('PIXELTABLE_OUTPUT_MEDIA_DEST', raising=False)
+
+        # no hosted-db identity: the defaults stay as configured (here: unset, ie. the local media dir)
+        monkeypatch.delenv('PXTCLOUD_ORG', raising=False)
+        monkeypatch.delenv('PXTCLOUD_DB', raising=False)
+        _reset_env(reinit=False, db_name=None)
+        assert Env.get().hosted_db() is None
+        assert Env.get().default_input_media_dest is None
+        assert Env.get().default_output_media_dest is None
+
+        # identity present: both defaults are the home bucket
+        monkeypatch.setenv('PXTCLOUD_ORG', 'org1')
+        monkeypatch.setenv('PXTCLOUD_DB', 'db1')
+        _reset_env(reinit=False, db_name=None)
+        assert Env.get().hosted_db() == ('org1', 'db1')
+        assert Env.get().default_input_media_dest == 'pxtfs://org1:db1/home'
+        assert Env.get().default_output_media_dest == 'pxtfs://org1:db1/home'
+
+        # a user-configured default wins over the home bucket, per setting
+        monkeypatch.setenv('PIXELTABLE_OUTPUT_MEDIA_DEST', 's3://user-bucket/prefix')
+        _reset_env(reinit=False, db_name=None)
+        assert Env.get().default_input_media_dest == 'pxtfs://org1:db1/home'
+        assert Env.get().default_output_media_dest == 's3://user-bucket/prefix'
+        monkeypatch.delenv('PIXELTABLE_OUTPUT_MEDIA_DEST')
+        _reset_env(reinit=False, db_name=None)
+
+
 class TestProxyEndpoint:
     @pytest.mark.parametrize(
         ('cloud_host', 'expected'),
