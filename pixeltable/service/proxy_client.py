@@ -296,13 +296,15 @@ class TunnelTransport(Transport):
         )
         def _attempt() -> bytes:
             with self._pool.borrow() as conn:
+                # If `conn.request()` raises a _TUNNEL_TRANSIENT_EXC, it will trigger a retry.
                 conn.request(method, path, body=body, headers=headers)
                 try:
+                    # But if the response raises, it indicates that the request was successfully posted, but
+                    # the server failed to respond, which may indicate a pod crash. In this case, retrying could result
+                    # in inadvertently DOS'ing the pod, so we promote to an INTERNAL_ERROR, which will not be retried.
                     response = conn.getresponse()
                     content = response.read()
                 except _TUNNEL_TRANSIENT_EXC as exc:
-                    # The request was successfully posted, so this is not a transport failure to reissue; retrying
-                    # could result in DOS'ing the pod
                     raise excs.Error(
                         excs.ErrorCode.INTERNAL_ERROR,
                         f'The database became unresponsive while handling this request: pxt://{self._org}:{self._db}\n'
