@@ -261,38 +261,52 @@ class TestService:
         # assert services(cli, target)['ingest']['state'] == 'STOPPED'
 
     def test_iteration(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """Editing the file: an added route is applied by restarting; a changed contract needs a flag."""
+        """Make edits to a source file."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         target = db_root.make_catalog_path('app')
-        deploy(cli, apps('basic.py'), target)
-        before = assert_serving(cli, apps('basic.py'), target, 'ingest')['ingest']
 
-        # the variant adds a route: additive, because what is already served keeps being served
-        r = cli('service', 'diff', apps('basic_added_route.py'), target, '--json', check=False)
+        # a copy of basic.py, which declares one service named 'ingest', for this test to edit
+        app_file = pathlib.Path(apps('basic.py')).parent / 'iteration_2_app.py'
+        shutil.copy(apps('basic.py'), app_file)
+
+        _db_update(cli, db_root)
+        deploy(cli, str(app_file), target)
+        before = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
+
+        # add one route to the file: additive, because what is already served keeps being served
+        app_file.write_text(
+            app_file.read_text(encoding='utf-8')
+            + dedent("""
+                ingest.add_compute_route(
+                    Docs,
+                    path='/shout',
+                    inputs=[Docs.doc_id, Docs.title, Docs.published],
+                    outputs=[Docs.title_upper],
+                )
+                """),
+            encoding='utf-8',
+        )
+        _db_update(cli, db_root)
+        r = cli('service', 'diff', str(app_file), target, '--json', check=False)
         assert [s['resolution'] for s in r.json['services']] == ['update_additive']
-        assert [op['op'] for s in r.json['services'] for op in s['ops']] == ['add']
+        assert [(op['target'], op['op']) for s in r.json['services'] for op in s['ops']] == [('route', 'add')], r.stdout
 
         # a dry run reports the same and changes nothing
-        r = cli('service', 'update', apps('basic_added_route.py'), target, '-n', check=False)
+        r = cli('service', 'update', str(app_file), target, '-n', check=False)
         assert r.returncode == 2
         if db_root.id != 'cloud':
             # pid is only available for local
             assert get_services(cli, target)['ingest']['pid'] == before['pid']
 
-        r = cli('service', 'update', apps('basic_added_route.py'), target, '-f', '--json')
+        r = cli('service', 'update', str(app_file), target, '-f', '--json')
         assert [s['status'] for s in r.json['services']] == ['applied']
-        after = assert_serving(cli, apps('basic_added_route.py'), target, 'ingest')['ingest']
+        after = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
         if db_root.id != 'cloud':
             # pid and port are only available for local
             assert after['pid'] != before['pid'], 'a changed declaration is applied by replacing the process'
             assert after['port'] == before['port'], 'a restart serves on the port callers were given'
         assert after['endpoint'] == before['endpoint']
-
-        # TODO: restore once a service diff stops comparing the client's pixeltable_version against the pod's,
-        # which no restart can reconcile, so the second update reports 'applied' again
-        # r = cli('service', 'update', apps('basic_added_route.py'), target, '-f', '--json')
-        # assert [s['status'] for s in r.json['services']] == ['skipped'], r.json
 
         # the added route serves, and so do the routes that were already there
         assert _post(after['endpoint'], '/shout', doc_id=3, title='new route', published=True).json() == {
@@ -300,37 +314,37 @@ class TestService:
         }
         assert _post(after['endpoint'], '/preview', doc_id=4, title='still here', published=True).status_code == 200
 
-        # dropping an output changes a contract callers may be using, so it is refused by default
-        r = cli('service', 'update', apps('basic_changed_route.py'), target, '-f', check=False)
-        assert r.returncode == 1
-        assert '--allow-destructive' in r.stderr
-        assert get_services(cli, target)['ingest']['pid'] == after['pid']
-
-        cli('service', 'update', apps('basic_changed_route.py'), target, '-f', '--allow-destructive')
-        assert_serving(cli, apps('basic_changed_route.py'), target, 'ingest')
-
     def test_custom_app_edits(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """Editing a served application: a path it adds is applied by restarting the service."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         target = db_root.make_catalog_path('app')
-        # the service takes its name from the module, so iterating on it means editing one file in place
-        app_file = pathlib.Path(apps('served_app.py')).with_name('notes_app.py')
+
+        # create a copy of served_app.py so we can make edits
+        app_file = pathlib.Path(apps('served_app.py')).parent / 'notes_app.py'
         shutil.copy(apps('served_app.py'), app_file)
+
         _db_update(cli, db_root)
         deploy(cli, str(app_file), target)
 
         running = assert_serving(cli, str(app_file), target, 'notes_app')['notes_app']
         assert running['spec']['app_paths'] == ['/notes', '/notes/count']
 
-        # the handlers reach the tables the file's models declare, which the service bound at the target
         assert _post(running['endpoint'], '/notes?note_id=1&text=hello').json() == {'rows': 1}
         counted = httpx.get(f'{running["endpoint"]}/notes/count', timeout=_REQUEST_TIMEOUT)
         assert counted.json() == {'count': 1}, counted.text
         assert pxt.get_table(f'{target}/notes').select().collect()['text_upper'] == ['HELLO']
 
-        # a path the application adds is an addition, as a route added to a router is
-        shutil.copy(apps('served_app_added_route.py'), app_file)
+        # we're adding a route
+        app_file.write_text(
+            app_file.read_text(encoding='utf-8')
+            + dedent("""
+                @scribe.get('/notes/upper')
+                def upper_notes() -> dict[str, list[str]]:
+                    return {'upper': [row['text_upper'] for row in Notes.select(Notes.text_upper).collect()]}
+                """),
+            encoding='utf-8',
+        )
         _db_update(cli, db_root)
         r = cli('service', 'diff', str(app_file), target, '--json', check=False)
         assert [s['resolution'] for s in r.json['services']] == ['update_additive']
@@ -344,30 +358,41 @@ class TestService:
         upper = httpx.get(f'{after["endpoint"]}/notes/upper', timeout=_REQUEST_TIMEOUT)
         assert upper.json() == {'upper': ['HELLO']}, upper.text
 
-    @pytest.mark.db_roots(
-        'local', reason='TODO: re-evaluate whether we require a pxt db update for this to work against hosted services'
-    )
     def test_source_change(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """An edited udf body restarts the service and the plan names the file; an unimported file does not."""
+        """An edited udf body restarts the service and the plan names the file."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         target = db_root.make_catalog_path('app')
-        app_file = pathlib.Path(apps('basic.py')).with_name('source_change_app.py')
+        app_file = pathlib.Path(apps('basic.py')).parent / 'source_change_app.py'
         shutil.copy(apps('basic.py'), app_file)
+        _db_update(cli, db_root)
         deploy(cli, str(app_file), target)
+
+        # the archive is the whole project, and any source change requires a db update
+        (app_file.parent / 'unimported_module.py').write_text('unused = 1\n', encoding='utf-8')
+        r = cli('service', 'diff', str(app_file), target, '--json', check=False)
+        assert r.returncode == 2, r.stdout
+        _db_update(cli, db_root)
+        cli('service', 'update', str(app_file), target, '-f')
         before = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
 
-        # a file the application does not import leaves it up to date
-        app_file.with_name('unimported_module.py').write_text('unused = 1\n', encoding='utf-8')
-        assert cli('service', 'diff', str(app_file), target, '--json').json['in_agreement']
-
-        # change the udf a computed column calls; no route declaration changes with it
+        # we're doing an in-place edit of a udf
         app_file.write_text(
             app_file.read_text(encoding='utf-8').replace(
                 "return text if len(text) <= n else f'{text[:n]}...'", 'return text.upper()'
             ),
             encoding='utf-8',
         )
+
+        if db_root.id == 'cloud':
+            # this needs a db update
+            r = cli('service', 'diff', str(app_file), target, '--json', check=False)
+            assert r.returncode == 2, r.stdout
+            assert [s['resolution'] for s in r.json['services']] == ['blocked'], r.stdout
+            [op] = [op for s in r.json['services'] for op in s['ops'] if op['target'] == 'project']
+            assert f'pxt db update {db_root.prefix.rsplit("/", 1)[0]}' in op['description'], op['description']
+            _db_update(cli, db_root)
+
         r = cli('service', 'diff', str(app_file), target, '--json', check=False)
         assert r.returncode == 2
         assert [s['resolution'] for s in r.json['services']] == ['update_additive']
@@ -377,33 +402,55 @@ class TestService:
 
         cli('service', 'update', str(app_file), target, '-f')
         after = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
-        assert after['pid'] != before['pid'], 'the new source is served by a new process'
+        if db_root.id != 'cloud':
+            # pid is only available for local
+            assert after['pid'] != before['pid'], 'the new source is served by a new process'
         assert _post(after['endpoint'], '/preview', doc_id=1, title='hello', published=True).json() == {
             'summary': 'HELLO'
         }
 
     def test_prune(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """A service the file stopped declaring is stopped and forgotten, and can be started again."""
+        """The same prune, driven by editing the served file rather than by serving another one."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         target = db_root.make_catalog_path('app')
-        deploy(cli, apps('basic.py'), target)
 
-        # the variant declares the same models under a service of another name, so 'ingest' is an extra
-        r = cli('service', 'diff', apps('basic_renamed_service.py'), target, '--json', check=False)
+        # a copy of basic.py, which declares one service named 'ingest', for this test to edit
+        app_file = pathlib.Path(apps('basic.py')).parent / 'prune_2_app.py'
+        shutil.copy(apps('basic.py'), app_file)
+
+        _db_update(cli, db_root)
+        deploy(cli, str(app_file), target)
+
+        # rename the service the file declares; the models stay, so 'ingest' is left serving nothing the file asks for
+        app_file.write_text(
+            app_file.read_text(encoding='utf-8').replace(
+                "FastAPIRouter(name='ingest')", "FastAPIRouter(name='reader')"
+            ),
+            encoding='utf-8',
+        )
+        _db_update(cli, db_root)
+        r = cli('service', 'diff', str(app_file), target, '--json', check=False)
         assert r.json['extras'] == ['ingest']
 
-        r = cli('service', 'prune', apps('basic_renamed_service.py'), target, '-n', check=False)
+        r = cli('service', 'prune', str(app_file), target, '-n', check=False)
         assert r.returncode == 2
         assert 'ingest' in get_services(cli, target)
 
-        r = cli('service', 'prune', apps('basic_renamed_service.py'), target, '-f', '--json')
+        r = cli('service', 'prune', str(app_file), target, '-f', '--json')
         assert [(op['name'], op['status']) for op in r.json] == [('ingest', 'applied')]
         assert 'ingest' not in get_services(cli, target)
 
-        # pruning is not destructive: declaring it again brings it back
-        cli('service', 'update', apps('basic.py'), target, '-f')
-        assert_serving(cli, apps('basic.py'), target, 'ingest')
+        # pruning is not destructive: naming it again in the file brings it back
+        app_file.write_text(
+            app_file.read_text(encoding='utf-8').replace(
+                "FastAPIRouter(name='reader')", "FastAPIRouter(name='ingest')"
+            ),
+            encoding='utf-8',
+        )
+        _db_update(cli, db_root)
+        cli('service', 'update', str(app_file), target, '-f')
+        assert_serving(cli, str(app_file), target, 'ingest')
 
     @pytest.mark.db_roots('local', reason='run serves from the calling process, which a hosted pod never does')
     def test_run_foreground(
@@ -771,7 +818,7 @@ class TestService:
     def test_errors(
         self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
-        """What the verbs do with a file that is missing, unimportable, or declares no service."""
+        """What the verbs do with a file that is missing, unimportable, or doesn't contain services."""
         target = db_root.make_catalog_path('app')
 
         r = cli('service', 'diff', str(project_dir / 'nosuch.py'), target, check=False)

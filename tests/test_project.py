@@ -15,7 +15,6 @@ from pixeltable.utils.project import (
     _archive_files,
     archive_object_name,
     image_object_name,
-    loaded_fingerprint,
     project_fingerprint,
 )
 
@@ -128,7 +127,7 @@ class TestProject:
     def test_loaded_files(self, project: pathlib.Path) -> None:
         """A published project holds every selected file; an application loads a part of it."""
         published = project_fingerprint(project, None)
-        # what loaded_fingerprint() produces: the modules the application imported, plus the lockfile
+        # a part of the project: the modules an application imported, plus the lockfile
         loaded = published.model_copy(update={'files': _some(published.files, 'app.py', 'uv.lock')})
 
         # the two name different files, so one holds what the other does not; the loaded ones agree
@@ -145,22 +144,6 @@ class TestProject:
         loaded = edited.model_copy(update={'files': _some(edited.files, 'app.py', 'uv.lock')})
         assert loaded.compare(published, own_files_only=True) == {ARCHIVE}
         assert loaded.changes(published, {ARCHIVE}, own_files_only=True) == ['app.py changed']
-
-    def test_environment_files_are_not_loaded_files(self, project: pathlib.Path) -> None:
-        """A project holding its own virtualenv fingerprints the same whatever it has loaded from it.
-
-        Each process imports a different set of the environment's packages, so counting them would make two
-        fingerprints of one application differ and restart the service for nothing.
-        """
-        installed = project / '.venv' / 'lib' / 'python3.11' / 'site-packages'
-        installed.mkdir(parents=True)
-        (installed / 'vendored.py').write_text('z = 1\n')
-
-        before = loaded_fingerprint(project, None)
-        module = ModuleType('vendored')
-        module.__file__ = str(installed / 'vendored.py')
-        with patch.dict(sys.modules, {'vendored': module}), patch.object(project_mod, '_ENV_DIRS', (installed,)):
-            assert loaded_fingerprint(project, None) == before
 
     def test_bindings(self, project: pathlib.Path) -> None:
         before = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://one'}))

@@ -417,26 +417,6 @@ def in_environment(path: Path) -> bool:
     return any(path.is_relative_to(env_dir) for env_dir in _ENV_DIRS)
 
 
-def loaded_fingerprint(project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
-    """Fingerprint the project's own files that the loaded application reached, plus the lockfile.
-
-    Excludes the environment's files.
-
-    Call it after load_app_module(), which removes the project's modules before importing: the project files
-    loaded afterwards are the ones this application reached.
-    """
-    loaded = {
-        Path(file).resolve()
-        for file in (getattr(module, '__file__', None) for module in list(sys.modules.values()))
-        if file is not None
-    }
-    files = [
-        path for path in loaded if path.is_relative_to(project_root) and not in_environment(path) and path.is_file()
-    ]
-    files += [project_root / name for name in LOCK_FILES if (project_root / name).is_file()]
-    return _fingerprint(files, project_root, config)
-
-
 def _content_hash(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open('rb') as f:

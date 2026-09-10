@@ -17,7 +17,7 @@ from pixeltable.utils.app_module import (
     services_by_name,
     visible_models,
 )
-from pixeltable.utils.project import ProjectFingerprint, loaded_fingerprint
+from pixeltable.utils.project import ProjectFingerprint, project_fingerprint
 from pixeltable_cli.types import (
     CheckReport,
     Resolution,
@@ -261,7 +261,7 @@ def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
         model_mismatch_reason=model_mismatch_error_str(needed, target),
         db_uri=catalog_path.uri_str,
         published=published_fingerprint(catalog_path),
-        fingerprint=loaded_fingerprint(project_root, db_config),
+        fingerprint=project_fingerprint(project_root, db_config),
     )
 
 

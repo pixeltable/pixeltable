@@ -32,7 +32,6 @@ from pixeltable.utils.project import (
     ProjectPart,
     create_image_context,
     create_project_archive,
-    loaded_fingerprint,
     project_fingerprint,
     unpacked_digest,
 )
@@ -330,7 +329,7 @@ def report_instance_fingerprint(db_uri: str, service_name: str, base_path: str =
             db=db_path.db,
             service_name=service_name,
             base_path=base_path,
-            fingerprint=loaded_fingerprint(_validated_project_root(), config),
+            fingerprint=project_fingerprint(_validated_project_root(), config),
         )
     )
 
