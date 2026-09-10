@@ -54,6 +54,10 @@ def proxy_home(db: str) -> Path:
     return Config.get().home / f'proxy_{fold_identifier(db)}'
 
 
+def log_path(db: str) -> Path:
+    return proxy_home(db) / 'logs' / 'daemon.log'
+
+
 def _port_lock(db: str) -> Path:
     return proxy_home(db) / _LOCK_NAME
 
@@ -153,16 +157,15 @@ def start(db: str, test_mode: bool = False) -> str:
     # attached to a pipe blocks the reader on EOF forever, and attached to a terminal it would spew daemon
     # output into that session. Redirect to a log file and detach into its own session so signals sent to
     # the launching process don't reach the daemon.
-    log_dir = proxy_home(db) / 'logs'
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / 'daemon.log'
+    log_file_path = log_path(db)
+    log_file_path.parent.mkdir(parents=True, exist_ok=True)
     argv = [sys.executable, '-m', 'pixeltable.service.proxy_daemon']
     if test_mode:
         argv.append('--test')
     project_root = Config.get().project_root
     if project_root is not None:
         argv += ['--project-root', str(project_root)]
-    with open(log_path, 'a', encoding='utf-8') as log_file:
+    with open(log_file_path, 'a', encoding='utf-8') as log_file:
         proc = subprocess.Popen(
             argv, env=env, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True
         )
@@ -182,9 +185,9 @@ def start(db: str, test_mode: bool = False) -> str:
         msg += '; the daemon process is still running but never reported healthy'
     else:
         msg += f'; the daemon process exited with code {returncode}'
-    tail = _tail_log(log_path)
+    tail = _tail_log(log_file_path)
     if tail != '':
-        msg += f'\n--- daemon log tail ({log_path}) ---\n{tail}'
+        msg += f'\n--- daemon log tail ({log_file_path}) ---\n{tail}'
     raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, msg)
 
 
