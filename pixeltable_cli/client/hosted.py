@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import json
 import sys
@@ -60,19 +61,35 @@ def parse_base_uri(uri: str, prog: str = 'pxt') -> tuple[str, str, str]:
     return parts.org, parts.db, parts.path or ''
 
 
-def parse_service_uri(uri: str, prog: str = 'pxt') -> tuple[str, str, str]:
-    """Parse pxt://org:db/services/<name> and return (org, db, svc_name). Exits on error."""
-    parts = split_pxt_uri(uri)
-    if parts is None or parts.db is None or parts.path is None or not parts.path.startswith('services/'):
-        print(f'{prog}: error: URI must be pxt://org:db/services/<name>, got {uri!r}', file=sys.stderr)
-        sys.exit(2)
-    svc_name = parts.path[len('services/') :]
-    if svc_name == '' or '/' in svc_name:
-        print(
-            f'{prog}: error: URI must be pxt://org:db/services/<name> with no extra path, got {uri!r}', file=sys.stderr
-        )
-        sys.exit(2)
-    return parts.org, parts.db, svc_name
+def add_logs_args(parser: argparse.ArgumentParser) -> None:
+    """Add the options shared by `pxt db logs` and `pxt service logs`."""
+    parser.add_argument('--since', default='1h', help='how far back to read: 30s, 10m, 1h, 2d (default: 1h)')
+    parser.add_argument(
+        '--tail',
+        type=int,
+        default=200,
+        dest='limit',
+        help='the newest N lines in the window, at most 10000 (default: 200)',
+    )
+    parser.add_argument(
+        '--include-health', action='store_true', dest='include_health', help='keep the GET /health probe lines'
+    )
+    parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+
+
+def print_logs(target: dict[str, str], args: argparse.Namespace) -> None:
+    """Print the log of target: {'org', 'db'} names a database's pod, {'service'} names a service."""
+    params = {**target, 'since': args.since, 'limit': args.limit, 'include_health': args.include_health}
+    resp = get_request('/api/logs', params)
+    records = resp.get('records', []) if isinstance(resp, dict) else []
+    if args.json_output:
+        print(json.dumps(records))
+        return
+    if len(records) == 0:
+        print(f'No log records in the last {args.since}.')
+        return
+    for r in records:
+        print(r['line'])
 
 
 def _fmt_age(age_s: int) -> str:
