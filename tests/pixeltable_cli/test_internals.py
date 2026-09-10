@@ -1788,6 +1788,27 @@ class TestCloudRouteRequests:
         with pytest.raises(excs.NotFoundError, match="Org 'nope' not found"):
             server_routes.get_org(server_router.Request(query={'org': ['nope']}, body_bytes=b''))
 
+    def test_get_org_with_no_name_uses_the_only_one(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        orgs = {'orgs': [{'org': 'acme', 'org_id': 'o1'}]}
+        monkeypatch.setattr(management_client, 'api_call', lambda request: orgs)
+        assert server_routes.get_org(server_router.Request(query={}, body_bytes=b'')) == {
+            'org': {'org': 'acme', 'org_id': 'o1'}
+        }
+
+    @pytest.mark.parametrize(
+        'orgs', [[], [{'org': 'other', 'org_id': 'o0'}, {'org': 'acme', 'org_id': 'o1'}]], ids=['none', 'several']
+    )
+    def test_get_org_with_no_name_refuses_when_there_is_not_exactly_one(
+        self, orgs: list[dict[str, str]], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Naming one is the caller's job here: picking for them could report the wrong org."""
+        monkeypatch.setattr(management_client, 'api_call', lambda request: {'orgs': orgs})
+        with pytest.raises(excs.RequestError, match='name the org') as exc:
+            server_routes.get_org(server_router.Request(query={}, body_bytes=b''))
+
+        assert exc.value.error_code is excs.ErrorCode.MISSING_REQUIRED
+        assert all(o['org'] in str(exc.value) for o in orgs)
+
 
 class TestHostedCommandRequests:
     """The bodies `pxt db` and `pxt service` post, as the cloud routes read them."""
