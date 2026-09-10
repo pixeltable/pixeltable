@@ -1885,7 +1885,7 @@ class Catalog(CatalogBase):
                 for idx_info in dropped_idxs:
                     dropped_col_set.update(idx_info.columns)
 
-            # for columns whose value expression changed, the set of column names that it still depends on.
+            # for columns whose value expression changed, the column names the new expression depends on
             altered_refs: dict[QColumnId, set[str]] = {}
             for _, tv, change_set in tbl_info:
                 for name, (spec, _) in change_set['altered_columns'].items():

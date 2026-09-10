@@ -1089,8 +1089,7 @@ class TableVersion:
             )
 
     def _validate_no_dependency_cycles(self, new_value_exprs: dict[int, exprs.Expr]) -> None:
-        """Verify that the new value expressions for computed columns provided in new_value_expr do not create
-        a dependency cycle."""
+        """Verify that the value expressions in new_value_exprs, applied together, do not create a dependency cycle."""
 
         # Columns can depend on other columns in the same table or its ancestors but not descendants, therefore a cycle
         # is only possible among the column dependencies within this table. Ignore ancestor dependencies.

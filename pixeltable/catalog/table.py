@@ -465,8 +465,8 @@ class Table(SchemaObject):
     ) -> UpdateStatus:
         """Change the value expression of a computed column.
 
-        The new expression must have the same column type as the current one, and may only reference
-        columns that the current one references.
+        The new expression must have the same column type as the current one. It can reference any column of this
+        table or of one of its ancestors, as long as there are no dependency cycles.
 
         Args:
             kwargs: Exactly one keyword argument of the form `col_name=expression`.
@@ -482,7 +482,7 @@ class Table(SchemaObject):
 
         Raises:
             Error: If the column does not exist, is not a computed column, belongs to a base table, or if the new
-            expression has a different column type or references additional columns.
+            expression has a different column type or creates a dependency cycle.
 
         Examples:
             Change a computed column to use a different scaling factor:
