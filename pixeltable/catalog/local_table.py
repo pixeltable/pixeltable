@@ -791,7 +791,8 @@ class LocalTable(Table):
             if new_value_expr is None:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_EXPRESSION,
-                    f'Column {col.name!r}: the new value needs to be a Pixeltable expression, but it is a {type(spec)}',
+                    f'Column {col.name!r}: the new value needs to be a Pixeltable expression, '
+                    f'but it is a `{type(spec)}`',
                 )
             new_value_expr = new_value_expr.copy()
             new_value_expr.bind_rel_paths()

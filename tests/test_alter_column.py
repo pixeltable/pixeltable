@@ -298,7 +298,7 @@ class TestAlterColumn:
             t.alter_computed_column(n=t.m + 1)
 
         # a different output type
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='has type Float, but the column has type Int'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='has type `Float`, but the column has type `Int`'):
             t.alter_computed_column(c=(t.n + t.m) / 2)
         # a reference that makes the column depend on itself, directly or indirectly
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='circular dependency'):

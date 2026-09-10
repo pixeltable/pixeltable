@@ -1103,8 +1103,8 @@ class TableVersion:
         if new_value_expr.col_type != col.col_type:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Column {col.name!r}: the new value expression has type {new_value_expr.col_type}, but the column '
-                f'has type {col.col_type}. Changing the type of a computed column is not supported.',
+                f'Column {col.name!r}: the new value expression has type `{new_value_expr.col_type}`, but the '
+                f'column has type `{col.col_type}`. Changing the type of a computed column is not supported.',
             )
 
     def _validate_no_dependency_cycles(self, new_value_exprs: dict[int, exprs.Expr]) -> None:
