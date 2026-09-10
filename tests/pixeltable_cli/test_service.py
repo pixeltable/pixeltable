@@ -764,7 +764,6 @@ class TestService:
         # a hosted one does
         assert_serving(cli, app, second, 'ingest')
 
-    @pytest.mark.skip(reason='the control plane has no get_logs handler; it rejects the operation')
     @pytest.mark.db_roots('cloud', reason='a local service logs to a file, which test_logs_errors checks')
     def test_logs(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A hosted service's log holds the requests it served."""

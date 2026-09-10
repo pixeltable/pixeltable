@@ -8,6 +8,7 @@ which takes minutes. They run against the session's hosted database, the one the
 
 import pathlib
 import shutil
+import time
 import uuid
 from typing import Any, Iterator
 
@@ -16,7 +17,7 @@ import pytest
 from pixeltable.service import proxy_daemon
 from tests.utils import DatabaseRoot, skip_test_if_no_config
 
-from .conftest import PxtRunner, disposable_db_uri
+from .conftest import PxtRunner, disposable_db_uri, read_logs_until
 from .hosted import (
     APP_FILE,
     APPLY_TIMEOUT,
@@ -87,26 +88,27 @@ class TestDb:
             applied = db_update(cli, project, absent)
             assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
             assert db_status(cli, project, absent)['state'] == 'AVAILABLE'
-            # TODO: re-enable this, and the time and read_logs_until imports, once the control plane
-            # implements get_logs
-            # # `db logs`: the pod that just came up has logged its startup, and the probes are dropped
-            # # unless asked for
-            # started = 'Connected to Pixeltable database at:'
-            # records = read_logs_until(cli, 'db', 'logs', absent, contains=started, cwd=project)
-            # assert records == sorted(records, key=lambda r: r['ts_ms'])
-            # assert not any('GET /health' in r['line'] for r in records)
-            # read_logs_until(cli, 'db', 'logs', absent, '--include-health', contains='GET /health', cwd=project)
-            # assert started in cli('db', 'logs', absent, cwd=project).stdout
-            # tail = cli('db', 'logs', absent, '--tail', '1', '--json', cwd=project).json
-            # assert len(tail) == 1
-            # # More lines may arrive between reads, but the newest cannot precede a line already returned.
-            # assert tail[0]['ts_ms'] >= records[-1]['ts_ms'], (tail, records[-5:])
-            # # Let the startup line age out of a short window; a backend ignoring --since would return it.
-            # time.sleep(2)
-            # read_started = time.time()
-            # recent = cli('db', 'logs', absent, '--since', '1s', '--json', cwd=project).json
-            # assert not any(started in r['line'] for r in recent), recent
-            # assert all(r['ts_ms'] >= int((read_started - 1) * 1000) for r in recent), recent
+            # `db logs`: the pod that just came up has logged its startup, and the probes are dropped
+            # unless asked for
+            started = 'Connected to Pixeltable database at:'
+            records = read_logs_until(cli, 'db', 'logs', absent, contains=started, cwd=project)
+            assert records == sorted(records, key=lambda r: r['ts_ms'])
+            assert not any('GET /health' in r['line'] for r in records)
+            read_logs_until(cli, 'db', 'logs', absent, '--include-health', contains='GET /health', cwd=project)
+            assert started in cli('db', 'logs', absent, cwd=project).stdout
+            tail = cli('db', 'logs', absent, '--tail', '1', '--json', cwd=project).json
+            assert len(tail) == 1
+            # More lines may arrive between reads, but the newest cannot precede a line already returned.
+            assert tail[0]['ts_ms'] >= records[-1]['ts_ms'], (tail, records[-5:])
+            # Let the startup line age out of a short window; a backend ignoring --since would return it.
+            time.sleep(2)
+            read_started = time.time()
+            recent = cli('db', 'logs', absent, '--since', '1s', '--json', cwd=project).json
+            assert not any(started in r['line'] for r in recent), recent
+            assert all(r['ts_ms'] >= int((read_started - 1) * 1000) for r in recent), recent
+
+            cli('db', 'restart', absent, cwd=project, timeout=APPLY_TIMEOUT)
+            assert db_status(cli, project, absent)['state'] == 'AVAILABLE'
 
             listed = cli('db', 'list', 'pxt://pixeltable', '--json', cwd=project).json
             assert absent.rsplit(':', 1)[-1] in [entry['db'] for entry in listed], listed

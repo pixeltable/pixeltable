@@ -116,6 +116,19 @@ class TestProject:
         assert after.compare(before) == {IMAGE, ARCHIVE}
         assert after.image_digest() != before.image_digest()
 
+    def test_local_requirement(self, project: pathlib.Path) -> None:
+        """Replacing a local wheel moves the image digest, though requirements.txt is unchanged."""
+        (project / 'wheels').mkdir()
+        (project / 'wheels' / 'dep-1.0-py3-none-any.whl').write_bytes(b'first build')
+        (project / 'requirements.txt').write_text('./wheels/dep-1.0-py3-none-any.whl\n')
+        before = project_fingerprint(project, None)
+
+        (project / 'wheels' / 'dep-1.0-py3-none-any.whl').write_bytes(b'second build')
+        after = project_fingerprint(project, None)
+
+        assert after.compare(before) == {IMAGE, ARCHIVE}
+        assert after.image_digest() != before.image_digest()
+
     def test_object_names(self, project: pathlib.Path) -> None:
         before = project_fingerprint(project, None)
         (project / 'app.py').write_text('x = 2\n')

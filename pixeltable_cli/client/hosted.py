@@ -187,7 +187,7 @@ def spinner(label: str | None) -> Iterator[None]:
 def poll_state(
     endpoint: str,
     params: dict[str, str],
-    result_key: str,
+    result_keys: tuple[str, ...],
     pending_states: set[str],
     interval: float,
     timeout: float,
@@ -209,7 +209,9 @@ def poll_state(
                 raise
             except Exception:
                 continue
-            result = resp.get(result_key, resp) if isinstance(resp, dict) else {}
+            result = resp if isinstance(resp, dict) else {}
+            for key in result_keys:
+                result = result.get(key, {}) if isinstance(result, dict) else {}
             if result.get('state') not in pending_states:
                 break
     return result
@@ -228,5 +230,11 @@ def exit_unless_reached(result: dict[str, Any], expected_state: str, operation: 
 def poll_db(org: str, db: str, pending_states: set[str], label: str | None) -> dict[str, Any]:
     """Poll a hosted database until its state leaves pending_states."""
     return poll_state(
-        '/api/db', {'org': org, 'db': db}, 'database', pending_states, DB_POLL_INTERVAL, DB_POLL_TIMEOUT, label
+        '/api/db',
+        {'org': org, 'db': db},
+        ('database', 'status'),
+        pending_states,
+        DB_POLL_INTERVAL,
+        DB_POLL_TIMEOUT,
+        label,
     )

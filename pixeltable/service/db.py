@@ -154,20 +154,25 @@ def _apply_spec(
     settled = _await_db_settled(db_path)
     if settled.status.state == 'FAILED':
         reason = settled.status.failure_reason or 'no reason was reported'
-        raise excs.InternalError(
-            excs.ErrorCode.INTERNAL_ERROR, f'{db_path.uri_str} is FAILED after the update: {reason}'
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'{db_path.uri_str} is FAILED after the update: {reason}',
+            provider='pixeltable_cloud',
         )
     if settled.status.last_build_outcome == 'FAILED':
         # a failed build leaves the database serving what it served before, rather than FAILED
         reason = settled.status.last_build_error or 'no reason was reported'
-        raise excs.InternalError(
-            excs.ErrorCode.INTERNAL_ERROR, f'The image build for {db_path.uri_str} failed: {reason}'
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'The image build for {db_path.uri_str} failed: {reason}',
+            provider='pixeltable_cloud',
         )
     if settled.status.failure_reason is not None:
         # a step that failed and left the database serving what it served before still failed
-        raise excs.InternalError(
-            excs.ErrorCode.INTERNAL_ERROR,
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
             f'{db_path.uri_str} did not reach the state it was given: {settled.status.failure_reason}',
+            provider='pixeltable_cloud',
         )
     if spec.fingerprint is not None and settled.status.fingerprint != spec.fingerprint:
         # settling on a project other than the one asked for reports nothing else, so say so here
@@ -331,9 +336,10 @@ def _await_db_settled(db_path: catalog.Path) -> DatabaseState:
         if current.status.state not in _DB_TRANSITIONAL:
             return current
         if time.monotonic() >= deadline:
-            raise excs.InternalError(
-                excs.ErrorCode.INTERNAL_ERROR,
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_TIMEOUT,
                 f'{db_path.uri_str} is still {current.status.state} after {int(_DB_SETTLE_TIMEOUT)}s',
+                provider='pixeltable_cloud',
             )
         time.sleep(_DB_POLL_INTERVAL)
 

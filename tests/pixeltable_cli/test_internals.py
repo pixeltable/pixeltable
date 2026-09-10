@@ -1968,7 +1968,13 @@ class TestPrintAligned:
 class TestPollState:
     """poll_state() waits out a resource's pending states, tolerating transient read failures."""
 
-    def _poll(self, responses: list[Any], monkeypatch: pytest.MonkeyPatch, timeout: float = 5) -> dict[str, Any]:
+    def _poll(
+        self,
+        responses: list[Any],
+        monkeypatch: pytest.MonkeyPatch,
+        timeout: float = 5,
+        keys: tuple[str, ...] = ('database',),
+    ) -> dict[str, Any]:
         """Run poll_state() against a canned sequence of get_request() results; an exception item is raised."""
         remaining = list(responses)
 
@@ -1979,7 +1985,7 @@ class TestPollState:
             return resp
 
         monkeypatch.setattr(hosted, 'get_request', fake_get_request)
-        return hosted.poll_state('/api/db', {}, 'database', {'PENDING'}, 0, timeout, None)
+        return hosted.poll_state('/api/db', {}, keys, {'PENDING'}, 0, timeout, None)
 
     def test_returns_when_settled(self, monkeypatch: pytest.MonkeyPatch) -> None:
         responses = [{'database': {'state': 'PENDING'}}, {'database': {'state': 'AVAILABLE'}}]

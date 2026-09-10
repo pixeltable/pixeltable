@@ -299,6 +299,9 @@ class ProjectFingerprint(pydantic.BaseModel):
     pixeltable_version: str
     uv_options: str | None = None
 
+    # the files in requirements.txt that install from a path in the project itself
+    installed_from_project: list[str] = []
+
     # bindings, never resolved values: a var names the source of its value
     vars: dict[str, str]
 
@@ -375,7 +378,8 @@ class ProjectFingerprint(pydantic.BaseModel):
         )
 
     def _image_files(self) -> dict[str, str]:
-        return {path: content_hash for path, content_hash in self.files.items() if path in IMAGE_INPUT_FILES}
+        selected = (*IMAGE_INPUT_FILES, *self.installed_from_project)
+        return {path: content_hash for path, content_hash in self.files.items() if path in selected}
 
 
 def _digest(value: Any) -> str:
@@ -428,10 +432,17 @@ def _content_hash(path: Path) -> str:
 
 
 def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
+    requirements = project_root / 'requirements.txt'
+    from_project = (
+        sorted(f.relative_to(project_root).as_posix() for f in _local_requirement_files(project_root, requirements))
+        if requirements.is_file()
+        else []
+    )
     files = {path.relative_to(project_root).as_posix(): _content_hash(path) for path in files}
     declared_python = config.python_version if config is not None else None
     return ProjectFingerprint(
         files=files,
+        installed_from_project=from_project,
         # the version an image would use: the entry's, or the running interpreter's
         python_version=declared_python or f'{sys.version_info.major}.{sys.version_info.minor}',
         system_dependencies=(config.system_dependencies if config is not None else None) or [],
