@@ -6,7 +6,7 @@ import re
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from pixeltable.serving import ServiceInstanceRecord
 from pixeltable.utils.project import DepsType, ProjectFingerprint
@@ -35,6 +35,7 @@ class ManagementOperationType(str, Enum):
     SET_ARCHIVE = 'set_archive'
     GET_ARCHIVE = 'get_archive'
     GET_ARCHIVE_UPLOAD_URL = 'get_archive_upload_url'
+    GET_LOGS = 'get_logs'
 
     LIST_ORGS = 'list_orgs'
 
@@ -176,6 +177,35 @@ class GetArchiveUploadUrlResponse(BaseModel):
     archive_key: str
     # None when the digest names a stored archive: nothing left to upload
     presigned_url: str | None = None
+
+
+class GetLogsRequest(BaseModel):
+    """Read the log of the database pod, or of one service when service_name is given.
+
+    The log merges the process's log records with its console output, ordered by time.
+    """
+
+    operation_type: Literal[ManagementOperationType.GET_LOGS] = ManagementOperationType.GET_LOGS
+    org: str | None = None
+    db: str
+    service_name: str | None = None
+    base_path: str = ''
+    since_seconds: int = Field(default=3600, ge=1)
+    # only the newest limit lines of the window are returned
+    limit: int = Field(default=200, ge=1, le=10000)
+    # the readiness and liveness probes are nearly the whole log, so they are left out by default
+    include_health: bool = False
+
+
+class LogRecord(BaseModel):
+    # the time the line was written, in milliseconds since the epoch
+    ts_ms: int
+    line: str
+
+
+class GetLogsResponse(BaseModel):
+    # oldest first
+    records: list[LogRecord]
 
 
 # Secrets
