@@ -11,13 +11,13 @@ import abc
 import http.client
 import json
 import logging
+import selectors
 import socket
 import ssl
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
-from select import select
 from typing import TYPE_CHECKING, Any, Callable, Iterator
 from uuid import UUID
 
@@ -154,15 +154,16 @@ class _TunnelHTTPConnection(http.client.HTTPConnection):
 def _is_server_closed(conn: http.client.HTTPConnection) -> bool:
     """Return `True` if the remote end of an idle connection has already closed it.
 
-    A socket that is readable before any request has been written to it carries the server's FIN (or bytes
-    no request asked for); either way it cannot carry the next request.
+    A socket that is readable before any request has been written to it is unusable: it holds either the
+    server's FIN or data no request asked for.
     """
     sock = conn.sock
     if sock is None:
         return True
     try:
-        rlist, _, _ = select([sock], [], [], 0)
-        return len(rlist) > 0
+        with selectors.DefaultSelector() as selector:
+            selector.register(sock, selectors.EVENT_READ)
+            return len(selector.select(0)) > 0
     except (OSError, ValueError):
         return True
 
@@ -176,24 +177,19 @@ class _TunnelPool:
         self._lock = threading.Lock()
         self._idle: list[http.client.HTTPConnection] = []
 
-    def _take_idle(self) -> http.client.HTTPConnection | None:
-        """A pooled connection the server has not closed, or None if the pool holds no such connection.
-
-        Dropping the closed ones here lets a caller read a broken response as the server having died on
-        its request, rather than as an idle connection the server had already finished with.
-        """
-        while True:
+    @contextmanager
+    def borrow(self) -> Iterator[http.client.HTTPConnection]:
+        conn: http.client.HTTPConnection | None = None
+        while conn is None:
             with self._lock:
                 conn = self._idle.pop() if self._idle else None
             if conn is None:
-                return None
-            if not _is_server_closed(conn):
-                return conn
-            conn.close()
-
-    @contextmanager
-    def borrow(self) -> Iterator[http.client.HTTPConnection]:
-        conn = self._take_idle() or self._connect()
+                conn = self._connect()
+            elif _is_server_closed(conn):
+                # an idle connection the server has closed says nothing about the next request; dropping it
+                # here lets a broken response mean the server died on the request it was given
+                conn.close()
+                conn = None
         try:
             yield conn
         except BaseException:
