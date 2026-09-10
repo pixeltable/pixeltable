@@ -2854,6 +2854,28 @@ class TestTableModel:
         v = pxt.get_table(p('test_view'))
         assert v.select(v.vc1).order_by(v.id).collect()['vc1'] == [101, 201]
 
+        # a new dependency, on a column added in the same change set
+        WidenedModel = pxt.model_base()
+
+        class WidenedTable(WidenedModel, name='test_table'):
+            id: pxt.Int
+            extra: pxt.Int
+            bonus = id * 1000
+            doubled = id * 100 + extra + bonus
+
+        class WidenedView(WidenedModel, name='test_view', base=WidenedTable):
+            vc1 = WidenedTable.doubled + 1
+
+        diff = WidenedModel.get_model_diff(root)['test_table']
+        assert diff.resolution == 'update_additive'
+        assert {(op.op, op.name) for op in diff.ops} == {('alter', 'doubled'), ('add', 'bonus')}
+
+        WidenedModel.update_all(root)
+        t = pxt.get_table(p('test_table'))
+        assert all(d.resolution == 'up_to_date' for d in WidenedModel.get_model_diff(root).values())
+        t.recompute_columns('doubled')
+        assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [1100, 2200]
+
         # a single update that both narrows an expression and drops the column it no longer references
         NarrowedModel = pxt.model_base()
 
@@ -2868,6 +2890,7 @@ class TestTableModel:
         assert diff.resolution == 'update_destructive'
         assert {(op.target, op.op, op.name) for op in diff.ops} == {
             ('column', 'alter', 'doubled'),
+            ('column', 'drop', 'bonus'),
             ('column', 'drop', 'extra'),
         }
 
@@ -2893,19 +2916,21 @@ class TestTableModel:
         TableModel.create_all(root)
         pxt.get_table(p('test_table')).insert([{'id': 1, 'other': 5}])
 
-        # a reference the current expression doesn't have
-        NewRefModel = pxt.model_base()
+        # a value expression that depends on itself through a column added in the same change set
+        CycleModel = pxt.model_base()
 
-        class NewRefTable(NewRefModel, name='test_table'):
+        class CycleTable(CycleModel, name='test_table'):
             id: pxt.Int
             other: pxt.Int
-            derived = id * 2 + other
+            bonus = ExampleTable.derived + 1
+            derived = bonus + 1
 
-        diff = NewRefModel.get_model_diff(root)['test_table']
-        assert diff.resolution == 'unsupported'
-        assert diff.ops[0].severity == 'unsupported'
-        with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match='cannot be updated'):
-            NewRefModel.update_all(root)
+        # the cycle only surfaces when the change set is applied
+        assert CycleModel.get_model_diff(root)['test_table'].resolution == 'update_additive'
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='circular dependency'):
+            CycleModel.update_all(root)
+        # the change set wasn't applied
+        assert pxt.get_table(p('test_table')).columns() == ['id', 'other', 'derived']
 
         # a different output type
         NewTypeModel = pxt.model_base()
@@ -2918,3 +2943,47 @@ class TestTableModel:
         diff = NewTypeModel.get_model_diff(root)['test_table']
         assert diff.resolution == 'unsupported'
         assert sorted(diff.ops[0].model.keys()) == ['type', 'value']
+
+    def test_update_all_altered_columns_cycle(self, db_root: DatabaseRoot) -> None:
+        """Two alter computed columns happen at once, such that neither of them alone create a dependency cycle,
+        but together they do. The cycle closes through a third column that doesn't change."""
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class ExampleTable(TableModel, name='test_table'):
+            x: pxt.Int
+            c1 = x * 2
+            c2 = c1 + 1
+            c3 = x * 3
+
+        TableModel.create_all(root)
+        pxt.get_table(p('test_table')).insert([{'x': 1}])
+
+        CycleModel = pxt.model_base()
+
+        class CycleTable(CycleModel, name='test_table'):
+            x: pxt.Int
+            c1 = ExampleTable.c3 + 1
+            c2 = c1 + 1
+            c3 = c2 + 1
+
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='circular dependency'):
+            CycleModel.update_all(root)
+
+        # Now c1 gets a dependency on c2, but c2 gives up a dependency on c1 so no cycle after both changes are applied.
+        SwapModel = pxt.model_base()
+
+        class SwapTable(SwapModel, name='test_table'):
+            x: pxt.Int
+            c1 = ExampleTable.c2 + 1
+            c2 = x * 5
+            c3 = x * 3
+
+        SwapModel.update_all(root)
+        t = pxt.get_table(p('test_table'))
+        assert all(d.resolution == 'up_to_date' for d in SwapModel.get_model_diff(root).values())
+        # recomputing the head of the chain cascades to c1
+        t.recompute_columns('c2')
+        assert t.select(t.c1, t.c2, t.c3).collect()[0] == {'c1': 6, 'c2': 5, 'c3': 3}

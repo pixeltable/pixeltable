@@ -304,17 +304,7 @@ class TableVersion:
         target_tbl_versions = {tvh.id: tvh.get() for tvh in tvp.get_tbl_versions()} if tvp is not None else None
 
         # Reconstruct Column and Index objects from metadata, populating all internal lookup structures.
-        # Indexes are initialized in lock-step, immediately after the last column they reference is initialized.
-        idxs_by_last_col_id = self._build_idxs_by_last_col_id()
-        # Indexes that do not depend on any columns of this table can be initialized right away
-        self._init_idxs(idxs_by_last_col_id.get(None, []))
-
-        # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
-        # point backward.
-        sorted_column_md = sorted(self.tbl_md.column_md.values(), key=lambda item: item.id)
-        for col_md in sorted_column_md:
-            if not col_md.is_visible_in_version(self.schema_version):
-                continue
+        for col_md in self._column_md_in_resolution_order():
             schema_col_md = self._schema_version_md.columns[col_md.id]
             col_type = ts.ColumnType.from_dict(schema_col_md.col_type)
             media_val = (
@@ -350,10 +340,18 @@ class TableVersion:
             if not col.is_system_col:
                 self.cols_by_name[col.name] = col
 
-            # Initialize the indexes for which this is the last column they reference. All columns required for these
-            # indexes have now been initialized. These indexes cannot be initialized later because some of the upcoming
-            # columns can depend on them.
-            self._init_idxs(idxs_by_last_col_id.get(col.id, []))
+        # Various usages of cols_by_id and cols_by_name require them ordered by id
+        self.cols_by_id = dict(sorted(self.cols_by_id.items()))
+        self.cols_by_name = {col.name: col for col in self.cols_by_id.values() if not col.is_system_col}
+
+        # Initialize indexes
+        if self.supports_idxs:
+            for idx_md in self.tbl_md.index_md.values():
+                if not idx_md.is_visible_in_version(self.schema_version):
+                    continue
+                cls_name = idx_md.class_fqn.rsplit('.', 1)[-1]
+                cls = getattr(index, cls_name)
+                self._init_idx(cls.from_dict(idx_md.init_args), idx_md)
 
         # create the sqlalchemy schema, after instantiating all Columns
         if self.is_component_view:
@@ -383,35 +381,33 @@ class TableVersion:
             warnings.warn(message, category=excs.PixeltableWarning)  # noqa: B028
         return value_expr
 
-    def _build_idxs_by_last_col_id(self) -> dict[int | None, list[tuple[index.IndexBase, schema.IndexMd]]]:
-        """Group the indexes by the last column of this table that each one references.
+    def _column_md_in_resolution_order(self) -> list[schema.ColumnMd]:
+        """The md of the columns visible in this schema version, ordered so that a column's value expression only
+        references columns that precede.
+        """
+        visible = {md.id: md for md in self.tbl_md.column_md.values() if md.is_visible_in_version(self.schema_version)}
+        deps: dict[int, set[int]] = {}
+        for col_id in visible:
+            value_expr = self._schema_version_md.columns[col_id].value_expr
+            refd = exprs.Expr.get_refd_column_ids(value_expr) if value_expr is not None else set()
+            own_refs = {qid.col_id for qid in refd if qid.tbl_id == self.id}
+            non_visible_refs = own_refs - visible.keys()
+            assert len(non_visible_refs) == 0, (
+                f'{self.name}: column {col_id} references dropped columns {non_visible_refs}'
+            )
+            deps[col_id] = own_refs
 
-        An index's last column is the highest id among the columns of this table it references: its value and undo
-        columns, if it has them, plus the indexed column itself if that belongs to this table. Indexes that reference
-        no column of this table (e.g. an index on a base column) are keyed by None."""
-        if not self.supports_idxs:
-            return {}
-
-        idxs_by_last_col_id: dict[int | None, list[tuple[index.IndexBase, schema.IndexMd]]] = {}
-        for md in self.tbl_md.index_md.values():
-            cls_name = md.class_fqn.rsplit('.', 1)[-1]
-            cls = getattr(index, cls_name)
-            idx = cls.from_dict(md.init_args)
-            col_ids = [col_id for col_id in (md.index_val_col_id, md.index_val_undo_col_id) if col_id is not None]
-            if UUID(md.indexed_col_tbl_id) == self.id:
-                col_ids.append(md.indexed_col_id)
-            idxs_by_last_col_id.setdefault(max(col_ids, default=None), []).append((idx, md))
-
-        return idxs_by_last_col_id
-
-    def _init_idxs(self, idxs: list[tuple[index.IndexBase, schema.IndexMd]]) -> None:
-        """Initialize those of idxs that are visible in the current schema version."""
-        if len(idxs) == 0:
-            return
-        assert self.supports_idxs
-        for idx, idx_md in idxs:
-            if idx_md.is_visible_in_version(self.schema_version):
-                self._init_idx(idx, idx_md)
+        result: list[schema.ColumnMd] = []
+        emitted: set[int] = set()
+        remaining = sorted(visible)
+        # TODO implement a proper DFS based top sort. also deps can be mutated in place without "emitted"
+        while len(remaining) > 0:
+            next_id = next((col_id for col_id in remaining if deps[col_id] <= emitted), None)
+            assert next_id is not None, f'{self.name}: circular dependency among columns {remaining}'
+            result.append(visible[next_id])
+            emitted.add(next_id)
+            remaining.remove(next_id)
+        return result
 
     def _init_idx(self, idx: index.IndexBase, md: schema.IndexMd) -> None:
         indexed_col_id = QColumnId(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
@@ -755,6 +751,20 @@ class TableVersion:
             row_count_stats=row_counts,
         )
 
+    def _col_ref_substitutions(self, cols: Sequence[Column]) -> 'exprs.ExprDict[exprs.Expr]':
+        """Maps a ColumnRefByName placeholder to a ColumnRef."""
+        assert all(col.id is not None for col in cols)
+        return exprs.ExprDict[exprs.Expr](
+            (
+                exprs.ColumnRefByName(col.name),
+                exprs.ColumnRef(
+                    col.column_version_md(),
+                    perform_validation=((col.media_validation or self.media_validation) == MediaValidation.ON_READ),
+                ),
+            )
+            for col in cols
+        )
+
     def _next_col_pos(self) -> itertools.count:
         """Returns a counter starting at the next available column position."""
         highest_pos = max((c.pos for c in self._schema_version_md.columns.values() if c.pos is not None), default=-1)
@@ -850,8 +860,8 @@ class TableVersion:
           referencing other columns in added_cols, which are resolved here once ids are assigned
         - Drops precede adds, and index drops precede column drops, so an index that is both explicitly dropped and
           attached to a dropped column is processed only once.
-        - altered_cols pair an existing computed column with its new, fully resolved value expression; they only
-          change metadata (no recomputing).
+        - altered_cols pair an existing computed column with its new value expression, which may reference a column
+          in added_cols by name; they only change metadata (no recomputing).
         """
         assert self.is_mutable
 
@@ -864,9 +874,6 @@ class TableVersion:
         self._validate_idx_drops(dropped_idx_ids)
 
         self.bump_version(bump_schema_version=True)
-
-        for col, new_value_expr in altered_cols:
-            self._alter_value_expr_in_version(col, new_value_expr)
 
         cols_to_drop: list[Column] = []
         for idx_id in dropped_idx_ids:
@@ -883,6 +890,15 @@ class TableVersion:
         status = UpdateStatus()
         if len(added_cols) > 0:
             status += self._add_columns_in_version(added_cols, print_stats=False, on_error='abort')
+
+        # alter computed columns after adding new columns, so that a new value can reference columns added in the same
+        # change set.
+        added_col_refs = self._col_ref_substitutions(added_cols)
+        resolved_alters = [(col, expr.substitute(added_col_refs)) for col, expr in altered_cols]
+        self._validate_no_dependency_cycles({col.id: expr for col, expr in resolved_alters})
+        for col, new_value_expr in resolved_alters:
+            self._alter_value_expr_in_version(col, new_value_expr)
+
         for col, idx_name, idx in added_idxs:
             assert isinstance(col, Column)
             status += self._add_index(col, idx_name, idx)
@@ -919,16 +935,7 @@ class TableVersion:
             col.id = self.next_col_id()
 
         # the ids exist now, so a placeholder can be resolved to the column it names
-        subst = exprs.ExprDict[exprs.Expr](
-            (
-                exprs.ColumnRefByName(col.name),
-                exprs.ColumnRef(
-                    col.column_version_md(),
-                    perform_validation=((col.media_validation or self.media_validation) == MediaValidation.ON_READ),
-                ),
-            )
-            for col in cols
-        )
+        subst = self._col_ref_substitutions(cols)
         for col in cols:
             value_expr = col.value_expr
             if value_expr is not None:
@@ -1030,16 +1037,42 @@ class TableVersion:
                 f'Column {col.name!r}: the new value expression has type {new_value_expr.col_type}, but the column '
                 f'has type {col.col_type}. Changing the type of a computed column is not supported.',
             )
-        old_refs = exprs.Expr.get_refd_column_ids(col.value_expr_dict)
-        new_refs = exprs.Expr.get_refd_column_ids(new_value_expr.as_dict())
 
-        # For now, the new dependencies must be a subset of the current dependencies.
-        if not new_refs <= old_refs:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Column {col.name!r}: the new value expression may only reference columns that the current one '
-                f'references.',
-            )
+    def _validate_no_dependency_cycles(self, new_value_exprs: dict[int, exprs.Expr]) -> None:
+        """Verify that the new value expressions for computed columns provided in new_value_expr do not create
+        a dependency cycle."""
+
+        # Columns can depend on other columns in the same table or its ancestors but not descendants, therefore a cycle
+        # is only possible among the column dependencies within this table. Ignore ancestor dependencies.
+
+        def own_col_refs(value_expr_dict: dict[str, Any]) -> set[int]:
+            """The ids of the columns of this table that value_expr_dict references."""
+            return {qid.col_id for qid in exprs.Expr.get_refd_column_ids(value_expr_dict) if qid.tbl_id == self.id}
+
+        # Build the proposed graph of dependencies using the new value exprs overlaid on existing dependencies.
+        deps: dict[int, set[int]] = {
+            col.id: own_col_refs(col.value_expr_dict)
+            for col in self.cols_by_id.values()
+            if col.value_expr_dict is not None
+        }
+        deps.update({col_id: own_col_refs(e.as_dict()) for col_id, e in new_value_exprs.items()})
+
+        # TODO replace with DFS based algorithm
+        for col_id in new_value_exprs:
+            visited: set[int] = set()
+            stack = list(deps[col_id])
+            while len(stack) > 0:
+                dep_id = stack.pop()
+                if dep_id == col_id:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'Column {self.cols_by_id[col_id].name!r}: the new value expression creates a circular '
+                        f'dependency.',
+                    )
+                if dep_id in visited:
+                    continue
+                visited.add(dep_id)
+                stack.extend(deps.get(dep_id, ()))
 
     def alter_computed_column(
         self, col: Column, new_value_expr: exprs.Expr, *, recompute: bool, cascade: bool
@@ -1052,6 +1085,7 @@ class TableVersion:
             # no-op: return early and do not create a new schema version
             return UpdateStatus()
 
+        self._validate_no_dependency_cycles({col.id: new_value_expr})
         get_runtime().catalog.mark_modified_tv(self.handle)
         self.bump_version(bump_schema_version=True)
         old_value_expr = col.value_expr

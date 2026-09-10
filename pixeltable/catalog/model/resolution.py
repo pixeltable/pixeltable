@@ -244,9 +244,11 @@ def prepare_model_updates(
     resolved against the view's own visible columns.
 
     Returns:
-        - the columns to add, in declaration order. A value expression may still contain ColumnRefByNames.
+        - the columns to add, in declaration order
         - the indices to add, with the index-spec dataclass instances replaced by instances of index.IndexBase
-        - the new value expression of each altered column, keyed by column name and fully resolved
+        - the new value expression of each altered column, keyed by column name
+
+    The returned references may contain ColumnRefByName.
     """
 
     user_cols: dict[str, catalog.Column] = {}
@@ -323,15 +325,19 @@ def prepare_model_updates(
         assert isinstance(idx_spec.indexed_column, str)
         resolved_idxs.append(idx_spec._replace(indexed_column=user_cols[idx_spec.indexed_column]))
 
-    # Resolve altered columns
+    # Resolve altered columns. This may produce ColumnRefByName if the new expression references columns that this
+    # changeset adds.
     altered_exprs: dict[str, exprs.Expr] = {}
     for name, (spec, origin) in altered_columns.items():
         resolve_against = base_subst_dict if origin == 'base_query' else subst_dict
         resolved = spec['value'].substitute(resolve_against)
-        # We support only alter computed column that does not add new dependencies to the column. All column references
-        # should be resolved by now.
-        unresolved_names = [ref.name for ref in resolved.subexprs(exprs.ColumnRefByName)]
-        assert len(unresolved_names) == 0, f'{display_name}: {name!r} has unresolved references {unresolved_names}'
+        unresolved_names = [ref.name for ref in resolved.subexprs(exprs.ColumnRefByName) if ref.name not in new_columns]
+        if len(unresolved_names) > 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'Column {name!r} in {display_name} references columns that are not in '
+                f"the model's scope: {unresolved_names}",
+            )
         altered_exprs[name] = resolved
 
     return resolved_cols, resolved_idxs, altered_exprs

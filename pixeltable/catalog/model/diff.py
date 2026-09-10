@@ -11,7 +11,6 @@ from pixeltable_cli.types import Resolution, SchemaChangeIndexRef, SchemaChangeO
 
 from ..globals import col_type_from_spec, fold_mapping_keys
 from ..table_metadata import ColumnMetadata, IndexMetadata, TableMetadata
-from .resolution import refd_column_names
 
 if TYPE_CHECKING:
     from .definition import IndexDefinition, TableModelMeta
@@ -216,17 +215,8 @@ def _alter_value_change(
     col_md: ColumnMetadata,
 ) -> SchemaChangeOp | None:
     """The op that applies a computed column's new value expression, or None if this change cannot be applied."""
-    new_value = spec.get('value')
     # a computed column becoming a data column, or vice versa, is a different kind of change
-    if new_value is None or not col_md['is_computed']:
-        return None
-    new_value_expr = exprs.Expr.from_object(new_value)
-
-    # Adding new dependencies to the column computation is currently not supported.
-    model_refs = refd_column_names(new_value_expr)
-    # the column names that the column currently depends on
-    catalog_refs = {name for _, name in (col_md['depends_on'] or ())}
-    if not model_refs <= catalog_refs:
+    if spec.get('value') is None or not col_md['is_computed']:
         return None
 
     return SchemaChangeOp(

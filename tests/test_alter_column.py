@@ -166,17 +166,45 @@ class TestAlterColumn:
         t.alter_computed_column(c=t.n * 10)
         assert len(t.get_versions()) == num_versions
 
-    def test_alter_computed_column_subset_refs(self, db_root: DatabaseRoot) -> None:
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_alter_computed_column_refs(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
         t = pxt.create_table(db_root.make_catalog_path('test_tbl'), {'n': pxt.Int, 'm': pxt.Int})
         t.add_computed_column(c=t.n + t.m)
         validate_update_status(t.insert(n=1, m=5), 1)
         assert t.select(t.c).collect()['c'] == [6]
 
-        # alter t.c to drop dependency on t.m
+        # drop c's dependency on m, then add it back
         t.alter_computed_column(c=t.n)
+        reload_catalog(do_reload_catalog)
         assert t.select(t.c).collect()['c'] == [1]
+        t.alter_computed_column(c=t.n + t.m)
+        reload_catalog(do_reload_catalog)
+        assert t.select(t.c).collect()['c'] == [6]
+
+        # depend on a column that was added after c
+        t.add_computed_column(later=t.m * 100)
+        t.alter_computed_column(c=t.n + t.later)
+        reload_catalog(do_reload_catalog)
+        assert t.select(t.c).collect()['c'] == [501]
+
+        # updating the new dependency cascades to c
+        validate_update_status(t.update({'m': 2}), 1)
+        assert t.select(t.c).collect()['c'] == [201]
+
+        # columns that are no longer referenced by c can be dropped
+        t.alter_computed_column(c=t.n)
+        reload_catalog(do_reload_catalog)
+        t.drop_column('later')
         t.drop_column('m')
-        assert 'm' not in t.columns()
+        reload_catalog(do_reload_catalog)
+        assert t.columns() == ['n', 'c']
+
+        # but a live dependency cannot be dropped
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Cannot drop column 'n' because the following columns depend"
+        ):
+            t.drop_column('n')
+        assert t.columns() == ['n', 'c']
 
     @pytest.mark.parametrize('cascade', [False, True], ids=['no_cascade', 'cascade'])
     def test_alter_computed_column_cascade(self, db_root: DatabaseRoot, cascade: bool) -> None:
@@ -242,6 +270,18 @@ class TestAlterColumn:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot alter base table column'):
             v.alter_computed_column(c=v.n * 3)
 
+        # a view's computed column can pick up a new dependency on a base column
+        t.add_column(extra=pxt.Int | None)
+        validate_update_status(t.update({'extra': 5}), 1)
+        v.alter_computed_column(d=(v.c + t.extra).astype(pxt.Int))
+        assert v.select(v.d).collect()['d'] == [7]
+        validate_update_status(t.update({'extra': 10}), 2)
+        assert v.select(v.d).collect()['d'] == [12]
+
+        # a base table's column cannot be made to depend on one of its views
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is not bound by'):
+            t.alter_computed_column(c=v.d + 1)
+
     def test_alter_computed_column_errors(self, db_root: DatabaseRoot) -> None:
         t = pxt.create_table(db_root.make_catalog_path('test_tbl'), {'n': pxt.Int, 'm': pxt.Int})
         t.add_computed_column(c=t.n + t.m)
@@ -260,8 +300,10 @@ class TestAlterColumn:
         # a different output type
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='has type Float, but the column has type Int'):
             t.alter_computed_column(c=(t.n + t.m) / 2)
-        # a reference the current expression doesn't have
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='may only reference columns'):
+        # a reference that makes the column depend on itself, directly or indirectly
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='circular dependency'):
+            t.alter_computed_column(c=t.c + 1)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='circular dependency'):
             t.alter_computed_column(c=t.n + t.m + t.d)
         # a reference to a cell metadata property
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'errortype' property"):
