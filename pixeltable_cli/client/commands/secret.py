@@ -13,7 +13,7 @@ from ..utils import get_request, post_request
 
 EPILOG = """\
 Examples:
-  pxt secret list pxt://myorg
+  pxt secret list
   pxt secret list pxt://myorg:mydb
   pxt secret set  pxt://myorg OPENAI_API_KEY=sk-... ANTHROPIC_API_KEY=sk-...
   pxt secret delete pxt://myorg:mydb OLD_KEY STALE_KEY
@@ -43,7 +43,7 @@ def run(argv: list[str]) -> None:
     sub = parser.add_subparsers(dest='action', required=True)
 
     p = sub.add_parser('list', help='list secret names in a scope (never their values)')
-    p.add_argument('uri', help='Scope URI: pxt://org or pxt://org:db')
+    p.add_argument('uri', nargs='?', help='Scope URI: pxt://org or pxt://org:db')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('set', help='add or replace secrets (restart to pick them up)', epilog=SET_EPILOG)
@@ -97,10 +97,12 @@ def _print_keys(keys: list[str], json_output: bool) -> None:
 
 
 def _list(args: argparse.Namespace) -> None:
-    org, db = _scope(args.uri, 'pxt secret list')
-    params = {'org': org}
-    if db is not None:
-        params['db'] = db
+    params = {}
+    if args.uri is not None:
+        org, db = _scope(args.uri, 'pxt secret list')
+        params['org'] = org
+        if db is not None:
+            params['db'] = db
     resp = get_request('/api/secrets', params)
     _print_keys(resp.get('keys', []) if isinstance(resp, dict) else [], args.json_output)
 

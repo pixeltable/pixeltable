@@ -110,7 +110,7 @@ class TestDb:
             cli('db', 'restart', absent, cwd=project, timeout=APPLY_TIMEOUT)
             assert db_status(cli, project, absent)['state'] == 'AVAILABLE'
 
-            listed = cli('db', 'list', 'pxt://pixeltable', '--json', cwd=project).json
+            listed = cli('db', 'list', '--json', cwd=project).json
             assert absent.rsplit(':', 1)[-1] in [entry['db'] for entry in listed], listed
             # the database now holds this project, so a second look has nothing to do
             assert_in_agreement(cli, project, absent)
@@ -245,11 +245,11 @@ class TestDb:
         assert 'URI must be pxt://org:db' in not_a_uri.stderr, not_a_uri.stderr
         table_uri = cli('db', 'logs', f'{test_db_uri}/table', cwd=project, check=False)
         assert table_uri.returncode == 2 and 'URI must be pxt://org:db' in table_uri.stderr, table_uri.stderr
-        # 'db diff' takes a database URI, 'db list' an org URI
+        # 'db diff' takes a database URI, 'org status' an org URI
         for bad in ('pxt://pixeltable', 'pxt://pixeltable:pxttest/'):
             r = cli('db', 'diff', bad, cwd=project, check=False)
             assert r.returncode == 2 and 'URI must be pxt://org:db' in r.stderr, r.stderr
-        org_with_db = cli('db', 'list', test_db_uri, cwd=project, check=False)
+        org_with_db = cli('org', 'status', test_db_uri, cwd=project, check=False)
         assert org_with_db.returncode == 2 and 'URI must be pxt://org,' in org_with_db.stderr, org_with_db.stderr
 
         # the daemon validates --since and --tail before reading anything

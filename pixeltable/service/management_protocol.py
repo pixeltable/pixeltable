@@ -266,7 +266,7 @@ class DeleteSecretResponse(BaseModel):
 
 class ListSecretsRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.LIST_SECRETS] = ManagementOperationType.LIST_SECRETS
-    org: str
+    org: str | None = None
     db: str | None = None
 
 
