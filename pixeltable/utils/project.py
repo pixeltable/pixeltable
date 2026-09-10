@@ -85,6 +85,7 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
     .git is skipped here, as git itself does, but only by default: an `include` pattern of `.git/**` still
     reaches it, which a project that derives its version from VCS metadata needs. A virtual environment is
     skipped whether or not a .gitignore covers it, since the pod installs the packages from the lockfile.
+    __pycache__ is ignored: we don't want to ship bytecode
     """
     files: set[Path] = set()
 
@@ -93,7 +94,7 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
         if spec is not None:
             specs = [*specs, (dir_path, spec)]
         for entry in dir_path.iterdir():
-            if entry.name == '.git':
+            if entry.name in ('.git', '__pycache__'):
                 continue
             is_dir = entry.is_dir() and not entry.is_symlink()
             if _is_gitignored(entry, is_dir, specs):

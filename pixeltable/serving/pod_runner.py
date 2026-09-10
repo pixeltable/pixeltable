@@ -5,6 +5,7 @@ import argparse
 import logging
 from pathlib import Path
 
+from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.service.db import report_instance_fingerprint, unpack_project_archive
 from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
@@ -24,7 +25,7 @@ def _serve(
     """Pod entry point: unpack the database's project, serve one of its services, and report what loaded."""
     import uvicorn
 
-    unpack_project_archive(db_uri, project_dir, expected_digest=digest)
+    archive = unpack_project_archive(db_uri, project_dir, expected_digest=digest)
     # the unpacked project is this process's project root, so its modules and its database entry resolve
     Config.init(reinit=True, project_root=project_dir)
 
@@ -34,8 +35,11 @@ def _serve(
     app, _ = create_app(str(project_dir / app_file), service_name, base_path)
     if otel:
         instrument_app(app)
-    # after the file has loaded, so the fingerprint names the files that are serving
-    report_instance_fingerprint(db_uri, service_name, base_path)
+    if archive.fingerprint is None:
+        raise excs.InternalError(
+            excs.ErrorCode.INTERNAL_ERROR, f'{db_uri} served an archive without the fingerprint it was published under'
+        )
+    report_instance_fingerprint(db_uri, service_name, archive.fingerprint, base_path)
 
     log_level = logging.getLogger('pixeltable').getEffectiveLevel()
     # log_config=None keeps uvicorn from replacing the logging Env has already set up

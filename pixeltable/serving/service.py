@@ -192,6 +192,9 @@ def _resolve_service_instances(name_or_uri: str) -> list[service_instance.Servic
     A uri matches exactly one instance; a bare service name matches every locally running instance with that same name.
     """
     path = catalog.Path.parse(name_or_uri, allow_empty_path=True)
+    if path.is_root:
+        # root cannot be used as a service name
+        return []
     if path.len > 1 or not path.is_local:
         target = PxtPath(str(path.parent))
         found = get_manager(target).get(path.name, _base_path(target))

@@ -62,16 +62,6 @@ def _validate_hosted_name(value: str, kind: str) -> str:
     return value
 
 
-class StoredSecret(BaseModel):
-    """What the secret store holds under one key."""
-
-    # an opaque digest of the value, which only the control plane produces
-    digest: str
-
-    # which binding the value came from, so that a rebinding is noticed
-    binding: str = ''
-
-
 class DatabaseSpec(BaseModel):
     """The resources provided by a database, in the widest sense (everything available in the runtime environment)."""
 
@@ -80,13 +70,6 @@ class DatabaseSpec(BaseModel):
     # the metadata schema version of the Pixeltable that packaged the archive, which only that
     # Pixeltable can report
     pxt_md_version: int = 0
-
-    # the project's secret bindings: each key names the source of its value, never the value
-    secrets: dict[str, str] = Field(default_factory=dict)
-
-    # what the secret store holds. SET_SECRET changes it, not this field: the control plane fills it when
-    # reporting a spec and ignores it in a request
-    stored_secrets: dict[str, StoredSecret] = Field(default_factory=dict)
 
     # None: take default
     cpu: float | None = None
@@ -112,9 +95,6 @@ class DatabaseStatus(BaseModel):
 
     # one entry per pod serving the database; workers is how many are running
     worker_status: list[dict[str, Any]] = Field(default_factory=list)
-
-    # the pods' secret digests
-    secret_digests: dict[str, str] = Field(default_factory=dict)
 
     last_build_outcome: str | None = None
     last_build_error: str | None = None
@@ -221,6 +201,11 @@ class GetArchiveResponse(BaseModel):
     presigned_url: str
     # ProjectFingerprint.archive_digest() of the archive the url serves
     digest: str
+
+    # the fingerprint the archive was published under. A pod reports this rather than one it computes:
+    # loading the application file writes bytecode into the unpacked project, so a pod that walked its own
+    # directory would report files the published project never held.
+    fingerprint: ProjectFingerprint | None = None
 
 
 # Secrets

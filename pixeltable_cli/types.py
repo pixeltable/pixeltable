@@ -271,7 +271,7 @@ DbArtifact = Literal['image_context', 'archive']
 
 # what a DbChangeOp acts on. The two artifacts are separate: 'image' is the environment the pods run on,
 # 'archive' the sources they fetch, and a source edit moves only the second.
-DbTarget = Literal['image', 'archive', 'capacity', 'secret']
+DbTarget = Literal['image', 'archive', 'capacity']
 
 
 class DbChangeOp(ChangeOp):
@@ -291,38 +291,6 @@ class DbChangeOp(ChangeOp):
             severity='destructive' if current is not None and declared < current else 'additive',
             description=f'{field} will be {declared} rather than {was}, which restarts the database',
             details={'from': was, 'to': str(declared)},
-            requires_restart=True,
-        )
-
-    @classmethod
-    def secret(cls, key: str, op: Literal['add', 'drop']) -> DbChangeOp:
-        if op == 'add':
-            return cls(
-                target='secret',
-                name=key,
-                op='add',
-                severity='additive',
-                description=f'secret {key!r} will be set',
-                requires_restart=True,
-            )
-        return cls(
-            target='secret',
-            name=key,
-            op='drop',
-            severity='destructive',
-            description=f'secret {key!r} will be deleted, and code reading it will fail',
-            requires_restart=True,
-        )
-
-    @classmethod
-    def stale_secret(cls, key: str) -> DbChangeOp:
-        """The operation for restarting the pods onto a secret's stored value."""
-        return cls(
-            target='secret',
-            name=key,
-            op='alter',
-            severity='additive',
-            description=f'the pods will restart to pick up secret {key!r}',
             requires_restart=True,
         )
 

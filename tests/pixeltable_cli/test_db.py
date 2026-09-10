@@ -151,48 +151,6 @@ class TestDb:
         edit_app(project, 'an edit to a file the entry selects')
         assert get_target_ops(db_diff(cli, project, current_db), 'archive') != []
 
-    @pytest.mark.skip(reason='the control plane does not report what the secret store holds')
-    def test_secrets(
-        self, cli: PxtRunner, project: pathlib.Path, current_db: str, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv('PXTTEST_SECRET', 'a value the database holds')
-        create_project_config(cli, project, current_db, secrets={'pxttest_secret': 'env:PXTTEST_SECRET'})
-
-        [added] = get_target_ops(db_diff(cli, project, current_db), 'secret')
-        assert (added['name'], added['op'], added['destructive']) == ('pxttest_secret', 'add', False)
-        assert [op['status'] for op in get_target_ops(db_update(cli, project, current_db), 'secret')] == ['applied']
-        assert_in_agreement(cli, project, current_db)
-
-        create_project_config(cli, project, current_db)
-        [dropped] = get_target_ops(db_diff(cli, project, current_db), 'secret')
-        assert (dropped['op'], dropped['destructive']) == ('drop', True)
-
-        refused = cli('db', 'update', current_db, '-f', cwd=project, check=False, timeout=APPLY_TIMEOUT)
-        assert refused.returncode == EXIT_ERROR
-        assert '--allow-destructive' in refused.stderr, refused.stderr
-        assert get_target_ops(db_diff(cli, project, current_db), 'secret') != []
-
-        applied = db_update(cli, project, current_db, '--allow-destructive')
-        assert [op['status'] for op in get_target_ops(applied, 'secret')] == ['applied']
-        assert_in_agreement(cli, project, current_db)
-
-    def test_unbound_secret(
-        self, cli: PxtRunner, project: pathlib.Path, hosted_db: str, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A secret naming an environment variable that is not set stops the update."""
-        monkeypatch.delenv('PXTTEST_UNSET', raising=False)
-        create_project_config(cli, project, hosted_db, secrets={'pxttest_unset': 'env:PXTTEST_UNSET'})
-
-        r = cli('db', 'update', hosted_db, '-f', cwd=project, check=False, timeout=APPLY_TIMEOUT)
-        assert r.returncode == EXIT_ERROR
-        assert 'PXTTEST_UNSET' in r.stderr, r.stderr
-
-        # a secret declared as its value names no environment variable, and the file would hold the value
-        create_project_config(cli, project, hosted_db, secrets={'pxttest_literal': 'sk-in-the-file'})
-        r = cli('db', 'update', hosted_db, '-f', cwd=project, check=False, timeout=APPLY_TIMEOUT)
-        assert r.returncode == EXIT_ERROR
-        assert "write 'env:NAME'" in r.stderr, r.stderr
-
     @pytest.mark.skip(
         reason='cpu+1 leaves the pod unschedulable, and the database then holds a rollout no later scenario gets past'
     )

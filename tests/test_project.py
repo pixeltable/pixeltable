@@ -41,8 +41,8 @@ class TestProject:
     def test_gitignore(self, project: pathlib.Path) -> None:
         assert self._names(project) == ['.gitignore', 'app.py', 'uv.lock']
 
-    def test_venv(self, project: pathlib.Path) -> None:
-        """A virtual environment is dropped even when nothing ignores it."""
+    def test_excluded(self, project: pathlib.Path) -> None:
+        """A virtual environment and a bytecode cache are dropped even when nothing ignores them."""
         for name, marker in (('.venv', 'pyvenv.cfg'), ('env', 'conda-meta/history')):
             venv = project / name
             (venv / 'lib').mkdir(parents=True)
@@ -50,6 +50,14 @@ class TestProject:
             (venv / marker).parent.mkdir(parents=True, exist_ok=True)
             (venv / marker).write_text('')
         assert self._names(project) == ['.gitignore', 'app.py', 'uv.lock']
+
+        (project / 'pkg').mkdir()
+        (project / 'pkg' / 'mod.py').write_text('y = 2\n')
+        for parent in (project, project / 'pkg'):
+            cache = parent / '__pycache__'
+            cache.mkdir()
+            (cache / 'mod.cpython-311.pyc').write_bytes(b'\x00')
+        assert self._names(project) == ['.gitignore', 'app.py', 'pkg/mod.py', 'uv.lock']
 
     def test_patterns(self, project: pathlib.Path) -> None:
         assert self._names(project, DatabaseConfig(exclude=['*.py'])) == ['.gitignore', 'uv.lock']

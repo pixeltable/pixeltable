@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import tarfile
 import tempfile
@@ -17,13 +16,11 @@ from pixeltable.service.management_protocol import (
     DatabaseSpec,
     DatabaseState,
     DatabaseStatus,
-    DeleteSecretRequest,
     GetArchiveRequest,
     GetArchiveResponse,
     GetDbRequest,
     GetDbResponse,
     ReportServiceInstanceRequest,
-    SetSecretRequest,
     UpdateDbRequest,
     UpdateDbResponse,
 )
@@ -45,9 +42,6 @@ _DOWNLOAD_TIMEOUT = 300
 _ARCHIVE_DIR = 'project'
 
 _DB_DESTRUCTIVE_HINT = "Re-run 'pxt db update' with --allow-destructive to apply these changes."
-
-# a defined secret names the environment variable holding its value, as 'env:NAME'
-_ENV_BINDING = 'env:'
 
 # how long a hosted database may stay in a transitional state before an update gives up on it
 _DB_SETTLE_TIMEOUT = 3600.0
@@ -87,8 +81,6 @@ def create_db_update_ops(target: DatabaseSpec, current: DatabaseStatus | None) -
             continue
         ops.append(DbChangeOp.capacity(field, running, wanted))
 
-    # TODO: deal with secrets
-    # ops += _secret_ops(target, status)
     return ops
 
 
@@ -104,24 +96,6 @@ def _artifact_ops(target: ProjectFingerprint, current: ProjectFingerprint | None
     if ProjectPart.ARCHIVE in moved:
         ops.append(DbChangeOp.upload_archive(target.changes(current, {ProjectPart.ARCHIVE})))
     return ops
-
-
-# def _secret_ops(target: DatabaseSpec, current: DatabaseStatus) -> list[DbChangeOp]:
-#     """The operations that set the secrets target binds, and restart the pods onto the stored values."""
-#     stored = {key: value.digest for key, value in target.stored_secrets.items()}
-#     # a key set from a different binding has to be set again: the two sources may hold different values
-#     rebound = {
-#         key for key in set(target.secrets) & set(stored) if target.secrets[key] != target.stored_secrets[key].binding
-#     }
-#     to_set = sorted((set(target.secrets) - set(stored)) | rebound)
-#     to_drop = sorted(set(stored) - set(target.secrets))
-#     ops = [DbChangeOp.secret(key, 'add') for key in to_set]
-#     ops += [DbChangeOp.secret(key, 'drop') for key in to_drop]
-#
-#     # a key this plan sets or deletes restarts the pods already
-#     settled = (set(stored) | set(current.secret_digests)) - set(to_set) - set(to_drop)
-#     behind = {key for key in settled if stored.get(key) != current.secret_digests.get(key)}
-#     return ops + [DbChangeOp.stale_secret(key) for key in sorted(behind)]
 
 
 def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
@@ -142,11 +116,6 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
             excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE,
             f'Reconciling {db_uri} would apply destructive changes: {destructive}.\n{_DB_DESTRUCTIVE_HINT}',
         )
-
-    for op in _get_target_ops(plan, 'secret'):
-        # the reconcile below restarts the pods onto a stored value, so an alter needs nothing here
-        if op.op != 'alter':
-            _apply_secret_op(db_path, op, config)
 
     settled, _ = _apply_spec(db_path, config, spec)
     for op in plan.ops:
@@ -241,8 +210,8 @@ def db_build_image(db_uri: str) -> list[DbChangeOp]:
     return [image_op, archive_op]
 
 
-def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | None = None) -> str:
-    """Unpack db_uri's project archive into dest, and return the archive's digest.
+def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | None = None) -> GetArchiveResponse:
+    """Unpack db_uri's project archive into dest, and return what the control plane served it as.
 
     Refuses an archive whose digest is not expected_digest: a pod is told which project to run, and a
     different one would serve code nobody asked for.
@@ -299,20 +268,17 @@ def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | No
         project_dir.rename(dest)
     finally:
         shutil.rmtree(unpacking, ignore_errors=True)
-    return response.digest
+    return response
 
 
-def report_instance_fingerprint(db_uri: str, service_name: str, base_path: str = '') -> None:
-    """Tell the database at db_uri which of its project files the named service instance loaded."""
+def report_instance_fingerprint(
+    db_uri: str, service_name: str, fingerprint: ProjectFingerprint, base_path: str = ''
+) -> None:
+    """Tell the database at db_uri which project the named service instance loaded."""
     db_path = _validated_db_uri(db_uri)
-    config = _get_db_config(db_path)
     management_client.api_call(
         ReportServiceInstanceRequest(
-            org=db_path.org,
-            db=db_path.db,
-            service_name=service_name,
-            base_path=base_path,
-            fingerprint=project_fingerprint(_validated_project_root(), config),
+            org=db_path.org, db=db_path.db, service_name=service_name, base_path=base_path, fingerprint=fingerprint
         )
     )
 
@@ -322,7 +288,6 @@ def _target_spec(config: DatabaseConfig) -> DatabaseSpec:
     return DatabaseSpec(
         fingerprint=project_fingerprint(_validated_project_root(), config),
         pxt_md_version=metadata.VERSION,
-        secrets=config.secrets or {},
         cpu=config.cpu,
         memory_mb=config.memory_mb,
         disk_gb=config.disk_gb,
@@ -362,36 +327,6 @@ def _put_artifact(url: str, path: Path) -> None:
 def _get_target_ops(plan: DbPlan, target: DbTarget) -> list[DbChangeOp]:
     """The plan's operations against one target."""
     return [op for op in plan.ops if op.target == target]
-
-
-def _apply_secret_op(db_path: catalog.Path, op: DbChangeOp, config: DatabaseConfig) -> None:
-    """Apply one secret operation: set the defined value, or delete the key."""
-    key = op.name
-    if op.op == 'drop':
-        management_client.api_call(DeleteSecretRequest(org=db_path.org, db=db_path.db, key=key))
-        return
-    binding = (config.secrets or {})[key]
-    management_client.api_call(
-        SetSecretRequest(org=db_path.org, db=db_path.db, key=key, value=_secret_value(key, binding))
-    )
-
-
-def _secret_value(key: str, binding: str) -> str:
-    """Read a defined secret's value from the environment variable its binding names."""
-    name = binding[len(_ENV_BINDING) :] if binding.startswith(_ENV_BINDING) else None
-    if name is None:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f"secret {key!r} is defined as {binding!r}; write '{_ENV_BINDING}NAME' to name the environment "
-            'variable holding the value, which keeps the value out of the project',
-        )
-    value = os.environ.get(name)
-    if value is None or value == '':
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f'secret {key!r} is bound to {name}, which is not set in the environment',
-        )
-    return value
 
 
 def _await_db_settled(db_path: catalog.Path) -> DatabaseState:
