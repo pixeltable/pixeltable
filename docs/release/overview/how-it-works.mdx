@@ -1,10 +1,10 @@
 ---
 title: 'How it works'
 sidebarTitle: 'How it works'
-description: 'pxt schema creates tables. pxt service starts the endpoints. diff shows what would change.'
+description: 'pxt schema update creates tables. pxt service update starts the endpoints. diff shows what would change.'
 ---
 
-[Quickstart](/overview/quick-start) is the first run. This page explains what `pxt schema` and `pxt service` do, and what the last argument names.
+[Quickstart](/overview/quick-start) is the first run. This page explains what `pxt schema update` and `pxt service update` do, and what the last argument names.
 
 One Python file declares tables and, if you want endpoints, routes. `pxt schema update` creates the tables. `pxt service update` starts the endpoints on an assigned port. The last argument is a catalog such as `my_app`, or a `pxt://org:db` URI for Cloud. It does not create a folder beside `app.py`.
 
@@ -26,7 +26,7 @@ Your repo holds `app.py` and usually `pixeltable.toml`. After `pxt schema update
 
 | Command | What it does |
 |---|---|
-| `diff` | Prints pending changes without applying them |
+| `diff` | Prints pending changes; does not run `update` |
 | `update` | Creates or migrates tables or services so they match `app.py` |
 | `prune` | Deletes tables or services that are no longer in the file |
 | `example` | Write a working file to start from |
@@ -35,13 +35,13 @@ Full flags: [CLI](/platform/cli).
 
 ## Schema
 
-An annotation (`title: pxt.String`) is a stored column: you insert that value. A bare type is required; use `pxt.String | None` when the value may be missing. An assignment (`title_upper = ...`) is a computed column. It runs on insert and on update. Use `pxt.Column(...)` when you need a primary key, `stored=False`, or a media option an annotation cannot express.
+An annotation (`title: pxt.String`) is a stored column: you insert that value. A bare type is required; use `pxt.String | None` when the value may be missing. Cast a JSON path such as `transcript.text` with `.astype(pxt.String | None)` when the value can be missing. `.astype(pxt.String)` aborts the insert if the value is None. An assignment (`title_upper = ...`) is a computed column. It runs on insert and on update. Use `pxt.Column(...)` when you need a primary key, `stored=False`, or a media option an annotation cannot express.
 
-Set `base=Docs` to make a view of `Docs`. The view can use columns from that base. Add an iterator when each input row should become many output rows, such as frames or chunks. Indexes belong on the model (`__indexes__` with `EmbeddingIndex` or `BtreeIndex`). B-tree indexes are not created automatically. Do not call `add_embedding_index()` after `pxt schema update`.
+Set `base=Docs` to make a view of `Docs`. The view can use columns from that base. Add an iterator when each input row should become many output rows, such as frames or chunks. A view (`base=`) cannot use `group_by`, aggregates, `order_by`, `limit`, or `join`. `.group_by()` on that view is allowed at query time ([Views](/platform/views)). Indexes belong on the model (`__indexes__` with `EmbeddingIndex` or `BtreeIndex`). B-tree indexes are not created automatically. Do not call `add_embedding_index()` after `pxt schema update`.
 
 `pxt schema example` writes a long sample. `--brief` writes only a small set of classes. Create tables with `pxt schema update app.py my_app`. Extra tables in that namespace stay until you run `pxt schema prune`, which deletes them.
 
-A `@pxt.udf` defined in the file is recorded by file path. Renaming the file leaves columns that call it unable to compute.
+A `@pxt.udf` defined in `app.py` is recorded by file path. A script run as `__main__` is refused. Renaming `app.py` leaves columns that call it unable to compute. On Cloud, `pxt db update` puts the project in the image so workers can resolve that path ([Deploy to Pixeltable Cloud](/howto/deployment/cloud)).
 
 ## Services
 

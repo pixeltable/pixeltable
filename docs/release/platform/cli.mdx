@@ -99,10 +99,10 @@ pxt pwd                            # print it
 pxt init                             # mark the current directory as a project root
 
 # declarative schemas
-pxt schema check  schema.py          # validate the file on its own, with no target
-pxt schema diff   schema.py my_app   # what 'update' would change (exit 2 = drift)
-pxt schema update schema.py my_app   # create and migrate the declared tables
-pxt schema prune  schema.py my_app -f # drop the undeclared ones
+pxt schema check  app.py          # validate the file on its own, with no target
+pxt schema diff   app.py my_app   # what 'update' would change (exit 2 = drift)
+pxt schema update app.py my_app   # create and migrate the declared tables
+pxt schema prune  app.py my_app -f # drop the undeclared ones
 
 # interactive
 pxt shell
@@ -410,7 +410,7 @@ Imports resolve from the root down. This is where a single-file recipe and a lar
 A recorded path is how a later process -- the daemon, a serving worker, a hosted pod -- finds the udf again, so a command given a file outside any project root is refused. `pxt schema check` and `pxt service check` validate a file on its own -- it imports without touching the catalog, it declares what the verb needs, and the udfs its columns call are named by paths another process can resolve:
 
 ```bash
-pxt schema check schema.py           # exit 0 valid, 1 invalid
+pxt schema check app.py           # exit 0 valid, 1 invalid
 pxt service check app.py --json
 ```
 
@@ -433,7 +433,7 @@ The commands above act on one object at a time. `pxt schema` works differently: 
 A schema file defines one or more models on a `pxt.model_base()`. Each model becomes one table, named by `name=`. `pxt schema example` writes a file covering every construct the schema DSL supports, so you never have to start from a blank page and never have to look a construct up:
 
 ```bash
-pxt schema example --out schema.py
+pxt schema example --out app.py
 ```
 
 `pxt schema example --brief` writes the minimal version instead:
@@ -457,11 +457,11 @@ An annotation (`name: type`) declares a stored column; an assignment (`name = ex
 
 The daemon imports the file, so it must be readable there. Its own directory is added to `sys.path`, so it can import modules sitting next to it.
 
-### Reviewing and applying
+### Reviewing and updating
 
 ```bash
-pxt schema diff   schema.py my_app     # review
-pxt schema update schema.py my_app     # apply
+pxt schema diff   app.py my_app     # review
+pxt schema update app.py my_app     # create or migrate tables
 ```
 
 `diff` prints one line per table, then one per operation:
@@ -484,29 +484,29 @@ Plan: 0 create, 1 update, 1 unchanged, 1 extra  |  1 destructive
 | `-` | The column/index will be dropped |
 | `!` | The table cannot be migrated in place, or is not declared by the schema |
 
-### Applying
+### `pxt schema update`
 
 `update` creates missing tables and migrates existing ones, adding and dropping columns and indexes. It takes the same flags as the other mutations, plus one of its own:
 
 | Flag | Description |
 |---|---|
-| `-n`, `--dry-run` | Print the plan; apply nothing. Exit `2` if changes are pending |
+| `-n`, `--dry-run` | Print the plan; do not run `update`. Exit `2` if changes are pending |
 | `--allow-destructive` | Permit operations that drop a column or index |
 | `-f`, `--force` | Skip the `[y/N]` prompt shown before destructive operations |
 
 ```bash
-pxt schema update schema.py my_app                          # safe changes
-pxt schema update schema.py my_app -n                       # the plan, applying nothing
-pxt schema update schema.py my_app --allow-destructive -f   # including drops
+pxt schema update app.py my_app                          # safe changes
+pxt schema update app.py my_app -n                       # the plan; does not run `update`
+pxt schema update app.py my_app --allow-destructive -f   # including drops
 ```
 
-If the plan contains a destructive operation and `--allow-destructive` is absent, nothing at all is applied and `update` exits `3`.
+If the plan contains a destructive operation and `--allow-destructive` is absent, `update` does not change the catalog and exits `3`.
 
 <Warning>
 Dropping a column or an index destroys its data. Run `pxt schema diff` (or `update -n`) first: the plan marks every operation `safe`, `DESTRUCTIVE`, or `UNSUPPORTED`.
 </Warning>
 
-Some differences cannot be applied in place: a table declared where a view exists, a changed iterator, or a column whose type or properties changed. Those are reported as `UNSUPPORTED`, nothing is applied, and `update` exits `1`. Adjust the schema file or the table by hand.
+Some differences cannot be migrated in place: a table declared where a view exists, a changed iterator, or a column whose type or properties changed. Those are reported as `UNSUPPORTED`, `update` changes nothing, and it exits `1`. Adjust the application file or the table by hand.
 
 ### Exit codes
 
@@ -522,7 +522,7 @@ The schema commands report their outcome in the exit status, so a caller never h
 A drift check in CI is therefore one command:
 
 ```bash
-pxt schema diff schema.py pxt://acme:main/prod    # 0 = in sync, 2 = drift, 1 = error
+pxt schema diff app.py pxt://acme:main/prod    # 0 = in sync, 2 = drift, 1 = error
 ```
 
 ### Machine-readable plans
@@ -570,8 +570,8 @@ Every path returns the plan, including the ones that refuse before reaching the 
 | `-f`, `--force` | Skip the `[y/N]` prompt |
 
 ```bash
-pxt schema prune schema.py my_app -n     # list what would be dropped
-pxt schema prune schema.py my_app -f     # drop it
+pxt schema prune app.py my_app -n     # list what would be dropped
+pxt schema prune app.py my_app -f     # drop it
 ```
 
 Only tables under `TARGET` are considered, so nothing elsewhere in the catalog is affected, and declared tables are never dropped. A view is dropped before its base. Prune never force-drops: a table that something outside the pruned set depends on is left in place and the drop fails, naming what depends on it.
@@ -632,7 +632,7 @@ pxt schema update app.py my_dir     # create the tables the models declare
 pxt service update app.py my_dir    # serve this file's services against them
 ```
 
-`TARGET` is the catalog the models bind against, so one file can be applied to a development
+`TARGET` is the catalog the models bind against, so the same file can run against a development
 directory and a production one.
 
 ### Serving your own application
@@ -713,7 +713,7 @@ Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreeme
 |---|---|---|
 | `--json` | all | Emit machine-readable JSON |
 | `-f`, `--force` | `update`, `prune` | Skip the `[y/N]` prompt |
-| `-n`, `--dry-run` | `update`, `prune` | Print the intended change; don't apply it |
+| `-n`, `--dry-run` | `update`, `prune` | Print the intended change; do not run `update` or `prune` |
 | `--allow-destructive` | `update` | Permit changes that stop serving a route callers may be using |
 | `--host`, `--port` | `run` | Bind address and port (default `127.0.0.1:8000`) |
 | `--otel` | `run`, `update`, `diff` | Emit OpenTelemetry traces; see [Tracing](#tracing) |
@@ -761,7 +761,7 @@ pxt service run app.py my_dir --port 9000
 
 ### Restarts
 
-A service binds its models once, when its process starts, so a changed declaration is applied by replacing
+A service binds its models once, when its process starts, so a changed declaration takes effect when `pxt service update` replaces
 the process. `diff` reports which services that would interrupt, and `update` says so before it does it.
 Adding a route is additive; changing or removing one stops serving a contract a caller may be using, so it
 needs `--allow-destructive`.
@@ -827,7 +827,7 @@ pxt db update pxt://myorg:mydb --allow-destructive
 
 | Flag | Description |
 |---|---|
-| `-n`, `--dry-run` | Print the plan without applying it |
+| `-n`, `--dry-run` | Print the plan; do not run `update` |
 | `-f`, `--force` | Skip the confirmation |
 | `--allow-destructive` | Permit taking capacity away or deleting a secret |
 
