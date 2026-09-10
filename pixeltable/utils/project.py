@@ -202,13 +202,33 @@ def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path
     files: list[Path] = []
     for raw in requirements.read_text(encoding='utf-8').splitlines():
         line = raw.split('#', 1)[0].strip()
-        if line == '' or line.startswith('-'):
+        if line == '':
             continue
-        # 'name @ target' states where to get name; a bare line is itself the target
-        target = line.split('@', 1)[1].strip() if ' @ ' in line else line
+        if line.startswith(('-e', '--editable')):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} declares {line!r}, an editable install, which a hosted image does not '
+                'support; publish the package to an index and depend on the published version',
+            )
+        if line.startswith('-'):
+            continue
+        if ' @ ' in line:
+            # 'name @ target' states where to get name
+            target = line.split('@', 1)[1].strip()
+        else:
+            target = line
+            # pip reads a bare name as a package, not a path
+            if '/' not in target and not target.startswith('.'):
+                continue
         if '://' in target:
             continue
         path = (project_dir / target).resolve()
+        if path.is_dir():
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} installs {target}, a source directory, which a hosted image build '
+                'cannot compile; publish the package to an index and depend on the published version',
+            )
         if not path.is_file():
             continue
         if not path.is_relative_to(project_dir):
@@ -433,12 +453,14 @@ def _content_hash(path: Path) -> str:
 
 def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
     requirements = project_root / 'requirements.txt'
-    from_project = (
-        sorted(f.relative_to(project_root).as_posix() for f in _local_requirement_files(project_root, requirements))
-        if requirements.is_file()
-        else []
-    )
+    local_requirements = _local_requirement_files(project_root, requirements) if requirements.is_file() else []
+    from_project = sorted(f.relative_to(project_root).as_posix() for f in local_requirements)
     files = {path.relative_to(project_root).as_posix(): _content_hash(path) for path in files}
+    # the image installs local_requirements, so image_digest() covers them even when exclude drops them
+    for path in local_requirements:
+        name = path.relative_to(project_root).as_posix()
+        if name not in files:
+            files[name] = _content_hash(path)
     declared_python = config.python_version if config is not None else None
     return ProjectFingerprint(
         files=files,

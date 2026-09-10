@@ -286,6 +286,32 @@ class TestService:
         # TODO: assert the instance is listed STOPPED, once a local stop keeps its record like a hosted one does
         # assert services(cli, target)['ingest']['state'] == 'STOPPED'
 
+    def test_restart(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        """A restart cycles a service onto what it already runs, keeping its endpoint."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app, target = apps('basic.py'), db_root.make_catalog_path('restart')
+        deploy(cli, app, target)
+        before = assert_serving(cli, app, target, 'ingest')['ingest']
+
+        uri = f'{target}/ingest'.lstrip('/')
+        r = cli('service', 'restart', uri, '--json')
+        assert [(op['name'], op['status']) for op in r.json] == [(uri, 'applied')]
+
+        after = assert_serving(cli, app, target, 'ingest')['ingest']
+        assert after['endpoint'] == before['endpoint']
+        if db_root.id != 'cloud':
+            # a local instance is one process, and a restart replaces it
+            assert after['pid'] != before['pid']
+        resp = _post(after['endpoint'], '/docs', doc_id=1, title='a long enough title', body=None, published=True)
+        assert resp.json() == {'title_upper': 'A LONG ENOUGH TITLE', 'summary': 'a long enoug...'}
+
+        # restarting something that is not running is reported, not an error
+        r = cli('service', 'restart', 'nosuch', '--json')
+        assert [(op['name'], op['status']) for op in r.json] == [('nosuch', 'skipped')]
+
+        cli('service', 'stop', uri)
+
     def test_iteration(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """Make edits to a source file."""
         skip_test_if_not_installed('fastapi')
@@ -752,11 +778,12 @@ class TestService:
             # un-targeted command has no one hosted database to read
             assert len(cli('service', 'list', '--json').json) == 2
 
-            # the same name at two targets cannot be stopped by name alone
-            r = cli('service', 'stop', 'ingest', check=False)
-            assert r.returncode == 1
-            assert 'ambiguous' in r.stderr
-            assert f'{first}/ingest' in r.stderr and f'{second}/ingest' in r.stderr
+            # the same name at two targets cannot be addressed by name alone
+            for verb in ('stop', 'restart'):
+                r = cli('service', verb, 'ingest', check=False)
+                assert r.returncode == 1
+                assert 'ambiguous' in r.stderr
+                assert f'{first}/ingest' in r.stderr and f'{second}/ingest' in r.stderr
 
         # the catalog path says which one
         cli('service', 'stop', f'{first}/ingest')

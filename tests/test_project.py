@@ -129,6 +129,31 @@ class TestProject:
         assert after.compare(before) == {IMAGE, ARCHIVE}
         assert after.image_digest() != before.image_digest()
 
+        # an image build installs the wheel whatever the archive holds, so the digest tracks it under exclude
+        excluded = DatabaseConfig(exclude=['wheels/**'])
+        before = project_fingerprint(project, excluded)
+        assert 'wheels/dep-1.0-py3-none-any.whl' not in self._names(project, excluded)
+        (project / 'wheels' / 'dep-1.0-py3-none-any.whl').write_bytes(b'third build')
+        assert project_fingerprint(project, excluded).image_digest() != before.image_digest()
+
+    def test_unbuildable_requirements(self, project: pathlib.Path) -> None:
+        """A requirement naming a source tree is refused: an image build installs packages, it does not build them."""
+        (project / 'vendor').mkdir()
+        (project / 'vendor' / 'pkg.py').write_text('v = 1\n')
+        for line in ('-e ./vendor', '-e./vendor', '--editable=./vendor'):
+            (project / 'requirements.txt').write_text(f'{line}\n')
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='editable install'):
+                project_fingerprint(project, None)
+
+        for line in ('./vendor', 'pkg @ ./vendor'):
+            (project / 'requirements.txt').write_text(f'{line}\n')
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='source directory'):
+                project_fingerprint(project, None)
+
+        # a package sharing a name with a directory in the project is still read as a package
+        (project / 'requirements.txt').write_text('vendor\n--index-url https://example.invalid/simple\n')
+        assert project_fingerprint(project, None).installed_from_project == []
+
     def test_object_names(self, project: pathlib.Path) -> None:
         before = project_fingerprint(project, None)
         (project / 'app.py').write_text('x = 2\n')
