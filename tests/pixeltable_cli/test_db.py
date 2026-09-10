@@ -18,7 +18,10 @@ import uuid
 import httpx
 import pytest
 
-from .conftest import PxtRunner
+from pixeltable.service import proxy_daemon
+from tests.utils import DatabaseRoot
+
+from .conftest import PxtRunner, read_logs_until
 from .hosted import (
     APP_FILE,
     APPLY_TIMEOUT,
@@ -44,7 +47,7 @@ __all__ = ['current_db', 'hosted_db', 'project']  # fixtures this module's tests
 _REQUEST_TIMEOUT = 30.0
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def hosted_environment() -> None:
     """Skip the test unless the session names a hosted database to act on."""
     if os.environ.get('PXTTEST_CLOUD_DB_URI') is None:
@@ -58,6 +61,7 @@ pytestmark = [
 ]
 
 
+@pytest.mark.usefixtures('hosted_environment')
 class TestDb:
     def test_create(self, cli: PxtRunner, project: pathlib.Path) -> None:
         absent = f'pxt://pixeltable:pxttest-absent-{uuid.uuid4().hex[:12]}'
@@ -74,6 +78,25 @@ class TestDb:
             applied = db_update(cli, project, absent)
             assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
             assert db_status(cli, project, absent)['state'] == 'AVAILABLE'
+            # `db logs`: the pod that just came up has logged its startup, and the probes are dropped
+            # unless asked for
+            started = 'Connected to Pixeltable database at:'
+            records = read_logs_until(cli, 'db', 'logs', absent, contains=started, cwd=project)
+            assert records == sorted(records, key=lambda r: r['ts_ms'])
+            assert not any('GET /health' in r['line'] for r in records)
+            read_logs_until(cli, 'db', 'logs', absent, '--include-health', contains='GET /health', cwd=project)
+            assert started in cli('db', 'logs', absent, cwd=project).stdout
+            tail = cli('db', 'logs', absent, '--tail', '1', '--json', cwd=project).json
+            assert len(tail) == 1
+            # More lines may arrive between reads, but the newest cannot precede a line already returned.
+            assert tail[0]['ts_ms'] >= records[-1]['ts_ms'], (tail, records[-5:])
+            # Let the startup line age out of a short window; a backend ignoring --since would return it.
+            time.sleep(2)
+            read_started = time.time()
+            recent = cli('db', 'logs', absent, '--since', '1s', '--json', cwd=project).json
+            assert not any(started in r['line'] for r in recent), recent
+            assert all(r['ts_ms'] >= int((read_started - 1) * 1000) for r in recent), recent
+
             listed = cli('db', 'list', 'pxt://pixeltable', '--json', cwd=project).json
             assert absent.rsplit(':', 1)[-1] in [entry['db'] for entry in listed], listed
             # the database now holds this project, so a second look has nothing to do
@@ -191,6 +214,14 @@ class TestDb:
 
         not_a_uri = cli('db', 'diff', 'my_dir', cwd=project, check=False)
         assert 'URI must be pxt://org:db' in not_a_uri.stderr, not_a_uri.stderr
+        table_uri = cli('db', 'logs', f'{hosted_db}/table', cwd=project, check=False)
+        assert table_uri.returncode == 2 and 'URI must be pxt://org:db' in table_uri.stderr, table_uri.stderr
+
+        # the daemon validates --since and --tail before reading anything
+        r = cli('db', 'logs', hosted_db, '--since', 'bogus', cwd=project, check=False)
+        assert r.returncode == EXIT_ERROR and 'must be a duration' in r.stderr, r.stderr
+        r = cli('db', 'logs', hosted_db, '--tail', '50000', cwd=project, check=False)
+        assert r.returncode == EXIT_ERROR and "'limit' must be <= 10000" in r.stderr, r.stderr
 
         undeclared = cli('db', 'diff', 'pxt://pixeltable:pxttest-undeclared', cwd=project, check=False)
         assert undeclared.returncode == EXIT_ERROR
@@ -203,6 +234,17 @@ class TestDb:
         assert 'pxt db update' in never_built.stderr, never_built.stderr
 
 
+class TestLocalLogs:
+    @pytest.mark.db_roots('proxy', reason='a proxy-daemon database logs to a file, which the error names')
+    def test_local_logs_error(self, cli: PxtRunner, db_root: DatabaseRoot, proxy_daemon_db: str) -> None:
+        r = cli('db', 'logs', db_root.prefix, check=False)
+        log_file = proxy_daemon.log_path(proxy_daemon_db)
+        assert r.returncode == EXIT_ERROR, r.stderr
+        assert f'not supported; the log is at {log_file}' in r.stderr, r.stderr
+        assert log_file.is_file()
+
+
+@pytest.mark.usefixtures('hosted_environment')
 class TestPodRunner:
     def test_pod_serves_project(
         self, cli: PxtRunner, project: pathlib.Path, current_db: str, tmp_path: pathlib.Path

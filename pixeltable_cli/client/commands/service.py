@@ -1,4 +1,4 @@
-"""`pxt service {diff,update,prune,stop,list,example}` - run the services an application file defines."""
+"""`pxt service {diff,update,prune,stop,list,logs,example}` - run the services an application file defines."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ...types import Resolution, ServiceChangeOp, ServiceInstance, ServicePlan
 from ...utils import PxtPath, split_pxt_uri
+from ..hosted import add_logs_args, print_logs
 from ..parser import Parser
 from ..utils import (
     EXIT_CHANGES_PENDING,
@@ -181,7 +182,21 @@ Notes:
   'pxt service diff' answers that.
 {_OWN_APP}{_HOSTED}{_APP_FILE}"""
 
-VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'restart', 'list', 'check', 'example')
+LOGS_EPILOG = """\
+Examples:
+  pxt service logs ingest                          # a bare name, when only one target has a service of that name
+  pxt service logs my_dir/ingest                   # the service of that name under my_dir
+  pxt service logs pxt://acme:main/my_dir/ingest   # the one in a hosted database
+  pxt service logs pxt://acme:main/ingest --since 10m --tail 50
+  pxt service logs pxt://acme:main/ingest --json
+
+A hosted service's log merges the serving process's log records, requests included, with its console output,
+ordered by time. The console output holds the traceback of a service that failed to start. A line appears in the
+log a few seconds after it is written. A service running on this machine logs to a local file instead, and
+'pxt service logs' reports the path of that file.
+"""
+
+VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'restart', 'list', 'logs', 'check', 'example')
 
 
 _MARKERS: dict[Resolution, str] = {
@@ -211,6 +226,7 @@ def run(argv: list[str]) -> None:
             '  stop     stop the named services\n'
             '  restart  restart the named services, onto what they already run\n'
             '  list     what is running locally, and where\n'
+            '  logs     read the log of the named service\n'
             '  check    validate the application file on its own (takes no TARGET)\n'
             '  example  write a working application file to start from\n\n'
             'APP is a Python file defining FastAPIRouter services; TARGET is the catalog directory their\n'
@@ -260,6 +276,14 @@ def run(argv: list[str]) -> None:
         ap.add_argument('--json', action='store_true', dest='as_json')
         args = ap.parse_args(argv[1:])
         _list(args.target, as_json=args.as_json)
+        return
+
+    if verb == 'logs':
+        ap = Parser(prog='pxt service logs', epilog=LOGS_EPILOG, usage_exit_code=EXIT_ERROR)
+        ap.add_argument('name', help='service name, or TARGET/NAME to disambiguate')
+        add_logs_args(ap)
+        args = ap.parse_args(argv[1:])
+        print_logs({'service': args.name}, args)
         return
 
     epilogs = {'diff': DIFF_EPILOG, 'update': UPDATE_EPILOG, 'run': RUN_EPILOG, 'prune': PRUNE_EPILOG}

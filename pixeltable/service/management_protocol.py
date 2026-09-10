@@ -33,6 +33,7 @@ class ManagementOperationType(str, Enum):
     RESTART_DB = 'restart_db'
     UPDATE_DB = 'update_db'
     GET_ARCHIVE = 'get_archive'
+    GET_LOGS = 'get_logs'
 
     LIST_ORGS = 'list_orgs'
 
@@ -206,6 +207,35 @@ class GetArchiveResponse(BaseModel):
     # loading the application file writes bytecode into the unpacked project, so a pod that walked its own
     # directory would report files the published project never held.
     fingerprint: ProjectFingerprint | None = None
+
+
+class GetLogsRequest(BaseModel):
+    """Read the log of the database pod, or of one service when service_name is given.
+
+    The log merges the process's log records with its console output, ordered by time.
+    """
+
+    operation_type: Literal[ManagementOperationType.GET_LOGS] = ManagementOperationType.GET_LOGS
+    org: str | None = None
+    db: str
+    service_name: str | None = None
+    base_path: str = ''
+    since_seconds: int = Field(default=3600, ge=1)
+    # only the newest limit lines of the window are returned
+    limit: int = Field(default=200, ge=1, le=10000)
+    # the readiness and liveness probes are nearly the whole log, so they are left out by default
+    include_health: bool = False
+
+
+class LogRecord(BaseModel):
+    # the time the line was written, in milliseconds since the epoch
+    ts_ms: int
+    line: str
+
+
+class GetLogsResponse(BaseModel):
+    # oldest first
+    records: list[LogRecord]
 
 
 # Secrets

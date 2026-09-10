@@ -26,7 +26,10 @@ def api_url() -> str:
     return _DEFAULT_API_URL if url is None else url
 
 
-_LONG_OPS = frozenset(op.value for op in (ManagementOperationType.UPDATE_DB, ManagementOperationType.DELETE_DB))
+_LONG_OPS = frozenset(
+    op.value
+    for op in (ManagementOperationType.UPDATE_DB, ManagementOperationType.DELETE_DB, ManagementOperationType.GET_LOGS)
+)
 
 # operations that don't change server state; can be sent multiple times
 _READ_OPS = frozenset(
@@ -37,6 +40,7 @@ _READ_OPS = frozenset(
         ManagementOperationType.GET_DB,
         ManagementOperationType.LIST_SERVICE_INSTANCES,
         ManagementOperationType.GET_SERVICE_INSTANCE,
+        ManagementOperationType.GET_LOGS,
     )
 )
 

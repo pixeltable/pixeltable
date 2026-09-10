@@ -8,6 +8,7 @@ since the control plane returns as soon as it has accepted the request.
 from __future__ import annotations
 
 import time
+from typing import Sequence
 
 import httpx
 
@@ -16,8 +17,11 @@ from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
     CreateServiceInstanceRequest,
     DeleteServiceInstanceRequest,
+    GetLogsRequest,
+    GetLogsResponse,
     ListServiceInstancesRequest,
     ListServiceInstancesResponse,
+    LogRecord,
     RestartServiceInstanceRequest,
     StartServiceInstanceRequest,
     StopServiceInstanceRequest,
@@ -155,6 +159,24 @@ class ServiceManagerProxy(ServiceManagerBase):
             )
         )
         self._wait_for_deleted(instance.service_name, instance.base_path)
+
+    def logs(
+        self, instance: ServiceInstance, *, since_seconds: int, limit: int, include_health: bool
+    ) -> Sequence[LogRecord]:
+        response = GetLogsResponse.model_validate(
+            management_client.api_call(
+                GetLogsRequest(
+                    org=self._org,
+                    db=self._db,
+                    service_name=instance.service_name,
+                    base_path=instance.base_path,
+                    since_seconds=since_seconds,
+                    limit=limit,
+                    include_health=include_health,
+                )
+            )
+        )
+        return response.records
 
     def _serves(self, record: ServiceInstanceRecord, base_path: str, recursive: bool) -> bool:
         if record.base_path == base_path:

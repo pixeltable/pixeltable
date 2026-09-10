@@ -12,6 +12,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import catalog
+from pixeltable.config import Config
 
 from ..conftest import SampleFileServer
 from ..utils import (
@@ -24,7 +25,15 @@ from ..utils import (
     home_bucket_uri,
     skip_test_if_not_installed,
 )
-from .conftest import BUILD_TIMEOUT, BackgroundPxt, PxtRunner, copy_app_corpus, disposable_db_uri, write_requirements
+from .conftest import (
+    BUILD_TIMEOUT,
+    BackgroundPxt,
+    PxtRunner,
+    copy_app_corpus,
+    disposable_db_uri,
+    read_logs_until,
+    write_requirements,
+)
 from .hosted import (
     APP_FILE,
     EXIT_ERROR,
@@ -749,6 +758,87 @@ class TestService:
         # a hosted one does
         assert_serving(cli, app, second, 'ingest')
 
+    @pytest.mark.db_roots('cloud', reason='a local service logs to a file, which test_logs_errors checks')
+    def test_logs(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        """A hosted service's log holds the requests it served."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app = apps('basic.py')
+        plain, nested = db_root.make_catalog_path('app'), db_root.make_catalog_path('outer/inner')
+        deploy(cli, app, plain)
+        deploy(cli, app, nested)
+        running = assert_serving(cli, app, plain, 'ingest')
+        assert_serving(cli, app, nested, 'ingest')
+
+        # the request line is logged under the router's name, the probes are dropped unless asked for, and the
+        # text output is the lines
+        _post(running['ingest']['endpoint'], '/preview', doc_id=1, title='logged', published=False)
+        records = read_logs_until(cli, 'service', 'logs', f'{plain}/ingest', contains='POST /ingest/preview')
+        assert not any('GET /ingest/health' in rec['line'] for rec in records)
+        read_logs_until(cli, 'service', 'logs', f'{plain}/ingest', '--include-health', contains='GET /ingest/health')
+        assert 'POST /ingest/preview' in cli('service', 'logs', f'{plain}/ingest').stdout
+
+        # two services with the same name at different paths have separate logs
+        nested_records = cli('service', 'logs', f'{nested}/ingest', '--json').json
+        assert not any('POST /ingest/preview' in rec['line'] for rec in nested_records), nested_records[-5:]
+        marker = '/only-nested'
+        endpoint = get_services(cli, nested)['ingest']['endpoint']
+        assert httpx.get(f'{endpoint}{marker}', timeout=_REQUEST_TIMEOUT).status_code == 404
+        read_logs_until(cli, 'service', 'logs', f'{nested}/ingest', contains=marker)
+
+        # stopping removes the pod; the lines it wrote stay readable
+        cli('service', 'stop', f'{plain}/ingest')
+        stopped = cli('service', 'logs', f'{plain}/ingest', '--json').json
+        assert any('POST /ingest/preview' in rec['line'] for rec in stopped), stopped[-5:]
+
+        # a service that fails during startup leaves its traceback in the log
+        failing = db_root.make_catalog_path('failing')
+        pxt.create_dir(failing)
+        result = cli('service', 'update', apps('failed_startup.py'), failing, '-f', check=False, timeout=600)
+        assert result.returncode == 1, result.stdout
+        records = read_logs_until(
+            cli, 'service', 'logs', f'{failing}/failed_startup', contains='RuntimeError: intentional startup failure'
+        )
+        assert any('Traceback (most recent call last)' in rec['line'] for rec in records), records[-10:]
+        assert records == sorted(records, key=lambda rec: rec['ts_ms'])
+
+    def test_logs_errors(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        """What `service logs` refuses: bad options, a name nothing serves, and a local service's file log."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app, target = apps('basic.py'), db_root.make_catalog_path('app')
+        deploy(cli, app, target)
+        assert_serving(cli, app, target, 'ingest')
+
+        # the daemon validates --since and --tail before resolving the service
+        r = cli('service', 'logs', f'{target}/ingest', '--since', 'bogus', check=False)
+        assert r.returncode == 1 and 'must be a duration' in r.stderr, r.stderr
+        r = cli('service', 'logs', f'{target}/ingest', '--tail', '50000', check=False)
+        assert r.returncode == 1 and "'limit' must be <= 10000" in r.stderr, r.stderr
+        r = cli('service', 'logs', f'{target}/nosuch', check=False)
+        assert r.returncode == 1 and 'No service' in r.stderr, r.stderr
+
+        if db_root.id == 'cloud':
+            # a bare name reaches local services only
+            r = cli('service', 'logs', 'ingest', check=False)
+            assert r.returncode == 1 and "No service 'ingest' is running" in r.stderr, r.stderr
+            return
+
+        # a local service logs to a file, and the error names it, for a qualified name and a bare one alike
+        log_file = Config.get().home.joinpath('logs', 'services', target, 'ingest.log')
+        for name in (f'{target}/ingest', 'ingest'):
+            r = cli('service', 'logs', name, check=False)
+            assert r.returncode == 1, r.stderr
+            assert f'not supported; the log is at {log_file}' in r.stderr, r.stderr
+        assert log_file.is_file()
+
+        # the same name at a second target makes the bare name ambiguous
+        other = db_root.make_catalog_path('other')
+        deploy(cli, app, other)
+        r = cli('service', 'logs', 'ingest', check=False)
+        assert r.returncode == 1 and 'ambiguous' in r.stderr, r.stderr
+        assert f'{target}/ingest' in r.stderr and f'{other}/ingest' in r.stderr
+
     @pytest.mark.db_roots('local', reason='drives the local proxy daemon directly, so the target axis adds nothing')
     def test_proxy_daemon_project_handoff(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
         """A running proxy daemon is reused for its own project, and replaced for another."""
@@ -756,7 +846,6 @@ class TestService:
         skip_test_if_not_installed('uvicorn')
         import httpx
 
-        from pixeltable.config import Config
         from pixeltable.service import proxy_daemon
 
         db = 'test_handoff'
