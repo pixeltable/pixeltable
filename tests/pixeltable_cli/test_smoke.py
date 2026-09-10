@@ -1142,7 +1142,7 @@ class TestRevert:
 
 @pytest.mark.db_roots('local', reason='client-side path-shape validator; the pxt:// prefix is validated elsewhere')
 class TestPathValidator:
-    """Client-side path validator (pixeltable_cli.client.utils.validate_path_arg). Catches every well-known
+    """Client-side path validator (pixeltable_cli.utils.validate_path_shape). Catches every well-known
     bad shape before the request reaches the server so the user gets a clear error message
     instead of a generic 'Invalid path' from pxt."""
 
@@ -1164,6 +1164,20 @@ class TestPathValidator:
         assert r.returncode != 0
         assert 'empty components' in r.stderr
 
+    def test_path_commands_reject_bad_shape(self, cli: PxtRunner) -> None:
+        """Every command taking a path runs the validator over each of its path arguments."""
+        argvs = [
+            ('columns', 'a.b'),
+            ('computed', 'a.b'),
+            ('idxs', 'a.b'),
+            ('rename', 'a.b', 'newname'),
+            ('mv', 'a.b', 'dst'),
+            ('mv', 'src/foo', 'has..dot'),
+        ]
+        results = [cli(*argv, check=False) for argv in argvs]
+        assert all(r.returncode == 2 for r in results), [r.stderr for r in results]
+        assert all('pxt paths' in r.stderr for r in results), [r.stderr for r in results]
+
     def test_server_rejects_control_chars(self, pxt_daemon: int) -> None:
         # A control character in a path would otherwise be interpolated into response headers (eg the
         # Content-Disposition emitted by dashboard_table_export), enabling header injection / response
@@ -1175,6 +1189,26 @@ class TestPathValidator:
                 urllib.request.urlopen(req)
             assert ei.value.code == 422
             assert 'control characters' in json.loads(ei.value.read())['detail']
+
+
+class TestDotSegments:
+    """The client resolves '.' and '..' before a path reaches pxt, where a dot is still the legacy
+    separator."""
+
+    def test_resolves(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('cli_dots'), if_exists='ignore')
+        pxt.create_dir(p('cli_dots/sub'), if_exists='ignore')
+        pxt.create_table(p('cli_dots/t'), {'a': pxt.Int | None}, if_exists='replace')
+
+        def listing(path: str) -> set[str]:
+            return {e['path'] for e in cli('ls', path, '--json').json['entries']}
+
+        assert listing(p('cli_dots/sub/..')) == listing(p('cli_dots'))
+        assert listing(p('cli_dots/./sub')) == listing(p('cli_dots/sub'))
+        assert listing(p('cli_dots/sub/../sub')) == listing(p('cli_dots/sub'))
+        # '..' at the root keeps the root, as it does in a shell
+        assert listing(p('..')) == listing(p(''))
 
 
 @pytest.mark.db_roots(

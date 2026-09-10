@@ -52,15 +52,6 @@ def parse_org_uri(uri: str, prog: str = 'pxt') -> str:
     return parts.org
 
 
-def parse_base_uri(uri: str, prog: str = 'pxt') -> tuple[str, str, str]:
-    """Parse pxt://org:db[/<path>] and return (org, db, base_path). Exits on error."""
-    parts = split_pxt_uri(uri)
-    if parts is None or parts.db is None:
-        print(f'{prog}: error: --base-uri must be pxt://org:db[/<dir>], got {uri!r}', file=sys.stderr)
-        sys.exit(2)
-    return parts.org, parts.db, parts.path or ''
-
-
 def add_logs_args(parser: argparse.ArgumentParser) -> None:
     """Add the options shared by `pxt db logs` and `pxt service logs`."""
     parser.add_argument('--since', default='1h', help='how far back to read: 30s, 10m, 1h, 2d (default: 1h)')
@@ -184,42 +175,14 @@ def spinner(label: str | None) -> Iterator[None]:
         yield
 
 
-def poll_state(
-    endpoint: str,
-    params: dict[str, str],
-    result_keys: tuple[str, ...],
-    pending_states: set[str],
-    interval: float,
-    timeout: float,
-    label: str | None,
-) -> dict[str, Any]:
-    """Poll a daemon route until the resource's 'state' leaves pending_states, or timeout seconds elapse.
-
-    Returns the last response read, or an empty dict if none succeeded. A failed read is retried until the
-    deadline, so a resource that is briefly unreachable mid-transition doesn't abort the wait.
-    """
-    result: dict[str, Any] = {}
-    deadline = time.monotonic() + timeout
-    with spinner(label):
-        while time.monotonic() < deadline:
-            time.sleep(interval)
-            try:
-                resp = get_request(endpoint, params)
-            except SystemExit:
-                raise
-            except Exception:
-                continue
-            result = resp if isinstance(resp, dict) else {}
-            for key in result_keys:
-                result = result.get(key, {}) if isinstance(result, dict) else {}
-            if result.get('state') not in pending_states:
-                break
-    return result
+def db_state(database: dict[str, Any]) -> str | None:
+    """The state a hosted database reports, which sits under `status`."""
+    return (database.get('status') or {}).get('state')
 
 
-def exit_unless_reached(result: dict[str, Any], expected_state: str, operation: str) -> None:
-    """Exit with 1 unless the operation reached expected_state."""
-    state = result.get('state')
+def exit_unless_reached(database: dict[str, Any], expected_state: str, operation: str) -> None:
+    """Exit with 1 unless the database reached expected_state."""
+    state = db_state(database)
     if state == expected_state:
         return
     seen = 'no state was read' if state is None else f'last state: {state}'
@@ -228,13 +191,23 @@ def exit_unless_reached(result: dict[str, Any], expected_state: str, operation: 
 
 
 def poll_db(org: str, db: str, pending_states: set[str], label: str | None) -> dict[str, Any]:
-    """Poll a hosted database until its state leaves pending_states."""
-    return poll_state(
-        '/api/db',
-        {'org': org, 'db': db},
-        ('database', 'status'),
-        pending_states,
-        DB_POLL_INTERVAL,
-        DB_POLL_TIMEOUT,
-        label,
-    )
+    """Poll a hosted database until its state leaves pending_states, and return what was last read.
+
+    Returns an empty dict if no read succeeded. A failed read is retried until the deadline, so a
+    database briefly unreachable mid-transition does not abort the wait.
+    """
+    database: dict[str, Any] = {}
+    deadline = time.monotonic() + DB_POLL_TIMEOUT
+    with spinner(label):
+        while time.monotonic() < deadline:
+            time.sleep(DB_POLL_INTERVAL)
+            try:
+                resp = get_request('/api/db', {'org': org, 'db': db})
+            except SystemExit:
+                raise
+            except Exception:
+                continue
+            database = resp.get('database', {}) if isinstance(resp, dict) else {}
+            if db_state(database) not in pending_states:
+                break
+    return database

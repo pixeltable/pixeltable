@@ -245,6 +245,12 @@ class TestDb:
         assert 'URI must be pxt://org:db' in not_a_uri.stderr, not_a_uri.stderr
         table_uri = cli('db', 'logs', f'{test_db_uri}/table', cwd=project, check=False)
         assert table_uri.returncode == 2 and 'URI must be pxt://org:db' in table_uri.stderr, table_uri.stderr
+        # 'db diff' takes a database URI, 'db list' an org URI
+        for bad in ('pxt://pixeltable', 'pxt://pixeltable:pxttest/'):
+            r = cli('db', 'diff', bad, cwd=project, check=False)
+            assert r.returncode == 2 and 'URI must be pxt://org:db' in r.stderr, r.stderr
+        org_with_db = cli('db', 'list', test_db_uri, cwd=project, check=False)
+        assert org_with_db.returncode == 2 and 'URI must be pxt://org,' in org_with_db.stderr, org_with_db.stderr
 
         # the daemon validates --since and --tail before reading anything
         r = cli('db', 'logs', test_db_uri, '--since', 'bogus', cwd=project, check=False)
