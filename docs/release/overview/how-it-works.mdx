@@ -41,7 +41,7 @@ Set `base=Docs` to make a view of `Docs`. The view can use columns from that bas
 
 `pxt schema example` writes a long sample. `--brief` writes only a small set of classes. Create tables with `pxt schema update app.py my_app`. Extra tables in that namespace stay until you run `pxt schema prune`, which deletes them.
 
-A `@pxt.udf` defined in `app.py` is recorded by file path. A script run as `__main__` is refused. Renaming `app.py` leaves columns that call it unable to compute. On Cloud, `pxt db update` puts the project in the image so workers can resolve that path ([Deploy to Pixeltable Cloud](/howto/deployment/cloud)).
+`pxt schema update` imports `app.py` as a module, so a `@pxt.udf` there is recorded by file path. A UDF defined in a script you run with `python app.py` is refused. Renaming `app.py` leaves columns that call it unable to compute. On Cloud, `pxt db update` puts the project in the image so workers can resolve that path ([Deploy to Pixeltable Cloud](/howto/deployment/cloud)).
 
 ## Services
 

@@ -140,7 +140,7 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
 </Tabs>
 
 <Note>
-This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`. The skill writes that `TableModel`. If the agent writes `create_table` in app code, `schema.py`, or `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`.
+This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`. The skill writes that `TableModel`. If the agent writes `create_table` in app code, names the file `schema.py`, or writes the removed command `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`.
 </Note>
 
 ## Next

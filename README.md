@@ -115,7 +115,7 @@ Hand the agent [get-started.md](https://www.pixeltable.com/get-started.md). That
 npx skills add pixeltable/pixeltable-skill
 ```
 
-The skill writes a `TableModel` in `app.py`. If the agent writes `create_table` in application code, `schema.py`, or `pxt serve`, the installed skill is stale: reinstall `npx skills add pixeltable/pixeltable-skill`.
+The skill writes a `TableModel` in `app.py`. If the agent writes `create_table` in application code, names the file `schema.py`, or writes the removed command `pxt serve`, the installed skill is stale: reinstall `npx skills add pixeltable/pixeltable-skill`.
 
 Notebooks and tests still use `pxt.create_table()`. An app puts tables in `app.py` and creates them with `pxt schema update`.
 
