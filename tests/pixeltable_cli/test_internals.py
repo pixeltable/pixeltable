@@ -1750,6 +1750,7 @@ _POST_ROUTE_REQUESTS = [
 
 _GET_ROUTE_REQUESTS = [
     (server_routes.list_orgs, {}, ListOrgsRequest()),
+    (server_routes.list_dbs, {}, ListDbRequest()),
     (server_routes.list_dbs, {'org': ['acme']}, ListDbRequest(org='acme')),
     (server_routes.get_db, {'org': ['acme'], 'db': ['main']}, GetDbRequest(org='acme', db='main')),
 ]

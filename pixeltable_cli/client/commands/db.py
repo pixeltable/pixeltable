@@ -7,16 +7,7 @@ import json
 import sys
 
 from ...types import DbChangeOp, DbPlan, Resolution
-from ..hosted import (
-    add_logs_args,
-    exit_unless_reached,
-    parse_org_uri,
-    poll_db,
-    print_db,
-    print_logs,
-    resolve_db_uri,
-    spinner,
-)
+from ..hosted import add_logs_args, exit_unless_reached, poll_db, print_db, print_logs, resolve_db_uri, spinner
 from ..parser import Parser
 from ..utils import EXIT_CHANGES_PENDING, EXIT_IN_AGREEMENT, EXIT_REFUSED, confirm_or_exit, get_request, post_request
 

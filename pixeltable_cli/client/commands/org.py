@@ -12,6 +12,7 @@ from ..utils import get_request
 EPILOG = """\
 Examples:
   pxt org list
+  pxt org status
   pxt org status pxt://org
 """
 
@@ -24,7 +25,7 @@ def run(argv: list[str]) -> None:
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('status', help='show status of an organization')
-    p.add_argument('org_uri', help='Org URI: pxt://org')
+    p.add_argument('org_uri', nargs='?', help='Org URI: pxt://org (default: the only org you have)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     args = parser.parse_args(argv)
@@ -48,8 +49,8 @@ def _list(args: argparse.Namespace) -> None:
 
 
 def _status(args: argparse.Namespace) -> None:
-    org = parse_org_uri(args.org_uri, prog='pxt org status')
-    resp = get_request('/api/org', {'org': org})
+    params = {} if args.org_uri is None else {'org': parse_org_uri(args.org_uri, prog='pxt org status')}
+    resp = get_request('/api/org', params)
     result = resp.get('org', resp) if isinstance(resp, dict) else {}
     if args.json_output:
         print(json.dumps(result))
