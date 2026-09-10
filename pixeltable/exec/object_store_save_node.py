@@ -185,7 +185,6 @@ class ObjectStoreSaveNode(ExecNode):
             new_file_url, exc = f.result()
             if exc is not None and not ignore_errors:
                 raise exc
-            assert new_file_url is not None
 
             if exc is None:
                 num_objects += 1
@@ -196,6 +195,7 @@ class ObjectStoreSaveNode(ExecNode):
                 if exc is not None:
                     self.row_builder.set_exc(row, info.slot_idx, exc)
                 else:
+                    assert new_file_url is not None
                     row.file_urls[info.slot_idx] = new_file_url
 
                 state = self.in_flight_rows[id(row)]
