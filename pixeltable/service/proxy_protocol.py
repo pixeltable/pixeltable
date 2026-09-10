@@ -116,7 +116,8 @@ class PxtStorePartSink(PartSink[int | str]):
     Each part's key is minted during serialization, but the transfer itself is deferred to flush() so that a
     request's uploads run concurrently rather than one per part.
 
-    Scalars (tags 'bytes'/'ndarray') take the same path once they reach _MIN_OUT_OF_BAND_SIZE.
+    Scalars (tags 'bytes'/'ndarray') take the same path if the exceed _MIN_OUT_OF_BAND_SIZE; otherwise they
+    are inlined.
     """
 
     _MAX_UPLOAD_THREADS = 16
