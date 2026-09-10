@@ -521,6 +521,22 @@ class ObjectOps:
         return dest2
 
     @classmethod
+    def presigned_url(cls, uri: str, expiration_seconds: int) -> str:
+        """An HTTP URL that reads the object at an object-store uri without credentials. An HTTP uri is returned
+        as is; a local file uri is rejected, since it cannot be served over HTTP."""
+        soa = ObjectPath.parse_object_storage_addr(uri, allow_obj_name=True)
+        if soa.storage_target == StorageTarget.HTTP_STORE:
+            return uri
+        if soa.storage_target == StorageTarget.LOCAL_STORE:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'Cannot generate presigned URL for local file:// URLs. '
+                'Please use cloud storage (S3, GCS, Azure) for presigned URLs.',
+            )
+        store = cls.get_store(soa, allow_obj_name=True)
+        return store.create_presigned_url(soa, expiration_seconds)
+
+    @classmethod
     def copy_object_to_local_file(cls, src_uri: str, dest_path: Path) -> None:
         """Copy an object from a URL to a local Path. Thread safe.
         Raises an exception if the download fails or the scheme is not supported

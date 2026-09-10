@@ -20,7 +20,7 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Literal, NamedTuple, TypeVar, overload
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -35,8 +35,8 @@ from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
-from pixeltable.utils.object_stores import ObjectPath
-from pixeltable.utils.sql import add_option_to_db_url
+from pixeltable.utils.object_stores import ObjectPath, StorageTarget
+from pixeltable.utils.sql import add_option_to_db_url, redact_db_url
 
 if TYPE_CHECKING:
     # aliased to avoid clashing with pathlib.Path above; env<->catalog is circular, so this stays type-only
@@ -140,6 +140,8 @@ class Env:
     _default_input_media_dest: str | None
     _default_output_media_dest: str | None
     _pxt_api_key: str | None
+    _object_store_clients: dict[tuple[StorageTarget, ObjectStoreClientKind], S3CompatClientDict]
+    _object_store_clients_lock: threading.Lock
     _default_video_encoder: str | None
     _default_video_encoder_lock: threading.Lock
     _initialized: bool
@@ -180,6 +182,8 @@ class Env:
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
 
         self._media_dir = None  # computed media files
+        self._object_store_clients = {}
+        self._object_store_clients_lock = threading.Lock()
         self._file_cache_dir = None  # cached object files with external URL
         self._dataset_cache_dir = None  # cached datasets (eg, pytorch or COCO)
         self._log_dir = None  # log files
@@ -219,6 +223,11 @@ class Env:
         return self._db_url
 
     @property
+    def redacted_db_url(self) -> str:
+        """The db url with its password masked, for logging and for display."""
+        return redact_db_url(self.db_url)
+
+    @property
     def http_address(self) -> str:
         assert self._http_address is not None
         return self._http_address
@@ -226,6 +235,25 @@ class Env:
     @property
     def is_proxy_daemon(self) -> bool:
         return os.environ.get('PIXELTABLE_PROXY_DAEMON') == '1'
+
+    @overload
+    def hosted_db(self, *, required: Literal[True]) -> tuple[str, str]: ...
+
+    @overload
+    def hosted_db(self, *, required: bool = False) -> tuple[str, str] | None: ...
+
+    def hosted_db(self, *, required: bool = False) -> tuple[str, str] | None:
+        """(org, db) of the hosted database; the cloud sets PXTCLOUD_ORG and PXTCLOUD_DB on its pods."""
+        org = os.environ.get('PXTCLOUD_ORG')
+        db = os.environ.get('PXTCLOUD_DB')
+        if org and db:
+            return org, db
+        if required:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                'Internal error: PXTCLOUD_ORG and PXTCLOUD_DB are not present in the container.',
+            )
+        return None
 
     @property
     def user(self) -> str | None:
@@ -363,6 +391,14 @@ class Env:
 
         self._default_input_media_dest = config.get_string_value('input_media_dest')
         self._default_output_media_dest = config.get_string_value('output_media_dest')
+        hosted_db = self.hosted_db()
+        if hosted_db is not None:
+            org, db = hosted_db
+            home_bucket = f'pxtfs://{org}:{db}/home'
+            if self._default_input_media_dest is None:
+                self._default_input_media_dest = home_bucket
+            if self._default_output_media_dest is None:
+                self._default_output_media_dest = home_bucket
         for mode, uri in (('input', self._default_input_media_dest), ('output', self._default_output_media_dest)):
             if uri is not None:
                 try:
@@ -463,13 +499,13 @@ class Env:
 
             create_db = not self._store_db_exists(self._db_name)
             if create_db:
-                _logger.info(f'creating database at: {self.db_url}')
+                _logger.info(f'creating database at: {self.redacted_db_url}')
                 self._create_store_db()
             else:
-                _logger.info(f'found database at: {self.db_url}')
+                _logger.info(f'found database at: {self.redacted_db_url}')
         else:
             # External DB: pre-provisioned; no local setup needed.
-            _logger.info(f'Using external database at: {self.db_url}')
+            _logger.info(f'Using external database at: {self.redacted_db_url}')
 
         # Create the SQLAlchemy engine. This will also set the default time zone.
         self._create_engine(time_zone_name=tz_name, echo=echo)
@@ -477,7 +513,7 @@ class Env:
         # Create catalog tables and system metadata
         self._init_metadata()
 
-        self.console_logger.info(f'Connected to Pixeltable database at: {self.db_url}')
+        self.console_logger.info(f'Connected to Pixeltable database at: {self.redacted_db_url}')
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()
@@ -490,8 +526,11 @@ class Env:
         if db_connect_str is not None:
             try:
                 db_url = sql.make_url(db_connect_str)
-            except sql.exc.ArgumentError as e:
-                error = f'Invalid db connection string {db_connect_str}: {e}'
+            except (sql.exc.ArgumentError, ValueError) as e:
+                # SQLAlchemy quotes the whole string it could not parse, password and all; replacing the
+                # empty string would put the marker between every character of the message
+                detail = str(e) if db_connect_str == '' else str(e).replace(db_connect_str, '<redacted>')
+                error = f'Invalid db connection string: {detail}'
                 _logger.error(error)
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error) from e
             self._db_url = db_url.render_as_string(hide_password=False)
@@ -513,7 +552,7 @@ class Env:
                 # External PostgreSQL: database is pre-provisioned. Connect directly — no existence check needed.
             else:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
-            _logger.info(f'Using database at: {self.db_url}')
+            _logger.info(f'Using database at: {self.redacted_db_url}')
         else:
             # the database name is an identifier, and is folded everywhere else it enters (Path, pxt localproxy)
             from pixeltable.catalog.globals import fold_identifier
@@ -583,7 +622,7 @@ class Env:
             pool_pre_ping=True,
         )
 
-        _logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
+        _logger.info(f'Created SQLAlchemy engine at: {self.redacted_db_url}')
         _logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
         _logger.info(f'Engine driver : {self._sa_engine.dialect.driver}')
         _logger.info(f'Engine connection pool: {pool_size} + {pool_max_overflow}')
@@ -696,6 +735,15 @@ class Env:
                         f'Invalid PIXELTABLE_CLOUD_HOST value: port {port_str!r} is not a valid integer.',
                     ) from err
         return f'{org}-{db}.{domain}', port
+
+    def object_store_clients(self, target: StorageTarget, kind: ObjectStoreClientKind = 'client') -> S3CompatClientDict:
+        """The boto3 client (or resource) cache of an S3-compatible storage target."""
+        with self._object_store_clients_lock:
+            key = (target, kind)
+            if key not in self._object_store_clients:
+                profile = Config.get().get_string_value(f'{target.value}_profile')
+                self._object_store_clients[key] = S3CompatClientDict(profile=profile, clients={})
+            return self._object_store_clients[key]
 
     def create_client(self, name: str) -> Any:
         """
@@ -1087,6 +1135,17 @@ def register_client(name: str, *, credential_param: str | None) -> Callable:
 
 _client_factories_lock: threading.Lock = threading.Lock()
 _client_factories: dict[str, ApiClientFactory] = {}
+
+
+# boto3 offers two access APIs per storage target, each with its own object type
+ObjectStoreClientKind = Literal['client', 'resource']
+
+
+class S3CompatClientDict(NamedTuple):
+    """Container for S3-compatible storage access objects (R2, B2, etc.)."""
+
+    profile: str | None  # AWS-style profile used to locate credentials
+    clients: dict[str, Any]  # Map of endpoint URL to boto3 client instance
 
 
 @dataclass
