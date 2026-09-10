@@ -560,7 +560,8 @@ class TableVersion:
             # add the columns and update the metadata
             # TODO support on_error='abort' for indices; it's tricky because of the way metadata changes are entangled
             # with the database operations
-            status = self._add_columns(new_cols, print_stats=False, on_error='ignore')
+            self._record_columns(new_cols)
+            status = self._populate_columns(new_cols, print_stats=False, on_error='ignore')
         # now create the index structure
         self._create_index(col, val_col, undo_col, idx_name, idx)
         return status
@@ -694,7 +695,7 @@ class TableVersion:
         # we're creating a new schema version
         start_ts = time.perf_counter()
         self.bump_version(bump_schema_version=True)
-        status = self._add_columns_in_version(cols, print_stats=print_stats, on_error=on_error)
+        status = self._apply_column_changes(cols, (), print_stats=print_stats, on_error=on_error)
         self.set_version_update_status(status)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
@@ -710,12 +711,8 @@ class TableVersion:
         _logger.info(f'Columns {[col.name for col in cols]}: {msg}')
         return status
 
-    def _add_columns(
-        self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
-    ) -> UpdateStatus:
-        """Add and populate columns within the current transaction"""
-        from pixeltable.plan import Planner
-
+    def _record_columns(self, cols: Iterable[Column]) -> None:
+        """Record columns in this version's metadata and create their store columns, leaving them unpopulated."""
         cols_to_add = list(cols)
 
         row_count = self.store_tbl.count()
@@ -727,8 +724,6 @@ class TableVersion:
                     f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows',
                 )
 
-        num_excs = 0
-        cols_with_excs: list[Column] = []
         next_pos = self._next_col_pos()
         for col in cols_to_add:
             assert col.id is not None
@@ -752,6 +747,16 @@ class TableVersion:
             # create_add_column_plan() call (e.g. for a btree index column) sees the new column.
             self.path.clear_cached_md()
 
+    def _populate_columns(
+        self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
+    ) -> UpdateStatus:
+        """Compute and store the values of cols. The columns must be already recorded in this version's metadata."""
+        from pixeltable.plan import Planner
+
+        row_count = self.store_tbl.count()
+        num_excs = 0
+        cols_with_excs: list[Column] = []
+        for col in cols:
             if not col.is_computed or not col.is_stored or row_count == 0:
                 continue
 
@@ -923,16 +928,8 @@ class TableVersion:
         validate_idxs(self.id, added_idxs, self.has_default_idxs, self.idxs.values())
 
         status = UpdateStatus()
-        if len(added_cols) > 0:
-            status += self._add_columns_in_version(added_cols, print_stats=False, on_error='abort')
-
-        # alter computed columns after adding new columns, so that a new value can reference columns added in the same
-        # change set.
-        added_col_refs = self._col_ref_substitutions(added_cols)
-        resolved_alters = [(col, expr.substitute(added_col_refs)) for col, expr in altered_cols]
-        self._validate_no_dependency_cycles({col.id: expr for col, expr in resolved_alters})
-        for col, new_value_expr in resolved_alters:
-            self._alter_value_expr_in_version(col, new_value_expr)
+        if len(added_cols) > 0 or len(altered_cols) > 0:
+            status += self._apply_column_changes(added_cols, altered_cols, print_stats=False, on_error='abort')
 
         for col, idx_name, idx in added_idxs:
             assert isinstance(col, Column)
@@ -945,22 +942,27 @@ class TableVersion:
         _logger.info(f'Applied model updates to table {self.name}, new version: {self.version}')
         return status
 
-    def _add_columns_in_version(
-        self, cols: list[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
+    def _apply_column_changes(
+        self,
+        new_cols: list[Column],
+        altered_cols: Sequence[tuple[Column, exprs.Expr]],
+        print_stats: bool,
+        on_error: Literal['abort', 'ignore'],
     ) -> UpdateStatus:
-        """Add cols within the current schema version, each with a default btree index if the table enables those.
+        """Add new_cols within the current schema version, each with a default btree index if the table enables those,
+        and replace the value expressions of altered_cols.
 
         - the caller is responsible for recording the schema version change
         - value expressions that carry ColumnRefByName placeholders are resolved against cols, which need to be in
           declaration order, so a computed column only refers back to columns preceding it
         - an expression without placeholders is left as it is.
         """
-        assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
-        assert all(col.stored is not None for col in cols)
-        assert all(col.name not in self.cols_by_name for col in cols if col.name is not None)
+        assert all(is_valid_identifier(col.name) for col in new_cols if col.name is not None)
+        assert all(col.stored is not None for col in new_cols)
+        assert all(col.name not in self.cols_by_name for col in new_cols if col.name is not None)
 
         # assign column ids
-        for col in cols:
+        for col in new_cols:
             if col.is_pk:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -970,8 +972,8 @@ class TableVersion:
             col.id = self.next_col_id()
 
         # the ids exist now, so a placeholder can be resolved to the column it names
-        subst = self._col_ref_substitutions(cols)
-        for col in cols:
+        subst = self._col_ref_substitutions(new_cols)
+        for col in new_cols:
             value_expr = col.value_expr
             if value_expr is not None:
                 col.set_value_expr(value_expr.substitute(subst))
@@ -980,7 +982,7 @@ class TableVersion:
 
         index_cols: dict[Column, tuple[index.BtreeIndex, Column | None, Column | None]] = {}
         all_cols: list[Column] = []
-        for col in cols:
+        for col in new_cols:
             all_cols.append(col)
             if self.has_default_idxs and col.name is not None and index.BtreeIndex.can_index(col):
                 idx = index.BtreeIndex(uses_value_col=self.is_data_versioned)
@@ -988,7 +990,20 @@ class TableVersion:
                 index_cols[col] = (idx, val_col, undo_col)
                 all_cols.extend(c for c in (val_col, undo_col) if c is not None)
 
-        status = self._add_columns(all_cols, print_stats=print_stats, on_error=on_error)
+        self._record_columns(all_cols)
+
+        # altered_cols are applied after cols are recorded, so that a new value expression can reference a column that
+        # this change set adds, and before anything is populated, so that a new column is computed from the value
+        # expressions the change set ends up with
+        resolved_alters = [(col, expr.substitute(self._col_ref_substitutions(new_cols))) for col, expr in altered_cols]
+        self._validate_no_dependency_cycles({col.id: expr for col, expr in resolved_alters})
+        for col, new_value_expr in resolved_alters:
+            self._alter_value_expr_in_version(col, new_value_expr)
+        if len(resolved_alters) > 0:
+            # the altered value expressions are part of the CVMD that create_add_column_plan() reads below
+            self.path.clear_cached_md()
+
+        status = self._populate_columns(all_cols, print_stats=print_stats, on_error=on_error)
         # create the indices and their md records only once the columns they index exist
         for col, (idx, val_col, undo_col) in index_cols.items():
             self._create_index(col, val_col, undo_col, idx_name=None, idx=idx)

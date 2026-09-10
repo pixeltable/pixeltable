@@ -2816,6 +2816,7 @@ class TestTableModel:
             id: pxt.Int
             extra: pxt.Int
             doubled = id * 2 + extra
+            u = Column(value=id * 3, stored=False)
 
         class ExampleView(TableModel, name='test_view', base=ExampleTable):
             vc1 = ExampleTable.doubled + 1
@@ -2832,6 +2833,7 @@ class TestTableModel:
             id: pxt.Int
             extra: pxt.Int
             doubled = id * 100 + extra
+            u = Column(value=id * 3, stored=False)
 
         class AlteredView(AlteredModel, name='test_view', base=AlteredTable):
             vc1 = AlteredTable.doubled + 1
@@ -2855,7 +2857,8 @@ class TestTableModel:
         v = pxt.get_table(p('test_view'))
         assert v.select(v.vc1).order_by(v.id).collect()['vc1'] == [101, 201]
 
-        # a new dependency, on a column added in the same change set
+        # one change set that adds a column an altered one depends on (bonus), and one that depends on an altered
+        # one (s).
         WidenedModel = pxt.model_base()
 
         class WidenedTable(WidenedModel, name='test_table'):
@@ -2863,17 +2866,26 @@ class TestTableModel:
             extra: pxt.Int
             bonus = id * 1000
             doubled = id * 100 + extra + bonus
+            u = Column(value=id * 7, stored=False)
+            s = u + 1  # type: ignore[operator]
 
         class WidenedView(WidenedModel, name='test_view', base=WidenedTable):
             vc1 = WidenedTable.doubled + 1
 
         diff = WidenedModel.get_model_diff(root)['test_table']
         assert diff.resolution == 'update_additive'
-        assert {(op.op, op.name) for op in diff.ops} == {('alter', 'doubled'), ('add', 'bonus')}
+        assert {(op.op, op.name) for op in diff.ops} == {
+            ('alter', 'doubled'),
+            ('add', 'bonus'),
+            ('alter', 'u'),
+            ('add', 's'),
+        }
 
         WidenedModel.update_all(root)
         t = pxt.get_table(p('test_table'))
         assert all(d.resolution == 'up_to_date' for d in WidenedModel.get_model_diff(root).values())
+        # s must be populated using u's new expression
+        assert t.select(t.u, t.s).order_by(t.id).collect()[0] == {'u': 7, 's': 8}
         t.recompute_columns('doubled')
         assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [1100, 2200]
 
@@ -2893,6 +2905,8 @@ class TestTableModel:
             ('column', 'alter', 'doubled'),
             ('column', 'drop', 'bonus'),
             ('column', 'drop', 'extra'),
+            ('column', 'drop', 's'),
+            ('column', 'drop', 'u'),
         }
 
         NarrowedModel.update_all(root, allow_destructive=True)
