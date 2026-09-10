@@ -568,8 +568,7 @@ def format_diff(name: str, diff: TableDiff) -> list[str]:
             detail.append(f'    {c.name!r}: {c.existing["value"]} -> {c.model["value"]}')
         # If any computed column's expression changed, include the recompute notice
         if any(c.details.previous_value is not None for c in supported_alters):
-            detail.append('  the current values of these columns are not recomputed automatically.')
-            detail.append('  run `pxt recompute` to do that.')
+            detail.append('  existing values will not be recomputed; use `pxt recompute` to do so.')
 
     new_cols = by('column', op='add')
     if len(new_cols) > 0:

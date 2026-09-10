@@ -488,8 +488,8 @@ class Table(SchemaObject):
             Change a computed column to use a different scaling factor:
 
             >>> tbl = pxt.create_table('my_table', {'n': pxt.Int})
-            ... tbl.add_computed_column(scaled=tbl.n * 2)
-            ... tbl.alter_computed_column(scaled=tbl.n * 3)
+            >>> tbl.add_computed_column(scaled=tbl.n * 2)
+            >>> tbl.alter_computed_column(scaled=tbl.n * 3)
 
             Update the definition without recomputing the existing rows:
 
