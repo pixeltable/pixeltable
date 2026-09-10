@@ -11,6 +11,7 @@ import httpx
 import pytest
 
 import pixeltable as pxt
+from pixeltable.config import Config
 
 from ..utils import DatabaseRoot, get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
 from .conftest import (
@@ -710,11 +711,12 @@ class TestService:
             return
 
         # a local service logs to a file, and the error names it, for a qualified name and a bare one alike
+        log_file = Config.get().home.joinpath('logs', 'services', target, 'ingest.log')
         for name in (f'{target}/ingest', 'ingest'):
             r = cli('service', 'logs', name, check=False)
             assert r.returncode == 1, r.stderr
-            log_file = pathlib.Path(r.stderr.split('the log is at ')[1].strip())
-            assert log_file.name == 'ingest.log' and log_file.is_file(), r.stderr
+            assert f'not supported; the log is at {log_file}' in r.stderr, r.stderr
+        assert log_file.is_file()
 
         # the same name at a second target makes the bare name ambiguous
         other = db_root.make_catalog_path('other')
@@ -730,7 +732,6 @@ class TestService:
         skip_test_if_not_installed('uvicorn')
         import httpx
 
-        from pixeltable.config import Config
         from pixeltable.service import proxy_daemon
 
         db = 'test_handoff'

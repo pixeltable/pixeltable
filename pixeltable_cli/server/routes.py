@@ -13,7 +13,7 @@ from pixeltable.catalog import Path, fold_identifier
 from pixeltable.catalog.model import schema
 from pixeltable.config import SECRET_SECTION, Config
 from pixeltable.env import Env
-from pixeltable.service import db, management_client
+from pixeltable.service import db, management_client, proxy_daemon
 from pixeltable.service.management_protocol import (
     DeleteDbRequest,
     DeleteSecretRequest,
@@ -841,13 +841,16 @@ def get_logs(req: Request) -> dict[str, Any]:
             PxtPath(service_address), since_seconds=int(since_seconds), limit=limit, include_health=include_health
         )
         return GetLogsResponse(records=list(records)).model_dump(mode='json')
+    org, db_name = req.required_query_str('org'), req.required_query_str('db')
+    if org == 'local':
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'Reading the log of a database on this machine is not supported; the log is at '
+            f'{proxy_daemon.log_path(db_name)}',
+        )
     return management_client.api_call(
         GetLogsRequest(
-            org=req.required_query_str('org'),
-            db=req.required_query_str('db'),
-            since_seconds=int(since_seconds),
-            limit=limit,
-            include_health=include_health,
+            org=org, db=db_name, since_seconds=int(since_seconds), limit=limit, include_health=include_health
         )
     )
 

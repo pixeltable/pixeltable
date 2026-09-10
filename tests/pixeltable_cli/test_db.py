@@ -13,7 +13,8 @@ from typing import Any, Iterator
 
 import pytest
 
-from tests.utils import skip_test_if_no_config
+from pixeltable.service import proxy_daemon
+from tests.utils import DatabaseRoot, skip_test_if_no_config
 
 from .conftest import BUILD_TIMEOUT, PxtRunner, disposable_db_uri, read_logs_until, write_requirements
 
@@ -152,6 +153,14 @@ class TestDb:
         ops = cli('db', 'build-image', test_db_uri, '--json', cwd=project, timeout=BUILD_TIMEOUT).json
         assert [op['target'] for op in ops] == ['image']
         assert all(op['status'] == 'applied' for op in ops), ops
+
+    @pytest.mark.db_roots('proxy', reason='a proxy-daemon database logs to a file, which the error names')
+    def test_local_logs_error(self, cli: PxtRunner, db_root: DatabaseRoot, proxy_daemon_db: str) -> None:
+        r = cli('db', 'logs', db_root.prefix, check=False)
+        log_file = proxy_daemon.log_path(proxy_daemon_db)
+        assert r.returncode == EXIT_ERROR, r.stderr
+        assert f'not supported; the log is at {log_file}' in r.stderr, r.stderr
+        assert log_file.is_file()
 
     def test_db_errors(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
         skip_test_if_no_config('api_key')
