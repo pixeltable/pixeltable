@@ -8,6 +8,7 @@ import urllib.request
 from pathlib import Path
 from typing import ClassVar
 
+import PIL.Image
 import pytest
 import requests
 
@@ -15,10 +16,22 @@ import pixeltable as pxt
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.net import presigned_url
+from pixeltable.functions.video import extract_frame
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
-from .utils import DatabaseRoot, check_media_store_count, pxt_raises, rerun_on_network_error, skip_test_if_not_installed
+from .utils import (
+    DatabaseRoot,
+    check_media_store_count,
+    get_audio_files,
+    get_image_files,
+    get_video_files,
+    home_bucket_uri,
+    pxt_raises,
+    rerun_on_network_error,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 
 @rerun_on_network_error()
@@ -441,6 +454,50 @@ class TestDestination:
         pxt.drop_table(t)
         for uri in dest_uris:
             assert ObjectOps.count(t._id, dest=uri) == 0
+
+    @pytest.mark.db_roots('cloud', reason='the home bucket default applies to a hosted database only')
+    def test_home_bucket_default(self, db_root: DatabaseRoot) -> None:
+        """Media that names no destination lands in the hosted database's home bucket; a column that names one goes
+        there instead."""
+        p = db_root.make_catalog_path
+        home = home_bucket_uri(db_root.prefix)
+        elsewhere = f'{home}/elsewhere'
+        t = pxt.create_table(
+            p('home_default'), {'img': pxt.Image, 'video': pxt.Video | None, 'audio': pxt.Audio | None}
+        )
+        t.add_computed_column(rot=t.img.rotate(90))
+        t.add_computed_column(frame=extract_frame(t.video, timestamp=0.0))
+        t.add_computed_column(rot_elsewhere=t.img.rotate(180), destination=elsewhere)
+        rows = [
+            {'img': get_image_files()[0], 'video': get_video_files()[0], 'audio': get_audio_files()[0]},
+            {'img': PIL.Image.new('RGB', (8, 6), color=(1, 2, 3))},
+        ]
+        validate_update_status(t.insert(rows), expected_rows=2)
+
+        # the inserted files, the in-memory image and the computed media all sit under the table's prefix in the
+        # bucket, so none of them is left under uploads/, whose objects expire
+        tbl_prefix = ObjectPath.table_prefix(t._id)
+        urls = t.select(t.img.fileurl, t.video.fileurl, t.audio.fileurl, t.rot.fileurl, t.frame.fileurl).collect()
+        home_urls = [url for row in urls for url in row.values() if url is not None]
+        assert len(home_urls) == 7, home_urls
+        assert all(url.startswith(f'{home}/{tbl_prefix}/') for url in home_urls), home_urls
+        elsewhere_urls = t.select(t.rot_elsewhere.fileurl).collect()['rot_elsewhere_fileurl']
+        assert all(url.startswith(f'{elsewhere}/{tbl_prefix}/') for url in elsewhere_urls), elsewhere_urls
+        assert ObjectOps.count(t._id, dest=home) == 7
+        assert ObjectOps.count(t._id, dest=elsewhere) == 2
+
+        # the cells read back from the bucket
+        read = t.select(t.img, t.rot, t.rot_elsewhere, t.video, t.audio).collect()
+        assert all(isinstance(row[col], PIL.Image.Image) for row in read for col in ('img', 'rot', 'rot_elsewhere'))
+        assert (8, 6) in {row['img'].size for row in read}
+        assert all(
+            Path(row[col]).stat().st_size > 0 for row in read for col in ('video', 'audio') if row[col] is not None
+        )
+
+        save_id = t._id
+        pxt.drop_table(t)
+        assert ObjectOps.count(save_id, dest=home) == 0
+        assert ObjectOps.count(save_id, dest=elsewhere) == 0
 
     @pytest.mark.db_roots('local', reason='media destination/object-store internals')
     @pytest.mark.very_expensive

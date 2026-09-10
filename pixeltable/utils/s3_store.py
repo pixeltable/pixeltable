@@ -3,7 +3,7 @@ import re
 import urllib.parse
 import uuid
 from pathlib import Path
-from typing import Any, Iterator, NamedTuple
+from typing import Any, Iterator
 
 import boto3
 import botocore
@@ -12,9 +12,8 @@ from boto3.resources.base import ServiceResource
 from botocore.client import BaseClient
 from botocore.exceptions import ClientError, ConnectionError
 
-from pixeltable import env, exceptions as excs
-from pixeltable.config import Config
-from pixeltable.runtime import get_runtime
+from pixeltable import exceptions as excs
+from pixeltable.env import Env
 from pixeltable.utils.object_stores import (
     FileDestination,
     ObjectPath,
@@ -24,61 +23,6 @@ from pixeltable.utils.object_stores import (
 )
 
 _logger = logging.getLogger(__name__)
-
-
-class S3CompatClientDict(NamedTuple):
-    """Container for S3-compatible storage access objects (R2, B2, etc.)."""
-
-    profile: str | None  # AWS-style profile used to locate credentials
-    clients: dict[str, Any]  # Map of endpoint URL to boto3 client instance
-
-
-@env.register_client('r2', credential_param=None)
-def _() -> Any:
-    profile_name = Config.get().get_string_value('r2_profile')
-    return S3CompatClientDict(profile=profile_name, clients={})
-
-
-@env.register_client('r2_resource', credential_param=None)
-def _() -> Any:
-    profile_name = Config.get().get_string_value('r2_profile')
-    return S3CompatClientDict(profile=profile_name, clients={})
-
-
-@env.register_client('b2', credential_param=None)
-def _() -> Any:
-    profile_name = Config.get().get_string_value('b2_profile')
-    return S3CompatClientDict(profile=profile_name, clients={})
-
-
-@env.register_client('b2_resource', credential_param=None)
-def _() -> Any:
-    profile_name = Config.get().get_string_value('b2_profile')
-    return S3CompatClientDict(profile=profile_name, clients={})
-
-
-@env.register_client('tigris', credential_param=None)
-def _() -> Any:
-    profile_name = Config.get().get_string_value('tigris_profile')
-    return S3CompatClientDict(profile=profile_name, clients={})
-
-
-@env.register_client('tigris_resource', credential_param=None)
-def _() -> Any:
-    profile_name = Config.get().get_string_value('tigris_profile')
-    return S3CompatClientDict(profile=profile_name, clients={})
-
-
-@env.register_client('s3', credential_param=None)
-def _() -> Any:
-    profile_name = Config.get().get_string_value('s3_profile')
-    return S3CompatClientDict(profile=profile_name, clients={})
-
-
-@env.register_client('s3_resource', credential_param=None)
-def _() -> Any:
-    profile_name = Config.get().get_string_value('s3_profile')
-    return S3CompatClientDict(profile=profile_name, clients={})
 
 
 class S3Store(ObjectStoreBase):
@@ -120,9 +64,9 @@ class S3Store(ObjectStoreBase):
         }, f'Expected storage_target "s3", "r2", "b2", "tigris" or "pxtfs" but got: {self.soa.storage_target}'
         self.__base_uri = self.soa.prefix_free_uri + self.soa.prefix
 
-    def _get_s3_compat_client(self, client_name: str) -> Any:
+    def _get_s3_compat_client(self, target: StorageTarget) -> Any:
         """Helper to get S3-compatible client (R2, B2, Tigris) - caches per endpoint URI."""
-        cd = get_runtime().get_client(client_name)
+        cd = Env.get().object_store_clients(target)
         if self.soa.container_free_uri not in cd.clients:
             cd.clients[self.soa.container_free_uri] = S3Store.create_boto_client(
                 profile_name=cd.profile, extra_args={'endpoint_url': self.soa.container_free_uri, 'region_name': 'auto'}
@@ -135,7 +79,7 @@ class S3Store(ObjectStoreBase):
         Clients are scoped to a region and are bucket-agnostic, allowing to use presigned URLs
         for any bucket in that region. The bucket name is just a parameter in API calls.
         """
-        cd = get_runtime().get_client('s3')
+        cd = Env.get().object_store_clients(StorageTarget.S3_STORE)
         default_key = 'default'
         if default_key not in cd.clients:
             cd.clients[default_key] = S3Store.create_boto_client(profile_name=cd.profile)
@@ -185,11 +129,11 @@ class S3Store(ObjectStoreBase):
         Client is the low-level API for direct AWS operations (e.g., download_file, generate_presigned_url).
         """
         if self.soa.storage_target == StorageTarget.R2_STORE:
-            return self._get_s3_compat_client('r2')
+            return self._get_s3_compat_client(StorageTarget.R2_STORE)
         if self.soa.storage_target == StorageTarget.B2_STORE:
-            return self._get_s3_compat_client('b2')
+            return self._get_s3_compat_client(StorageTarget.B2_STORE)
         if self.soa.storage_target == StorageTarget.TIGRIS_STORE:
-            return self._get_s3_compat_client('tigris')
+            return self._get_s3_compat_client(StorageTarget.TIGRIS_STORE)
         if self.soa.storage_target == StorageTarget.S3_STORE:
             return self._get_s3_client_with_region()
         if self.soa.storage_target == StorageTarget.PIXELTABLE_STORE:
@@ -200,9 +144,9 @@ class S3Store(ObjectStoreBase):
             return self._client
         raise AssertionError(f'Unexpected storage_target: {self.soa.storage_target}')
 
-    def _get_s3_compat_resource(self, client_name: str) -> Any:
+    def _get_s3_compat_resource(self, target: StorageTarget) -> Any:
         """Helper to get S3-compatible resource (R2, B2, Tigris) - caches per endpoint URI."""
-        cd = get_runtime().get_client(client_name)
+        cd = Env.get().object_store_clients(target, 'resource')
         if self.soa.container_free_uri not in cd.clients:
             cd.clients[self.soa.container_free_uri] = S3Store.create_boto_resource(
                 profile_name=cd.profile, extra_args={'endpoint_url': self.soa.container_free_uri, 'region_name': 'auto'}
@@ -211,7 +155,7 @@ class S3Store(ObjectStoreBase):
 
     def _get_s3_resource_with_region(self) -> Any:
         """Helper to get S3 resource with correct region - caches per region (not per bucket)."""
-        cd = get_runtime().get_client('s3_resource')
+        cd = Env.get().object_store_clients(StorageTarget.S3_STORE, 'resource')
         default_key = 'default'
         if default_key not in cd.clients:
             cd.clients[default_key] = S3Store.create_boto_resource(profile_name=cd.profile)
@@ -247,11 +191,11 @@ class S3Store(ObjectStoreBase):
         (e.g., bucket.objects.filter(), bucket.delete_objects()).
         """
         if self.soa.storage_target == StorageTarget.R2_STORE:
-            return self._get_s3_compat_resource('r2_resource')
+            return self._get_s3_compat_resource(StorageTarget.R2_STORE)
         if self.soa.storage_target == StorageTarget.B2_STORE:
-            return self._get_s3_compat_resource('b2_resource')
+            return self._get_s3_compat_resource(StorageTarget.B2_STORE)
         if self.soa.storage_target == StorageTarget.TIGRIS_STORE:
-            return self._get_s3_compat_resource('tigris_resource')
+            return self._get_s3_compat_resource(StorageTarget.TIGRIS_STORE)
         if self.soa.storage_target == StorageTarget.S3_STORE:
             return self._get_s3_resource_with_region()
         if self.soa.storage_target == StorageTarget.PIXELTABLE_STORE:
