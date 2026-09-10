@@ -221,13 +221,6 @@ class TableSchemaChangeSet(TypedDict):
     schema_versions: dict[UUID, int]
 
 
-def refd_column_names(value_expr: exprs.Expr) -> set[str]:
-    """The names of the columns a model's value expression references, resolved or not."""
-    names = {ref.name for ref in value_expr.subexprs(exprs.ColumnRefByName)}
-    names |= {ref.col.name for ref in value_expr.subexprs(exprs.ColumnRef) if ref.col.name is not None}
-    return names
-
-
 def prepare_model_updates(
     tvp: catalog.TableVersionPath,
     display_name: str,

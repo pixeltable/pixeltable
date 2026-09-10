@@ -33,7 +33,7 @@ from .dir import Dir
 from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, fold_identifier
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
-from .model import IndexDefinition, TableSchemaChangeSet, prepare_model, prepare_model_updates, refd_column_names
+from .model import IndexDefinition, TableSchemaChangeSet, prepare_model, prepare_model_updates
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
@@ -1889,7 +1889,11 @@ class Catalog(CatalogBase):
             altered_refs: dict[QColumnId, set[str]] = {}
             for _, tv, change_set in tbl_info:
                 for name, (spec, _) in change_set['altered_columns'].items():
-                    altered_refs[tv.cols_by_name[name].qid] = refd_column_names(spec['value'])
+                    value_expr = spec['value']
+                    # The names of the columns a model's value expression references, resolved or not
+                    refs: set[str] = {ref.name for ref in value_expr.subexprs(exprs.ColumnRefByName)}
+                    refs |= {ref.col.name for ref in value_expr.subexprs(exprs.ColumnRef) if ref.col.name is not None}
+                    altered_refs[tv.cols_by_name[name].qid] = refs
 
             def blocks_drop(dependent: Column, dropped_col: Column) -> bool:
                 """Whether dependent still depends on dropped_col once this change set has been applied."""

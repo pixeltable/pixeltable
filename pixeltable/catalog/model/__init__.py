@@ -2,4 +2,4 @@
 
 from .base import model_base
 from .definition import BtreeIndex, Column, EmbeddingIndex, IndexDefinition, TableModelMeta
-from .resolution import TableSchemaChangeSet, prepare_model, prepare_model_updates, refd_column_names
+from .resolution import TableSchemaChangeSet, prepare_model, prepare_model_updates
