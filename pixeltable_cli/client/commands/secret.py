@@ -34,7 +34,7 @@ def run(argv: list[str]) -> None:
     sub = parser.add_subparsers(dest='action', required=True)
 
     p = sub.add_parser('list', help='list secret names in a scope (never their values)')
-    p.add_argument('uri', nargs='?', help="Scope URI: pxt://org:db (default: your key's org)")
+    p.add_argument('uri', nargs='?', help='Scope URI: pxt://org or pxt://org:db')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('set', help='add or replace secrets')

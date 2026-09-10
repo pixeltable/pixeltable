@@ -25,7 +25,7 @@ def run(argv: list[str]) -> None:
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('status', help='show status of an organization')
-    p.add_argument('org_uri', nargs='?', help='Org URI: pxt://org (default: the only org you have)')
+    p.add_argument('org_uri', nargs='?', help='Org URI: pxt://org')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     args = parser.parse_args(argv)

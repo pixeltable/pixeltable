@@ -55,7 +55,7 @@ def run(argv: list[str]) -> None:
                 help='permit changes that take capacity away or delete a secret',
             )
 
-    p = sub.add_parser('list', help="list hosted databases in your key's org")
+    p = sub.add_parser('list', help='list hosted databases')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('status', help='show status of a hosted database')
