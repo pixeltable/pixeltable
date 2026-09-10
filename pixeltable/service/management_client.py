@@ -32,6 +32,7 @@ _LONG_OPS = frozenset(
         ManagementOperationType.CREATE_DB,
         ManagementOperationType.BUILD_IMAGE,
         ManagementOperationType.DELETE_DB,
+        ManagementOperationType.GET_LOGS,
     )
 )
 
@@ -44,6 +45,7 @@ _READ_OPS = frozenset(
         ManagementOperationType.GET_DB,
         ManagementOperationType.LIST_SERVICE_INSTANCES,
         ManagementOperationType.GET_SERVICE_INSTANCE,
+        ManagementOperationType.GET_LOGS,
     )
 )
 

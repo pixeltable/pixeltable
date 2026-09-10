@@ -13,11 +13,13 @@ from pixeltable.catalog import Path, fold_identifier
 from pixeltable.catalog.model import schema
 from pixeltable.config import SECRET_SECTION, Config
 from pixeltable.env import Env
-from pixeltable.service import db, management_client
+from pixeltable.service import db, management_client, proxy_daemon
 from pixeltable.service.management_protocol import (
     DeleteDbRequest,
     DeleteSecretRequest,
     GetDbRequest,
+    GetLogsRequest,
+    GetLogsResponse,
     ListDbRequest,
     ListOrgsRequest,
     ListSecretsRequest,
@@ -27,8 +29,9 @@ from pixeltable.service.management_protocol import (
 )
 from pixeltable.serving import service
 from pixeltable.types import TreeNode
+from pixeltable.utils.http import parse_duration_str
 from pixeltable_cli import models, types
-from pixeltable_cli.utils import identity
+from pixeltable_cli.utils import PxtPath, identity
 
 from . import bridge
 from .daemon_state import config_fingerprint, state as daemon_state
@@ -819,6 +822,37 @@ def start_db(req: Request) -> dict[str, Any]:
 @router.post('/api/db/stop')
 def stop_db(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(StopDbRequest))
+
+
+@router.get('/api/logs')
+def get_logs(req: Request) -> dict[str, Any]:
+    """Return the log of a database's pod (org and db), or of one service (service)."""
+    since = req.query_str('since') or '1h'
+    since_seconds = parse_duration_str(since)
+    if since_seconds is None or since_seconds < 1:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f"'since' must be a duration such as 30s, 10m, 1h or 2d; got {since!r}"
+        )
+    limit = req.query_int('limit', default=200, ge=1, le=10000)
+    include_health = req.query_bool('include_health')
+    service_address = req.query_str('service')
+    if service_address is not None:
+        records = service.service_logs(
+            PxtPath(service_address), since_seconds=int(since_seconds), limit=limit, include_health=include_health
+        )
+        return GetLogsResponse(records=list(records)).model_dump(mode='json')
+    org, db_name = req.required_query_str('org'), req.required_query_str('db')
+    if org == 'local':
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'Reading the log of a database on this machine is not supported; the log is at '
+            f'{proxy_daemon.log_path(db_name)}',
+        )
+    return management_client.api_call(
+        GetLogsRequest(
+            org=org, db=db_name, since_seconds=int(since_seconds), limit=limit, include_health=include_health
+        )
+    )
 
 
 # the verbs above forward a management-protocol request: the daemon is a pass-through to the control plane.

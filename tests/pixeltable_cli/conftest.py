@@ -200,6 +200,22 @@ def pixeltable_wheel(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
     return wheels[0]
 
 
+def read_logs_until(
+    cli: PxtRunner, *args: str, contains: str, timeout: float = 60.0, cwd: pathlib.Path | None = None
+) -> list[dict[str, Any]]:
+    """Run `pxt <args> --json` until a record's line contains the text, and return the records.
+
+    A line reaches the hosted log a few seconds after the pod writes it. Fail on timeout.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        records: list[dict[str, Any]] = cli(*args, '--json', cwd=cwd).json
+        if any(contains in r['line'] for r in records):
+            return records
+        assert time.monotonic() < deadline, (contains, records[-5:])
+        time.sleep(2.0)
+
+
 @contextlib.contextmanager
 def disposable_db_uri(cli: PxtRunner, cwd: pathlib.Path) -> Iterator[str]:
     uri = f'pxt://pixeltable:pxttest-{uuid.uuid4().hex[:12]}'

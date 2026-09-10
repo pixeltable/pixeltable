@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Literal
+from typing import Literal, Sequence
 
 from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.service.db import published_fingerprint
+from pixeltable.service.management_protocol import LogRecord
 from pixeltable.utils.app_module import (
     check_report,
     get_model_bases,
@@ -167,6 +168,17 @@ def service_stop(names: list[str]) -> list[ServiceChangeOp]:
         found[0].stop()
         ops.append(ServiceChangeOp.delete_service(name, found[0].endpoint, 'applied'))
     return ops
+
+
+def service_logs(target: PxtPath, *, since_seconds: int, limit: int, include_health: bool) -> Sequence[LogRecord]:
+    """Return the log records of the service instance at target."""
+    found = _resolve_service_instances(target)
+    if len(found) == 0:
+        raise excs.NotFoundError(excs.ErrorCode.SERVICE_NOT_FOUND, f'No service {target!r} is running')
+    if len(found) > 1:
+        found_at = ', '.join(sorted(f'{i.base_path}/{i.service_name}'.lstrip('/') for i in found))
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{target!r} is ambiguous; it names {found_at}')
+    return found[0].logs(since_seconds=since_seconds, limit=limit, include_health=include_health)
 
 
 def _resolve_service_instances(name_or_uri: str) -> list[service_instance.ServiceInstance]:
