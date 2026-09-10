@@ -508,7 +508,7 @@ def _print_recompute_notice(plan: SchemaPlan) -> None:
     if len(altered_computed_cols) == 0:
         return
     print()
-    print('the value expressions of these columns changed, but their stored values were NOT recomputed:')
+    print('the value expressions of these columns changed, but their stored values were not recomputed:')
     for line in altered_computed_cols:
         print(line)
     print('run `pxt recompute` to recompute them using their new expressions.')

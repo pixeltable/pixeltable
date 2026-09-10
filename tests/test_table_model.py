@@ -2891,7 +2891,7 @@ class TestTableModel:
         assert diffs['test_table'].resolution == 'update_additive'
         (op,) = diffs['test_table'].ops
         assert (op.target, op.op, op.severity, op.name) == ('column', 'alter', 'additive', 'doubled')
-        assert 'NOT recomputed' in '\n'.join(format_diff('test_table', diffs['test_table']))
+        assert 'not recomputed' in '\n'.join(format_diff('test_table', diffs['test_table']))
 
         # applies without allow_destructive, since no stored value is overwritten
         AlteredModel.update_all(root)
