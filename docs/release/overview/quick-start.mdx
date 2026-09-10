@@ -98,7 +98,7 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
 |---|---|
 | `pxt init` | Mark this directory as a project root |
 | `pxt service example --out app.py` | Write a working file: models plus routes |
-| `pxt schema example --out schema.py` | Schema only. `--brief` writes a small set of classes; without it, every DSL construct |
+| `pxt schema example --out app.py` | Schema only. `--brief` writes a small set of classes; without it, every DSL construct |
 | `pxt schema update FILE my_app` | Create and migrate the tables `FILE` declares under last argument `my_app` |
 | `pxt service update FILE my_app` | Start the services `FILE` declares against those tables |
 | `pxt service list` | What is running, and the URL |
@@ -140,7 +140,7 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
 </Tabs>
 
 <Note>
-This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`. Skill **2.8.0+** writes that `TableModel`. If the agent writes `create_table` in app code, `schema.py`, or `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`.
+This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`. The skill writes that `TableModel`. If the agent writes `create_table` in app code, names the file `schema.py`, or writes the removed command `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`.
 </Note>
 
 ## Next

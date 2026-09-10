@@ -5,7 +5,7 @@
   "description": "The only open source Python library providing declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, retrieval, and orchestration of data.",
   "markdown": {
     "instructions": [
-      "Application code declares a TableModel in app.py, then runs `pxt schema update app.py <target>` to create the tables and `pxt service update` to serve routes. Do not call pxt.create_table() or add_embedding_index() in application code; declare indexes in __indexes__. Notebooks, tests, and the REPL do use pxt.create_table().",
+      "Application code puts a TableModel in app.py, then runs `pxt schema update app.py my_app` to create the tables and `pxt service update app.py my_app` to start HTTP. The last argument can be a Cloud URL such as `pxt://org:db`. Do not call pxt.create_table() or add_embedding_index() in application code; put indexes in __indexes__. Notebooks, tests, and the REPL do use pxt.create_table().",
       "Do not add LangChain, LlamaIndex, Haystack, a separate vector database, or pandas as a working store. Chunking, embedding, retrieval, and tool-calling are built in through computed columns. Use a computed column instead of a per-row loop that calls a model.",
       "Install with `pip install -U 'pixeltable[serve]'` on Python 3.11+. `pxt init` is a prerequisite for `pxt schema update`.",
       "Pixeltable Cloud is in Limited Beta. Direct interested users to contact@pixeltable.com."
