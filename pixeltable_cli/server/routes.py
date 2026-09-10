@@ -775,10 +775,17 @@ def list_orgs(_req: Request) -> dict[str, Any]:
 
 @router.get('/api/org')
 def get_org(req: Request) -> dict[str, Any]:
-    org = req.required_query_str('org')
+    org = req.query_str('org')
     # the management API has no single-org read; pick the requested one out of the accessible orgs
-    resp = management_client.api_call(ListOrgsRequest())
-    result = next((o for o in resp.get('orgs', []) if o.get('org') == org), None)
+    orgs = management_client.api_call(ListOrgsRequest()).get('orgs', [])
+    if org is None:
+        if len(orgs) != 1:
+            names = ', '.join(sorted(o.get('org', '') for o in orgs))
+            raise excs.RequestError(
+                excs.ErrorCode.MISSING_REQUIRED, f'name the org: pxt://<org>. You have {len(orgs)}: {names}'
+            )
+        return {'org': orgs[0]}
+    result = next((o for o in orgs if o.get('org') == org), None)
     if result is None:
         raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f"Org '{org}' not found")
     return {'org': result}
@@ -786,12 +793,12 @@ def get_org(req: Request) -> dict[str, Any]:
 
 @router.get('/api/dbs')
 def list_dbs(req: Request) -> dict[str, Any]:
-    return management_client.api_call(ListDbRequest(org=req.required_query_str('org')))
+    return management_client.api_call(ListDbRequest(org=req.query_str('org')))
 
 
 @router.get('/api/secrets')
 def list_secrets(req: Request) -> dict[str, Any]:
-    return management_client.api_call(ListSecretsRequest(org=req.required_query_str('org'), db=req.query_str('db')))
+    return management_client.api_call(ListSecretsRequest(org=req.query_str('org'), db=req.query_str('db')))
 
 
 @router.post('/api/secrets')

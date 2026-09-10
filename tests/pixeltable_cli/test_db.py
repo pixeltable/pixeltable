@@ -139,7 +139,7 @@ class TestDb:
         # Check that the database is listed in the org's databases
         status = db_status(cli, project, test_db_uri)
         assert status['state'] == 'AVAILABLE', status
-        listed = cli('db', 'list', 'pxt://pixeltable', '--json', cwd=project).json
+        listed = cli('db', 'list', '--json', cwd=project).json
         test_db_name = test_db_uri.rsplit(':', 1)[-1]
         assert test_db_name in [entry['db_slug'] for entry in listed], listed
 

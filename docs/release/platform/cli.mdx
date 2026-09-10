@@ -117,7 +117,7 @@ pxt service logs my_app/ingest       # what a service logged; pxt://myorg:mydb/m
 # cloud — databases
 pxt db update pxt://myorg:mydb   # create the database, or bring it up to what the project declares
 pxt db diff   pxt://myorg:mydb   # what 'update' would change
-pxt db list   pxt://myorg
+pxt db list                      # the databases in your org
 pxt db logs   pxt://myorg:mydb   # what the database's pod logged
 
 # cloud — secrets
@@ -871,8 +871,8 @@ The uri on the command line selects the entry by its `name`: an entry naming ano
 #### `pxt db list`
 
 ```bash
-pxt db list pxt://myorg
-pxt db list pxt://myorg --json
+pxt db list
+pxt db list --json
 ```
 
 #### `pxt db status`
