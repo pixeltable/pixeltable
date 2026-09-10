@@ -511,7 +511,7 @@ def _print_recompute_notice(plan: SchemaPlan) -> None:
     print('the value expressions of these columns changed, but their stored values were not recomputed:')
     for line in altered_computed_cols:
         print(line)
-    print('run `pxt recompute` to recompute them using their new expressions.')
+    print('run `pxt recompute` if you wish to recompute them.')
 
 
 def _set_statuses(plan: SchemaPlan, *, destructive: OpStatus, other: OpStatus) -> None:
