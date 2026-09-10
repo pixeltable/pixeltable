@@ -560,7 +560,7 @@ class TableVersion:
             # add the columns and update the metadata
             # TODO support on_error='abort' for indices; it's tricky because of the way metadata changes are entangled
             # with the database operations
-            self._record_columns(new_cols)
+            self._record_new_columns(new_cols)
             status = self._populate_columns(new_cols, print_stats=False, on_error='ignore')
         # now create the index structure
         self._create_index(col, val_col, undo_col, idx_name, idx)
@@ -711,7 +711,7 @@ class TableVersion:
         _logger.info(f'Columns {[col.name for col in cols]}: {msg}')
         return status
 
-    def _record_columns(self, cols: Iterable[Column]) -> None:
+    def _record_new_columns(self, cols: Iterable[Column]) -> None:
         """Record columns in this version's metadata and create their store columns, leaving them unpopulated."""
         cols_to_add = list(cols)
 
@@ -990,7 +990,7 @@ class TableVersion:
                 index_cols[col] = (idx, val_col, undo_col)
                 all_cols.extend(c for c in (val_col, undo_col) if c is not None)
 
-        self._record_columns(all_cols)
+        self._record_new_columns(all_cols)
 
         # altered_cols are applied after cols are recorded, so that a new value expression can reference a column that
         # this change set adds, and before anything is populated, so that a new column is computed from the value
