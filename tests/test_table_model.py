@@ -4,6 +4,7 @@
 
 import os
 import pathlib
+import re
 import textwrap
 from typing import Any
 
@@ -2916,22 +2917,6 @@ class TestTableModel:
         TableModel.create_all(root)
         pxt.get_table(p('test_table')).insert([{'id': 1, 'other': 5}])
 
-        # a value expression that depends on itself through a column added in the same change set
-        CycleModel = pxt.model_base()
-
-        class CycleTable(CycleModel, name='test_table'):
-            id: pxt.Int
-            other: pxt.Int
-            bonus = ExampleTable.derived + 1
-            derived = bonus + 1
-
-        # the cycle only surfaces when the change set is applied
-        assert CycleModel.get_model_diff(root)['test_table'].resolution == 'update_additive'
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='circular dependency'):
-            CycleModel.update_all(root)
-        # the change set wasn't applied
-        assert pxt.get_table(p('test_table')).columns() == ['id', 'other', 'derived']
-
         # a different output type
         NewTypeModel = pxt.model_base()
 
@@ -2945,8 +2930,6 @@ class TestTableModel:
         assert sorted(diff.ops[0].model.keys()) == ['type', 'value']
 
     def test_update_all_altered_columns_cycle(self, db_root: DatabaseRoot) -> None:
-        """Two alter computed columns happen at once, such that neither of them alone create a dependency cycle,
-        but together they do. The cycle closes through a third column that doesn't change."""
         p = db_root.make_catalog_path
         root = p('')
 
@@ -2961,6 +2944,8 @@ class TestTableModel:
         TableModel.create_all(root)
         pxt.get_table(p('test_table')).insert([{'x': 1}])
 
+        # Two alter computed columns happen at once, such that neither of them alone would create a dependency cycle,
+        # but together they do. The cycle closes through a third column, c2, that doesn't change.
         CycleModel = pxt.model_base()
 
         class CycleTable(CycleModel, name='test_table'):
@@ -2969,8 +2954,27 @@ class TestTableModel:
             c2 = c1 + 1
             c3 = c2 + 1
 
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='circular dependency'):
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=re.escape("circular dependency between columns 'c1', 'c3', 'c2'"),
+        ):
             CycleModel.update_all(root)
+
+        # A cycle that runs through a column the same change set adds
+        AddedCycleModel = pxt.model_base()
+
+        class AddedCycleTable(AddedCycleModel, name='test_table'):
+            x: pxt.Int
+            c1 = x * 2
+            c2 = c1 + 1
+            c4 = ExampleTable.c3 + 1
+            c3 = c4 + 1
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape("circular dependency between columns 'c3', 'c4'")
+        ):
+            AddedCycleModel.update_all(root)
+        assert pxt.get_table(p('test_table')).columns() == ['x', 'c1', 'c2', 'c3']
 
         # Now c1 gets a dependency on c2, but c2 gives up a dependency on c1 so no cycle after both changes are applied.
         SwapModel = pxt.model_base()

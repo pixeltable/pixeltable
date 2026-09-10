@@ -60,6 +60,48 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 
+class _CycleFoundError(Exception):
+    """Raised by _topological_sort() when the graph turns out to be cyclic."""
+
+    cycle: list[int]
+
+    def __init__(self, cycle: list[int]):
+        super().__init__(f'cycle: {cycle}')
+        self.cycle = cycle
+
+
+def _topological_sort(graph: dict[int, set[int]]) -> list[int]:
+    """Return the nodes of graph, each one preceded by the nodes it points at.
+
+    graph maps a node to the nodes it points at; each of those needs an entry of its own.
+
+    Raises:
+        _CycleFoundError: if graph is cyclic
+    """
+    # sort the graph for a deterministic result
+    sorted_graph = {node: sorted(graph[node]) for node in sorted(graph)}
+
+    # we need a sorted set to record the order it was filled in (which is the result) and the O(1) membership checks.
+    result: dict[int, None] = {}
+    # records the current tree path
+    current_path: list[int] = []
+
+    def dfs(node: int) -> None:
+        if node in result:
+            return
+        if node in current_path:
+            raise _CycleFoundError(current_path[current_path.index(node) :])
+        current_path.append(node)
+        for next_ in sorted_graph[node]:
+            dfs(next_)
+        current_path.pop()
+        result[node] = None
+
+    for node in sorted_graph:
+        dfs(node)
+    return list(result)
+
+
 class TableVersion:
     """
     TableVersion represents a particular version of a table/view along with its physical representation:
@@ -397,17 +439,10 @@ class TableVersion:
             )
             deps[col_id] = own_refs
 
-        result: list[schema.ColumnMd] = []
-        emitted: set[int] = set()
-        remaining = sorted(visible)
-        # TODO implement a proper DFS based top sort. also deps can be mutated in place without "emitted"
-        while len(remaining) > 0:
-            next_id = next((col_id for col_id in remaining if deps[col_id] <= emitted), None)
-            assert next_id is not None, f'{self.name}: circular dependency among columns {remaining}'
-            result.append(visible[next_id])
-            emitted.add(next_id)
-            remaining.remove(next_id)
-        return result
+        try:
+            return [visible[col_id] for col_id in _topological_sort(deps)]
+        except _CycleFoundError as exc:
+            raise AssertionError(f'{self.name}: circular dependency among columns {exc.cycle}') from exc
 
     def _init_idx(self, idx: index.IndexBase, md: schema.IndexMd) -> None:
         indexed_col_id = QColumnId(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
@@ -1051,28 +1086,19 @@ class TableVersion:
 
         # Build the proposed graph of dependencies using the new value exprs overlaid on existing dependencies.
         deps: dict[int, set[int]] = {
-            col.id: own_col_refs(col.value_expr_dict)
+            col.id: own_col_refs(col.value_expr_dict) if col.value_expr_dict is not None else set()
             for col in self.cols_by_id.values()
-            if col.value_expr_dict is not None
         }
         deps.update({col_id: own_col_refs(e.as_dict()) for col_id, e in new_value_exprs.items()})
 
-        # TODO replace with DFS based algorithm
-        for col_id in new_value_exprs:
-            visited: set[int] = set()
-            stack = list(deps[col_id])
-            while len(stack) > 0:
-                dep_id = stack.pop()
-                if dep_id == col_id:
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'Column {self.cols_by_id[col_id].name!r}: the new value expression creates a circular '
-                        f'dependency.',
-                    )
-                if dep_id in visited:
-                    continue
-                visited.add(dep_id)
-                stack.extend(deps.get(dep_id, ()))
+        try:
+            _ = _topological_sort(deps)
+        except _CycleFoundError as exc:
+            names = ', '.join(repr(self.cols_by_id[col_id].name) for col_id in exc.cycle)
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'The new value expressions create a circular dependency between columns {names}.',
+            ) from exc
 
     def alter_computed_column(
         self, col: Column, new_value_expr: exprs.Expr, *, recompute: bool, cascade: bool
