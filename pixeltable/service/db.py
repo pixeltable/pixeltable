@@ -210,21 +210,12 @@ def db_build_image(db_uri: str) -> list[DbChangeOp]:
     return [image_op, archive_op]
 
 
-def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | None = None) -> GetArchiveResponse:
-    """Unpack db_uri's project archive into dest, and return what the control plane served it as.
-
-    Refuses an archive whose digest is not expected_digest: a pod is told which project to run, and a
-    different one would serve code nobody asked for.
-    """
+def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:
+    """Unpack db_uri's project archive into dest, and return what the control plane served it as."""
     db_path = _validated_db_uri(db_uri)
     response = GetArchiveResponse.model_validate(
         management_client.api_call(GetArchiveRequest(org=db_path.org, db=db_path.db))
     )
-    if expected_digest is not None and response.digest != expected_digest:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_STATE,
-            f'{db_path.uri_str} serves project {response.digest}, not the {expected_digest} this process runs',
-        )
     dest.parent.mkdir(parents=True, exist_ok=True)
     # unpacked next to dest and moved into place, so that dest never holds a file the archive dropped
     unpacking = Path(tempfile.mkdtemp(dir=dest.parent, prefix=f'.{dest.name}.'))

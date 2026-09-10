@@ -12,20 +12,14 @@ from pixeltable.serving._app import create_app, init_instrumentation, instrument
 
 
 def _serve(
-    db_uri: str,
-    app_file: str,
-    service_name: str,
-    base_path: str,
-    project_dir: Path,
-    digest: str | None,
-    host: str,
-    port: int,
-    otel: bool,
+    db_uri: str, app_file: str, service_name: str, base_path: str, project_dir: Path, host: str, port: int, otel: bool
 ) -> None:
     """Pod entry point: unpack the database's project, serve one of its services, and report what loaded."""
     import uvicorn
 
-    archive = unpack_project_archive(db_uri, project_dir, expected_digest=digest)
+    archive = unpack_project_archive(db_uri, project_dir)
+    if archive.fingerprint is None:
+        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'{db_uri} served an archive without a fingerprint')
     # the unpacked project is this process's project root, so its modules and its database entry resolve
     Config.init(reinit=True, project_root=project_dir)
 
@@ -35,10 +29,6 @@ def _serve(
     app, _ = create_app(str(project_dir / app_file), service_name, base_path)
     if otel:
         instrument_app(app)
-    if archive.fingerprint is None:
-        raise excs.InternalError(
-            excs.ErrorCode.INTERNAL_ERROR, f'{db_uri} served an archive without the fingerprint it was published under'
-        )
     report_instance_fingerprint(db_uri, service_name, archive.fingerprint, base_path)
 
     log_level = logging.getLogger('pixeltable').getEffectiveLevel()
@@ -56,19 +46,8 @@ if __name__ == '__main__':
     parser.add_argument('--name', required=True, help='the service to serve')
     parser.add_argument('--base-path', default='')
     parser.add_argument('--project-dir', type=Path, required=True, help='unpack the project here')
-    parser.add_argument('--digest', help='refuse a project other than this one')
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--otel', action='store_true')
     args = parser.parse_args()
-    _serve(
-        args.db,
-        args.app_file,
-        args.name,
-        args.base_path,
-        args.project_dir,
-        args.digest,
-        args.host,
-        args.port,
-        args.otel,
-    )
+    _serve(args.db, args.app_file, args.name, args.base_path, args.project_dir, args.host, args.port, args.otel)

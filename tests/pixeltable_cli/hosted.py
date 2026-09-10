@@ -1,10 +1,10 @@
 """Fixtures and helpers for driving the CLI against a hosted database.
 
-A test that asks for `hosted_db` or `current_db` is skipped unless the session names one to act on.
+Every module defines `hosted_db` itself, naming a database of its own: these scenarios run
+`pxt db update`, which replaces what a database serves.
 """
 
 import json
-import os
 import pathlib
 import shutil
 import time
@@ -12,7 +12,15 @@ from typing import Any
 
 import pytest
 
-from .conftest import PxtRunner
+from .conftest import PxtRunner, write_requirements
+
+# both the session project and the per-test one install these, so their databases share one image
+PROJECT_EXTRAS = (
+    'spacy',
+    'en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/'
+    'en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl',
+    'mistune',
+)
 
 # the exit statuses `pxt db diff` and `pxt db update` document
 EXIT_IN_AGREEMENT = 0
@@ -29,22 +37,13 @@ _SERVICE_RESTART_TIMEOUT = 600.0
 
 
 @pytest.fixture
-def hosted_db() -> str:
-    """The hosted database these tests act on, which is the one the cloud catalog tests read."""
-    uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
-    if uri is None:
-        pytest.skip('PXTTEST_CLOUD_DB_URI is not set.')
-    return uri
-
-
-@pytest.fixture
-def project(tmp_path: pathlib.Path) -> pathlib.Path:
+def project(tmp_path: pathlib.Path, pixeltable_wheel: pathlib.Path) -> pathlib.Path:
     """A test-specific project that is not the session project, pre-loaded with a single app file and requirements."""
     root = tmp_path / 'project'
     root.mkdir()
     (root / 'pixeltable.toml').write_text('', encoding='utf-8')
     shutil.copy(pathlib.Path(__file__).parent / 'apps' / APP_FILE, root / APP_FILE)
-    (root / 'requirements.txt').write_text('pixeltable\n', encoding='utf-8')
+    write_requirements(root, pixeltable_wheel, *PROJECT_EXTRAS)
     return root
 
 
