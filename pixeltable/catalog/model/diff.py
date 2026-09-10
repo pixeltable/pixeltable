@@ -207,17 +207,28 @@ def _add_index_change(idx: IndexDefinition, action: str = 'will be added') -> Sc
     )
 
 
-def _alter_value_change(
+def _alter_column_change(
     col_name: str,
     spec: ColumnSpec,
     model_props: _ColumnProperties,
     existing_props: _ColumnProperties,
     col_md: ColumnMetadata,
-) -> SchemaChangeOp | None:
-    """The op that applies a computed column's new value expression, or None if this change cannot be applied."""
-    # a computed column becoming a data column, or vice versa, is a different kind of change
-    if spec.get('value') is None or not col_md['is_computed']:
-        return None
+    altered: list[str],
+) -> SchemaChangeOp:
+    """The op for a column whose properties differ; a new value expression for a computed column is the only one
+    update_all() can apply."""
+    # a computed column becoming a data column, or vice versa, changes more than the value expression
+    is_new_value_expr = altered == ['value'] and spec.get('value') is not None and col_md['is_computed']
+    if not is_new_value_expr:
+        return SchemaChangeOp(
+            target='column',
+            name=col_name,
+            op='alter',
+            severity='unsupported',
+            model={prop: getattr(model_props, prop) for prop in altered},
+            existing={prop: getattr(existing_props, prop) for prop in altered},
+            description=f'column {col_name!r} has altered properties: {", ".join(altered)}',
+        )
 
     return SchemaChangeOp(
         target='column',
@@ -233,21 +244,6 @@ def _alter_value_change(
         details=SchemaChangeOpDetails(
             type=model_props.type, value=model_props.value, previous_value=existing_props.value
         ),
-    )
-
-
-def _unsupported_alter(
-    col_name: str, model_props: _ColumnProperties, existing_props: _ColumnProperties, altered: list[str]
-) -> SchemaChangeOp:
-    """The op for a column whose properties differ in ways update_all() cannot apply."""
-    return SchemaChangeOp(
-        target='column',
-        name=col_name,
-        op='alter',
-        severity='unsupported',
-        model={prop: getattr(model_props, prop) for prop in altered},
-        existing={prop: getattr(existing_props, prop) for prop in altered},
-        description=f'column {col_name!r} has altered properties: {", ".join(altered)}',
     )
 
 
@@ -398,15 +394,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                 ]
                 if len(altered) == 0:
                     continue
-
-                # 'value' is the only property update_all() can currently apply
-                op: SchemaChangeOp | None = None
-                if altered == ['value']:
-                    op = _alter_value_change(col_name, spec, model_props, existing_props, col_md)
-                if op is not None:
-                    ops.append(op)
-                else:
-                    ops.append(_unsupported_alter(col_name, model_props, existing_props, altered))
+                ops.append(_alter_column_change(col_name, spec, model_props, existing_props, col_md, altered))
 
             # Additive/destructive column and index changes.
             for col_name in sorted(model_cols - existing_cols):
