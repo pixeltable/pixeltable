@@ -1737,6 +1737,41 @@ class TestFastAPI:
             assert resp.status_code == 500, resp.text
             assert expected in resp.text, resp.text
 
+    def test_dml_routes_require_required_cols(self, db_root: DatabaseRoot) -> None:
+        """insert/compute routes reject an `inputs` list that omits a required column."""
+        p = db_root.make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir(p('test_serve'))
+        t = pxt.create_table(
+            p('test_serve/required_inputs'),
+            {'title': pxt.String, 'prod_id': pxt.String, 'note': pxt.String | None, 'thumb': pxt.Image},
+            primary_key='prod_id',
+        )
+        t.add_computed_column(title_upper=t.title.upper())
+
+        for route_type in ('insert', 'compute'):
+            router = FastAPIRouter()
+            with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'\(prod_id, thumb\) of .*required_inputs'):
+                add_dml_route(route_type, router, t, path='/x', inputs=['title'], outputs=['title_upper'])
+
+            # a nullable column may be left out, and a required media column may be covered by uploadfile_inputs
+            router = FastAPIRouter()
+            add_dml_route(
+                route_type,
+                router,
+                t,
+                path='/x',
+                inputs=['title', 'prod_id'],
+                uploadfile_inputs=['thumb'],
+                outputs=['title_upper'],
+            )
+
+        # update routes are unaffected: a partial column list is the point
+        router = FastAPIRouter()
+        router.add_update_route(t, path='/u', inputs=['title'], outputs=['title_upper'])
+
     def test_decorator_routes_allow_unservable_outputs(self, db_root: DatabaseRoot) -> None:
         """Decorator-form routes let user code handle outputs that add_*_route forms reject."""
         p = db_root.make_catalog_path

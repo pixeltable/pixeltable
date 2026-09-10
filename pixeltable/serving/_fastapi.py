@@ -2380,6 +2380,18 @@ class FastAPIRouter(fastapi.APIRouter):
             input_item_str='column',
             output_item_str='column',
         )
+        if route_type in ('insert', 'compute'):
+            # insert()/compute() reject a row that omits a required column, and the request model carries only
+            # input_col_names, so a caller cannot supply the rest
+            missing = [
+                name for name, col_type in input_schema.items() if not col_type.nullable and name not in input_col_names
+            ]
+            if len(missing) > 0:
+                raise pxt.RequestError(
+                    pxt.ErrorCode.MISSING_REQUIRED,
+                    f'{error_prefix}: required column(s) ({", ".join(missing)}) of '
+                    f'{defined_path.tbl_name()!r} are not among the inputs; every request would fail',
+                )
         return self.DmlArgsValidationResult(pk_col_names, input_col_names, output_col_names, cols_by_name)
 
     def _validate_args(
