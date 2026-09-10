@@ -5,7 +5,7 @@ from typing import Literal
 
 from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
-from pixeltable.service.db import published_fingerprint
+from pixeltable.service.db import db_fingerprint
 from pixeltable.utils.app_module import (
     check_report,
     get_model_bases,
@@ -169,6 +169,23 @@ def service_stop(names: list[str]) -> list[ServiceChangeOp]:
     return ops
 
 
+def service_restart(names: list[str]) -> list[ServiceChangeOp]:
+    """Cycle the named instances onto what they already run."""
+    ops: list[ServiceChangeOp] = []
+    for name in names:
+        found = _resolve_service_instances(name)
+        if len(found) == 0:
+            # unknown services get a 'skipped'
+            ops.append(ServiceChangeOp.restart_service(name, None, 'skipped'))
+            continue
+        if len(found) > 1:
+            found_at = ', '.join(sorted(f'{i.base_path}/{i.service_name}'.lstrip('/') for i in found))
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} is ambiguous; it names {found_at}')
+        found[0].restart()
+        ops.append(ServiceChangeOp.restart_service(name, found[0].endpoint, 'applied'))
+    return ops
+
+
 def _resolve_service_instances(name_or_uri: str) -> list[service_instance.ServiceInstance]:
     """Return the instances matching a service uri or name.
 
@@ -260,7 +277,7 @@ def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
         },
         model_mismatch_reason=model_mismatch_error_str(needed, target),
         db_uri=catalog_path.uri_str,
-        published=published_fingerprint(catalog_path),
+        published=db_fingerprint(catalog_path),
         fingerprint=project_fingerprint(project_root, db_config),
     )
 

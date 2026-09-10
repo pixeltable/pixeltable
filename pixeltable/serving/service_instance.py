@@ -123,6 +123,10 @@ class ServiceInstance:
         """Stop serving, leaving this instance startable again."""
         self._manager.stop(self)
 
+    def restart(self) -> None:
+        """Cycle the process or pods serving this instance onto what they already run."""
+        self._manager.restart(self)
+
     def delete(self) -> None:
         """Stop serving and forget this instance."""
         self._manager.delete(self)

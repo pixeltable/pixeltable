@@ -19,6 +19,7 @@ Examples:
   pxt db status pxt://org:db
   pxt db start pxt://org:db
   pxt db stop pxt://org:db
+  pxt db restart pxt://org:db   # cycle its pods onto the image and project it runs
   pxt db build-image pxt://org:db   # build an image without comparing first
   pxt db delete pxt://org:db
 
@@ -69,6 +70,10 @@ def run(argv: list[str]) -> None:
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
+    p = sub.add_parser('restart', help='restart a hosted database')
+    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
+    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+
     p = sub.add_parser('build-image', help='build the image a hosted database runs on, from a project')
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
@@ -91,6 +96,8 @@ def run(argv: list[str]) -> None:
         _start(args)
     elif args.action == 'stop':
         _stop(args)
+    elif args.action == 'restart':
+        _restart(args)
     elif args.action == 'build-image':
         _build_image(args)
     elif args.action == 'delete':
@@ -140,6 +147,17 @@ def _stop(args: argparse.Namespace) -> None:
     else:
         print_db(result)
     exit_unless_reached(result, 'STOPPED', f'stopping database {db!r}')
+
+
+def _restart(args: argparse.Namespace) -> None:
+    org, db = resolve_db_uri(args.db_uri, prog='pxt db restart')
+    post_request('/api/db/restart', {'org': org, 'db': db})
+    result = poll_db(org, db, {'UPDATING', 'STARTING'}, f"Database '{db}' is restarting...")
+    if args.json_output:
+        print(json.dumps(result))
+    else:
+        print_db(result)
+    exit_unless_reached(result, 'AVAILABLE', f'restarting database {db!r}')
 
 
 def _db_uri(args: argparse.Namespace, prog: str) -> str:

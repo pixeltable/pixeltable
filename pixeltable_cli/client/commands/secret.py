@@ -24,8 +24,17 @@ wins on a key collision.
 A project can define its secrets instead, in its [[pixeltable.database]] entry, as the name of the
 environment variable holding each value; `pxt db update` sets them from there.
 
-Either way, a running database holds the values it started with. Run `pxt db stop` then `pxt db start`
-to pick up a change.
+Either way, a running process holds the values it started with. Run `pxt db restart` for a hosted
+database's tables and `pxt service restart` for its services, to pick up a change.
+"""
+
+SET_EPILOG = """\
+Examples:
+  pxt secret set pxt://myorg OPENAI_API_KEY=sk-...
+  pxt secret set pxt://myorg:mydb OPENAI_API_KEY=sk-... ANTHROPIC_API_KEY=sk-...
+
+A process reads its secrets once, at startup, so a running one keeps the values it began with. Run
+`pxt db restart` for a hosted database's tables and `pxt service restart` for its services.
 """
 
 
@@ -37,7 +46,7 @@ def run(argv: list[str]) -> None:
     p.add_argument('uri', help='Scope URI: pxt://org or pxt://org:db')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
-    p = sub.add_parser('set', help='add or replace secrets')
+    p = sub.add_parser('set', help='add or replace secrets (restart to pick them up)', epilog=SET_EPILOG)
     p.add_argument('uri', help='Scope URI: pxt://org or pxt://org:db')
     p.add_argument('assignments', nargs='+', metavar='KEY=VALUE')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')

@@ -136,16 +136,26 @@ does. Use 'update' to run it in the background, where 'list' and 'stop' can find
 
 PRUNE_EPILOG = f"""\
 Examples:
-  pxt service prune app.py my_dir     # stop and forget the services the file does not define
+  pxt service prune app.py my_dir            # stop and forget the services the file does not define
+  pxt service prune app.py pxt://acme:main   # the same, in a hosted database
 
 A stopped service can be started again with 'pxt service update'.
 {_OWN_APP}{_HOSTED}{_APP_FILE}"""
 
 STOP_EPILOG = """\
 Examples:
-  pxt service stop ingest             # a bare name, when only one target has a service of that name
-  pxt service stop my_dir/ingest      # the service of that name under my_dir
+  pxt service stop ingest                  # a bare name, when only one target has a service of that name
+  pxt service stop my_dir/ingest           # the service of that name under my_dir
+  pxt service stop pxt://acme:main/ingest  # one in a hosted database
   pxt service stop ingest reader
+"""
+
+RESTART_EPILOG = """\
+Examples:
+  pxt service restart ingest                  # a bare name, when only one target has a service of that name
+  pxt service restart my_dir/ingest           # the service of that name under my_dir
+  pxt service restart pxt://acme:main/ingest  # one in a hosted database
+  pxt service restart ingest reader
 """
 
 LIST_EPILOG = """\
@@ -171,7 +181,7 @@ Notes:
   'pxt service diff' answers that.
 {_OWN_APP}{_HOSTED}{_APP_FILE}"""
 
-VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'list', 'check', 'example')
+VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'restart', 'list', 'check', 'example')
 
 
 _MARKERS: dict[Resolution, str] = {
@@ -199,6 +209,7 @@ def run(argv: list[str]) -> None:
             '  run      serve one of them from this process instead, until interrupted\n'
             '  prune    stop and forget the services at TARGET that APP does not define\n'
             '  stop     stop the named services\n'
+            '  restart  restart the named services, onto what they already run\n'
             '  list     what is running locally, and where\n'
             '  check    validate the application file on its own (takes no TARGET)\n'
             '  example  write a working application file to start from\n\n'
@@ -233,6 +244,14 @@ def run(argv: list[str]) -> None:
         ap.add_argument('--json', action='store_true', dest='as_json')
         args = ap.parse_args(argv[1:])
         _stop(args.names, as_json=args.as_json)
+        return
+
+    if verb == 'restart':
+        ap = Parser(prog='pxt service restart', epilog=RESTART_EPILOG, usage_exit_code=EXIT_ERROR)
+        ap.add_argument('names', nargs='+', help='service names, or TARGET/NAME to disambiguate')
+        ap.add_argument('--json', action='store_true', dest='as_json')
+        args = ap.parse_args(argv[1:])
+        _restart(args.names, as_json=args.as_json)
         return
 
     if verb == 'list':
@@ -477,6 +496,11 @@ def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_ru
 def _stop(names: list[str], *, as_json: bool) -> None:
     ops = [ServiceChangeOp.model_validate(op) for op in post_request('/api/service/stop', {'names': names})]
     _print_ops(ops, as_json=as_json, verb='stopped')
+
+
+def _restart(names: list[str], *, as_json: bool) -> None:
+    ops = [ServiceChangeOp.model_validate(op) for op in post_request('/api/service/restart', {'names': names})]
+    _print_ops(ops, as_json=as_json, verb='restarted')
 
 
 def _list(target: str | None, *, as_json: bool) -> None:

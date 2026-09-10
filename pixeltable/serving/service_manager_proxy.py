@@ -18,6 +18,7 @@ from pixeltable.service.management_protocol import (
     DeleteServiceInstanceRequest,
     ListServiceInstancesRequest,
     ListServiceInstancesResponse,
+    RestartServiceInstanceRequest,
     StartServiceInstanceRequest,
     StopServiceInstanceRequest,
     UpdateServiceInstanceRequest,
@@ -131,6 +132,21 @@ class ServiceManagerProxy(ServiceManagerBase):
             )
         )
         self._wait_for_state(instance.service_name, instance.base_path, ServiceInstanceState.STOPPED)
+
+    def restart(self, instance: ServiceInstance) -> None:
+        management_client.api_call(
+            RestartServiceInstanceRequest(
+                org=self._org, db=self._db, service_name=instance.service_name, base_path=instance.base_path
+            )
+        )
+        restarted = self._wait_for_state(instance.service_name, instance.base_path, ServiceInstanceState.AVAILABLE)
+        if restarted.state is not ServiceInstanceState.AVAILABLE:
+            detail = '' if restarted.record.error is None else f': {restarted.record.error}'
+            raise excs.InternalError(
+                excs.ErrorCode.INTERNAL_ERROR,
+                f'Service {instance.service_name!r} did not come back; it is {restarted.state.value}{detail}',
+            )
+        self._wait_for_endpoint(restarted)
 
     def delete(self, instance: ServiceInstance) -> None:
         management_client.api_call(

@@ -293,6 +293,11 @@ class ServiceStopBody(BaseModel):
     names: list[str]
 
 
+class ServiceRestartBody(BaseModel):
+    # each one an address ('pxt://org:db/dir/ingest', 'dir/ingest') or a bare local service name
+    names: list[str]
+
+
 class CwdBody(BaseModel):
     uri: str
 

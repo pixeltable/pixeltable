@@ -79,6 +79,10 @@ class ServiceManagerBase(abc.ABC):
         """Stop instance, leaving it startable again."""
 
     @abc.abstractmethod
+    def restart(self, instance: ServiceInstance) -> None:
+        """Cycle instance onto what it already runs."""
+
+    @abc.abstractmethod
     def delete(self, instance: ServiceInstance) -> None:
         """Stop instance and forget it."""
 
@@ -126,6 +130,16 @@ class ServiceManager(ServiceManagerBase):
     ) -> ServiceInstance:
         with self._service_lock(name, base_path):
             return self._start(app_file, name, base_path, otel, port)
+
+    def restart(self, instance: ServiceInstance) -> None:
+        # the record names the module, and a module path is relative to the project root
+        record = instance.record
+        project_root = Config.get().project_root
+        assert project_root is not None  # a service was started from a file inside a project
+        app_file = project_root.joinpath(*record.app_module.split('.')).with_suffix('.py')
+        with self._service_lock(record.service_name, record.base_path):
+            self.stop(instance)
+            self._start(str(app_file), record.service_name, record.base_path, record.otel, record.port)
 
     def delete(self, instance: ServiceInstance) -> None:
         # a local instance has no registration apart from its process

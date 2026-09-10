@@ -21,6 +21,7 @@ from pixeltable.service.management_protocol import (
     ListDbRequest,
     ListOrgsRequest,
     ListSecretsRequest,
+    RestartDbRequest,
     SetSecretRequest,
     StartDbRequest,
     StopDbRequest,
@@ -559,6 +560,12 @@ def service_stop(req: Request) -> list[types.ServiceChangeOp]:
     return service.service_stop(body.names)
 
 
+@router.post('/api/service/restart')
+def service_restart(req: Request) -> list[types.ServiceChangeOp]:
+    body = req.body(models.ServiceRestartBody)
+    return service.service_restart(body.names)
+
+
 @router.get('/api/service/list')
 def service_list(req: Request) -> list[types.ServiceInstance]:
     target = req.query_str('target')
@@ -819,6 +826,11 @@ def start_db(req: Request) -> dict[str, Any]:
 @router.post('/api/db/stop')
 def stop_db(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(StopDbRequest))
+
+
+@router.post('/api/db/restart')
+def restart_db(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(RestartDbRequest))
 
 
 # the verbs above forward a management-protocol request: the daemon is a pass-through to the control plane.

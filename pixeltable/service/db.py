@@ -56,9 +56,6 @@ _DB_POLL_INTERVAL = 5.0
 # the states a database passes through while it applies something
 _DB_TRANSITIONAL = frozenset({'PROVISIONING', 'UPDATING', 'STARTING', 'STOPPING'})
 
-# one round names the missing artifacts and the next finds them stored, so a third is not making progress
-_MAX_UPLOAD_ROUNDS = 2
-
 
 def db_diff(db_uri: str) -> DbPlan:
     """Diff the database at db_uri with the corresponding DatabaseConfig in the project configuration."""
@@ -66,8 +63,7 @@ def db_diff(db_uri: str) -> DbPlan:
     return _update_db(db_path, _target_spec(_get_db_config(db_path)), dry_run=True).plan
 
 
-def published_fingerprint(db_path: catalog.Path) -> ProjectFingerprint | None:
-    """The fingerprint db_path's pods are running."""
+def db_fingerprint(db_path: catalog.Path) -> ProjectFingerprint | None:
     if db_path.org is None or db_path.db is None:
         return None
     state = _get_db_state(db_path)
@@ -75,11 +71,7 @@ def published_fingerprint(db_path: catalog.Path) -> ProjectFingerprint | None:
 
 
 def create_db_update_ops(target: DatabaseSpec, current: DatabaseStatus | None) -> list[DbChangeOp]:
-    """The operations that make a database provide target; current is None for one that does not exist.
-
-    Comparing against what the database provides, rather than the spec it was last given, covers a changed
-    project, an interrupted rollout and a failed build in one comparison.
-    """
+    """The operations needed to reconcile current with target."""
     status = DatabaseStatus() if current is None else current
     ops: list[DbChangeOp] = []
     if target.fingerprint is not None:
@@ -95,44 +87,41 @@ def create_db_update_ops(target: DatabaseSpec, current: DatabaseStatus | None) -
             continue
         ops.append(DbChangeOp.capacity(field, running, wanted))
 
-    ops += _secret_ops(target, status)
+    # TODO: deal with secrets
+    # ops += _secret_ops(target, status)
     return ops
 
 
-def _artifact_ops(target: ProjectFingerprint, running: ProjectFingerprint | None) -> list[DbChangeOp]:
-    """The operations that give the pods target's image and archive."""
-    if running is None:
-        # a database serving nothing yet needs both artifacts, and there is no difference to name
+def _artifact_ops(target: ProjectFingerprint, current: ProjectFingerprint | None) -> list[DbChangeOp]:
+    """The operations that give 'current' target's image and archive."""
+    if current is None:
+        # needs a fresh image and archive
         return [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
     ops: list[DbChangeOp] = []
-    moved = target.compare(running)
+    moved = target.compare(current)
     if ProjectPart.IMAGE in moved:
-        ops.append(DbChangeOp.build_image(target.changes(running, {ProjectPart.IMAGE})))
+        ops.append(DbChangeOp.build_image(target.changes(current, {ProjectPart.IMAGE})))
     if ProjectPart.ARCHIVE in moved:
-        ops.append(DbChangeOp.upload_archive(target.changes(running, {ProjectPart.ARCHIVE})))
+        ops.append(DbChangeOp.upload_archive(target.changes(current, {ProjectPart.ARCHIVE})))
     return ops
 
 
-def _secret_ops(target: DatabaseSpec, current: DatabaseStatus) -> list[DbChangeOp]:
-    """The operations that set the secrets target binds, and restart the pods onto the stored values.
-
-    Setting a secret and running with it are two steps: only the client can resolve a binding, and only the
-    control plane can tell whether a pod holds the stored value.
-    """
-    stored = {key: value.digest for key, value in target.stored_secrets.items()}
-    # a key set from a different binding has to be set again: the two sources may hold different values
-    rebound = {
-        key for key in set(target.secrets) & set(stored) if target.secrets[key] != target.stored_secrets[key].binding
-    }
-    to_set = sorted((set(target.secrets) - set(stored)) | rebound)
-    to_drop = sorted(set(stored) - set(target.secrets))
-    ops = [DbChangeOp.secret(key, 'add') for key in to_set]
-    ops += [DbChangeOp.secret(key, 'drop') for key in to_drop]
-
-    # a key this plan sets or deletes restarts the pods already
-    settled = (set(stored) | set(current.secret_digests)) - set(to_set) - set(to_drop)
-    behind = {key for key in settled if stored.get(key) != current.secret_digests.get(key)}
-    return ops + [DbChangeOp.stale_secret(key) for key in sorted(behind)]
+# def _secret_ops(target: DatabaseSpec, current: DatabaseStatus) -> list[DbChangeOp]:
+#     """The operations that set the secrets target binds, and restart the pods onto the stored values."""
+#     stored = {key: value.digest for key, value in target.stored_secrets.items()}
+#     # a key set from a different binding has to be set again: the two sources may hold different values
+#     rebound = {
+#         key for key in set(target.secrets) & set(stored) if target.secrets[key] != target.stored_secrets[key].binding
+#     }
+#     to_set = sorted((set(target.secrets) - set(stored)) | rebound)
+#     to_drop = sorted(set(stored) - set(target.secrets))
+#     ops = [DbChangeOp.secret(key, 'add') for key in to_set]
+#     ops += [DbChangeOp.secret(key, 'drop') for key in to_drop]
+#
+#     # a key this plan sets or deletes restarts the pods already
+#     settled = (set(stored) | set(current.secret_digests)) - set(to_set) - set(to_drop)
+#     behind = {key for key in settled if stored.get(key) != current.secret_digests.get(key)}
+#     return ops + [DbChangeOp.stale_secret(key) for key in sorted(behind)]
 
 
 def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
@@ -141,14 +130,7 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
     This is the one verb that creates a hosted database. The control plane records the spec before acting
     on any of it, so an update interrupted anywhere is finished by running it again.
 
-    Secrets go first: their values live outside the project, so the client resolves each binding and the
-    control plane cannot.
-
     Returns the plan that was applied, each operation annotated with its status.
-
-    Args:
-        db_uri: the pxt://org:db uri of the database the entry configures.
-        allow_destructive: whether to apply changes that take capacity away or delete a secret.
     """
     db_path = _validated_db_uri(db_uri)
     config = _get_db_config(db_path)
@@ -190,7 +172,8 @@ def _apply_spec(
     rounds = 0
     while len(response.uploads) > 0:
         rounds += 1
-        if rounds > _MAX_UPLOAD_ROUNDS:
+        if rounds > 2:
+            # > 2 rounds: we're not making progress
             wanted = ', '.join(upload.artifact for upload in response.uploads)
             raise excs.InternalError(
                 excs.ErrorCode.INTERNAL_ERROR, f'{db_path.uri_str} still asks for {wanted} after it was stored'

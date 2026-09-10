@@ -248,6 +248,21 @@ class ServiceChangeOp(ChangeOp):
             status=status,
         )
 
+    @classmethod
+    def restart_service(cls, name: str, endpoint: str | None, status: OpStatus) -> ServiceChangeOp:
+        """The operation for restarting the named service, in the given status."""
+        served = '' if endpoint is None else f' at {endpoint}'
+        return cls(
+            target='service',
+            name=name,
+            op='alter',
+            severity='additive',
+            description=f'service {name!r}{served} will be restarted',
+            details={} if endpoint is None else {'endpoint': endpoint},
+            requires_restart=True,
+            status=status,
+        )
+
 
 # the two artifacts a hosted database is given: the manifests that build its image, and the files its pods
 # serve
