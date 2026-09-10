@@ -1,15 +1,11 @@
 """The project's file selection and its fingerprint."""
 
 import pathlib
-import sys
-from types import ModuleType
-from unittest.mock import patch
 
 import pytest
 
 from pixeltable import exceptions as excs
 from pixeltable.config import DatabaseConfig
-from pixeltable.utils import project as project_mod
 from pixeltable.utils.project import (
     ProjectPart,
     _archive_files,

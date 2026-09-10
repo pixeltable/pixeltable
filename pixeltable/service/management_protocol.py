@@ -25,10 +25,12 @@ class ManagementOperationType(str, Enum):
     REPORT_SERVICE_INSTANCE = 'report_service_instance'
     START_SERVICE_INSTANCE = 'start_service'
     STOP_SERVICE_INSTANCE = 'stop_service'
+    RESTART_SERVICE_INSTANCE = 'restart_service'
     DELETE_SERVICE_INSTANCE = 'delete_service'
 
     START_DB = 'start_db'
     STOP_DB = 'stop_db'
+    RESTART_DB = 'restart_db'
     UPDATE_DB = 'update_db'
     GET_ARCHIVE = 'get_archive'
 
@@ -199,6 +201,14 @@ class StopDbRequest(BaseModel):
     db: str
 
 
+class RestartDbRequest(BaseModel):
+    """Cycle the database's pods onto the image and archive it already runs."""
+
+    operation_type: Literal[ManagementOperationType.RESTART_DB] = ManagementOperationType.RESTART_DB
+    org: str | None = None
+    db: str
+
+
 class GetArchiveRequest(BaseModel):
     """Ask for a url serving the database's current project archive; a pod sends this as it starts."""
 
@@ -364,6 +374,22 @@ class StopServiceInstanceRequest(BaseModel):
 
 
 class StopServiceInstanceResponse(BaseModel):
+    instance: ServiceInstanceRecord
+
+
+class RestartServiceInstanceRequest(BaseModel):
+    """Cycle the service's pods onto the image and archive they already run."""
+
+    operation_type: Literal[ManagementOperationType.RESTART_SERVICE_INSTANCE] = (
+        ManagementOperationType.RESTART_SERVICE_INSTANCE
+    )
+    org: str | None = None
+    db: str
+    service_name: str
+    base_path: str = ''
+
+
+class RestartServiceInstanceResponse(BaseModel):
     instance: ServiceInstanceRecord
 
 
