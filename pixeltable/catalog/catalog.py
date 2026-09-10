@@ -1987,7 +1987,9 @@ class Catalog(CatalogBase):
                     change_set['altered_columns'],
                     change_set['new_idxs'],
                 )
-                altered_cols = [(tv.cols_by_name[name], expr) for name, expr in altered_exprs.items()]
+                altered_cols: list[tuple[Column, exprs.Expr]] = [
+                    (tv.cols_by_name[name], expr) for name, expr in altered_exprs.items()
+                ]
                 dropped_cols = [tv.cols_by_name[name] for name in change_set['dropped_columns']]
                 dropped_idx_ids = [tv.idxs_by_name[name].id for name in change_set['dropped_idxs']]
                 expected_schema_version = change_set['schema_versions'][change_set['tbl_id']]

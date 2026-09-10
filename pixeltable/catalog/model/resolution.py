@@ -324,7 +324,9 @@ def prepare_model_updates(
     for name, (spec, origin) in altered_columns.items():
         resolve_against = base_subst_dict if origin == 'base_query' else subst_dict
         resolved = spec['value'].substitute(resolve_against)
-        unresolved_names = [ref.name for ref in resolved.subexprs(exprs.ColumnRefByName) if ref.name not in new_columns]
+        unresolved_names: list[str] = [
+            ref.name for ref in resolved.subexprs(exprs.ColumnRefByName) if ref.name not in new_columns
+        ]
         if len(unresolved_names) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,

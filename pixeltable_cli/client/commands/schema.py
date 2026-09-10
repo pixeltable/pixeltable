@@ -499,7 +499,7 @@ def _print_recompute_notice(plan: SchemaPlan) -> None:
     This is the only signal a user gets: a value-expression change updates the definition without recomputing, and
     a later `schema diff` compares metadata, so it reports the table as up to date regardless.
     """
-    altered_computed_cols = [
+    altered_computed_cols: list[str] = [
         f'  {tbl.path}.{op.name}'
         for tbl in plan.tables
         for op in tbl.ops

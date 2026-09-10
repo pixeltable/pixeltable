@@ -178,7 +178,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 model = registered_models[name]
                 new_col_names = {c.name for c in d.ops if c.target == 'column' and c.op == 'add'}
                 dropped_col_names = [c.name for c in d.ops if c.target == 'column' and c.op == 'drop']
-                altered_col_names = {c.name for c in d.ops if c.target == 'column' and c.op == 'alter'}
+                altered_col_names: set[str] = {c.name for c in d.ops if c.target == 'column' and c.op == 'alter'}
                 new_idx_refs = [c.details.index_ref for c in d.ops if c.target == 'index' and c.op == 'add']
                 dropped_idx_names = [c.name for c in d.ops if c.target == 'index' and c.op == 'drop']
                 # Resolve type annotations to ColumnTypes, mirroring _create(), and tag each column's origin.

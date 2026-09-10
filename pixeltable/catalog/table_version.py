@@ -79,7 +79,7 @@ def _topological_sort(graph: dict[int, set[int]]) -> list[int]:
         _CycleFoundError: if graph is cyclic
     """
     # sort the graph for a deterministic result
-    sorted_graph = {node: sorted(graph[node]) for node in sorted(graph)}
+    sorted_graph: dict[int, list[int]] = {node: sorted(graph[node]) for node in sorted(graph)}
 
     # we need a sorted set to record the order it was filled in (which is the result) and the O(1) membership checks.
     result: dict[int, None] = {}
@@ -427,7 +427,9 @@ class TableVersion:
         """The md of the columns visible in this schema version, ordered so that a column's value expression only
         references columns that precede.
         """
-        visible = {md.id: md for md in self.tbl_md.column_md.values() if md.is_visible_in_version(self.schema_version)}
+        visible: dict[int, schema.ColumnMd] = {
+            md.id: md for md in self.tbl_md.column_md.values() if md.is_visible_in_version(self.schema_version)
+        }
         deps: dict[int, set[int]] = {}
         for col_id in visible:
             own_refs = self._own_col_refs(self._schema_version_md.columns[col_id].value_expr)
@@ -800,8 +802,10 @@ class TableVersion:
         """Returns cols, reordered so that a column follows its dependencies. That includes its transitive dependencies
         in this table regardless of whether they are in the provided list."""
         assert all(col.id in self.cols_by_id for col in cols)
-        deps = {col.id: self._own_col_refs(col.value_expr_dict) for col in self.cols_by_id.values()}
-        input_cols_by_id = {col.id: col for col in cols}
+        deps: dict[int, set[int]] = {
+            col.id: self._own_col_refs(col.value_expr_dict) for col in self.cols_by_id.values()
+        }
+        input_cols_by_id: dict[int, Column] = {col.id: col for col in cols}
         return [input_cols_by_id[col_id] for col_id in _topological_sort(deps) if col_id in input_cols_by_id]
 
     def _col_ref_substitutions(self, cols: Sequence[Column]) -> 'exprs.ExprDict[exprs.Expr]':
@@ -1008,7 +1012,9 @@ class TableVersion:
         # altered_cols are applied after cols are recorded, so that a new value expression can reference a column that
         # this change set adds, and before anything is populated, so that a new column is computed from the value
         # expressions the change set ends up with
-        resolved_alters = [(col, expr.substitute(self._col_ref_substitutions(new_cols))) for col, expr in altered_cols]
+        resolved_alters: list[tuple[Column, exprs.Expr]] = [
+            (col, expr.substitute(self._col_ref_substitutions(new_cols))) for col, expr in altered_cols
+        ]
         self._validate_no_dependency_cycles({col.id: expr for col, expr in resolved_alters})
         for col, new_value_expr in resolved_alters:
             self._alter_value_expr_in_version(col, new_value_expr)
@@ -1108,7 +1114,9 @@ class TableVersion:
         # is only possible among the column dependencies within this table. Ignore ancestor dependencies.
 
         # Build the proposed graph of dependencies using the new value exprs overlaid on existing dependencies.
-        deps = {col.id: self._own_col_refs(col.value_expr_dict) for col in self.cols_by_id.values()}
+        deps: dict[int, set[int]] = {
+            col.id: self._own_col_refs(col.value_expr_dict) for col in self.cols_by_id.values()
+        }
         deps.update({col_id: self._own_col_refs(e.as_dict()) for col_id, e in new_value_exprs.items()})
 
         try:

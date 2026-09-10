@@ -566,14 +566,14 @@ def format_diff(name: str, diff: TableDiff) -> list[str]:
             detail.append(f'    {c.name}: model={c.model!r}, existing={c.existing!r}')
 
     altered_cols = by('column', op='alter')
-    unsupported_alters = [c for c in altered_cols if c.severity == 'unsupported']
+    unsupported_alters: list[SchemaChangeOp] = [c for c in altered_cols if c.severity == 'unsupported']
     if len(unsupported_alters) > 0:
         detail.append('  the following columns have altered properties (FATAL):')
         for c in unsupported_alters:
             for prop, model_val in c.model.items():
                 detail.append(f'    {c.name!r} {prop}: model={model_val!r}, existing={c.existing[prop]!r}')
 
-    supported_alters = [c for c in altered_cols if c.severity != 'unsupported']
+    supported_alters: list[SchemaChangeOp] = [c for c in altered_cols if c.severity != 'unsupported']
     if len(supported_alters) > 0:
         detail.append('  the following computed columns have a new value expression, and will be UPDATED:')
         for c in supported_alters:
