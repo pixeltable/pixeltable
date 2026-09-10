@@ -10,7 +10,7 @@ from pixeltable.types import ColumnSpec
 from pixeltable_cli.types import Resolution, SchemaChangeIndexRef, SchemaChangeOp, SchemaChangeOpDetails, TableDiff
 
 from ..globals import col_type_from_spec, fold_mapping_keys
-from ..table_metadata import ColumnMetadata, TableMetadata
+from ..table_metadata import ColumnMetadata, IndexMetadata, TableMetadata
 
 if TYPE_CHECKING:
     from .definition import IndexDefinition, TableModelMeta
@@ -188,7 +188,7 @@ def _as_idx_ref(idx: IndexDefinition) -> SchemaChangeIndexRef:
         return SchemaChangeIndexRef(index_type='embedding', columns=[idx.column.name], name=idx.name)
 
 
-def _add_index_change(idx: IndexDefinition) -> SchemaChangeOp:
+def _add_index_change(idx: IndexDefinition, action: str = 'will be added') -> SchemaChangeOp:
     idx_ref = _as_idx_ref(idx)
     idx_name = idx_ref.name
     return SchemaChangeOp(
@@ -199,9 +199,9 @@ def _add_index_change(idx: IndexDefinition) -> SchemaChangeOp:
         model=str(idx),
         existing=None,
         description=(
-            f'{type(idx).__name__} {idx_name!r} will be added'
+            f'{type(idx).__name__} {idx_name!r} {action}'
             if idx_name is not None
-            else f'{type(idx).__name__} on column(s) {idx_ref.columns!r} will be added'
+            else f'{type(idx).__name__} on column(s) {idx_ref.columns!r} {action}'
         ),
         details=SchemaChangeOpDetails(index_ref=idx_ref),
     )
@@ -414,7 +414,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         for i, idx_md in enumerate(existing_idxs)
                         if idx_md['name'] == idx.name and idx_md['index_type'] == 'embedding'
                     ]
-                    assert len(existing_named_idxs) <= 1
+                    assert len(existing_named_idxs) <= 1, existing_named_idxs
                     if len(existing_named_idxs) == 0:
                         ops.append(_add_index_change(idx))
                     else:
@@ -424,20 +424,13 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                             or idx_md['parameters']['metric'] != idx.metric
                             or idx_md['parameters']['precision'] != idx.precision
                             or idx_md['parameters']['embedding'] != str(idx.as_fn_call())
+                            or idx_md['parameters']['embedding_functions'] != idx.resolved_embedding_fns()
                         ):
-                            idx_ref = _as_idx_ref(idx)
+                            # A different index with the same name: drop the old one, and add the new one.
                             ops.append(
-                                SchemaChangeOp(
-                                    target='index',
-                                    name=idx_ref.name,
-                                    op='alter',
-                                    severity='unsupported',
-                                    model=str(idx),
-                                    existing=idx_md,
-                                    description=f'named index {idx.name!r} has altered properties',
-                                    details=SchemaChangeOpDetails(index_ref=idx_ref),
-                                )
+                                _drop_index_change(idx_md, 'will be dropped and re-created from its new definition')
                             )
+                            ops.append(_add_index_change(idx, 'will be re-created'))
                         existing_idxs.pop(i)
                 else:
                     # Unnamed embedding index: check if an index of identical structure exists in the catalog.
@@ -449,6 +442,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         and idx_md['parameters']['metric'] == idx.metric
                         and idx_md['parameters']['precision'] == idx.precision
                         and idx_md['parameters']['embedding'] == str(idx.as_fn_call())
+                        and idx_md['parameters']['embedding_functions'] == idx.resolved_embedding_fns()
                     ]
                     assert len(matching_idxs) <= 1
                     if len(matching_idxs) == 0:
@@ -458,22 +452,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
 
             # Any remaining items in existing_idxs are indexes that exist in the catalog but not in the model.
             for idx_md in existing_idxs:
-                idx_name = idx_md['name']
-                idx_ref = SchemaChangeIndexRef(
-                    index_type=idx_md['index_type'], columns=idx_md['columns'], name=idx_name
-                )
-                ops.append(
-                    SchemaChangeOp(
-                        target='index',
-                        name=idx_name,
-                        op='drop',
-                        severity='destructive',
-                        model=None,
-                        existing=None,
-                        description=f'index {idx_name!r} will be dropped',
-                        details=SchemaChangeOpDetails(index_ref=idx_ref),
-                    )
-                )
+                ops.append(_drop_index_change(idx_md, 'will be dropped'))
 
             results[name] = TableDiff(
                 path=bound_path,
@@ -489,6 +468,24 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
         return results
 
     return op()
+
+
+def _drop_index_change(idx_md: IndexMetadata, action: str) -> SchemaChangeOp:
+    idx_ref = SchemaChangeIndexRef(index_type=idx_md['index_type'], columns=idx_md['columns'], name=idx_md['name'])
+    if len(idx_md['columns']) == 1:
+        cols = f'column {idx_md["columns"][0]!r}'
+    else:
+        cols = f'columns {", ".join(repr(col_name) for col_name in idx_md["columns"])}'
+    return SchemaChangeOp(
+        target='index',
+        name=idx_md['name'],
+        op='drop',
+        severity='destructive',
+        model=None,
+        existing=None,
+        description=f'index {idx_md["name"]!r} on {cols} {action}',
+        details=SchemaChangeOpDetails(index_ref=idx_ref),
+    )
 
 
 def format_diff(name: str, diff: TableDiff) -> list[str]:
@@ -543,22 +540,29 @@ def format_diff(name: str, diff: TableDiff) -> list[str]:
         for c in dropped_cols:
             detail.append(f'    {c.name!r}')
 
-    new_idxs = by('index', op='add')
+    # Present an index drop+add with the same name as one replacement
+    added_idxs = by('index', op='add')
+    dropped_idxs = by('index', op='drop')
+    replaced_names = {c.name for c in added_idxs if c.name is not None} & {
+        c.name for c in dropped_idxs if c.name is not None
+    }
+
+    new_idxs = [c for c in added_idxs if c.name not in replaced_names]
     if len(new_idxs) > 0:
         detail.append('  the following indexes are new to the model, and will be ADDED:')
         for c in new_idxs:
             detail.append(f'    {c.model}')
 
-    dropped_idxs = by('index', op='drop')
-    if len(dropped_idxs) > 0:
-        detail.append('  the following indexes are no longer in the model, and will be DROPPED:')
-        for c in dropped_idxs:
-            detail.append(f'    {c.name!r}')
+    replaced_idxs = [c for c in added_idxs if c.name in replaced_names]
+    if len(replaced_idxs) > 0:
+        detail.append('  the following indexes have changed, and will be REPLACED:')
+        for c in replaced_idxs:
+            detail.append(f'    {c.model}')
 
-    changed_idxs = by('index', op='alter')
-    if len(changed_idxs) > 0:
-        detail.append('  the following named indexes have altered properties (FATAL):')
-        for c in changed_idxs:
+    removed_idxs = [c for c in dropped_idxs if c.name not in replaced_names]
+    if len(removed_idxs) > 0:
+        detail.append('  the following indexes are no longer in the model, and will be DROPPED:')
+        for c in removed_idxs:
             detail.append(f'    {c.name!r}')
 
     return [f'{kind.capitalize()} {name!r} (from model `{diff.model_cls}`) has differences:', *detail]

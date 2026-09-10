@@ -47,7 +47,8 @@ def _serve(
 
     log_level = logging.getLogger('pixeltable').getEffectiveLevel()
     # log_config=None keeps uvicorn from replacing the logging Env has already set up
-    uvicorn.run(app, host=host, port=port, log_level=log_level, log_config=None)
+    # root_path: the docs page fetches openapi.json by url, which needs the prefix the gateway stripped
+    uvicorn.run(app, host=host, port=port, log_level=log_level, log_config=None, root_path=f'/{service_name}')
 
 
 if __name__ == '__main__':

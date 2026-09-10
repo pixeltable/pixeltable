@@ -1,14 +1,21 @@
 > **Pixeltable Cloud is in Limited Beta.** Email [contact@pixeltable.com](mailto:contact@pixeltable.com) if you are interested.
 
-<picture class="github-only">
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/e9bf82b2-cace-4bd8-9523-b65495eb8131">
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/c5ab123e-806c-49bf-93e7-151353719b16">
-  <img alt="Pixeltable Logo" src="https://github.com/user-attachments/assets/e9bf82b2-cace-4bd8-9523-b65495eb8131" width="40%">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/_logo/pxt-dark.svg">
+  <img alt="Pixeltable" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/_logo/pxt-light.svg" width="40%">
 </picture>
 
-<div>
-<br>
-</div>
+## The unified multimodal backend for AI data apps in one Python file
+
+[**Quickstart**](https://docs.pixeltable.com/overview/quick-start) |
+[**Documentation**](https://docs.pixeltable.com/) |
+[**CLI**](https://docs.pixeltable.com/platform/cli) |
+[**Cloud**](https://docs.pixeltable.com/howto/deployment/cloud) |
+[**Skill**](https://github.com/pixeltable/pixeltable-skill) |
+[**get-started.md**](https://www.pixeltable.com/get-started.md) |
+[**skill.md**](https://docs.pixeltable.com/skill.md) |
+[**llms-full.txt**](https://docs.pixeltable.com/llms-full.txt) |
+[**Discord**](https://discord.gg/QPyqFYx2UN)
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
@@ -17,19 +24,7 @@
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![Python](https://img.shields.io/pypi/pyversions/pixeltable)](https://pypi.org/project/pixeltable/)
 
-[**Quickstart**](https://docs.pixeltable.com/overview/quick-start) |
-[**Documentation**](https://docs.pixeltable.com/) |
-[**Cloud**](https://docs.pixeltable.com/howto/deployment/cloud) |
-[**Skill**](https://github.com/pixeltable/pixeltable-skill) |
-[**llms-full.txt**](https://docs.pixeltable.com/llms-full.txt) |
-[**skill.md**](https://docs.pixeltable.com/skill.md) |
-[**Discord**](https://discord.gg/QPyqFYx2UN)
-
-## The unified multimodal backend for AI data apps in one Python file.
-
-Most stacks glue a blob store, a warehouse, a vector database, an orchestrator, and custom endpoints. You pay for the joints. Pixeltable is the database, the orchestration, and the serving: tables, computed columns, indexes, and endpoints in one Python file (`app.py`). Insert a row. Transforms run.
-
-Locally, `pxt schema update` creates the tables. `pxt service update` starts the endpoints. On Cloud, use the same file after you set `PIXELTABLE_API_KEY` (create the key in the [dashboard](https://docs.pixeltable.com/howto/deployment/cloud#get-an-api-key)) and run `pxt db update`. Python 3.11+ on Linux, macOS, or Windows.
+Pixeltable is the database, orchestration, and serving layers. Images, video, audio, and documents live in tables. A transform is a computed column. An index is a declaration, and so is an HTTP route. Insert a row and everything below it runs. Object storage, a vector database, an orchestrator, and the endpoint code that copies between them collapse into one application file.
 
 ```bash
 pip install 'pixeltable[serve]'
@@ -39,7 +34,10 @@ pxt schema update app.py my_app
 pxt service update app.py my_app
 ```
 
-The generated file looks like this. `pxt service example` writes a longer file than the snippet (a UDF and a compute route), which you can delete.
+`pxt schema update` creates the catalog `my_app` and its tables; it does not start HTTP.
+`pxt service update` starts HTTP; it does not create tables.
+
+`pxt service example` writes this application file.
 
 ```python
 import pixeltable as pxt
@@ -49,42 +47,47 @@ from pixeltable.serving import FastAPIRouter
 TableModel = pxt.model_base()
 
 
+@pxt.udf                                        # a Python function the columns below can call
+def excerpt(text: str, n: int = 12) -> str:
+    return text if len(text) <= n else f'{text[:n]}...'
+
+
 class Docs(TableModel, name='docs'):
+    doc_id: pxt.Int                             # an annotation: a value you insert
     title: pxt.String
     body: pxt.String | None
-    title_upper = pxtf.string.upper(title)
+    title_upper = pxtf.string.upper(title)      # an assignment: computed on insert and on update
+    summary = excerpt(title)                    # a computed column over a udf this file defines
 
 
 ingest = FastAPIRouter(name='ingest')
-ingest.add_insert_route(
-    Docs,
-    path='/docs',
-    inputs=[Docs.title, Docs.body],
-    outputs=[Docs.title, Docs.title_upper],
+ingest.add_insert_route(                        # POST /docs inserts and returns the computed columns
+    Docs, path='/docs', inputs=[Docs.doc_id, Docs.title, Docs.body], outputs=[Docs.title_upper, Docs.summary]
 )
+ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
 ```
 
-`title: pxt.String` is a value you insert. `title_upper = ...` is computed on insert and on update. The same file can hold `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document`: [media pipelines](https://docs.pixeltable.com/use-cases/media-processing), [RAG](https://docs.pixeltable.com/use-cases/multimodal-backend). `pxt service list` prints the URL (the port is assigned):
+The same file holds `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document` columns, and a
+computed column over one of them is another assignment:
+[media pipelines](https://docs.pixeltable.com/use-cases/media-processing),
+[RAG](https://docs.pixeltable.com/use-cases/multimodal-backend). The port is assigned, so read it
+back rather than hardcoding it:
 
 ```bash
-pxt service list
-# ingest  http://127.0.0.1:<port>  ...
-curl -X POST http://127.0.0.1:<port>/docs \
+URL=$(pxt service list --json | jq -r '.[0].endpoint')
+curl -X POST "$URL/docs" \
   -H 'Content-Type: application/json' \
-  -d '{"title": "Hello", "body": "world"}'
+  -d '{"doc_id": 1, "title": "Hello", "body": "world"}'
+# {"title_upper":"HELLO","summary":"Hello"}
 ```
 
-`pxt schema update` creates the catalog namespace `my_app` and its tables. That is not a folder on disk. It does not start the endpoints. After the tables exist, `pxt service update` starts them.
-
-To put the same file on Pixeltable Cloud, create an API key in the [Cloud dashboard](https://docs.pixeltable.com/howto/deployment/cloud#get-an-api-key), set `PIXELTABLE_API_KEY`, name the database in `pixeltable.toml`, then run the three commands below. `pxt db update` creates or updates the hosted database. It does not insert rows and does not start app endpoints. `pxt schema update` creates tables there. `pxt service update` starts the endpoints on the host. `pxt service run` always serves from this process and cannot target Cloud:
+The same file runs on Pixeltable Cloud. Create an API key in the [Cloud dashboard](https://docs.pixeltable.com/howto/deployment/cloud#get-an-api-key), set `PIXELTABLE_API_KEY`, name the database in `pixeltable.toml`, then target it by URI. `pxt db update` creates or updates the hosted database; it does not insert rows. `pxt service run` is local only and cannot target Cloud.
 
 ```bash
 pxt db update pxt://org:mydb
 pxt schema update app.py pxt://org:mydb
 pxt service update app.py pxt://org:mydb
 ```
-
-Same steps: [Quickstart](https://docs.pixeltable.com/overview/quick-start).
 
 ## Chat agent or video search
 
@@ -110,10 +113,10 @@ Hand the agent [get-started.md](https://www.pixeltable.com/get-started.md). That
 npx skills add pixeltable/pixeltable-skill
 ```
 
-Skill **2.7.0+** writes a `TableModel` in `app.py`, then `pxt schema update`. If the agent writes `create_table` in app code, `schema.py`, or `pxt serve`, the installed skill is stale: this page wins. Reinstall the skill. Do not copy this repo's `AGENTS.md` into an application; that file is for Pixeltable contributors.
+Skill **2.8.0+** writes a `TableModel` in `app.py`. If your agent emits `create_table` in application code, the installed skill is stale: reinstall it.
 
 Notebooks and tests still use `pxt.create_table()`. An app puts tables in `app.py` and creates them with `pxt schema update`.
 
 ## License
 
-Apache 2.0. [Contributing](CONTRIBUTING.md) · [Discord](https://discord.gg/QPyqFYx2UN)
+Apache 2.0. [Contributing](https://github.com/pixeltable/pixeltable/blob/main/CONTRIBUTING.md) · [Discord](https://discord.gg/QPyqFYx2UN)

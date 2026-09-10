@@ -6,6 +6,7 @@ our own daemon on a worker-specific port to avoid colliding with the user's
 real daemon on 22089.
 """
 
+import contextlib
 import json
 import os
 import pathlib
@@ -15,6 +16,7 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
@@ -157,6 +159,9 @@ def pxt_daemon(
 
 PxtRunner = Callable[..., PxtResult]
 
+# `pxt db update` against a hosted database builds its image, which runs CodeBuild
+BUILD_TIMEOUT = 1800.0
+
 _RUN_TIMEOUT_SECS = 300
 
 _WHEEL_SUBDIR = 'wheels'
@@ -169,7 +174,7 @@ def _as_text(stream: bytes | str | None) -> str:
     return stream if isinstance(stream, str) else stream.decode(errors='replace')
 
 
-def _copy_app_corpus(session_project: pathlib.Path) -> pathlib.Path:
+def copy_app_corpus(session_project: pathlib.Path) -> pathlib.Path:
     """Put the shared app corpus in the session's project, and return where it landed."""
     directory = session_project / 'apps'
     if not directory.exists():
@@ -195,6 +200,15 @@ def pixeltable_wheel(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
     return wheels[0]
 
 
+@contextlib.contextmanager
+def disposable_db_uri(cli: PxtRunner, cwd: pathlib.Path) -> Iterator[str]:
+    uri = f'pxt://pixeltable:pxttest-{uuid.uuid4().hex[:12]}'
+    try:
+        yield uri
+    finally:
+        cli('db', 'delete', uri, cwd=cwd, check=False)
+
+
 def write_requirements(project: pathlib.Path, wheel: pathlib.Path, *extra: str) -> None:
     """Write project's requirements.txt, installing pixeltable from wheel rather than from PyPI.
 
@@ -215,7 +229,7 @@ def apps(session_project: pathlib.Path) -> Callable[[str], str]:
 
     The corpus needs to be copied into the session's project in order for cli commands to work.
     """
-    directory = _copy_app_corpus(session_project)
+    directory = copy_app_corpus(session_project)
 
     def _path(name: str) -> str:
         path = directory / name
@@ -286,11 +300,10 @@ def cli_bg(
             handle.proc.kill()
 
 
-@pytest.fixture
-def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -> PxtRunner:
-    # db_root resets the catalog (like uses_db) and pulls in the local/proxy/cloud axis, so a test
-    # using cli() auto-forks over all backends unless it is marked @pytest.mark.db_roots. The CLI daemon and
-    # this test process share PIXELTABLE_HOME, so both resolve a pxt:// path to the same local proxy daemon.
+@pytest.fixture(scope='session')
+def session_cli(pxt_daemon: int, session_project: pathlib.Path) -> PxtRunner:
+    """Run the CLI against the session's daemon and project, for work a session does once."""
+
     def _run(
         *args: str,
         check: bool = True,
@@ -334,3 +347,11 @@ def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -
         return PxtResult(r.returncode, r.stdout, r.stderr)
 
     return _run
+
+
+@pytest.fixture
+def cli(db_root: DatabaseRoot, session_cli: PxtRunner) -> PxtRunner:
+    # db_root resets the catalog (like uses_db) and pulls in the local/proxy/cloud axis, so a test
+    # using cli() auto-forks over all backends unless it is marked @pytest.mark.db_roots. The CLI daemon and
+    # this test process share PIXELTABLE_HOME, so both resolve a pxt:// path to the same local proxy daemon.
+    return session_cli

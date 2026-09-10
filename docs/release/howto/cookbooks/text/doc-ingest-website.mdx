@@ -1,0 +1,85 @@
+---
+title: 'Ingest a web page'
+description: 'Insert a URL as a document, then compare chunking strategies on it'
+---
+
+A `pxt.Document` column takes a URL as readily as a local path. Insert the URL and Pixeltable
+fetches and parses the page, so there is no separate scraping step to keep in sync with the table.
+
+## Insert the URL
+
+```python
+import pixeltable as pxt
+from pixeltable.functions.document import document_splitter
+
+pxt.create_dir('web', if_exists='ignore')
+
+sites = pxt.create_table('web.sites', {'url': pxt.Document}, if_exists='ignore')
+sites.insert([{'url': 'https://en.wikipedia.org/wiki/Ant'}])
+```
+
+## Chunk it, two ways
+
+The chunking strategy decides what a retrieval hit looks like, so it is worth seeing the difference
+before committing to one. A view per strategy, over the same table:
+
+```python
+by_paragraph = pxt.create_view(
+    'web.by_paragraph',
+    sites,
+    iterator=document_splitter(sites.url, separators='paragraph'),
+)
+
+by_size = pxt.create_view(
+    'web.by_size',
+    sites,
+    iterator=document_splitter(sites.url, separators='char_limit', limit=1200),
+)
+```
+
+On that one page: **152 paragraph chunks** against **117 fixed-size chunks**.
+
+```python
+print(by_paragraph.count(), by_size.count())
+```
+
+`paragraph` follows the document's own structure, so a chunk is a complete thought and a retrieval
+hit reads as prose. Chunk length is whatever the author wrote, which on a page with one-line
+paragraphs produces chunks too small to carry context. `char_limit` gives you predictable sizes and
+predictable embedding cost, and cuts mid-sentence.
+
+Valid separators are `heading`, `paragraph`, `sentence`, `token_limit`, `char_limit`, and `page`.
+Combine them with a comma, most structural first:
+
+```python
+iterator=document_splitter(sites.url, separators='heading,token_limit', limit=300)
+```
+
+That splits on headings, then splits any section still over 300 tokens, which keeps chunks inside a
+model's context window without cutting across two topics.
+
+## Make it searchable
+
+Declare an index on the chunk text and query it with `similarity()`:
+
+```python
+from pixeltable.functions.huggingface import sentence_transformer
+
+embed = sentence_transformer.using(model_id='intfloat/e5-large-v2')
+by_paragraph.add_embedding_index('text', string_embed=embed)
+
+sim = by_paragraph.text.similarity(string='how do ants communicate')
+by_paragraph.order_by(sim, asc=False).limit(5).select(by_paragraph.text, sim).collect()
+```
+
+The index loads with the chunks already there and updates as you insert more URLs.
+
+## Notes
+
+- Insert several URLs and every view and index below the table extends to them. There is no
+  per-page bookkeeping.
+- `sentence_transformer` needs `pip install sentence-transformers`, and downloads the model on
+  first use.
+- `pxt.create_table()`, `create_view()`, and `add_embedding_index()` are the notebook and test
+  form. An application declares the tables and views on a `TableModel` in `app.py`, puts the index
+  in `__indexes__`, and creates them with `pxt schema update`.
