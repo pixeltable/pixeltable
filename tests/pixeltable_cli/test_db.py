@@ -7,21 +7,21 @@ which takes minutes. They run against the session's hosted database, the one the
 """
 
 import hashlib
-import os
 import pathlib
 import shutil
 import socket
 import subprocess
 import time
 import uuid
+from typing import Any, Iterator
 
 import httpx
 import pytest
 
 from pixeltable.service import proxy_daemon
-from tests.utils import DatabaseRoot
+from tests.utils import DatabaseRoot, skip_test_if_no_config
 
-from .conftest import PxtRunner, read_logs_until
+from .conftest import PxtRunner, disposable_db_uri, read_logs_until
 from .hosted import (
     APP_FILE,
     APPLY_TIMEOUT,
@@ -30,28 +30,44 @@ from .hosted import (
     EXIT_IN_AGREEMENT,
     assert_in_agreement,
     create_project_config,
-    current_db,
     db_diff,
-    db_status,
     db_update,
     edit_app,
-    get_target_ops,
-    hosted_db,
     project,
     schema_update,
     service_update,
 )
 
-__all__ = ['current_db', 'hosted_db', 'project']  # fixtures this module's tests request by name
+__all__ = ['project']  # fixtures this module's tests request by name
 
 _REQUEST_TIMEOUT = 30.0
 
 
+def db_status(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> dict[str, Any]:
+    """What the database at db_uri provides, as `pxt db status` reports it."""
+    return cli('db', 'status', db_uri, '--json', cwd=project).json['status']
+
+
+def get_target_ops(plan: dict[str, Any], target: str) -> list[dict[str, Any]]:
+    """The plan's operations against one target: image, archive, capacity or secret."""
+    return [op for op in plan['ops'] if op['target'] == target]
+
+
 @pytest.fixture
 def hosted_environment() -> None:
-    """Skip the test unless the session names a hosted database to act on."""
-    if os.environ.get('PXTTEST_CLOUD_DB_URI') is None:
-        pytest.skip('PXTTEST_CLOUD_DB_URI is not set.')
+    """Skip the test unless a control plane is configured to create the database against."""
+    skip_test_if_no_config('api_key')
+
+
+@pytest.fixture(scope='module')
+def test_db_uri(session_cli: PxtRunner, session_project: pathlib.Path) -> Iterator[str]:
+    """A database URI of this module's own, naming nothing until a test creates it, deleted when it ends.
+
+    Module-scoped, unlike the per-test fixture on main: creating a database runs CodeBuild, and the tests
+    here only need one to publish to in turn, which costs an archive upload each.
+    """
+    with disposable_db_uri(session_cli, session_project) as uri:
+        yield uri
 
 
 pytestmark = [
@@ -104,31 +120,37 @@ class TestDb:
         finally:
             cli('db', 'delete', absent, cwd=project, check=False)
 
-    def test_source_edit(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
-        """An edit to a source file moves the archive alone: the environment it runs in is unchanged."""
+    def test_source_edit(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
+        create_project_config(cli, project, test_db_uri)
+        db_update(cli, project, test_db_uri)
+        assert_in_agreement(cli, project, test_db_uri)
+
         edit_app(project, 'an edit that changes no dependency')
 
         # a dry run reports the plan and applies none of it
-        planned = db_update(cli, project, current_db, '-n')
+        planned = db_update(cli, project, test_db_uri, '-n')
         assert planned['returncode'] == EXIT_CHANGES_PENDING
         assert all(op['status'] is None for op in planned['ops']), planned['ops']
 
-        plan = db_diff(cli, project, current_db)
+        plan = db_diff(cli, project, test_db_uri)
         assert get_target_ops(plan, 'image') == []
         [op] = get_target_ops(plan, 'archive')
         assert op['severity'] == 'additive'
         assert f'{APP_FILE} changed' in op['description'], op['description']
         assert not plan['summary']['rebuild']
 
-        applied = db_update(cli, project, current_db)
+        applied = db_update(cli, project, test_db_uri)
         assert [op['status'] for op in applied['ops']] == ['applied']
-        assert_in_agreement(cli, project, current_db)
+        assert_in_agreement(cli, project, test_db_uri)
 
-    def test_lockfile_edit(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
-        """The lockfile is in both manifests, so editing it moves the image and the archive alike."""
+    def test_lockfile_edit(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
+        create_project_config(cli, project, test_db_uri)
+        db_update(cli, project, test_db_uri)
+        assert_in_agreement(cli, project, test_db_uri)
+
         (project / 'requirements.txt').write_text('pixeltable\ntqdm\n', encoding='utf-8')
 
-        plan = db_diff(cli, project, current_db)
+        plan = db_diff(cli, project, test_db_uri)
         assert plan['resolution'] == 'update_additive'
         [image_op] = get_target_ops(plan, 'image')
         [archive_op] = get_target_ops(plan, 'archive')
@@ -138,76 +160,86 @@ class TestDb:
         assert plan['summary']['rebuild']
         assert plan['returncode'] == EXIT_CHANGES_PENDING
 
-        applied = db_update(cli, project, current_db)
+        applied = db_update(cli, project, test_db_uri)
         assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
         assert (applied['in_agreement'], applied['returncode']) == (True, EXIT_IN_AGREEMENT)
-        assert_in_agreement(cli, project, current_db)
+        assert_in_agreement(cli, project, test_db_uri)
 
-    def test_two_projects(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
-        """A database holds one project: whichever was published last, whatever else declares it."""
+    def test_two_projects(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
+        """Update a db from two project dirs."""
+        create_project_config(cli, project, test_db_uri)
+        db_update(cli, project, test_db_uri)
+        assert_in_agreement(cli, project, test_db_uri)
+
         other = project.parent / 'other'
         shutil.copytree(project, other)
         edit_app(other, 'the file the other project holds')
-        create_project_config(cli, other, current_db)
+        create_project_config(cli, other, test_db_uri)
 
         # publishing the other project moves the database off this one, and the two swap on every publish
-        db_update(cli, other, current_db)
-        assert_in_agreement(cli, other, current_db)
-        assert get_target_ops(db_diff(cli, project, current_db), 'archive') != []
+        db_update(cli, other, test_db_uri)
+        assert_in_agreement(cli, other, test_db_uri)
+        assert get_target_ops(db_diff(cli, project, test_db_uri), 'archive') != []
 
-        db_update(cli, project, current_db)
-        assert_in_agreement(cli, project, current_db)
-        assert get_target_ops(db_diff(cli, other, current_db), 'archive') != []
+        db_update(cli, project, test_db_uri)
+        assert_in_agreement(cli, project, test_db_uri)
+        assert get_target_ops(db_diff(cli, other, test_db_uri), 'archive') != []
 
-    def test_excluded_files(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
-        """A file the entry excludes is not part of the project, so writing it changes nothing."""
+    def test_excluded_files(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
         # the entry itself is a project file, so the database has to be given the rewritten one
-        create_project_config(cli, project, current_db, exclude=['notes/**'])
-        db_update(cli, project, current_db)
-        assert_in_agreement(cli, project, current_db)
+        create_project_config(cli, project, test_db_uri, exclude=['notes/**'])
+        db_update(cli, project, test_db_uri)
+        assert_in_agreement(cli, project, test_db_uri)
 
         (project / 'notes').mkdir()
         (project / 'notes' / 'scratch.txt').write_text('not part of the project\n', encoding='utf-8')
-        assert_in_agreement(cli, project, current_db)
+        assert_in_agreement(cli, project, test_db_uri)
 
         edit_app(project, 'an edit to a file the entry selects')
-        assert get_target_ops(db_diff(cli, project, current_db), 'archive') != []
+        assert get_target_ops(db_diff(cli, project, test_db_uri), 'archive') != []
 
     @pytest.mark.skip(
         reason='cpu+1 leaves the pod unschedulable, and the database then holds a rollout no later scenario gets past'
     )
-    def test_capacity(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
-        running_on = db_status(cli, project, current_db)['cpu']
-        create_project_config(cli, project, current_db, cpu=running_on + 1)
+    def test_capacity(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
+        create_project_config(cli, project, test_db_uri)
+        db_update(cli, project, test_db_uri)
+        assert_in_agreement(cli, project, test_db_uri)
 
-        [op] = get_target_ops(db_diff(cli, project, current_db), 'capacity')
+        running_on = db_status(cli, project, test_db_uri)['cpu']
+        create_project_config(cli, project, test_db_uri, cpu=running_on + 1)
+
+        [op] = get_target_ops(db_diff(cli, project, test_db_uri), 'capacity')
         assert op['name'] == 'cpu'
         assert not op['destructive']
         assert str(running_on + 1) in op['description'], op['description']
 
-        assert [op['status'] for op in get_target_ops(db_update(cli, project, current_db), 'capacity')] == ['applied']
-        assert_in_agreement(cli, project, current_db)
+        assert [op['status'] for op in get_target_ops(db_update(cli, project, test_db_uri), 'capacity')] == ['applied']
+        assert_in_agreement(cli, project, test_db_uri)
 
         # taking capacity away is destructive, so it needs the flag that permits it
-        create_project_config(cli, project, current_db, cpu=running_on)
-        refused = cli('db', 'update', current_db, '-f', cwd=project, check=False, timeout=APPLY_TIMEOUT)
+        create_project_config(cli, project, test_db_uri, cpu=running_on)
+        refused = cli('db', 'update', test_db_uri, '-f', cwd=project, check=False, timeout=APPLY_TIMEOUT)
         assert refused.returncode == EXIT_ERROR
         assert '--allow-destructive' in refused.stderr, refused.stderr
         assert [
             op['status']
-            for op in get_target_ops(db_update(cli, project, current_db, '--allow-destructive'), 'capacity')
+            for op in get_target_ops(db_update(cli, project, test_db_uri, '--allow-destructive'), 'capacity')
         ] == ['applied']
-        assert_in_agreement(cli, project, current_db)
+        assert_in_agreement(cli, project, test_db_uri)
 
-    def test_build_image(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
-        """build-image rebuilds the image whether or not anything changed, and stores what is missing."""
+    def test_build_image(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
+        create_project_config(cli, project, test_db_uri)
+        db_update(cli, project, test_db_uri)
+        assert_in_agreement(cli, project, test_db_uri)
+
         ops = {
             op['target']: op
-            for op in cli('db', 'build-image', current_db, '--json', cwd=project, timeout=APPLY_TIMEOUT).json
+            for op in cli('db', 'build-image', test_db_uri, '--json', cwd=project, timeout=APPLY_TIMEOUT).json
         }
         # the database was given this project already, so the store holds its archive
         assert (ops['image']['status'], ops['archive']['status']) == ('applied', 'skipped'), ops
-        assert_in_agreement(cli, project, current_db)
+        assert_in_agreement(cli, project, test_db_uri)
 
     def test_errors(self, cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> None:
         create_project_config(cli, project, hosted_db)
@@ -247,15 +279,19 @@ class TestLocalLogs:
 @pytest.mark.usefixtures('hosted_environment')
 class TestPodRunner:
     def test_pod_serves_project(
-        self, cli: PxtRunner, project: pathlib.Path, current_db: str, tmp_path: pathlib.Path
+        self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str, tmp_path: pathlib.Path
     ) -> None:
+        create_project_config(cli, project, test_db_uri)
+        db_update(cli, project, test_db_uri)
+        assert_in_agreement(cli, project, test_db_uri)
+
         app_file = str(project / APP_FILE)
-        schema_update(cli, project, app_file, current_db)
-        service_update(cli, project, app_file, current_db)
+        schema_update(cli, project, app_file, test_db_uri)
+        service_update(cli, project, app_file, test_db_uri)
 
         unpacked = tmp_path / 'app'
         port = _free_port()
-        pod = _run_pod(current_db, unpacked, '--host', '127.0.0.1', '--port', str(port))
+        pod = _run_pod(test_db_uri, unpacked, '--host', '127.0.0.1', '--port', str(port))
         try:
             _wait_until_serving(f'http://127.0.0.1:{port}')
             assert (unpacked / APP_FILE).read_text() == (project / APP_FILE).read_text()
@@ -268,12 +304,15 @@ class TestPodRunner:
             pod.wait(timeout=30)
 
     def test_pod_refuses_digest_mismatch(
-        self, cli: PxtRunner, project: pathlib.Path, current_db: str, tmp_path: pathlib.Path
+        self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str, tmp_path: pathlib.Path
     ) -> None:
-        """A pod is told which project to run, and runs nothing else."""
+        create_project_config(cli, project, test_db_uri)
+        db_update(cli, project, test_db_uri)
+        assert_in_agreement(cli, project, test_db_uri)
+
         unpacked = tmp_path / 'app'
         digest = hashlib.sha256(b'unknown digest').hexdigest()
-        pod = _run_pod(current_db, unpacked, '--digest', digest, capture=True)
+        pod = _run_pod(test_db_uri, unpacked, '--digest', digest, capture=True)
         stderr = pod.communicate(timeout=300)[1]
 
         assert pod.returncode != 0

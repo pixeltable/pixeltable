@@ -83,16 +83,18 @@ def db_diff(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> dict[str, Any
     return {**r.json, 'returncode': r.returncode}
 
 
+def assert_in_agreement(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> None:
+    plan = db_diff(cli, project, db_uri)
+    assert plan['in_agreement'], plan['ops']
+    assert plan['returncode'] == EXIT_IN_AGREEMENT
+    assert plan['ops'] == []
+
+
 def db_update(cli: PxtRunner, project: pathlib.Path, db_uri: str, *flags: str) -> dict[str, Any]:
     """What `pxt db update` applied, its exit status under 'returncode'."""
     r = cli('db', 'update', db_uri, '-f', '--json', *flags, cwd=project, check=False, timeout=APPLY_TIMEOUT)
     assert r.returncode in (EXIT_IN_AGREEMENT, EXIT_CHANGES_PENDING), r.stderr
     return {**r.json, 'returncode': r.returncode}
-
-
-def db_status(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> dict[str, Any]:
-    """What the database at db_uri provides, as `pxt db status` reports it."""
-    return cli('db', 'status', db_uri, '--json', cwd=project).json['status']
 
 
 def schema_update(cli: PxtRunner, project: pathlib.Path, app_file: str, db_uri: str) -> None:
@@ -126,15 +128,3 @@ def await_service_available(cli: PxtRunner, project: pathlib.Path, db_uri: str, 
             return
         assert time.monotonic() < deadline, f'{name} is {state} after {_SERVICE_RESTART_TIMEOUT:.0f}s'
         time.sleep(5)
-
-
-def get_target_ops(plan: dict[str, Any], target: str) -> list[dict[str, Any]]:
-    """The plan's operations against one target: image, archive, capacity or secret."""
-    return [op for op in plan['ops'] if op['target'] == target]
-
-
-def assert_in_agreement(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> None:
-    plan = db_diff(cli, project, db_uri)
-    assert plan['in_agreement'], plan['ops']
-    assert plan['returncode'] == EXIT_IN_AGREEMENT
-    assert plan['ops'] == []
