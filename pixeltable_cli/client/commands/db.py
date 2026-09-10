@@ -7,7 +7,7 @@ import json
 import sys
 
 from ...types import DbChangeOp, DbPlan, Resolution
-from ..hosted import exit_unless_reached, parse_org_uri, poll_db, print_db, resolve_db_uri, spinner
+from ..hosted import exit_unless_reached, poll_db, print_db, resolve_db_uri, spinner
 from ..parser import Parser
 from ..utils import EXIT_CHANGES_PENDING, EXIT_IN_AGREEMENT, EXIT_REFUSED, confirm_or_exit, get_request, post_request
 
@@ -15,7 +15,7 @@ EPILOG = """\
 Examples:
   pxt db diff pxt://org:db     # what update would change; exit 2 if anything is pending
   pxt db update pxt://org:db   # apply it: secrets, then the artifacts, then capacity
-  pxt db list pxt://org
+  pxt db list
   pxt db status pxt://org:db
   pxt db start pxt://org:db
   pxt db stop pxt://org:db
@@ -53,8 +53,7 @@ def run(argv: list[str]) -> None:
                 help='permit changes that take capacity away or delete a secret',
             )
 
-    p = sub.add_parser('list', help='list hosted databases for an org')
-    p.add_argument('org_uri', help='Org URI: pxt://org')
+    p = sub.add_parser('list', help="list hosted databases in your key's org")
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('status', help='show status of a hosted database')
@@ -98,8 +97,7 @@ def run(argv: list[str]) -> None:
 
 
 def _list(args: argparse.Namespace) -> None:
-    org = parse_org_uri(args.org_uri, prog='pxt db list')
-    resp = get_request('/api/dbs', {'org': org})
+    resp = get_request('/api/dbs')
     dbs = resp.get('databases', []) if isinstance(resp, dict) else []
     if args.json_output:
         print(json.dumps(dbs))

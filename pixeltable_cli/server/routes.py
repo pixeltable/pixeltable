@@ -783,7 +783,7 @@ def get_org(req: Request) -> dict[str, Any]:
 
 @router.get('/api/dbs')
 def list_dbs(req: Request) -> dict[str, Any]:
-    return management_client.api_call(ListDbRequest(org=req.required_query_str('org')))
+    return management_client.api_call(ListDbRequest())
 
 
 @router.get('/api/secrets')
