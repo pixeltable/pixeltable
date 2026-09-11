@@ -884,8 +884,9 @@ class Catalog(CatalogBase):
         - this process starts with the first pending op, because it could have been partially executed
         - when done, deletes all table ops and resets tbl_state to LIVE
 
-        If an exception occurred during finalization, that exception is returned. PendingOpsErrors encountered during
-        finalization are dealt with recursively.
+        If an exception occurred during finalization, that exception is returned, except where it left the
+        statement resolved, which raises it instead. PendingOpsErrors encountered during finalization are
+        dealt with recursively.
         """
         num_retries = 0
         is_rollback = False
@@ -975,27 +976,29 @@ class Catalog(CatalogBase):
                         raise
                     except AssertionError:
                         raise  # a bug in our own code; we need to propagate this
+                    except sql_exc.DBAPIError:
+                        # a statement error aborts the transaction, so the updates below would fail too;
+                        # the outer handler separates retryable from non-retryable
+                        raise
                     except Exception as e:
-                        if _is_retryable_exc(e):
-                            raise  # a transient db failure; handled via retry in the outer try/except block
-
                         # the op never ran, so it has nothing to undo: abort it here, which moves the rollback
-                        # on to the preceding op. Every op before the first one needing a TableVersion runs
-                        # without one, so the rest of the rollback does not come back here.
+                        # on to the preceding op. Aborting the first op resolves the statement, since no op of
+                        # it ran and the metadata it wrote is what the remaining ops would have acted on.
                         _logger.error(
                             f'Finalize pending ops({tbl_id}): cannot load the table version for op {op!s}',
                             exc_info=True,
                         )
                         exc = e
-                        if not is_rollback:
+                        is_final_op = op.op_sn == 0
+                        if not is_rollback and not is_final_op:
                             conn.execute(
                                 sql.update(schema.Table)
                                 .where(schema.Table.id == tbl_id)
                                 .values(md=schema.Table.md.op('||')({'tbl_state': schema.TableState.ROLLBACK.value}))
                             )
-                        assert op.op_sn > 0  # the first op should never get here (needs_tv is always False)
-                        if self._set_pending_op_status(tbl_id, op, OpStatus.ABORTED, is_final_op=False):
-                            return exc
+                        if self._set_pending_op_status(tbl_id, op, OpStatus.ABORTED, is_final_op=is_final_op):
+                            # make sure the exception reaches the initial caller
+                            raise
                         continue
 
                     new_op_status = OpStatus.ABORTED if is_rollback else OpStatus.COMPLETED
