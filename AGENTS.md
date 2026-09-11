@@ -207,7 +207,7 @@ TableModel = pxt.model_base()
 
 
 class Docs(TableModel, name='docs'):
-    doc_id = pxt.Column(type=pxt.Int, primary_key=True)  # row lookup and the errors view need a primary key
+    doc_id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
     title: pxt.String
     body: pxt.String | None
     title_upper = pxtf.string.upper(title)
@@ -215,7 +215,7 @@ class Docs(TableModel, name='docs'):
 
 ingest = FastAPIRouter(name='ingest')
 ingest.add_insert_route(
-    Docs, path='/docs', inputs=[Docs.doc_id, Docs.title, Docs.body], outputs=[Docs.title, Docs.title_upper]
+    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.doc_id, Docs.title, Docs.title_upper]
 )
 ```
 

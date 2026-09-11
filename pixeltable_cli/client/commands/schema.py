@@ -26,7 +26,7 @@ TableModel = pxt.model_base()
 
 
 class Docs(TableModel, name='docs'):
-    doc_id = pxt.Column(type=pxt.Int, primary_key=True)  # row lookup and the errors view need a primary key
+    doc_id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
     title: pxt.String                         # a stored column
     body: pxt.String | None                   # a stored column that may be null
     title_upper = pxtf.string.upper(title)    # a computed column: an assignment, not an annotation
@@ -65,8 +65,8 @@ def excerpt(text: str, n: int = 80) -> str:
 class Docs(TableModel, name='docs'):
     """One model becomes one table, named by name=."""
 
-    # pxt.Column declares a primary key; an annotation alone cannot
-    doc_id = pxt.Column(type=pxt.Int, primary_key=True)
+    # uuid7() fills the key on insert; primary_key needs pxt.Column (an annotation cannot set it)
+    doc_id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
     # an annotation defines a stored column
     title: pxt.String
     body: pxt.String | None
@@ -95,7 +95,7 @@ class Docs(TableModel, name='docs'):
 class Recordings(TableModel, name='recordings'):
     """The other media types, and the column properties an annotation cannot express."""
 
-    recording_id = pxt.Column(type=pxt.Int, primary_key=True)
+    recording_id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
     cover: pxt.Image | None
     narration: pxt.Audio | None
     clip: pxt.Video | None

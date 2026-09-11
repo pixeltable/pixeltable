@@ -595,7 +595,7 @@ class TestSchema:
         assert r.stdout.count('created') == 2
         docs = pxt.get_table(f'{target}/docs')
         assert docs.get_metadata()['primary_key'] == ['doc_id']
-        docs.insert([{'doc_id': 1, 'title': 'hello', 'body': 'world'}, {'doc_id': 2, 'title': '', 'body': 'untitled'}])
+        docs.insert([{'title': 'hello', 'body': 'world'}, {'title': '', 'body': 'untitled'}])
         titled = pxt.get_table(f'{target}/titled')
         assert titled.select(titled.headline).collect()['headline'] == ['HELLO!']
         assert_in_agreement(cli, str(schema_file), target)
@@ -605,7 +605,6 @@ class TestSchema:
         r = cli('schema', 'example', '--brief', '--out', str(out_file))
         assert f'wrote {out_file}' in r.stdout
         assert out_file.read_text() == schema_file.read_text()
-        assert 'primary_key=True' in schema_file.read_text()
         cli('schema', 'example', '--out', str(out_file))
         assert out_file.read_text() == cli('schema', 'example').stdout
 
@@ -614,6 +613,7 @@ class TestSchema:
         assert all(
             construct in full
             for construct in (
+                'uuid7()',
                 'primary_key=True',
                 'pxt.Column(',
                 'pxt.EmbeddingIndex(',
@@ -635,10 +635,9 @@ class TestSchema:
         docs = pxt.get_table(f'{full_target}/docs')
         docs.insert(
             [
-                {'doc_id': 1, 'title': 'bread', 'body': 'Sourdough needs a long, slow fermentation.'},
-                {'doc_id': 2, 'title': 'sharks', 'body': 'Great white sharks hunt seals along the coast.'},
+                {'title': 'bread', 'body': 'Sourdough needs a long, slow fermentation.'},
+                {'title': 'sharks', 'body': 'Great white sharks hunt seals along the coast.'},
                 {
-                    'doc_id': 3,
                     'title': 'sharks',
                     'body': 'A simple and effective breathing exercise to reduce stress is box breathing',
                 },
@@ -646,7 +645,8 @@ class TestSchema:
         )
         # verify embeddings by running a similarity search
         sim = docs.body.similarity(string='sharks hunting seals near the shore')
-        assert docs.order_by(sim, asc=False).select(docs.doc_id).limit(1).collect()['doc_id'] == [2]
+        top = docs.order_by(sim, asc=False).select(docs.body).limit(1).collect()['body'][0]
+        assert top.startswith('Great white sharks')
 
         # the file is reachable from wherever an agent lands: the verb list, and every verb's help
         assert 'example' in cli('schema', check=False).stdout

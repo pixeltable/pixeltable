@@ -969,11 +969,9 @@ class TestService:
         deploy(cli, str(app_file), target)
         endpoint = assert_serving(cli, str(app_file), target, 'ingest')['ingest']['endpoint']
         # summary comes from the udf the file defines, computed in the service's own process
-        assert _post(endpoint, '/docs', doc_id=1, title='a long enough title', body=None).json() == {
-            'title_upper': 'A LONG ENOUGH TITLE',
-            'summary': 'a long enoug...',
-        }
-        # PXT-1408: scaffold declares a primary key so row lookup works on a fresh project
-        assert 'primary_key=True' in app_file.read_text()
-        out = cli('get', f'{target}/docs', '1', '--json').json
+        resp = _post(endpoint, '/docs', title='a long enough title', body=None).json()
+        assert resp['title_upper'] == 'A LONG ENOUGH TITLE'
+        assert resp['summary'] == 'a long enoug...'
+        assert resp['doc_id'] is not None
+        out = cli('get', f'{target}/docs', str(resp['doc_id']), '--json').json
         assert out['row']['title'] == 'a long enough title'

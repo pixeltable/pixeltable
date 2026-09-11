@@ -14,10 +14,10 @@ Examples:
   pxt get my_dir/my_table 42 --json
 
 Notes:
-  PK values are coerced to int or float when they parse as numbers; otherwise they stay
-  as strings. There is no way to force a string PK that looks like a number; if your PK
-  column is typed as string but the value is '42', the server will reject the type mismatch.
-  Use 'pxt describe <table>' to see the primary_key columns and their order.
+  PK values are coerced to int, float, or UUID when they parse as those types; otherwise
+  they stay as strings. There is no way to force a string PK that looks like a number; if
+  your PK column is typed as string but the value is '42', the server will reject the type
+  mismatch. Use 'pxt describe <table>' to see the primary_key columns and their order.
   Unstored computed columns are skipped by default; pass them explicitly via --cols to
   include them.
   The table must have a primary key defined."""

@@ -48,7 +48,7 @@ def excerpt(text: str, n: int = 12) -> str:
 
 
 class Docs(TableModel, name='docs'):
-    doc_id = pxt.Column(type=pxt.Int, primary_key=True)  # row lookup and the errors view need a primary key
+    doc_id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
     title: pxt.String
     body: pxt.String | None
     title_upper = pxtf.string.upper(title)  # a computed column: an assignment, not an annotation
@@ -58,9 +58,9 @@ class Docs(TableModel, name='docs'):
 # the router names the service; without name= it takes the name of the variable holding it
 ingest = FastAPIRouter(name='ingest')
 
-# POST /docs inserts a row and returns the computed column
+# POST /docs inserts a row and returns the generated id plus computed columns
 ingest.add_insert_route(
-    Docs, path='/docs', inputs=[Docs.doc_id, Docs.title, Docs.body], outputs=[Docs.title_upper, Docs.summary]
+    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.doc_id, Docs.title_upper, Docs.summary]
 )
 
 # POST /titles computes without storing a row

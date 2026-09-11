@@ -2,6 +2,7 @@ import datetime
 import os
 import typing
 import urllib.parse
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -636,9 +637,10 @@ _COUNT_POOL_WORKERS = 16
 
 
 def _coerce_pk(s: str) -> Any:
-    """Numeric-looking PK strings become int or float; everything else stays a string.
+    """Restore a typed PK value from an untyped HTTP string.
 
-    PK values arrive untyped over HTTP, so we restore their natural type here.
+    Numeric-looking tokens become int or float. UUID tokens become ``uuid.UUID``.
+    Everything else stays a string.
     """
     try:
         return int(s)
@@ -646,6 +648,10 @@ def _coerce_pk(s: str) -> Any:
         pass
     try:
         return float(s)
+    except ValueError:
+        pass
+    try:
+        return uuid.UUID(s)
     except ValueError:
         return s
 
