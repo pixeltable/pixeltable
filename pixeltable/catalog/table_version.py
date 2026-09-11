@@ -493,7 +493,8 @@ class TableVersion:
         validate_idxs(self.id, [IndexSpec(col, idx_name, idx)], self.has_default_idxs, self.idxs.values())
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
-        status = self._add_index(col, idx_name, idx)
+        self._add_index_md(col, idx_name, idx)
+        status = self._populate_new_columns(print_stats=False, on_error='abort')
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added index {idx_name} on column {col.name} to table {self.name}')
         return status
@@ -560,10 +561,6 @@ class TableVersion:
         if len(new_cols) > 0:
             self._record_new_columns(new_cols)
         self._record_new_index(col, val_col, undo_col, idx_name, idx)
-
-    def _add_index(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> UpdateStatus:
-        self._add_index_md(col, idx_name, idx)
-        return self._populate_new_columns(print_stats=False, on_error='abort')
 
     def _validate_idx_drops(self, idx_ids: Iterable[int]) -> None:
         """Reject the removal of a default B-tree index."""
