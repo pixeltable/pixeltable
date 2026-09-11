@@ -306,6 +306,7 @@ ignore_missing_imports = true
 name = 'pxt://pixeltable:pxttest'
 include = ['.git/**', 'pixeltable/_version.py']
 system_dependencies = ["libiconv", "ffmpeg==6.1.1=gpl*"]
+memory_mb = 2048
 uv_options = "--no-dev"
 
 [tool.pyright]
