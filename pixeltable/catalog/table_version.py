@@ -1173,12 +1173,16 @@ class TableVersion:
                         'which no longer exists.',
                     )
 
-        if self.predicate is not None:
-            for ref in self.predicate.subexprs(exprs.ColumnRef):
+        # a view's predicate and, for a component view, its iterator arguments read base columns without going
+        # through a value expression of their own
+        for what, e in (('predicate', self.predicate), ('iterator arguments', self.iterator_args_expr())):
+            if e is None:
+                continue
+            for ref in e.subexprs(exprs.ColumnRef):
                 if self.lookup_column(ref.col_md.qcolid) is None:
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'The predicate of view {self.name!r} would be left referencing '
+                        f'The {what} of view {self.name!r} would be left referencing '
                         f'{missing_col_str(ref)}, which no longer exists.',
                     )
 

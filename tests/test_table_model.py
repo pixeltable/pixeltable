@@ -2063,30 +2063,48 @@ class TestTableModel:
         assert alter_base.select(alter_base.doubled).collect()['doubled'] == [2]
         assert all(d.resolution == 'up_to_date' for d in AlterModel.get_model_diff(p('')).values())
 
-    def test_drop_col_with_view_index(self, db_root: DatabaseRoot) -> None:
-        """update_all() cannot drop a column that a view's index is built on."""
+    def test_drop_col_with_dependent_view(self, db_root: DatabaseRoot) -> None:
+        """update_all() cannot drop a base column a view still reads, whether through an index or an iterator."""
         p = db_root.make_catalog_path
-        base = pxt.create_table(p('base_t'), {'c0': pxt.String | None, 'c1': pxt.String | None})
-        v = pxt.create_view(p('view_t'), base)
-        v.add_embedding_index('c0', idx_name='v_idx', embedding=dummy_embedding.using(n=32))
+        base = pxt.create_table(p('base_t'), {'c0': pxt.String, 'c1': pxt.String | None})
+        base.insert([{'c0': 'one. two.', 'c1': 'x'}])
 
         TableModel = pxt.model_base()
 
-        # the view isn't part of the model, so its index survives the update and still depends on the base column
+        # neither view below is part of the model, so both survive the update and keep depending on the base column
         class BaseV2(TableModel, name='base_t'):
             c1: pxt.String | None
 
+        idx_v = pxt.create_view(p('idx_view'), base)
+        idx_v.add_embedding_index('c0', idx_name='v_idx', embedding=dummy_embedding.using(n=32))
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             match=re.escape(
-                "Index 'v_idx' on 'view_t' would be left referencing column 'base_t.c0', which no longer exists."
+                "Index 'v_idx' on 'idx_view' would be left referencing column 'base_t.c0', which no longer exists."
             ),
         ):
             TableModel.update_all(p(''), allow_destructive=True)
         assert 'c0' in pxt.get_table(p('base_t')).columns()
+        idx_v.drop_embedding_index(idx_name='v_idx')
 
-        # dropping the index first unblocks it: nothing is left depending on the column
-        v.drop_embedding_index(idx_name='v_idx')
+        # an iterator reads its arguments without going through a value expression, so it blocks the drop too
+        iter_v = pxt.create_view(
+            p('iter_view'), base, iterator=pxtf.string.string_splitter(text=base.c0, separators='sentence')
+        )
+        assert iter_v.select(iter_v.text).collect()['text'] == ['one. two.']
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=re.escape(
+                "The iterator arguments of view 'iter_view' would be left referencing column 'base_t.c0', "
+                'which no longer exists.'
+            ),
+        ):
+            TableModel.update_all(p(''), allow_destructive=True)
+        # the rejected attempt left the view able to serve its rows
+        assert pxt.get_table(p('iter_view')).select(iter_v.text).collect()['text'] == ['one. two.']
+
+        # with both blockers gone, nothing is left depending on the column
+        pxt.drop_table(p('iter_view'))
         TableModel.update_all(p(''), allow_destructive=True)
         assert pxt.get_table(p('base_t')).columns() == ['c1']
 
