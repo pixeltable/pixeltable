@@ -314,3 +314,9 @@ class TestAlterColumn:
         # a base table's column cannot be made to depend on one of its views
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is not bound by'):
             t.alter_computed_column(c=v.d + 1)
+
+        # a base query's select list are the view's own column and can be altered just as well
+        projected = pxt.create_view(db_root.make_catalog_path('projected_view'), t.select(proj=t.n * 2))
+        assert projected.select(projected.proj).collect()['proj'] == [2]
+        projected.alter_computed_column(proj=t.n * 10)
+        assert projected.select(projected.proj).collect()['proj'] == [10]
