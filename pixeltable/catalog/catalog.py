@@ -1840,9 +1840,9 @@ class Catalog(CatalogBase):
         The change sets are applied in three passes:
 
         1. Every table records its metadata changes. Each change is checked in isolation from the others.
-        2. Every changed table, plus every mutable view that can reference one, verifies its schema state: whether all
+        2. Every changed table, and every mutable view that can reference one, verifies its schema state: whether all
            dependencies are satisfied, and that there are no dependency cycles.
-        3. Every table's schema change is finalized. This includes populating new columns and indexes. Doing it at
+        3. Every table's schema change is finalized. This includes populating new columns and indexes. Doing that at
            the very end means that a rejected schema change costs no computation.
         """
         # fault point:
@@ -1921,7 +1921,7 @@ class Catalog(CatalogBase):
                     validation_tvs[view_tv.id] = view_tv
                 applied_tbl_ids.add(tvp.tbl_id)
 
-            # Validate schema consistency in all affected tables. Order by name for deterministic errors.
+            # Validate the schema consistency in all affected tables. Order by name for deterministic errors.
             for tv in sorted(validation_tvs.values(), key=lambda tv: (tv.name, tv.id)):
                 tv.validate_column_dependencies()
 
