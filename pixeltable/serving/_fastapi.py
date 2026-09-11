@@ -45,6 +45,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
 from pixeltable.runtime import close_threadpool_runtimes
+from pixeltable.service.proxy_protocol import PxtStorePartSink
 from pixeltable.serving import SqlExport
 from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
@@ -372,12 +373,38 @@ class PxtEndpoint:
     def route_type(self) -> Literal['insert', 'update', 'delete', 'compute', 'query']:
         return self.route.spec.route_type
 
-    def __call__(self, request: Request, **kwargs: Any) -> Any:
-        sample_url = str(request.url_for(_MEDIA_ROUTE_NAME, path='_'))
-        media_url_base = sample_url[:-1]
+    def _url_for_media(self, request: Request) -> Callable[[str], str]:
+        """The function that turns a local media file of a response into a url the client can fetch.
 
-        def url_for_media(rel_path: str) -> str:
-            return f'{media_url_base}{urllib.parse.quote(rel_path, safe="/")}'
+        A local service serves the file itself, from its /media route. A service in a hosted pod has no route a
+        client can reach, so it stages the file in the database's home bucket and signs a url for the object.
+        """
+        hosted = Env.get().hosted_db()
+        if hosted is None:
+            sample_url = str(request.url_for(_MEDIA_ROUTE_NAME, path='_'))
+            media_url_base = sample_url[:-1]
+
+            def serve_locally(rel_path: str) -> str:
+                return f'{media_url_base}{urllib.parse.quote(rel_path, safe="/")}'
+
+            return serve_locally
+
+        org, db = hosted
+        home_dir = self.router._home_dir
+        # one sink per request, so its uploads share one store client; its keys fall under uploads/, which the
+        # bucket expires
+        sink = PxtStorePartSink(org, db)
+
+        def stage_in_home_bucket(rel_path: str) -> str:
+            key = sink.add_media_file(str(home_dir / rel_path))
+            sink.flush()
+            # signed for an hour, so a client has time to fetch the media after reading the response
+            return ObjectOps.presigned_url(f'pxtfs://{org}:{db}/home/{key}', expiration_seconds=3600)
+
+        return stage_in_home_bucket
+
+    def __call__(self, request: Request, **kwargs: Any) -> Any:
+        url_for_media = self._url_for_media(request)
 
         # write out uploads while the request is still alive
         tmp_paths: list[Path] = []
