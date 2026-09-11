@@ -44,6 +44,15 @@ clips.add_insert_route(
     outputs=[Clips.clip_id, Clips.poster],
 )
 
+
+# a query that makes its media on the fly: the scaled poster is not a column, so no row stores it
+@pxt.query
+def poster_thumb(clip_id: int) -> pxt.Query:
+    return Clips.where(Clips.clip_id == clip_id).select(thumb=Clips.poster.resize(size=(32, 32)))  # type: ignore[arg-type]
+
+
+clips.add_query_route(path='/poster-thumb', query=poster_thumb, one_row=True)
+
 # one image per clip, returned as the image itself rather than as JSON: a file response carries a single
 # media value, so it cannot come from a view that yields a row per frame
 clips.add_compute_route(
