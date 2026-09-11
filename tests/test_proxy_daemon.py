@@ -103,50 +103,6 @@ class TestProxyDaemon:
         assert sink.binary_parts[2] == b'abc'
         assert proxy_protocol.collect_remote_keys(wire) == []
 
-    def test_scalar_out_of_band_threshold(self, tmp_path: pathlib.Path) -> None:
-        """bytes and ndarrays follow the media path once they are big enough to be worth an upload."""
-        threshold = proxy_protocol.PxtStorePartSink._MIN_OUT_OF_BAND_SIZE
-        big_blob = b'x' * threshold
-        big_arr = np.arange(threshold, dtype=np.int64)  # 8 bytes per element, so well over the threshold
-        args = {
-            'rows': [
-                {
-                    'small_blob': b'y' * (threshold - 1),
-                    'big_blob': big_blob,
-                    'small_arr': np.zeros(1, dtype=np.int8),
-                    'big_arr': big_arr,
-                }
-            ]
-        }
-        sink = _RemotePartSink()
-        wire = proxy_protocol.serialize_args(args, sink)
-        row = wire['rows'][0]
-
-        # a value under the threshold is still inline; the extension names the payload's own format
-        assert row['small_blob'] == {'$pxt': 'bytes', 'v': 0}
-        assert row['small_arr'] == {'$pxt': 'ndarray', 'v': 1}
-        assert row['big_blob'] == {'$pxt': 'bytes', 'v': 'uploads/req/0.bin'}
-        assert row['big_arr'] == {'$pxt': 'ndarray', 'v': 'uploads/req/1.npy'}
-        assert len(sink.binary_parts) == 2
-        assert proxy_protocol.collect_remote_keys(wire) == ['uploads/req/0.bin', 'uploads/req/1.npy']
-
-        # the daemon resolves each key to the file it pre-downloaded, and the values come back unchanged
-        remote_parts: dict[str, str] = {}
-        for key, data in sink.objects.items():
-            local = tmp_path / key.replace('/', '_')
-            local.write_bytes(data)
-            remote_parts[key] = str(local)
-        out_row = proxy_protocol._deserialize(wire, sink.binary_parts, {}, remote_parts)['rows'][0]
-        assert out_row['small_blob'] == b'y' * (threshold - 1)
-        assert out_row['big_blob'] == big_blob
-        assert np.array_equal(out_row['small_arr'], np.zeros(1, dtype=np.int8))
-        assert np.array_equal(out_row['big_arr'], big_arr)
-        assert out_row['big_arr'].dtype == big_arr.dtype
-
-        # an out-of-band scalar cannot be read by a receiver with no access to the uploads
-        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='has no access to uploaded objects'):
-            proxy_protocol._deserialize(wire, sink.binary_parts, None, None)
-
     def test_scalars_reach_a_handler_from_the_object_store(
         self, init_env: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:

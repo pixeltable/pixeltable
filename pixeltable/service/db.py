@@ -353,7 +353,7 @@ def _build_image(db_path: catalog.Path, archive_key: str, fingerprint: ProjectFi
     if current.last_build_state == 'FAILED':
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
-            f'The runtime update for {db_path.uri_str} failed: {current.last_build_error or "no reason was reported"}',
+            f'The image build for {db_path.uri_str} failed: {current.last_build_error or "no reason was reported"}',
             provider='pixeltable_cloud',
         )
 
