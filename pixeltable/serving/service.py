@@ -12,10 +12,10 @@ from pixeltable.utils.app_module import (
     get_model_bases,
     get_module_services,
     load_app_module,
-    model_mismatch_error_str,
     module_routers,
     service_spec,
     services_by_name,
+    validate_models,
     visible_models,
 )
 from pixeltable.utils.project import ProjectFingerprint, project_fingerprint
@@ -247,23 +247,23 @@ class _ServiceInfo:
 
 @dataclasses.dataclass(frozen=True)
 class _AppInfo:
-    """What an application file holds, resolved against a target."""
+    """Metadata about an application module in the context of a specific target path."""
 
     app_file: str
     services: dict[str, _ServiceInfo]
 
-    # why the target cannot serve the models these services name, or None if it can
+    # why the target cannot serve the referenced models, or None if it can
     model_mismatch_reason: str | None
 
     # pxt://org:db of the target's database, without the catalog path below it; empty for a local target
     db_uri: str
 
-    # the project db_uri was last given; None for a local target, which serves the project files in place
-    published: ProjectFingerprint | None
+    # the hosted target db's current fingerprint; None for a local target
+    target_db_fingerprint: ProjectFingerprint | None
 
-    # the project files this application imported; a running instance records the same, and a difference
-    # between them is what restarts it
-    fingerprint: ProjectFingerprint
+    # the project as it is on disk; a running instance reports the one it loaded, and a difference
+    # between them restarts it
+    local_fingerprint: ProjectFingerprint
 
 
 def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
@@ -290,10 +290,10 @@ def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
             )
             for name, service in services_by_name(module, app_file).items()
         },
-        model_mismatch_reason=model_mismatch_error_str(needed, target),
+        model_mismatch_reason=validate_models(needed, target),
         db_uri=catalog_path.uri_str,
-        published=db_fingerprint(catalog_path),
-        fingerprint=project_fingerprint(project_root, db_config),
+        target_db_fingerprint=db_fingerprint(catalog_path),
+        local_fingerprint=project_fingerprint(project_root, db_config),
     )
 
 
@@ -323,30 +323,25 @@ def _service_diff(
         if running.otel != otel:
             ops.append(ServiceChangeOp.otel(running.otel, otel))
 
-    published = app_info.published
+    target_db_fingerprint = app_info.target_db_fingerprint
     # empty for a local target, whose services read the project files in place
-    unpublished = app_info.fingerprint.compare(published, own_files_only=True) if published is not None else set()
-    if app_info.db_uri != '' and published is None:
-        # pxt db update creates the database and gives it both artifacts; until it runs there is nothing here
-        ops.append(ServiceChangeOp.db_not_updated(f'pxt db update {app_info.db_uri}'))
-    elif len(unpublished) > 0:
+    changed = app_info.local_fingerprint.compare(target_db_fingerprint) if target_db_fingerprint is not None else set()
+    if len(changed) > 0:
         # this requires a pxt db update
         ops.append(
-            ServiceChangeOp.project_moved(
-                app_info.fingerprint.changes(published, unpublished, own_files_only=True),
+            ServiceChangeOp.fingerprint_changed(
+                app_info.local_fingerprint.changes(target_db_fingerprint, changed),
                 command=f'pxt db update {app_info.db_uri}',
             )
         )
-    elif len(ops) == 0 and running is not None:
-        if running.record.fingerprint is None:
-            ops.append(ServiceChangeOp.project_unreported())
-        else:
-            stale = app_info.fingerprint.compare(running.record.fingerprint)
-            if len(stale) > 0:
-                # the routes agree, but some archive files changed
-                ops.append(
-                    ServiceChangeOp.project_moved(app_info.fingerprint.changes(running.record.fingerprint, stale))
+    elif running is not None:
+        stale = app_info.local_fingerprint.compare(running.record.fingerprint)
+        if len(stale) > 0:
+            ops.append(
+                ServiceChangeOp.fingerprint_changed(
+                    app_info.local_fingerprint.changes(running.record.fingerprint, stale)
                 )
+            )
 
     if app_info.model_mismatch_reason is not None:
         command = f'pxt schema update {app_info.app_file}' + ('' if target == '' else f' {target}')

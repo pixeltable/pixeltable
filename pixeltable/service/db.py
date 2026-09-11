@@ -58,10 +58,11 @@ def db_diff(db_uri: str) -> DbPlan:
 
 
 def db_fingerprint(db_path: catalog.Path) -> ProjectFingerprint | None:
+    """Return the fingerprint of a hosted database; None for local."""
     if db_path.org is None or db_path.db is None:
         return None
     state = _get_db_state(db_path)
-    return None if state is None else state.status.fingerprint
+    return None if state is None else state.spec.fingerprint
 
 
 def create_db_update_ops(target: DatabaseSpec, current: DatabaseStatus | None) -> list[DbChangeOp]:

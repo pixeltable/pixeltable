@@ -204,6 +204,12 @@ def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path
         line = raw.split('#', 1)[0].strip()
         if line == '':
             continue
+        if line.startswith(('-r', '--requirement', '-c', '--constraint')):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} reads another file ({line}), which is not supported; '
+                'write one file naming every dependency',
+            )
         if line.startswith(('-e', '--editable')):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
@@ -251,7 +257,13 @@ def create_image_context(project_dir: Path | None = None) -> Path:
     # validate the input files
     for f in files:
         if f.name == PYPROJECT_FILE:
-            sources = toml.load(f).get('tool', {}).get('uv', {}).get('sources', {})
+            try:
+                parsed = toml.load(f)
+            except toml.TomlDecodeError as exc:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'{f.name} is not valid TOML: {exc}'
+                ) from exc
+            sources = parsed.get('tool', {}).get('uv', {}).get('sources', {})
             for name, source in sources.items():
                 if not isinstance(source, dict) or ('path' not in source and 'workspace' not in source):
                     continue
@@ -262,13 +274,6 @@ def create_image_context(project_dir: Path | None = None) -> Path:
                 )
             continue
         if f.name == 'requirements.txt':
-            for line in f.read_text(encoding='utf-8').splitlines():
-                if line.startswith(('-r', '--requirement')):
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_CONFIGURATION,
-                        f'{f.name} includes another requirements file ({line.strip()}), which cannot be '
-                        'installed in a hosted image; write one file naming every dependency',
-                    )
             # pip runs in the context, so a requirement naming a path needs that file alongside the manifests
             installed_from_project.extend(_local_requirement_files(project_dir, f))
 
@@ -319,8 +324,9 @@ class ProjectFingerprint(pydantic.BaseModel):
     pixeltable_version: str
     uv_options: str | None = None
 
-    # the files in requirements.txt that install from a path in the project itself
-    installed_from_project: list[str] = []
+    # path -> sha256 for the files in requirements.txt that install from a path in the project itself; separate
+    # from files, which are affected by DatabaseConfig.exclude
+    installed_from_project: dict[str, str] = {}
 
     # bindings, never resolved values: a var names the source of its value
     vars: dict[str, str]
@@ -348,9 +354,7 @@ class ProjectFingerprint(pydantic.BaseModel):
         """The archive identity."""
         return _digest(self.files)
 
-    def changes(
-        self, other: ProjectFingerprint, parts: set[ProjectPart] | None = None, *, own_files_only: bool = False
-    ) -> list[str]:
+    def changes(self, other: ProjectFingerprint, parts: set[ProjectPart] | None = None) -> list[str]:
         """What differs from other in the given parts, one printable line each; defaults to every part.
 
         own_files_only compares only the files in this fingerprint and excludes files that exist only in other.
@@ -360,8 +364,7 @@ class ProjectFingerprint(pydantic.BaseModel):
         lines: list[str] = []
         if ProjectPart.ARCHIVE in parts:
             lines += self._added_or_changed(other)
-            if not own_files_only:
-                lines += [f'{path} removed' for path in sorted(set(other.files) - set(self.files))]
+            lines += [f'{path} removed' for path in sorted(set(other.files) - set(self.files))]
         if ProjectPart.IMAGE in parts:
             if ProjectPart.ARCHIVE not in parts:
                 # make sure to include the manifests
@@ -398,8 +401,8 @@ class ProjectFingerprint(pydantic.BaseModel):
         )
 
     def _image_files(self) -> dict[str, str]:
-        selected = (*IMAGE_INPUT_FILES, *self.installed_from_project)
-        return {path: content_hash for path, content_hash in self.files.items() if path in selected}
+        manifests = {path: content_hash for path, content_hash in self.files.items() if path in IMAGE_INPUT_FILES}
+        return {**manifests, **self.installed_from_project}
 
 
 def _digest(value: Any) -> str:
@@ -454,13 +457,8 @@ def _content_hash(path: Path) -> str:
 def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
     requirements = project_root / 'requirements.txt'
     local_requirements = _local_requirement_files(project_root, requirements) if requirements.is_file() else []
-    from_project = sorted(f.relative_to(project_root).as_posix() for f in local_requirements)
+    from_project = {p.relative_to(project_root).as_posix(): _content_hash(p) for p in local_requirements}
     files = {path.relative_to(project_root).as_posix(): _content_hash(path) for path in files}
-    # the image installs local_requirements, so image_digest() covers them even when exclude drops them
-    for path in local_requirements:
-        name = path.relative_to(project_root).as_posix()
-        if name not in files:
-            files[name] = _content_hash(path)
     declared_python = config.python_version if config is not None else None
     return ProjectFingerprint(
         files=files,

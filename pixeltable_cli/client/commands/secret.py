@@ -21,11 +21,8 @@ Examples:
 An org secret applies to every database in the org; a database secret applies to that database and
 wins on a key collision.
 
-A project can define its secrets instead, in its [[pixeltable.database]] entry, as the name of the
-environment variable holding each value; `pxt db update` sets them from there.
-
-Either way, a running process holds the values it started with. Run `pxt db restart` for a hosted
-database's tables and `pxt service restart` for its services, to pick up a change.
+After a `pxt secret set` or `pxt secret delete`, run `pxt db restart` to pick up the changes for a hosted database's
+tables and `pxt service restart` to do the same for its services.
 """
 
 SET_EPILOG = """\

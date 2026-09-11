@@ -342,7 +342,11 @@ class TestService:
         _db_update(cli, db_root)
         r = cli('service', 'diff', str(app_file), target, '--json', check=False)
         assert [s['resolution'] for s in r.json['services']] == ['update_additive']
-        assert [(op['target'], op['op']) for s in r.json['services'] for op in s['ops']] == [('route', 'add')], r.stdout
+        # the edit that added the route also changed the project's runtime env
+        assert [(op['target'], op['op']) for s in r.json['services'] for op in s['ops']] == [
+            ('route', 'add'),
+            ('project', 'alter'),
+        ], r.stdout
 
         # a dry run reports the same and changes nothing
         r = cli('service', 'update', str(app_file), target, '-n', check=False)
@@ -400,7 +404,10 @@ class TestService:
         _db_update(cli, db_root)
         r = cli('service', 'diff', str(app_file), target, '--json', check=False)
         assert [s['resolution'] for s in r.json['services']] == ['update_additive']
-        assert [(op['op'], op['name']) for s in r.json['services'] for op in s['ops']] == [('add', '/notes/upper')]
+        assert [(op['op'], op['name']) for s in r.json['services'] for op in s['ops']] == [
+            ('add', '/notes/upper'),
+            ('alter', 'project'),
+        ]
 
         cli('service', 'update', str(app_file), target, '-f')
         after = assert_serving(cli, str(app_file), target, 'notes_app')['notes_app']

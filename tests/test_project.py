@@ -10,6 +10,7 @@ from pixeltable.utils.project import (
     ProjectPart,
     _archive_files,
     archive_object_name,
+    create_image_context,
     image_object_name,
     project_fingerprint,
 )
@@ -152,7 +153,18 @@ class TestProject:
 
         # a package sharing a name with a directory in the project is still read as a package
         (project / 'requirements.txt').write_text('vendor\n--index-url https://example.invalid/simple\n')
-        assert project_fingerprint(project, None).installed_from_project == []
+        assert project_fingerprint(project, None).installed_from_project == {}
+
+        # invalid references
+        for line in ('-r more.txt', '  --requirement more.txt', '-c pins.txt', '\t--constraint pins.txt'):
+            (project / 'requirements.txt').write_text(f'{line}\n')
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='reads another file'):
+                project_fingerprint(project, None)
+
+    def test_malformed_pyproject(self, project: pathlib.Path) -> None:
+        (project / 'pyproject.toml').write_text('[project\nname = "x"\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='not valid TOML'):
+            create_image_context(project)
 
     def test_object_names(self, project: pathlib.Path) -> None:
         before = project_fingerprint(project, None)
@@ -165,38 +177,6 @@ class TestProject:
         assert image_object_name('org_1', edited.image_digest()) == image_object_name('org_1', before.image_digest())
         # one org's artifacts are never another's
         assert image_object_name('org_2', before.image_digest()) != image_object_name('org_1', before.image_digest())
-
-    def test_loaded_files(self, project: pathlib.Path) -> None:
-        """A published project holds every selected file; an application loads a part of it."""
-        published = project_fingerprint(project, None)
-        # a part of the project: the modules an application imported, plus the lockfile
-        loaded = published.model_copy(update={'files': _some(published.files, 'app.py', 'uv.lock')})
-
-        # the two name different files, so one holds what the other does not; the loaded ones agree
-        assert loaded.compare(published) == {ARCHIVE}
-        assert loaded.compare(published, own_files_only=True) == set()
-
-        # a file the application never loaded moves the project, and asks nothing of this application
-        (project / 'other.py').write_text('y = 1\n')
-        assert loaded.compare(project_fingerprint(project, None), own_files_only=True) == set()
-
-        # a file it did load, edited here and not yet given to the database, asks for a publish
-        (project / 'app.py').write_text('x = 2\n')
-        edited = project_fingerprint(project, None)
-        loaded = edited.model_copy(update={'files': _some(edited.files, 'app.py', 'uv.lock')})
-        assert loaded.compare(published, own_files_only=True) == {ARCHIVE}
-        assert loaded.changes(published, {ARCHIVE}, own_files_only=True) == ['app.py changed']
-
-    def test_bindings(self, project: pathlib.Path) -> None:
-        before = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://one'}))
-        after = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://two'}))
-        # a binding is held by neither artifact, and a process that read the old one is stale
-        assert after.compare(before) == {BINDINGS}
-        assert after.changes(before) == ['var dest changed']
-
-        # a secret lives in the store, so declaring one leaves the project's own description alone
-        with_secret = project_fingerprint(project, DatabaseConfig(secrets={'openai': 'env:OPENAI_API_KEY'}))
-        assert with_secret.compare(project_fingerprint(project, None)) == set()
 
     def test_environment(self, project: pathlib.Path) -> None:
         before = project_fingerprint(project, DatabaseConfig(python_version='3.11'))

@@ -35,7 +35,7 @@ class ServiceInstanceRecord(pydantic.BaseModel):
 
     endpoint: str
 
-    # the loopback port the instance serves on, kept across a restart so callers keep their address;
+    # the loopback port, kept across a restart so callers keep their address;
     # None for a hosted instance, which is reached at its own hostname
     port: int | None = None
 
@@ -63,9 +63,8 @@ class ServiceInstanceRecord(pydantic.BaseModel):
     # creation time of pid, None where the platform does not report one
     process_started_at: float | None = None
 
-    # the project files the instance is running, as its process fingerprinted them at start; None until
-    # the instance's process reports them
-    fingerprint: ProjectFingerprint | None = None
+    # the project fingerprint
+    fingerprint: ProjectFingerprint
 
     def to_cli_instance(self, catalog_uri: str = '') -> types.ServiceInstance:
         return types.ServiceInstance(

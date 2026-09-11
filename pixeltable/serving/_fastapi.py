@@ -48,7 +48,7 @@ from pixeltable.runtime import close_threadpool_runtimes
 from pixeltable.serving import SqlExport
 from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
-from pixeltable.utils.app_module import model_mismatch_error_str
+from pixeltable.utils.app_module import validate_models
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
@@ -482,7 +482,7 @@ class FastAPIRouter(fastapi.APIRouter):
         referenced = self.route_models()
         if len(referenced) == 0:
             return  # every route is already resolved to the table it serves
-        reason = model_mismatch_error_str(referenced, base_path)
+        reason = validate_models(referenced, base_path)
         if reason is not None:
             raise excs.RequestError(excs.ErrorCode.SCHEMA_MISMATCH, reason)
 

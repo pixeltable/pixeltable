@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 import traceback
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, ClassVar, NoReturn, Self
+from typing import TYPE_CHECKING, Any, NoReturn, Self
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -104,16 +104,13 @@ class Error(Exception):
     # Diagnostic text (e.g. an evaluation-environment stack trace)
     detail: str | None
 
-    # Thousands digit of the ErrorCode values this class is allowed to carry.
-    # The base Error class carries the 0xxx generic codes; each subclass narrows to its own group.
-    _code_group: ClassVar[int] = 0
-
     def __init__(self, error_code: ErrorCode, message: str = '', *, retry_after: float | None = None) -> None:
         cls = type(self)
         # every error names what kind it is, so that a caller can catch one kind without catching all of them
         assert cls is not Error, 'raise a subclass of Error, not Error itself'
-        # make sure we got an error code appropriate for this exception class
-        assert error_code.value // 1000 == cls._code_group
+        # the class must match what _error_class() returns for the code, so an error keeps its class
+        # across a round trip; InternalError and UserError share group 0, so only the code separates them
+        assert cls is _error_class(error_code), f'{error_code.name} belongs to {_error_class(error_code).__name__}'
         super().__init__(message)
         self.error_code = error_code
         self.retry_after = retry_after
@@ -179,25 +176,17 @@ class Error(Exception):
 class InternalError(Error):
     """A Pixeltable-internal invalid state."""
 
-    _code_group = 0
-
 
 class UserError(Error):
     """A user error that does not map to a more specific code."""
-
-    _code_group = 0
 
 
 class NotFoundError(Error):
     """Resource not found."""
 
-    _code_group = 1
-
 
 class AlreadyExistsError(Error):
     """Resource already exists."""
-
-    _code_group = 2
 
 
 class RequestError(Error):
@@ -209,19 +198,13 @@ class RequestError(Error):
     schema/validation codes -> 422, operation codes -> 400.
     """
 
-    _code_group = 3
-
 
 class AuthorizationError(Error):
     """Caller lacks permission for the requested operation."""
 
-    _code_group = 4
-
 
 class ExternalServiceError(Error):
     """An upstream provider or external store returned an error."""
-
-    _code_group = 5
 
     provider: str | None = None
     provider_http_status_code: int | None = None
@@ -259,13 +242,9 @@ class ExternalServiceError(Error):
 class ServiceUnavailableError(Error):
     """Database, store, or other infrastructure is unreachable."""
 
-    _code_group = 6
-
 
 class ConcurrencyError(Error):
     """Serialization failure, deadlock, or concurrent modification conflict."""
-
-    _code_group = 7
 
 
 class ExprEvalError(Exception):

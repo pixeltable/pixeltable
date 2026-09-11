@@ -38,9 +38,8 @@ class DatabaseConfig(pydantic.BaseModel):
     # the database name ('local', or the uri of a hosted one)
     name: str = 'local'
 
-    # bindings for the config vars and secrets
+    # bindings for the config vars
     vars: dict[str, str] | None = None
-    secrets: dict[str, str] | None = None
 
     # the rest applies to a hosted database, whose runtime image is built from the project
     exclude: list[str] | None = None  # glob patterns to exclude from the image
@@ -121,7 +120,7 @@ def _find_project_root(start: Path) -> Path | None:
     return None
 
 
-# config section names for database variables and secrets
+# config section names for database variables
 VAR_SECTION = 'pixeltable.database.vars'
 SECRET_SECTION = 'pixeltable.database.secrets'
 

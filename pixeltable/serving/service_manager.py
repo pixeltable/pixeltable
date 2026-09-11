@@ -98,7 +98,7 @@ class ServiceManagerBase(abc.ABC):
 
 
 def get_manager(target: str = '') -> ServiceManagerBase:
-    """The manager of the service instances in the catalog that target names."""
+    """The manager of the service instances in the target catalog (db uri)."""
     path = catalog.Path.parse(target, allow_empty_path=True)
     if path.is_local:
         return ServiceManager()

@@ -103,13 +103,8 @@ class ServiceChangeOp(ChangeOp):
         )
 
     @classmethod
-    def project_moved(cls, changes: list[str], command: str | None = None) -> ServiceChangeOp:
-        """The operation for a project that moved on since the instance started.
-
-        changes are the causes, from ProjectFingerprint.changes(). With a command, the instance cannot be
-        brought up to date by restarting it -- a hosted service runs the project its database was given, not
-        the project here -- so the operation is blocked.
-        """
+    def fingerprint_changed(cls, changes: list[str], command: str | None = None) -> ServiceChangeOp:
+        """ProjectFingerprint.changes() produced changes."""
         summary = _summary(changes)
         if command is None:
             return cls(
@@ -121,6 +116,8 @@ class ServiceChangeOp(ChangeOp):
                 details={'changes': '; '.join(changes)},
                 requires_restart=True,
             )
+
+        # command not None: that command needs to be run first
         return cls(
             target='project',
             name='project',
@@ -128,29 +125,6 @@ class ServiceChangeOp(ChangeOp):
             severity='blocked',
             description=f'{summary}; run {command} to upload them',
             details={'changes': '; '.join(changes), 'command': command},
-        )
-
-    @classmethod
-    def project_unreported(cls) -> ServiceChangeOp:
-        return cls(
-            target='project',
-            name='project',
-            op='alter',
-            severity='additive',
-            description='the service will restart to report the project it is running',
-            requires_restart=True,
-        )
-
-    @classmethod
-    def db_not_updated(cls, command: str) -> ServiceChangeOp:
-        """The operation for a database `pxt db update` has not run for."""
-        return cls(
-            target='project',
-            name='project',
-            op='alter',
-            severity='blocked',
-            description=f'the database has nothing to serve; run {command}',
-            details={'command': command},
         )
 
     @classmethod
@@ -236,7 +210,6 @@ class ServiceChangeOp(ChangeOp):
 
     @classmethod
     def delete_service(cls, name: str, endpoint: str | None, status: OpStatus) -> ServiceChangeOp:
-        """The operation for deleting the named service, in the given status."""
         served = '' if endpoint is None else f' at {endpoint}'
         return cls(
             target='service',
@@ -250,7 +223,6 @@ class ServiceChangeOp(ChangeOp):
 
     @classmethod
     def restart_service(cls, name: str, endpoint: str | None, status: OpStatus) -> ServiceChangeOp:
-        """The operation for restarting the named service, in the given status."""
         served = '' if endpoint is None else f' at {endpoint}'
         return cls(
             target='service',
