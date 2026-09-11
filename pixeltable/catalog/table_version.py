@@ -1237,7 +1237,6 @@ class TableVersion:
             # no-op: return early and do not create a new schema version
             return UpdateStatus()
 
-        self._validate_altered_value_expr(col, new_value_expr)
         self._validate_no_dependency_cycles({col.id: new_value_expr})
         get_runtime().catalog.mark_modified_tv(self.handle)
         self.bump_version(bump_schema_version=True)
