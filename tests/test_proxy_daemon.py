@@ -1,3 +1,4 @@
+import io
 import json
 import math
 import pathlib
@@ -19,8 +20,8 @@ from pixeltable.utils.object_stores import FileDestination, ObjectOps
 from .utils import pxt_raises
 
 
-class _RemoteMediaSink(proxy_protocol.PartSink[str]):
-    """PartSink that stores media parts in a dict of object store-style object keys,
+class _RemotePartSink(proxy_protocol.PartSink[int | str]):
+    """PartSink that stores out-of-band parts in a dict of object store-style object keys,
     mirroring PxtStorePartSink's contract."""
 
     def __init__(self) -> None:
@@ -35,6 +36,11 @@ class _RemoteMediaSink(proxy_protocol.PartSink[str]):
     def add_media_file(self, path: str) -> str:
         with open(path, 'rb') as f:
             return self.add_media_bytes(f.read(), pathlib.Path(path).suffix)
+
+    def add_scalar_bytes(self, data: bytes, extension: str) -> int | str:
+        if len(data) < proxy_protocol.PxtStorePartSink._MIN_OUT_OF_BAND_SIZE:
+            return self.add_inline(data)
+        return self.add_media_bytes(data, extension)
 
 
 class TestProxyDaemon:
@@ -52,11 +58,11 @@ class TestProxyDaemon:
 
     def test_media_sink_round_trip(self, tmp_path: pathlib.Path) -> None:
         args = self._media_args(tmp_path)
-        sink = _RemoteMediaSink()
+        sink = _RemotePartSink()
         wire = proxy_protocol.serialize_args(args, sink)
         row = wire['rows'][0]
 
-        # media parts go out of band as object keys (names/formats preserved); scalar binary parts stay inline
+        # media parts go out of band as object keys (names/formats preserved); small scalars stay inline
         assert row['img_file'] == {'$pxt': 'file', 'name': 'cat.png', 'v': 'uploads/req/0.png'}
         assert row['img'] == {'$pxt': 'image', 'format': 'PNG', 'v': 'uploads/req/1.png'}
         assert row['data'] == {'$pxt': 'bytes', 'v': 0}
@@ -97,6 +103,36 @@ class TestProxyDaemon:
         assert sink.binary_parts[0] == (tmp_path / 'cat.png').read_bytes()
         assert sink.binary_parts[2] == b'abc'
         assert proxy_protocol.collect_remote_keys(wire) == []
+
+    def test_scalars_reach_a_handler_from_the_object_store(
+        self, init_env: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """End to end on the daemon side: prefetch localizes an uploaded scalar, dispatch decodes it."""
+        arr = np.arange(64, dtype=np.float32)
+        npy = io.BytesIO()
+        np.save(npy, arr, allow_pickle=False)
+        objects = {'req/0.bin': b'z' * 1024, 'req/1.npy': npy.getvalue()}
+        self._install_fake_upload_store(monkeypatch, objects, [])
+        seen: list[Any] = []
+
+        def echo_handler(request: proxy_protocol.ProxyRequest) -> None:
+            seen.append(proxy_protocol.deserialize_request(request))
+
+        monkeypatch.setitem(proxy_dispatch._HANDLERS, ('CatalogBase', 'echo_test'), echo_handler)
+        request = proxy_protocol.ProxyRequest(
+            class_name='CatalogBase',
+            method='echo_test',
+            args={
+                'blob': {'$pxt': 'bytes', 'v': 'uploads/req/0.bin'},
+                'arr': {'$pxt': 'ndarray', 'v': 'uploads/req/1.npy'},
+            },
+        )
+        head, _ = proxy_protocol.decode_body(proxy_dispatch.handle(request.model_dump_json(), []))
+        assert json.loads(head).get('error') is None
+        assert seen[0]['blob'] == objects['req/0.bin']
+        assert np.array_equal(seen[0]['arr'], arr)
+        # handle() removed the files it localized for the request
+        assert not any(pathlib.Path(p).exists() for p in request._remote_parts.values())
 
     def test_response_round_trip(self) -> None:
         """The generic response path preserves every value it is given."""
@@ -150,11 +186,22 @@ class TestProxyDaemon:
             'rows': [{'img': {'$pxt': 'image', 'format': 'PNG', 'v': 'uploads/r/2.png'}, 'dup': dict(file_tag)}],
             # keys inside nested containers are found
             'nested': {'$pxt': 'tuple', 'v': [{'$pxt': 'file', 'name': 'c', 'v': 'uploads/r/3'}]},
-            # int-indexed (inline) media and non-media str tags are not remote keys
+            # scalars that outgrew the inline threshold carry keys of their own
+            'blob': {'$pxt': 'bytes', 'v': 'uploads/r/4.bin'},
+            'arr': {'$pxt': 'ndarray', 'v': 'uploads/r/5.npy'},
+            # int-indexed (inline) parts and str tags that are not parts at all are not remote keys
             'inline': {'$pxt': 'file', 'name': 'd', 'v': 0},
-            'not_media': {'$pxt': 'mediapath', 'v': 'uploads/r/9.png'},
+            'inline_blob': {'$pxt': 'bytes', 'v': 1},
+            'not_a_part': {'$pxt': 'mediapath', 'v': 'uploads/r/9.png'},
         }
-        expected = ['uploads/r/0.png', 'uploads/r/1.png', 'uploads/r/2.png', 'uploads/r/3']
+        expected = [
+            'uploads/r/0.png',
+            'uploads/r/1.png',
+            'uploads/r/2.png',
+            'uploads/r/3',
+            'uploads/r/4.bin',
+            'uploads/r/5.npy',
+        ]
         assert proxy_protocol.collect_remote_keys(args) == expected
 
     def test_prepare_once_on_stale_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -303,7 +350,7 @@ class TestProxyDaemon:
 
         # keys outside uploads/ (e.g. persisted store objects) are rejected before any download
         with pxt_raises(
-            pxt.ErrorCode.INVALID_ARGUMENT, match=r"Invalid uploaded media object key: 'pixeltable/data/foo\.png'"
+            pxt.ErrorCode.INVALID_ARGUMENT, match=r"Invalid uploaded object key: 'pixeltable/data/foo\.png'"
         ):
             proxy_dispatch._prefetch_remote_parts(self._remote_file_request('pixeltable/data/foo.png'))
 
