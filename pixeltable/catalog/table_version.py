@@ -805,16 +805,6 @@ class TableVersion:
             return set()
         return {qid.col_id for qid in exprs.Expr.get_refd_column_ids(value_expr_dict) if qid.tbl_id == self.id}
 
-    def _population_order(self, cols: list[Column]) -> list[Column]:
-        """Returns cols, reordered so that a column follows its dependencies. That includes its transitive dependencies
-        in this table regardless of whether they are in the provided list."""
-        assert all(col.id in self.cols_by_id for col in cols)
-        deps: dict[int, set[int]] = {
-            col.id: self._own_col_refs(col.value_expr_dict) for col in self.cols_by_id.values()
-        }
-        input_cols_by_id: dict[int, Column] = {col.id: col for col in cols}
-        return [input_cols_by_id[col_id] for col_id in _topological_sort(deps) if col_id in input_cols_by_id]
-
     def _col_ref_substitutions(self, cols: Sequence[Column]) -> 'exprs.ExprDict[exprs.Expr]':
         """Maps a ColumnRefByName placeholder to a ColumnRef."""
         assert all(col.id is not None for col in cols)
@@ -1053,6 +1043,16 @@ class TableVersion:
         for idx_id in new_idx_ids:
             self.store_tbl.create_index(idx_id)
         return status
+
+    def _population_order(self, cols: list[Column]) -> list[Column]:
+        """Returns cols, reordered so that a column follows its dependencies. That includes its transitive dependencies
+        in this table regardless of whether they are in the provided list."""
+        assert all(col.id in self.cols_by_id for col in cols)
+        deps: dict[int, set[int]] = {
+            col.id: self._own_col_refs(col.value_expr_dict) for col in self.cols_by_id.values()
+        }
+        input_cols_by_id: dict[int, Column] = {col.id: col for col in cols}
+        return [input_cols_by_id[col_id] for col_id in _topological_sort(deps) if col_id in input_cols_by_id]
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
