@@ -490,6 +490,28 @@ def _update_output(plan: SchemaPlan, *, as_json: bool) -> None:
         return
     for tbl in plan.tables:
         print(f'{_RESOLUTIONS[tbl.resolution].applied:9s} {tbl.path}')
+    _print_recompute_notice(plan)
+
+
+def _print_recompute_notice(plan: SchemaPlan) -> None:
+    """Report the columns whose stored values the applied changes left stale.
+
+    This is the only signal a user gets: a value-expression change updates the definition without recomputing, and
+    a later `schema diff` compares metadata, so it reports the table as up to date regardless.
+    """
+    altered_computed_cols: list[str] = [
+        f'  {tbl.path}.{op.name}'
+        for tbl in plan.tables
+        for op in tbl.ops
+        if op.op == 'alter' and op.details.previous_value is not None and op.status == 'applied'
+    ]
+    if len(altered_computed_cols) == 0:
+        return
+    print()
+    print('the value expressions of these columns changed, but their stored values were not recomputed:')
+    for line in altered_computed_cols:
+        print(line)
+    print('run `pxt recompute` if you wish to recompute them.')
 
 
 def _set_statuses(plan: SchemaPlan, *, destructive: OpStatus, other: OpStatus) -> None:

@@ -53,6 +53,7 @@ class SchemaChangeOpDetails(pydantic.BaseModel):
 
     type: str | None = None  # the new type for a column add or alter
     value: str | None = None  # the new computed value expression for a column add or alter
+    previous_value: str | None = None  # the value expression a computed-column alter replaces
     index_ref: SchemaChangeIndexRef | None = None  # the new index for an index add or alter
 
 

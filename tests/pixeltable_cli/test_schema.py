@@ -190,6 +190,8 @@ class TestSchema:
         r = cli('schema', 'update', apps('basic_added_column.py'), target)
         assert r.returncode == 0
         assert 'updated' in r.stdout
+        # pxt recompute notice doesn't appear unless alter computed column was performed
+        assert 'recompute' not in r.stdout
         docs = pxt.get_table(f'{target}/docs')
         assert 'author' in docs.columns()
         assert docs.select(docs.title).collect()['title'] == ['hello']
@@ -240,6 +242,22 @@ class TestSchema:
         r = cli('schema', 'update', str(schema_file), target, '--allow-destructive', '-f')
         assert r.returncode == 0
         assert 'catalog is up to date' in r.stdout
+
+    def test_altered_computed_column_recompute_notice(
+        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
+    ) -> None:
+        """Changing a computed column's expression reports that the stored values need recomputing."""
+        p = db_root.make_catalog_path
+        schema_file = project_dir / 'app_schema.py'
+        schema_file.write_text(SCHEMA_SRC)
+        altered_file = project_dir / 'app_schema_altered.py'
+        altered_file.write_text(SCHEMA_SRC.replace('pxtf.string.upper(title)', 'pxtf.string.lower(title)'))
+
+        target = p('altered')
+        cli('schema', 'update', str(schema_file), target)
+        r = cli('schema', 'update', str(altered_file), target)
+        assert r.returncode == 0
+        assert 'run `pxt recompute`' in r.stdout
 
     def test_diff(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         p = db_root.make_catalog_path

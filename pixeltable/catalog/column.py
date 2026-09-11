@@ -511,6 +511,13 @@ class Column:
     def check_value_expr(self) -> None:
         assert self._value_expr is not None
         self._value_expr.validate_storable(f'Computed column {self.name!r}')
+        for e in self._value_expr.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
+            if e.is_cellmd_prop():
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Use of a reference to the {e.prop.name.lower()!r} property of another column '
+                    f'is not allowed in a computed column.',
+                )
         if not self.stored and self.is_computed and self.has_window_fn_call():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,

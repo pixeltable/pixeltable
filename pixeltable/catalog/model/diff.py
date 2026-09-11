@@ -207,6 +207,46 @@ def _add_index_change(idx: IndexDefinition, action: str = 'will be added') -> Sc
     )
 
 
+def _alter_column_change(
+    col_name: str,
+    spec: ColumnSpec,
+    model_props: _ColumnProperties,
+    existing_props: _ColumnProperties,
+    col_md: ColumnMetadata,
+    altered: list[str],
+) -> SchemaChangeOp:
+    """The op for a column whose properties differ; a new value expression for a computed column is the only one
+    update_all() can apply."""
+    # a computed column becoming a data column, or vice versa, changes more than the value expression
+    is_new_value_expr = altered == ['value'] and spec.get('value') is not None and col_md['is_computed']
+    if not is_new_value_expr:
+        return SchemaChangeOp(
+            target='column',
+            name=col_name,
+            op='alter',
+            severity='unsupported',
+            model={prop: getattr(model_props, prop) for prop in altered},
+            existing={prop: getattr(existing_props, prop) for prop in altered},
+            description=f'column {col_name!r} has altered properties: {", ".join(altered)}',
+        )
+
+    return SchemaChangeOp(
+        target='column',
+        name=col_name,
+        op='alter',
+        severity='additive',
+        model={'value': model_props.value},
+        existing={'value': existing_props.value},
+        description=(
+            f'the value expression of computed column {col_name!r} will be updated; '
+            f'existing values will not be recomputed'
+        ),
+        details=SchemaChangeOpDetails(
+            type=model_props.type, value=model_props.value, previous_value=existing_props.value
+        ),
+    )
+
+
 def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: str) -> dict[str, TableDiff]:
     """
     Analyze each registered model against the current catalog state, summarizing the schema changes that creating
@@ -340,29 +380,21 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         )
                     )
 
-            # Columns present in both, whose properties differ; unsupported for now (some alterations will later be
-            # applicable via allow_destructive=True).
+            # Columns present in both, whose properties differ. Some kinds of changes are supported, others are not.
             default_media_validation = model.__table_spec__['media_validation'].name.lower()
             for col_name in sorted(model_cols & existing_cols):
-                model_props = _ColumnProperties.from_spec(user_cols[col_name], default_media_validation)
-                existing_props = _ColumnProperties.from_metadata(existing_md['columns'][col_name])
+                spec = user_cols[col_name]
+                col_md = existing_md['columns'][col_name]
+                model_props = _ColumnProperties.from_spec(spec, default_media_validation)
+                existing_props = _ColumnProperties.from_metadata(col_md)
                 altered = [
                     prop
                     for prop in model_props.__dataclass_fields__
                     if getattr(model_props, prop) != getattr(existing_props, prop)
                 ]
-                if len(altered) > 0:
-                    ops.append(
-                        SchemaChangeOp(
-                            target='column',
-                            name=col_name,
-                            op='alter',
-                            severity='unsupported',
-                            model={prop: getattr(model_props, prop) for prop in altered},
-                            existing={prop: getattr(existing_props, prop) for prop in altered},
-                            description=f'column {col_name!r} has altered properties: {", ".join(altered)}',
-                        )
-                    )
+                if len(altered) == 0:
+                    continue
+                ops.append(_alter_column_change(col_name, spec, model_props, existing_props, col_md, altered))
 
             # Additive/destructive column and index changes.
             for col_name in sorted(model_cols - existing_cols):
@@ -522,11 +554,21 @@ def format_diff(name: str, diff: TableDiff) -> list[str]:
             detail.append(f'    {c.name}: model={c.model!r}, existing={c.existing!r}')
 
     altered_cols = by('column', op='alter')
-    if len(altered_cols) > 0:
+    unsupported_alters: list[SchemaChangeOp] = [c for c in altered_cols if c.severity == 'unsupported']
+    if len(unsupported_alters) > 0:
         detail.append('  the following columns have altered properties (FATAL):')
-        for c in altered_cols:
+        for c in unsupported_alters:
             for prop, model_val in c.model.items():
                 detail.append(f'    {c.name!r} {prop}: model={model_val!r}, existing={c.existing[prop]!r}')
+
+    supported_alters: list[SchemaChangeOp] = [c for c in altered_cols if c.severity != 'unsupported']
+    if len(supported_alters) > 0:
+        detail.append('  the following computed columns have a new value expression, and will be UPDATED:')
+        for c in supported_alters:
+            detail.append(f'    {c.name!r}: {c.existing["value"]} -> {c.model["value"]}')
+        # If any computed column's expression changed, include the recompute notice
+        if any(c.details.previous_value is not None for c in supported_alters):
+            detail.append('  existing values will not be recomputed; use `pxt recompute` to do so.')
 
     new_cols = by('column', op='add')
     if len(new_cols) > 0:

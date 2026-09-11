@@ -451,6 +451,11 @@ def _add_computed_column(request: ProxyRequest, tbl: LocalTable) -> Any:
     )
 
 
+def _alter_computed_column(request: ProxyRequest, tbl: LocalTable) -> Any:
+    kwargs = _deserialize_args(request)
+    return tbl.alter_computed_column(recompute=kwargs['recompute'], cascade=kwargs['cascade'], **kwargs['columns'])
+
+
 def _drop_column(request: ProxyRequest, tbl: LocalTable) -> None:
     kwargs = _deserialize_args(request)
     tbl.drop_column(kwargs['column'], if_not_exists=kwargs['if_not_exists'])
@@ -590,6 +595,7 @@ _MUTATION_METHODS: frozenset[str] = frozenset(
         'add_columns',
         'add_column',
         'add_computed_column',
+        'alter_computed_column',
         'drop_column',
         'rename_column',
         'add_btree_index',
@@ -624,6 +630,7 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'add_columns'): _add_columns,
     ('Table', 'add_column'): _add_column,
     ('Table', 'add_computed_column'): _add_computed_column,
+    ('Table', 'alter_computed_column'): _alter_computed_column,
     ('Table', 'drop_column'): _drop_column,
     ('Table', 'rename_column'): _rename_column,
     ('Table', 'add_btree_index'): _add_btree_index,

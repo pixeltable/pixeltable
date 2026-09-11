@@ -1836,6 +1836,14 @@ class Catalog(CatalogBase):
         raises RequestError.
 
         Requires that change_sets is ordered topologically, ie, base tables precede their views.
+
+        The change sets are applied in three passes:
+
+        1. Every table records its metadata changes. Each change is checked in isolation from the others.
+        2. Every changed table, and every mutable view that can reference one, verifies its schema state: whether all
+           dependencies are satisfied, and that there are no dependency cycles.
+        3. Every table's schema change is finalized. This includes populating new columns and indexes. Doing that at
+           the very end means that a rejected schema change costs no computation.
         """
         # fault point:
         # - the diff that produced updates was computed in an earlier read transaction
@@ -1871,110 +1879,55 @@ class Catalog(CatalogBase):
                 zip((tbl._tbl_version_path for tbl in tbls), (tbl._tbl_version.get() for tbl in tbls), change_sets)
             )
 
-            # validate all columns that get dropped, either explicitly or implicitly:
-            # - explicitly dropped columns
-            # - value columns of explicitly dropped indices
-            # - value columns of implicitly dropped indices (= the indexed column was dropped)
-            dropped_col_set: set[Column] = set()
-            for _, tv, change_set in tbl_info:
-                dropped_idxs = [tv.idxs_by_name[name] for name in change_set['dropped_idxs']]
-                for name in change_set['dropped_columns']:
-                    col = tv.cols_by_name[name]
-                    dropped_col_set.add(col)
-                    dropped_idxs.extend(tv.idxs_by_col.get(col.qid, []))
-                for idx_info in dropped_idxs:
-                    dropped_col_set.update(idx_info.columns)
-
-            def dependent_str(c: Column) -> str:
-                """How a column that blocks a drop is named in the error, which is by index if it belongs to one."""
-                # all user-visible columns have a name
-                if c.name is not None:
-                    return c.name
-                tv = c.get_tbl()
-                idx_info = next((i for i in tv.idxs.values() if i.val_col is not None and c.id == i.val_col.id), None)
-                assert idx_info is not None
-                return f'index {idx_info.name!r} on {tv.name!r}'
-
-            def check_column_dependents(
-                dropped: Column | TableVersion.IndexInfo, drop_target: Literal['index', 'column']
-            ) -> None:
-                if isinstance(dropped, TableVersion.IndexInfo) and dropped.val_col is None:
-                    assert dropped.undo_col is None, dropped
-                    # Index without value or undo columns -- nothing to do
-                    return
-                col = dropped.val_col if isinstance(dropped, TableVersion.IndexInfo) else dropped
-                # we exclude dependents that themselves are being dropped
-                remaining_dependents = [
-                    c for c in self.get_column_dependents(col.get_tbl().id, col.id) if c not in dropped_col_set
-                ]
-                if len(remaining_dependents) > 0:
-                    # sorted() for a deterministic error message
-                    detail = ', '.join(sorted(dependent_str(c) for c in remaining_dependents))
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'{drop_target.capitalize()} {dropped.name!r} was removed from the model for '
-                        f'{col.get_tbl().name!r}, '
-                        f'but cannot be dropped because the following depend on it:\n{detail}\n'
-                        'Drop those first, or remove them from their models.',
-                    )
-
-            for _, tv, change_set in tbl_info:
-                for idx_name in change_set['dropped_idxs']:
-                    check_column_dependents(tv.idxs_by_name[idx_name], 'index')
-                for name in change_set['dropped_columns']:
-                    check_column_dependents(tv.cols_by_name[name], 'column')
-
-            # check for dependent view predicates
-            mutable_views = {view_tv.id: view_tv for _, tv, _ in tbl_info for view_tv in self._mutable_view_tvs(tv)}
-            # a column can appear in more than one view's predicate, so every referencing view is recorded
-            views_by_qid: dict[QColumnId, list[TableVersion]] = defaultdict(list)
-            for view_tv in mutable_views.values():
-                if view_tv.predicate is None:
-                    continue
-                for col_ref in view_tv.predicate.subexprs(expr_class=exprs.ColumnRef, traverse_matches=False):
-                    views_by_qid[col_ref.col_md.qcolid].append(view_tv)
-            dropped_cols_by_qid = {col.qid: col for col in dropped_col_set}
-            view_dependencies = [
-                (dropped_cols_by_qid[qid], view_tv)
-                for qid, view_tvs in views_by_qid.items()
-                if qid in dropped_cols_by_qid
-                for view_tv in view_tvs
-            ]
-            if len(view_dependencies) > 0:
-                # sort() for deterministic error message
-                view_dependencies.sort(key=lambda d: (d[0].qid.tbl_id, d[0].qid.col_id, d[1].name))
-                detail = '\n'.join(
-                    f'column: {col.name}, view: {view_tv.name}, predicate: {view_tv.predicate}'
-                    for col, view_tv in view_dependencies
-                )
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Cannot drop the following columns, because view predicates depend on them:\n{detail}',
-                )
-
-            # Apply per table in forward order (base tables first), so a view's new column can reference a base's
-            # new column: the view's resolution sees the base's already-mutated columns through tvp.columns().
+            # Record the metadata per table in forward order (base tables first), so a view's new column can
+            # reference a base's new column: the view's resolution sees the base's already-mutated columns through
+            # tvp.columns().
             updated_tbl_ids = {tvp.tbl_id for tvp, _, _ in tbl_info}
             applied_tbl_ids: set[UUID] = set()
+            # TableVersions that need to be validated: the changed tables and their mutable views. Schema changes are
+            # not completed and new columns are not populated until everything is validated.
+            validation_tvs: dict[UUID, TableVersion] = {}
             for tvp, tv, change_set in tbl_info:
                 # make sure we're doing this in base -> view order
                 pending_ancestor_ids = (set(tvp.tbl_ids[1:]) & updated_tbl_ids) - applied_tbl_ids
                 assert len(pending_ancestor_ids) == 0, f'{tv.name}: bases not yet applied: {pending_ancestor_ids}'
 
-                added_cols, added_idxs = prepare_model_updates(
-                    tvp, tv.display_str(), change_set['new_columns'], change_set['new_idxs']
+                added_cols, added_idxs, altered_exprs = prepare_model_updates(
+                    tvp,
+                    tv.display_str(),
+                    change_set['new_columns'],
+                    change_set['altered_columns'],
+                    change_set['new_idxs'],
                 )
+                altered_cols: list[tuple[Column, exprs.Expr]] = [
+                    (tv.cols_by_name[name], expr) for name, expr in altered_exprs.items()
+                ]
                 dropped_cols = [tv.cols_by_name[name] for name in change_set['dropped_columns']]
                 dropped_idx_ids = [tv.idxs_by_name[name].id for name in change_set['dropped_idxs']]
                 expected_schema_version = change_set['schema_versions'][change_set['tbl_id']]
                 _logger.info(
                     f'Applying model updates to {tv.name!r} (id={tv.id}, schema_versions={expected_schema_version}): '
-                    f'add columns {[col.name for col in added_cols]}, drop columns {change_set["dropped_columns"]}, '
+                    f'add columns {[col.name for col in added_cols]}, '
+                    f'alter columns {[col.name for col, _ in altered_cols]}, '
+                    f'drop columns {change_set["dropped_columns"]}, '
                     f'add indexes {[spec.idx_name for spec in added_idxs]}, '
                     f'drop indexes {change_set["dropped_idxs"]}'
                 )
-                tv.apply_schema_change(expected_schema_version, added_cols, dropped_cols, added_idxs, dropped_idx_ids)
+                tv.apply_schema_change_md(
+                    expected_schema_version, added_cols, altered_cols, dropped_cols, added_idxs, dropped_idx_ids
+                )
+                validation_tvs[tv.id] = tv
+                for view_tv in self._mutable_view_tvs(tv):
+                    validation_tvs[view_tv.id] = view_tv
                 applied_tbl_ids.add(tvp.tbl_id)
+
+            # Validate the schema consistency in all affected tables. Order by name for deterministic errors.
+            for tv in sorted(validation_tvs.values(), key=lambda tv: (tv.name, tv.id)):
+                tv.validate_column_dependencies()
+
+            # Finally complete schema changes, which includes new column population and may be expensive.
+            for _, tv, _ in tbl_info:
+                tv.complete_schema_change()
 
         try:
             update_fn()

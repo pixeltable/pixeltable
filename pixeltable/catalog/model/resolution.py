@@ -209,6 +209,8 @@ class TableSchemaChangeSet(TypedDict):
     # name -> (spec, origin). A 'base_query' column comes from the view's base query select() list and resolves
     # against the base table's columns; a 'model_body' column resolves against the view's own visible columns.
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
+    # name -> (spec, origin), for existing computed columns whose value expression is being replaced
+    altered_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
     dropped_columns: list[str]
     new_idxs: list[IndexDefinition]
     dropped_idxs: list[str]
@@ -223,15 +225,23 @@ def prepare_model_updates(
     tvp: catalog.TableVersionPath,
     display_name: str,
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]],
+    altered_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]],
     new_idxs: list[IndexDefinition],
-) -> tuple[list[catalog.Column], list[catalog.IndexSpec]]:
+) -> tuple[list[catalog.Column], list[catalog.IndexSpec], dict[str, exprs.Expr]]:
     """
-    Given `new_columns` and `new_idxs` as defined by a model, resolves them into proper catalog abstractions
-    in preparation for catalog changes. This is the analog of `prepare_model()` for `update_all()`.
+    Given `new_columns`, `altered_columns` and `new_idxs` as declared by a model, resolves them into proper catalog
+    abstractions in preparation for catalog changes.
 
-    Each column in `new_columns` is a (spec, origin) pair. A 'base_query' column comes from the view's base query
-    `select()` list and is resolved against the base table's columns; a 'model_body' column is resolved against the
-    view's own visible columns.
+    Each column in `new_columns` and `altered_columns` is a (spec, origin) pair. A 'base_query' column comes from
+    the view's base query `select()` list and is resolved against the base table's columns; a 'model_body' column is
+    resolved against the view's own visible columns.
+
+    Returns:
+        - the columns to add, in declaration order
+        - the indices to add, with the index-spec dataclass instances replaced by instances of index.IndexBase
+        - the new value expression of each altered column, keyed by column name
+
+    The returned references may contain ColumnRefByName.
     """
 
     user_cols: dict[str, catalog.Column] = {}
@@ -247,7 +257,9 @@ def prepare_model_updates(
 
     # Base-query columns are projections of the base query and resolve against the base table's columns (which,
     # for a select() view, are not among the view's own visible columns above).
-    has_base_query_cols = any(origin == 'base_query' for _, origin in new_columns.values())
+    has_base_query_cols = any(
+        origin == 'base_query' for _, origin in (*new_columns.values(), *altered_columns.values())
+    )
     base_subst_dict: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
     if has_base_query_cols:
         assert tvp.base is not None
@@ -306,4 +318,21 @@ def prepare_model_updates(
         assert isinstance(idx_spec.indexed_column, str)
         resolved_idxs.append(idx_spec._replace(indexed_column=user_cols[idx_spec.indexed_column]))
 
-    return resolved_cols, resolved_idxs
+    # Resolve altered columns. This may produce ColumnRefByName if the new expression references columns that this
+    # changeset adds.
+    altered_exprs: dict[str, exprs.Expr] = {}
+    for name, (spec, origin) in altered_columns.items():
+        resolve_against = base_subst_dict if origin == 'base_query' else subst_dict
+        resolved = spec['value'].substitute(resolve_against)
+        unresolved_names: list[str] = [
+            ref.name for ref in resolved.subexprs(exprs.ColumnRefByName) if ref.name not in new_columns
+        ]
+        if len(unresolved_names) > 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'Column {name!r} in {display_name} references columns that are not in '
+                f"the model's scope: {unresolved_names}",
+            )
+        altered_exprs[name] = resolved
+
+    return resolved_cols, resolved_idxs, altered_exprs
