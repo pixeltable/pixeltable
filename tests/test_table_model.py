@@ -1984,8 +1984,10 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Column 'value' was removed from the model for 'test_table', but cannot be dropped "
-            r'because the following depend on it:\nvc1',
+            match=re.escape(
+                "Column 'vc1' in 'test_view' would be left referencing column 'test_table.value', "
+                'which no longer exists.'
+            ),
         ):
             TableModelV2.update_all(p(''), allow_destructive=True)
 
@@ -1999,10 +2001,67 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Index 'idx' was removed from the model for 'test_table', but cannot be dropped "
-            r'because the following depend on it:\nvc2',
+            match=re.escape(
+                "Column 'vc2' in 'test_view' would be left referencing a column of 'test_table', "
+                'which no longer exists.'
+            ),
         ):
             TableModelV3.update_all(p(''), allow_destructive=True)
+
+        # A column altered to reference a column that the same change set drops.
+        AlterModel = pxt.model_base()
+
+        class AlterBase(AlterModel, name='alter_base'):
+            id: pxt.Int
+            extra: pxt.Int
+            doubled = id * 2
+
+        class AlterView(AlterModel, name='alter_view', base=AlterBase):
+            vc = AlterBase.id + 1
+
+        AlterModel.create_all(p(''))
+        pxt.get_table(p('alter_base')).insert([{'id': 1, 'extra': 7}])
+
+        # the altered column belongs to the table that drops 'extra'
+        SameTableModel = pxt.model_base()
+
+        class SameTableBase(SameTableModel, name='alter_base'):
+            id: pxt.Int
+            doubled = AlterBase.extra * 3
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=re.escape(
+                "Column 'doubled' in 'alter_base' would be left referencing column 'alter_base.extra', "
+                'which no longer exists.'
+            ),
+        ):
+            SameTableModel.update_all(p(''), allow_destructive=True)
+
+        # the altered column belongs to a view of the table that drops 'extra'
+        CrossTableModel = pxt.model_base()
+
+        class CrossTableBase(CrossTableModel, name='alter_base'):
+            id: pxt.Int
+            doubled = id * 2
+
+        class CrossTableView(CrossTableModel, name='alter_view', base=CrossTableBase):
+            vc = AlterBase.extra + 1
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=re.escape(
+                "Column 'vc' in 'alter_view' would be left referencing column 'alter_base.extra', "
+                'which no longer exists.'
+            ),
+        ):
+            CrossTableModel.update_all(p(''), allow_destructive=True)
+
+        # neither rejected attempt changed the catalog
+        alter_base = pxt.get_table(p('alter_base'))
+        assert alter_base.columns() == ['id', 'extra', 'doubled']
+        assert alter_base.select(alter_base.doubled).collect()['doubled'] == [2]
+        assert all(d.resolution == 'up_to_date' for d in AlterModel.get_model_diff(p('')).values())
 
     def test_drop_col_with_view_index(self, db_root: DatabaseRoot) -> None:
         """update_all() cannot drop a column that a view's index is built on."""
@@ -2019,8 +2078,9 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Column 'c0' was removed from the model for 'base_t', but cannot be dropped "
-            r"because the following depend on it:\nindex 'v_idx' on 'view_t'",
+            match=re.escape(
+                "Index 'v_idx' on 'view_t' would be left referencing column 'base_t.c0', which no longer exists."
+            ),
         ):
             TableModel.update_all(p(''), allow_destructive=True)
         assert 'c0' in pxt.get_table(p('base_t')).columns()
@@ -2055,9 +2115,10 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'Cannot drop the following columns, because view predicates depend on them:\n'
-            r'column: value, view: other_view, predicate: value > 2.0\n'
-            r'column: value, view: test_view, predicate: value > 1.0',
+            match=re.escape(
+                "The predicate of view 'other_view' would be left referencing column 'test_table.value', "
+                'which no longer exists.'
+            ),
         ):
             TableModelV2.update_all(p(''), allow_destructive=True)
 

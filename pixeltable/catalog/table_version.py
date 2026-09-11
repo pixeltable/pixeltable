@@ -433,7 +433,7 @@ class TableVersion:
         deps: dict[int, set[int]] = {}
         for col_id in visible:
             own_refs = self._own_col_refs(self._schema_version_md.columns[col_id].value_expr)
-            non_visible_refs = own_refs - visible.keys()
+            non_visible_refs: set[int] = own_refs - visible.keys()
             assert len(non_visible_refs) == 0, (
                 f'{self.name}: column {col_id} references dropped columns {non_visible_refs}'
             )
@@ -527,10 +527,10 @@ class TableVersion:
         self._tbl_md.index_md[idx_id] = idx_md
         return idx_id
 
-    def _create_index(
+    def _record_new_index(
         self, col: Column, val_col: Column | None, undo_col: Column | None, idx_name: str | None, idx: index.IndexBase
-    ) -> None:
-        """Create the given index along with index md"""
+    ) -> int:
+        """Record the given index's md and register it, leaving the store index to be built separately."""
         assert (val_col is not None) == idx.uses_value_col
         assert undo_col is None or val_col is not None
         idx_id = self._create_index_md(col, val_col, undo_col, idx_name, idx)
@@ -539,7 +539,7 @@ class TableVersion:
         self.idxs[idx_id] = idx_info
         self.idxs_by_name[idx_name] = idx_info
         self.idxs_by_col.setdefault(col.qid, []).append(idx_info)
-        self.store_tbl.create_index(idx_id)
+        return idx_id
 
     def _create_index_columns(self, col: Column, idx: index.IndexBase) -> tuple[Column | None, Column | None]:
         """Create the columns that idx needs in order to index col of this table."""
@@ -552,19 +552,17 @@ class TableVersion:
             next_col_id=self.next_col_id,
         )
 
-    def _add_index(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> UpdateStatus:
+    def _add_index_md(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> None:
+        """Record an index's columns and md; _populate_new_columns() computes the values and builds the store index."""
         val_col, undo_col = self._create_index_columns(col, idx)
-        status = UpdateStatus()
         new_cols = [c for c in (val_col, undo_col) if c is not None]
         if len(new_cols) > 0:
-            # add the columns and update the metadata
-            # TODO support on_error='abort' for indices; it's tricky because of the way metadata changes are entangled
-            # with the database operations
             self._record_new_columns(new_cols)
-            status = self._populate_columns(new_cols, print_stats=False, on_error='ignore')
-        # now create the index structure
-        self._create_index(col, val_col, undo_col, idx_name, idx)
-        return status
+        self._record_new_index(col, val_col, undo_col, idx_name, idx)
+
+    def _add_index(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> UpdateStatus:
+        self._add_index_md(col, idx_name, idx)
+        return self._populate_new_columns(print_stats=False, on_error='abort')
 
     def _validate_idx_drops(self, idx_ids: Iterable[int]) -> None:
         """Reject the removal of a default B-tree index."""
@@ -695,7 +693,8 @@ class TableVersion:
         # we're creating a new schema version
         start_ts = time.perf_counter()
         self.bump_version(bump_schema_version=True)
-        status = self._apply_column_changes(cols, (), print_stats=print_stats, on_error=on_error)
+        self._apply_column_changes_md(cols, ())
+        status = self._populate_new_columns(print_stats=print_stats, on_error=on_error)
         self.set_version_update_status(status)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
@@ -750,9 +749,16 @@ class TableVersion:
     def _populate_columns(
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
-        """Compute and store the values of cols. The columns must be already recorded in this version's metadata."""
+        """Compute and store the values of cols. The columns must be already recorded in this version's metadata.
+
+        An index value expression that raises records the error in its cell metadata rather than aborting, so
+        on_error does not apply to index columns.
+        """
         from pixeltable.plan import Planner
 
+        # TODO support on_error='abort' for indices; it's tricky because of the way metadata changes are entangled
+        # with the database operations
+        idx_cols: set[Column] = self.idx_val_cols | self.idx_undo_cols
         row_count = self.store_tbl.count()
         num_excs = 0
         cols_with_excs: list[Column] = []
@@ -766,7 +772,7 @@ class TableVersion:
             with get_runtime().report_progress():
                 try:
                     plan.ctx.title = self.display_str()
-                    excs_per_col = self.store_tbl.write_column(col, plan, on_error == 'abort')
+                    excs_per_col = self.store_tbl.write_column(col, plan, on_error == 'abort' and col not in idx_cols)
                 except sql_exc.DBAPIError as exc:
                     get_runtime().catalog.convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
                     # If it wasn't converted, re-raise as a generic Pixeltable error
@@ -902,7 +908,7 @@ class TableVersion:
         self.store_tbl.create_sa_tbl()
         get_runtime().catalog.record_column_dependencies(self)
 
-    def apply_schema_change(
+    def apply_schema_change_md(
         self,
         expected_schema_version: int,
         added_cols: list[Column],
@@ -910,8 +916,11 @@ class TableVersion:
         dropped_cols: list[Column],
         added_idxs: list[IndexSpec],
         dropped_idx_ids: list[int],
-    ) -> UpdateStatus:
-        """Apply multiple column and index add/drop operations as a single new schema version.
+    ) -> None:
+        """Record multiple column and index add/drop operations as a single new schema version.
+
+        Only the metadata is updated here; complete_schema_change() must be called to populate the new columns and
+        creates the indexes.
 
         - added_cols are in declaration order; their value expressions may still contain exprs.ColumnRefByName
           referencing other columns in added_cols, which are resolved here once ids are assigned
@@ -944,30 +953,31 @@ class TableVersion:
         # the same name, or on the same column, in a single change set is allowed.
         validate_idxs(self.id, added_idxs, self.has_default_idxs, self.idxs.values())
 
-        status = UpdateStatus()
         if len(added_cols) > 0 or len(altered_cols) > 0:
-            status += self._apply_column_changes(added_cols, altered_cols, print_stats=False, on_error='abort')
-
+            self._apply_column_changes_md(added_cols, altered_cols)
         for col, idx_name, idx in added_idxs:
             assert isinstance(col, Column)
-            status += self._add_index(col, idx_name, idx)
+            self._add_index_md(col, idx_name, idx)
 
         get_runtime().catalog.record_column_dependencies(self)
         self.path.clear_cached_md()
+
+    def complete_schema_change(self) -> UpdateStatus:
+        """Populate the columns and create the indices of a schema change whose metadata is already in place."""
+        assert self.is_mutable
+        status = self._populate_new_columns(print_stats=False, on_error='abort')
         self.set_version_update_status(status)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Applied model updates to table {self.name}, new version: {self.version}')
         return status
 
-    def _apply_column_changes(
-        self,
-        new_cols: list[Column],
-        altered_cols: Sequence[tuple[Column, exprs.Expr]],
-        print_stats: bool,
-        on_error: Literal['abort', 'ignore'],
-    ) -> UpdateStatus:
-        """Add new_cols within the current schema version, each with a default btree index if the table enables those,
-        and replace the value expressions of altered_cols.
+    def _apply_column_changes_md(
+        self, new_cols: list[Column], altered_cols: Sequence[tuple[Column, exprs.Expr]]
+    ) -> None:
+        """Record new_cols within the current schema version, each with a default btree index if the table enables
+        those, and replace the value expressions of altered_cols.
+
+        Records metadata only, does not populate or recompute the values in the affected columns.
 
         - the caller is responsible for recording the schema version change
         - value expressions that carry ColumnRefByName placeholders are resolved against cols, which need to be in
@@ -997,17 +1007,19 @@ class TableVersion:
             if col.is_computed:
                 col.check_value_expr()
 
-        index_cols: dict[Column, tuple[index.BtreeIndex, Column | None, Column | None]] = {}
+        default_idxs: list[tuple[Column, index.BtreeIndex, Column | None, Column | None]] = []
         all_cols: list[Column] = []
         for col in new_cols:
             all_cols.append(col)
             if self.has_default_idxs and col.name is not None and index.BtreeIndex.can_index(col):
                 idx = index.BtreeIndex(uses_value_col=self.is_data_versioned)
                 val_col, undo_col = self._create_index_columns(col, idx)
-                index_cols[col] = (idx, val_col, undo_col)
+                default_idxs.append((col, idx, val_col, undo_col))
                 all_cols.extend(c for c in (val_col, undo_col) if c is not None)
 
         self._record_new_columns(all_cols)
+        for col, idx, val_col, undo_col in default_idxs:
+            self._record_new_index(col, val_col, undo_col, idx_name=None, idx=idx)
 
         # altered_cols are applied after cols are recorded, so that a new value expression can reference a column that
         # this change set adds, and before anything is populated, so that a new column is computed from the value
@@ -1015,17 +1027,30 @@ class TableVersion:
         resolved_alters: list[tuple[Column, exprs.Expr]] = [
             (col, expr.substitute(self._col_ref_substitutions(new_cols))) for col, expr in altered_cols
         ]
-        self._validate_no_dependency_cycles({col.id: expr for col, expr in resolved_alters})
         for col, new_value_expr in resolved_alters:
             self._alter_value_expr_in_version(col, new_value_expr)
         if len(resolved_alters) > 0:
-            # the altered value expressions are part of the CVMD that create_add_column_plan() reads below
+            # the altered value expressions are part of the CVMD that create_add_column_plan() reads
             self.path.clear_cached_md()
 
-        status = self._populate_columns(self._population_order(all_cols), print_stats=print_stats, on_error=on_error)
-        # create the indices and their md records only once the columns they index exist
-        for col, (idx, val_col, undo_col) in index_cols.items():
-            self._create_index(col, val_col, undo_col, idx_name=None, idx=idx)
+    def _populate_new_columns(self, print_stats: bool, on_error: Literal['abort', 'ignore']) -> UpdateStatus:
+        """Compute the values of the columns added by the current schema version and build their store indices.
+
+        This does not recompute the columns whose expressions changed in the current schema version."""
+        new_cols: list[Column] = [
+            col for col in self.cols_by_id.values() if col.schema_version_add == self.schema_version
+        ]
+        new_idx_ids: list[int] = [
+            info.id
+            for info in self.idxs.values()
+            if self.tbl_md.index_md[info.id].schema_version_add == self.schema_version
+        ]
+        if len(new_cols) == 0 and len(new_idx_ids) == 0:
+            return UpdateStatus()
+
+        status = self._populate_columns(self._population_order(new_cols), print_stats=print_stats, on_error=on_error)
+        for idx_id in new_idx_ids:
+            self.store_tbl.create_index(idx_id)
         return status
 
     def rename_column(self, old_name: str, new_name: str) -> None:
@@ -1106,6 +1131,68 @@ class TableVersion:
                 f'Column {col.name!r}: the new value expression has type `{new_value_expr.col_type}`, but the '
                 f'column has type `{col.col_type}`. Changing the type of a computed column is not supported.',
             )
+
+    def validate_column_dependencies(self) -> None:
+        """Verify that this version's value expressions and predicate reference columns that exist.
+
+        This is a complete check of the table's metadata and its dependencies on other tables. It guarantees that
+        the table can be loaded and its columns can be properly evaluated.
+
+        This check is intended to run during a schema change, so the error messages use the conditional tense."""
+        assert self.is_mutable
+
+        def missing_col_str(ref: exprs.ColumnRef) -> str:
+            # The column that this reference points to no longer exists. Grab its name from the reference itself;
+            # a system column, such as an index value column, never had one.
+            qid = ref.col_md.qcolid
+            # a value expression only references this table or its ancestors, so the owner is on this chain
+            tbl: TableVersion | None = self
+            while tbl is not None and tbl.id != qid.tbl_id:
+                tbl = tbl.base.get() if tbl.base is not None else None
+            assert tbl is not None, qid
+            name = ref.col_md.name
+            return f"column '{tbl.name}.{name}'" if name is not None else f'a column of {tbl.name!r}'
+
+        def dependent_str(col: Column) -> str:
+            """Name a column that references something else, which for a system column is the index it belongs to."""
+            if col.name is not None:
+                return f'Column {col.name!r} in {self.name!r}'
+            idx_info = next((i for i in self.idxs.values() if col in i.columns), None)
+            if idx_info is not None:
+                return f'Index {idx_info.name!r} on {self.name!r}'
+            return f'Column id {col.id} in {self.name!r}'
+
+        for col in self.cols_by_id.values():
+            if col.value_expr is None:
+                continue
+            for ref in col.value_expr.subexprs(exprs.ColumnRef):
+                if self.lookup_column(ref.col_md.qcolid) is None:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'{dependent_str(col)} would be left referencing {missing_col_str(ref)}, '
+                        'which no longer exists.',
+                    )
+
+        if self.predicate is not None:
+            for ref in self.predicate.subexprs(exprs.ColumnRef):
+                if self.lookup_column(ref.col_md.qcolid) is None:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'The predicate of view {self.name!r} would be left referencing '
+                        f'{missing_col_str(ref)}, which no longer exists.',
+                    )
+
+        deps: dict[int, set[int]] = {
+            col.id: self._own_col_refs(col.value_expr_dict) for col in self.cols_by_id.values()
+        }
+        try:
+            _ = _topological_sort(deps)
+        except _CycleFoundError as exc:
+            names = ', '.join(repr(self.cols_by_id[col_id].name) for col_id in exc.cycle)
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'The value expressions of {self.name!r} would create a circular dependency between columns {names}.',
+            ) from exc
 
     def _validate_no_dependency_cycles(self, new_value_exprs: dict[int, exprs.Expr]) -> None:
         """Verify that the value expressions in new_value_exprs, applied together, do not create a dependency cycle."""
