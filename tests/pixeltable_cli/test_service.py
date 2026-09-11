@@ -973,3 +973,7 @@ class TestService:
             'title_upper': 'A LONG ENOUGH TITLE',
             'summary': 'a long enoug...',
         }
+        # PXT-1408: scaffold declares a primary key so row lookup works on a fresh project
+        assert 'primary_key=True' in app_file.read_text()
+        out = cli('get', f'{target}/docs', '1', '--json').json
+        assert out['row']['title'] == 'a long enough title'

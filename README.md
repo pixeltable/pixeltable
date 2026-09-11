@@ -53,7 +53,7 @@ def excerpt(text: str, n: int = 12) -> str:
 
 
 class Docs(TableModel, name='docs'):
-    doc_id: pxt.Int                             # an annotation: a value you insert
+    doc_id = pxt.Column(type=pxt.Int, primary_key=True)  # row lookup and the errors view need a primary key
     title: pxt.String
     body: pxt.String | None
     title_upper = pxtf.string.upper(title)      # an assignment: computed on insert and on update

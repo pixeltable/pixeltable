@@ -594,7 +594,8 @@ class TestSchema:
         r = cli('schema', 'update', str(schema_file), target)
         assert r.stdout.count('created') == 2
         docs = pxt.get_table(f'{target}/docs')
-        docs.insert([{'title': 'hello', 'body': 'world'}, {'title': '', 'body': 'untitled'}])
+        assert docs.get_metadata()['primary_key'] == ['doc_id']
+        docs.insert([{'doc_id': 1, 'title': 'hello', 'body': 'world'}, {'doc_id': 2, 'title': '', 'body': 'untitled'}])
         titled = pxt.get_table(f'{target}/titled')
         assert titled.select(titled.headline).collect()['headline'] == ['HELLO!']
         assert_in_agreement(cli, str(schema_file), target)
@@ -604,6 +605,7 @@ class TestSchema:
         r = cli('schema', 'example', '--brief', '--out', str(out_file))
         assert f'wrote {out_file}' in r.stdout
         assert out_file.read_text() == schema_file.read_text()
+        assert 'primary_key=True' in schema_file.read_text()
         cli('schema', 'example', '--out', str(out_file))
         assert out_file.read_text() == cli('schema', 'example').stdout
 
@@ -611,7 +613,15 @@ class TestSchema:
         full = out_file.read_text()
         assert all(
             construct in full
-            for construct in ('pxt.Column(', 'pxt.EmbeddingIndex(', 'iterator=', 'base=', 'pxt.Document', '@pxt.udf')
+            for construct in (
+                'primary_key=True',
+                'pxt.Column(',
+                'pxt.EmbeddingIndex(',
+                'iterator=',
+                'base=',
+                'pxt.Document',
+                '@pxt.udf',
+            )
         )
         # it has to be a file the daemon can import and plan, media types and embedding index included
         full_target = p('full_example')
