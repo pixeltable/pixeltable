@@ -139,7 +139,7 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
 
 
 def _prefetch_remote_parts(request: ProxyRequest) -> None:
-    """Localize the request's out-of-band media parts (object store keys) into TempStore before dispatch.
+    """Localize the request's out-of-band binary parts (object store keys) into TempStore before dispatch.
     Updates request._remote_parts with the temp paths of the localized files.
 
     Should be called outside of a db transaction so that object-store I/O never holds a db connection.
@@ -151,9 +151,7 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
         # only client uploads may be localized; anything else (e.g. 'pixeltable/data/...' store objects)
         # must not be readable through this daemon
         if not remote_key.startswith('uploads/'):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT, f'Invalid uploaded media object key: {remote_key!r}'
-            )
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'Invalid uploaded object key: {remote_key!r}')
     org, db = Env.get().hosted_db(required=True)
     store = ObjectOps.get_store(f'pxtfs://{org}:{db}/home/uploads/', False)
 
@@ -169,7 +167,7 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
             # gone (expired via the uploads/ lifecycle rule) or was never fully uploaded
             raise excs.NotFoundError(
                 excs.ErrorCode.STORAGE_NOT_FOUND,
-                f'Uploaded media object {remote_key!r} not found (upload expired or incomplete); retry the operation',
+                f'Uploaded object {remote_key!r} not found (upload expired or incomplete); retry the operation',
             ) from e
 
     # concurrent downloads are safe: boto3 clients are thread-safe

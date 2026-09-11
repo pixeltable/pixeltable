@@ -2422,7 +2422,6 @@ class TestTable:
             assert container.streams.video[0].codec_context.name == 'h264'
 
     @rerun_on_network_error()
-    @pytest.mark.db_roots('local', 'proxy', reason='Cloud service hangs on first insert [PXT-1320]')
     def test_create_video_table(self, db_root: DatabaseRoot) -> None:
         if Env.get().is_using_cockroachdb:
             # TODO(PXT-921): fix this on CockroachDB
@@ -2474,7 +2473,7 @@ class TestTable:
 
         # drop() clears stored images and the cache
         tbl.insert(payload=1, video=get_video_files()[0])
-        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match="the following depend on it: 'test_view'"):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match=r"the following depend on it: '.*test_view'"):
             pxt.drop_table(p('test_tbl'))
         pxt.drop_table(p('test_view'))
         pxt.drop_table(p('test_tbl'))
@@ -3312,7 +3311,6 @@ class TestTable:
     def img_fn_with_exc(img: PIL.Image.Image) -> PIL.Image.Image:
         raise RuntimeError
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Cloud service hangs on first insert [PXT-1320]')
     def test_computed_img_cols(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         schema: dict[str, Any] = {'img': pxt.Image | None}
