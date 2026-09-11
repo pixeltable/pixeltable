@@ -1,6 +1,7 @@
 import pytest
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 
 from .utils import DatabaseRoot, pxt_raises, reload_catalog, validate_update_status
 
@@ -150,6 +151,15 @@ class TestAlterColumn:
             s.alter_computed_column(c4=s.c3 + 1)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot alter base table column'):
             v.alter_computed_column(c4=v.c3 + 1)
+
+        # a column produced by a view's iterator: the view owns it, but it holds no value expression
+        component_v = pxt.create_view(
+            db_root.make_catalog_path('component_view'),
+            t,
+            iterator=pxtf.string.string_splitter(text=t.c1, separators='sentence'),
+        )
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Column 'text' is not a computed column"):
+            component_v.alter_computed_column(text=t.c1)
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_alter_computed_column(
