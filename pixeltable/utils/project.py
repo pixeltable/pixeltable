@@ -355,10 +355,7 @@ class ProjectFingerprint(pydantic.BaseModel):
         return _digest(self.files)
 
     def changes(self, other: ProjectFingerprint, parts: set[ProjectPart] | None = None) -> list[str]:
-        """What differs from other in the given parts, one printable line each; defaults to every part.
-
-        own_files_only compares only the files in this fingerprint and excludes files that exist only in other.
-        """
+        """What differs from other in the given parts, one printable line each; defaults to every part."""
         if parts is None:
             parts = set(ProjectPart)
         lines: list[str] = []

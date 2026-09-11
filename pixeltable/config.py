@@ -670,12 +670,12 @@ class Config:
             return None
         return next((db for db in databases if db.name == db_name), None)
 
-    def __database_bindings(self, section: str) -> dict[str, tuple[str, Path | None]]:
-        """Return the local database's vars or secrets, each with the file that supplied it.
+    def __database_bindings(self) -> dict[str, tuple[str, Path | None]]:
+        """Return the local database's vars, each with the file that supplied it.
 
-        [[pixeltable.database]] is an array, which the section path of a var or a secret does not address;
-        both name the entry for the local database, which is the one a process reads them from. A binding the
-        project supplies wins over one of the same name in the home config.
+        [[pixeltable.database]] is an array, which the section path of a var does not address; it names the
+        entry for the local database, which is the one a process reads them from. A binding the project
+        supplies wins over one of the same name in the home config.
         """
         result: dict[str, tuple[str, Path | None]] = {}
         for config, source in (
@@ -688,14 +688,15 @@ class Config:
             local = next((db for db in entry[0] if db.name == LOCAL_DATABASE), None)
             if local is None:
                 continue
-            bindings = local.secrets if section == SECRET_SECTION else local.vars
-            result.update({name: (value, source) for name, value in (bindings or {}).items()})
+            result.update({name: (value, source) for name, value in (local.vars or {}).items()})
         return result
 
     def __lookup_config_entry(self, section: str, key: str) -> tuple[Any, Path | None] | None:
         """Find key under section in __config_dict. Returns (value, source_path) or None."""
-        if section in (VAR_SECTION, SECRET_SECTION):
-            return self.__database_bindings(section).get(key)
+        if section == VAR_SECTION:
+            return self.__database_bindings().get(key)
+        if section == SECRET_SECTION:
+            return None  # a secret is bound by its environment variable, which get_value() reads first
         parts = section.split('.')
         # explicit type decl for readability
         top_section: dict[str, tuple[Any, Path | None]] | None = self.__config_dict.get(parts[0])
@@ -829,8 +830,10 @@ class Config:
 
     def __section_keys(self, section: str) -> list[str]:
         """The keys defined in section."""
-        if section in (VAR_SECTION, SECRET_SECTION):
-            return list(self.__database_bindings(section))
+        if section == VAR_SECTION:
+            return list(self.__database_bindings())
+        if section == SECRET_SECTION:
+            return []  # a secret is named by its environment variable, which __config_var_keys() scans
         parts = section.split('.')
         node: Any = self.__config_dict.get(parts[0])
         for p in parts[1:]:

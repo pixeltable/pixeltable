@@ -268,7 +268,6 @@ class DbChangeOp(ChangeOp):
 
     @classmethod
     def build_image(cls, changes: list[str] | None = None) -> DbChangeOp:
-        """The operation for an image build the caller asked for rather than one a difference calls for."""
         description: str
         details: dict[str, str]
         if changes is not None:
@@ -289,7 +288,6 @@ class DbChangeOp(ChangeOp):
 
     @classmethod
     def upload_archive(cls, changes: list[str] | None = None) -> DbChangeOp:
-        """The operation for uploading the project the caller named rather than one a difference calls for."""
         description: str
         details: dict[str, str]
         if changes is not None:
