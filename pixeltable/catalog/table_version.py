@@ -81,20 +81,21 @@ def _topological_sort(graph: dict[int, set[int]]) -> list[int]:
     # sort the graph for a deterministic result
     sorted_graph: dict[int, list[int]] = {node: sorted(graph[node]) for node in sorted(graph)}
 
-    # we need a sorted set to record the order it was filled in (which is the result) and the O(1) membership checks.
+    # result and current_path need to be sorted sets for order preservation and fast membership checks
     result: dict[int, None] = {}
     # records the current tree path
-    current_path: list[int] = []
+    current_path: dict[int, None] = {}
 
     def dfs(node: int) -> None:
         if node in result:
             return
         if node in current_path:
-            raise _CycleFoundError(current_path[current_path.index(node) :])
-        current_path.append(node)
+            path = list(current_path)
+            raise _CycleFoundError(path[path.index(node) :])
+        current_path[node] = None
         for next_ in sorted_graph[node]:
             dfs(next_)
-        current_path.pop()
+        del current_path[node]
         result[node] = None
 
     for node in sorted_graph:
