@@ -11,6 +11,7 @@ import abc
 import http.client
 import json
 import logging
+import selectors
 import socket
 import ssl
 import threading
@@ -134,7 +135,7 @@ _CONNECT_TIMEOUT = 30.0
 _RPC_TIMEOUT = 1800.0
 _MAX_POOL_SIZE = 16  # matches the fetch_media download threadpool
 
-# The server can restart and drop the connection mid-call; retry transient transport failures with backoff.
+# Failures that leave the request undelivered (connect, handshake, writing it); retried with backoff.
 _TUNNEL_TRANSIENT_EXC = (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError)
 _TUNNEL_RETRY_MAX_DELAY = 90.0  # seconds; > _CONNECT_TIMEOUT so a hung handshake still leaves retry budget
 
@@ -150,6 +151,23 @@ class _TunnelHTTPConnection(http.client.HTTPConnection):
         pass  # socket already set in __init__
 
 
+def _is_server_closed(conn: http.client.HTTPConnection) -> bool:
+    """Return `True` if the remote end of an idle connection has already closed it.
+
+    A socket that is readable before any request has been written to it is unusable: it holds either the
+    server's FIN or data no request asked for.
+    """
+    sock = conn.sock
+    if sock is None:
+        return True
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(sock, selectors.EVENT_READ)
+            return len(selector.select(0)) > 0
+    except (OSError, ValueError):
+        return True
+
+
 class _TunnelPool:
     """Thread-safe pool of TLS + PXT/1.0 tunnel connections."""
 
@@ -161,9 +179,17 @@ class _TunnelPool:
 
     @contextmanager
     def borrow(self) -> Iterator[http.client.HTTPConnection]:
-        with self._lock:
-            conn = self._idle.pop() if self._idle else None
-        conn = conn or self._connect()
+        conn: http.client.HTTPConnection | None = None
+        while conn is None:
+            with self._lock:
+                conn = self._idle.pop() if self._idle else None
+            if conn is None:
+                conn = self._connect()
+            elif _is_server_closed(conn):
+                # an idle connection the server has closed says nothing about the next request; dropping it
+                # here lets a broken response mean the server died on the request it was given
+                conn.close()
+                conn = None
         try:
             yield conn
         except BaseException:
@@ -252,8 +278,12 @@ class TunnelTransport(Transport):
     def _request(self, method: str, path: str, body: bytes | None = None, content_type: str | None = None) -> bytes:
         """Borrow a tunnel connection, issue one request, return the raw body.
 
-        Transient transport failures (the server can restart and drop the connection) are retried with backoff
-        on a fresh connection; auth rejection (PermissionError) and non-5xx HTTP errors are not.
+        A failure that leaves the request undelivered (connect, handshake, writing it) is retried with
+        backoff on a fresh connection, as is a 5xx; auth rejection (PermissionError) and non-5xx HTTP errors
+        are not.
+
+        A connection that fails *after* the daemon has received the request is treated as a server crash and is
+        not retried; retries in this scenario can inadvertently DOS the pod.
         """
         headers = {'Content-Type': content_type} if content_type else {}
 
@@ -266,9 +296,21 @@ class TunnelTransport(Transport):
         )
         def _attempt() -> bytes:
             with self._pool.borrow() as conn:
+                # If `conn.request()` raises a _TUNNEL_TRANSIENT_EXC, it will trigger a retry.
                 conn.request(method, path, body=body, headers=headers)
-                response = conn.getresponse()
-                content = response.read()
+                try:
+                    # But if the response raises, it indicates that the request was successfully posted, but
+                    # the server failed to respond, which may indicate a pod crash. In this case, retrying could result
+                    # in inadvertently DOS'ing the pod, so we promote to an INTERNAL_ERROR, which will not be retried.
+                    response = conn.getresponse()
+                    content = response.read()
+                except _TUNNEL_TRANSIENT_EXC as exc:
+                    raise excs.Error(
+                        excs.ErrorCode.INTERNAL_ERROR,
+                        f'The database became unresponsive while handling this request: pxt://{self._org}:{self._db}\n'
+                        'This may be caused by a query that was too large for the database to serve.\n'
+                        'If this happens repeatedly, try splitting large queries or inserts into smaller batches.',
+                    ) from exc
                 if response.status == 200:
                     return content
                 msg = f'proxy {method} {path} error {response.status}: {content.decode(errors="replace")}'
