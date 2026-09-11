@@ -961,11 +961,43 @@ class Catalog(CatalogBase):
                     )
 
                     tbl_version = tbl_md.current_version if tbl_md.is_snapshot else None
-                    tv = (
-                        self._get_tbl_version(TableVersionKey(tbl_id, tbl_version), check_pending_ops=False)
-                        if op.needs_tv
-                        else None
-                    )
+                    tv: TableVersion | None = None
+                    try:
+                        # _get_tbl_version() itself may raise, which means that the current op cannot be executed
+                        # or undone
+                        tv = (
+                            self._get_tbl_version(TableVersionKey(tbl_id, tbl_version), check_pending_ops=False)
+                            if op.needs_tv
+                            else None
+                        )
+                    except PendingTableOpsError:
+                        # check_pending_ops=False covers this table only; init() resolves its ancestors with the default
+                        raise
+                    except AssertionError:
+                        raise  # a bug in our own code; we need to propagate this
+                    except Exception as e:
+                        if _is_retryable_exc(e):
+                            raise  # a transient db failure; handled via retry in the outer try/except block
+
+                        # the op never ran, so it has nothing to undo: abort it here, which moves the rollback
+                        # on to the preceding op. Every op before the first one needing a TableVersion runs
+                        # without one, so the rest of the rollback does not come back here.
+                        _logger.error(
+                            f'Finalize pending ops({tbl_id}): cannot load the table version for op {op!s}',
+                            exc_info=True,
+                        )
+                        exc = e
+                        if not is_rollback:
+                            conn.execute(
+                                sql.update(schema.Table)
+                                .where(schema.Table.id == tbl_id)
+                                .values(md=schema.Table.md.op('||')({'tbl_state': schema.TableState.ROLLBACK.value}))
+                            )
+                        assert op.op_sn > 0  # the first op should never get here (needs_tv is always False)
+                        if self._set_pending_op_status(tbl_id, op, OpStatus.ABORTED, is_final_op=False):
+                            return exc
+                        continue
+
                     new_op_status = OpStatus.ABORTED if is_rollback else OpStatus.COMPLETED
                     if op.needs_xact:
                         # Mark TableVersion as modified before it is actually modified to make sure that cache is
