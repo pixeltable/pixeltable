@@ -2874,6 +2874,21 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not expressible'):
             img_t.update({'split': 'train'}, where=img_t.img.width > 100)
 
+    def test_batch_update_computed_pk(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('computed_pk'), {'id': {'value': pxtf.uuid.uuid7(), 'primary_key': True}, 'caption': pxt.String | None}
+        )
+        validate_update_status(t.insert([{'caption': 'first'}]), expected_rows=1)
+        row_id = t.select(t.id).head(1)[0]['id']
+
+        validate_update_status(t.batch_update([{'id': row_id, 'caption': 'second'}]), expected_rows=1)
+        assert t.where(t.id == row_id).collect()[0]['caption'] == 'second'
+
+        # writing the key itself is still refused
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is computed'):
+            t.update({'id': row_id})
+
     def test_batch_update_return_rows(self, db_root: DatabaseRoot) -> None:
         """Coverage for the `return_rows` parameter on Table.batch_update().
 

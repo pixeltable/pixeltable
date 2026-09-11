@@ -625,18 +625,17 @@ class TestSchema:
         docs = pxt.get_table(f'{full_target}/docs')
         docs.insert(
             [
-                {'doc_id': 1, 'title': 'bread', 'body': 'Sourdough needs a long, slow fermentation.'},
-                {'doc_id': 2, 'title': 'sharks', 'body': 'Great white sharks hunt seals along the coast.'},
-                {
-                    'doc_id': 3,
-                    'title': 'sharks',
-                    'body': 'A simple and effective breathing exercise to reduce stress is box breathing',
-                },
+                {'title': 'bread', 'body': 'Sourdough needs a long, slow fermentation.'},
+                {'title': 'sharks', 'body': 'Great white sharks hunt seals along the coast.'},
+                {'title': 'stress', 'body': 'A simple breathing exercise to reduce stress is box breathing'},
             ]
         )
+        # the example's primary key is generated, so every row gets a distinct one
+        assert len(set(docs.select(docs.id).collect()['id'])) == 3
+
         # verify embeddings by running a similarity search
         sim = docs.body.similarity(string='sharks hunting seals near the shore')
-        assert docs.order_by(sim, asc=False).select(docs.doc_id).limit(1).collect()['doc_id'] == [2]
+        assert docs.order_by(sim, asc=False).select(docs.title).limit(1).collect()['title'] == ['sharks']
 
         # the file is reachable from wherever an agent lands: the verb list, and every verb's help
         assert 'example' in cli('schema', check=False).stdout
