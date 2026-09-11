@@ -89,6 +89,8 @@ pxt schema update app.py pxt://org:mydb
 pxt service update app.py pxt://org:mydb
 ```
 
+A `@pxt.udf` in that same `app.py` is in the image `pxt db update` builds.
+
 ## Chat agent or video search
 
 [`uvx pixeltable-new`](https://github.com/pixeltable/pixeltable-new) copies one app from the [starter kit](https://github.com/pixeltable/pixeltable-starter-kit). The default copy is a chat app; pass `agent` as the last argument to `pxt schema update`. `--video` copies video search; pass `videointel`.
@@ -113,7 +115,7 @@ Hand the agent [get-started.md](https://www.pixeltable.com/get-started.md). That
 npx skills add pixeltable/pixeltable-skill
 ```
 
-Skill **2.8.0+** writes a `TableModel` in `app.py`. If your agent emits `create_table` in application code, the installed skill is stale: reinstall it.
+The skill writes a `TableModel` in `app.py`. If the agent writes `create_table` in application code, names the file `schema.py`, or writes the removed command `pxt serve`, the installed skill is stale: reinstall `npx skills add pixeltable/pixeltable-skill`.
 
 Notebooks and tests still use `pxt.create_table()`. An app puts tables in `app.py` and creates them with `pxt schema update`.
 

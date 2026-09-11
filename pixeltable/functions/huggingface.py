@@ -60,7 +60,7 @@ def sentence_transformer(
         ...     )
         ... )
     """
-    env.Env.get().require_package('sentence_transformers')
+    env.Env.get().require_package('sentence_transformers', min_version=[5, 4])
     device = resolve_torch_device('auto')
     from sentence_transformers import SentenceTransformer
 
@@ -110,7 +110,7 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
         ...     )
         ... )
     """
-    env.Env.get().require_package('sentence_transformers')
+    env.Env.get().require_package('sentence_transformers', min_version=[5, 4])
     device = resolve_torch_device('auto')
     from sentence_transformers import CrossEncoder
 

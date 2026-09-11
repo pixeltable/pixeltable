@@ -555,7 +555,6 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='identical embedding index'):
             t.add_embedding_index('category', string_embed=local_embed)
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_update_img(
         self, img_tbl: pxt.Table, test_tbl: pxt.Table, db_root: DatabaseRoot, reload_tester: ReloadTester
     ) -> None:
@@ -611,7 +610,7 @@ class TestIndex:
             img_t.batch_update([repl_row], cascade=True)
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to inaccessible .fileurl [PXT-1323]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Extremely slow on cloud')
     def test_embedding_access(
         self, img_tbl: pxt.Table, db_root: DatabaseRoot, local_embed: pxt.Function, is_data_versioned: bool
     ) -> None:
@@ -644,7 +643,7 @@ class TestIndex:
         img_t.drop_column('ebd_copy')
         img_t.drop_embedding_index(column=img_t.category)
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to inaccessible .fileurl [PXT-1323]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Extremely slow on cloud')
     def test_embedding_basic(
         self,
         img_tbl: pxt.Table,

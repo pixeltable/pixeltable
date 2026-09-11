@@ -1520,6 +1520,39 @@ class ArrayType(ColumnType):
             super_shape = tuple(n1 if n1 == n2 else None for n1, n2 in zip(self.shape, other.shape))
         return ArrayType(super_shape, super_dtype, nullable=(self.nullable or other.nullable))
 
+    def subscript_type(self, index: tuple[int | slice, ...]) -> ColumnType:
+        """
+        Return the type of `self[index]`, following numpy basic indexing: an `int` drops its dimension, a `slice`
+        retains it, and dimensions not covered by `index` are retained. An index that drops every dimension yields
+        the array's scalar dtype.
+        """
+        if self.shape is None:
+            return self
+        assert self.dtype is not None
+
+        if len(index) > len(self.shape):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'Too many indices for `{self}`: got {len(index)}; expected at most {len(self.shape)}',
+            )
+
+        result_shape: list[int | None] = []
+        for n, el in zip(self.shape, index):
+            if isinstance(el, int):
+                if n is not None and not -n <= el < n:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_ARGUMENT, f'Index {el} is out of bounds for `{self}`'
+                    )
+                continue
+            result_shape.append(None if n is None else len(range(*el.indices(n))))
+        result_shape.extend(self.shape[len(index) :])
+
+        if len(result_shape) == 0:
+            scalar_type = ColumnType.from_np_dtype(self.dtype, nullable=self.nullable)
+            assert scalar_type is not None, self.dtype
+            return scalar_type
+        return ArrayType(tuple(result_shape), self.dtype, nullable=self.nullable)
+
     def _as_dict(self) -> dict:
         result = super()._as_dict()
         shape_as_list = None if self.shape is None else list(self.shape)
