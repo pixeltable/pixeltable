@@ -1123,13 +1123,6 @@ class TableVersion:
     def _validate_altered_value_expr(self, col: Column, new_value_expr: exprs.Expr) -> None:
         """Verify that new_value_expr can replace col's current value expression."""
         assert col.is_computed
-        for e in new_value_expr.subexprs(exprs.ColumnPropertyRef, traverse_matches=False):
-            if e.is_cellmd_prop():
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Use of a reference to the {e.prop.name.lower()!r} property of another column '
-                    f'is not allowed in a computed column.',
-                )
         if new_value_expr.col_type != col.col_type:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,

@@ -2057,7 +2057,7 @@ class TestTableModel:
         ):
             CrossTableModel.update_all(p(''), allow_destructive=True)
 
-        # neither rejected attempt changed the catalog
+        # none of the rejected attempts changed the catalog
         alter_base = pxt.get_table(p('alter_base'))
         assert alter_base.columns() == ['id', 'extra', 'doubled']
         assert alter_base.select(alter_base.doubled).collect()['doubled'] == [2]
@@ -3093,6 +3093,19 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape("'errortype' property")):
             CellMdModel.update_all(root)
 
+        # the same reference in a newly added column, which reaches the catalog by a different route
+        AddCellMdModel = pxt.model_base()
+
+        class AddCellMdTable(AddCellMdModel, name='test_table'):
+            id: pxt.Int
+            other: pxt.Int
+            derived = id * 2
+            derived2 = id * 3
+            derived3 = ExampleTable.derived.errortype != None  # type: ignore[attr-defined]
+
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape("'errortype' property")):
+            AddCellMdModel.update_all(root)
+
         # referencing a column from outside of the table's ancestry
         OutOfScopeModel = pxt.model_base()
 
@@ -3108,7 +3121,7 @@ class TestTableModel:
         ):
             OutOfScopeModel.update_all(root)
 
-        # neither rejected attempt changed the catalog
+        # none of the rejected attempts changed the catalog
         t = pxt.get_table(p('test_table'))
         assert t.select(t.derived, t.derived2).collect()[0] == {'derived': 2, 'derived2': 3}
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(root).values())
