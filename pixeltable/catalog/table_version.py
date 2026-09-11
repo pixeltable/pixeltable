@@ -1125,6 +1125,13 @@ class TableVersion:
     def _validate_altered_value_expr(self, col: Column, new_value_expr: exprs.Expr) -> None:
         """Verify that new_value_expr can replace col's current value expression."""
         assert col.is_computed
+        for e in new_value_expr.subexprs(exprs.ColumnPropertyRef, traverse_matches=False):
+            if e.is_cellmd_prop():
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Use of a reference to the {e.prop.name.lower()!r} property of another column '
+                    f'is not allowed in a computed column.',
+                )
         if new_value_expr.col_type != col.col_type:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -1141,17 +1148,24 @@ class TableVersion:
         This check is intended to run during a schema change, so the error messages use the conditional tense."""
         assert self.is_mutable
 
-        def missing_col_str(ref: exprs.ColumnRef) -> str:
-            # The column that this reference points to no longer exists. Grab its name from the reference itself;
-            # a system column, such as an index value column, never had one.
+        def unresolved_ref_error(dependent: str, ref: exprs.ColumnRef) -> excs.RequestError:
             qid = ref.col_md.qcolid
-            # a value expression only references this table or its ancestors, so the owner is on this chain
             tbl: TableVersion | None = self
             while tbl is not None and tbl.id != qid.tbl_id:
                 tbl = tbl.base.get() if tbl.base is not None else None
-            assert tbl is not None, qid
+            if tbl is None:
+                # the reference names a table that is neither this one nor one of its ancestors
+                return excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{dependent} a column of a table that {self.name!r} cannot reference.',
+                )
+            # The column no longer exists. Grab its name from the reference itself, which is the only place where it
+            # survives. System columns don't have names.
             name = ref.col_md.name
-            return f"column '{tbl.name}.{name}'" if name is not None else f'a column of {tbl.name!r}'
+            missing = f"column '{tbl.name}.{name}'" if name is not None else f'a column of {tbl.name!r}'
+            return excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'{dependent} {missing}, which no longer exists.'
+            )
 
         def dependent_str(col: Column) -> str:
             """Name a column that references something else, which for a system column is the index it belongs to."""
@@ -1167,11 +1181,7 @@ class TableVersion:
                 continue
             for ref in col.value_expr.subexprs(exprs.ColumnRef):
                 if self.lookup_column(ref.col_md.qcolid) is None:
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'{dependent_str(col)} would be left referencing {missing_col_str(ref)}, '
-                        'which no longer exists.',
-                    )
+                    raise unresolved_ref_error(f'{dependent_str(col)} would be left referencing', ref)
 
         # a view's predicate and, for a component view, its iterator arguments read base columns without going
         # through a value expression of their own
@@ -1180,11 +1190,7 @@ class TableVersion:
                 continue
             for ref in e.subexprs(exprs.ColumnRef):
                 if self.lookup_column(ref.col_md.qcolid) is None:
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'The {what} of view {self.name!r} would be left referencing '
-                        f'{missing_col_str(ref)}, which no longer exists.',
-                    )
+                    raise unresolved_ref_error(f'The {what} of view {self.name!r} would be left referencing', ref)
 
         deps: dict[int, set[int]] = {
             col.id: self._own_col_refs(col.value_expr_dict) for col in self.cols_by_id.values()
@@ -1230,6 +1236,7 @@ class TableVersion:
             # no-op: return early and do not create a new schema version
             return UpdateStatus()
 
+        self._validate_altered_value_expr(col, new_value_expr)
         self._validate_no_dependency_cycles({col.id: new_value_expr})
         get_runtime().catalog.mark_modified_tv(self.handle)
         self.bump_version(bump_schema_version=True)

@@ -796,7 +796,6 @@ class LocalTable(Table):
                 )
             new_value_expr = new_value_expr.copy()
             new_value_expr.bind_rel_paths()
-
             self._verify_computed_col_value(col.name, new_value_expr)
 
             tv = self._tbl_version.get()

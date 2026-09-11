@@ -3058,6 +3058,10 @@ class TestTableModel:
             id: pxt.Int
             other: pxt.Int
             derived = id * 2
+            derived2 = id * 3
+
+        class UnrelatedTable(TableModel, name='unrelated_table'):
+            v: pxt.Int
 
         TableModel.create_all(root)
         pxt.get_table(p('test_table')).insert([{'id': 1, 'other': 5}])
@@ -3069,10 +3073,45 @@ class TestTableModel:
             id: pxt.Int
             other: pxt.Int
             derived = id / 2
+            derived2 = id * 3
 
         diff = NewTypeModel.get_model_diff(root)['test_table']
         assert diff.resolution == 'unsupported'
         assert sorted(diff.ops[0].model.keys()) == ['type', 'value']
+
+        # referencing a cell metadata property
+        CellMdModel = pxt.model_base()
+
+        class CellMdTable(CellMdModel, name='test_table'):
+            id: pxt.Int
+            other: pxt.Int
+            derived = id * 2
+            derived2 = (id * 3 + (ExampleTable.derived.errortype != None).astype(pxt.Int)).astype(  # type: ignore[attr-defined]
+                pxt.Int
+            )
+
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape("'errortype' property")):
+            CellMdModel.update_all(root)
+
+        # referencing a column from outside of the table's ancestry
+        OutOfScopeModel = pxt.model_base()
+
+        class OutOfScopeTable(OutOfScopeModel, name='test_table'):
+            id: pxt.Int
+            other: pxt.Int
+            derived = UnrelatedTable.v + 1
+            derived2 = id * 3
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=re.escape("a column of a table that 'test_table' cannot reference."),
+        ):
+            OutOfScopeModel.update_all(root)
+
+        # neither rejected attempt changed the catalog
+        t = pxt.get_table(p('test_table'))
+        assert t.select(t.derived, t.derived2).collect()[0] == {'derived': 2, 'derived2': 3}
+        assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(root).values())
 
     def test_update_all_altered_columns_cycle(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
