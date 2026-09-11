@@ -83,7 +83,8 @@ def _col_name(col: str | exprs.ColumnRef | exprs.ColumnRefByName) -> str:
     if isinstance(col, exprs.ColumnRefByName):
         return col.name
     if isinstance(col, exprs.ColumnRef):
-        return col.col.name
+        # col_md, not col: resolving the Column goes to the local catalog, which holds no hosted table
+        return col.col_md.name
     raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'expected a column name or a column reference, got {col!r}')
 
 
