@@ -2065,6 +2065,8 @@ class TestTableModel:
 
     def test_drop_col_with_dependent_view(self, db_root: DatabaseRoot) -> None:
         """update_all() cannot drop a base column a view still reads, whether through an index or an iterator."""
+        skip_test_if_not_installed('spacy')
+
         p = db_root.make_catalog_path
         base = pxt.create_table(p('base_t'), {'c0': pxt.String, 'c1': pxt.String | None})
         base.insert([{'c0': 'one. two.', 'c1': 'x'}])
