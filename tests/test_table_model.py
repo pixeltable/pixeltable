@@ -3106,6 +3106,19 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape("'errortype' property")):
             AddCellMdModel.update_all(root)
 
+        # referencing a column of a snapshot, which pins it to a version the live table has moved past
+        snap = pxt.create_snapshot(p('test_snap'), pxt.get_table(p('test_table')))
+        SnapshotModel = pxt.model_base()
+
+        class SnapshotTable(SnapshotModel, name='test_table'):
+            id: pxt.Int
+            other: pxt.Int
+            derived = snap.id * 3
+            derived2 = id * 3
+
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='snapshot, which it cannot reference'):
+            SnapshotModel.update_all(root)
+
         # referencing a column from outside of the table's ancestry
         OutOfScopeModel = pxt.model_base()
 

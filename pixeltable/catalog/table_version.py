@@ -1139,6 +1139,10 @@ class TableVersion:
         This check is intended to run during a schema change, so the error messages use the conditional tense."""
         assert self.is_mutable
 
+        def resolves(ref: exprs.ColumnRef) -> bool:
+            col = self.lookup_column(ref.col_md.qcolid)
+            return col is not None and col.get_tbl().effective_version == ref.col_md.col_effective_version
+
         def unresolved_ref_error(dependent: str, ref: exprs.ColumnRef) -> excs.RequestError:
             qid = ref.col_md.qcolid
             tbl: TableVersion | None = self
@@ -1150,12 +1154,18 @@ class TableVersion:
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'{dependent} a column of a table that {self.name!r} cannot reference.',
                 )
-            # The column no longer exists. Grab its name from the reference itself, which is the only place where it
-            # survives. System columns don't have names.
-            name = ref.col_md.name
-            missing = f"column '{tbl.name}.{name}'" if name is not None else f'a column of {tbl.name!r}'
+            # Grab the column's name from the reference itself, which is the only place where it survives a drop.
+            # System columns don't have names.
+            col_name = ref.col_md.name
+            named = f"column '{tbl.name}.{col_name}'" if col_name is not None else f'a column of {tbl.name!r}'
+            if self.lookup_column(qid) is not None:
+                # the column exists, but the reference is pinned to a snapshot of the table rather than to this one
+                return excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{dependent} {named} as of a snapshot, which it cannot reference.',
+                )
             return excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'{dependent} {missing}, which no longer exists.'
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'{dependent} {named}, which no longer exists.'
             )
 
         def dependent_str(col: Column) -> str:
@@ -1171,7 +1181,7 @@ class TableVersion:
             if col.value_expr is None:
                 continue
             for ref in col.value_expr.subexprs(exprs.ColumnRef):
-                if self.lookup_column(ref.col_md.qcolid) is None:
+                if not resolves(ref):
                     raise unresolved_ref_error(f'{dependent_str(col)} would be left referencing', ref)
 
         # a view's predicate and, for a component view, its iterator arguments read base columns without going
@@ -1180,7 +1190,7 @@ class TableVersion:
             if e is None:
                 continue
             for ref in e.subexprs(exprs.ColumnRef):
-                if self.lookup_column(ref.col_md.qcolid) is None:
+                if not resolves(ref):
                     raise unresolved_ref_error(f'The {what} of view {self.name!r} would be left referencing', ref)
 
         deps: dict[int, set[int]] = {
