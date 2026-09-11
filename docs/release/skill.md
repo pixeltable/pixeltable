@@ -53,7 +53,7 @@ def excerpt(text: str, n: int = 12) -> str:
 
 
 class Docs(TableModel, name='docs'):
-    doc_id: pxt.Int                          # an annotation: a value you insert
+    doc_id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # a generated key: provided automatically on insert
     title: pxt.String
     body: pxt.String | None
     title_upper = pxtf.string.upper(title)   # an assignment: computed on insert
@@ -62,7 +62,7 @@ class Docs(TableModel, name='docs'):
 
 ingest = FastAPIRouter(name='ingest')
 ingest.add_insert_route(
-    Docs, path='/docs', inputs=[Docs.doc_id, Docs.title, Docs.body], outputs=[Docs.title_upper, Docs.summary]
+    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.doc_id, Docs.title_upper, Docs.summary]
 )
 ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
 ```
