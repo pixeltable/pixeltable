@@ -1160,6 +1160,15 @@ class TestExprs:
             t.array_col['a':'b']
         assert 'Invalid array indices' in str(excinfo.value)
 
+        # a zero step is rejected here; numpy and slice.indices() would both raise ValueError on it
+        with pytest.raises(AttributeError) as excinfo:
+            t.array_col[::0]
+        assert 'Invalid array indices' in str(excinfo.value)
+
+        with pytest.raises(AttributeError) as excinfo:
+            t.array_col[0:2:0, 1]
+        assert 'Invalid array indices' in str(excinfo.value)
+
     def test_array_index_type(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(

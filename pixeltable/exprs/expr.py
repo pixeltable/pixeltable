@@ -1089,7 +1089,10 @@ class Expr(abc.ABC):
 
 def _is_valid_array_index(index: object) -> bool:
     if isinstance(index, slice):
-        return all(el is None or isinstance(el, int) for el in (index.start, index.stop, index.step))
+        if not all(el is None or isinstance(el, int) for el in (index.start, index.stop, index.step)):
+            return False
+        # numpy and slice.indices() both reject a zero step; caught here so it does not reach either
+        return index.step != 0
     return isinstance(index, int)
 
 
