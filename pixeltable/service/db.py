@@ -5,6 +5,7 @@ import shutil
 import tarfile
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -311,14 +312,16 @@ def _put_artifact(url: str, path: Path) -> None:
         request = urllib.request.Request(url, data=f, method='PUT')
         request.add_header('Content-Type', 'application/octet-stream')
         request.add_header('Content-Length', str(path.stat().st_size))
-        with urllib.request.urlopen(request, timeout=_UPLOAD_TIMEOUT) as r:
-            if r.status >= 400:
-                raise excs.ExternalServiceError(
-                    excs.ErrorCode.PROVIDER_ERROR,
-                    f'Storing {path.name} failed: HTTP {r.status}',
-                    provider='pixeltable_cloud',
-                    status_code=r.status,
-                )
+        try:
+            # urlopen() raises for every 4xx and 5xx, so the status is only reachable through HTTPError
+            urllib.request.urlopen(request, timeout=_UPLOAD_TIMEOUT).close()
+        except urllib.error.HTTPError as e:
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Storing {path.name} failed: HTTP {e.code}',
+                provider='pixeltable_cloud',
+                status_code=e.code,
+            ) from e
 
 
 def _get_target_ops(plan: DbPlan, target: DbTarget) -> list[DbChangeOp]:
@@ -376,7 +379,6 @@ def _get_db_config(db_uri: catalog.Path) -> DatabaseConfig:
 
 
 def _get_db_state(db_path: catalog.Path) -> DatabaseState | None:
-    """The named database as the control plane reports it; None if it holds no such database."""
     try:
         response = management_client.api_call(GetDbRequest(org=db_path.org, db=db_path.db))
     except excs.ExternalServiceError as exc:

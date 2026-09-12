@@ -183,5 +183,5 @@ class TestImageContext:
 
         (tmp_path / 'pyproject.toml').unlink()
         (tmp_path / 'requirements.txt').write_text('-r base.txt\npixeltable\n')
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='includes another requirements file'):
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='reads another file'):
             create_image_context(tmp_path)
