@@ -981,11 +981,12 @@ class Catalog(CatalogBase):
                         # the outer handler separates retryable from non-retryable
                         raise
                     except Exception as e:
-                        if not tbl_md.pending_stmt.can_abort():
-                            # nothing left to do but give up
+                        if not tbl_md.pending_stmt.can_abort() or is_rollback:
+                            # nothing left to do but give up; we'll leave some state behind to examine later
                             raise
 
-                        # the op never ran, so it has nothing to undo: abort it here, which moves the rollback
+                        # Since we can't load the tv, we also can't execute op.exec(tv); we need to abort now.
+                        # The op never ran, so it has nothing to undo: abort it here, which moves the rollback
                         # on to the preceding op. Aborting the first op resolves the statement, since no op of
                         # it ran and the metadata it wrote is what the remaining ops would have acted on.
                         _logger.error(
@@ -993,14 +994,12 @@ class Catalog(CatalogBase):
                             exc_info=True,
                         )
                         exc = e
-                        is_final_op = op.op_sn == 0
-                        if not is_rollback and not is_final_op:
-                            conn.execute(
-                                sql.update(schema.Table)
-                                .where(schema.Table.id == tbl_id)
-                                .values(md=schema.Table.md.op('||')({'tbl_state': schema.TableState.ROLLBACK.value}))
-                            )
-                        if self._set_pending_op_status(tbl_id, op, OpStatus.ABORTED, is_final_op=is_final_op):
+                        conn.execute(
+                            sql.update(schema.Table)
+                            .where(schema.Table.id == tbl_id)
+                            .values(md=schema.Table.md.op('||')({'tbl_state': schema.TableState.ROLLBACK.value}))
+                        )
+                        if self._set_pending_op_status(tbl_id, op, OpStatus.ABORTED, is_final_op=op.op_sn == 0):
                             # make sure the exception reaches the initial caller
                             raise
                         continue
