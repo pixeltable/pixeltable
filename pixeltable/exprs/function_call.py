@@ -5,7 +5,6 @@ import sys
 from dataclasses import dataclass
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Literal as TypingLiteral, Sequence
-from uuid import UUID
 
 import sqlalchemy as sql
 
@@ -244,12 +243,12 @@ class FunctionCall(Expr):
             normalized_base_effective_version=base.effective_version(),
         )
 
-    def tbl_ids(self) -> set[UUID]:
-        ids = super().tbl_ids()
+    def tbl_keys(self) -> set[catalog.TableVersionKey]:
+        keys = super().tbl_keys()
         if isinstance(self.fn, func.QueryTemplateFunction):
             assert self.fn.template_query is not None
-            ids |= self.fn.template_query.referenced_tbl_ids()
-        return ids
+            keys |= self.fn.template_query.referenced_tbl_keys()
+        return keys
 
     def default_column_name(self) -> str | None:
         return self.fn.name

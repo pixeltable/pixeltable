@@ -69,6 +69,11 @@ class RowidRef(Expr):
     def _equals(self, other: RowidRef) -> bool:
         return self.normalized_base == other.normalized_base and self.rowid_component_idx == other.rowid_component_idx
 
+    @property
+    def tbl_key(self) -> catalog.TableVersionKey:
+        """The table version this rowid belongs to."""
+        return self.tbl.key
+
     def _id_attrs(self) -> list[tuple[str, Any]]:
         # must mirror the fields in _equals()
         return [
