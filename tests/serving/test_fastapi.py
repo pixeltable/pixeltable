@@ -18,6 +18,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.functions.json as pxt_json
 from pixeltable.env import Env
+from pixeltable.functions.video import frame_iterator
 from pixeltable.utils.object_stores import ObjectOps
 from pixeltable_cli.types import ServiceSpec
 from tests.utils import (
@@ -216,7 +217,6 @@ def assert_fileresponse_ok(resp: Any, local_path: str, mime_prefix: str) -> None
 
 def fetch_and_decode_media(client: Any, url: str, decoder: Callable[..., None], **kwargs: Any) -> None:
     """GET url, assert 200, then decode the bytes with decoder(bytes, **kwargs)."""
-    assert '/media/' in url, f'expected /media/ URL, got: {url}'
     resp = get_media(client, url)
     assert resp.status_code == 200, resp.text
     decoder(resp.content, **kwargs)
@@ -257,8 +257,19 @@ def assert_sqlite_row(connect: str, table_name: str, where: dict[str, Any], expe
         assert actual == v, (k, actual, v)
 
 
-@pytest.mark.db_roots('local', 'proxy', reason='Numerous failures; re-run once other known issues are fixed')
 class TestFastAPI:
+    def assert_correct_result_url(self, url: str, db_root: DatabaseRoot, always_external: bool) -> None:
+        if db_root.id == 'cloud':
+            # `image` is served as a presigned R2 URL from a cloud DB ...
+            assert 'r2.cloudflarestorage.com' in url, url
+        elif always_external or db_root.id == 'proxy':
+            # ... or as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
+            # be shipped to the daemon, ...
+            assert '/media/' in url, url
+        else:
+            # ... or as a file:// URL for locally-referenced external files.
+            assert url.startswith('file:'), url
+
     @pytest.mark.parametrize('route_type', ['insert', 'compute', 'compute_view'])
     def test_add_insert_route_scalars(
         self, db_root: DatabaseRoot, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute', 'compute_view']
@@ -529,12 +540,7 @@ class TestFastAPI:
         result = single_row(resp.json(), route_type)
         assert result['id'] == 1 and result['width'] == 320 and result['height'] == 240
 
-        # `video` is served as a /media/ URL when it was uploaded, or (over proxy) when a referenced local file
-        # had to be shipped to the daemon; a locally-referenced external file is left as a file:// URL.
-        if use_uploadfile or db_root.id == 'proxy':
-            assert '/media/' in result['video'], result['video']
-        else:
-            assert result['video'].startswith('file:'), result['video']
+        self.assert_correct_result_url(result['video'], db_root, use_uploadfile)
 
         if route_type == 'insert':
             if db_root.id == 'local':
@@ -674,12 +680,8 @@ class TestFastAPI:
         result = single_row(resp.json(), route_type)
         assert result['id'] == 1 and result['width'] == 128 and result['height'] == 96
 
-        # `image` is served as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
-        # be shipped to the daemon; a locally-referenced external file is left as a file:// URL.
-        if use_uploadfile or db_root.id == 'proxy':
-            assert '/media/' in result['image'], result['image']
-        else:
-            assert result['image'].startswith('file:'), result['image']
+        self.assert_correct_result_url(result['image'], db_root, use_uploadfile)
+
         if route_type == 'insert':
             if db_root.id == 'local':
                 media_dir = str(Env.get().media_dir)
@@ -804,12 +806,8 @@ class TestFastAPI:
         result = single_row(resp.json(), route_type)
         assert result['id'] == 1 and result['factor'] == 0.5 and result['end_time'] == 0.5
 
-        # `audio` is served as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
-        # be shipped to the daemon; a locally-referenced external file is left as a file:// URL.
-        if use_uploadfile or db_root.id == 'proxy':
-            assert '/media/' in result['audio'], result['audio']
-        else:
-            assert result['audio'].startswith('file:'), result['audio']
+        self.assert_correct_result_url(result['audio'], db_root, use_uploadfile)
+
         if route_type == 'insert':
             if db_root.id == 'local':
                 media_dir = str(Env.get().media_dir)
@@ -920,12 +918,8 @@ class TestFastAPI:
         result = single_row(await_background_job(client, job)['result'], route_type)
         assert result['id'] == 1 and result['width'] == 320 and result['height'] == 240
 
-        # `video` is served as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
-        # be shipped to the daemon; a locally-referenced external file is left as a file:// URL.
-        if use_uploadfile or db_root.id == 'proxy':
-            assert '/media/' in result['video'], result['video']
-        else:
-            assert result['video'].startswith('file:'), result['video']
+        self.assert_correct_result_url(result['video'], db_root, use_uploadfile)
+
         if route_type == 'insert':
             if db_root.id == 'local':
                 media_dir = str(Env.get().media_dir)
@@ -1349,7 +1343,7 @@ class TestFastAPI:
         assert 'rows' in body
         assert len(body['rows']) == 2
         for item in body['rows']:
-            assert '/media/' in item['resized'], item['resized']
+            self.assert_correct_result_url(item['resized'], db_root, True)
             media_resp = get_media(client, item['resized'])
             assert media_resp.status_code == 200
 
@@ -1379,7 +1373,7 @@ class TestFastAPI:
         result = await_background_job(client, job)['result']
         assert isinstance(result, dict) and 'rows' in result
         assert len(result['rows']) == 1
-        assert '/media/' in result['rows'][0]['resized']
+        self.assert_correct_result_url(result['rows'][0]['resized'], db_root, True)
 
     def test_add_query_route_image_transform(self, db_root: DatabaseRoot) -> None:
         """Inline image transformations (non-ColumnRef expressions) in the SELECT list.
@@ -1547,7 +1541,7 @@ class TestFastAPI:
         resp = client.post('/mirrored', json={'vid': 1})
         assert resp.status_code == 200, resp.text
         url = resp.json()['mirrored']
-        assert '/media/' in url, url
+        self.assert_correct_result_url(url, db_root, True)
         media = get_media(client, url)
         assert media.status_code == 200, media.text
         assert_video_bytes(media.content)
@@ -1780,9 +1774,6 @@ class TestFastAPI:
         array when the filter drops the input row, one row per extracted frame for the iterator view.
         """
         skip_test_if_not_installed('fastapi')
-        import pydantic
-
-        from pixeltable.functions.video import frame_iterator
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         p = db_root.make_catalog_path
@@ -2085,8 +2076,6 @@ class TestFastAPI:
         """`insert_route()`/`compute_route()` as a decorator: user fn consumes outputs and shapes the response."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
-        import pydantic
-
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir(p('test_serve'))
@@ -2135,8 +2124,6 @@ class TestFastAPI:
         """Parameter annotations are validated against the column types (strict nullability)."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
-        import pydantic
-
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir(p('test_serve'))
@@ -2206,8 +2193,6 @@ class TestFastAPI:
         """Update-route parameter annotations are validated against column types (strict nullability)."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
-        import pydantic
-
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir(p('test_serve'))
@@ -2397,8 +2382,6 @@ class TestFastAPI:
         """Media columns surface as /media/ URLs in the decorated fn's kwargs."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
-        import pydantic
-
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
@@ -2409,12 +2392,11 @@ class TestFastAPI:
 
         class ImgResp(pydantic.BaseModel):
             thumb_url: str
-            is_media_url: bool
 
         @dml_decorator(route_type, router)(t, path='/img', inputs=['id', 'image'], outputs=['thumb'])
         def make_resp(*, thumb: str | None) -> ImgResp:
             assert thumb is not None
-            return ImgResp(thumb_url=thumb, is_media_url='/media/' in thumb)
+            return ImgResp(thumb_url=thumb)
 
         client = make_test_client(router)
 
@@ -2422,8 +2404,7 @@ class TestFastAPI:
         resp = client.post('/img', json={'id': 1, 'image': image_path})
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        assert body['is_media_url'] is True
-        assert '/media/' in body['thumb_url']
+        self.assert_correct_result_url(body['thumb_url'], db_root, True)
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
@@ -2433,8 +2414,6 @@ class TestFastAPI:
         """Decorator + multipart/form-data upload."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
-        import pydantic
-
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
@@ -2472,15 +2451,13 @@ class TestFastAPI:
         else:
             resp = client.post('/upl', json={'id': 1, 'image': image_path})
         assert resp.status_code == 200, resp.text
-        assert '/media/' in resp.json()['thumb_url']
+        self.assert_correct_result_url(resp.json()['thumb_url'], db_root, True)
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     def test_insert_route_background(self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']) -> None:
         """Background variant: 202-like response with job_url; poll for the decorated fn's result."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
-        import pydantic
-
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
@@ -2511,8 +2488,6 @@ class TestFastAPI:
     def test_insert_route_errors(self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']) -> None:
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
-        import pydantic
-
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
@@ -2560,9 +2535,6 @@ class TestFastAPI:
         """compute_route() batch form on an iterator view: the fn takes list[RowModel] of all fanned-out rows."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
-        import pydantic
-
-        from pixeltable.functions.video import frame_iterator
         from pixeltable.serving import FastAPIRouter
 
         video_path = next(f for f in get_video_files() if f.endswith('v_shooting_01_01.mpg'))
@@ -2846,8 +2818,6 @@ class TestFastAPI:
         """`update_route()` decorator: custom response model, 404, background, function still callable."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
-        import pydantic
-
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir(p('test_serve'))
@@ -2913,8 +2883,6 @@ class TestFastAPI:
     def test_update_route_errors(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
-        import pydantic
-
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))

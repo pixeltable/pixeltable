@@ -1238,7 +1238,8 @@ class TableVersion:
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Column {col.name!r} is a base table column and cannot be updated',
                 )
-            if col.is_computed:
+            is_match_col = col.is_pk and allow_pk  # batch_update() provides a pk value
+            if col.is_computed and not is_match_col:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is computed and cannot be updated'
                 )
