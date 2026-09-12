@@ -8,9 +8,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.serving import ServiceInstanceRecord
 from pixeltable.utils.project import ProjectFingerprint
-from pixeltable_cli.types import DbArtifact, DbPlan, ServiceSpec
+from pixeltable_cli.types import DbArtifact, DbPlan, DbState, ServiceSpec
 
 
 class ManagementOperationType(str, Enum):
@@ -63,55 +64,18 @@ def _validate_hosted_name(value: str, kind: str) -> str:
     return value
 
 
-class DatabaseSpec(BaseModel):
-    """The resources provided by a database, in the widest sense (everything available in the runtime environment)."""
-
-    fingerprint: ProjectFingerprint | None = None
-
-    # the metadata schema version of the Pixeltable that packaged the archive, which only that
-    # Pixeltable can report
-    pxt_md_version: int = 0
-
-    # None: take default
-    cpu: float | None = None
-    memory_mb: int | None = None
-    disk_gb: int | None = None
-    workers: int | None = None
-    default_bucket: str | None = None
-
-
-class DatabaseStatus(BaseModel):
-    """Information about the running system."""
-
-    model_config = ConfigDict(extra='ignore')
-
-    state: str = ''
-
-    fingerprint: ProjectFingerprint | None = None
-
-    cpu: float | None = None
-    memory_mb: int | None = None
-    disk_gb: int | None = None
-    workers: int | None = None
-
-    # one entry per pod serving the database; workers is how many are running
-    worker_status: list[dict[str, Any]] = Field(default_factory=list)
-
-    last_build_outcome: str | None = None
-    last_build_error: str | None = None
-
-    # why the database is FAILED
-    failure_reason: str | None = None
-
-
 class DatabaseState(BaseModel):
-    """The state of a hosted db: its current spec and what is actually running."""
+    """The state of a hosted db: its requested resources and the ones it provides."""
 
     model_config = ConfigDict(extra='ignore')
 
     db: str = ''
-    spec: DatabaseSpec = Field(default_factory=DatabaseSpec)
-    status: DatabaseStatus = Field(default_factory=DatabaseStatus)
+
+    target_resources: DatabaseResources | None = None
+    target_state: DbState | None = None
+
+    # None: the database does not exist
+    current: DatabaseStatus | None = None
 
 
 class GetDbRequest(BaseModel):
@@ -122,6 +86,9 @@ class GetDbRequest(BaseModel):
 
 class GetDbResponse(BaseModel):
     database: DatabaseState
+
+    # one entry per pod serving the database; DatabaseResources.workers is how many should run
+    worker_status: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ListDbRequest(BaseModel):
@@ -135,7 +102,8 @@ class UpdateDbRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.UPDATE_DB] = ManagementOperationType.UPDATE_DB
     org: str | None = None
     db: str
-    spec: DatabaseSpec
+    target_resources: DatabaseResources | None = None
+    target_state: DbState | None = None
 
     # compute the plan without recording the spec, acting on it, or handing out an upload url
     dry_run: bool = False

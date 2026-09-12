@@ -6,7 +6,7 @@ import argparse
 import json
 import sys
 
-from ...types import DbChangeOp, DbPlan, Resolution
+from ...types import DbChangeOp, DbPlan, DbState, Resolution
 from ..hosted import add_logs_args, exit_unless_reached, poll_db, print_db, print_logs, resolve_db_uri, spinner
 from ..parser import Parser
 from ..utils import EXIT_CHANGES_PENDING, EXIT_IN_AGREEMENT, EXIT_REFUSED, confirm_or_exit, get_request, post_request
@@ -141,34 +141,34 @@ def _logs(args: argparse.Namespace) -> None:
 def _start(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db start')
     post_request('/api/db/start', {'org': org, 'db': db})
-    result = poll_db(org, db, {'UPDATING', 'STARTING'}, f"Database '{db}' is starting...")
+    result = poll_db(org, db, {DbState.UPDATING}, f"Database '{db}' is starting...")
     if args.json_output:
         print(json.dumps(result))
     else:
         print_db(result)
-    exit_unless_reached(result, 'AVAILABLE', f'starting database {db!r}')
+    exit_unless_reached(result, DbState.AVAILABLE, f'starting database {db!r}')
 
 
 def _stop(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db stop')
     post_request('/api/db/stop', {'org': org, 'db': db})
-    result = poll_db(org, db, {'STOPPING'}, f"Database '{db}' is stopping...")
+    result = poll_db(org, db, {DbState.STOPPING}, f"Database '{db}' is stopping...")
     if args.json_output:
         print(json.dumps(result))
     else:
         print_db(result)
-    exit_unless_reached(result, 'STOPPED', f'stopping database {db!r}')
+    exit_unless_reached(result, DbState.STOPPED, f'stopping database {db!r}')
 
 
 def _restart(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db restart')
     post_request('/api/db/restart', {'org': org, 'db': db})
-    result = poll_db(org, db, {'UPDATING', 'STARTING'}, f"Database '{db}' is restarting...")
+    result = poll_db(org, db, {DbState.UPDATING}, f"Database '{db}' is restarting...")
     if args.json_output:
         print(json.dumps(result))
     else:
         print_db(result)
-    exit_unless_reached(result, 'AVAILABLE', f'restarting database {db!r}')
+    exit_unless_reached(result, DbState.AVAILABLE, f'restarting database {db!r}')
 
 
 def _db_uri(args: argparse.Namespace, prog: str) -> str:

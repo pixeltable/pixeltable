@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from enum import StrEnum
 from typing import Any, Literal
 
 import pydantic
@@ -241,9 +242,20 @@ class ServiceChangeOp(ChangeOp):
 DbArtifact = Literal['image_context', 'archive']
 
 
+class DbState(StrEnum):
+    """The states of a hosted database."""
+
+    PROVISIONING = 'PROVISIONING'
+    UPDATING = 'UPDATING'
+    AVAILABLE = 'AVAILABLE'
+    STOPPING = 'STOPPING'
+    STOPPED = 'STOPPED'
+    FAILED = 'FAILED'
+
+
 # what a DbChangeOp acts on. The two artifacts are separate: 'image' is the environment the pods run on,
 # 'archive' the sources they fetch, and a source edit moves only the second.
-DbTarget = Literal['image', 'archive', 'capacity']
+DbTarget = Literal['image', 'archive', 'capacity', 'state']
 
 
 class DbChangeOp(ChangeOp):
@@ -264,6 +276,20 @@ class DbChangeOp(ChangeOp):
             description=f'{field} will be {declared} rather than {was}, which restarts the database',
             details={'from': was, 'to': str(declared)},
             requires_restart=True,
+        )
+
+    @classmethod
+    def state(cls, current: DbState | None, target: DbState) -> DbChangeOp:
+        was = 'unreported' if current is None else str(current)
+        return cls(
+            target='state',
+            name='state',
+            op='alter',
+            # stopping takes the database out of service; starting interrupts nothing
+            severity='destructive' if target == DbState.STOPPED else 'additive',
+            description=f'the database will be {target} rather than {was}',
+            details={'from': was, 'to': str(target)},
+            requires_restart=current == DbState.STOPPED,
         )
 
     @classmethod
@@ -554,13 +580,13 @@ class DbPlan(pydantic.BaseModel):
 
     db_uri: str
     exists: bool
-    state: str | None  # the database's state, None when it does not exist
+    state: DbState | None  # None when the database does not exist
     resolution: Resolution
     ops: list[DbChangeOp] = pydantic.Field(default_factory=list)
     status: OpStatus | None = None
 
     @classmethod
-    def from_ops(cls, db_uri: str, state: str | None, ops: list[DbChangeOp]) -> DbPlan:
+    def from_ops(cls, db_uri: str, state: DbState | None, ops: list[DbChangeOp]) -> DbPlan:
         """The plan the given operations describe; a state of None is a database that does not exist."""
         resolution: Resolution
         if state is None:

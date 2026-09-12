@@ -12,11 +12,10 @@ from pathlib import Path
 from pixeltable import catalog, exceptions as excs, metadata
 from pixeltable.config import Config, DatabaseConfig
 from pixeltable.service import management_client
+from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.service.management_protocol import (
     ArtifactUpload,
-    DatabaseSpec,
     DatabaseState,
-    DatabaseStatus,
     GetArchiveRequest,
     GetArchiveResponse,
     GetDbRequest,
@@ -33,7 +32,7 @@ from pixeltable.utils.project import (
     project_fingerprint,
     unpacked_digest,
 )
-from pixeltable_cli.types import DbArtifact, DbChangeOp, DbPlan, DbTarget
+from pixeltable_cli.types import DbArtifact, DbChangeOp, DbPlan, DbState, DbTarget
 
 _logger = logging.getLogger('pixeltable')
 
@@ -49,54 +48,56 @@ _DB_SETTLE_TIMEOUT = 3600.0
 _DB_POLL_INTERVAL = 5.0
 
 # the states a database passes through while it applies something
-_DB_TRANSITIONAL = frozenset({'PROVISIONING', 'UPDATING', 'STARTING', 'STOPPING'})
+_DB_TRANSITIONAL = frozenset({DbState.PROVISIONING, DbState.UPDATING, DbState.STOPPING})
 
 
 def db_diff(db_uri: str) -> DbPlan:
     """Diff the database at db_uri with the corresponding DatabaseConfig in the project configuration."""
     db_path = _validated_db_uri(db_uri)
-    return _update_db(db_path, _target_spec(_get_db_config(db_path)), dry_run=True).plan
+    return _update_db_request(db_path, _db_resources(_get_db_config(db_path)), dry_run=True).plan
 
 
 def db_fingerprint(db_path: catalog.Path) -> ProjectFingerprint | None:
-    """Return the fingerprint of a hosted database; None for local."""
+    """Return the fingerprint of the project deployed to a hosted database; None for a local one."""
     if db_path.org is None or db_path.db is None:
         return None
     state = _get_db_state(db_path)
-    return None if state is None else state.spec.fingerprint
+    return None if state is None or state.current is None else state.current.resources.fingerprint
 
 
-def create_db_update_ops(target: DatabaseSpec, current: DatabaseStatus | None) -> list[DbChangeOp]:
+def create_db_update_ops(
+    target: DatabaseResources | None,
+    current: DatabaseResources | None,
+    target_state: DbState | None,
+    current_state: DbState | None,
+) -> list[DbChangeOp]:
     """The operations needed to reconcile current with target."""
-    status = DatabaseStatus() if current is None else current
     ops: list[DbChangeOp] = []
+    if target_state is not None and target_state != current_state:
+        ops.append(DbChangeOp.state(current_state, target_state))
+    if target is None:
+        return ops
+
     if target.fingerprint is not None:
-        ops += _artifact_ops(target.fingerprint, status.fingerprint)
+        if current is None or current.fingerprint is None:
+            # nothing to diff against: the database is new, or still on the base image
+            # TODO: record the base image's fingerprint at provisioning and remove this branch
+            ops += [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
+        else:
+            changed = target.fingerprint.compare(current.fingerprint)
+            if ProjectPart.IMAGE in changed:
+                ops.append(DbChangeOp.build_image(target.fingerprint.changes(current.fingerprint, {ProjectPart.IMAGE})))
+            if ProjectPart.ARCHIVE in changed:
+                ops.append(
+                    DbChangeOp.upload_archive(target.fingerprint.changes(current.fingerprint, {ProjectPart.ARCHIVE}))
+                )
 
-    for field, wanted, running in (
-        ('cpu', target.cpu, status.cpu),
-        ('memory_mb', target.memory_mb, status.memory_mb),
-        ('disk_gb', target.disk_gb, status.disk_gb),
-        ('workers', target.workers, status.workers),
-    ):
-        if wanted is None or wanted == running:
-            continue
-        ops.append(DbChangeOp.capacity(field, running, wanted))
+    current_capacity = {} if current is None else current.capacity()
+    combined = current_capacity | target.capacity()  # target settings take precedence
+    for name, val in combined.items():
+        if val != current_capacity.get(name):
+            ops.append(DbChangeOp.capacity(name, current_capacity.get(name), val))
 
-    return ops
-
-
-def _artifact_ops(target: ProjectFingerprint, current: ProjectFingerprint | None) -> list[DbChangeOp]:
-    """The operations that give 'current' target's image and archive."""
-    if current is None:
-        # needs a fresh image and archive
-        return [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
-    ops: list[DbChangeOp] = []
-    moved = target.compare(current)
-    if ProjectPart.IMAGE in moved:
-        ops.append(DbChangeOp.build_image(target.changes(current, {ProjectPart.IMAGE})))
-    if ProjectPart.ARCHIVE in moved:
-        ops.append(DbChangeOp.upload_archive(target.changes(current, {ProjectPart.ARCHIVE})))
     return ops
 
 
@@ -110,8 +111,8 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
     """
     db_path = _validated_db_uri(db_uri)
     config = _get_db_config(db_path)
-    spec = _target_spec(config)
-    plan = _update_db(db_path, spec, dry_run=True).plan
+    target_resources = _db_resources(config)
+    plan = _update_db_request(db_path, target_resources, dry_run=True).plan
     if plan.destructive and not allow_destructive:
         destructive = ', '.join(op.name or '' for op in plan.ops if op.destructive)
         raise excs.RequestError(
@@ -119,10 +120,10 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
             f'Reconciling {db_uri} would apply destructive changes: {destructive}.\n{_DB_DESTRUCTIVE_HINT}',
         )
 
-    settled, _ = _apply_spec(db_path, config, spec)
+    settled, _ = _update_db(db_path, config, target_resources)
     for op in plan.ops:
         op.status = 'applied'
-    plan.state = settled.status.state
+    plan.state = settled.state
     plan.exists = True
     plan.status = 'applied'
     # what the plan asked for has been applied; an operation no update carries out is what is left
@@ -130,15 +131,15 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
     return plan
 
 
-def _apply_spec(
-    db_path: catalog.Path, config: DatabaseConfig, spec: DatabaseSpec, *, force_image_build: bool = False
-) -> tuple[DatabaseState, set[DbArtifact]]:
+def _update_db(
+    db_path: catalog.Path, config: DatabaseConfig, target_resources: DatabaseResources, *, force_image_build: bool = False
+) -> tuple[DatabaseStatus, set[DbArtifact]]:
     """Ask db_path to provide spec, store the artifacts it asks for, and wait for it to settle.
 
-    Returns the state it settled in and the artifacts this call stored; one the store already held is
+    Returns the status it settled in and the artifacts this call stored; one the store already held is
     not stored again.
     """
-    response = _update_db(db_path, spec, force_image_build=force_image_build)
+    response = _update_db_request(db_path, target_resources=target_resources, force_image_build=force_image_build)
     stored: set[DbArtifact] = set()
     rounds = 0
     while len(response.uploads) > 0:
@@ -151,32 +152,32 @@ def _apply_spec(
             )
         stored.update(upload.artifact for upload in response.uploads)
         _store_artifacts(response.uploads, config)
-        response = _update_db(db_path, spec, force_image_build=force_image_build)
+        response = _update_db_request(db_path, target_resources, force_image_build=force_image_build)
 
     settled = _await_db_settled(db_path)
-    if settled.status.state == 'FAILED':
-        reason = settled.status.failure_reason or 'no reason was reported'
+    if settled.state == DbState.FAILED:
+        reason = settled.failure_reason or 'no reason was reported'
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
             f'{db_path.uri_str} is FAILED after the update: {reason}',
             provider='pixeltable_cloud',
         )
-    if settled.status.last_build_outcome == 'FAILED':
+    if settled.last_build_outcome == 'FAILED':
         # a failed build leaves the database serving what it served before, rather than FAILED
-        reason = settled.status.last_build_error or 'no reason was reported'
+        reason = settled.last_build_error or 'no reason was reported'
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
             f'The image build for {db_path.uri_str} failed: {reason}',
             provider='pixeltable_cloud',
         )
-    if settled.status.failure_reason is not None:
+    if settled.failure_reason is not None:
         # a step that failed and left the database serving what it served before still failed
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
-            f'{db_path.uri_str} did not reach the state it was given: {settled.status.failure_reason}',
+            f'{db_path.uri_str} did not reach the state it was given: {settled.failure_reason}',
             provider='pixeltable_cloud',
         )
-    if spec.fingerprint is not None and settled.status.fingerprint != spec.fingerprint:
+    if settled.resources is None or settled.resources.fingerprint != spec.fingerprint:
         # settling on a project other than the one asked for reports nothing else, so say so here
         raise excs.InternalError(
             excs.ErrorCode.INTERNAL_ERROR, f'{db_path.uri_str} settled on a project other than the one it was given'
@@ -184,13 +185,18 @@ def _apply_spec(
     return settled, stored
 
 
-def _update_db(
-    db_path: catalog.Path, spec: DatabaseSpec, *, dry_run: bool = False, force_image_build: bool = False
+def _update_db_request(
+    db_path: catalog.Path, *, target_resources: DatabaseResources | None = None, target_state: DbState | None = None, dry_run: bool = False, force_image_build: bool = False
 ) -> UpdateDbResponse:
     return UpdateDbResponse.model_validate(
         management_client.api_call(
             UpdateDbRequest(
-                org=db_path.org, db=db_path.db, spec=spec, dry_run=dry_run, force_image_build=force_image_build
+                org=db_path.org,
+                db=db_path.db,
+                target_resources=target_resources,
+                target_state=target_state,
+                dry_run=dry_run,
+                force_image_build=force_image_build,
             )
         )
     )
@@ -208,10 +214,10 @@ def db_build_image(db_uri: str) -> list[DbChangeOp]:
         raise excs.NotFoundError(
             excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'{db_path.uri_str} does not exist; run `pxt db update` to create it'
         )
-    settled, stored = _apply_spec(db_path, config, _target_spec(config), force_image_build=True)
+    settled, stored = _update_db(db_path, config, _db_resources(config), force_image_build=True)
     image_op = DbChangeOp.build_image()
     # a build that did not run leaves nothing to report, whatever was asked for
-    image_op.status = 'applied' if settled.status.last_build_outcome == 'SUCCEEDED' else 'skipped'
+    image_op.status = 'applied' if settled.last_build_outcome == 'SUCCEEDED' else 'skipped'
     archive_op = DbChangeOp.upload_archive()
     archive_op.status = 'applied' if 'archive' in stored else 'skipped'
     return [image_op, archive_op]
@@ -281,9 +287,9 @@ def report_instance_fingerprint(
     )
 
 
-def _target_spec(config: DatabaseConfig) -> DatabaseSpec:
-    """The spec config asks its database to provide."""
-    return DatabaseSpec(
+def _db_resources(config: DatabaseConfig) -> DatabaseResources:
+    # TODO: default_bucket?
+    return DatabaseResources(
         fingerprint=project_fingerprint(_validated_project_root(), config),
         pxt_md_version=metadata.VERSION,
         cpu=config.cpu,
@@ -329,20 +335,20 @@ def _get_target_ops(plan: DbPlan, target: DbTarget) -> list[DbChangeOp]:
     return [op for op in plan.ops if op.target == target]
 
 
-def _await_db_settled(db_path: catalog.Path) -> DatabaseState:
-    """Poll the named database until it leaves a transitional state, and return the state it reached."""
+def _await_db_settled(db_path: catalog.Path) -> DatabaseStatus:
+    """Poll the named database until it leaves a transitional state, and return the status it reached."""
     deadline = time.monotonic() + _DB_SETTLE_TIMEOUT
     while True:
-        current = _get_db_state(db_path)
-        if current is None:
-            # a database that is gone has no state to report
+        state = _get_db_state(db_path)
+        if state is None or state.current is None:
+            # a database that is gone has no status to report
             raise excs.NotFoundError(excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'{db_path.uri_str} no longer exists')
-        if current.status.state not in _DB_TRANSITIONAL:
-            return current
+        if state.current.state not in _DB_TRANSITIONAL:
+            return state.current
         if time.monotonic() >= deadline:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_TIMEOUT,
-                f'{db_path.uri_str} is still {current.status.state} after {int(_DB_SETTLE_TIMEOUT)}s',
+                f'{db_path.uri_str} is still {state.current.state} after {int(_DB_SETTLE_TIMEOUT)}s',
                 provider='pixeltable_cloud',
             )
         time.sleep(_DB_POLL_INTERVAL)

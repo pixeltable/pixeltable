@@ -11,6 +11,7 @@ import time
 from typing import Any, Iterator
 
 from pixeltable_cli import models
+from pixeltable_cli.types import DbState
 from pixeltable_cli.utils import split_pxt_uri
 
 from .utils import get_request, print_aligned
@@ -112,9 +113,9 @@ def _print_workers(workers: list[dict[str, Any]]) -> None:
 
 
 def print_db(db: dict[str, Any]) -> None:
-    status = db.get('status') or {}
-    print(f'{db.get("db", "")}  state={status.get("state", "")}')
-    _print_workers(status.get('worker_status') or [])
+    current = db.get('current') or {}
+    print(f'{db.get("db", "")}  state={current.get("state", "")}')
+    _print_workers(current.get('worker_status') or [])
 
 
 def print_service(svc: dict[str, Any]) -> None:
@@ -176,11 +177,10 @@ def spinner(label: str | None) -> Iterator[None]:
 
 
 def db_state(database: dict[str, Any]) -> str | None:
-    """The state a hosted database reports, which sits under `status`."""
-    return (database.get('status') or {}).get('state')
+    return (database.get('current') or {}).get('state')
 
 
-def exit_unless_reached(database: dict[str, Any], expected_state: str, operation: str) -> None:
+def exit_unless_reached(database: dict[str, Any], expected_state: DbState, operation: str) -> None:
     """Exit with 1 unless the database reached expected_state."""
     state = db_state(database)
     if state == expected_state:
@@ -190,7 +190,7 @@ def exit_unless_reached(database: dict[str, Any], expected_state: str, operation
     sys.exit(1)
 
 
-def poll_db(org: str, db: str, pending_states: set[str], label: str | None) -> dict[str, Any]:
+def poll_db(org: str, db: str, pending_states: set[DbState], label: str | None) -> dict[str, Any]:
     """Poll a hosted database until its state leaves pending_states, and return what was last read.
 
     Returns an empty dict if no read succeeded. A failed read is retried until the deadline, so a
