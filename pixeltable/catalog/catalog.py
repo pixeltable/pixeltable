@@ -890,6 +890,7 @@ class Catalog(CatalogBase):
         """
         num_retries = 0
         is_rollback = False
+        is_final = False  # True if the current exception needs to be re-raised, not handled
         tbl_md: schema.TableMd | None = None
         tbl_version: int | None = None
         op: TableOp | None = None
@@ -983,6 +984,7 @@ class Catalog(CatalogBase):
                     except Exception as e:
                         if not tbl_md.pending_stmt.can_abort() or is_rollback:
                             # nothing left to do but give up; we'll leave some state behind to examine later
+                            is_final = True
                             raise
 
                         # Since we can't load the tv, we also can't execute op.exec(tv); we need to abort now.
@@ -1074,6 +1076,8 @@ class Catalog(CatalogBase):
                     raise
 
             except Exception as e:
+                if is_final:
+                    raise
                 if excs.is_table_not_found_error(e):
                     _logger.debug(f'Finalize pending ops({tbl_id}): table not found, exiting')
                     # nothing to do
