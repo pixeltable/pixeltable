@@ -1003,6 +1003,7 @@ class Catalog(CatalogBase):
                         )
                         if self._set_pending_op_status(tbl_id, op, OpStatus.ABORTED, is_final_op=op.op_sn == 0):
                             # make sure the exception reaches the initial caller
+                            is_final = True
                             raise
                         continue
 
@@ -1076,12 +1077,12 @@ class Catalog(CatalogBase):
                     raise
 
             except Exception as e:
-                if is_final:
-                    raise
                 if excs.is_table_not_found_error(e):
                     _logger.debug(f'Finalize pending ops({tbl_id}): table not found, exiting')
                     # nothing to do
                     return None
+                if is_final:
+                    raise
 
                 if not is_rollback and tbl_md is not None and tbl_md.pending_stmt.can_abort():
                     _logger.error(
