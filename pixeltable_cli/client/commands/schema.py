@@ -26,6 +26,7 @@ TableModel = pxt.model_base()
 
 
 class Docs(TableModel, name='docs'):
+    id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # a generated primary key
     title: pxt.String                         # a stored column
     body: pxt.String | None                   # a stored column that may be null
     title_upper = pxtf.string.upper(title)    # a computed column: an assignment, not an annotation
@@ -64,8 +65,10 @@ def excerpt(text: str, n: int = 80) -> str:
 class Docs(TableModel, name='docs'):
     """One model becomes one table, named by name=."""
 
+    # a primary key, generated on insert
+    id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
+
     # an annotation defines a stored column
-    doc_id: pxt.Int
     title: pxt.String
     body: pxt.String | None
     published: pxt.Timestamp | None
