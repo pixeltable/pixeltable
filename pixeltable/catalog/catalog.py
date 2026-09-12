@@ -981,6 +981,10 @@ class Catalog(CatalogBase):
                         # the outer handler separates retryable from non-retryable
                         raise
                     except Exception as e:
+                        if not tbl_md.pending_stmt.can_abort():
+                            # nothing left to do but give up
+                            raise
+
                         # the op never ran, so it has nothing to undo: abort it here, which moves the rollback
                         # on to the preceding op. Aborting the first op resolves the statement, since no op of
                         # it ran and the metadata it wrote is what the remaining ops would have acted on.
