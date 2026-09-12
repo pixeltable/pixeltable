@@ -884,11 +884,13 @@ class Catalog(CatalogBase):
         - this process starts with the first pending op, because it could have been partially executed
         - when done, deletes all table ops and resets tbl_state to LIVE
 
-        If an exception occurred during finalization, that exception is returned. PendingOpsErrors encountered during
-        finalization are dealt with recursively.
+        If an exception occurred during finalization, that exception is returned, except where it left the
+        statement resolved, which raises it instead. PendingOpsErrors encountered during finalization are
+        dealt with recursively.
         """
         num_retries = 0
         is_rollback = False
+        is_final = False  # True if the current exception needs to be re-raised, not handled
         tbl_md: schema.TableMd | None = None
         tbl_version: int | None = None
         op: TableOp | None = None
@@ -961,11 +963,50 @@ class Catalog(CatalogBase):
                     )
 
                     tbl_version = tbl_md.current_version if tbl_md.is_snapshot else None
-                    tv = (
-                        self._get_tbl_version(TableVersionKey(tbl_id, tbl_version), check_pending_ops=False)
-                        if op.needs_tv
-                        else None
-                    )
+                    tv: TableVersion | None = None
+                    try:
+                        # _get_tbl_version() itself may raise, which means that the current op cannot be executed
+                        # or undone
+                        tv = (
+                            self._get_tbl_version(TableVersionKey(tbl_id, tbl_version), check_pending_ops=False)
+                            if op.needs_tv
+                            else None
+                        )
+                    except PendingTableOpsError:
+                        # check_pending_ops=False covers this table only; init() resolves its ancestors with the default
+                        raise
+                    except AssertionError:
+                        raise  # a bug in our own code; we need to propagate this
+                    except sql_exc.DBAPIError:
+                        # a statement error aborts the transaction, so the updates below would fail too;
+                        # the outer handler separates retryable from non-retryable
+                        raise
+                    except Exception as e:
+                        if not tbl_md.pending_stmt.can_abort() or is_rollback:
+                            # nothing left to do but give up; we'll leave some state behind to examine later
+                            is_final = True
+                            raise
+
+                        # Since we can't load the tv, we also can't execute op.exec(tv); we need to abort now.
+                        # The op never ran, so it has nothing to undo: abort it here, which moves the rollback
+                        # on to the preceding op. Aborting the first op resolves the statement, since no op of
+                        # it ran and the metadata it wrote is what the remaining ops would have acted on.
+                        _logger.error(
+                            f'Finalize pending ops({tbl_id}): cannot load the table version for op {op!s}',
+                            exc_info=True,
+                        )
+                        exc = e
+                        conn.execute(
+                            sql.update(schema.Table)
+                            .where(schema.Table.id == tbl_id)
+                            .values(md=schema.Table.md.op('||')({'tbl_state': schema.TableState.ROLLBACK.value}))
+                        )
+                        if self._set_pending_op_status(tbl_id, op, OpStatus.ABORTED, is_final_op=op.op_sn == 0):
+                            # make sure the exception reaches the initial caller
+                            is_final = True
+                            raise
+                        continue
+
                     new_op_status = OpStatus.ABORTED if is_rollback else OpStatus.COMPLETED
                     if op.needs_xact:
                         # Mark TableVersion as modified before it is actually modified to make sure that cache is
@@ -1040,6 +1081,8 @@ class Catalog(CatalogBase):
                     _logger.debug(f'Finalize pending ops({tbl_id}): table not found, exiting')
                     # nothing to do
                     return None
+                if is_final:
+                    raise
 
                 if not is_rollback and tbl_md is not None and tbl_md.pending_stmt.can_abort():
                     _logger.error(
