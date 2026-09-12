@@ -2,6 +2,8 @@ import datetime
 import os
 import typing
 import urllib.parse
+import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -235,11 +237,6 @@ def table_row(req: Request) -> models.GetResponse:
         raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, "missing or empty 'pk' query parameter")
     if any(v.strip() == '' for v in pk):
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'pk' query parameter contains an empty value")
-    # PK values arrive as strings over HTTP; coerce numeric-looking ones to int/float so a
-    # PK column typed as Int compares correctly. String-typed PK columns whose values look
-    # like numbers (eg the string '42') are a documented limitation - there's no way to
-    # force a string interpretation from the URL.
-    pk_values: list[Any] = [_coerce_pk(v) for v in pk]
     cols_list = _split_csv(req.query_str('cols'))
     cols_list = [fold_identifier(c) for c in cols_list] if cols_list is not None else None
 
@@ -250,11 +247,12 @@ def table_row(req: Request) -> models.GetResponse:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT, f'{path}: no primary key defined; row lookup requires one'
         )
-    if len(pk_values) != len(pk_names):
+    if len(pk) != len(pk_names):
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            f'{path}: expected {len(pk_names)} PK value(s) for {pk_names}, got {len(pk_values)}',
+            f'{path}: expected {len(pk_names)} PK value(s) for {pk_names}, got {len(pk)}',
         )
+    pk_values: list[Any] = [_coerce_pk(v, name, md['columns'][name]['type_']) for v, name in zip(pk, pk_names)]
 
     cols_md = md['columns']
     if cols_list is not None:
@@ -635,19 +633,21 @@ def dashboard_table_export(req: Request) -> RawResponse:
 _COUNT_POOL_WORKERS = 16
 
 
-def _coerce_pk(s: str) -> Any:
-    """Numeric-looking PK strings become int or float; everything else stays a string.
+_PK_PARSERS: dict[str, Callable[[str], Any]] = {'Int': int, 'Float': float, 'String': str, 'UUID': uuid.UUID}
 
-    PK values arrive untyped over HTTP, so we restore their natural type here.
-    """
-    try:
-        return int(s)
-    except ValueError:
-        pass
-    try:
-        return float(s)
-    except ValueError:
+
+def _coerce_pk(s: str, col_name: str, col_type: str) -> Any:
+    """Parse s as the declared type of column col_name."""
+    parser = _PK_PARSERS.get(col_type)
+    if parser is None:
         return s
+    try:
+        return parser(s)
+    except ValueError as e:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'{s!r} is not a valid {col_type} value for primary key column {col_name!r}',
+        ) from e
 
 
 def _split_csv(s: str | None) -> list[str] | None:
