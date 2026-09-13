@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import tarfile
 import textwrap
@@ -13,7 +14,13 @@ import pytest
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config, DatabaseConfig
-from pixeltable.utils.project import create_image_context, create_project_archive
+from pixeltable.utils.project import (
+    create_image_context,
+    create_project_archive,
+    package_image_context,
+    package_project_archive,
+    project_fingerprint,
+)
 
 from ..utils import pxt_raises
 
@@ -156,6 +163,47 @@ class TestProjectArchive:
         monkeypatch.chdir(tmp_path)
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid `DatabaseConfig`'):
             Config.init(reinit=True)
+
+
+class TestPackagedHashes:
+    """The hashes a packager returns describe the package, not a later reading of the project."""
+
+    def test_the_hashes_are_of_the_bytes_written(self, tmp_path: Path) -> None:
+        (tmp_path / 'app.py').write_text('x = 1\n')
+        packaged = package_project_archive(tmp_path)
+
+        with tarfile.open(packaged.path) as tar:
+            member = tar.extractfile('project/app.py')
+            assert member is not None
+            written = member.read()
+        assert packaged.files['app.py'] == hashlib.sha256(written).hexdigest()
+
+    def test_they_agree_with_the_fingerprint(self, tmp_path: Path) -> None:
+        """An unchanged project fingerprints to what packaging it produces, or an upload could never match."""
+        (tmp_path / 'app.py').write_text('x = 1\n')
+        (tmp_path / 'sub').mkdir()
+        (tmp_path / 'sub' / 'mod.py').write_text('y = 2\n')
+
+        assert package_project_archive(tmp_path).files == project_fingerprint(tmp_path, None).files
+
+    def test_a_file_rewritten_between_packagings_hashes_differently(self, tmp_path: Path) -> None:
+        """This is what a concurrent writer looks like: same path, different bytes in the archive."""
+        (tmp_path / 'app.py').write_text('x = 1\n')
+        before = package_project_archive(tmp_path).files
+        (tmp_path / 'app.py').write_text('x = 2\n')
+
+        assert package_project_archive(tmp_path).files != before
+
+    def test_the_context_reports_what_it_installs_from(self, tmp_path: Path) -> None:
+        wheel = tmp_path / 'w' / 'pkg-1.0-py3-none-any.whl'
+        wheel.parent.mkdir()
+        wheel.write_bytes(b'wheel bytes')
+        (tmp_path / 'requirements.txt').write_text('w/pkg-1.0-py3-none-any.whl\n')
+
+        packaged = package_image_context(tmp_path)
+        assert packaged.installed_from_project == {
+            'w/pkg-1.0-py3-none-any.whl': hashlib.sha256(b'wheel bytes').hexdigest()
+        }
 
 
 class TestImageContext:

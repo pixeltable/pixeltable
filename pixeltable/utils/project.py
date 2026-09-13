@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import enum
 import hashlib
 import json
@@ -13,7 +14,7 @@ import tarfile
 import tempfile
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, BinaryIO, Literal
 
 import pydantic
 import toml
@@ -144,12 +145,70 @@ def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Pa
     return sorted(files)
 
 
+class _HashingReader:
+    """Hashes every byte it yields."""
+
+    def __init__(self, f: BinaryIO) -> None:
+        self._f = f
+        self._digest = hashlib.sha256()
+
+    def read(self, size: int = -1) -> bytes:
+        data = self._f.read(size)
+        self._digest.update(data)
+        return data
+
+    def hexdigest(self) -> str:
+        return self._digest.hexdigest()
+
+
+@dataclasses.dataclass
+class PackagedArchive:
+    """An archive, and the content hash of every file written into it."""
+
+    path: Path
+
+    # path relative to the project root -> sha256 of the bytes written into the archive
+    files: dict[str, str]
+
+
+@dataclasses.dataclass
+class PackagedContext:
+    """An image context, and the content hash of every project file it installs from."""
+
+    path: Path
+
+    # path relative to the project root -> sha256 of the bytes written, for the files requirements.txt
+    # installs from a path in the project itself; the manifests alongside them are covered by the archive
+    installed_from_project: dict[str, str]
+
+
+def _add_hashed(tf: tarfile.TarFile, path: Path, arcname: str) -> str:
+    """Write path into tf and return the hash of the bytes written."""
+    info = tf.gettarinfo(path, arcname=arcname)
+    if not info.isreg():
+        # a link member carries no content; the fingerprint hashes what it points at
+        tf.addfile(info)
+        return _content_hash(path)
+    with path.open('rb') as raw:
+        reader = _HashingReader(raw)
+        tf.addfile(info, reader)
+    return reader.hexdigest()
+
+
 def create_project_archive(
     project_dir: Path | None = None, db_config: DatabaseConfig | None = None, show_progress: bool = False
 ) -> Path:
-    """Produce an archive (tar file) of the project files, as selected by db_config.
+    """Produce an archive (tar file) of the project files, as selected by db_config."""
+    return package_project_archive(project_dir, db_config, show_progress).path
 
-    Includes every git-recognized file below the project root, plus the lockfile.
+
+def package_project_archive(
+    project_dir: Path | None = None, db_config: DatabaseConfig | None = None, show_progress: bool = False
+) -> PackagedArchive:
+    """Produce an archive of the project files, as selected by db_config, and say what went into it.
+
+    Includes every git-recognized file below the project root, plus the lockfile. The returned hashes are
+    taken from the bytes written, so they describe the archive rather than a later reading of the project.
     """
     if project_dir is None:
         project_dir = Path.cwd()
@@ -184,17 +243,18 @@ def create_project_archive(
         tarfile.open(archive_path, 'w:bz2') as tf,
         tqdm(desc='Packaging project', total=len(files), unit=' files', disable=not show_progress) as bar,
     ):
+        hashes: dict[str, str] = {}
         for f in files:
-            relpath = str(f.relative_to(project_dir))
+            relpath = f.relative_to(project_dir).as_posix()
             abbrev_path = relpath if len(relpath) <= max_pathlen else '…' + relpath[-(max_pathlen - 1) :]
             # refresh=False: the postfix is drawn by the following update(), which respects tqdm's redraw interval
             bar.set_postfix_str(abbrev_path, refresh=False)
-            tf.add(f, arcname=f'project/{relpath}')
+            hashes[relpath] = _add_hashed(tf, f, f'project/{relpath}')
             bar.update(1)
         bar.set_postfix_str('', refresh=False)
 
     _logger.info(f'Project archive created: {archive_path}')
-    return archive_path
+    return PackagedArchive(path=archive_path, files=hashes)
 
 
 # what pip installs from a file rather than an index, named without a directory
@@ -278,6 +338,15 @@ def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path
 
 def create_image_context(project_dir: Path | None = None) -> Path:
     """Return the path to a tarfile containing the manifests needed for an image build."""
+    return package_image_context(project_dir).path
+
+
+def package_image_context(project_dir: Path | None = None) -> PackagedContext:
+    """Package the manifests an image build needs, and say what went into it.
+
+    The returned hashes are taken from the bytes written, so they describe the context rather than a
+    later reading of the project.
+    """
     if project_dir is None:
         project_dir = Path.cwd()
     project_dir = project_dir.resolve()
@@ -313,11 +382,16 @@ def create_image_context(project_dir: Path | None = None) -> Path:
     fd, name = tempfile.mkstemp(suffix='.tar', prefix='pxt_image_')
     os.close(fd)
     context_path = Path(name)
+    from_project = set(installed_from_project)
+    hashes: dict[str, str] = {}
     with tarfile.open(context_path, 'w') as tf:
         for f in files:
-            tf.add(f, arcname=str(f.relative_to(project_dir)))
+            relpath = f.relative_to(project_dir).as_posix()
+            content_hash = _add_hashed(tf, f, relpath)
+            if f in from_project:
+                hashes[relpath] = content_hash
     _logger.info(f'Image context created: {context_path}')
-    return context_path
+    return PackagedContext(path=context_path, installed_from_project=hashes)
 
 
 def archive_object_name(org_id: str, archive_digest: str) -> str:

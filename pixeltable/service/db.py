@@ -27,8 +27,8 @@ from pixeltable.service.management_protocol import (
 from pixeltable.utils.project import (
     ProjectFingerprint,
     ProjectPart,
-    create_image_context,
-    create_project_archive,
+    package_image_context,
+    package_project_archive,
     project_fingerprint,
     unpacked_digest,
 )
@@ -141,7 +141,7 @@ def _update_db(
                 excs.ErrorCode.INTERNAL_ERROR, f'{db_path.uri_str} still asks for {wanted} after it was stored'
             )
         stored.update(upload.artifact for upload in response.uploads)
-        _store_artifacts(response.uploads, config)
+        _store_artifacts(response.uploads, config, target)
         response = _update_db_request(db_path, target=target, force_image_build=force_image_build)
 
     settled = _await_db_settled(db_path)
@@ -289,17 +289,38 @@ def _db_resources(config: DatabaseConfig) -> DatabaseResources:
     )
 
 
-def _store_artifacts(uploads: list[ArtifactUpload], config: DatabaseConfig) -> None:
-    """Package each artifact the control plane asked for and store it at the url it gave."""
+def _store_artifacts(uploads: list[ArtifactUpload], config: DatabaseConfig, target: DatabaseResources) -> None:
+    """Create the requested artifacts, then revalidate the fingerprint, then perform the uploads."""
+    if target.fingerprint is None:
+        # _missing_artifacts() names an object after a digest, so it asks for nothing without a fingerprint
+        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, 'artifacts were asked for without a project')
     project_root = _validated_project_root()
-    for upload in uploads:
-        if upload.artifact == 'archive':
-            path = create_project_archive(project_root, config, show_progress=True)
-        else:
-            path = create_image_context(project_root)
-        try:
+    paths: list[tuple[ArtifactUpload, Path]] = []
+    packaged: dict[str, str] = {}
+    try:
+        for upload in uploads:
+            if upload.artifact == 'archive':
+                archive = package_project_archive(project_root, config, show_progress=True)
+                paths.append((upload, archive.path))
+                packaged.update(archive.files)
+            else:
+                context = package_image_context(project_root)
+                paths.append((upload, context.path))
+                packaged.update(context.installed_from_project)
+
+        # the hashes come from the bytes just written, so this compares the packages themselves against
+        # the digests
+        recorded = {**target.fingerprint.files, **target.fingerprint.installed_from_project}
+        changed = sorted(p for p in set(packaged) | set(recorded) if packaged.get(p) != recorded.get(p))
+        if len(changed) > 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE,
+                f'the project changed while it was being packaged ({"; ".join(changed)}); run the command again',
+            )
+        for upload, path in paths:
             _put_artifact(upload.url, path)
-        finally:
+    finally:
+        for _, path in paths:
             path.unlink(missing_ok=True)
 
 

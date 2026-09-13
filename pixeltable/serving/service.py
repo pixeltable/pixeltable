@@ -331,8 +331,8 @@ def _service_diff(
     if target_db_fingerprint is None and app_info.db_uri != '':
         ops.append(ServiceChangeOp.needs_db_update(command=f'pxt db update {app_info.db_uri}'))
     # a local target's services read the project files in place, so nothing has to be uploaded for them
-    changed = app_info.local_fingerprint.compare(target_db_fingerprint) if target_db_fingerprint is not None else set()
-    if len(changed) > 0:
+    changed = set() if target_db_fingerprint is None else app_info.local_fingerprint.compare(target_db_fingerprint)
+    if target_db_fingerprint is not None and len(changed) > 0:
         # this requires a pxt db update
         ops.append(
             ServiceChangeOp.fingerprint_changed(
