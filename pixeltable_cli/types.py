@@ -258,6 +258,7 @@ class DbState(StrEnum):
     """The states of a hosted database."""
 
     PROVISIONING = 'PROVISIONING'
+    STARTING = 'STARTING'
     UPDATING = 'UPDATING'
     AVAILABLE = 'AVAILABLE'
     STOPPING = 'STOPPING'

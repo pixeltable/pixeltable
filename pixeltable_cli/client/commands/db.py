@@ -141,7 +141,7 @@ def _logs(args: argparse.Namespace) -> None:
 def _start(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db start')
     post_request('/api/db/start', {'org': org, 'db': db})
-    result = poll_db(org, db, {DbState.UPDATING}, f"Database '{db}' is starting...")
+    result = poll_db(org, db, {DbState.STARTING}, f"Database '{db}' is starting...")
     if args.json_output:
         print(json.dumps(result.get('report', {})))
     else:

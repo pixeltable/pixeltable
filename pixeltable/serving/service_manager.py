@@ -35,7 +35,7 @@ from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.service.management_protocol import LogRecord
-from pixeltable.service.svc_md import LocalServiceInstanceRecord
+from pixeltable.service.service_md import LocalServiceInstanceRecord, ServiceInstanceRecord
 from pixeltable.utils.app_module import load_app_module, module_name, services_by_name
 from pixeltable.utils.process import is_pid, pid_alive, process_timestamp
 from pixeltable.utils.project import ProjectFingerprint
@@ -144,7 +144,7 @@ class ServiceManager(ServiceManagerBase):
 
     def restart(self, instance: ServiceInstance) -> None:
         # the record names the module, and a module path is relative to the project root
-        record = self._local_record(instance)
+        record = self._local_record(instance.record)
         project_root = Config.get().project_root
         assert project_root is not None  # a service was started from a file inside a project
         app_file = project_root.joinpath(*record.app_module.split('.')).with_suffix('.py')
@@ -165,12 +165,13 @@ class ServiceManager(ServiceManagerBase):
             f'{self._log_path(instance.service_name, instance.base_path)}',
         )
 
-    def _local_record(self, record: LocalServiceInstanceRecord) -> LocalServiceInstanceRecord:
+    def _local_record(self, record: ServiceInstanceRecord) -> LocalServiceInstanceRecord:
+        """The instance's record, which this manager only ever reads back from one it wrote."""
         assert isinstance(record, LocalServiceInstanceRecord)
         return record
 
     def stop(self, instance: ServiceInstance) -> None:
-        record = self._local_record(instance)
+        record = self._local_record(instance.record)
         pid: int | None = record.pid
         assert pid is not None  # a record this manager wrote names its process
         if not self._is_live(record):
@@ -282,7 +283,7 @@ class ServiceManager(ServiceManagerBase):
     def _start(self, app_file: str, name: str, base_path: str, otel: bool, port: int | None = None) -> ServiceInstance:
         """Start the service and wait for it to report healthy, with self._service_lock() held."""
         instance = self.get(name, base_path)
-        if instance is not None and self._health_ok(self._local_record(instance)):
+        if instance is not None and self._health_ok(self._local_record(instance.record)):
             return instance
 
         # fail here, in the caller's process, on everything that can be detected without serving: an app file
@@ -341,7 +342,7 @@ class ServiceManager(ServiceManagerBase):
         deadline = time.monotonic() + self._STARTUP_TIMEOUT
         while time.monotonic() < deadline:
             instance = self.get(name, base_path)
-            if instance is not None and self._health_ok(self._local_record(instance)):
+            if instance is not None and self._health_ok(self._local_record(instance.record)):
                 return instance
             if proc.poll() is not None:
                 break

@@ -13,6 +13,15 @@ from pixeltable_cli.types import ServiceSpec, ServiceState
 from pixeltable_cli.utils import PxtPath
 
 
+class ServiceResources(pydantic.BaseModel):
+    """What one of a service instance's pods gets, and how many of them serve it."""
+
+    cpu: float = 0.5
+    memory_mb: int = 512
+    disk_gb: int = 10
+    workers_min: int = 1
+
+
 class ServiceInstanceRecord(pydantic.BaseModel):
     """Metadata of a service instance."""
 
@@ -23,7 +32,8 @@ class ServiceInstanceRecord(pydantic.BaseModel):
     # the path within the instance's catalog (excludes catalog uri)
     base_path: str
 
-    endpoint: str
+    # where the instance answers; derived on both sides, so a stored one is never read back
+    endpoint: str = ''
 
     # the app file's module path, relative to the project root
     app_module: str
@@ -35,16 +45,20 @@ class ServiceInstanceRecord(pydantic.BaseModel):
 
     state: ServiceState = ServiceState.AVAILABLE
 
+    # when the instance was first recorded
     created_at: float | None = None
+
+    # bumped on every write; a poll carrying an older one has been superseded
+    updated_at: float | None = None
 
     # the reason for a FAILED state
     error: str | None = None
 
-    # how many workers serve the instance; a local instance is always one process
-    workers: int | None = None
-
     # the project fingerprint
     fingerprint: ProjectFingerprint
+
+    resources: ServiceResources = pydantic.Field(default_factory=ServiceResources)
+    description: str | None = None
 
     def to_cli_instance(self, catalog_uri: str = '') -> types.ServiceInstance:
         return types.ServiceInstance(

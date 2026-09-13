@@ -7,7 +7,7 @@ from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.service.db import db_fingerprint
 from pixeltable.service.management_protocol import LogRecord
-from pixeltable.service.svc_md import LocalServiceInstanceRecord
+from pixeltable.service.service_md import LocalServiceInstanceRecord
 from pixeltable.utils.app_module import (
     check_report,
     get_model_bases,

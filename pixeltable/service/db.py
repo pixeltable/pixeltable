@@ -48,7 +48,7 @@ _DB_SETTLE_TIMEOUT = 3600.0
 _DB_POLL_INTERVAL = 5.0
 
 # the states a database passes through while it applies something
-_DB_TRANSITIONAL = frozenset({DbState.PROVISIONING, DbState.UPDATING, DbState.STOPPING})
+_DB_TRANSITIONAL = frozenset({DbState.PROVISIONING, DbState.STARTING, DbState.UPDATING, DbState.STOPPING})
 
 
 def db_diff(db_uri: str) -> DbPlan:

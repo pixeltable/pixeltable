@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Sequence
 
-from pixeltable.service.svc_md import ServiceInstanceRecord
+from pixeltable.service.service_md import ServiceInstanceRecord
 from pixeltable_cli.types import ServiceSpec, ServiceState
 
 if TYPE_CHECKING:
