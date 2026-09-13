@@ -600,6 +600,9 @@ class ServiceInstance(pydantic.BaseModel):
     pid: int | None  # the process serving the instance; set only for an instance running on this machine
     process_started_at: float | None  # creation time of pid, None where the platform does not report one
 
+    # whether its database has moved past the project this instance serves
+    update_pending: bool = False
+
 
 # Databases
 

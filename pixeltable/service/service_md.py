@@ -57,6 +57,10 @@ class ServiceInstanceRecord(pydantic.BaseModel):
     # the project the instance serves; None until its pod reports one
     fingerprint: ProjectFingerprint | None = None
 
+    # whether its database has moved past the project this instance serves; derived on read, so a stored
+    # one is never read back. A restart moves the instance onto the new project.
+    update_pending: bool = False
+
     resources: ServiceResources = pydantic.Field(default_factory=ServiceResources)
     description: str | None = None
 
@@ -72,6 +76,7 @@ class ServiceInstanceRecord(pydantic.BaseModel):
             spec=self.spec,
             pid=None,
             process_started_at=None,
+            update_pending=self.update_pending,
         )
 
 

@@ -131,7 +131,8 @@ def print_service(svc: dict[str, Any]) -> None:
     else:
         workers_str = f'workers={svc.get("workers_min", 1)}'
     endpoint = svc.get('endpoint') or ''
-    print(f'{name}  state={state}  base={base}  {workers_str}  {endpoint}'.rstrip())
+    pending = ' (update pending)' if svc.get('update_pending') is True else ''
+    print(f'{name}  state={state}{pending}  base={base}  {workers_str}  {endpoint}'.rstrip())
     # Print route URLs from service_config
     svc_config_str = svc.get('service_config')
     if svc_config_str and endpoint:
