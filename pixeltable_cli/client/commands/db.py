@@ -126,11 +126,11 @@ def _list(args: argparse.Namespace) -> None:
 def _status(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db status')
     resp = get_request('/api/db', {'org': org, 'db': db})
-    result = resp.get('report', resp) if isinstance(resp, dict) else {}
+    report = resp.get('report', resp) if isinstance(resp, dict) else {}
     if args.json_output:
-        print(json.dumps(result))
+        print(json.dumps(report))
     else:
-        print_db(result)
+        print_db(report, resp.get('worker_status'))
 
 
 def _logs(args: argparse.Namespace) -> None:
@@ -143,9 +143,9 @@ def _start(args: argparse.Namespace) -> None:
     post_request('/api/db/start', {'org': org, 'db': db})
     result = poll_db(org, db, {DbState.UPDATING}, f"Database '{db}' is starting...")
     if args.json_output:
-        print(json.dumps(result))
+        print(json.dumps(result.get('report', {})))
     else:
-        print_db(result)
+        print_db(result.get('report') or {}, result.get('worker_status'))
     exit_unless_reached(result, DbState.AVAILABLE, f'starting database {db!r}')
 
 
@@ -154,9 +154,9 @@ def _stop(args: argparse.Namespace) -> None:
     post_request('/api/db/stop', {'org': org, 'db': db})
     result = poll_db(org, db, {DbState.STOPPING}, f"Database '{db}' is stopping...")
     if args.json_output:
-        print(json.dumps(result))
+        print(json.dumps(result.get('report', {})))
     else:
-        print_db(result)
+        print_db(result.get('report') or {}, result.get('worker_status'))
     exit_unless_reached(result, DbState.STOPPED, f'stopping database {db!r}')
 
 
@@ -165,9 +165,9 @@ def _restart(args: argparse.Namespace) -> None:
     post_request('/api/db/restart', {'org': org, 'db': db})
     result = poll_db(org, db, {DbState.UPDATING}, f"Database '{db}' is restarting...")
     if args.json_output:
-        print(json.dumps(result))
+        print(json.dumps(result.get('report', {})))
     else:
-        print_db(result)
+        print_db(result.get('report') or {}, result.get('worker_status'))
     exit_unless_reached(result, DbState.AVAILABLE, f'restarting database {db!r}')
 
 

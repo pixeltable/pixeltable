@@ -112,10 +112,11 @@ def _print_workers(workers: list[dict[str, Any]]) -> None:
     print_aligned(['POD ID', 'STATUS', 'READY', 'RESTARTS', 'AGE'], rows, right_align={2, 3}, indent='  ')
 
 
-def print_db(db: dict[str, Any]) -> None:
-    current = db.get('current') or {}
-    print(f'{db.get("db", "")}  state={current.get("state", "")}')
-    _print_workers(current.get('worker_status') or [])
+def print_db(report: dict[str, Any], workers: list[dict[str, Any]] | None = None) -> None:
+    """Print one database's report."""
+    current = report.get('current') or {}
+    print(f'{report.get("db", "")}  state={current.get("state", "")}')
+    _print_workers(workers or [])
 
 
 def print_service(svc: dict[str, Any]) -> None:
@@ -176,13 +177,13 @@ def spinner(label: str | None) -> Iterator[None]:
         yield
 
 
-def db_state(database: dict[str, Any]) -> str | None:
-    return (database.get('current') or {}).get('state')
+def db_state(response: dict[str, Any]) -> str | None:
+    return ((response.get('report') or {}).get('current') or {}).get('state')
 
 
-def exit_unless_reached(database: dict[str, Any], expected_state: DbState, operation: str) -> None:
+def exit_unless_reached(response: dict[str, Any], expected_state: DbState, operation: str) -> None:
     """Exit with 1 unless the database reached expected_state."""
-    state = db_state(database)
+    state = db_state(response)
     if state == expected_state:
         return
     seen = 'no state was read' if state is None else f'last state: {state}'
@@ -191,12 +192,12 @@ def exit_unless_reached(database: dict[str, Any], expected_state: DbState, opera
 
 
 def poll_db(org: str, db: str, pending_states: set[DbState], label: str | None) -> dict[str, Any]:
-    """Poll a hosted database until its state leaves pending_states, and return what was last read.
+    """Poll a hosted database until its state leaves pending_states, and return the whole response.
 
     Returns an empty dict if no read succeeded. A failed read is retried until the deadline, so a
     database briefly unreachable mid-transition does not abort the wait.
     """
-    database: dict[str, Any] = {}
+    response: dict[str, Any] = {}
     deadline = time.monotonic() + DB_POLL_TIMEOUT
     with spinner(label):
         while time.monotonic() < deadline:
@@ -207,7 +208,7 @@ def poll_db(org: str, db: str, pending_states: set[DbState], label: str | None) 
                 raise
             except Exception:
                 continue
-            database = resp.get('report', {}) if isinstance(resp, dict) else {}
-            if db_state(database) not in pending_states:
+            response = resp if isinstance(resp, dict) else {}
+            if db_state(response) not in pending_states:
                 break
-    return database
+    return response
