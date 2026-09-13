@@ -29,11 +29,11 @@ def simple_iterator(x: int, str_text: str = 'string') -> Iterator[MyRow]:
 @simple_iterator.validate
 def _(bound_args: dict[str, Any]) -> None:
     if 'x' in bound_args and bound_args['x'] < 0:
-        raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `x` must be non-negative.')
+        raise pxt.UserError(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `x` must be non-negative.')
     if 'str_text' not in bound_args:
-        raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a constant.')
+        raise pxt.UserError(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a constant.')
     if not bound_args['str_text'].isidentifier():
-        raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a valid identifier.')
+        raise pxt.UserError(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a valid identifier.')
 
 
 @pxt.iterator
@@ -58,11 +58,11 @@ class class_based_iterator(pxt.PxtIterator[MyRow]):
 @class_based_iterator.validate
 def _(bound_args: dict[str, Any]) -> None:
     if 'x' in bound_args and bound_args['x'] < 0:
-        raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `x` must be non-negative.')
+        raise pxt.UserError(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `x` must be non-negative.')
     if 'str_text' not in bound_args:
-        raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a constant.')
+        raise pxt.UserError(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a constant.')
     if not bound_args['str_text'].isidentifier():
-        raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a valid identifier.')
+        raise pxt.UserError(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a valid identifier.')
 
 
 @pxt.iterator(unstored_cols=['icol'])
@@ -91,11 +91,11 @@ class iterator_with_seek(pxt.PxtIterator[MyRow]):
     @classmethod
     def validate(cls, bound_args: dict[str, Any]) -> None:
         if 'x' in bound_args and bound_args['x'] < 0:
-            raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `x` must be non-negative.')
+            raise pxt.UserError(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `x` must be non-negative.')
         if 'str_text' not in bound_args:
-            raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a constant.')
+            raise pxt.UserError(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a constant.')
         if not bound_args['str_text'].isidentifier():
-            raise pxt.Error(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a valid identifier.')
+            raise pxt.UserError(pxt.ErrorCode.GENERIC_USER_ERROR, 'Parameter `str_text` must be a valid identifier.')
 
 
 class CustomLegacyIterator(ComponentIterator):

@@ -38,9 +38,8 @@ class DatabaseConfig(pydantic.BaseModel):
     # the database name ('local', or the uri of a hosted one)
     name: str = 'local'
 
-    # bindings for the config vars and secrets
+    # bindings for the config vars
     vars: dict[str, str] | None = None
-    secrets: dict[str, str] | None = None
 
     # the rest applies to a hosted database, whose runtime image is built from the project
     exclude: list[str] | None = None  # glob patterns to exclude from the image
@@ -93,10 +92,10 @@ _UNSPECIFIED = _Unspecified()
 
 # the recognized config files
 PROJECT_CONFIG_FILE = 'pixeltable.toml'
-_PYPROJECT = 'pyproject.toml'  # with a [tool.pixeltable] section
+PYPROJECT_FILE = 'pyproject.toml'  # with a [tool.pixeltable] section
 
 # both of them, for a caller that handles whichever the project holds
-PROJECT_CONFIG_FILES = (PROJECT_CONFIG_FILE, _PYPROJECT)
+PROJECT_CONFIG_FILES = (PROJECT_CONFIG_FILE, PYPROJECT_FILE)
 
 
 def _find_project_root(start: Path) -> Path | None:
@@ -106,7 +105,7 @@ def _find_project_root(start: Path) -> Path | None:
         if (dir / PROJECT_CONFIG_FILE).is_file():
             # pixeltable.toml takes precedence over pyproject.toml
             return dir
-        pyproject = dir / _PYPROJECT
+        pyproject = dir / PYPROJECT_FILE
         if pyproject.is_file():
             try:
                 parsed = toml.load(pyproject)
@@ -121,7 +120,7 @@ def _find_project_root(start: Path) -> Path | None:
     return None
 
 
-# config section names for database variables and secrets
+# config section names for database variables
 VAR_SECTION = 'pixeltable.database.vars'
 SECRET_SECTION = 'pixeltable.database.secrets'
 
@@ -486,7 +485,7 @@ class Config:
         if root is None:
             return None
         pixeltable_toml = root / PROJECT_CONFIG_FILE
-        return pixeltable_toml if pixeltable_toml.is_file() else root / _PYPROJECT
+        return pixeltable_toml if pixeltable_toml.is_file() else root / PYPROJECT_FILE
 
     def __load_project_config(self) -> dict[str, dict[str, tuple[Any, Path]]]:
         """Load the project's settings, keyed like the home config's.
@@ -496,7 +495,7 @@ class Config:
         if self.__project_config_file is None or not self.__project_config_file.exists():
             return {}
         parsed = self.__read_toml_file(self.__project_config_file)
-        if self.__project_config_file.name == _PYPROJECT:
+        if self.__project_config_file.name == PYPROJECT_FILE:
             parsed = parsed.get('tool', {}).get('pixeltable', {})
             # in a pyproject.toml, tool.pixeltable holds the contents of the 'pixeltable' section
             parsed = {'pixeltable': parsed} if not isinstance(parsed.get('pixeltable'), dict) else parsed
@@ -562,7 +561,7 @@ class Config:
                 try:
                     toml.dump(config_dict, stream)
                 except Exception as exc:
-                    raise excs.Error(
+                    raise excs.InternalError(
                         excs.ErrorCode.INTERNAL_ERROR, f'Could not create config file: {self.__config_file}'
                     ) from exc
             _logger.info(f'Created default config file at: {self.__config_file}')
@@ -671,12 +670,12 @@ class Config:
             return None
         return next((db for db in databases if db.name == db_name), None)
 
-    def __database_bindings(self, section: str) -> dict[str, tuple[str, Path | None]]:
-        """Return the local database's vars or secrets, each with the file that supplied it.
+    def __database_bindings(self) -> dict[str, tuple[str, Path | None]]:
+        """Return the local database's vars, each with the file that supplied it.
 
-        [[pixeltable.database]] is an array, which the section path of a var or a secret does not address;
-        both name the entry for the local database, which is the one a process reads them from. A binding the
-        project supplies wins over one of the same name in the home config.
+        [[pixeltable.database]] is an array, which the section path of a var does not address; it names the
+        entry for the local database, which is the one a process reads them from. A binding the project
+        supplies wins over one of the same name in the home config.
         """
         result: dict[str, tuple[str, Path | None]] = {}
         for config, source in (
@@ -689,14 +688,15 @@ class Config:
             local = next((db for db in entry[0] if db.name == LOCAL_DATABASE), None)
             if local is None:
                 continue
-            bindings = local.secrets if section == SECRET_SECTION else local.vars
-            result.update({name: (value, source) for name, value in (bindings or {}).items()})
+            result.update({name: (value, source) for name, value in (local.vars or {}).items()})
         return result
 
     def __lookup_config_entry(self, section: str, key: str) -> tuple[Any, Path | None] | None:
         """Find key under section in __config_dict. Returns (value, source_path) or None."""
-        if section in (VAR_SECTION, SECRET_SECTION):
-            return self.__database_bindings(section).get(key)
+        if section == VAR_SECTION:
+            return self.__database_bindings().get(key)
+        if section == SECRET_SECTION:
+            return None  # a secret is bound by its environment variable, which get_value() reads first
         parts = section.split('.')
         # explicit type decl for readability
         top_section: dict[str, tuple[Any, Path | None]] | None = self.__config_dict.get(parts[0])
@@ -830,8 +830,10 @@ class Config:
 
     def __section_keys(self, section: str) -> list[str]:
         """The keys defined in section."""
-        if section in (VAR_SECTION, SECRET_SECTION):
-            return list(self.__database_bindings(section))
+        if section == VAR_SECTION:
+            return list(self.__database_bindings())
+        if section == SECRET_SECTION:
+            return []  # a secret is named by its environment variable, which __config_var_keys() scans
         parts = section.split('.')
         node: Any = self.__config_dict.get(parts[0])
         for p in parts[1:]:

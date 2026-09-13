@@ -1,46 +1,38 @@
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import tarfile
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
-
-import pydantic
 
 from pixeltable import catalog, exceptions as excs, metadata
 from pixeltable.config import Config, DatabaseConfig
 from pixeltable.service import management_client
+from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.service.management_protocol import (
-    BuildImageRequest,
-    CreateDbRequest,
-    DeleteDbRequest,
-    DeleteSecretRequest,
+    ArtifactUpload,
+    DatabaseReport,
     GetArchiveRequest,
     GetArchiveResponse,
-    GetArchiveUploadUrlRequest,
-    GetArchiveUploadUrlResponse,
     GetDbRequest,
-    ListDbRequest,
-    ListSecretsRequest,
-    ListSecretsResponse,
+    GetDbResponse,
     ReportServiceInstanceRequest,
-    SetArchiveRequest,
-    SetSecretRequest,
     UpdateDbRequest,
+    UpdateDbResponse,
 )
 from pixeltable.utils.project import (
     ProjectFingerprint,
+    ProjectPart,
+    create_image_context,
     create_project_archive,
-    loaded_fingerprint,
     project_fingerprint,
     unpacked_digest,
 )
-from pixeltable_cli.types import DbChangeOp, DbPlan, DbTarget
+from pixeltable_cli.types import DbArtifact, DbChangeOp, DbPlan, DbState, DbTarget
 
 _logger = logging.getLogger('pixeltable')
 
@@ -51,124 +43,77 @@ _ARCHIVE_DIR = 'project'
 
 _DB_DESTRUCTIVE_HINT = "Re-run 'pxt db update' with --allow-destructive to apply these changes."
 
-# a defined secret names the environment variable holding its value, as 'env:NAME'
-_ENV_BINDING = 'env:'
-
 # how long a hosted database may stay in a transitional state before an update gives up on it
 _DB_SETTLE_TIMEOUT = 3600.0
 _DB_POLL_INTERVAL = 5.0
 
 # the states a database passes through while it applies something
-_DB_TRANSITIONAL = frozenset({'PROVISIONING', 'UPDATING', 'STARTING', 'STOPPING'})
-
-
-class DatabaseState(pydantic.BaseModel):
-    """The state of a hosted db."""
-
-    model_config = pydantic.ConfigDict(extra='ignore', populate_by_name=True)
-
-    state: str = ''
-    default_bucket: str | None = None
-    cpu: float | None = None
-    memory_mb: int | None = None
-    disk_gb: int | None = None
-
-    # vars and their values
-    vars: dict[str, str] = pydantic.Field(default_factory=dict)
-
-    secret_keys: list[str] = pydantic.Field(default_factory=list)
-
-    # the pods serving the database, which is what they are doing rather than how many are configured.
-    # Named 'workers' on the wire.
-    worker_status: list[dict[str, Any]] = pydantic.Field(default_factory=list, alias='workers')
-
-    # the worker count the database is configured with, which the pod list does not give: pods come and go
-    # TODO: require this once GET_DB reports it
-    worker_count: int | None = None
-
-    fingerprint: ProjectFingerprint | None = None
-
-    # the image the database runs on, and the outcome of the build that produced it. Named 'runtime_image'
-    # on the wire.
-    image: str = pydantic.Field(default='', alias='runtime_image')
-    last_build_state: str | None = None
-    last_build_error: str | None = None
-
-    # why the database is FAILED
-    failure_reason: str | None = None
+_DB_TRANSITIONAL = frozenset({DbState.PROVISIONING, DbState.UPDATING, DbState.STOPPING})
 
 
 def db_diff(db_uri: str) -> DbPlan:
     """Diff the database at db_uri with the corresponding DatabaseConfig in the project configuration."""
     db_path = _validated_db_uri(db_uri)
-    config = _get_db_config(db_path)
-    current = _get_db_state(db_path)
-    if current is None:
-        return DbPlan.from_ops(db_uri, None, [])
-
-    # TODO: read the secret keys again, once a diff compares them
-    fingerprint = project_fingerprint(_validated_project_root(), config)
-    return DbPlan.from_ops(db_uri, current.state, _compare_db(current, config, fingerprint))
+    return _update_db_request(db_path, target=_db_resources(_get_db_config(db_path)), dry_run=True).plan
 
 
-# SCALED BACK: GET_DB reports no fingerprint, so this always returns None
-def published_fingerprint(db_path: catalog.Path) -> ProjectFingerprint | None:
-    """The fingerprint of the project at the hosted db_path."""
+def db_fingerprint(db_path: catalog.Path) -> ProjectFingerprint | None:
+    """Return the fingerprint of the project deployed to a hosted database; None for a local one."""
     if db_path.org is None or db_path.db is None:
         return None
-    state = _get_db_state(db_path)
-    return None if state is None else state.fingerprint
+    report = _get_db_report(db_path)
+    return None if report is None or report.current is None else report.current.resources.fingerprint
+
+
+def create_db_update_ops(target: DatabaseResources, current: DatabaseResources | None) -> list[DbChangeOp]:
+    """The operations needed to reconcile current with target."""
+    ops: list[DbChangeOp] = []
+
+    if target.fingerprint is not None:
+        if current is None or current.fingerprint is None:
+            # nothing to diff against: the database is new, or still on the base image
+            # TODO: record the base image's fingerprint at provisioning and remove this branch
+            ops += [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
+        else:
+            changed = target.fingerprint.compare(current.fingerprint)
+            if ProjectPart.IMAGE in changed:
+                ops.append(DbChangeOp.build_image(target.fingerprint.changes(current.fingerprint, {ProjectPart.IMAGE})))
+            if ProjectPart.ARCHIVE in changed:
+                ops.append(
+                    DbChangeOp.upload_archive(target.fingerprint.changes(current.fingerprint, {ProjectPart.ARCHIVE}))
+                )
+
+    current_capacity = {} if current is None else current.capacity()
+    combined = current_capacity | target.capacity()  # target settings take precedence
+    for name, val in combined.items():
+        if val != current_capacity.get(name):
+            ops.append(DbChangeOp.capacity(name, current_capacity.get(name), val))
+
+    return ops
 
 
 def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
     """Reconcile the database at db_uri with its corresponding DatabaseConfig in the project configuration.
 
-    Secrets go first, since code the pods run reads them as they start; capacity last, so that the resize
-    restarts pods already on the new image and the new sources.
-
-    This is the one verb that creates a hosted database. A database created here is given every secret and
-    both artifacts -- it reports no fingerprint yet, so the diff has nothing to compare against -- and it is
-    deleted again if any of that fails, so an update either leaves a database that can serve or none at all.
+    This is the one verb that creates a hosted database. The control plane records the spec before acting
+    on any of it, so an update interrupted anywhere is finished by running it again.
 
     Returns the plan that was applied, each operation annotated with its status.
-
-    Args:
-        db_uri: the pxt://org:db uri of the database the entry configures.
-        allow_destructive: whether to apply changes that take capacity away or delete a secret.
     """
     db_path = _validated_db_uri(db_uri)
     config = _get_db_config(db_path)
-    plan = db_diff(db_uri)
+    target = _db_resources(config)
+    plan = _update_db_request(db_path, target=target, dry_run=True).plan
     if plan.destructive and not allow_destructive:
-        for op in plan.ops:
-            op.status = 'refused'
         destructive = ', '.join(op.name or '' for op in plan.ops if op.destructive)
         raise excs.RequestError(
             excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE,
             f'Reconciling {db_uri} would apply destructive changes: {destructive}.\n{_DB_DESTRUCTIVE_HINT}',
         )
 
-    created = not plan.exists
-    if created:
-        management_client.api_call(CreateDbRequest(org=db_path.org, db=db_path.db, **_capacity_settings(config)))
-        _await_db_settled(db_path)
-        # a database that has just been created has no image of its own
-        plan.ops = [DbChangeOp.build_image()]
-
-    try:
-        _apply(plan, config, db_path)
-    except Exception:
-        if created:
-            _delete_after_failed_create(db_path)
-        raise
-
-    settled = _await_db_settled(db_path)
-    if settled.state == 'FAILED':
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
-            f'{db_path.uri_str} is FAILED after the update: {settled.failure_reason or "no reason was reported"}',
-            provider='pixeltable_cloud',
-        )
+    settled, _ = _update_db(db_path, config, target)
+    for op in plan.ops:
+        op.status = 'applied'
     plan.state = settled.state
     plan.exists = True
     plan.status = 'applied'
@@ -177,77 +122,109 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
     return plan
 
 
-def _apply(plan: DbPlan, config: DatabaseConfig, db_path: catalog.Path) -> None:
-    """Apply the plan's operations to the database at db_path, marking each one applied.
+def _update_db(
+    db_path: catalog.Path, config: DatabaseConfig, target: DatabaseResources, *, force_image_build: bool = False
+) -> tuple[DatabaseStatus, set[DbArtifact]]:
+    """Ask db_path to provide config's resources, store the artifacts it asks for, and wait for it to settle.
 
-    TODO: apply the secret and capacity operations again, once a diff plans them.
+    Returns the status it settled in and the artifacts this call stored; one the store already held is
+    not stored again.
     """
-    image_ops = _get_target_ops(plan, 'image')
-    if len(image_ops) > 0:
-        _publish_artifacts(config, db_path)
-        for op in image_ops:
-            op.status = 'applied'
+    response = _update_db_request(db_path, target=target, force_image_build=force_image_build)
+    stored: set[DbArtifact] = set()
+    rounds = 0
+    while len(response.uploads) > 0:
+        rounds += 1
+        if rounds > 2:
+            # > 2 rounds: we're not making progress
+            wanted = ', '.join(upload.artifact for upload in response.uploads)
+            raise excs.InternalError(
+                excs.ErrorCode.INTERNAL_ERROR, f'{db_path.uri_str} still asks for {wanted} after it was stored'
+            )
+        stored.update(upload.artifact for upload in response.uploads)
+        _store_artifacts(response.uploads, config)
+        response = _update_db_request(db_path, target=target, force_image_build=force_image_build)
 
-    changed = {op.name for op in _get_target_ops(plan, 'capacity')}
-    if len(changed) > 0:
-        # one request carrying every changed number, so the pods restart once
+    settled = _await_db_settled(db_path)
+    if settled.state == DbState.FAILED:
+        reason = settled.failure_reason or 'no reason was reported'
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'{db_path.uri_str} is FAILED after the update: {reason}',
+            provider='pixeltable_cloud',
+        )
+    if settled.last_build_outcome == 'FAILED':
+        # a failed build leaves the database serving what it served before, rather than FAILED
+        reason = settled.last_build_error or 'no reason was reported'
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'The image build for {db_path.uri_str} failed: {reason}',
+            provider='pixeltable_cloud',
+        )
+    if settled.failure_reason is not None:
+        # a step that failed and left the database serving what it served before still failed
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'{db_path.uri_str} did not reach the state it was given: {settled.failure_reason}',
+            provider='pixeltable_cloud',
+        )
+    if settled.resources is None or settled.resources.fingerprint != target.fingerprint:
+        # settling on a project other than the one asked for reports nothing else, so say so here
+        raise excs.InternalError(
+            excs.ErrorCode.INTERNAL_ERROR, f'{db_path.uri_str} settled on a project other than the one it was given'
+        )
+    return settled, stored
+
+
+def _update_db_request(
+    db_path: catalog.Path,
+    *,
+    target: DatabaseResources | None = None,
+    dry_run: bool = False,
+    force_image_build: bool = False,
+) -> UpdateDbResponse:
+    return UpdateDbResponse.model_validate(
         management_client.api_call(
             UpdateDbRequest(
-                org=db_path.org,
-                db=db_path.db,
-                workers=config.workers if 'workers' in changed else None,
-                cpu=config.cpu if 'cpu' in changed else None,
-                memory_mb=config.memory_mb if 'memory_mb' in changed else None,
-                disk_gb=config.disk_gb if 'disk_gb' in changed else None,
+                org=db_path.org, db=db_path.db, target=target, dry_run=dry_run, force_image_build=force_image_build
             )
         )
-        for op in _get_target_ops(plan, 'capacity'):
-            op.status = 'applied'
-
-
-def _delete_after_failed_create(db_path: catalog.Path) -> None:
-    """Delete the database created by an update that then failed, so that no unusable one is left behind."""
-    try:
-        management_client.api_call(DeleteDbRequest(org=db_path.org, db=db_path.db))
-    except Exception:
-        _logger.warning(
-            '%s was created but not updated, and could not be deleted; run `pxt db delete`', db_path.uri_str
-        )
+    )
 
 
 def db_build_image(db_uri: str) -> list[DbChangeOp]:
-    """Upload this project's files to the database at db_uri and build its image, and wait for both.
+    """Store this project's files at db_uri and rebuild its image, and wait for both.
 
-    Uploads and builds whatever the project holds, without comparing it to the database first.
+    Builds whatever the project holds, without comparing it to the database first. Each returned operation
+    carries what it did: the archive is stored only where the store does not hold it already.
     """
     db_path = _validated_db_uri(db_uri)
     config = _get_db_config(db_path)
-    if _get_db_state(db_path) is None:
+    report = _get_db_report(db_path)
+    if report is None:
         raise excs.NotFoundError(
             excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'{db_path.uri_str} does not exist; run `pxt db update` to create it'
         )
-    ops = [DbChangeOp.build_image()]
-    _publish_artifacts(config, db_path)
-    for op in ops:
-        op.status = 'applied'
-    return ops
+    if report.current is None:
+        raise excs.NotFoundError(
+            excs.ErrorCode.DEPLOYMENT_NOT_FOUND,
+            f'{db_path.uri_str} is still being created; run `pxt db status` to check the status',
+        )
+    settled, stored = _update_db(db_path, config, _db_resources(config), force_image_build=True)
+    image_op = DbChangeOp.build_image()
+    # a build that did not run leaves nothing to report, whatever was asked for
+    image_op.status = 'applied' if settled.last_build_outcome == 'SUCCEEDED' else 'skipped'
+    archive_op = DbChangeOp.upload_archive()
+    archive_op.status = 'applied' if 'archive' in stored else 'skipped'
+    return [image_op, archive_op]
 
 
-def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | None = None) -> str:
-    """Unpack db_uri's project archive into dest, and return the archive's digest.
-
-    Refuses an archive whose digest is not expected_digest: a pod is told which project to run, and a
-    different one would serve code nobody asked for.
-    """
+def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:
+    """Unpack db_uri's project archive into dest, and return what the control plane served it as."""
     db_path = _validated_db_uri(db_uri)
     response = GetArchiveResponse.model_validate(
         management_client.api_call(GetArchiveRequest(org=db_path.org, db=db_path.db))
     )
-    if expected_digest is not None and response.digest != expected_digest:
-        raise excs.Error(
-            excs.ErrorCode.INVALID_STATE,
-            f'{db_path.uri_str} serves project {response.digest}, not the {expected_digest} this process runs',
-        )
     dest.parent.mkdir(parents=True, exist_ok=True)
     # unpacked next to dest and moved into place, so that dest never holds a file the archive dropped
     unpacking = Path(tempfile.mkdtemp(dir=dest.parent, prefix=f'.{dest.name}.'))
@@ -269,7 +246,7 @@ def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | No
                 if member.name == _ARCHIVE_DIR:
                     continue
                 if not member.name.startswith(prefix):
-                    raise excs.Error(
+                    raise excs.RequestError(
                         excs.ErrorCode.INVALID_DATA_FORMAT,
                         f'{db_path.uri_str} serves an archive holding {member.name!r}, which is outside {prefix}',
                     )
@@ -281,7 +258,7 @@ def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | No
         unpacked = unpacked_digest(project_dir)
         if unpacked != response.digest:
             # what arrived is not what the control plane named, whatever it named
-            raise excs.Error(
+            raise excs.RequestError(
                 excs.ErrorCode.INVALID_DATA_FORMAT,
                 f'{db_path.uri_str} served an archive holding project {unpacked}, not {response.digest}',
             )
@@ -291,43 +268,62 @@ def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | No
         project_dir.rename(dest)
     finally:
         shutil.rmtree(unpacking, ignore_errors=True)
-    return response.digest
+    return response
 
 
-def report_instance_fingerprint(db_uri: str, service_name: str, base_path: str = '') -> None:
-    """Tell the database at db_uri which of its project files the named service instance loaded."""
+def report_instance_fingerprint(
+    db_uri: str, service_name: str, fingerprint: ProjectFingerprint, base_path: str = ''
+) -> None:
+    """Tell the database at db_uri which project the named service instance loaded."""
     db_path = _validated_db_uri(db_uri)
-    config = _get_db_config(db_path)
     management_client.api_call(
         ReportServiceInstanceRequest(
-            org=db_path.org,
-            db=db_path.db,
-            service_name=service_name,
-            base_path=base_path,
-            fingerprint=loaded_fingerprint(_validated_project_root(), config),
+            org=db_path.org, db=db_path.db, service_name=service_name, base_path=base_path, fingerprint=fingerprint
         )
     )
 
 
-def _publish_artifacts(config: DatabaseConfig, db_path: catalog.Path) -> None:
-    """Store the project's archive and build the image the pods run.
-
-    TODO: call SET_ARCHIVE with the archive, once the control plane holds one apart from the image.
-    """
-    fingerprint = project_fingerprint(_validated_project_root(), config)
-    key = _upload_project_archive(config, db_path)
-    _build_image(db_path, key, fingerprint)
-
-
-def _capacity_settings(config: DatabaseConfig) -> dict[str, float | int]:
-    """The capacity fields from DatabaseConfig as a dict."""
-    settings = (
-        ('cpu', config.cpu),
-        ('memory_mb', config.memory_mb),
-        ('disk_gb', config.disk_gb),
-        ('workers', config.workers),
+def _db_resources(config: DatabaseConfig) -> DatabaseResources:
+    # TODO: default_bucket?
+    return DatabaseResources(
+        fingerprint=project_fingerprint(_validated_project_root(), config),
+        pxt_md_version=metadata.VERSION,
+        cpu=config.cpu,
+        memory_mb=config.memory_mb,
+        disk_gb=config.disk_gb,
+        workers=config.workers,
     )
-    return {field: value for field, value in settings if value is not None}
+
+
+def _store_artifacts(uploads: list[ArtifactUpload], config: DatabaseConfig) -> None:
+    """Package each artifact the control plane asked for and store it at the url it gave."""
+    project_root = _validated_project_root()
+    for upload in uploads:
+        if upload.artifact == 'archive':
+            path = create_project_archive(project_root, config, show_progress=True)
+        else:
+            path = create_image_context(project_root)
+        try:
+            _put_artifact(upload.url, path)
+        finally:
+            path.unlink(missing_ok=True)
+
+
+def _put_artifact(url: str, path: Path) -> None:
+    with path.open('rb') as f:
+        request = urllib.request.Request(url, data=f, method='PUT')
+        request.add_header('Content-Type', 'application/octet-stream')
+        request.add_header('Content-Length', str(path.stat().st_size))
+        try:
+            # urlopen() raises for every 4xx and 5xx, so the status is only reachable through HTTPError
+            urllib.request.urlopen(request, timeout=_UPLOAD_TIMEOUT).close()
+        except urllib.error.HTTPError as e:
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Storing {path.name} failed: HTTP {e.code}',
+                provider='pixeltable_cloud',
+                status_code=e.code,
+            ) from e
 
 
 def _get_target_ops(plan: DbPlan, target: DbTarget) -> list[DbChangeOp]:
@@ -335,96 +331,20 @@ def _get_target_ops(plan: DbPlan, target: DbTarget) -> list[DbChangeOp]:
     return [op for op in plan.ops if op.target == target]
 
 
-def _build_image(db_path: catalog.Path, archive_key: str, fingerprint: ProjectFingerprint) -> None:
-    management_client.api_call(
-        BuildImageRequest(
-            org=db_path.org,
-            db=db_path.db,
-            archive_key=archive_key,
-            image_digest=fingerprint.image_digest(),
-            python_version=fingerprint.python_version,
-            system_dependencies=fingerprint.system_dependencies,
-            deps_type=fingerprint.deps_type(),
-            uv_options=fingerprint.uv_options,
-            pxt_md_version=metadata.VERSION,
-        )
-    )
-    current = _await_db_settled(db_path)
-    if current.last_build_state == 'FAILED':
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
-            f'The image build for {db_path.uri_str} failed: {current.last_build_error or "no reason was reported"}',
-            provider='pixeltable_cloud',
-        )
-
-
-# SCALED BACK: uncalled; the control plane has no SET_ARCHIVE operation
-def _set_archive(db_path: catalog.Path, archive_key: str, fingerprint: ProjectFingerprint) -> None:
-    """Point the database's pods at the stored archive, and wait for them to come back on it."""
-    management_client.api_call(
-        SetArchiveRequest(org=db_path.org, db=db_path.db, archive_key=archive_key, fingerprint=fingerprint)
-    )
-    current = _await_db_settled(db_path)
-    if current.state == 'FAILED':
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
-            f'{db_path.uri_str} did not come back on the new project; it is {current.state}',
-            provider='pixeltable_cloud',
-        )
-
-
-def _secret_keys(db_path: catalog.Path) -> list[str]:
-    """The keys of the secrets the named database holds."""
-    response = ListSecretsResponse.model_validate(
-        management_client.api_call(ListSecretsRequest(org=db_path.org, db=db_path.db))
-    )
-    return response.keys
-
-
-def _apply_secret_op(db_path: catalog.Path, op: DbChangeOp, config: DatabaseConfig) -> None:
-    """Apply one secret operation: set the defined value, or delete the key."""
-    key = op.name
-    if op.op == 'drop':
-        management_client.api_call(DeleteSecretRequest(org=db_path.org, db=db_path.db, key=key))
-        return
-    binding = (config.secrets or {})[key]
-    management_client.api_call(
-        SetSecretRequest(org=db_path.org, db=db_path.db, key=key, value=_secret_value(key, binding))
-    )
-
-
-def _secret_value(key: str, binding: str) -> str:
-    """Read a defined secret's value from the environment variable its binding names."""
-    name = binding[len(_ENV_BINDING) :] if binding.startswith(_ENV_BINDING) else None
-    if name is None:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f"secret {key!r} is defined as {binding!r}; write '{_ENV_BINDING}NAME' to name the environment "
-            'variable holding the value, which keeps the value out of the project',
-        )
-    value = os.environ.get(name)
-    if value is None or value == '':
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f'secret {key!r} is bound to {name}, which is not set in the environment',
-        )
-    return value
-
-
-def _await_db_settled(db_path: catalog.Path) -> DatabaseState:
-    """Poll the named database until it leaves a transitional state, and return the state it reached."""
+def _await_db_settled(db_path: catalog.Path) -> DatabaseStatus:
+    """Poll the named database until it leaves a transitional state, and return the status it reached."""
     deadline = time.monotonic() + _DB_SETTLE_TIMEOUT
     while True:
-        current = _get_db_state(db_path)
-        if current is None:
-            # a database that is gone has no state to report
+        report = _get_db_report(db_path)
+        if report is None or report.current is None:
+            # a database that is gone has no status to report
             raise excs.NotFoundError(excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'{db_path.uri_str} no longer exists')
-        if current.state not in _DB_TRANSITIONAL:
-            return current
+        if report.current.state not in _DB_TRANSITIONAL:
+            return report.current
         if time.monotonic() >= deadline:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_TIMEOUT,
-                f'{db_path.uri_str} is still {current.state} after {int(_DB_SETTLE_TIMEOUT)}s',
+                f'{db_path.uri_str} is still {report.current.state} after {int(_DB_SETTLE_TIMEOUT)}s',
                 provider='pixeltable_cloud',
             )
         time.sleep(_DB_POLL_INTERVAL)
@@ -460,59 +380,11 @@ def _get_db_config(db_uri: catalog.Path) -> DatabaseConfig:
     return config
 
 
-def _get_db_state(db_path: catalog.Path) -> DatabaseState | None:
-    """The named database as the control plane reports it; None if it holds no such database."""
-    # TODO: read 404 from GET_DB, once an absent database answers with one rather than 401
-    if not _db_exists(db_path):
-        return None
-    response = management_client.api_call(GetDbRequest(org=db_path.org, db=db_path.db))
-    return DatabaseState.model_validate(response.get('database', response))
-
-
-def _db_exists(db_path: catalog.Path) -> bool:
-    """Whether the org holds a database of this name."""
-    response = management_client.api_call(ListDbRequest(org=db_path.org))
-    return any(entry['db_slug'] == db_path.db for entry in response['databases'])
-
-
-def _compare_db(current: DatabaseState, config: DatabaseConfig, fingerprint: ProjectFingerprint) -> list[DbChangeOp]:
-    """The operations that make current match config.
-
-    Always a rebuild: current reports no fingerprint, so nothing identifies the project it already holds.
-
-    TODO: compare the fingerprint GET_DB reports, and restore the capacity and secret comparisons with it.
-    """
-    return [DbChangeOp.build_image()]
-
-
-def _upload_project_archive(config: DatabaseConfig, db_path: catalog.Path, *, show_progress: bool = False) -> str:
-    """Store the project as the archive the named database's pods and image builds read.
-
-    Returns the control plane's key for it. A project whose digest names an archive the control plane
-    already holds is neither packaged nor uploaded.
-    """
-    project_root = _validated_project_root()
-    digest = project_fingerprint(project_root, config).archive_digest()
-    response = GetArchiveUploadUrlResponse.model_validate(
-        management_client.api_call(GetArchiveUploadUrlRequest(org=db_path.org, db=db_path.db, digest=digest))
-    )
-    if response.presigned_url is None:
-        return response.archive_key
-
-    archive_path = create_project_archive(project_root, config, show_progress=show_progress)
+def _get_db_report(db_path: catalog.Path) -> DatabaseReport | None:
     try:
-        with archive_path.open('rb') as f:
-            request = urllib.request.Request(response.presigned_url, data=f, method='PUT')
-            request.add_header('Content-Type', 'application/octet-stream')
-            request.add_header('Content-Length', str(archive_path.stat().st_size))
-            with urllib.request.urlopen(request, timeout=_UPLOAD_TIMEOUT) as r:
-                if r.status >= 400:
-                    raise excs.ExternalServiceError(
-                        excs.ErrorCode.PROVIDER_ERROR,
-                        f'Project upload failed: HTTP {r.status}',
-                        provider='pixeltable_cloud',
-                        status_code=r.status,
-                    )
-    finally:
-        archive_path.unlink(missing_ok=True)
-    return response.archive_key
+        response = management_client.api_call(GetDbRequest(org=db_path.org, db=db_path.db))
+    except excs.ExternalServiceError as exc:
+        if exc.provider_http_status_code == 404:
+            return None
+        raise
+    return GetDbResponse.model_validate(response).report

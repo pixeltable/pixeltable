@@ -177,9 +177,9 @@ def visible_models(module: ModuleType) -> dict[str, model.TableModelMeta]:
     return models
 
 
-def model_mismatch_error_str(models: dict[str, model.TableModelMeta], base_path: str) -> str | None:
-    """Return an error string explaining a mismatch between the models and their corresponding tables in base_path, or
-    None if there is no mismatch."""
+def validate_models(models: dict[str, model.TableModelMeta], base_path: str) -> str | None:
+    """Validates models against their corresponding tables in base_path, returns None if they match, otherwise an
+    error string."""
     diffs = diff.validate_models(models, base_path)
     mismatched = {name: d for name, d in diffs.items() if d.resolution != 'up_to_date'}
     if len(mismatched) == 0:

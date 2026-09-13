@@ -305,7 +305,7 @@ class TunnelTransport(Transport):
                     response = conn.getresponse()
                     content = response.read()
                 except _TUNNEL_TRANSIENT_EXC as exc:
-                    raise excs.Error(
+                    raise excs.InternalError(
                         excs.ErrorCode.INTERNAL_ERROR,
                         f'The database became unresponsive while handling this request: pxt://{self._org}:{self._db}\n'
                         'This may be caused by a query that was too large for the database to serve.\n'

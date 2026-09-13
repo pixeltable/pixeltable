@@ -390,7 +390,6 @@ The file it writes holds one entry per database the project uses:
 [[pixeltable.database]]
 # the local database
 vars.media_dest = 's3://bucket/prefix'      # binds a ConfigVar a schema declares
-secrets.openai_api_key = '...'
 
 [[pixeltable.database]]
 name = 'pxt://myorg:prod'                   # a hosted database
@@ -799,14 +798,11 @@ All cloud commands accept `--json` for machine-readable output.
 
 #### `[[pixeltable.database]]` — what a project declares about one database
 
-Defines which project files the database gets, what its image holds, what it runs on, and which secrets it holds.
+Defines which project files the database gets, what its image holds, and what it runs on.
 
 ```toml
 [[pixeltable.database]]
 name = 'pxt://myorg:prod'           # matches the uri passed to pxt db update
-
-# the environment variable holding each secret's value, never the value itself
-secrets.openai_api_key = 'env:OPENAI_API_KEY'
 
 # which project files the database gets. Glob patterns relative to the project root; everything git
 # would not ignore is uploaded by default, and the lockfile always is.
@@ -850,7 +846,7 @@ pxt db update pxt://myorg:mydb --allow-destructive
 |---|---|
 | `-n`, `--dry-run` | Print the plan; do not run `update` |
 | `-f`, `--force` | Skip the confirmation |
-| `--allow-destructive` | Permit taking capacity away or deleting a secret |
+| `--allow-destructive` | Permit taking capacity away |
 
 This is the command that creates a hosted database, and the one that keeps it current afterwards. Put the database in a `[[pixeltable.database]]` entry, then run `update` against the URI its `name` holds:
 
@@ -866,7 +862,7 @@ pxt db update pxt://myorg:mydb
 
 The uri on the command line selects the entry by its `name`: an entry naming another database configures that one, and a target no entry names is an error. The first run creates the database, builds the image its environment describes and uploads the project files the pods run; every later run applies whatever has changed since. The [cloud configuration reference](#cloud-configuration-reference) lists everything an entry can declare.
 
-`update` applies secrets first so pods can read them on start, then a new image if dependencies changed, then uploaded project files if sources changed, then one resize for any changed CPU, memory, disk, or worker counts so the pods restart only once. A secret is the name of an environment variable (`openai_api_key = 'env:OPENAI_API_KEY'`), never a value.
+`update` applies a new image if dependencies changed, then uploaded project files if sources changed, then one resize for any changed CPU, memory, disk, or worker counts so the pods restart only once. Secrets are set with [`pxt secret`](#pxt-secret) rather than from the project.
 
 #### `pxt db list`
 
@@ -906,7 +902,7 @@ pxt db diff pxt://myorg:mydb
 pxt db diff pxt://myorg:mydb --json
 ```
 
-`pxt db diff` compares the hosted database to that config entry (see the [cloud configuration reference](#cloud-configuration-reference)): capacity, secrets, the Python image, and the project file archive --
+`pxt db diff` compares the hosted database to that config entry (see the [cloud configuration reference](#cloud-configuration-reference)): capacity, the Python image, and the project file archive --
 
 | artifact | holds | moves when |
 |---|---|---|
@@ -960,8 +956,6 @@ pxt secret delete pxt://myorg:mydb OLD_KEY
 ```
 
 An org secret applies to every database in the org. A database secret applies to that database and wins on a key collision. `list` prints names, never values.
-
-A project can declare secrets in its `[[pixeltable.database]]` entry as the name of the environment variable holding each value. `pxt db update` sets them from there.
 
 A running database holds the values it started with. Run `pxt db stop` then `pxt db start` to pick up a change.
 

@@ -55,7 +55,8 @@ def assert_in_agreement(cli: PxtRunner, app: str, target: str, cwd: pathlib.Path
     Whatever a command reported about the work it did, this is the reading that says the target converged.
     An undeclared table is not a disagreement, so a target with extras still passes.
     """
-    r = cli('schema', 'diff', app, target, '--json', cwd=cwd)
+    # rc 2 is 'changes pending', so the runner must not treat it as a failed command
+    r = cli('schema', 'diff', app, target, '--json', cwd=cwd, check=False)
     assert r.returncode == 0, r.stdout
     assert r.json['in_agreement'], r.json
     assert [t['resolution'] for t in r.json['tables']] == ['up_to_date'] * len(r.json['tables']), r.json['tables']
@@ -271,8 +272,8 @@ class TestSchema:
         cli('schema', 'update', str(schema_file), target)
 
         # in agreement afterwards
-        r = cli('schema', 'diff', str(schema_file), target, '--json')
-        assert r.returncode == 0
+        r = cli('schema', 'diff', str(schema_file), target, '--json', check=False)
+        assert r.returncode == 0, r.stdout
         assert r.json['in_agreement']
         assert [t['resolution'] for t in r.json['tables']] == ['up_to_date', 'up_to_date']
         assert r.json['summary']['up_to_date'] == 2
@@ -476,8 +477,8 @@ class TestSchema:
         pxt.create_view(f'{target}/scratch_view', scratch.where(scratch.x > 0))
 
         # a table no model declares is reported, but update would not touch it, so the target is still in agreement
-        r = cli('schema', 'diff', str(schema_file), target, '--json')
-        assert r.returncode == 0
+        r = cli('schema', 'diff', str(schema_file), target, '--json', check=False)
+        assert r.returncode == 0, r.stdout
         assert r.json['in_agreement']
         assert sorted(r.json['extras']) == [f'{target}/scratch', f'{target}/scratch_view']
         assert r.json['summary']['extras'] == 2

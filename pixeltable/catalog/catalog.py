@@ -866,7 +866,9 @@ class Catalog(CatalogBase):
         for tbl_id in self._roll_forward_ids:
             exc = self._finalize_pending_ops(tbl_id)
             if exc is not None:
-                raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'Table operation was aborted with\n{exc!s}') from exc
+                raise excs.InternalError(
+                    excs.ErrorCode.INTERNAL_ERROR, f'Table operation was aborted with\n{exc!s}'
+                ) from exc
 
     def _finalize_pending_ops(self, tbl_id: UUID) -> Exception | None:
         """

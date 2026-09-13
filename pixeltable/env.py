@@ -723,15 +723,15 @@ class Env:
             if ':' in setting:
                 domain, _, port_str = setting.rpartition(':')
                 if domain == '':
-                    raise excs.Error(
-                        excs.ErrorCode.GENERIC_USER_ERROR,
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_CONFIGURATION,
                         f'Invalid PIXELTABLE_CLOUD_HOST value: missing host before ":{port_str}".',
                     )
                 try:
                     port = int(port_str)
                 except ValueError as err:
-                    raise excs.Error(
-                        excs.ErrorCode.GENERIC_USER_ERROR,
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_CONFIGURATION,
                         f'Invalid PIXELTABLE_CLOUD_HOST value: port {port_str!r} is not a valid integer.',
                     ) from err
         return f'{org}-{db}.{domain}', port

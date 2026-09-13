@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import enum
 import hashlib
-import io
 import json
 import logging
 import os
@@ -17,12 +16,13 @@ from pathlib import Path
 from typing import Any, Literal
 
 import pydantic
+import toml
 from pathspec import PathSpec
 from tqdm import tqdm
 
 import pixeltable
-from pixeltable import exceptions as excs, metadata
-from pixeltable.config import PROJECT_CONFIG_FILES, DatabaseConfig
+from pixeltable import exceptions as excs
+from pixeltable.config import PROJECT_CONFIG_FILES, PYPROJECT_FILE, DatabaseConfig
 from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
@@ -33,16 +33,7 @@ DepsType = Literal['uv', 'pip', 'none']
 # a project declares its packages in one of these, each installed by the tool it names
 LOCK_FILES: dict[str, DepsType] = {'uv.lock': 'uv', 'requirements.txt': 'pip'}
 
-
-class ProjectPart(enum.StrEnum):
-    """The parts that make up a project's fingerprint."""
-
-    IMAGE = 'image'
-
-    ARCHIVE = 'archive'
-
-    # vars and secrets
-    BINDINGS = 'bindings'
+IMAGE_INPUT_FILES: tuple[str, ...] = (*LOCK_FILES, PYPROJECT_FILE)
 
 
 def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
@@ -94,6 +85,7 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
     .git is skipped here, as git itself does, but only by default: an `include` pattern of `.git/**` still
     reaches it, which a project that derives its version from VCS metadata needs. A virtual environment is
     skipped whether or not a .gitignore covers it, since the pod installs the packages from the lockfile.
+    __pycache__ is ignored: we don't want to ship bytecode
     """
     files: set[Path] = set()
 
@@ -102,7 +94,7 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
         if spec is not None:
             specs = [*specs, (dir_path, spec)]
         for entry in dir_path.iterdir():
-            if entry.name == '.git':
+            if entry.name in ('.git', '__pycache__'):
                 continue
             is_dir = entry.is_dir() and not entry.is_symlink()
             if _is_gitignored(entry, is_dir, specs):
@@ -200,28 +192,123 @@ def create_project_archive(
             tf.add(f, arcname=f'project/{relpath}')
             bar.update(1)
         bar.set_postfix_str('', refresh=False)
-        _add_build_metadata(tf, project_dir, db_config)
 
     _logger.info(f'Project archive created: {archive_path}')
     return archive_path
 
 
-def _add_build_metadata(tf: tarfile.TarFile, project_dir: Path, db_config: DatabaseConfig | None) -> None:
-    """Add the archive's metadata.json, which tells the image build what environment to create.
+def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path]:
+    """The files requirements.txt installs from a path in the project, rather than from an index or a url."""
+    files: list[Path] = []
+    for raw in requirements.read_text(encoding='utf-8').splitlines():
+        line = raw.split('#', 1)[0].strip()
+        if line == '':
+            continue
+        if line.startswith(('-r', '--requirement', '-c', '--constraint')):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} reads another file ({line}), which is not supported; '
+                'write one file naming every dependency',
+            )
+        if line.startswith(('-e', '--editable')):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} declares {line!r}, an editable install, which a hosted image does not '
+                'support; publish the package to an index and depend on the published version',
+            )
+        if line.startswith('-'):
+            continue
+        if ' @ ' in line:
+            # 'name @ target' states where to get name
+            target = line.split('@', 1)[1].strip()
+        else:
+            target = line
+            # pip reads a bare name as a package, not a path
+            if '/' not in target and not target.startswith('.'):
+                continue
+        if '://' in target:
+            continue
+        path = (project_dir / target).resolve()
+        if path.is_dir():
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} installs {target}, a source directory, which a hosted image build '
+                'cannot compile; publish the package to an index and depend on the published version',
+            )
+        if not path.is_file():
+            continue
+        if not path.is_relative_to(project_dir):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} installs {target}, which is outside the project; an image build '
+                'sends the project alone, so a file above it cannot be installed',
+            )
+        files.append(path)
+    return files
 
-    TODO: remove this, and the tarfile the caller opens for it, once the build reads BuildImageRequest.
-    """
-    fingerprint = project_fingerprint(project_dir, db_config)
-    config = db_config if db_config is not None else DatabaseConfig()
-    payload = {
-        'deps_type': fingerprint.deps_type(),
-        'pxt_md_version': metadata.VERSION,
-        'db_config': config.model_dump(mode='json', exclude_none=True) | {'python_version': fingerprint.python_version},
-    }
-    encoded = json.dumps(payload).encode()
-    info = tarfile.TarInfo(name='metadata.json')
-    info.size = len(encoded)
-    tf.addfile(info, io.BytesIO(encoded))
+
+def create_image_context(project_dir: Path | None = None) -> Path:
+    """Return the path to a tarfile containing the manifests needed for an image build."""
+    if project_dir is None:
+        project_dir = Path.cwd()
+    project_dir = project_dir.resolve()
+    files = [project_dir / name for name in IMAGE_INPUT_FILES if (project_dir / name).is_file()]
+    installed_from_project: list[Path] = []
+    # validate the input files
+    for f in files:
+        if f.name == PYPROJECT_FILE:
+            try:
+                parsed = toml.load(f)
+            except toml.TomlDecodeError as exc:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'{f.name} is not valid TOML: {exc}'
+                ) from exc
+            sources = parsed.get('tool', {}).get('uv', {}).get('sources', {})
+            for name, source in sources.items():
+                # uv takes a table, or a list of them where it picks one by marker or extra
+                entries = source if isinstance(source, list) else [source]
+                if not any(isinstance(e, dict) and ('path' in e or 'workspace' in e) for e in entries):
+                    continue
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'dependency {name!r} is declared as a local source in {f.name}, which cannot be '
+                    'installed in a hosted image; publish it to an index and depend on the published version',
+                )
+            continue
+        if f.name == 'requirements.txt':
+            # pip runs in the context, so a requirement naming a path needs that file alongside the manifests
+            installed_from_project.extend(_local_requirement_files(project_dir, f))
+
+    files.extend(installed_from_project)
+
+    fd, name = tempfile.mkstemp(suffix='.tar', prefix='pxt_image_')
+    os.close(fd)
+    context_path = Path(name)
+    with tarfile.open(context_path, 'w') as tf:
+        for f in files:
+            tf.add(f, arcname=str(f.relative_to(project_dir)))
+    _logger.info(f'Image context created: {context_path}')
+    return context_path
+
+
+def archive_object_name(org_id: str, archive_digest: str) -> str:
+    """The object name of the project archive with this digest."""
+    return f'archives/{org_id}/{archive_digest}.tar.bz2'
+
+
+def image_object_name(org_id: str, image_digest: str) -> str:
+    """The object name of the image context with this digest."""
+    return f'images/{org_id}/{image_digest}/context.tar'
+
+
+class ProjectPart(enum.StrEnum):
+    """The parts that make up a project's fingerprint."""
+
+    IMAGE = 'image'
+
+    ARCHIVE = 'archive'
+
+    BINDINGS = 'bindings'
 
 
 class ProjectFingerprint(pydantic.BaseModel):
@@ -239,9 +326,12 @@ class ProjectFingerprint(pydantic.BaseModel):
     pixeltable_version: str
     uv_options: str | None = None
 
-    # bindings, never resolved values: a secret names the source of its value
+    # path -> sha256 for the files in requirements.txt that install from a path in the project itself; separate
+    # from files, which are affected by DatabaseConfig.exclude
+    installed_from_project: dict[str, str] = {}
+
+    # bindings, never resolved values: a var names the source of its value
     vars: dict[str, str]
-    secrets: dict[str, str]
 
     def compare(self, other: ProjectFingerprint, *, own_files_only: bool = False) -> set[ProjectPart]:
         """The parts that differ from other.
@@ -254,43 +344,30 @@ class ProjectFingerprint(pydantic.BaseModel):
         files_differ = len(self._added_or_changed(other)) > 0 if own_files_only else self.files != other.files
         if files_differ:
             parts.add(ProjectPart.ARCHIVE)
-        if (self.vars, self.secrets) != (other.vars, other.secrets):
+        if self.vars != other.vars:
             parts.add(ProjectPart.BINDINGS)
         return parts
 
     def image_digest(self) -> str:
-        """The identity of an image built for this environment.
-
-        Two fingerprints share it exactly when compare() reports no IMAGE difference, so an environment
-        that has been built once is never built again, whichever project declares it.
-        """
+        """The image identity."""
         return _digest(self._image_inputs())
 
     def archive_digest(self) -> str:
-        """The identity of the archive this project's files package into.
-
-        Two fingerprints share it exactly when compare() reports no ARCHIVE difference.
-        """
+        """The archive identity."""
         return _digest(self.files)
 
-    def changes(
-        self, other: ProjectFingerprint, parts: set[ProjectPart] | None = None, *, own_files_only: bool = False
-    ) -> list[str]:
-        """What differs from other in the given parts, one printable line each; every part by default.
-
-        own_files_only compares only the files in this fingerprint and excludes files that exist only in other.
-        """
+    def changes(self, other: ProjectFingerprint, parts: set[ProjectPart] | None = None) -> list[str]:
+        """What differs from other in the given parts, one printable line each; defaults to every part."""
         if parts is None:
             parts = set(ProjectPart)
         lines: list[str] = []
         if ProjectPart.ARCHIVE in parts:
             lines += self._added_or_changed(other)
-            if not own_files_only:
-                lines += [f'{path} removed' for path in sorted(set(other.files) - set(self.files))]
+            lines += [f'{path} removed' for path in sorted(set(other.files) - set(self.files))]
         if ProjectPart.IMAGE in parts:
             if ProjectPart.ARCHIVE not in parts:
-                # make sure to include the lock files
-                lines += _changed_paths(self._lock_files(), other._lock_files())
+                # make sure to include the manifests
+                lines += _changed_paths(self._image_files(), other._image_files())
             for field in ('python_version', 'pixeltable_version'):
                 was, now = getattr(other, field), getattr(self, field)
                 if was != now:
@@ -301,7 +378,6 @@ class ProjectFingerprint(pydantic.BaseModel):
                 lines.append('uv_options changed')
         if ProjectPart.BINDINGS in parts:
             lines += [f'var {name} changed' for name in _changed_keys(self.vars, other.vars)]
-            lines += [f'secret {name} changed' for name in _changed_keys(self.secrets, other.secrets)]
         return lines
 
     def _added_or_changed(self, other: ProjectFingerprint) -> list[str]:
@@ -316,15 +392,16 @@ class ProjectFingerprint(pydantic.BaseModel):
 
     def _image_inputs(self) -> tuple:
         return (
-            self._lock_files(),
+            self._image_files(),
             self.python_version,
             self.system_dependencies,
             self.pixeltable_version,
             self.uv_options,
         )
 
-    def _lock_files(self) -> dict[str, str]:
-        return {path: content_hash for path, content_hash in self.files.items() if path in LOCK_FILES}
+    def _image_files(self) -> dict[str, str]:
+        manifests = {path: content_hash for path, content_hash in self.files.items() if path in IMAGE_INPUT_FILES}
+        return {**manifests, **self.installed_from_project}
 
 
 def _digest(value: Any) -> str:
@@ -367,26 +444,6 @@ def in_environment(path: Path) -> bool:
     return any(path.is_relative_to(env_dir) for env_dir in _ENV_DIRS)
 
 
-def loaded_fingerprint(project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
-    """Fingerprint the project's own files that the loaded application reached, plus the lockfile.
-
-    Excludes the environment's files.
-
-    Call it after load_app_module(), which removes the project's modules before importing: the project files
-    loaded afterwards are the ones this application reached.
-    """
-    loaded = {
-        Path(file).resolve()
-        for file in (getattr(module, '__file__', None) for module in list(sys.modules.values()))
-        if file is not None
-    }
-    files = [
-        path for path in loaded if path.is_relative_to(project_root) and not in_environment(path) and path.is_file()
-    ]
-    files += [project_root / name for name in LOCK_FILES if (project_root / name).is_file()]
-    return _fingerprint(files, project_root, config)
-
-
 def _content_hash(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open('rb') as f:
@@ -397,15 +454,18 @@ def _content_hash(path: Path) -> str:
 
 
 def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
+    requirements = project_root / 'requirements.txt'
+    local_requirements = _local_requirement_files(project_root, requirements) if requirements.is_file() else []
+    from_project = {p.relative_to(project_root).as_posix(): _content_hash(p) for p in local_requirements}
     files = {path.relative_to(project_root).as_posix(): _content_hash(path) for path in files}
     declared_python = config.python_version if config is not None else None
     return ProjectFingerprint(
         files=files,
+        installed_from_project=from_project,
         # the version an image would use: the entry's, or the running interpreter's
         python_version=declared_python or f'{sys.version_info.major}.{sys.version_info.minor}',
         system_dependencies=(config.system_dependencies if config is not None else None) or [],
         pixeltable_version=pixeltable.__version__,
         uv_options=config.uv_options if config is not None else None,
         vars=(config.vars if config is not None else None) or {},
-        secrets=(config.secrets if config is not None else None) or {},
     )

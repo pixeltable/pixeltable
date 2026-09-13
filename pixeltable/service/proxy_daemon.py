@@ -188,7 +188,7 @@ def start(db: str, test_mode: bool = False) -> str:
     tail = _tail_log(log_file_path)
     if tail != '':
         msg += f'\n--- daemon log tail ({log_file_path}) ---\n{tail}'
-    raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, msg)
+    raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, msg)
 
 
 def stop(db: str) -> None:
@@ -236,7 +236,7 @@ def reinitialize(db: str) -> None:
     """
     ep = endpoint(db)
     if ep is None:
-        raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No running proxy daemon for {db!r}')
+        raise excs.NotFoundError(excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'No running proxy daemon for {db!r}')
     response = httpx.post(f'{ep}/reinitialize', timeout=60.0)
     response.raise_for_status()
 
@@ -349,8 +349,8 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     try:
         import uvicorn
     except ModuleNotFoundError as e:
-        raise excs.Error(
-            excs.ErrorCode.INTERNAL_ERROR,
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
             'The proxy daemon requires the serve dependencies (fastapi, uvicorn). '
             'Install them with: pip install pixeltable[serve]',
         ) from e

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from enum import StrEnum
 from typing import Any, Literal
 
 import pydantic
@@ -103,13 +104,8 @@ class ServiceChangeOp(ChangeOp):
         )
 
     @classmethod
-    def project_moved(cls, changes: list[str], command: str | None = None) -> ServiceChangeOp:
-        """The operation for a project that moved on since the instance started.
-
-        changes are the causes, from ProjectFingerprint.changes(). With a command, the instance cannot be
-        brought up to date by restarting it -- a hosted service runs the project its database was given, not
-        the project here -- so the operation is blocked.
-        """
+    def fingerprint_changed(cls, changes: list[str], command: str | None = None) -> ServiceChangeOp:
+        """ProjectFingerprint.changes() produced changes."""
         summary = _summary(changes)
         if command is None:
             return cls(
@@ -121,6 +117,8 @@ class ServiceChangeOp(ChangeOp):
                 details={'changes': '; '.join(changes)},
                 requires_restart=True,
             )
+
+        # command not None: that command needs to be run first
         return cls(
             target='project',
             name='project',
@@ -131,26 +129,14 @@ class ServiceChangeOp(ChangeOp):
         )
 
     @classmethod
-    def project_unreported(cls) -> ServiceChangeOp:
-        return cls(
-            target='project',
-            name='project',
-            op='alter',
-            severity='additive',
-            description='the service will restart to report the project it is running',
-            requires_restart=True,
-        )
-
-    # SCALED BACK: uncalled
-    @classmethod
-    def db_not_updated(cls, command: str) -> ServiceChangeOp:
-        """The operation for a database `pxt db update` has not run for."""
+    def needs_db_update(cls, command: str) -> ServiceChangeOp:
+        """The target runs the base image, so it holds neither this project's dependencies nor its files."""
         return cls(
             target='project',
             name='project',
             op='alter',
             severity='blocked',
-            description=f'the database has nothing to serve; run {command}',
+            description=f'run {command} to build the project image and upload its files',
             details={'command': command},
         )
 
@@ -237,7 +223,6 @@ class ServiceChangeOp(ChangeOp):
 
     @classmethod
     def delete_service(cls, name: str, endpoint: str | None, status: OpStatus) -> ServiceChangeOp:
-        """The operation for deleting the named service, in the given status."""
         served = '' if endpoint is None else f' at {endpoint}'
         return cls(
             target='service',
@@ -249,10 +234,40 @@ class ServiceChangeOp(ChangeOp):
             status=status,
         )
 
+    @classmethod
+    def restart_service(cls, name: str, endpoint: str | None, status: OpStatus) -> ServiceChangeOp:
+        served = '' if endpoint is None else f' at {endpoint}'
+        return cls(
+            target='service',
+            name=name,
+            op='alter',
+            severity='additive',
+            description=f'service {name!r}{served} will be restarted',
+            details={} if endpoint is None else {'endpoint': endpoint},
+            requires_restart=True,
+            status=status,
+        )
+
+
+# the two artifacts a hosted database is given: the manifests that build its image, and the files its pods
+# serve
+DbArtifact = Literal['image_context', 'archive']
+
+
+class DbState(StrEnum):
+    """The states of a hosted database."""
+
+    PROVISIONING = 'PROVISIONING'
+    UPDATING = 'UPDATING'
+    AVAILABLE = 'AVAILABLE'
+    STOPPING = 'STOPPING'
+    STOPPED = 'STOPPED'
+    FAILED = 'FAILED'
+
 
 # what a DbChangeOp acts on. The two artifacts are separate: 'image' is the environment the pods run on,
 # 'archive' the sources they fetch, and a source edit moves only the second.
-DbTarget = Literal['image', 'archive', 'capacity', 'secret']
+DbTarget = Literal['image', 'archive', 'capacity']
 
 
 class DbChangeOp(ChangeOp):
@@ -262,7 +277,6 @@ class DbChangeOp(ChangeOp):
 
     details: dict[str, str] = pydantic.Field(default_factory=dict)
 
-    # SCALED BACK: uncalled
     @classmethod
     def capacity(cls, field: str, current: float | int | None, declared: float | int) -> DbChangeOp:
         was = 'unreported' if current is None else str(current)
@@ -276,24 +290,8 @@ class DbChangeOp(ChangeOp):
             requires_restart=True,
         )
 
-    # SCALED BACK: uncalled
-    @classmethod
-    def secret(cls, key: str, op: Literal['add', 'drop']) -> DbChangeOp:
-        if op == 'add':
-            return cls(
-                target='secret', name=key, op='add', severity='additive', description=f'secret {key!r} will be set'
-            )
-        return cls(
-            target='secret',
-            name=key,
-            op='drop',
-            severity='destructive',
-            description=f'secret {key!r} will be deleted, and code reading it will fail',
-        )
-
     @classmethod
     def build_image(cls, changes: list[str] | None = None) -> DbChangeOp:
-        """The operation for an image build the caller asked for rather than one a difference calls for."""
         description: str
         details: dict[str, str]
         if changes is not None:
@@ -312,10 +310,8 @@ class DbChangeOp(ChangeOp):
             requires_restart=True,
         )
 
-    # SCALED BACK: uncalled
     @classmethod
     def upload_archive(cls, changes: list[str] | None = None) -> DbChangeOp:
-        """The operation for uploading the project the caller named rather than one a difference calls for."""
         description: str
         details: dict[str, str]
         if changes is not None:
@@ -484,7 +480,7 @@ class ServiceDiff(pydantic.BaseModel):
     route_comparison: RouteComparison
     route_detail: str | None  # why the routes were not compared, when they were not
 
-    # for a create, the addition of every route the service declares
+    # empty for a create, which subsumes the additions that constitute it
     ops: list[ServiceChangeOp] = pydantic.Field(default_factory=list)
 
     status: OpStatus | None = None
@@ -582,13 +578,13 @@ class DbPlan(pydantic.BaseModel):
 
     db_uri: str
     exists: bool
-    state: str | None  # the database's state, None when it does not exist
+    state: DbState | None  # None when the database does not exist
     resolution: Resolution
     ops: list[DbChangeOp] = pydantic.Field(default_factory=list)
     status: OpStatus | None = None
 
     @classmethod
-    def from_ops(cls, db_uri: str, state: str | None, ops: list[DbChangeOp]) -> DbPlan:
+    def from_ops(cls, db_uri: str, state: DbState | None, ops: list[DbChangeOp]) -> DbPlan:
         """The plan the given operations describe; a state of None is a database that does not exist."""
         resolution: Resolution
         if state is None:

@@ -14,7 +14,7 @@ import pixeltable.catalog as catalog
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
-from pixeltable.utils.project import loaded_fingerprint
+from pixeltable.utils.project import project_fingerprint
 
 from .service_manager import ServiceManager
 
@@ -56,7 +56,7 @@ def _serve(app_file: str, service_name: str, base_path: str, otel: bool, port: i
         app_file=str(Path(app_file).resolve()),
         spec=spec,
         otel=otel,
-        fingerprint=loaded_fingerprint(project_root, db_config),
+        fingerprint=project_fingerprint(project_root, db_config),
     )
 
     def _cleanup(*_: Any) -> None:

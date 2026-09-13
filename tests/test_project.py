@@ -1,16 +1,19 @@
 """The project's file selection and its fingerprint."""
 
 import pathlib
-import sys
-from types import ModuleType
-from unittest.mock import patch
 
 import pytest
 
 from pixeltable import exceptions as excs
 from pixeltable.config import DatabaseConfig
-from pixeltable.utils import project as project_mod
-from pixeltable.utils.project import ProjectPart, _archive_files, loaded_fingerprint, project_fingerprint
+from pixeltable.utils.project import (
+    ProjectPart,
+    _archive_files,
+    archive_object_name,
+    create_image_context,
+    image_object_name,
+    project_fingerprint,
+)
 
 from .utils import pxt_raises
 
@@ -39,8 +42,8 @@ class TestProject:
     def test_gitignore(self, project: pathlib.Path) -> None:
         assert self._names(project) == ['.gitignore', 'app.py', 'uv.lock']
 
-    def test_venv(self, project: pathlib.Path) -> None:
-        """A virtual environment is dropped even when nothing ignores it."""
+    def test_excluded(self, project: pathlib.Path) -> None:
+        """A virtual environment and a bytecode cache are dropped even when nothing ignores them."""
         for name, marker in (('.venv', 'pyvenv.cfg'), ('env', 'conda-meta/history')):
             venv = project / name
             (venv / 'lib').mkdir(parents=True)
@@ -48,6 +51,14 @@ class TestProject:
             (venv / marker).parent.mkdir(parents=True, exist_ok=True)
             (venv / marker).write_text('')
         assert self._names(project) == ['.gitignore', 'app.py', 'uv.lock']
+
+        (project / 'pkg').mkdir()
+        (project / 'pkg' / 'mod.py').write_text('y = 2\n')
+        for parent in (project, project / 'pkg'):
+            cache = parent / '__pycache__'
+            cache.mkdir()
+            (cache / 'mod.cpython-311.pyc').write_bytes(b'\x00')
+        assert self._names(project) == ['.gitignore', 'app.py', 'pkg/mod.py', 'uv.lock']
 
     def test_patterns(self, project: pathlib.Path) -> None:
         assert self._names(project, DatabaseConfig(exclude=['*.py'])) == ['.gitignore', 'uv.lock']
@@ -97,53 +108,75 @@ class TestProject:
         assert after.changes(before, {IMAGE}) == ['uv.lock changed']
         assert after.changes(before, {ARCHIVE}) == ['uv.lock changed']
 
-    def test_loaded_files(self, project: pathlib.Path) -> None:
-        """A published project holds every selected file; an application loads a part of it."""
-        published = project_fingerprint(project, None)
-        # what loaded_fingerprint() produces: the modules the application imported, plus the lockfile
-        loaded = published.model_copy(update={'files': _some(published.files, 'app.py', 'uv.lock')})
+    def test_pyproject(self, project: pathlib.Path) -> None:
+        (project / 'pyproject.toml').write_text('[project]\ndependencies = ["pixeltable"]\n')
+        before = project_fingerprint(project, None)
+        (project / 'pyproject.toml').write_text('[project]\ndependencies = ["pixeltable", "torch"]\n')
+        after = project_fingerprint(project, None)
+        # 'uv sync' reads pyproject.toml alongside the lockfile, so it declares the environment too
+        assert after.compare(before) == {IMAGE, ARCHIVE}
+        assert after.image_digest() != before.image_digest()
 
-        # the two name different files, so one holds what the other does not; the loaded ones agree
-        assert loaded.compare(published) == {ARCHIVE}
-        assert loaded.compare(published, own_files_only=True) == set()
+    def test_local_requirement(self, project: pathlib.Path) -> None:
+        """Replacing a local wheel moves the image digest, though requirements.txt is unchanged."""
+        (project / 'wheels').mkdir()
+        (project / 'wheels' / 'dep-1.0-py3-none-any.whl').write_bytes(b'first build')
+        (project / 'requirements.txt').write_text('./wheels/dep-1.0-py3-none-any.whl\n')
+        before = project_fingerprint(project, None)
 
-        # a file the application never loaded moves the project, and asks nothing of this application
-        (project / 'other.py').write_text('y = 1\n')
-        assert loaded.compare(project_fingerprint(project, None), own_files_only=True) == set()
+        (project / 'wheels' / 'dep-1.0-py3-none-any.whl').write_bytes(b'second build')
+        after = project_fingerprint(project, None)
 
-        # a file it did load, edited here and not yet given to the database, asks for a publish
+        assert after.compare(before) == {IMAGE, ARCHIVE}
+        assert after.image_digest() != before.image_digest()
+
+        # an image build installs the wheel whatever the archive holds, so the digest tracks it under exclude
+        excluded = DatabaseConfig(exclude=['wheels/**'])
+        before = project_fingerprint(project, excluded)
+        assert 'wheels/dep-1.0-py3-none-any.whl' not in self._names(project, excluded)
+        (project / 'wheels' / 'dep-1.0-py3-none-any.whl').write_bytes(b'third build')
+        assert project_fingerprint(project, excluded).image_digest() != before.image_digest()
+
+    def test_unbuildable_requirements(self, project: pathlib.Path) -> None:
+        """A requirement naming a source tree is refused: an image build installs packages, it does not build them."""
+        (project / 'vendor').mkdir()
+        (project / 'vendor' / 'pkg.py').write_text('v = 1\n')
+        for line in ('-e ./vendor', '-e./vendor', '--editable=./vendor'):
+            (project / 'requirements.txt').write_text(f'{line}\n')
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='editable install'):
+                project_fingerprint(project, None)
+
+        for line in ('./vendor', 'pkg @ ./vendor'):
+            (project / 'requirements.txt').write_text(f'{line}\n')
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='source directory'):
+                project_fingerprint(project, None)
+
+        # a package sharing a name with a directory in the project is still read as a package
+        (project / 'requirements.txt').write_text('vendor\n--index-url https://example.invalid/simple\n')
+        assert project_fingerprint(project, None).installed_from_project == {}
+
+        # invalid references
+        for line in ('-r more.txt', '  --requirement more.txt', '-c pins.txt', '\t--constraint pins.txt'):
+            (project / 'requirements.txt').write_text(f'{line}\n')
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='reads another file'):
+                project_fingerprint(project, None)
+
+    def test_malformed_pyproject(self, project: pathlib.Path) -> None:
+        (project / 'pyproject.toml').write_text('[project\nname = "x"\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='not valid TOML'):
+            create_image_context(project)
+
+    def test_object_names(self, project: pathlib.Path) -> None:
+        before = project_fingerprint(project, None)
         (project / 'app.py').write_text('x = 2\n')
         edited = project_fingerprint(project, None)
-        loaded = edited.model_copy(update={'files': _some(edited.files, 'app.py', 'uv.lock')})
-        assert loaded.compare(published, own_files_only=True) == {ARCHIVE}
-        assert loaded.changes(published, {ARCHIVE}, own_files_only=True) == ['app.py changed']
-
-    def test_environment_files_are_not_loaded_files(self, project: pathlib.Path) -> None:
-        """A project holding its own virtualenv fingerprints the same whatever it has loaded from it.
-
-        Each process imports a different set of the environment's packages, so counting them would make two
-        fingerprints of one application differ and restart the service for nothing.
-        """
-        installed = project / '.venv' / 'lib' / 'python3.11' / 'site-packages'
-        installed.mkdir(parents=True)
-        (installed / 'vendored.py').write_text('z = 1\n')
-
-        before = loaded_fingerprint(project, None)
-        module = ModuleType('vendored')
-        module.__file__ = str(installed / 'vendored.py')
-        with patch.dict(sys.modules, {'vendored': module}), patch.object(project_mod, '_ENV_DIRS', (installed,)):
-            assert loaded_fingerprint(project, None) == before
-
-    def test_bindings(self, project: pathlib.Path) -> None:
-        before = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://one'}))
-        after = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://two'}))
-        # a binding is held by neither artifact, and a process that read the old one is stale
-        assert after.compare(before) == {BINDINGS}
-        assert after.changes(before) == ['var dest changed']
-
-        with_secret = project_fingerprint(project, DatabaseConfig(secrets={'openai': 'env:OPENAI_API_KEY'}))
-        assert with_secret.compare(before) == {BINDINGS}
-        assert with_secret.changes(before) == ['var dest changed', 'secret openai changed']
+        assert archive_object_name('org_1', edited.archive_digest()) != archive_object_name(
+            'org_1', before.archive_digest()
+        )
+        # an edit that leaves the environment alone leaves the image context where it is
+        assert image_object_name('org_1', edited.image_digest()) == image_object_name('org_1', before.image_digest())
+        # one org's artifacts are never another's
+        assert image_object_name('org_2', before.image_digest()) != image_object_name('org_1', before.image_digest())
 
     def test_environment(self, project: pathlib.Path) -> None:
         before = project_fingerprint(project, DatabaseConfig(python_version='3.11'))

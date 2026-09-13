@@ -38,6 +38,7 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable import exceptions as excs
 from pixeltable._query import ResultSet
 from pixeltable.catalog import Path as PxtPath, retry_loop
 from pixeltable.config import Config
@@ -57,18 +58,6 @@ if TYPE_CHECKING:
 TESTS_DIR = Path(os.path.dirname(__file__))
 
 
-_ERROR_GROUP_TO_CLS: dict[int, type[pxt.Error]] = {
-    0: pxt.Error,
-    1: pxt.NotFoundError,
-    2: pxt.AlreadyExistsError,
-    3: pxt.RequestError,
-    4: pxt.AuthorizationError,
-    5: pxt.ExternalServiceError,
-    6: pxt.ServiceUnavailableError,
-    7: pxt.ConcurrencyError,
-}
-
-
 @dataclass
 class DatabaseRoot:
     id: Literal['local', 'proxy', 'cloud']
@@ -82,7 +71,7 @@ class DatabaseRoot:
 @contextmanager
 def pxt_raises(code: pxt.ErrorCode, *, match: str | None = None) -> Iterator[pytest.ExceptionInfo[pxt.Error]]:
     """Use this in place of pytest.raises() if the expected exception is a pxt.Error."""
-    cls = _ERROR_GROUP_TO_CLS[code.value // 1000]
+    cls = excs._error_class(code)
     with pytest.raises(cls, match=match) as info:
         yield info
     assert info.value.error_code is code, f'expected {code.name!r}, got {info.value.error_code.name!r}'

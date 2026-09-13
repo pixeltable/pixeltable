@@ -121,7 +121,7 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
             time.monotonic() - t0,
             tb,
         )
-        err = excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'Internal proxy error (ref: {ref})')
+        err = excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'Internal proxy error (ref: {ref})')
         error_dict = err.to_dict()
         if include_error_detail:
             error_dict['detail'] = tb
