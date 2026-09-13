@@ -129,6 +129,18 @@ class ServiceChangeOp(ChangeOp):
         )
 
     @classmethod
+    def needs_db_update(cls, command: str) -> ServiceChangeOp:
+        """The target runs the base image, so it holds neither this project's dependencies nor its files."""
+        return cls(
+            target='project',
+            name='project',
+            op='alter',
+            severity='blocked',
+            description=f'run {command} to build the project image and upload its files',
+            details={'command': command},
+        )
+
+    @classmethod
     def blocked_schema(cls, service_name: str, description: str, command: str) -> ServiceChangeOp:
         return cls(
             target='service',

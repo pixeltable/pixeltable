@@ -38,8 +38,9 @@ _REQUEST_TIMEOUT = 30.0
 
 
 def db_status(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> dict[str, Any]:
-    """What the database at db_uri provides, as `pxt db status` reports it."""
-    return cli('db', 'status', db_uri, '--json', cwd=project).json['status']
+    """What the database at db_uri provides, as `pxt db status` reports it, its resources flattened in."""
+    current = cli('db', 'status', db_uri, '--json', cwd=project).json['current']
+    return {**(current.get('resources') or {}), **current}
 
 
 def get_target_ops(plan: dict[str, Any], target: str) -> list[dict[str, Any]]:

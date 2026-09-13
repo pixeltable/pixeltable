@@ -200,9 +200,15 @@ def db_build_image(db_uri: str) -> list[DbChangeOp]:
     """
     db_path = _validated_db_uri(db_uri)
     config = _get_db_config(db_path)
-    if _get_db_report(db_path) is None:
+    report = _get_db_report(db_path)
+    if report is None:
         raise excs.NotFoundError(
             excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'{db_path.uri_str} does not exist; run `pxt db update` to create it'
+        )
+    if report.current is None:
+        raise excs.NotFoundError(
+            excs.ErrorCode.DEPLOYMENT_NOT_FOUND,
+            f'{db_path.uri_str} is still being created; run `pxt db status` to check the status',
         )
     settled, stored = _update_db(db_path, config, _db_resources(config), force_image_build=True)
     image_op = DbChangeOp.build_image()
