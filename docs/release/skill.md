@@ -126,7 +126,7 @@ the model rather than helping it:
 Pixeltable Cloud is in Limited Beta. Email contact@pixeltable.com if you are interested.
 The same application file targets a hosted database with `pxt db update`,
 `pxt schema update`, and `pxt service update` against a `pxt://org:db` target, once
-`PIXELTABLE_API_KEY` is set.
+`PIXELTABLE_API_KEY` is set (API Keys, then `.env` or export — not toml `api_key`). Hosted tables already write media to `pxtfs://org:db/home`; dest env vars are for local Pixeltable and bring-your-own buckets. Provider keys go under Secrets / `pxt secret`.
 
 ## Reference
 

@@ -26,14 +26,7 @@ Sign in from the browser, create a key, then export it. The CLI reads `PIXELTABL
     export PIXELTABLE_API_KEY='your-key'
     ```
 
-    Or in `~/.pixeltable/config.toml`:
-
-    ```toml
-    [pixeltable]
-    api_key = 'your-key'
-    ```
-
-    [Configuration](/platform/configuration). This key authenticates Cloud CLI and hosted HTTP. Provider keys such as `OPENAI_API_KEY` go under **Secrets** in the dashboard, or `pxt secret set pxt://org OPENAI_API_KEY=...`. They do not go in this API key. [CLI](/platform/cli#pxt-secret).
+    Same name in `.env`. Do not write `api_key` in `config.toml`. [Configuration](/platform/configuration). This key authenticates Cloud CLI and hosted HTTP. Provider keys such as `OPENAI_API_KEY` go under **Secrets** in the dashboard, or `pxt secret set pxt://org OPENAI_API_KEY=...`. They do not go in this API key. [CLI](/platform/cli#pxt-secret).
   </Step>
 </Steps>
 
@@ -81,7 +74,12 @@ After the database is up, insert from the Cloud dashboard or from Python. A loca
 
 ## Media on the home bucket
 
-Every Cloud database includes a managed bucket, and it is where the database keeps its media by default. No provider account, no credentials file. To send one computed column somewhere else, set `destination=` on it:
+Every Cloud database includes a managed Media Store at `pxtfs://org:mydb/home`. Hosted tables and services write there automatically. No `destination=`, no dest env vars.
+
+Set dest only for two cases:
+
+- **Local Pixeltable** writing into that same bucket: `PIXELTABLE_API_KEY` plus `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST` (see [Cloud storage](/integrations/cloud-storage#pixeltable-cloud-home-bucket)).
+- **Your own bucket**: store `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (or GCS / Azure names) under **Secrets** or `pxt secret`, then point those dest env vars at `s3://`, `gs://`, or `wasbs://`. A single computed column can also set `destination=`:
 
 ```python
 class Images(TableModel, name='images'):
@@ -91,8 +89,6 @@ class Images(TableModel, name='images'):
         destination='s3://my-bucket/thumbnails',
     )
 ```
-
-Or set `input_media_dest` / `output_media_dest` to change the default for inserted or computed media. Details: [Cloud storage](/integrations/cloud-storage#pixeltable-cloud-home-bucket).
 
 ## Local vs Cloud
 

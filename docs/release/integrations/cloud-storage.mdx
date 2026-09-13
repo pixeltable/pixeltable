@@ -40,28 +40,35 @@ When you configure a storage destination, Pixeltable automatically:
 3. **Manages file lifecycle**: Cleans up files when table data is deleted
 4. **Handles caching**: Downloads files on-demand with intelligent local caching
 
+## Which destination do you need?
+
+| Where the tables run | What to set |
+|---|---|
+| Hosted Cloud tables and services | Nothing. The database already writes to `pxtfs://org:db/home`. |
+| Local Pixeltable against that Cloud home bucket | `PIXELTABLE_API_KEY` (API Keys, then `.env` or export) plus `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST` pointing at the `pxtfs://` URI. |
+| Your own S3 / GCS / Azure bucket | Provider keys in [Secrets](https://www.pixeltable.com/dashboard) or `pxt secret`, and those dest env vars pointing at `s3://`, `gs://`, or `wasbs://`. |
+
+Do not put `PIXELTABLE_API_KEY` in `config.toml` as `api_key`. Use the env name. Hosted pods get their own worker key from the platform; you do not set it.
+
 ## Configuration
 
-There are two ways to configure cloud storage destinations:
+There are two ways to configure cloud storage destinations. These apply to **local** Pixeltable and to **bring-your-own** buckets. Hosted Cloud tables skip this section.
 
 ### Global default destinations
 
-Set default destinations for all media columns in your `config.toml` (see [Configuration](/platform/configuration) for details):
-
-```toml
-[pixeltable]
-# For input media (inserted/referenced files)
-input_media_dest = "s3://my-bucket/input/"
-
-# For computed media (AI-generated outputs)
-output_media_dest = "s3://my-bucket/output/"
-```
-
-Or via environment variables:
+Set default destinations for all media columns with environment variables (see [Configuration](/platform/configuration)):
 
 ```bash
 export PIXELTABLE_INPUT_MEDIA_DEST="s3://my-bucket/input/"
 export PIXELTABLE_OUTPUT_MEDIA_DEST="s3://my-bucket/output/"
+```
+
+Or the same dest keys in `~/.pixeltable/config.toml` (not the API key):
+
+```toml
+[pixeltable]
+input_media_dest = "s3://my-bucket/input/"
+output_media_dest = "s3://my-bucket/output/"
 ```
 
 <Tip>
@@ -97,14 +104,25 @@ The `destination` parameter only applies to **stored computed columns**. For inp
 
 Destinations are resolved in this order:
 1. **Explicit column destination**: highest priority (computed columns only)
-2. **Global default**: `input_media_dest` for input columns, `output_media_dest` for computed columns
-3. **Local storage**: fallback if no destination is configured
+2. **Global default**: `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST` (or the matching `config.toml` dest keys)
+3. **Hosted Cloud process**: `pxtfs://org:db/home` when the database is running in Cloud
+4. **Local process**: local disk
 
 ## Provider configuration
 
 ### Pixeltable Cloud (home bucket)
 
-A Pixeltable Cloud database comes with a managed storage bucket. No bucket creation, no credentials file, no cloud provider account. Cloud is in Limited Beta: email [contact@pixeltable.com](mailto:contact@pixeltable.com) to get an account.
+A Pixeltable Cloud database comes with a managed Media Store at `pxtfs://org:db/home`. Hosted tables and services write there automatically. No destination, no provider account, no credentials file. Cloud is in Limited Beta: email [contact@pixeltable.com](mailto:contact@pixeltable.com) to get an account.
+
+Use dest + `PIXELTABLE_API_KEY` only when a **local** Pixeltable process should write into that same bucket:
+
+```bash
+export PIXELTABLE_API_KEY='your-key'
+export PIXELTABLE_INPUT_MEDIA_DEST='pxtfs://org:db/home'
+export PIXELTABLE_OUTPUT_MEDIA_DEST='pxtfs://org:db/home'
+```
+
+Create the key under **API Keys** in the dashboard. Put it in `.env` or export it. Provider keys (`AWS_ACCESS_KEY_ID`, `OPENAI_API_KEY`, …) go under **Secrets** or `pxt secret set`.
 
 <Tabs>
   <Tab title="URI Format">
@@ -113,28 +131,18 @@ A Pixeltable Cloud database comes with a managed storage bucket. No bucket creat
     ```
     Replace `org-slug` and `db-slug` with your Pixeltable Cloud organization and database names.
   </Tab>
-  <Tab title="Authentication">
-    Set your Pixeltable API key:
-
-    ```toml
-    [pixeltable]
-    api_key = "your-pixeltable-api-key"
-    ```
-
-    Or via environment variable:
+  <Tab title="Local auth">
     ```bash
-    export PIXELTABLE_API_KEY="your-pixeltable-api-key"
+    export PIXELTABLE_API_KEY='your-key'
     ```
 
-    Pixeltable automatically fetches and refreshes temporary credentials from the Pixeltable cloud management API.
+    Pixeltable fetches temporary home-bucket credentials from the Cloud API. Hosted pods already have a worker key; do not copy that into your laptop `config.toml`.
   </Tab>
 </Tabs>
 
 <Tip>
-This is the fastest way to get cloud storage working. No AWS/GCP/Azure account required.
+On Cloud, open **Storage** in the database sidebar and browse `home`. Nothing to configure for hosted tables.
 </Tip>
-
-You can browse, search, and preview the contents of your home bucket directly from the [Pixeltable Cloud dashboard](https://www.pixeltable.com/dashboard). Navigate to **Storage & Buckets** in the sidebar, then select your **home** bucket to explore files by type (images, docs, video, audio), view metadata, and inspect individual objects.
 
 ```
 https://www.pixeltable.com/dashboard/{org-slug}/{db-slug}/storage/home/browse
@@ -151,6 +159,7 @@ https://www.pixeltable.com/dashboard/{org-slug}/{db-slug}/storage/home/browse
   <Tab title="Authentication">
     Uses standard AWS credential chain:
     - Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
+    - On Pixeltable Cloud, store those names under **Secrets** (or `pxt secret`), not in `PIXELTABLE_API_KEY`
     - AWS credentials file (`~/.aws/credentials`)
     - IAM role (when running on AWS)
 
