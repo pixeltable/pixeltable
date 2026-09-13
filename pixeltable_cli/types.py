@@ -265,6 +265,22 @@ class DbState(StrEnum):
     FAILED = 'FAILED'
 
 
+class ServiceState(StrEnum):
+    """The states of a service instance, hosted or local.
+
+    A local instance only ever reaches STARTING, AVAILABLE, STOPPED and FAILED; the rest describe a
+    rollout, which only a hosted instance has.
+    """
+
+    DEPLOYING = 'DEPLOYING'
+    STARTING = 'STARTING'
+    UPDATING = 'UPDATING'
+    AVAILABLE = 'AVAILABLE'
+    STOPPING = 'STOPPING'
+    STOPPED = 'STOPPED'
+    FAILED = 'FAILED'
+
+
 # what a DbChangeOp acts on. The two artifacts are separate: 'image' is the environment the pods run on,
 # 'archive' the sources they fetch, and a source edit moves only the second.
 DbTarget = Literal['image', 'archive', 'capacity']

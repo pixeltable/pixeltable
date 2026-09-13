@@ -29,7 +29,7 @@ from pixeltable.service.management_protocol import (
 )
 from pixeltable.utils.app_module import load_app_module, module_name, module_routers, service_spec, services_by_name
 
-from .service_instance import ServiceInstance, ServiceInstanceRecord, ServiceInstanceState
+from .service_instance import ServiceInstance, ServiceInstanceRecord, ServiceState
 from .service_manager import ServiceManagerBase
 
 
@@ -112,16 +112,16 @@ class ServiceManagerProxy(ServiceManagerBase):
                         otel=otel,
                     )
                 )
-                instance = self._wait_for_state(name, base_path, ServiceInstanceState.AVAILABLE)
-            if instance.state is ServiceInstanceState.AVAILABLE:
+                instance = self._wait_for_state(name, base_path, ServiceState.AVAILABLE)
+            if instance.state is ServiceState.AVAILABLE:
                 self._wait_for_endpoint(instance)
                 return instance
             management_client.api_call(
                 StartServiceInstanceRequest(org=self._org, db=self._db, service_name=name, base_path=base_path)
             )
 
-        started = self._wait_for_state(name, base_path, ServiceInstanceState.AVAILABLE)
-        if started.state is not ServiceInstanceState.AVAILABLE:
+        started = self._wait_for_state(name, base_path, ServiceState.AVAILABLE)
+        if started.state is not ServiceState.AVAILABLE:
             detail = '' if started.record.error is None else f': {started.record.error}'
             raise excs.InternalError(
                 excs.ErrorCode.INTERNAL_ERROR, f'Service {name!r} did not start; it is {started.state.value}{detail}'
@@ -135,7 +135,7 @@ class ServiceManagerProxy(ServiceManagerBase):
                 org=self._org, db=self._db, service_name=instance.service_name, base_path=instance.base_path
             )
         )
-        self._wait_for_state(instance.service_name, instance.base_path, ServiceInstanceState.STOPPED)
+        self._wait_for_state(instance.service_name, instance.base_path, ServiceState.STOPPED)
 
     def restart(self, instance: ServiceInstance) -> None:
         management_client.api_call(
@@ -143,8 +143,8 @@ class ServiceManagerProxy(ServiceManagerBase):
                 org=self._org, db=self._db, service_name=instance.service_name, base_path=instance.base_path
             )
         )
-        restarted = self._wait_for_state(instance.service_name, instance.base_path, ServiceInstanceState.AVAILABLE)
-        if restarted.state is not ServiceInstanceState.AVAILABLE:
+        restarted = self._wait_for_state(instance.service_name, instance.base_path, ServiceState.AVAILABLE)
+        if restarted.state is not ServiceState.AVAILABLE:
             detail = '' if restarted.record.error is None else f': {restarted.record.error}'
             raise excs.InternalError(
                 excs.ErrorCode.INTERNAL_ERROR,
@@ -183,7 +183,7 @@ class ServiceManagerProxy(ServiceManagerBase):
             return True
         return recursive and (base_path == '' or record.base_path.startswith(f'{base_path}/'))
 
-    def _wait_for_state(self, name: str, base_path: str, expected: ServiceInstanceState) -> ServiceInstance:
+    def _wait_for_state(self, name: str, base_path: str, expected: ServiceState) -> ServiceInstance:
         """Poll the named instance until it reaches expected or fails, and return it."""
         deadline = time.monotonic() + self._POLL_TIMEOUT
         while True:
@@ -192,7 +192,7 @@ class ServiceManagerProxy(ServiceManagerBase):
                 raise excs.InternalError(
                     excs.ErrorCode.INTERNAL_ERROR, f'Service {name!r} is no longer in {self.catalog_uri.uri_str}'
                 )
-            if instance.state in (expected, ServiceInstanceState.FAILED):
+            if instance.state in (expected, ServiceState.FAILED):
                 return instance
             if time.monotonic() >= deadline:
                 raise excs.InternalError(

@@ -121,7 +121,7 @@ def service_update(
         instance = running.get(diff.name)
         # a restart keeps the service's port, so that its callers are not redirected
         service_port = port
-        if instance is not None and instance.state is service_instance.ServiceInstanceState.AVAILABLE:
+        if instance is not None and instance.state is service_instance.ServiceState.AVAILABLE:
             if service_port is None:
                 service_port = instance.record.port
             # the running service serves the old definition; binding happens once per process, so it is replaced
@@ -356,7 +356,7 @@ def _service_diff(
         resolution = 'blocked'
     elif running is None:
         resolution = 'create'
-    elif running.state is not service_instance.ServiceInstanceState.AVAILABLE:
+    elif running.state is not service_instance.ServiceState.AVAILABLE:
         # registered but not serving, whatever its definition says: an update starts it
         resolution = 'create'
     elif any(op.destructive for op in ops):
