@@ -9,7 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
-from pixeltable.serving import ServiceInstanceRecord
+from pixeltable.service.svc_md import ServiceInstanceRecord
 from pixeltable.utils.project import ProjectFingerprint
 from pixeltable_cli.types import DbArtifact, DbPlan, ServiceSpec
 

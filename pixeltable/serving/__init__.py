@@ -6,8 +6,6 @@ from typing import Any
 
 from pixeltable.serving.globals import SqlExport
 
-from .service_instance import ServiceInstance, ServiceInstanceRecord, ServiceState
-
 _NO_FASTAPI_MSG = "pixeltable.serving.FastAPIRouter requires fastapi; install it with `pip install 'pixeltable[serve]'`"
 
 # the methods an application file calls to define its routes; mirrored by the stub below, and checked
@@ -54,11 +52,4 @@ except ImportError:
             return define
 
 
-__all__ = [
-    'ROUTE_DEFINITION_METHODS',
-    'FastAPIRouter',
-    'ServiceInstance',
-    'ServiceInstanceRecord',
-    'SqlExport',
-    'ServiceState',
-]
+__all__ = ['ROUTE_DEFINITION_METHODS', 'FastAPIRouter', 'SqlExport']

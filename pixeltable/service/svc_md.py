@@ -25,10 +25,6 @@ class ServiceInstanceRecord(pydantic.BaseModel):
 
     endpoint: str
 
-    # the loopback port, kept across a restart so callers keep their address;
-    # None for a hosted instance, which is reached at its own hostname
-    port: int | None = None
-
     # the app file's module path, relative to the project root
     app_module: str
 
@@ -47,12 +43,6 @@ class ServiceInstanceRecord(pydantic.BaseModel):
     # how many workers serve the instance; a local instance is always one process
     workers: int | None = None
 
-    # the process serving the instance; set only for an instance running on this machine
-    pid: int | None = None
-
-    # creation time of pid, None where the platform does not report one
-    process_started_at: float | None = None
-
     # the project fingerprint
     fingerprint: ProjectFingerprint
 
@@ -61,11 +51,30 @@ class ServiceInstanceRecord(pydantic.BaseModel):
             name=self.service_name,
             catalog_path=PxtPath('/'.join(part for part in (catalog_uri, self.base_path) if part != '')),
             endpoint=self.endpoint,
-            port=self.port,
+            port=None,
             state=self.state,
             error=self.error,
             app_module=self.app_module,
             spec=self.spec,
-            pid=self.pid,
-            process_started_at=self.process_started_at,
+            pid=None,
+            process_started_at=None,
+        )
+
+
+class LocalServiceInstanceRecord(ServiceInstanceRecord):
+    """A service instance served by a process on this machine."""
+
+    # the loopback port, kept across a restart so callers keep their address
+    port: int | None = None
+
+    # the process serving the instance
+    pid: int | None = None
+
+    # creation time of pid, None where the platform does not report one
+    process_started_at: float | None = None
+
+    def to_cli_instance(self, catalog_uri: str = '') -> types.ServiceInstance:
+        instance = super().to_cli_instance(catalog_uri)
+        return instance.model_copy(
+            update={'port': self.port, 'pid': self.pid, 'process_started_at': self.process_started_at}
         )

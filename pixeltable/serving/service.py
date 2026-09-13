@@ -7,6 +7,7 @@ from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.service.db import db_fingerprint
 from pixeltable.service.management_protocol import LogRecord
+from pixeltable.service.svc_md import LocalServiceInstanceRecord
 from pixeltable.utils.app_module import (
     check_report,
     get_model_bases,
@@ -29,6 +30,7 @@ from pixeltable_cli.types import (
     ServiceInstance,
     ServicePlan,
     ServiceSpec,
+    ServiceState,
 )
 from pixeltable_cli.utils import PxtPath
 
@@ -121,8 +123,9 @@ def service_update(
         instance = running.get(diff.name)
         # a restart keeps the service's port, so that its callers are not redirected
         service_port = port
-        if instance is not None and instance.state is service_instance.ServiceState.AVAILABLE:
-            if service_port is None:
+        if instance is not None and instance.state is ServiceState.AVAILABLE:
+            # a hosted instance is reached at its own hostname and has no port to keep
+            if service_port is None and isinstance(instance.record, LocalServiceInstanceRecord):
                 service_port = instance.record.port
             # the running service serves the old definition; binding happens once per process, so it is replaced
             instance.stop()
@@ -356,7 +359,7 @@ def _service_diff(
         resolution = 'blocked'
     elif running is None:
         resolution = 'create'
-    elif running.state is not service_instance.ServiceState.AVAILABLE:
+    elif running.state is not ServiceState.AVAILABLE:
         # registered but not serving, whatever its definition says: an update starts it
         resolution = 'create'
     elif any(op.destructive for op in ops):
