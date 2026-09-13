@@ -265,6 +265,10 @@ class DbState(StrEnum):
     STOPPED = 'STOPPED'
     FAILED = 'FAILED'
 
+    @property
+    def is_transitional(self) -> bool:
+        return self in (DbState.PROVISIONING, DbState.STARTING, DbState.UPDATING, DbState.STOPPING)
+
 
 class ServiceState(StrEnum):
     """The states of a service instance, hosted or local.
@@ -280,6 +284,10 @@ class ServiceState(StrEnum):
     STOPPING = 'STOPPING'
     STOPPED = 'STOPPED'
     FAILED = 'FAILED'
+
+    @property
+    def is_transitional(self) -> bool:
+        return self in (ServiceState.DEPLOYING, ServiceState.STARTING, ServiceState.UPDATING, ServiceState.STOPPING)
 
 
 # what a DbChangeOp acts on. The two artifacts are separate: 'image' is the environment the pods run on,

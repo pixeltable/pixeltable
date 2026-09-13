@@ -47,9 +47,6 @@ _DB_DESTRUCTIVE_HINT = "Re-run 'pxt db update' with --allow-destructive to apply
 _DB_SETTLE_TIMEOUT = 3600.0
 _DB_POLL_INTERVAL = 5.0
 
-# the states a database passes through while it applies something
-_DB_TRANSITIONAL = frozenset({DbState.PROVISIONING, DbState.STARTING, DbState.UPDATING, DbState.STOPPING})
-
 
 def db_diff(db_uri: str) -> DbPlan:
     """Diff the database at db_uri with the corresponding DatabaseConfig in the project configuration."""
@@ -339,7 +336,7 @@ def _await_db_settled(db_path: catalog.Path) -> DatabaseStatus:
         if report is None or report.current is None:
             # a database that is gone has no status to report
             raise excs.NotFoundError(excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'{db_path.uri_str} no longer exists')
-        if report.current.state not in _DB_TRANSITIONAL:
+        if not report.current.state.is_transitional:
             return report.current
         if time.monotonic() >= deadline:
             raise excs.ExternalServiceError(
