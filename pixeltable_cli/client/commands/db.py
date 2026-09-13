@@ -113,7 +113,7 @@ def run(argv: list[str]) -> None:
 
 def _list(args: argparse.Namespace) -> None:
     resp = get_request('/api/dbs')
-    dbs = resp.get('databases', []) if isinstance(resp, dict) else []
+    dbs = resp.get('reports', []) if isinstance(resp, dict) else []
     if args.json_output:
         print(json.dumps(dbs))
     elif not dbs:
@@ -126,7 +126,7 @@ def _list(args: argparse.Namespace) -> None:
 def _status(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db status')
     resp = get_request('/api/db', {'org': org, 'db': db})
-    result = resp.get('database', resp) if isinstance(resp, dict) else {}
+    result = resp.get('report', resp) if isinstance(resp, dict) else {}
     if args.json_output:
         print(json.dumps(result))
     else:

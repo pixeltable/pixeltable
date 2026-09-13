@@ -255,7 +255,7 @@ class DbState(StrEnum):
 
 # what a DbChangeOp acts on. The two artifacts are separate: 'image' is the environment the pods run on,
 # 'archive' the sources they fetch, and a source edit moves only the second.
-DbTarget = Literal['image', 'archive', 'capacity', 'state']
+DbTarget = Literal['image', 'archive', 'capacity']
 
 
 class DbChangeOp(ChangeOp):
@@ -276,20 +276,6 @@ class DbChangeOp(ChangeOp):
             description=f'{field} will be {declared} rather than {was}, which restarts the database',
             details={'from': was, 'to': str(declared)},
             requires_restart=True,
-        )
-
-    @classmethod
-    def state(cls, current: DbState | None, target: DbState) -> DbChangeOp:
-        was = 'unreported' if current is None else str(current)
-        return cls(
-            target='state',
-            name='state',
-            op='alter',
-            # stopping takes the database out of service; starting interrupts nothing
-            severity='destructive' if target == DbState.STOPPED else 'additive',
-            description=f'the database will be {target} rather than {was}',
-            details={'from': was, 'to': str(target)},
-            requires_restart=current == DbState.STOPPED,
         )
 
     @classmethod

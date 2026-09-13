@@ -15,7 +15,7 @@ from pixeltable.service import management_client
 from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.service.management_protocol import (
     ArtifactUpload,
-    DatabaseState,
+    DatabaseReport,
     GetArchiveRequest,
     GetArchiveResponse,
     GetDbRequest,
@@ -54,29 +54,20 @@ _DB_TRANSITIONAL = frozenset({DbState.PROVISIONING, DbState.UPDATING, DbState.ST
 def db_diff(db_uri: str) -> DbPlan:
     """Diff the database at db_uri with the corresponding DatabaseConfig in the project configuration."""
     db_path = _validated_db_uri(db_uri)
-    return _update_db_request(db_path, _db_resources(_get_db_config(db_path)), dry_run=True).plan
+    return _update_db_request(db_path, target=_db_resources(_get_db_config(db_path)), dry_run=True).plan
 
 
 def db_fingerprint(db_path: catalog.Path) -> ProjectFingerprint | None:
     """Return the fingerprint of the project deployed to a hosted database; None for a local one."""
     if db_path.org is None or db_path.db is None:
         return None
-    state = _get_db_state(db_path)
-    return None if state is None or state.current is None else state.current.resources.fingerprint
+    report = _get_db_report(db_path)
+    return None if report is None or report.current is None else report.current.resources.fingerprint
 
 
-def create_db_update_ops(
-    target: DatabaseResources | None,
-    current: DatabaseResources | None,
-    target_state: DbState | None,
-    current_state: DbState | None,
-) -> list[DbChangeOp]:
+def create_db_update_ops(target: DatabaseResources, current: DatabaseResources | None) -> list[DbChangeOp]:
     """The operations needed to reconcile current with target."""
     ops: list[DbChangeOp] = []
-    if target_state is not None and target_state != current_state:
-        ops.append(DbChangeOp.state(current_state, target_state))
-    if target is None:
-        return ops
 
     if target.fingerprint is not None:
         if current is None or current.fingerprint is None:
@@ -111,8 +102,8 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
     """
     db_path = _validated_db_uri(db_uri)
     config = _get_db_config(db_path)
-    target_resources = _db_resources(config)
-    plan = _update_db_request(db_path, target_resources, dry_run=True).plan
+    target = _db_resources(config)
+    plan = _update_db_request(db_path, target=target, dry_run=True).plan
     if plan.destructive and not allow_destructive:
         destructive = ', '.join(op.name or '' for op in plan.ops if op.destructive)
         raise excs.RequestError(
@@ -120,7 +111,7 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
             f'Reconciling {db_uri} would apply destructive changes: {destructive}.\n{_DB_DESTRUCTIVE_HINT}',
         )
 
-    settled, _ = _update_db(db_path, config, target_resources)
+    settled, _ = _update_db(db_path, config, target)
     for op in plan.ops:
         op.status = 'applied'
     plan.state = settled.state
@@ -132,14 +123,14 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
 
 
 def _update_db(
-    db_path: catalog.Path, config: DatabaseConfig, target_resources: DatabaseResources, *, force_image_build: bool = False
+    db_path: catalog.Path, config: DatabaseConfig, target: DatabaseResources, *, force_image_build: bool = False
 ) -> tuple[DatabaseStatus, set[DbArtifact]]:
-    """Ask db_path to provide spec, store the artifacts it asks for, and wait for it to settle.
+    """Ask db_path to provide config's resources, store the artifacts it asks for, and wait for it to settle.
 
     Returns the status it settled in and the artifacts this call stored; one the store already held is
     not stored again.
     """
-    response = _update_db_request(db_path, target_resources=target_resources, force_image_build=force_image_build)
+    response = _update_db_request(db_path, target=target, force_image_build=force_image_build)
     stored: set[DbArtifact] = set()
     rounds = 0
     while len(response.uploads) > 0:
@@ -152,7 +143,7 @@ def _update_db(
             )
         stored.update(upload.artifact for upload in response.uploads)
         _store_artifacts(response.uploads, config)
-        response = _update_db_request(db_path, target_resources, force_image_build=force_image_build)
+        response = _update_db_request(db_path, target=target, force_image_build=force_image_build)
 
     settled = _await_db_settled(db_path)
     if settled.state == DbState.FAILED:
@@ -177,7 +168,7 @@ def _update_db(
             f'{db_path.uri_str} did not reach the state it was given: {settled.failure_reason}',
             provider='pixeltable_cloud',
         )
-    if settled.resources is None or settled.resources.fingerprint != spec.fingerprint:
+    if settled.resources is None or settled.resources.fingerprint != target.fingerprint:
         # settling on a project other than the one asked for reports nothing else, so say so here
         raise excs.InternalError(
             excs.ErrorCode.INTERNAL_ERROR, f'{db_path.uri_str} settled on a project other than the one it was given'
@@ -186,17 +177,16 @@ def _update_db(
 
 
 def _update_db_request(
-    db_path: catalog.Path, *, target_resources: DatabaseResources | None = None, target_state: DbState | None = None, dry_run: bool = False, force_image_build: bool = False
+    db_path: catalog.Path,
+    *,
+    target: DatabaseResources | None = None,
+    dry_run: bool = False,
+    force_image_build: bool = False,
 ) -> UpdateDbResponse:
     return UpdateDbResponse.model_validate(
         management_client.api_call(
             UpdateDbRequest(
-                org=db_path.org,
-                db=db_path.db,
-                target_resources=target_resources,
-                target_state=target_state,
-                dry_run=dry_run,
-                force_image_build=force_image_build,
+                org=db_path.org, db=db_path.db, target=target, dry_run=dry_run, force_image_build=force_image_build
             )
         )
     )
@@ -210,7 +200,7 @@ def db_build_image(db_uri: str) -> list[DbChangeOp]:
     """
     db_path = _validated_db_uri(db_uri)
     config = _get_db_config(db_path)
-    if _get_db_state(db_path) is None:
+    if _get_db_report(db_path) is None:
         raise excs.NotFoundError(
             excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'{db_path.uri_str} does not exist; run `pxt db update` to create it'
         )
@@ -339,16 +329,16 @@ def _await_db_settled(db_path: catalog.Path) -> DatabaseStatus:
     """Poll the named database until it leaves a transitional state, and return the status it reached."""
     deadline = time.monotonic() + _DB_SETTLE_TIMEOUT
     while True:
-        state = _get_db_state(db_path)
-        if state is None or state.current is None:
+        report = _get_db_report(db_path)
+        if report is None or report.current is None:
             # a database that is gone has no status to report
             raise excs.NotFoundError(excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'{db_path.uri_str} no longer exists')
-        if state.current.state not in _DB_TRANSITIONAL:
-            return state.current
+        if report.current.state not in _DB_TRANSITIONAL:
+            return report.current
         if time.monotonic() >= deadline:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_TIMEOUT,
-                f'{db_path.uri_str} is still {state.current.state} after {int(_DB_SETTLE_TIMEOUT)}s',
+                f'{db_path.uri_str} is still {report.current.state} after {int(_DB_SETTLE_TIMEOUT)}s',
                 provider='pixeltable_cloud',
             )
         time.sleep(_DB_POLL_INTERVAL)
@@ -384,11 +374,11 @@ def _get_db_config(db_uri: catalog.Path) -> DatabaseConfig:
     return config
 
 
-def _get_db_state(db_path: catalog.Path) -> DatabaseState | None:
+def _get_db_report(db_path: catalog.Path) -> DatabaseReport | None:
     try:
         response = management_client.api_call(GetDbRequest(org=db_path.org, db=db_path.db))
     except excs.ExternalServiceError as exc:
         if exc.provider_http_status_code == 404:
             return None
         raise
-    return GetDbResponse.model_validate(response).database
+    return GetDbResponse.model_validate(response).report

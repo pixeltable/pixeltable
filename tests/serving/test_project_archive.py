@@ -181,6 +181,21 @@ class TestImageContext:
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match="dependency 'helper' is declared as a local"):
             create_image_context(tmp_path)
 
+        # uv picks one entry of a list by marker, so every entry declares a source of its own
+        (tmp_path / 'pyproject.toml').write_text(
+            '[tool.uv.sources]\n'
+            'helper = [{ path = "../helper", marker = "sys_platform == \'linux\'" }, { index = "pypi" }]\n'
+        )
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match="dependency 'helper' is declared as a local"):
+            create_image_context(tmp_path)
+
+        # a list naming only published sources installs in a hosted image
+        (tmp_path / 'pyproject.toml').write_text(
+            '[tool.uv.sources]\nhelper = [{ index = "pypi", marker = "sys_platform == \'linux\'" }]\n'
+        )
+        with tarfile.open(create_image_context(tmp_path)) as tar:
+            assert tar.getnames() == ['pyproject.toml']
+
         (tmp_path / 'pyproject.toml').unlink()
         (tmp_path / 'requirements.txt').write_text('-r base.txt\npixeltable\n')
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='reads another file'):

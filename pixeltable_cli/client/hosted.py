@@ -207,7 +207,7 @@ def poll_db(org: str, db: str, pending_states: set[DbState], label: str | None) 
                 raise
             except Exception:
                 continue
-            database = resp.get('database', {}) if isinstance(resp, dict) else {}
+            database = resp.get('report', {}) if isinstance(resp, dict) else {}
             if db_state(database) not in pending_states:
                 break
     return database

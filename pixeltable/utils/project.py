@@ -265,7 +265,9 @@ def create_image_context(project_dir: Path | None = None) -> Path:
                 ) from exc
             sources = parsed.get('tool', {}).get('uv', {}).get('sources', {})
             for name, source in sources.items():
-                if not isinstance(source, dict) or ('path' not in source and 'workspace' not in source):
+                # uv takes a table, or a list of them where it picks one by marker or extra
+                entries = source if isinstance(source, list) else [source]
+                if not any(isinstance(e, dict) and ('path' in e or 'workspace' in e) for e in entries):
                     continue
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.serving import ServiceInstanceRecord
 from pixeltable.utils.project import ProjectFingerprint
-from pixeltable_cli.types import DbArtifact, DbPlan, DbState, ServiceSpec
+from pixeltable_cli.types import DbArtifact, DbPlan, ServiceSpec
 
 
 class ManagementOperationType(str, Enum):
@@ -64,15 +64,14 @@ def _validate_hosted_name(value: str, kind: str) -> str:
     return value
 
 
-class DatabaseState(BaseModel):
-    """The state of a hosted db: its requested resources and the ones it provides."""
+class DatabaseReport(BaseModel):
+    """A hosted db's requested resources and the ones it provides."""
 
     model_config = ConfigDict(extra='ignore')
 
     db: str = ''
 
     target_resources: DatabaseResources | None = None
-    target_state: DbState | None = None
 
     # None: the database does not exist
     current: DatabaseStatus | None = None
@@ -85,7 +84,7 @@ class GetDbRequest(BaseModel):
 
 
 class GetDbResponse(BaseModel):
-    database: DatabaseState
+    report: DatabaseReport
 
     # one entry per pod serving the database; DatabaseResources.workers is how many should run
     worker_status: list[dict[str, Any]] = Field(default_factory=list)
@@ -102,8 +101,7 @@ class UpdateDbRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.UPDATE_DB] = ManagementOperationType.UPDATE_DB
     org: str | None = None
     db: str
-    target_resources: DatabaseResources | None = None
-    target_state: DbState | None = None
+    target: DatabaseResources | None = None
 
     # compute the plan without recording the spec, acting on it, or handing out an upload url
     dry_run: bool = False
@@ -126,7 +124,7 @@ class ArtifactUpload(BaseModel):
 
 class UpdateDbResponse(BaseModel):
     plan: DbPlan
-    state: DatabaseState
+    report: DatabaseReport
 
     # if non-empty: perform the uploads first, then retry the request
     uploads: list[ArtifactUpload] = Field(default_factory=list)
