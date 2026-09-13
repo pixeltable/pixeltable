@@ -26,7 +26,7 @@ Sign in from the browser, create a key, then export it. The CLI reads `PIXELTABL
     export PIXELTABLE_API_KEY='your-key'
     ```
 
-    Same name in `.env`. Do not write `api_key` in `config.toml`. [Configuration](/platform/configuration). This key authenticates Cloud CLI and hosted HTTP. Provider keys such as `OPENAI_API_KEY` go under **Secrets** in the dashboard, or `pxt secret set pxt://org OPENAI_API_KEY=...`. They do not go in this API key. [CLI](/platform/cli#pxt-secret).
+    Pixeltable reads the process environment and never loads a `.env` file on its own, so source one yourself first (`set -a; source .env; set +a`). Do not write `api_key` in `config.toml`. [Configuration](/platform/configuration). This key authenticates Cloud CLI and hosted HTTP. Provider keys such as `OPENAI_API_KEY` go under **Secrets** in the dashboard, or `pxt secret set pxt://org OPENAI_API_KEY=...`. They do not go in this API key. [CLI](/platform/cli#pxt-secret).
   </Step>
 </Steps>
 
