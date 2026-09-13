@@ -200,3 +200,20 @@ class TestImageContext:
         (tmp_path / 'requirements.txt').write_text('-r base.txt\npixeltable\n')
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='reads another file'):
             create_image_context(tmp_path)
+
+        # the context holds the wheel under a relative name, so an absolute one names nothing in the build
+        wheel = tmp_path / 'w' / 'pkg-1.0-py3-none-any.whl'
+        wheel.parent.mkdir()
+        wheel.write_bytes(b'')
+        (tmp_path / 'requirements.txt').write_text(f'{wheel}\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='an absolute path naming this machine'):
+            create_image_context(tmp_path)
+
+        (tmp_path / 'requirements.txt').write_text(f'pkg @ file://{wheel}\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='a file: url naming this machine'):
+            create_image_context(tmp_path)
+
+        # the same wheel, named relative to the project, is bundled
+        (tmp_path / 'requirements.txt').write_text('w/pkg-1.0-py3-none-any.whl\n')
+        with tarfile.open(create_image_context(tmp_path)) as tar:
+            assert sorted(tar.getnames()) == ['requirements.txt', 'w/pkg-1.0-py3-none-any.whl']

@@ -45,10 +45,10 @@ class ServiceInstanceRecord(pydantic.BaseModel):
 
     state: ServiceState = ServiceState.AVAILABLE
 
-    # when the instance was first recorded
+    # set once, when the record is created
     created_at: float | None = None
 
-    # bumped on every write; a poll carrying an older one has been superseded
+    # set on every update of the record
     updated_at: float | None = None
 
     # the reason for a FAILED state

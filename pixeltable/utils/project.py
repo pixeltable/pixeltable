@@ -226,8 +226,22 @@ def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path
             # pip reads a bare name as a package, not a path
             if '/' not in target and not target.startswith('.'):
                 continue
+        if target.startswith('file:'):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} installs {target}, a file: url naming this machine; write the path '
+                'relative to the project root instead',
+            )
         if '://' in target:
             continue
+        if Path(target).is_absolute():
+            # the context holds the file under a path relative to the project, so pip in the build
+            # container would look for this one where nothing is
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} installs {target}, an absolute path naming this machine; write it '
+                'relative to the project root instead',
+            )
         path = (project_dir / target).resolve()
         if path.is_dir():
             raise excs.RequestError(
