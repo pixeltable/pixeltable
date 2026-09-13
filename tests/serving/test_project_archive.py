@@ -217,3 +217,18 @@ class TestImageContext:
         (tmp_path / 'requirements.txt').write_text('w/pkg-1.0-py3-none-any.whl\n')
         with tarfile.open(create_image_context(tmp_path)) as tar:
             assert sorted(tar.getnames()) == ['requirements.txt', 'w/pkg-1.0-py3-none-any.whl']
+
+        # an environment marker decides whether pip installs the line, not where the file is
+        (tmp_path / 'requirements.txt').write_text('w/pkg-1.0-py3-none-any.whl ; python_version >= "3.11"\n')
+        with tarfile.open(create_image_context(tmp_path)) as tar:
+            assert sorted(tar.getnames()) == ['requirements.txt', 'w/pkg-1.0-py3-none-any.whl']
+
+        # requirements.txt travels unchanged, so pip would look for a path the project does not hold
+        (tmp_path / 'requirements.txt').write_text('w/typo-1.0-py3-none-any.whl\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='which the project does not hold'):
+            create_image_context(tmp_path)
+
+        # a path above the project is named as such, not reported as missing
+        (tmp_path / 'requirements.txt').write_text('../outside/pkg.whl\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='which is outside the project'):
+            create_image_context(tmp_path)

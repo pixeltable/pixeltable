@@ -687,10 +687,15 @@ pxt schema update app.py pxt://acme:main    # create the tables the models decla
 pxt service update app.py pxt://acme:main   # start the services there
 ```
 
-`diff`, `update`, `prune`, `stop` and `list` all accept a hosted target. `run` does not: it serves from the
+`diff`, `update`, `prune`, `stop`, `restart` and `list` all accept a hosted target. `run` does not: it serves from the
 calling process, so it is local by definition. Two verbs differ in meaning against a hosted database, where
 a stopped service keeps its registration: `stop` stops it and leaves it there to be started again, while
 `prune` forgets it.
+
+`pxt service restart` cycles a service's pods onto the image and routes they already run, and accepts the
+same service addresses as `stop`. Use it to force the service to pick up the current values of all of its referenced
+secrets. Against a local target it stops the process and starts it again on the same
+port, so callers keep their address.
 
 `pxt service logs` reads a service's log and accepts the same service addresses as `stop`. `pxt db logs` reads
 the log of a hosted database's pod:
@@ -895,6 +900,15 @@ pxt db stop pxt://myorg:mydb
 
 Stop a running database (releases compute; storage is preserved).
 
+#### `pxt db restart`
+
+```bash
+pxt db restart pxt://myorg:mydb
+```
+
+Cycle the pods onto the image and project they already run, without rebuilding or uploading anything. Use it
+to pick up a secret set since they started. Polls until `AVAILABLE`; a stopped database is started instead.
+
 #### `pxt db diff`
 
 ```bash
@@ -957,7 +971,7 @@ pxt secret delete pxt://myorg:mydb OLD_KEY
 
 An org secret applies to every database in the org. A database secret applies to that database and wins on a key collision. `list` prints names, never values.
 
-A running database holds the values it started with. Run `pxt db stop` then `pxt db start` to pick up a change.
+A running database holds the values it started with. `pxt db restart`, or `pxt service restart` for one service, picks up a change; a database or service started afterwards reads it on the way up.
 
 ## What's next
 

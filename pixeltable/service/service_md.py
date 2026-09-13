@@ -54,8 +54,8 @@ class ServiceInstanceRecord(pydantic.BaseModel):
     # the reason for a FAILED state
     error: str | None = None
 
-    # the project fingerprint
-    fingerprint: ProjectFingerprint
+    # the project the instance serves; None until its pod reports one
+    fingerprint: ProjectFingerprint | None = None
 
     resources: ServiceResources = pydantic.Field(default_factory=ServiceResources)
     description: str | None = None

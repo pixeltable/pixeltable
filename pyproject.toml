@@ -294,6 +294,10 @@ strict_optional = false
 warn_return_any = true
 warn_unused_ignores = true
 
+# enforce strictness during model construction
+[tool.pydantic-mypy]
+init_forbid_extra = true
+
 # the CLI tests' application corpus needs to be copied into the test session's project; the import paths
 # in their test directory location don't resolve
 [[tool.mypy.overrides]]

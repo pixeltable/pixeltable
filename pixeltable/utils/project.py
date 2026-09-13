@@ -218,6 +218,12 @@ def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path
             )
         if line.startswith('-'):
             continue
+        # an environment marker decides whether pip installs the line
+        line = line.split(';', 1)[0].strip()
+        if line == '':
+            continue
+
+        target: str
         if ' @ ' in line:
             # 'name @ target' states where to get name
             target = line.split('@', 1)[1].strip()
@@ -242,6 +248,7 @@ def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path
                 f'{requirements.name} installs {target}, an absolute path naming this machine; write it '
                 'relative to the project root instead',
             )
+
         path = (project_dir / target).resolve()
         if path.is_dir():
             raise excs.RequestError(
@@ -249,13 +256,17 @@ def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path
                 f'{requirements.name} installs {target}, a source directory, which a hosted image build '
                 'cannot compile; publish the package to an index and depend on the published version',
             )
-        if not path.is_file():
-            continue
         if not path.is_relative_to(project_dir):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
                 f'{requirements.name} installs {target}, which is outside the project; an image build '
                 'sends the project alone, so a file above it cannot be installed',
+            )
+        if not path.is_file():
+            # this path doesn't exist
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} installs {target}, which cannot be resolved relative to the project root',
             )
         files.append(path)
     return files
