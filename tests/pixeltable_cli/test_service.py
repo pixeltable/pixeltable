@@ -1146,3 +1146,50 @@ class TestHostedService:
         stopped = service_list(cli, project, current_db)['ingest']
         assert stopped['state'] == 'STOPPED', stopped
         assert not service_diff(cli, project, app_file, current_db)['in_agreement']
+
+    def test_source_change(
+        self, cli: PxtRunner, project: pathlib.Path, current_db: str
+    ) -> None:
+        """A db update leaves a running service on its own project; a restart moves it to the database's."""
+        app_file = project / APP_FILE
+        schema_update(cli, project, str(app_file), current_db)
+        # the database is shared, so it serves whatever routes the run before this one left registered
+        service_update(cli, project, str(app_file), current_db, '--allow-destructive')
+        await_service_available(cli, project, current_db, 'ingest')
+        endpoint = service_list(cli, project, current_db)['ingest']['endpoint']
+
+        def summary() -> Any:
+            return _post(endpoint, '/preview', doc_id=1, title='hello', published=True).json()['summary']
+
+        assert summary() == 'hello'
+
+        # an edit to a udf body changes the archive and leaves the image alone
+        app_file.write_text(
+            app_file.read_text(encoding='utf-8').replace(
+                "return text if len(text) <= n else f'{text[:n]}...'", 'return text.upper()'
+            ),
+            encoding='utf-8',
+        )
+        db_update(cli, project, current_db)
+
+        pending = service_list(cli, project, current_db)['ingest']
+        assert pending['state'] == 'AVAILABLE', pending
+        assert pending['update_pending'] is True, pending
+        assert summary() == 'hello', 'the pods still serve their own project'
+
+        cli('service', 'restart', f'{current_db}/ingest', cwd=project)
+        await_service_available(cli, project, current_db, 'ingest')
+        restarted = service_list(cli, project, current_db)['ingest']
+        assert restarted['update_pending'] is False, restarted
+        assert summary() == 'HELLO'
+
+        # starting a stopped service puts it on the database's project, not back on its previous one
+        cli('service', 'stop', f'{current_db}/ingest', cwd=project)
+        app_file.write_text(
+            app_file.read_text(encoding='utf-8').replace('return text.upper()', 'return text[:1]'), encoding='utf-8'
+        )
+        db_update(cli, project, current_db)
+        cli('service', 'start', f'{current_db}/ingest', cwd=project)
+        await_service_available(cli, project, current_db, 'ingest')
+        assert service_list(cli, project, current_db)['ingest']['update_pending'] is False
+        assert summary() == 'h'

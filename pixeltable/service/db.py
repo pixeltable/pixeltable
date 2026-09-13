@@ -103,6 +103,8 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
     config = _get_db_config(db_path)
     target = _db_resources(config)
     plan = _update_db_request(db_path, target=target, dry_run=True).plan
+    # TODO: carry allow_destructive and the plan it was checked against in UpdateDbRequest, so the control
+    # plane re-runs this check against the target it applies
     if plan.destructive and not allow_destructive:
         destructive = ', '.join(op.name or '' for op in plan.ops if op.destructive)
         raise excs.RequestError(
@@ -297,20 +299,22 @@ def _store_artifacts(uploads: list[ArtifactUpload], config: DatabaseConfig, targ
     project_root = _validated_project_root()
     paths: list[tuple[ArtifactUpload, Path]] = []
     packaged: dict[str, str] = {}
+    recorded: dict[str, str] = {}
     try:
         for upload in uploads:
             if upload.artifact == 'archive':
                 archive = package_project_archive(project_root, config, show_progress=True)
                 paths.append((upload, archive.path))
                 packaged.update(archive.files)
+                recorded.update(target.fingerprint.files)
             else:
                 context = package_image_context(project_root)
                 paths.append((upload, context.path))
-                packaged.update(context.installed_from_project)
+                packaged.update(context.files)
+                recorded.update(target.fingerprint.image_files())
 
         # the hashes come from the bytes just written, so this compares the packages themselves against
         # the digests
-        recorded = {**target.fingerprint.files, **target.fingerprint.installed_from_project}
         changed = sorted(p for p in set(packaged) | set(recorded) if packaged.get(p) != recorded.get(p))
         if len(changed) > 0:
             raise excs.RequestError(

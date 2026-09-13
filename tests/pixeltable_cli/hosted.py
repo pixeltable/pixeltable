@@ -32,7 +32,7 @@ APPLY_TIMEOUT = 2400.0
 
 APP_FILE = 'basic.py'  # the corpus file the project holds, and the pod serves
 
-# a database update restarts the services running its project, which redeploys their pods
+# a service restart redeploys its pods
 _SERVICE_RESTART_TIMEOUT = 600.0
 
 
@@ -119,7 +119,7 @@ def service_list(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> dict[str
 
 
 def await_service_available(cli: PxtRunner, project: pathlib.Path, db_uri: str, name: str) -> None:
-    """Block until the named instance is serving, which it stops doing while its database is updated."""
+    """Block until the named instance is serving, which it stops doing while its pods are redeployed."""
     deadline = time.monotonic() + _SERVICE_RESTART_TIMEOUT
     while True:
         state = service_list(cli, project, db_uri)[name]['state']

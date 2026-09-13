@@ -173,13 +173,12 @@ class PackagedArchive:
 
 @dataclasses.dataclass
 class PackagedContext:
-    """An image context, and the content hash of every project file it installs from."""
+    """An image context, and the content hash of every file written into it."""
 
     path: Path
 
-    # path relative to the project root -> sha256 of the bytes written, for the files requirements.txt
-    # installs from a path in the project itself; the manifests alongside them are covered by the archive
-    installed_from_project: dict[str, str]
+    # path relative to the project root -> sha256 of the bytes written into the context
+    files: dict[str, str]
 
 
 def _add_hashed(tf: tarfile.TarFile, path: Path, arcname: str) -> str:
@@ -382,16 +381,13 @@ def package_image_context(project_dir: Path | None = None) -> PackagedContext:
     fd, name = tempfile.mkstemp(suffix='.tar', prefix='pxt_image_')
     os.close(fd)
     context_path = Path(name)
-    from_project = set(installed_from_project)
     hashes: dict[str, str] = {}
     with tarfile.open(context_path, 'w') as tf:
         for f in files:
             relpath = f.relative_to(project_dir).as_posix()
-            content_hash = _add_hashed(tf, f, relpath)
-            if f in from_project:
-                hashes[relpath] = content_hash
+            hashes[relpath] = _add_hashed(tf, f, relpath)
     _logger.info(f'Image context created: {context_path}')
-    return PackagedContext(path=context_path, installed_from_project=hashes)
+    return PackagedContext(path=context_path, files=hashes)
 
 
 def archive_object_name(org_id: str, archive_digest: str) -> str:
@@ -470,7 +466,7 @@ class ProjectFingerprint(pydantic.BaseModel):
         if ProjectPart.IMAGE in parts:
             if ProjectPart.ARCHIVE not in parts:
                 # make sure to include the manifests
-                lines += _changed_paths(self._image_files(), other._image_files())
+                lines += _changed_paths(self.image_files(), other.image_files())
             for field in ('python_version', 'pixeltable_version'):
                 was, now = getattr(other, field), getattr(self, field)
                 if was != now:
@@ -495,14 +491,15 @@ class ProjectFingerprint(pydantic.BaseModel):
 
     def _image_inputs(self) -> tuple:
         return (
-            self._image_files(),
+            self.image_files(),
             self.python_version,
             self.system_dependencies,
             self.pixeltable_version,
             self.uv_options,
         )
 
-    def _image_files(self) -> dict[str, str]:
+    def image_files(self) -> dict[str, str]:
+        """The manifests an image build reads, plus the project files they install from."""
         manifests = {path: content_hash for path, content_hash in self.files.items() if path in IMAGE_INPUT_FILES}
         return {**manifests, **self.installed_from_project}
 
