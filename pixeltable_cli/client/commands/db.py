@@ -141,7 +141,7 @@ def _logs(args: argparse.Namespace) -> None:
 def _start(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db start')
     post_request('/api/db/start', {'org': org, 'db': db})
-    result = poll_db(org, db, {DbState.STARTING}, f"Database '{db}' is starting...")
+    result = poll_db(org, db, f"Database '{db}' is starting...")
     if args.json_output:
         print(json.dumps(result.get('report', {})))
     else:
@@ -152,7 +152,7 @@ def _start(args: argparse.Namespace) -> None:
 def _stop(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db stop')
     post_request('/api/db/stop', {'org': org, 'db': db})
-    result = poll_db(org, db, {DbState.STOPPING}, f"Database '{db}' is stopping...")
+    result = poll_db(org, db, f"Database '{db}' is stopping...")
     if args.json_output:
         print(json.dumps(result.get('report', {})))
     else:
@@ -163,7 +163,7 @@ def _stop(args: argparse.Namespace) -> None:
 def _restart(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db restart')
     post_request('/api/db/restart', {'org': org, 'db': db})
-    result = poll_db(org, db, {DbState.UPDATING}, f"Database '{db}' is restarting...")
+    result = poll_db(org, db, f"Database '{db}' is restarting...")
     if args.json_output:
         print(json.dumps(result.get('report', {})))
     else:

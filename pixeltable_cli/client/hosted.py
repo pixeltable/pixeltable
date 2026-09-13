@@ -17,6 +17,8 @@ from pixeltable_cli.utils import split_pxt_uri
 from .utils import get_request, print_aligned
 
 DB_POLL_INTERVAL = 5
+
+_TRANSITIONAL = frozenset(s.value for s in DbState if s.is_transitional)
 DB_POLL_TIMEOUT = 600
 
 
@@ -191,8 +193,8 @@ def exit_unless_reached(response: dict[str, Any], expected_state: DbState, opera
     sys.exit(1)
 
 
-def poll_db(org: str, db: str, pending_states: set[DbState], label: str | None) -> dict[str, Any]:
-    """Poll a hosted database until its state leaves pending_states, and return the whole response.
+def poll_db(org: str, db: str, label: str | None) -> dict[str, Any]:
+    """Poll a hosted database until nothing is in flight, and return the whole response.
 
     Returns an empty dict if no read succeeded. A failed read is retried until the deadline, so a
     database briefly unreachable mid-transition does not abort the wait.
@@ -209,6 +211,8 @@ def poll_db(org: str, db: str, pending_states: set[DbState], label: str | None) 
             except Exception:
                 continue
             response = resp if isinstance(resp, dict) else {}
-            if db_state(response) not in pending_states:
+            state = db_state(response)
+            # an unrecognized state is one a newer control plane reports, and waiting on it would hang
+            if state is None or state not in _TRANSITIONAL:
                 break
     return response

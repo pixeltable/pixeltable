@@ -292,7 +292,7 @@ class ServiceState(StrEnum):
 
 # what a DbChangeOp acts on. The two artifacts are separate: 'image' is the environment the pods run on,
 # 'archive' the sources they fetch, and a source edit moves only the second.
-DbTarget = Literal['image', 'archive', 'capacity']
+DbTarget = Literal['image', 'archive', 'capacity', 'bindings']
 
 
 class DbChangeOp(ChangeOp):
@@ -312,6 +312,19 @@ class DbChangeOp(ChangeOp):
             severity='destructive' if current is not None and declared < current else 'additive',
             description=f'{field} will be {declared} rather than {was}, which restarts the database',
             details={'from': was, 'to': str(declared)},
+            requires_restart=True,
+        )
+
+    @classmethod
+    def rebind(cls, changes: list[str]) -> DbChangeOp:
+        """A config var now names a different source; the pods re-read it when they restart."""
+        return cls(
+            target='bindings',
+            name='bindings',
+            op='alter',
+            severity='additive',
+            description=f'{_summary(changes)}, which restarts the database',
+            details={'changes': '; '.join(changes)},
             requires_restart=True,
         )
 

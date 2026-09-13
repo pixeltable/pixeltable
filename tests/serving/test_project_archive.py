@@ -225,10 +225,22 @@ class TestImageContext:
 
         # requirements.txt travels unchanged, so pip would look for a path the project does not hold
         (tmp_path / 'requirements.txt').write_text('w/typo-1.0-py3-none-any.whl\n')
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='which the project does not hold'):
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='cannot be resolved relative to the project root'):
             create_image_context(tmp_path)
 
         # a path above the project is named as such, not reported as missing
         (tmp_path / 'requirements.txt').write_text('../outside/pkg.whl\n')
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='which is outside the project'):
             create_image_context(tmp_path)
+
+        # pip installs a bare archive name from the project root, so it is a path rather than a package
+        root_wheel = tmp_path / 'pkg-2.0-py3-none-any.whl'
+        root_wheel.write_bytes(b'')
+        (tmp_path / 'requirements.txt').write_text('pkg-2.0-py3-none-any.whl\n')
+        with tarfile.open(create_image_context(tmp_path)) as tar:
+            assert sorted(tar.getnames()) == ['pkg-2.0-py3-none-any.whl', 'requirements.txt']
+
+        # a bare name with no archive suffix stays a package the index serves
+        (tmp_path / 'requirements.txt').write_text('pixeltable\n')
+        with tarfile.open(create_image_context(tmp_path)) as tar:
+            assert tar.getnames() == ['requirements.txt']

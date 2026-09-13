@@ -340,7 +340,8 @@ def _service_diff(
                 command=f'pxt db update {app_info.db_uri}',
             )
         )
-    elif running is not None:
+    elif running is not None and running.record.fingerprint is not None:
+        # a hosted instance reports none until its pod loads one; there is nothing to compare against yet
         stale = app_info.local_fingerprint.compare(running.record.fingerprint)
         if len(stale) > 0:
             ops.append(

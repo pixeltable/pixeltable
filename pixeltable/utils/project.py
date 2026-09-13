@@ -197,6 +197,10 @@ def create_project_archive(
     return archive_path
 
 
+# what pip installs from a file rather than an index, named without a directory
+_ARCHIVE_SUFFIXES = ('.whl', '.zip', '.tar.gz', '.tar.bz2', '.tar.xz', '.tgz')
+
+
 def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path]:
     """The files requirements.txt installs from a path in the project, rather than from an index or a url."""
     files: list[Path] = []
@@ -229,8 +233,8 @@ def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path
             target = line.split('@', 1)[1].strip()
         else:
             target = line
-            # pip reads a bare name as a package, not a path
-            if '/' not in target and not target.startswith('.'):
+            # pip reads a bare name as a package, not a path, unless it carries an archive suffix
+            if '/' not in target and not target.startswith('.') and not target.endswith(_ARCHIVE_SUFFIXES):
                 continue
         if target.startswith('file:'):
             raise excs.RequestError(
