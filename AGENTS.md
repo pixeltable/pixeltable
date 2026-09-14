@@ -2,7 +2,21 @@
 
 # AGENTS.md
 
-Instructions for AI coding agents working with the Pixeltable codebase.
+Instructions for AI coding agents working with the Pixeltable codebase. This is the single developer
+guide; `CLAUDE.md` imports it.
+
+## Where the other instructions live
+
+| File | Governs | Read it when |
+|---|---|---|
+| `.github/copilot-instructions.md` | Copilot code review on pull requests | Changing what a reviewer flags |
+| `docs/_guidelines/GUIDELINES_FOR_PROSE.md` | Prose in docs, notebooks, READMEs | Writing anything a user reads |
+| `docs/_guidelines/GUIDELINES_FOR_DOCSTRINGS.md` | Docstrings, which ship as SDK reference | Adding or editing a docstring |
+| `docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md` | Notebook structure and conversion | Touching `docs/release/**/*.ipynb` |
+| `docs/_guidelines/GUIDELINES_FOR_COOKBOOKS.md` | Cookbook recipe structure | Adding a recipe |
+| `dashboard/DESIGN.md`, `dashboard/ARCHITECTURE.md` | The local dashboard UI | Touching `dashboard/` or its server APIs |
+| `docs/release/skill.md` | The user-facing agent skill | Changing what app builders are told |
+| `CONTRIBUTING.md` | Branching, review, merge process | Opening or merging a PR |
 
 ## Protected Configuration
 
@@ -248,6 +262,21 @@ pxt service update app.py my_app
 ```
 
 After `pxt schema update`, open the table with `t = pxt.get_table('my_app.docs')`, then `t.insert()` / `.select()` / `.collect()`. On a `TableModel`, put indexes in `__indexes__`. Do not call `add_embedding_index()` in application code that you later create with `pxt schema update`.
+
+Tests and notebooks (not app files):
+
+```python
+import pixeltable as pxt
+
+t = pxt.create_table('my_dir.my_table', {
+    'text': pxt.String,
+    'image': pxt.Image,
+    'metadata': pxt.Json,
+})
+t.add_computed_column(embedding=some_embedding_fn(t.text))
+t.add_embedding_index('text', embedding=embed_fn)
+t.insert([{'text': 'hello', 'image': 'path/to/image.jpg'}])
+```
 
 Examples: [pixeltable-starter-kit](https://github.com/pixeltable/pixeltable-starter-kit).
 
