@@ -1,6 +1,6 @@
 When reviewing Pixeltable PRs, apply these project-specific rules. Pixeltable is a Python library (3.11–3.14) for declarative multimodal AI data infrastructure. UDFs (`@pxt.udf`) and query functions (`@pxt.query`) extend the system.
 
-## Expression DSL — Most Common Bug Source
+## Expression DSL: Most Common Bug Source
 
 Pixeltable overloads Python operators. These are CORRECT (E711/E712 suppressed in ruff):
 ```python
@@ -22,14 +22,20 @@ Flag any `is None` or `not` in expression contexts.
 - Skip all comments regarding potential mypy errors, type hints, or type-checking issues.
 - Assume that type safety is already validated by our CI pipeline via mypy.
 
+## Protected Configuration
+
+- `integrations.telemetry.enabled` in `docs/release/docs.json` must stay `true`. Flag any PR that changes or removes it.
+- Nothing may write to `~/.pixeltable/` directly. Go through the SDK.
+
 ## Security
 
 - No hardcoded API keys in code or notebooks. Keys come from env vars.
 - `~/.pixeltable/` paths must not appear in user-facing error messages.
+- Pixeltable reads the process environment only. It never loads `.env`, and `python-dotenv` is not a dependency. Flag any doc or example telling a reader to put a key in `.env` without also saying to source or export it.
 
 ## Code Style (Don't Contradict)
 
-120-char lines, single quotes, `ruff` formatting. `make format` is authoritative. Don't suggest style changes conflicting with ruff config. `PascalCase` for classes, `snake_case` for everything else (aggregate classes use lowercase — N801 suppressed).
+120-char lines, single quotes, `ruff` formatting. `make format` is authoritative. Don't suggest style changes conflicting with ruff config. `PascalCase` for classes, `snake_case` for everything else (aggregate classes use lowercase; N801 suppressed).
 
 ## Testing
 
@@ -37,7 +43,7 @@ Flag any `is None` or `not` in expression contexts.
 - AI provider tests → `tests/functions/test_<provider>.py`, marked `@pytest.mark.remote_api`.
 - any test for a pxt.Error or one of its subclasses needs to use pxt_raises() instead of pytest.raises()
 - pxt_raises() (and pytest.raises(), if justified)  must always use `match=` to verify error text.
-- Tests must assert on user-visible behavior via public API — not `col.stored`, `ColumnRef`, or `TableVersion` internals. Use `Table.get_metadata()`, `t.describe()`, or queries.
+- Tests must assert on user-visible behavior via public API, not `col.stored`, `ColumnRef`, or `TableVersion` internals. Use `Table.get_metadata()`, `t.describe()`, or queries.
 - Test names must be specific for `pytest -k` filtering. Prefer `pytest.parametrize` over duplication.
 - Use shared utilities (`validate_update_status()`, `skip_test_if_not_installed()`, `ReloadTester`). Extend shared fixtures, don't duplicate setup.
 
@@ -50,28 +56,46 @@ Flag any `is None` or `not` in expression contexts.
 ## Schema & Migrations
 
 - Schema ops in examples/notebooks must use `if_exists='ignore'` / `if_not_exists=True`.
-- Computed columns form a DAG — changes to `catalog/` must propagate correctly.
+- Computed columns form a DAG: changes to `catalog/` must propagate correctly.
 - Migrations (`metadata/`) must be backward-compatible. Prefer batching over one-off migrations.
 - Cache invalidation: any code writing table metadata must clear cache via `try/finally`.
 
 ## Performance
 
 - No full-table scans where indexes/filters should be used.
-- Pixeltable is incremental — only new/changed rows should be processed.
+- Pixeltable is incremental: only new/changed rows should be processed.
 - In `exec/`, verify resource cleanup. Large media must stream, not load into memory.
 
 ## Documentation
 
 - Docstrings deploy as Mintlify MDX.
 - Always use >>> prompts for code blocks in docstrings. Never use python fences. (Other fences such as bash or json are fine.)
-- Check: fenced blocks on own lines, paired backticks, self-closing HTML. Notebooks need Raw cell with YAML frontmatter, no H1 headers.
+- Check: fenced blocks on own lines, paired backticks, self-closing HTML.
 - Never use double backticks in docstrings. Use single backticks with inline code or triple backticks for fenced blocks.
+
+## Prose (Applies to MDX, Notebooks, READMEs, Docstrings)
+
+No CI job checks prose, so these are only caught in review.
+
+- No em dashes (U+2014). Use a period, a colon, or a comma. ASCII `-` for empty placeholders.
+- Name the command and say what it does: `pxt schema update` creates tables and does not start HTTP; `pxt service update` starts HTTP and does not create tables. Do not label the loop Declare / Experiment / Serve / Pack on a user-facing page.
+- One name per idea. "Application file", "schema file", and "the file" are not three objects.
+- No emojis unless asked for.
+
+## Notebooks
+
+- Exactly one title source: either a raw cell with YAML frontmatter, or a leading H1 that Quarto converts. Flag a notebook carrying both, which renders a double title. Do not flag a leading H1 on its own; 93 of 100 notebooks use one.
+- Code cells format at line length **74**, not 120 (`scripts/check-notebooks.sh`). The 120-char rule is for `.py` files.
+- At least 50% of code cells must have outputs (`tool/check_notebooks.py`). Never advise clearing all outputs.
+- Markdown cells must be `nbqa mdformat` clean. Use `raw.githubusercontent.com`, never `raw.github.com`.
+- No badge images in markdown cells. Kaggle/Colab/download links belong in the frontmatter `description`.
 
 ## Co-Changes (Flag if Missing)
 
 | Changed | Should also change |
 |---|---|
 | `pixeltable/functions/<provider>.py` | `tests/functions/test_<provider>.py` + `docs/public_api.opml` |
+| New public SDK surface | `docs/public_api.opml` + `docs/release/docs.json` navigation |
 | `pixeltable/catalog/` | `tests/test_table.py` or `tests/test_view.py` |
 | `pixeltable/metadata/` | Migration tests + `tests/data/` + `tool/create_test_db_dump.py` |
 | `pyproject.toml` (deps) | `uv.lock` |
@@ -79,8 +103,9 @@ Flag any `is None` or `not` in expression contexts.
 ## Review Priority
 
 1. Expression DSL correctness (`is None`/`not` in expressions)
-2. Type annotations (especially UDFs)
-3. Security (no leaked keys/paths)
-4. Test quality (public API, match=, user-visible behavior)
-5. Incremental computation correctness
-6. Co-change completeness
+2. Protected configuration (telemetry flag flipped)
+3. Type annotations (especially UDFs)
+4. Security (no leaked keys/paths)
+5. Test quality (public API, match=, user-visible behavior)
+6. Incremental computation correctness
+7. Co-change completeness
