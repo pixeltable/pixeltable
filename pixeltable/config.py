@@ -45,8 +45,9 @@ class DatabaseConfig(pydantic.BaseModel):
     # where media that names no destination goes: inserted media, and media that computed columns produce
     input_media_dest: str | None = None
     output_media_dest: str | None = None
-    # where the OpenTelemetry bridge exports to
+    # where the OpenTelemetry bridge exports to, and over which transport
     exporter_otlp_endpoint: str | None = None
+    exporter_otlp_protocol: str | None = None
 
     # the rest applies to a hosted database, whose runtime image is built from the project
     exclude: list[str] | None = None  # glob patterns to exclude from the image
@@ -96,6 +97,7 @@ _DATABASE_SETTINGS: dict[tuple[str, str], str] = {
     ('pixeltable', 'input_media_dest'): 'input_media_dest',
     ('pixeltable', 'output_media_dest'): 'output_media_dest',
     ('otel', 'exporter_otlp_endpoint'): 'exporter_otlp_endpoint',
+    ('otel', 'exporter_otlp_protocol'): 'exporter_otlp_protocol',
 }
 
 
@@ -921,7 +923,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
         'database': (
             'One entry per database the project uses: variable and secret bindings, its media destinations '
-            'and OTLP endpoint, and for a hosted database the contents of its runtime image',
+            'and OTLP endpoint and protocol, and for a hosted database the contents of its runtime image',
             list[DatabaseConfig],
         ),
         'db_pool_size': ('Number of database connections the engine keeps open (default: 5)', int),

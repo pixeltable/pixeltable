@@ -483,11 +483,12 @@ class TestConfig:
             load("[[pixeltable.database]]\nnot_a_setting = 'x'\n")
 
     def test_database_settings(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A database entry sets the media destinations and the OTLP endpoint of its database."""
+        """A database entry sets the media destinations and the OTLP endpoint and protocol of its database."""
         for var in (
             'PIXELTABLE_INPUT_MEDIA_DEST',
             'PIXELTABLE_OUTPUT_MEDIA_DEST',
             'OTEL_EXPORTER_OTLP_ENDPOINT',
+            'OTEL_EXPORTER_OTLP_PROTOCOL',
             'PXTCLOUD_ORG',
             'PXTCLOUD_DB',
         ):
@@ -508,6 +509,7 @@ class TestConfig:
                 input_media_dest = 's3://local/input/'
                 output_media_dest = 's3://local/output/'
                 exporter_otlp_endpoint = 'https://otlp.local.example'
+                exporter_otlp_protocol = 'grpc'
                 vars.media_dest = 's3://local/bucket'
 
                 [[pixeltable.database]]
@@ -521,6 +523,7 @@ class TestConfig:
         assert config.get_string_value('input_media_dest') == 's3://local/input/'
         assert config.get_string_value('output_media_dest') == 's3://local/output/'
         assert config.get_string_value('exporter_otlp_endpoint', section='otel') == 'https://otlp.local.example'
+        assert config.get_string_value('exporter_otlp_protocol', section='otel') == 'grpc'
         assert config.get_value_source('input_media_dest') == config_file
 
         # on a hosted database's pod the process reads that database's entry, settings and bindings alike
@@ -529,6 +532,7 @@ class TestConfig:
         assert config.get_string_value('input_media_dest') == 's3://prod/input/'
         assert config.get_string_value('output_media_dest') is None
         assert config.get_string_value('exporter_otlp_endpoint', section='otel') == 'https://otlp.prod.example'
+        assert config.get_string_value('exporter_otlp_protocol', section='otel') is None
         assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://prod/bucket'
         monkeypatch.delenv('PXTCLOUD_ORG')
         monkeypatch.delenv('PXTCLOUD_DB')
