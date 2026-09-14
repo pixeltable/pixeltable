@@ -207,7 +207,7 @@ def _add_hashed(tf: tarfile.TarFile, path: Path, arcname: str) -> str:
         return _member_hash(_digest(info.linkname), symlink=True, executable=False)
     if info.islnk():
         # gettarinfo() writes a second path to one inode as a hard link, which extracts as a regular
-        # file holding the same bytes; the member carries none of its own
+        # file holding the same bytes; the member itself holds no content
         tf.addfile(info)
         return _member_hash(_content_hash(path), symlink=False, executable=bool(info.mode & 0o111))
     with path.open('rb') as raw:
@@ -323,8 +323,8 @@ def _local_index_locations(parsed: dict[str, Any]) -> list[str]:
 def _local_lock_sources(parsed: dict[str, Any], project_dir: Path) -> list[str]:
     """The packages uv.lock installs from a path rather than an index, other than the project itself.
 
-    uv records the project's own package as a source too, at the project root; that one the archive
-    carries.
+    uv records the project's own package as a source too, at the project root; the archive carries
+    that one.
 
     TODO: carry a path, directory or editable source into the image context and into
     installed_from_project, as _local_requirement_files() does for requirements.txt. Until then the
@@ -433,7 +433,15 @@ def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path
                 'relative to the project root instead',
             )
 
-        path = (project_dir / target).resolve()
+        root = project_dir.resolve()
+        path = (root / target).resolve()
+        if path != Path(os.path.normpath(root / target)):
+            # resolving follows the symlink, so the context holds the target's name; pip reads the spelling
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} installs {target} through a symlink; write the path of the file '
+                'itself, since pip reads the path as spelled',
+            )
         if path.is_dir():
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,

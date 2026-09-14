@@ -213,7 +213,17 @@ def db_build_image(db_uri: str) -> list[DbChangeOp]:
         raise excs.NotFoundError(
             excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'{db_path.uri_str} does not exist; run `pxt db update` to create it'
         )
-    settled, stored = _update_db(db_path, config, _db_resources(config), force_image_build=True)
+    # preserve existing resource settings
+    running = report.current.resources
+    target = _db_resources(config).model_copy(
+        update={
+            'cpu': running.cpu,
+            'memory_mb': running.memory_mb,
+            'disk_gb': running.disk_gb,
+            'workers': running.workers,
+        }
+    )
+    settled, stored = _update_db(db_path, config, target, force_image_build=True)
     image_op = DbChangeOp.build_image()
     image_op.status = 'applied' if settled.last_build_outcome == 'SUCCEEDED' else 'skipped'
     archive_op = DbChangeOp.upload_archive()
@@ -239,9 +249,9 @@ def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:
         ):
             shutil.copyfileobj(r, f)
 
-        prefix = f'{_ARCHIVE_DIR}/'
         project_dir = unpacking / _ARCHIVE_DIR
         project_dir.mkdir()  # an archive holding no files still unpacks to an empty project
+        prefix = f'{_ARCHIVE_DIR}/'
         with tarfile.open(archive_path, mode='r:bz2') as tf:
             members: list[tarfile.TarInfo] = []
             for member in tf.getmembers():
@@ -253,6 +263,9 @@ def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:
                         f'{db_path.uri_str} serves an archive holding {member.name!r}, which is outside {prefix}',
                     )
                 member.name = member.name[len(prefix) :]
+                if member.islnk() and member.linkname.startswith(prefix):
+                    # a hard link points at another member, and that name loses the prefix too
+                    member.linkname = member.linkname[len(prefix) :]
                 members.append(member)
             # filter='data': refuses a member naming a path outside the directory, and drops ownership bits
             tf.extractall(project_dir, members=members, filter='data')

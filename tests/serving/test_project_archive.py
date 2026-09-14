@@ -15,7 +15,7 @@ import pytest
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config, DatabaseConfig
-from pixeltable.service.db import _store_artifacts
+from pixeltable.service.db import _store_artifacts, unpack_project_archive
 from pixeltable.service.management_protocol import ArtifactUpload, DatabaseResources
 from pixeltable.utils.project import (
     _member_hash,
@@ -393,7 +393,7 @@ class TestProjectArchive:
             create_image_context(tmp_path)
 
     def test_lock_sources(self, tmp_path: Path) -> None:
-        """uv.lock is the file uv installs from, and the image context carries the manifests alone."""
+        """uv installs from uv.lock, and the image context carries the manifests alone."""
         sources = (
             'directory = "../helper"',
             'editable = "../helper"',
@@ -436,6 +436,51 @@ class TestProjectArchive:
 
         assert packaged.files['b.txt'] == packaged.files['a.txt'], 'both paths hold the same file'
         assert packaged.files == project_fingerprint(tmp_path, None).files
+
+    def test_round_trip(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Unpacking an archive yields the project it was packaged from, whatever shapes its files take.
+
+        unpack_project_archive() checks the unpacked project against the digest the caller served it, so
+        serving this project's own digest makes the call itself the assertion.
+        """
+        project = tmp_path / 'project'
+        (project / 'pkg').mkdir(parents=True)
+        (project / 'app.py').write_text('x = 1\n')
+        (project / 'pkg' / 'mod.py').write_text('y = 2\n')
+        script = project / 'run.sh'
+        script.write_text('echo hi\n')
+        script.chmod(script.stat().st_mode | 0o111)
+        (project / 'link.py').symlink_to('app.py')
+        os.link(project / 'app.py', project / 'hard.py')
+
+        packaged = package_project_archive(project)
+        fingerprint = project_fingerprint(project, None)
+        served = {
+            'presigned_url': packaged.path.as_uri(),
+            'digest': fingerprint.archive_digest(),
+            'fingerprint': fingerprint.model_dump(mode='json'),
+        }
+        monkeypatch.setattr('pixeltable.service.db.management_client.api_call', lambda request: served)
+
+        unpacked = tmp_path / 'unpacked'
+        unpack_project_archive('pxt://acme:main', unpacked)
+
+        assert unpacked_digest(unpacked) == fingerprint.archive_digest()
+        assert (unpacked / 'pkg' / 'mod.py').read_text() == 'y = 2\n'
+        assert (unpacked / 'run.sh').stat().st_mode & 0o111, 'the execute bit survives the round trip'
+        assert (unpacked / 'link.py').is_symlink() and os.readlink(unpacked / 'link.py') == 'app.py'
+        assert (unpacked / 'hard.py').read_text() == 'x = 1\n'
+
+    def test_symlinked_requirement(self, tmp_path: Path) -> None:
+        """pip reads the path as spelled, so a requirement reached through a symlink is absent from the context."""
+        (tmp_path / 'artifacts').mkdir()
+        (tmp_path / 'artifacts' / 'dep.whl').write_bytes(b'wheel bytes')
+        (tmp_path / 'w').mkdir()
+        (tmp_path / 'w' / 'dep.whl').symlink_to(tmp_path / 'artifacts' / 'dep.whl')
+        (tmp_path / 'requirements.txt').write_text('w/dep.whl\n')
+
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='through a symlink'):
+            create_image_context(tmp_path)
 
     def test_symlink_retarget(self, tmp_path: Path) -> None:
         """A symlink holds a path, so pointing it at equal bytes elsewhere still changes the project."""
