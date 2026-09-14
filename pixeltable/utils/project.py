@@ -260,6 +260,16 @@ def package_project_archive(
 _ARCHIVE_SUFFIXES = ('.whl', '.zip', '.tar.gz', '.tar.bz2', '.tar.xz', '.tgz')
 
 
+def _declared_dependencies(parsed: dict[str, Any]) -> list[str]:
+    """Every dependency in pyproject.toml, across its dependency tables."""
+    project = parsed.get('project', {})
+    groups: list[list[Any]] = [project.get('dependencies', [])]
+    groups += list(project.get('optional-dependencies', {}).values())
+    groups += list(parsed.get('dependency-groups', {}).values())
+    # a dependency group also takes {'include-group': ...}, which names another group rather than a package
+    return [entry for group in groups for entry in group if isinstance(entry, str)]
+
+
 def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path]:
     """The files requirements.txt installs from a path in the project, rather than from an index or a url."""
     files: list[Path] = []
@@ -370,6 +380,19 @@ def package_image_context(project_dir: Path | None = None) -> PackagedContext:
                     excs.ErrorCode.INVALID_CONFIGURATION,
                     f'dependency {name!r} is declared as a local source in {f.name}, which cannot be '
                     'installed in a hosted image; publish it to an index and depend on the published version',
+                )
+            for requirement in _declared_dependencies(parsed):
+                if ' @ ' not in requirement:
+                    continue
+                # 'name @ target' states where to get name, and the image build can only fetch over a url
+                target = requirement.split('@', 1)[1].strip()
+                if '://' in target and not target.startswith('file:'):
+                    continue
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{f.name} declares {requirement!r}, which installs from this machine; a hosted image '
+                    'build sends the project alone, so publish the package to an index and depend on the '
+                    'published version',
                 )
             continue
         if f.name == 'requirements.txt':

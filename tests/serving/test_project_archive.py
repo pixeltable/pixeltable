@@ -261,6 +261,23 @@ class TestImageContext:
         with tarfile.open(create_image_context(tmp_path)) as tar:
             assert tar.getnames() == ['pyproject.toml']
 
+        # a direct reference names a source too, in whichever dependency table it sits
+        for table in (
+            '[project]\nname = "app"\ndependencies = ["pkg @ file:///home/me/pkg.whl"]\n',
+            '[project]\nname = "app"\n[project.optional-dependencies]\nextra = ["pkg @ ./w/pkg.whl"]\n',
+            '[dependency-groups]\ndev = ["pkg @ file:///home/me/pkg.whl"]\n',
+        ):
+            (tmp_path / 'pyproject.toml').write_text(table)
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='installs from this machine'):
+                create_image_context(tmp_path)
+
+        # a url the image build can reach installs in a hosted image
+        (tmp_path / 'pyproject.toml').write_text(
+            '[project]\nname = "app"\ndependencies = ["pkg @ https://example.com/pkg-1.0-py3-none-any.whl"]\n'
+        )
+        with tarfile.open(create_image_context(tmp_path)) as tar:
+            assert tar.getnames() == ['pyproject.toml']
+
         (tmp_path / 'pyproject.toml').unlink()
         (tmp_path / 'requirements.txt').write_text('-r base.txt\npixeltable\n')
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='reads another file'):

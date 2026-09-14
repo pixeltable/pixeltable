@@ -1147,9 +1147,7 @@ class TestHostedService:
         assert stopped['state'] == 'STOPPED', stopped
         assert not service_diff(cli, project, app_file, current_db)['in_agreement']
 
-    def test_source_change(
-        self, cli: PxtRunner, project: pathlib.Path, current_db: str
-    ) -> None:
+    def test_source_change(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
         """A db update leaves a running service on its own project; a restart moves it to the database's."""
         app_file = project / APP_FILE
         schema_update(cli, project, str(app_file), current_db)

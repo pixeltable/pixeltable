@@ -494,7 +494,7 @@ RouteComparison = Literal['declarative', 'openapi', 'unavailable']
 
 
 class ServiceDiff(pydantic.BaseModel):
-    """How one running service differs from the definition that declares it.
+    """How one running service differs from a ServiceSpec.
 
     A service definition is location-independent: it names models, columns and queries, never catalog paths.
     A running service is that definition applied to a target, so name and kind describe the definition
@@ -518,7 +518,7 @@ class ServiceDiff(pydantic.BaseModel):
     route_comparison: RouteComparison
     route_detail: str | None  # why the routes were not compared, when they were not
 
-    # empty for a create, which subsumes the additions that constitute it
+    # for a create, the addition of every service route
     ops: list[ServiceChangeOp] = pydantic.Field(default_factory=list)
 
     status: OpStatus | None = None

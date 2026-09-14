@@ -692,9 +692,10 @@ calling process, so it is local by definition. Two verbs differ in meaning again
 a stopped service keeps its registration: `stop` stops it and leaves it there to be started again, while
 `prune` forgets it.
 
-`pxt service restart` cycles a service's pods onto the image and routes they already run, and accepts the
-same service addresses as `stop`. Use it to force the service to pick up the current values of all of its referenced
-secrets. Against a local target it stops the process and starts it again on the same
+`pxt service restart` cycles a service's pods onto the database's current image and project, keeping the
+service's registration and endpoint, and accepts the same service addresses as `stop`. Use it after
+`pxt db update` to move a running service onto the new project, and to pick up the current values of its
+referenced secrets. Against a local target it stops the process and starts it again on the same
 port, so callers keep their address.
 
 `pxt service logs` reads a service's log and accepts the same service addresses as `stop`. `pxt db logs` reads
@@ -931,7 +932,7 @@ so an edit to a source file is uploaded in seconds, and only a dependency change
 pxt db build-image pxt://myorg:mydb
 ```
 
-Uploads the project files and builds the image from its environment, without comparing anything first. `pxt db update` uploads project files or rebuilds the image only when they changed. `pxt db build-image` always does both, which is how you force a rebuild after a failed one. Polls until the build completes or fails; the pods restart on the new image and the new sources.
+Builds the image from the project environment without comparing anything first, which is how you force a rebuild after a failed one; `pxt db update` rebuilds only when that environment changed. The project files are uploaded with it, unless the database already holds that exact archive. Polls until the build completes or fails; the pods restart on the new image and the new sources.
 
 #### `pxt db delete`
 

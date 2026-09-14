@@ -257,14 +257,13 @@ def _delete(args: argparse.Namespace) -> None:
 
 def _build_image(args: argparse.Namespace) -> None:
     db_uri = _db_uri(args, 'pxt db build-image')
-    label = (
-        None
-        if args.json_output
-        else 'Uploading the project files and building the image (this may take 10 minutes or longer) ...'
-    )
+    label = None if args.json_output else 'Building the image (this may take 10 minutes or longer) ...'
     with spinner(label):
         ops = [DbChangeOp.model_validate(op) for op in post_request('/api/db/build-image', {'db_uri': db_uri})]
     if args.json_output:
         print(json.dumps([op.model_dump(mode='json') for op in ops]))
     else:
-        print(f'Uploaded the project files to {db_uri} and rebuilt its image.')
+        statuses = {op.target: op.status for op in ops}
+        archive = 'uploaded the project files' if statuses.get('archive') == 'applied' else 'reused the stored project'
+        image = 'rebuilt its image' if statuses.get('image') == 'applied' else 'left its image as it was'
+        print(f'{db_uri}: {archive}, {image}.')
