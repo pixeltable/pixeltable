@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import tarfile
 import textwrap
 from pathlib import Path
@@ -392,15 +393,25 @@ class TestProjectArchive:
             create_image_context(tmp_path)
 
     def test_lock_sources(self, tmp_path: Path) -> None:
-        """uv.lock is the file uv installs from, and a source above the project root lies outside the archive."""
-        for source in ('directory = "../helper"', 'editable = "../helper"', 'path = "../w/pkg.whl"'):
+        """uv.lock is the file uv installs from, and the image context carries the manifests alone."""
+        sources = (
+            'directory = "../helper"',
+            'editable = "../helper"',
+            'path = "../w/pkg.whl"',
+            # inside the project, and still absent from the context
+            'directory = "libs/helper"',
+            'editable = "libs/helper"',
+            'path = "vendor/pkg.whl"',
+        )
+        for source in sources:
             (tmp_path / 'uv.lock').write_text(f'[[package]]\nname = "helper"\nsource = {{ {source} }}\n')
-            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='from above the project root'):
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='from a path rather than an index'):
                 create_image_context(tmp_path)
 
-        # the project's own package is a source too, and the archive carries it
+        # uv records the project's own package at the root, as editable or virtual; both are fine
         (tmp_path / 'uv.lock').write_text(
             '[[package]]\nname = "app"\nsource = { editable = "." }\n'
+            '[[package]]\nname = "other"\nsource = { virtual = "." }\n'
             '[[package]]\nname = "pandas"\nsource = { registry = "https://pypi.org/simple" }\n'
         )
         with tarfile.open(create_image_context(tmp_path)) as tar:
@@ -416,6 +427,15 @@ class TestProjectArchive:
         after = package_project_archive(tmp_path).files['run.sh']
         assert after != before, 'the content is the same, the project is not'
         assert project_fingerprint(tmp_path, None).files['run.sh'] == after
+
+    def test_hard_link(self, tmp_path: Path) -> None:
+        """A second path to one inode is a tar hard link, and extracts as a regular file holding its bytes."""
+        (tmp_path / 'a.txt').write_text('same bytes\n')
+        os.link(tmp_path / 'a.txt', tmp_path / 'b.txt')
+        packaged = package_project_archive(tmp_path)
+
+        assert packaged.files['b.txt'] == packaged.files['a.txt'], 'both paths hold the same file'
+        assert packaged.files == project_fingerprint(tmp_path, None).files
 
     def test_symlink_retarget(self, tmp_path: Path) -> None:
         """A symlink holds a path, so pointing it at equal bytes elsewhere still changes the project."""

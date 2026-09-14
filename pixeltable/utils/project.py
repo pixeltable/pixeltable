@@ -202,9 +202,14 @@ def _path_hash(path: Path) -> str:
 def _add_hashed(tf: tarfile.TarFile, path: Path, arcname: str) -> str:
     """Write path into tf and return the hash of the member written."""
     info = tf.gettarinfo(path, arcname=arcname)
-    if not info.isreg():
+    if info.issym():
         tf.addfile(info)
         return _member_hash(_digest(info.linkname), symlink=True, executable=False)
+    if info.islnk():
+        # gettarinfo() writes a second path to one inode as a hard link, which extracts as a regular
+        # file holding the same bytes; the member carries none of its own
+        tf.addfile(info)
+        return _member_hash(_content_hash(path), symlink=False, executable=bool(info.mode & 0o111))
     with path.open('rb') as raw:
         reader = _HashingReader(raw)
         tf.addfile(info, reader)
@@ -315,9 +320,17 @@ def _local_index_locations(parsed: dict[str, Any]) -> list[str]:
     return [entry for entry in found if isinstance(entry, str) and (entry.startswith('file:') or '://' not in entry)]
 
 
-def _escaping_lock_sources(parsed: dict[str, Any], project_dir: Path) -> list[str]:
-    """The packages uv.lock installs from a path above the project root."""
-    escaping: list[str] = []
+def _local_lock_sources(parsed: dict[str, Any], project_dir: Path) -> list[str]:
+    """The packages uv.lock installs from a path rather than an index, other than the project itself.
+
+    uv records the project's own package as a source too, at the project root; that one the archive
+    carries.
+
+    TODO: carry a path, directory or editable source into the image context and into
+    installed_from_project, as _local_requirement_files() does for requirements.txt. Until then the
+    context holds no such dependency, and image_digest() does not move when one changes.
+    """
+    local: list[str] = []
     for package in parsed.get('package', []):
         source = package.get('source', {}) if isinstance(package, dict) else {}
         if not isinstance(source, dict):
@@ -326,9 +339,10 @@ def _escaping_lock_sources(parsed: dict[str, Any], project_dir: Path) -> list[st
             target = source.get(key)
             if not isinstance(target, str):
                 continue
-            if not (project_dir / target).resolve().is_relative_to(project_dir):
-                escaping.append(f'{package.get("name", "?")} ({key} = {target!r})')
-    return escaping
+            if (project_dir / target).resolve() == project_dir:
+                continue
+            local.append(f'{package.get("name", "?")} ({key} = {target!r})')
+    return local
 
 
 def _requirement_lines(text: str) -> list[str]:
@@ -504,11 +518,11 @@ def package_image_context(project_dir: Path | None = None) -> PackagedContext:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION, f'{f.name} is not valid TOML: {exc}'
                 ) from exc
-            escaping = _escaping_lock_sources(parsed, project_dir)
-            if len(escaping) > 0:
+            local = _local_lock_sources(parsed, project_dir)
+            if len(local) > 0:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'{f.name} installs {"; ".join(escaping)} from above the project root; instead, '
+                    f'{f.name} installs {"; ".join(local)} from a path rather than an index; instead, '
                     'publish the package to an index and depend on the published version, so that it can '
                     'get picked up by the hosted image build',
                 )

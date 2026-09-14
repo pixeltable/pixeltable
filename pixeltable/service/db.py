@@ -59,12 +59,7 @@ def db_fingerprint(db_path: catalog.Path) -> ProjectFingerprint | None:
     if db_path.org is None or db_path.db is None:
         return None
     report = _get_db_report(db_path)
-    if report is None:
-        return None
-    running = None if report.current is None else report.current.resources.fingerprint
-    if running is not None:
-        return running
-    return None if report.target_resources is None else report.target_resources.fingerprint
+    return None if report is None or report.current is None else report.current.resources.fingerprint
 
 
 def create_db_update_ops(target: DatabaseResources, current: DatabaseResources | None) -> list[DbChangeOp]:
@@ -108,8 +103,7 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
     config = _get_db_config(db_path)
     target = _db_resources(config)
     plan = _update_db_request(db_path, target=target, dry_run=True).plan
-    # TODO: carry allow_destructive and the plan it was checked against in UpdateDbRequest, so the control
-    # plane re-runs this check against the target it applies
+    # TODO: put allow_destructive into UpdateDbRequest and let the control plane validate the request
     if plan.destructive and not allow_destructive:
         destructive = ', '.join(op.name or '' for op in plan.ops if op.destructive)
         raise excs.RequestError(

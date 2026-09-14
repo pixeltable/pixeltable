@@ -149,7 +149,10 @@ class TestDb:
         db_update(cli, project, test_db_uri)
         assert_in_agreement(cli, project, test_db_uri)
 
-        (project / 'requirements.txt').write_text('pixeltable\ntqdm\n', encoding='utf-8')
+        # appended, not replaced: the fixture's requirements install the wheel built from this checkout,
+        # and dropping that line would rebuild the image against a released pixeltable instead
+        requirements = project / 'requirements.txt'
+        requirements.write_text(requirements.read_text(encoding='utf-8') + 'tqdm\n', encoding='utf-8')
 
         plan = db_diff(cli, project, test_db_uri)
         assert plan['resolution'] == 'update_additive'
