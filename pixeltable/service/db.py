@@ -298,31 +298,37 @@ def _store_artifacts(uploads: list[ArtifactUpload], config: DatabaseConfig, targ
         raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, 'artifacts were asked for without a project')
     project_root = _validated_project_root()
     paths: list[tuple[ArtifactUpload, Path]] = []
-    packaged: dict[str, str] = {}
-    recorded: dict[str, str] = {}
+    changed: set[str] = set()  # relative paths
     try:
         for upload in uploads:
             if upload.artifact == 'archive':
                 archive = package_project_archive(project_root, config, show_progress=True)
                 paths.append((upload, archive.path))
-                packaged.update(archive.files)
-                recorded.update(target.fingerprint.files)
+                changed |= {
+                    path
+                    for path in set(archive.files) | set(target.fingerprint.files)
+                    if archive.files.get(path) != target.fingerprint.files.get(path)
+                }
             else:
                 context = package_image_context(project_root)
                 paths.append((upload, context.path))
-                packaged.update(context.files)
-                recorded.update(target.fingerprint.image_files())
+                img_files = target.fingerprint.image_files()
+                changed |= {
+                    path
+                    for path in set(context.files) | set(img_files)
+                    if context.files.get(path) != img_files.get(path)
+                }
 
-        # the hashes come from the bytes just written, so this compares the packages themselves against
-        # the digests
-        changed = sorted(p for p in set(packaged) | set(recorded) if packaged.get(p) != recorded.get(p))
         if len(changed) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_STATE,
-                f'the project changed while it was being packaged ({"; ".join(changed)}); run the command again',
+                f'the project changed while it was being packaged ({"; ".join(sorted(changed))}); '
+                'run the command again',
             )
+
         for upload, path in paths:
             _put_artifact(upload.url, path)
+
     finally:
         for _, path in paths:
             path.unlink(missing_ok=True)

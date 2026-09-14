@@ -14,6 +14,8 @@ import pytest
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config, DatabaseConfig
+from pixeltable.service.db import _store_artifacts
+from pixeltable.service.management_protocol import ArtifactUpload, DatabaseResources
 from pixeltable.utils.project import (
     create_image_context,
     create_project_archive,
@@ -31,7 +33,13 @@ def local_entry() -> DatabaseConfig | None:
 
 
 class TestProjectArchive:
-    def test_layout(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """What a packager writes, and the hashes it reports for it.
+
+    A hash describes the package rather than a later reading of the project, so that an upload cannot
+    carry bytes the digest naming it does not cover.
+    """
+
+    def test_archive_layout(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Every project file is packaged under project/, and nothing else is."""
         monkeypatch.chdir(tmp_path)
         Config.init(reinit=True)
@@ -164,10 +172,6 @@ class TestProjectArchive:
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid `DatabaseConfig`'):
             Config.init(reinit=True)
 
-
-class TestPackagedHashes:
-    """The hashes a packager returns describe the package, not a later reading of the project."""
-
     def test_archive_hashes(self, tmp_path: Path) -> None:
         (tmp_path / 'app.py').write_text('x = 1\n')
         packaged = package_project_archive(tmp_path)
@@ -222,9 +226,7 @@ class TestPackagedHashes:
 
         assert package_image_context(tmp_path).files != before
 
-
-class TestImageContext:
-    def test_layout(self, tmp_path: Path) -> None:
+    def test_context_layout(self, tmp_path: Path) -> None:
         """The context holds the manifests an install reads, at its root, and none of the project's source."""
         (tmp_path / 'app.py').write_text('import pixeltable as pxt\n')
         (tmp_path / 'uv.lock').write_text('version = 1\n')
@@ -264,6 +266,7 @@ class TestImageContext:
         # a direct reference names a source too, in whichever dependency table it sits
         for table in (
             '[project]\nname = "app"\ndependencies = ["pkg @ file:///home/me/pkg.whl"]\n',
+            '[project]\nname = "app"\ndependencies = ["pkg@file:///home/me/pkg.whl"]\n',
             '[project]\nname = "app"\n[project.optional-dependencies]\nextra = ["pkg @ ./w/pkg.whl"]\n',
             '[dependency-groups]\ndev = ["pkg @ file:///home/me/pkg.whl"]\n',
         ):
@@ -290,6 +293,24 @@ class TestImageContext:
         (tmp_path / 'requirements.txt').write_text(f'{wheel}\n')
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='an absolute path naming this machine'):
             create_image_context(tmp_path)
+
+    def test_requirement_spellings(self, tmp_path: Path) -> None:
+        """PEP 508 makes the whitespace around '@' optional, and a filename may contain an '@' too."""
+        wheel = tmp_path / 'w' / 'pkg-1.0-py3-none-any.whl'
+        wheel.parent.mkdir()
+        wheel.write_bytes(b'wheel bytes')
+
+        for line in ('pkg @ w/pkg-1.0-py3-none-any.whl', 'pkg@w/pkg-1.0-py3-none-any.whl'):
+            (tmp_path / 'requirements.txt').write_text(f'{line}\n')
+            assert 'w/pkg-1.0-py3-none-any.whl' in package_image_context(tmp_path).files, line
+            (tmp_path / 'requirements.txt').write_text(f'{line.replace("w/", "file:///w/")}\n')
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='a file: url naming this machine'):
+                create_image_context(tmp_path)
+
+        # no package name stands before the '@', so the whole line is the path
+        (tmp_path / 'w' / 'pkg@1.0.whl').write_bytes(b'other bytes')
+        (tmp_path / 'requirements.txt').write_text('w/pkg@1.0.whl\n')
+        assert 'w/pkg@1.0.whl' in package_image_context(tmp_path).files
 
         (tmp_path / 'requirements.txt').write_text(f'pkg @ file://{wheel}\n')
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='a file: url naming this machine'):
@@ -326,3 +347,26 @@ class TestImageContext:
         (tmp_path / 'requirements.txt').write_text('pixeltable\n')
         with tarfile.open(create_image_context(tmp_path)) as tar:
             assert tar.getnames() == ['requirements.txt']
+
+    def test_manifest_drift(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The manifests go into both artifacts, and one packaging's hash must not cover the other's."""
+        (tmp_path / 'app.py').write_text('x = 1\n')
+        (tmp_path / 'requirements.txt').write_text('pandas\n')
+        recorded = project_fingerprint(tmp_path, None)
+        target = DatabaseResources(fingerprint=recorded, pxt_md_version=54)
+
+        # the archive caught the rewrite; the context read the file after the writer restored it
+        drifted = package_project_archive(tmp_path, None)
+        drifted.files['requirements.txt'] = 'rewritten-while-packaging'
+        monkeypatch.setattr('pixeltable.service.db.package_project_archive', lambda *a, **k: drifted)
+        monkeypatch.setattr('pixeltable.service.db._validated_project_root', lambda: tmp_path)
+        monkeypatch.setattr(
+            'pixeltable.service.db._put_artifact', lambda *a: pytest.fail('an artifact went up unvalidated')
+        )
+
+        uploads = [
+            ArtifactUpload(artifact='archive', url='https://example.com/a'),
+            ArtifactUpload(artifact='image_context', url='https://example.com/i'),
+        ]
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match='requirements.txt'):
+            _store_artifacts(uploads, None, target)

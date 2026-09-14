@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sys
 import sysconfig
 import tarfile
@@ -259,6 +260,21 @@ def package_project_archive(
 # what pip installs from a file rather than an index, named without a directory
 _ARCHIVE_SUFFIXES = ('.whl', '.zip', '.tar.gz', '.tar.bz2', '.tar.xz', '.tgz')
 
+# a PEP 508 name, optionally with extras: the text before a direct reference's '@'
+_REQUIREMENT_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*(\[[^\]]*\])?$')
+
+
+def _direct_reference(requirement: str) -> str | None:
+    """The target of a 'name @ target' requirement, or None where requirement names a package from an index.
+
+    PEP 508 makes the whitespace around the '@' optional, and a filename may contain an '@' too, so the
+    text before the first one decides: only a package name there makes the rest a target.
+    """
+    name, sep, target = requirement.partition('@')
+    if sep == '' or _REQUIREMENT_NAME.match(name.strip()) is None:
+        return None
+    return target.strip()
+
 
 def _declared_dependencies(parsed: dict[str, Any]) -> list[str]:
     """Every dependency in pyproject.toml, across its dependency tables."""
@@ -296,11 +312,8 @@ def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path
         if line == '':
             continue
 
-        target: str
-        if ' @ ' in line:
-            # 'name @ target' states where to get name
-            target = line.split('@', 1)[1].strip()
-        else:
+        target = _direct_reference(line)
+        if target is None:
             target = line
             # pip reads a bare name as a package, not a path, unless it carries an archive suffix
             if '/' not in target and not target.startswith('.') and not target.endswith(_ARCHIVE_SUFFIXES):
@@ -382,11 +395,9 @@ def package_image_context(project_dir: Path | None = None) -> PackagedContext:
                     'installed in a hosted image; publish it to an index and depend on the published version',
                 )
             for requirement in _declared_dependencies(parsed):
-                if ' @ ' not in requirement:
-                    continue
-                # 'name @ target' states where to get name, and the image build can only fetch over a url
-                target = requirement.split('@', 1)[1].strip()
-                if '://' in target and not target.startswith('file:'):
+                target = _direct_reference(requirement)
+                # the image build reaches a dependency over a url, or installs it from an index
+                if target is None or ('://' in target and not target.startswith('file:')):
                     continue
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
