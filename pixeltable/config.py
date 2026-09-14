@@ -605,23 +605,20 @@ class Config:
     @classmethod
     def __validate_config_value(cls, section: str, key: str, value: Any, expected_type: type, source: Path) -> Any:
         """
-        A config value could be a scalar, as in `pixeltable.file_cache_size_g`, or it could be a dict or a list of
-        dicts that represents a Pydantic model. If the given key has a specified type, this method validates it
-        as the given type. If the type is a Pydantic model or a list[Pydantic model], it converts the given dict(s)
-        to the appropriate model instance(s).
+        Validate a config value against its declared type.
 
-        non-Pydantic types are currently not supported (but we could add support for them in the future).
+        A scalar is returned as is; the dicts of a list[Pydantic model] option become model instances.
         """
         origin_t = typing.get_origin(expected_type) or expected_type
-        # Currently only list[PydanticModel] validation is supported.
-        # TODO: Introduce fail-fast config validation for more types
-        assert origin_t is list
-        if not isinstance(value, origin_t):
+        # isinstance() accepts a bool for int, so a TOML true would pass the check
+        if not isinstance(value, origin_t) or (origin_t is int and isinstance(value, bool)):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
                 f"Invalid type for option '{section}.{key}' in config file: {source}\n"
                 f'(expected `{origin_t.__name__}`, got `{type(value).__name__}`)',
             )
+        if origin_t is not list:
+            return value
         subscript = typing.get_args(expected_type)
         assert subscript is not None and len(subscript) == 1 and issubclass(subscript[0], pydantic.BaseModel)
         model_type = subscript[0]
