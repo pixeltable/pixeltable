@@ -215,7 +215,7 @@ class TestHostedMediaDefault:
         assert Env.get().default_output_media_dest == 's3://user-bucket/prefix'
         monkeypatch.delenv('PIXELTABLE_OUTPUT_MEDIA_DEST')
 
-        # so does the database's own entry, which the pod holds in the project it unpacked
+        # so does the database's own entry in the project config
         project_root = Config.get().project_root
         project = tmp_path / 'project'
         project.mkdir()

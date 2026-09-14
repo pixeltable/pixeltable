@@ -694,11 +694,11 @@ class Config:
         return next((db for db in databases if db.name == db_name), None)
 
     def __own_database_entries(self) -> list[tuple[DatabaseConfig, Path | None]]:
-        """The entry for the database this process serves in each config file, home config first.
+        """The entry for this process's database in each config file, with that file, home config first.
 
-        [[pixeltable.database]] is an array, which the section path of a setting does not address; a process
-        reads the entry for its own database: the hosted one on its pod, else the local one. The home
-        config's entry comes first so that the project's wins per setting.
+        A process reads the entry of its own database: the hosted one on its pod, else the local one. The
+        entries come from the raw home and project configs rather than from the merged list, which does not
+        record the file that supplied each field.
         """
         hosted = hosted_db()
         name = LOCAL_DATABASE if hosted is None else f'pxt://{hosted[0]}:{hosted[1]}'
