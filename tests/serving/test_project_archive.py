@@ -17,11 +17,13 @@ from pixeltable.config import Config, DatabaseConfig
 from pixeltable.service.db import _store_artifacts
 from pixeltable.service.management_protocol import ArtifactUpload, DatabaseResources
 from pixeltable.utils.project import (
+    _member_hash,
     create_image_context,
     create_project_archive,
     package_image_context,
     package_project_archive,
     project_fingerprint,
+    unpacked_digest,
 )
 
 from ..utils import pxt_raises
@@ -33,10 +35,10 @@ def local_entry() -> DatabaseConfig | None:
 
 
 class TestProjectArchive:
-    """What a packager writes, and the hashes it reports for it.
+    """What a packager writes, and the hash it reports for every file.
 
-    A hash describes the package rather than a later reading of the project, so that an upload cannot
-    carry bytes the digest naming it does not cover.
+    A hash describes the package rather than a later reading of the project, so an artifact always
+    matches its recorded digest.
     """
 
     def test_archive_layout(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -180,7 +182,8 @@ class TestProjectArchive:
             member = tar.extractfile('project/app.py')
             assert member is not None
             written = member.read()
-        assert packaged.files['app.py'] == hashlib.sha256(written).hexdigest()
+        content = hashlib.sha256(written).hexdigest()
+        assert packaged.files['app.py'] == _member_hash(content, symlink=False, executable=False)
 
     def test_archive_matches_fingerprint(self, tmp_path: Path) -> None:
         """An unchanged project fingerprints to what packaging it produces, or an upload could never match."""
@@ -206,8 +209,12 @@ class TestProjectArchive:
 
         packaged = package_image_context(tmp_path)
         assert packaged.files == {
-            'requirements.txt': hashlib.sha256(b'w/pkg-1.0-py3-none-any.whl\n').hexdigest(),
-            'w/pkg-1.0-py3-none-any.whl': hashlib.sha256(b'wheel bytes').hexdigest(),
+            'requirements.txt': _member_hash(
+                hashlib.sha256(b'w/pkg-1.0-py3-none-any.whl\n').hexdigest(), symlink=False, executable=False
+            ),
+            'w/pkg-1.0-py3-none-any.whl': _member_hash(
+                hashlib.sha256(b'wheel bytes').hexdigest(), symlink=False, executable=False
+            ),
         }
 
     def test_context_matches_fingerprint(self, tmp_path: Path) -> None:
@@ -263,7 +270,7 @@ class TestProjectArchive:
         with tarfile.open(create_image_context(tmp_path)) as tar:
             assert tar.getnames() == ['pyproject.toml']
 
-        # a direct reference names a source too, in whichever dependency table it sits
+        # a direct reference names a source too, whichever dependency table declares it
         for table in (
             '[project]\nname = "app"\ndependencies = ["pkg @ file:///home/me/pkg.whl"]\n',
             '[project]\nname = "app"\ndependencies = ["pkg@file:///home/me/pkg.whl"]\n',
@@ -271,10 +278,10 @@ class TestProjectArchive:
             '[dependency-groups]\ndev = ["pkg @ file:///home/me/pkg.whl"]\n',
         ):
             (tmp_path / 'pyproject.toml').write_text(table)
-            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='installs from this machine'):
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='names a source on this machine'):
                 create_image_context(tmp_path)
 
-        # a url the image build can reach installs in a hosted image
+        # the image build can fetch this url, so the dependency installs
         (tmp_path / 'pyproject.toml').write_text(
             '[project]\nname = "app"\ndependencies = ["pkg @ https://example.com/pkg-1.0-py3-none-any.whl"]\n'
         )
@@ -348,8 +355,95 @@ class TestProjectArchive:
         with tarfile.open(create_image_context(tmp_path)) as tar:
             assert tar.getnames() == ['requirements.txt']
 
+    def test_find_links(self, tmp_path: Path) -> None:
+        """--find-links names where to look for packages, and a directory here is one the build never sees."""
+        for line in ('-f ./wheels', '-f./wheels', '--find-links ./wheels', '--find-links=./wheels', '-f file:///w'):
+            (tmp_path / 'requirements.txt').write_text(f'{line}\npixeltable\n')
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='a location on this machine'):
+                create_image_context(tmp_path)
+
+        # an index the build can reach is not a local location, and neither is another option
+        (tmp_path / 'requirements.txt').write_text('--find-links https://example.com/wheels\n--no-index\npixeltable\n')
+        with tarfile.open(create_image_context(tmp_path)) as tar:
+            assert tar.getnames() == ['requirements.txt']
+
+    def test_requirement_continuations(self, tmp_path: Path) -> None:
+        """pip joins a backslash continuation before reading the requirement, so the path is not the raw line."""
+        wheel = tmp_path / 'w' / 'pkg-1.0-py3-none-any.whl'
+        wheel.parent.mkdir()
+        wheel.write_bytes(b'wheel bytes')
+        (tmp_path / 'requirements.txt').write_text('pkg @ \\\n    w/pkg-1.0-py3-none-any.whl\n')
+
+        assert 'w/pkg-1.0-py3-none-any.whl' in package_image_context(tmp_path).files
+
+    def test_pyproject_tables(self, tmp_path: Path) -> None:
+        """Every table a build tool installs from can name a source, not just [project] dependencies."""
+        for table in (
+            '[build-system]\nrequires = ["backend @ file:///home/me/backend.whl"]\n',
+            '[tool.uv]\nconstraint-dependencies = ["pkg @ ./w/pkg.whl"]\n',
+            '[tool.uv]\noverride-dependencies = ["pkg @ file:///home/me/pkg.whl"]\n',
+        ):
+            (tmp_path / 'pyproject.toml').write_text(table)
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='names a source on this machine'):
+                create_image_context(tmp_path)
+
+        (tmp_path / 'pyproject.toml').write_text('[tool.uv]\nfind-links = ["./wheels"]\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='a location on this machine'):
+            create_image_context(tmp_path)
+
+    def test_lock_sources(self, tmp_path: Path) -> None:
+        """uv.lock is what uv installs from, and a source above the project root is one no archive holds."""
+        for source in ('directory = "../helper"', 'editable = "../helper"', 'path = "../w/pkg.whl"'):
+            (tmp_path / 'uv.lock').write_text(f'[[package]]\nname = "helper"\nsource = {{ {source} }}\n')
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='from above the project root'):
+                create_image_context(tmp_path)
+
+        # the project's own package is recorded as a source too, and it is one the archive carries
+        (tmp_path / 'uv.lock').write_text(
+            '[[package]]\nname = "app"\nsource = { editable = "." }\n'
+            '[[package]]\nname = "pandas"\nsource = { registry = "https://pypi.org/simple" }\n'
+        )
+        with tarfile.open(create_image_context(tmp_path)) as tar:
+            assert tar.getnames() == ['uv.lock']
+
+    def test_executable_bit(self, tmp_path: Path) -> None:
+        """tar's 'data' extraction filter keeps the execute bit, so setting one makes a different project."""
+        script = tmp_path / 'run.sh'
+        script.write_text('echo hi\n')
+        before = package_project_archive(tmp_path).files['run.sh']
+
+        script.chmod(script.stat().st_mode | 0o111)
+        after = package_project_archive(tmp_path).files['run.sh']
+        assert after != before, 'the content is the same, the project is not'
+        assert project_fingerprint(tmp_path, None).files['run.sh'] == after
+
+    def test_symlink_retarget(self, tmp_path: Path) -> None:
+        """A symlink holds a path, so pointing it at equal bytes elsewhere still changes the project."""
+        (tmp_path / 'a.txt').write_text('same\n')
+        (tmp_path / 'b.txt').write_text('same\n')
+        link = tmp_path / 'link.txt'
+        link.symlink_to('a.txt')
+        before = package_project_archive(tmp_path).files['link.txt']
+
+        link.unlink()
+        link.symlink_to('b.txt')
+        after = package_project_archive(tmp_path).files['link.txt']
+        assert after != before, 'the two targets hold the same bytes, so only the link itself differs'
+        assert project_fingerprint(tmp_path, None).files['link.txt'] == after
+
+    def test_unpacked_symlink(self, tmp_path: Path) -> None:
+        """A symlink whose target the archive leaves out unpacks broken, and still belongs to the project."""
+        unpacked = tmp_path / 'unpacked'
+        unpacked.mkdir()
+        (unpacked / 'app.py').write_text('x = 1\n')
+        (unpacked / 'link.txt').symlink_to('absent.txt')
+        with_link = unpacked_digest(unpacked)
+
+        (unpacked / 'link.txt').unlink()
+        assert unpacked_digest(unpacked) != with_link, 'a broken link is a file the archive named'
+
     def test_manifest_drift(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The manifests go into both artifacts, and one packaging's hash must not cover the other's."""
+        """The manifests go into both artifacts, and one packaging's hash must not overwrite the other's."""
         (tmp_path / 'app.py').write_text('x = 1\n')
         (tmp_path / 'requirements.txt').write_text('pandas\n')
         recorded = project_fingerprint(tmp_path, None)
@@ -361,7 +455,7 @@ class TestProjectArchive:
         monkeypatch.setattr('pixeltable.service.db.package_project_archive', lambda *a, **k: drifted)
         monkeypatch.setattr('pixeltable.service.db._validated_project_root', lambda: tmp_path)
         monkeypatch.setattr(
-            'pixeltable.service.db._put_artifact', lambda *a: pytest.fail('an artifact went up unvalidated')
+            'pixeltable.service.db._put_artifact', lambda *a: pytest.fail('an artifact was uploaded before validation')
         )
 
         uploads = [

@@ -182,17 +182,34 @@ class PackagedContext:
     files: dict[str, str]
 
 
+def _member_hash(content_hash: str, *, symlink: bool, executable: bool) -> str:
+    """One hash over what an unpacked project holds at a path: its bytes, its kind and its execute bit.
+
+    Ownership and timestamps stay out of it: they differ between two packagings of one project, and
+    tarfile's 'data' extraction filter drops them. That filter keeps the execute bit, so this records it.
+    """
+    return _digest({'content': content_hash, 'symlink': symlink, 'executable': executable})
+
+
+def _path_hash(path: Path) -> str:
+    """The hash of the file at path, as _add_hashed() computes it for the same file."""
+    if path.is_symlink():
+        # a symlink holds a path, not bytes; reading through it would hash the target's content instead,
+        # and say nothing about a retarget
+        return _member_hash(_digest(os.readlink(path)), symlink=True, executable=False)
+    return _member_hash(_content_hash(path), symlink=False, executable=bool(path.stat().st_mode & 0o111))
+
+
 def _add_hashed(tf: tarfile.TarFile, path: Path, arcname: str) -> str:
-    """Write path into tf and return the hash of the bytes written."""
+    """Write path into tf and return the hash of the member written."""
     info = tf.gettarinfo(path, arcname=arcname)
     if not info.isreg():
-        # a link member carries no content; the fingerprint hashes what it points at
         tf.addfile(info)
-        return _content_hash(path)
+        return _member_hash(_digest(info.linkname), symlink=True, executable=False)
     with path.open('rb') as raw:
         reader = _HashingReader(raw)
         tf.addfile(info, reader)
-    return reader.hexdigest()
+    return _member_hash(reader.hexdigest(), symlink=False, executable=bool(info.mode & 0o111))
 
 
 def create_project_archive(
@@ -265,10 +282,10 @@ _REQUIREMENT_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*(\[[^\]]*\])?$')
 
 
 def _direct_reference(requirement: str) -> str | None:
-    """The target of a 'name @ target' requirement, or None where requirement names a package from an index.
+    """The target of a 'name @ target' requirement, or None if requirement names a package from an index.
 
-    PEP 508 makes the whitespace around the '@' optional, and a filename may contain an '@' too, so the
-    text before the first one decides: only a package name there makes the rest a target.
+    PEP 508 makes the whitespace around the '@' optional, and a filename may also contain an '@', so the
+    text before the first '@' decides: only a package name makes what follows a target.
     """
     name, sep, target = requirement.partition('@')
     if sep == '' or _REQUIREMENT_NAME.match(name.strip()) is None:
@@ -277,19 +294,79 @@ def _direct_reference(requirement: str) -> str | None:
 
 
 def _declared_dependencies(parsed: dict[str, Any]) -> list[str]:
-    """Every dependency in pyproject.toml, across its dependency tables."""
+    """Every dependency in pyproject.toml, across the tables a build tool installs from."""
     project = parsed.get('project', {})
-    groups: list[list[Any]] = [project.get('dependencies', [])]
+    uv = parsed.get('tool', {}).get('uv', {})
+    groups: list[list[Any]] = [
+        project.get('dependencies', []),
+        # a build backend is installed before the project, from requirements written the same way
+        parsed.get('build-system', {}).get('requires', []),
+        uv.get('constraint-dependencies', []),
+        uv.get('override-dependencies', []),
+    ]
     groups += list(project.get('optional-dependencies', {}).values())
     groups += list(parsed.get('dependency-groups', {}).values())
     # a dependency group also takes {'include-group': ...}, which names another group rather than a package
     return [entry for group in groups for entry in group if isinstance(entry, str)]
 
 
+def _local_index_locations(parsed: dict[str, Any]) -> list[str]:
+    """The package locations pyproject.toml names that a hosted image build cannot reach."""
+    found = parsed.get('tool', {}).get('uv', {}).get('find-links', [])
+    return [entry for entry in found if isinstance(entry, str) and (entry.startswith('file:') or '://' not in entry)]
+
+
+def _escaping_lock_sources(parsed: dict[str, Any], project_dir: Path) -> list[str]:
+    """The packages uv.lock installs from a path above the project root, which no archive holds."""
+    escaping: list[str] = []
+    for package in parsed.get('package', []):
+        source = package.get('source', {}) if isinstance(package, dict) else {}
+        if not isinstance(source, dict):
+            continue
+        for key in ('path', 'directory', 'editable', 'virtual'):
+            target = source.get(key)
+            if not isinstance(target, str):
+                continue
+            if not (project_dir / target).resolve().is_relative_to(project_dir):
+                escaping.append(f'{package.get("name", "?")} ({key} = {target!r})')
+    return escaping
+
+
+def _requirement_lines(text: str) -> list[str]:
+    lines: list[str] = []
+    pending = ''
+    for raw in text.splitlines():
+        stripped = raw.rstrip()
+        if stripped.endswith('\\'):
+            pending += stripped[:-1]
+            continue
+        lines.append(pending + stripped)
+        pending = ''
+    if pending != '':
+        lines.append(pending)
+    return lines
+
+
+def _find_links_target(line: str) -> str | None:
+    """Where a --find-links option points, or None if line sets another option."""
+    for name in ('--find-links', '-f'):
+        if not line.startswith(name):
+            continue
+        rest = line[len(name) :]
+        if rest == '':
+            return ''
+        if rest[0] in '= ':
+            return rest[1:].strip()
+        # optparse takes a short option written against its value, but '-f' also prefixes '--find-links'
+        if name == '-f' and not line.startswith('--'):
+            return rest.strip()
+    return None
+
+
 def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path]:
     """The files requirements.txt installs from a path in the project, rather than from an index or a url."""
     files: list[Path] = []
-    for raw in requirements.read_text(encoding='utf-8').splitlines():
+    for raw in _requirement_lines(requirements.read_text(encoding='utf-8')):
         line = raw.split('#', 1)[0].strip()
         if line == '':
             continue
@@ -304,6 +381,14 @@ def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path
                 excs.ErrorCode.INVALID_CONFIGURATION,
                 f'{requirements.name} declares {line!r}, an editable install, which a hosted image does not '
                 'support; publish the package to an index and depend on the published version',
+            )
+        find_links = _find_links_target(line)
+        if find_links is not None and (find_links.startswith('file:') or '://' not in find_links):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} looks for packages in {find_links}, a location on this machine; a '
+                'hosted image build reaches an index or a url, so publish the packages and depend on the '
+                'published versions',
             )
         if line.startswith('-'):
             continue
@@ -401,9 +486,31 @@ def package_image_context(project_dir: Path | None = None) -> PackagedContext:
                     continue
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'{f.name} declares {requirement!r}, which installs from this machine; a hosted image '
-                    'build sends the project alone, so publish the package to an index and depend on the '
-                    'published version',
+                    f'{f.name} declares {requirement!r}, which names a source on this machine; instead, '
+                    'publish the package to an index and depend on the published version, so that it can '
+                    'get picked up by the hosted image build',
+                )
+            for location in _local_index_locations(parsed):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{f.name} looks for packages in {location}, a location on this machine; a hosted '
+                    'image build reaches an index or a url, so publish the packages and depend on the '
+                    'published versions',
+                )
+            continue
+        if f.name == 'uv.lock':
+            try:
+                parsed = toml.load(f)
+            except toml.TomlDecodeError as exc:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'{f.name} is not valid TOML: {exc}'
+                ) from exc
+            escaping = _escaping_lock_sources(parsed, project_dir)
+            if len(escaping) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{f.name} installs {"; ".join(escaping)} from above the project root, which an image '
+                    'build never sees; publish the package to an index and depend on the published version',
                 )
             continue
         if f.name == 'requirements.txt':
@@ -553,7 +660,13 @@ def _changed_keys(now: dict[str, str], was: dict[str, str]) -> list[str]:
 
 def unpacked_digest(project_dir: Path) -> str:
     """The archive digest of every file under project_dir, as ProjectFingerprint.archive_digest() computes it."""
-    files = {p.relative_to(project_dir).as_posix(): _content_hash(p) for p in project_dir.rglob('*') if p.is_file()}
+    files = {
+        p.relative_to(project_dir).as_posix(): _path_hash(p)
+        # is_file() follows the link, so a symlink whose target the archive does not hold would drop out
+        # of this and leave a correctly unpacked project looking like a different one
+        for p in project_dir.rglob('*')
+        if p.is_symlink() or p.is_file()
+    }
     return _digest(files)
 
 
@@ -590,8 +703,8 @@ def _content_hash(path: Path) -> str:
 def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
     requirements = project_root / 'requirements.txt'
     local_requirements = _local_requirement_files(project_root, requirements) if requirements.is_file() else []
-    from_project = {p.relative_to(project_root).as_posix(): _content_hash(p) for p in local_requirements}
-    files = {path.relative_to(project_root).as_posix(): _content_hash(path) for path in files}
+    from_project = {p.relative_to(project_root).as_posix(): _path_hash(p) for p in local_requirements}
+    files = {path.relative_to(project_root).as_posix(): _path_hash(path) for path in files}
     declared_python = config.python_version if config is not None else None
     return ProjectFingerprint(
         files=files,
