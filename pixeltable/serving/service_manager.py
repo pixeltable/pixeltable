@@ -148,6 +148,12 @@ class ServiceManager(ServiceManagerBase):
         project_root = Config.get().project_root
         assert project_root is not None  # a service was started from a file inside a project
         app_file = project_root.joinpath(*record.app_module.split('.')).with_suffix('.py')
+        if not app_file.is_file():
+            raise excs.NotFoundError(
+                excs.ErrorCode.PATH_NOT_FOUND,
+                f'{record.service_name} was started from {record.app_module}, which {project_root} no longer '
+                'holds; start it again from its application file',
+            )
         with self._service_lock(record.service_name, record.base_path):
             self.stop(instance)
             self._start(str(app_file), record.service_name, record.base_path, record.otel, record.port)

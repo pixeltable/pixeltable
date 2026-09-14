@@ -32,7 +32,7 @@ from pixeltable.utils.project import (
     project_fingerprint,
     unpacked_digest,
 )
-from pixeltable_cli.types import DbArtifact, DbChangeOp, DbPlan, DbState, DbTarget
+from pixeltable_cli.types import DbArtifact, DbChangeOp, DbPlan, DbState, DbTarget, OpStatus
 
 _logger = logging.getLogger('pixeltable')
 
@@ -59,7 +59,12 @@ def db_fingerprint(db_path: catalog.Path) -> ProjectFingerprint | None:
     if db_path.org is None or db_path.db is None:
         return None
     report = _get_db_report(db_path)
-    return None if report is None or report.current is None else report.current.resources.fingerprint
+    if report is None:
+        return None
+    running = None if report.current is None else report.current.resources.fingerprint
+    if running is not None:
+        return running
+    return None if report.target_resources is None else report.target_resources.fingerprint
 
 
 def create_db_update_ops(target: DatabaseResources, current: DatabaseResources | None) -> list[DbChangeOp]:
@@ -112,15 +117,24 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
             f'Reconciling {db_uri} would apply destructive changes: {destructive}.\n{_DB_DESTRUCTIVE_HINT}',
         )
 
-    settled, _ = _update_db(db_path, config, target)
+    settled, stored = _update_db(db_path, config, target)
     for op in plan.ops:
-        op.status = 'applied'
+        op.status = _op_status(op, settled, stored)
     plan.state = settled.state
     plan.exists = True
     plan.status = 'applied'
     # what the plan asked for has been applied; an operation no update carries out is what is left
     plan.resolution = 'up_to_date'
     return plan
+
+
+def _op_status(op: DbChangeOp, settled: DatabaseStatus, stored: set[DbArtifact]) -> OpStatus:
+    """Whether an update carried out op, or found the database already providing it."""
+    if op.target == 'archive':
+        return 'applied' if 'archive' in stored else 'skipped'
+    if op.target == 'image':
+        return 'applied' if settled.last_build_outcome == 'SUCCEEDED' else 'skipped'
+    return 'applied'
 
 
 def _update_db(
@@ -207,12 +221,10 @@ def db_build_image(db_uri: str) -> list[DbChangeOp]:
             excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'{db_path.uri_str} does not exist; run `pxt db update` to create it'
         )
     settled, stored = _update_db(db_path, config, _db_resources(config), force_image_build=True)
-    image_op = DbChangeOp.build_image()
-    # a build that did not run leaves nothing to report, whatever was asked for
-    image_op.status = 'applied' if settled.last_build_outcome == 'SUCCEEDED' else 'skipped'
-    archive_op = DbChangeOp.upload_archive()
-    archive_op.status = 'applied' if 'archive' in stored else 'skipped'
-    return [image_op, archive_op]
+    ops = [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
+    for op in ops:
+        op.status = _op_status(op, settled, stored)
+    return ops
 
 
 def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:

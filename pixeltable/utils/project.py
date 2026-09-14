@@ -185,17 +185,16 @@ class PackagedContext:
 def _member_hash(content_hash: str, *, symlink: bool, executable: bool) -> str:
     """One hash over what an unpacked project holds at a path: its bytes, its kind and its execute bit.
 
-    Ownership and timestamps stay out of it: they differ between two packagings of one project, and
-    tarfile's 'data' extraction filter drops them. That filter keeps the execute bit, so this records it.
+    Ownership and timestamps are left out: two packagings of one project differ in them, and tarfile's
+    'data' extraction filter discards them. That filter preserves the execute bit, so this hash covers it.
     """
     return _digest({'content': content_hash, 'symlink': symlink, 'executable': executable})
 
 
 def _path_hash(path: Path) -> str:
-    """The hash of the file at path, as _add_hashed() computes it for the same file."""
+    """Read the file at path and hash it the way _add_hashed() hashes an archive member."""
     if path.is_symlink():
-        # a symlink holds a path, not bytes; reading through it would hash the target's content instead,
-        # and say nothing about a retarget
+        # a symlink holds a path, so the path identifies it; reading through it would hash the target
         return _member_hash(_digest(os.readlink(path)), symlink=True, executable=False)
     return _member_hash(_content_hash(path), symlink=False, executable=bool(path.stat().st_mode & 0o111))
 
@@ -311,13 +310,13 @@ def _declared_dependencies(parsed: dict[str, Any]) -> list[str]:
 
 
 def _local_index_locations(parsed: dict[str, Any]) -> list[str]:
-    """The package locations pyproject.toml names that a hosted image build cannot reach."""
+    """The package locations in pyproject.toml that lie on this machine."""
     found = parsed.get('tool', {}).get('uv', {}).get('find-links', [])
     return [entry for entry in found if isinstance(entry, str) and (entry.startswith('file:') or '://' not in entry)]
 
 
 def _escaping_lock_sources(parsed: dict[str, Any], project_dir: Path) -> list[str]:
-    """The packages uv.lock installs from a path above the project root, which no archive holds."""
+    """The packages uv.lock installs from a path above the project root."""
     escaping: list[str] = []
     for package in parsed.get('package', []):
         source = package.get('source', {}) if isinstance(package, dict) else {}
@@ -357,7 +356,7 @@ def _find_links_target(line: str) -> str | None:
             return ''
         if rest[0] in '= ':
             return rest[1:].strip()
-        # optparse takes a short option written against its value, but '-f' also prefixes '--find-links'
+        # optparse accepts '-fVALUE'; the '--' guard keeps '--find-links' and other long options out
         if name == '-f' and not line.startswith('--'):
             return rest.strip()
     return None
@@ -386,9 +385,9 @@ def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path
         if find_links is not None and (find_links.startswith('file:') or '://' not in find_links):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
-                f'{requirements.name} looks for packages in {find_links}, a location on this machine; a '
-                'hosted image build reaches an index or a url, so publish the packages and depend on the '
-                'published versions',
+                f'{requirements.name} looks for packages in {find_links}, a location on this machine; '
+                'instead, publish the packages to an index and depend on the published versions, so that '
+                'they can get picked up by the hosted image build',
             )
         if line.startswith('-'):
             continue
@@ -493,9 +492,9 @@ def package_image_context(project_dir: Path | None = None) -> PackagedContext:
             for location in _local_index_locations(parsed):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'{f.name} looks for packages in {location}, a location on this machine; a hosted '
-                    'image build reaches an index or a url, so publish the packages and depend on the '
-                    'published versions',
+                    f'{f.name} looks for packages in {location}, a location on this machine; instead, '
+                    'publish the packages to an index and depend on the published versions, so that they '
+                    'can get picked up by the hosted image build',
                 )
             continue
         if f.name == 'uv.lock':
@@ -509,8 +508,9 @@ def package_image_context(project_dir: Path | None = None) -> PackagedContext:
             if len(escaping) > 0:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'{f.name} installs {"; ".join(escaping)} from above the project root, which an image '
-                    'build never sees; publish the package to an index and depend on the published version',
+                    f'{f.name} installs {"; ".join(escaping)} from above the project root; instead, '
+                    'publish the package to an index and depend on the published version, so that it can '
+                    'get picked up by the hosted image build',
                 )
             continue
         if f.name == 'requirements.txt':
@@ -662,8 +662,8 @@ def unpacked_digest(project_dir: Path) -> str:
     """The archive digest of every file under project_dir, as ProjectFingerprint.archive_digest() computes it."""
     files = {
         p.relative_to(project_dir).as_posix(): _path_hash(p)
-        # is_file() follows the link, so a symlink whose target the archive does not hold would drop out
-        # of this and leave a correctly unpacked project looking like a different one
+        # a symlink counts even where its target is missing: is_file() follows the link, and dropping it
+        # would make a correctly unpacked project look like a different one
         for p in project_dir.rglob('*')
         if p.is_symlink() or p.is_file()
     }

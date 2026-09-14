@@ -227,7 +227,7 @@ def run(argv: list[str]) -> None:
             '  run      serve one of them from this process instead, until interrupted\n'
             '  prune    stop and forget the services at TARGET that APP does not define\n'
             '  stop     stop the named services\n'
-            '  restart  restart the named services, onto what they already run\n'
+            '  restart  restart the named services onto the current project and secrets\n'
             '  list     what is running locally, and where\n'
             '  logs     read the log of the named service\n'
             '  check    validate the application file on its own (takes no TARGET)\n'

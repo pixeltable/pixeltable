@@ -356,7 +356,7 @@ class TestProjectArchive:
             assert tar.getnames() == ['requirements.txt']
 
     def test_find_links(self, tmp_path: Path) -> None:
-        """--find-links names where to look for packages, and a directory here is one the build never sees."""
+        """--find-links names where to look for packages, and a directory here is one only this machine has."""
         for line in ('-f ./wheels', '-f./wheels', '--find-links ./wheels', '--find-links=./wheels', '-f file:///w'):
             (tmp_path / 'requirements.txt').write_text(f'{line}\npixeltable\n')
             with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='a location on this machine'):
@@ -368,7 +368,7 @@ class TestProjectArchive:
             assert tar.getnames() == ['requirements.txt']
 
     def test_requirement_continuations(self, tmp_path: Path) -> None:
-        """pip joins a backslash continuation before reading the requirement, so the path is not the raw line."""
+        """pip joins a backslash continuation before reading the requirement, so the path spans two lines."""
         wheel = tmp_path / 'w' / 'pkg-1.0-py3-none-any.whl'
         wheel.parent.mkdir()
         wheel.write_bytes(b'wheel bytes')
@@ -377,7 +377,7 @@ class TestProjectArchive:
         assert 'w/pkg-1.0-py3-none-any.whl' in package_image_context(tmp_path).files
 
     def test_pyproject_tables(self, tmp_path: Path) -> None:
-        """Every table a build tool installs from can name a source, not just [project] dependencies."""
+        """A source can stand in any table a build tool installs from, not only [project] dependencies."""
         for table in (
             '[build-system]\nrequires = ["backend @ file:///home/me/backend.whl"]\n',
             '[tool.uv]\nconstraint-dependencies = ["pkg @ ./w/pkg.whl"]\n',
@@ -392,13 +392,13 @@ class TestProjectArchive:
             create_image_context(tmp_path)
 
     def test_lock_sources(self, tmp_path: Path) -> None:
-        """uv.lock is what uv installs from, and a source above the project root is one no archive holds."""
+        """uv.lock is the file uv installs from, and a source above the project root lies outside the archive."""
         for source in ('directory = "../helper"', 'editable = "../helper"', 'path = "../w/pkg.whl"'):
             (tmp_path / 'uv.lock').write_text(f'[[package]]\nname = "helper"\nsource = {{ {source} }}\n')
             with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='from above the project root'):
                 create_image_context(tmp_path)
 
-        # the project's own package is recorded as a source too, and it is one the archive carries
+        # the project's own package is a source too, and the archive carries it
         (tmp_path / 'uv.lock').write_text(
             '[[package]]\nname = "app"\nsource = { editable = "." }\n'
             '[[package]]\nname = "pandas"\nsource = { registry = "https://pypi.org/simple" }\n'
@@ -432,7 +432,7 @@ class TestProjectArchive:
         assert project_fingerprint(tmp_path, None).files['link.txt'] == after
 
     def test_unpacked_symlink(self, tmp_path: Path) -> None:
-        """A symlink whose target the archive leaves out unpacks broken, and still belongs to the project."""
+        """A symlink unpacks broken where the archive omits its target, and still belongs to the project."""
         unpacked = tmp_path / 'unpacked'
         unpacked.mkdir()
         (unpacked / 'app.py').write_text('x = 1\n')
@@ -440,10 +440,10 @@ class TestProjectArchive:
         with_link = unpacked_digest(unpacked)
 
         (unpacked / 'link.txt').unlink()
-        assert unpacked_digest(unpacked) != with_link, 'a broken link is a file the archive named'
+        assert unpacked_digest(unpacked) != with_link, 'the archive named this link too'
 
     def test_manifest_drift(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The manifests go into both artifacts, and one packaging's hash must not overwrite the other's."""
+        """The manifests go into both artifacts, so each one is compared against its own half."""
         (tmp_path / 'app.py').write_text('x = 1\n')
         (tmp_path / 'requirements.txt').write_text('pandas\n')
         recorded = project_fingerprint(tmp_path, None)
