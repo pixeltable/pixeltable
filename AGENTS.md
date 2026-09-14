@@ -118,6 +118,29 @@ pytest -m "remote_api" tests/functions/test_openai.py
 - `@pytest.mark.expensive` - Long-running tests
 - `@pytest.mark.remote_api` - Tests calling external APIs
 
+### Required After Every Code Change
+
+After every code change, before reporting it done:
+
+1. `make format`: auto-formats code.
+2. `make check`: mypy + ruff static checks; both must pass.
+3. `git add` any new source file, then review the whole change with `git diff HEAD` (no pathspec: source
+   and tests), reading every comment, docstring, and string you added. A diff narrowed to one file does not
+   count, and an unstaged new file does not appear in it. A comment must describe only the code at hand
+   (never a caller's intent or a called function's internals) and must not state behavior you have not
+   verified.
+4. Delete before rewording: cover each comment and read only the identifier, the signature, and the code
+   below it. If those carry the same fact, delete the comment rather than improving it. A docstring that
+   paraphrases the name, an "or None if ..." for a `| None` annotation, and a fact already stated elsewhere
+   all go. Keep what the reader cannot recover: a constraint a callee imposes, the reason for a surprising
+   choice, an invariant that would silently break.
+5. Check the prose that survived for straight word order: no preposition stranded at the end of a clause,
+   no noun-phrase pileup ("the X a Y is Z to"), no fused emphatic ("X is what makes Y work" -> "X makes Y
+   work"). Where a plainer phrase says the same thing, use it. Fix every violation from steps 3 to 5 before
+   proceeding.
+
+Skip only if explicitly directed or if the environment makes it impossible.
+
 ### Creating a Pull Request
 
 1. Create a branch from `main`
@@ -253,6 +276,12 @@ Follow `docs/_guidelines/GUIDELINES_FOR_DOCSTRINGS.md`:
 - Code examples must use `>>>` prompts, not fenced code blocks
 - Backticks must be properly paired
 - HTML tags must be self-closing
+- When describing what a function does, focus on the behavior of the function itself, not its callers
+
+### Code Comments
+
+- Keep code comments succinct; avoid unnecessarily verbose comments.
+- Always use parens to denote functions: in code comments, it's `my_func()`, not `my_func`.
 
 ### Building Docs
 
@@ -263,9 +292,11 @@ make docs
 # Serve locally for development
 make docs-serve
 
-# Deploy to staging
-make docs-deploy TARGET=stage
+# Deploy to the dev environment for preview
+make docs-deploy TARGET=dev
 ```
+
+`TARGET=dev` is the only deploy target an agent may run or suggest. `stage` and `prod` are for humans.
 
 ### Local Dashboard UI
 

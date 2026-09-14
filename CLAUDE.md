@@ -134,10 +134,10 @@ After every code change, before reporting it done:
    paraphrases the name, an "or None if ..." for a `| None` annotation, and a fact already stated elsewhere
    all go. Keep what the reader cannot recover: a constraint a callee imposes, the reason for a surprising
    choice, an invariant that would silently break.
-5. Check the prose that survived for straight word order, per `feedback_simple_direct_prose.md`: no
-   preposition stranded at the end of a clause, no noun-phrase pileup ("the X a Y is Z to"), no fused
-   emphatic ("X is what makes Y work" -> "X makes Y work"). Where a plainer phrase says the same thing, use
-   it. Fix every violation from steps 3 to 5 before proceeding.
+5. Check the prose that survived for straight word order: no preposition stranded at the end of a clause,
+   no noun-phrase pileup ("the X a Y is Z to"), no fused emphatic ("X is what makes Y work" -> "X makes Y
+   work"). Where a plainer phrase says the same thing, use it. Fix every violation from steps 3 to 5 before
+   proceeding.
 
 Skip only if explicitly directed or if the environment makes it impossible.
 
@@ -304,9 +304,11 @@ make docs
 # Serve locally for development
 make docs-serve
 
-# Deploy to staging
-make docs-deploy TARGET=stage
+# Deploy to the dev environment for preview
+make docs-deploy TARGET=dev
 ```
+
+`TARGET=dev` is the only deploy target an agent may run or suggest. `stage` and `prod` are for humans.
 
 ### Local Dashboard UI
 
