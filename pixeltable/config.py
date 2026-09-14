@@ -91,23 +91,14 @@ class DatabaseConfig(pydantic.BaseModel):
 # the entry in [[pixeltable.database]] that configures the local database
 LOCAL_DATABASE = 'local'
 
-# the settings a [[pixeltable.database]] entry sets for its database, keyed by the section and key of the
-# lookup that reads each one; the value is the entry's field
-_DATABASE_SETTINGS: dict[tuple[str, str], str] = {
-    ('pixeltable', 'input_media_dest'): 'input_media_dest',
-    ('pixeltable', 'output_media_dest'): 'output_media_dest',
-    ('otel', 'exporter_otlp_endpoint'): 'exporter_otlp_endpoint',
-    ('otel', 'exporter_otlp_protocol'): 'exporter_otlp_protocol',
+# the settings a [[pixeltable.database]] entry sets for its database, as the section and key of the lookup that
+# reads each one; the entry's field has the key's name
+_DATABASE_SETTINGS = {
+    ('pixeltable', 'input_media_dest'),
+    ('pixeltable', 'output_media_dest'),
+    ('otel', 'exporter_otlp_endpoint'),
+    ('otel', 'exporter_otlp_protocol'),
 }
-
-
-def hosted_db() -> tuple[str, str] | None:
-    """(org, db) of the hosted database this process serves; the cloud sets both variables on its pods."""
-    org = os.environ.get('PXTCLOUD_ORG')
-    db = os.environ.get('PXTCLOUD_DB')
-    if org and db:
-        return org, db
-    return None
 
 
 class _Unspecified:
@@ -379,6 +370,7 @@ class Config:
         self.__reported_env_vars = set()
         self.__config_file = Path(self.lookup_env('pixeltable', 'config', str(self.__home / 'config.toml')))
         self.__project_config_file = self.__resolve_project_config_file()
+        self.__database_sources: dict[str, dict[str, Path | None]] = {}
         self.__config_dict = self.__load_user_config()
         self.__stamp = self.__file_stamp()
         self.__warn_about_miscased_env_vars()
@@ -547,32 +539,39 @@ class Config:
         merged = {section: dict(options) for section, options in self.__home_config.items()}
         for section, options in self.__project_config.items():
             for key, (supplied, source) in options.items():
-                combines = section == 'pixeltable' and key == 'database' and key in merged.get(section, {})
-                value = self.__merged_databases(merged[section][key][0], supplied) if combines else supplied
-                merged.setdefault(section, {})[key] = (value, source)
+                merged.setdefault(section, {})[key] = (supplied, source)
+        layers = [
+            (config['pixeltable']['database'][0], source)
+            for config, source in (
+                (self.__home_config, self.__config_file),
+                (self.__project_config, self.__project_config_file),
+            )
+            if 'database' in config.get('pixeltable', {})
+        ]
+        if len(layers) > 0:
+            merged['pixeltable']['database'] = (self.__merge_databases(layers), layers[-1][1])
         return merged
 
-    @classmethod
-    def __merged_databases(cls, home: list[DatabaseConfig], project: list[DatabaseConfig]) -> list[DatabaseConfig]:
-        """Combine the database entries of the home config with the project's, entry by entry.
+    def __merge_databases(self, layers: list[tuple[list[DatabaseConfig], Path | None]]) -> list[DatabaseConfig]:
+        """Combine the database entries of the config files, entry by entry, each with the file it came from.
 
-        Entries are matched by name, and a field the project sets wins, so a project adding a var keeps the
-        secrets the home config binds for the same database.
+        Entries are matched by name, and a field a later file sets wins, so a project adding a var keeps the
+        secrets the home config binds for the same database. The file that supplied each field, and each var
+        and secret binding, is recorded in __database_sources.
         """
-        by_name = {db.name: db for db in home}
-        for entry in project:
-            existing = by_name.get(entry.name)
-            if existing is None:
-                by_name[entry.name] = entry
-                continue
-            fields = existing.model_dump()
-            for name, value in entry.model_dump(exclude_none=True).items():
-                if isinstance(value, dict) and isinstance(fields.get(name), dict):
-                    fields[name] = {**fields[name], **value}  # vars and secrets combine per name
-                else:
-                    fields[name] = value
-            by_name[entry.name] = DatabaseConfig.model_validate(fields)
-        return list(by_name.values())
+        fields_by_name: dict[str, dict[str, Any]] = {}
+        for entries, source in layers:
+            for entry in entries:
+                fields = fields_by_name.setdefault(entry.name, {})
+                sources = self.__database_sources.setdefault(entry.name, {})
+                for field, value in entry.model_dump(exclude_none=True).items():
+                    if isinstance(value, dict):
+                        fields[field] = {**fields.get(field, {}), **value}
+                        sources.update({f'{field}.{binding}': source for binding in value})
+                    else:
+                        fields[field] = value
+                        sources[field] = source
+        return [DatabaseConfig.model_validate(fields) for fields in fields_by_name.values()]
 
     def __load_home_config(self) -> dict[str, dict[str, tuple[Any, Path]]]:
         """Load the installation's config file, creating a default one if it does not exist."""
@@ -693,44 +692,43 @@ class Config:
             return None
         return next((db for db in databases if db.name == db_name), None)
 
-    def __own_database_entries(self) -> list[tuple[DatabaseConfig, Path | None]]:
-        """The entry for this process's database in each config file, with that file, home config first.
+    def __own_database(self) -> tuple[DatabaseConfig, dict[str, Path | None]] | None:
+        """The merged entry of this process's database, with the file that supplied each field and binding.
 
-        A process reads the entry of its own database: the hosted one on its pod, else the local one. The
-        entries come from the raw home and project configs rather than from the merged list, which does not
-        record the file that supplied each field.
+        A process reads the entry of its own database: the hosted one on its pod, else the local one.
         """
-        hosted = hosted_db()
+        from pixeltable.env import Env  # env imports this module
+
+        hosted = Env.hosted_db()
         name = LOCAL_DATABASE if hosted is None else f'pxt://{hosted[0]}:{hosted[1]}'
-        result: list[tuple[DatabaseConfig, Path | None]] = []
-        for config, source in (
-            (self.__home_config, self.__config_file),
-            (self.__project_config, self.__project_config_file),
-        ):
-            entry = config.get('pixeltable', {}).get('database')
-            if entry is None or not isinstance(entry[0], list):
-                continue
-            own = next((db for db in entry[0] if db.name == name), None)
-            if own is not None:
-                result.append((own, source))
-        return result
+        entry = self.__config_dict.get('pixeltable', {}).get('database')
+        if entry is None:
+            return None
+        own = next((db for db in entry[0] if db.name == name), None)
+        if own is None:
+            return None
+        return own, self.__database_sources[name]
 
     def __database_bindings(self, section: str) -> dict[str, tuple[str, Path | None]]:
-        """Return the vars or secrets of the database this process serves, each with the file that supplied it."""
-        result: dict[str, tuple[str, Path | None]] = {}
-        for own, source in self.__own_database_entries():
-            bindings = own.secrets if section == SECRET_SECTION else own.vars
-            result.update({name: (value, source) for name, value in (bindings or {}).items()})
-        return result
+        """The vars or secrets of this process's database, each with the file that supplied it."""
+        own = self.__own_database()
+        if own is None:
+            return {}
+        entry, sources = own
+        field = 'secrets' if section == SECRET_SECTION else 'vars'
+        bindings: dict[str, str] = getattr(entry, field) or {}
+        return {name: (value, sources[f'{field}.{name}']) for name, value in bindings.items()}
 
-    def __database_setting(self, section: str, key: str) -> tuple[Any, Path | None] | None:
-        """The value of section.key in the entry for this process's database, with the file that supplied it."""
-        result: tuple[Any, Path | None] | None = None
-        for own, source in self.__own_database_entries():
-            value = getattr(own, _DATABASE_SETTINGS[section, key])
-            if value is not None:
-                result = (value, source)
-        return result
+    def __database_setting(self, key: str) -> tuple[Any, Path | None] | None:
+        """The value of key in the entry of this process's database, with the file that supplied it."""
+        own = self.__own_database()
+        if own is None:
+            return None
+        entry, sources = own
+        value = getattr(entry, key)
+        if value is None:
+            return None
+        return value, sources[key]
 
     def __lookup_config_entry(self, section: str, key: str) -> tuple[Any, Path | None] | None:
         """Find key under section in __config_dict. Returns (value, source_path) or None."""
@@ -738,7 +736,7 @@ class Config:
             return self.__database_bindings(section).get(key)
         if (section, key) in _DATABASE_SETTINGS:
             # the entry for this process's database wins over the section, which every database shares
-            setting = self.__database_setting(section, key)
+            setting = self.__database_setting(key)
             if setting is not None:
                 return setting
         parts = section.split('.')
@@ -894,9 +892,13 @@ class Config:
             return f'{section}.{key}, no longer set'
         ck = next((ck for ck in self.config_keys() if (ck.section, ck.key) == (section, key)), None)
         # a pyproject.toml holds Pixeltable's settings under [tool], and an array of tables is written [[ ]]
-        name = f'tool.{section}.{key}' if source.name == 'pyproject.toml' else f'{section}.{key}'
-        if ck is not None and typing.get_origin(ck.expected_type) is list:
-            name = f'[[{name}]]'
+        prefix = 'tool.' if source.name == _PYPROJECT else ''
+        if (section, key) in _DATABASE_SETTINGS and self.__database_setting(key) is not None:
+            name = f'[[{prefix}pixeltable.database]].{key}'
+        elif ck is not None and typing.get_origin(ck.expected_type) is list:
+            name = f'[[{prefix}{section}.{key}]]'
+        else:
+            name = f'{prefix}{section}.{key}'
         return f'{name} in {source}'
 
 

@@ -525,6 +525,9 @@ class TestConfig:
         assert config.get_string_value('exporter_otlp_endpoint', section='otel') == 'https://otlp.local.example'
         assert config.get_string_value('exporter_otlp_protocol', section='otel') == 'grpc'
         assert config.get_value_source('input_media_dest') == config_file
+        assert config.describe_setting('pixeltable', 'input_media_dest') == (
+            f'[[pixeltable.database]].input_media_dest in {config_file}'
+        )
 
         # on a hosted database's pod the process reads that database's entry, settings and bindings alike
         monkeypatch.setenv('PXTCLOUD_ORG', 'myorg')
@@ -541,6 +544,10 @@ class TestConfig:
         monkeypatch.setenv('PIXELTABLE_INPUT_MEDIA_DEST', 's3://from/env/')
         assert config.get_string_value('input_media_dest') == 's3://from/env/'
         assert config.get_value_source('input_media_dest') == 'env'
+        # an empty environment variable is unset, and leaves the entry in force
+        monkeypatch.setenv('PIXELTABLE_INPUT_MEDIA_DEST', '')
+        assert config.get_string_value('input_media_dest') == 's3://local/input/'
+        assert config.get_value_source('input_media_dest') == config_file
         monkeypatch.delenv('PIXELTABLE_INPUT_MEDIA_DEST')
 
         # the entry outranks the section every database shares, which still applies where the entry is silent
