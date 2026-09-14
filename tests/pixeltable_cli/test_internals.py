@@ -61,6 +61,7 @@ from pixeltable_cli.client.commands import (
     daemon as daemon_cmd,
     db as db_cmd,
     org as org_cmd,
+    schema as schema_cmd,
     service as service_cmd,
     shell as shell_cmd,
     status as status_cmd,
@@ -947,6 +948,16 @@ class TestMain:
         client_main._print_help()
         out = capsys.readouterr().out
         assert all(cmd in out for cmd in client_main.COMMANDS)
+
+    @pytest.mark.parametrize(
+        'name,module', [('schema', schema_cmd), ('service', service_cmd)], ids=['schema', 'service']
+    )
+    def test_help_lists_subcommands(self, name: str, module: ModuleType, capsys: pytest.CaptureFixture) -> None:
+        client_main._print_help()
+        out = capsys.readouterr().out
+        line = next(ln for ln in out.splitlines() if ln.strip().startswith(f'{name} '))
+        listed = line[line.rindex('(') + 1 : line.rindex(')')].split('/')
+        assert set(listed) == set(module.VERBS)
 
     def test_dispatch_unknown_command(self, capsys: pytest.CaptureFixture) -> None:
         with pytest.raises(SystemExit) as ei:
