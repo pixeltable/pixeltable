@@ -42,6 +42,12 @@ class DatabaseConfig(pydantic.BaseModel):
     vars: dict[str, str] | None = None
     secrets: dict[str, str] | None = None
 
+    # where media that names no destination goes: inserted media, and media that computed columns produce
+    input_media_dest: str | None = None
+    output_media_dest: str | None = None
+    # where the OpenTelemetry bridge exports to
+    exporter_otlp_endpoint: str | None = None
+
     # the rest applies to a hosted database, whose runtime image is built from the project
     exclude: list[str] | None = None  # glob patterns to exclude from the image
     include: list[str] | None = None  # glob patterns to explicitly include (overrides exclude or .gitignore)
@@ -83,6 +89,23 @@ class DatabaseConfig(pydantic.BaseModel):
 
 # the entry in [[pixeltable.database]] that configures the local database
 LOCAL_DATABASE = 'local'
+
+# the settings a [[pixeltable.database]] entry sets for its database, keyed by the section and key of the
+# lookup that reads each one; the value is the entry's field
+_DATABASE_SETTINGS: dict[tuple[str, str], str] = {
+    ('pixeltable', 'input_media_dest'): 'input_media_dest',
+    ('pixeltable', 'output_media_dest'): 'output_media_dest',
+    ('otel', 'exporter_otlp_endpoint'): 'exporter_otlp_endpoint',
+}
+
+
+def hosted_db() -> tuple[str, str] | None:
+    """(org, db) of the hosted database this process serves; the cloud sets both variables on its pods."""
+    org = os.environ.get('PXTCLOUD_ORG')
+    db = os.environ.get('PXTCLOUD_DB')
+    if org and db:
+        return org, db
+    return None
 
 
 class _Unspecified:
@@ -671,14 +694,16 @@ class Config:
             return None
         return next((db for db in databases if db.name == db_name), None)
 
-    def __database_bindings(self, section: str) -> dict[str, tuple[str, Path | None]]:
-        """Return the local database's vars or secrets, each with the file that supplied it.
+    def __own_database_entries(self) -> list[tuple[DatabaseConfig, Path | None]]:
+        """The entry for the database this process serves in each config file, home config first.
 
-        [[pixeltable.database]] is an array, which the section path of a var or a secret does not address;
-        both name the entry for the local database, which is the one a process reads them from. A binding the
-        project supplies wins over one of the same name in the home config.
+        [[pixeltable.database]] is an array, which the section path of a setting does not address; a process
+        reads the entry for its own database: the hosted one on its pod, else the local one. The home
+        config's entry comes first so that the project's wins per setting.
         """
-        result: dict[str, tuple[str, Path | None]] = {}
+        hosted = hosted_db()
+        name = LOCAL_DATABASE if hosted is None else f'pxt://{hosted[0]}:{hosted[1]}'
+        result: list[tuple[DatabaseConfig, Path | None]] = []
         for config, source in (
             (self.__home_config, self.__config_file),
             (self.__project_config, self.__project_config_file),
@@ -686,17 +711,37 @@ class Config:
             entry = config.get('pixeltable', {}).get('database')
             if entry is None or not isinstance(entry[0], list):
                 continue
-            local = next((db for db in entry[0] if db.name == LOCAL_DATABASE), None)
-            if local is None:
-                continue
-            bindings = local.secrets if section == SECRET_SECTION else local.vars
+            own = next((db for db in entry[0] if db.name == name), None)
+            if own is not None:
+                result.append((own, source))
+        return result
+
+    def __database_bindings(self, section: str) -> dict[str, tuple[str, Path | None]]:
+        """Return the vars or secrets of the database this process serves, each with the file that supplied it."""
+        result: dict[str, tuple[str, Path | None]] = {}
+        for own, source in self.__own_database_entries():
+            bindings = own.secrets if section == SECRET_SECTION else own.vars
             result.update({name: (value, source) for name, value in (bindings or {}).items()})
+        return result
+
+    def __database_setting(self, section: str, key: str) -> tuple[Any, Path | None] | None:
+        """The value of section.key in the entry for this process's database, with the file that supplied it."""
+        result: tuple[Any, Path | None] | None = None
+        for own, source in self.__own_database_entries():
+            value = getattr(own, _DATABASE_SETTINGS[section, key])
+            if value is not None:
+                result = (value, source)
         return result
 
     def __lookup_config_entry(self, section: str, key: str) -> tuple[Any, Path | None] | None:
         """Find key under section in __config_dict. Returns (value, source_path) or None."""
         if section in (VAR_SECTION, SECRET_SECTION):
             return self.__database_bindings(section).get(key)
+        if (section, key) in _DATABASE_SETTINGS:
+            # the entry for this process's database wins over the section, which every database shares
+            setting = self.__database_setting(section, key)
+            if setting is not None:
+                return setting
         parts = section.split('.')
         # explicit type decl for readability
         top_section: dict[str, tuple[Any, Path | None]] | None = self.__config_dict.get(parts[0])
@@ -878,8 +923,8 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
         'database': (
-            'One entry per database the project uses: variable and secret bindings, and for a hosted '
-            'database the contents of its runtime image',
+            'One entry per database the project uses: variable and secret bindings, its media destinations '
+            'and OTLP endpoint, and for a hosted database the contents of its runtime image',
             list[DatabaseConfig],
         ),
         'db_pool_size': ('Number of database connections the engine keeps open (default: 5)', int),

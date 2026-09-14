@@ -190,6 +190,28 @@ def test_protocol_grpc(tmp_path: Path) -> None:
     )
 
 
+def check_endpoint_from_database_entry() -> None:
+    for k in [k for k in os.environ if k.startswith('OTEL_EXPORTER_OTLP_ENDPOINT')]:
+        del os.environ[k]
+    Path(os.environ['PIXELTABLE_CONFIG']).write_text(
+        "[pixeltable]\nfile_cache_size_g = 1.0\n\n[[pixeltable.database]]\nexporter_otlp_endpoint = 'http://127.0.0.1:9'\n",
+        encoding='utf-8',
+    )
+    pxt_otel.init()
+    tp = trace.get_tracer_provider()
+    exporter = tp._active_span_processor._span_processors[0].span_exporter  # type: ignore[attr-defined]
+    assert exporter._endpoint == 'http://127.0.0.1:9/v1/traces', exporter._endpoint
+
+
+def test_endpoint_from_database_entry(tmp_path: Path) -> None:
+    # the entry for the process's database names the endpoint, in place of the [otel] section or the env var
+    _run_isolated(
+        check_endpoint_from_database_entry,
+        {'PIXELTABLE_CONFIG': str(tmp_path / 'config.toml'), 'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
+        tmp_path,
+    )
+
+
 def test_standard_header_parsing() -> None:
     assert _sdk._parse_headers('Authorization=Basic%20abc%2Cdef,X-Test=a%20b') == {
         'authorization': 'Basic abc,def',

@@ -31,7 +31,7 @@ from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import exceptions as excs
-from pixeltable.config import Config
+from pixeltable.config import Config, hosted_db
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
@@ -243,11 +243,10 @@ class Env:
     def hosted_db(self, *, required: bool = False) -> tuple[str, str] | None: ...
 
     def hosted_db(self, *, required: bool = False) -> tuple[str, str] | None:
-        """(org, db) of the hosted database; the cloud sets PXTCLOUD_ORG and PXTCLOUD_DB on its pods."""
-        org = os.environ.get('PXTCLOUD_ORG')
-        db = os.environ.get('PXTCLOUD_DB')
-        if org and db:
-            return org, db
+        """(org, db) of the hosted database this process serves."""
+        hosted = hosted_db()
+        if hosted is not None:
+            return hosted
         if required:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
@@ -391,9 +390,9 @@ class Env:
 
         self._default_input_media_dest = config.get_string_value('input_media_dest')
         self._default_output_media_dest = config.get_string_value('output_media_dest')
-        hosted_db = self.hosted_db()
-        if hosted_db is not None:
-            org, db = hosted_db
+        hosted = self.hosted_db()
+        if hosted is not None:
+            org, db = hosted
             home_bucket = f'pxtfs://{org}:{db}/home'
             if self._default_input_media_dest is None:
                 self._default_input_media_dest = home_bucket

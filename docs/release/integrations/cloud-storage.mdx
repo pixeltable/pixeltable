@@ -44,12 +44,12 @@ When you configure a storage destination, Pixeltable automatically:
 
 There are two ways to configure cloud storage destinations:
 
-### Global default destinations
+### Default destinations per database
 
-Set default destinations for all media columns in your `config.toml` (see [Configuration](/platform/configuration) for details):
+Set default destinations for all media columns of a database in its `[[pixeltable.database]]` entry in `pixeltable.toml` (see [Configuration](/platform/configuration#per-database-settings) for details). The entry with no `name` configures the local database; an entry named `pxt://org:db` configures that hosted database.
 
 ```toml
-[pixeltable]
+[[pixeltable.database]]
 # For input media (inserted/referenced files)
 input_media_dest = "s3://my-bucket/input/"
 
@@ -57,7 +57,7 @@ input_media_dest = "s3://my-bucket/input/"
 output_media_dest = "s3://my-bucket/output/"
 ```
 
-Or via environment variables:
+Or via environment variables, which override the entry:
 
 ```bash
 export PIXELTABLE_INPUT_MEDIA_DEST="s3://my-bucket/input/"
@@ -90,14 +90,14 @@ Then `pxt schema update app.py my_app`. In a notebook or a test, the same column
 `t.add_computed_column(thumbnail=t.image.resize((128, 128)), destination=...)`.
 
 <Note>
-The `destination` parameter only applies to **stored computed columns**. For input columns, use the global `input_media_dest` configuration.
+The `destination` parameter only applies to **stored computed columns**. For input columns, use the database's `input_media_dest` setting.
 </Note>
 
 ### Precedence rules
 
 Destinations are resolved in this order:
 1. **Explicit column destination**: highest priority (computed columns only)
-2. **Global default**: `input_media_dest` for input columns, `output_media_dest` for computed columns
+2. **Database default**: `input_media_dest` for input columns, `output_media_dest` for computed columns
 3. **Local storage**: fallback if no destination is configured
 
 ## Provider configuration
@@ -296,14 +296,19 @@ https://www.pixeltable.com/dashboard/{org-slug}/{db-slug}/storage/home/browse
 
 Here's a full example using S3 for both input and computed media.
 
-First, configure your global destinations in `~/.pixeltable/config.toml`:
+First, configure the database's default destinations in `pixeltable.toml`:
+
+```toml
+[[pixeltable.database]]
+input_media_dest = "s3://my-app-bucket/uploads/"
+output_media_dest = "s3://my-app-bucket/generated/"
+```
+
+and, optionally, the AWS profile in `~/.pixeltable/config.toml` (default credentials are used if not set):
 
 ```toml
 [pixeltable]
-input_media_dest = "s3://my-app-bucket/uploads/"
-output_media_dest = "s3://my-app-bucket/generated/"
-
-s3_profile = "my-aws-profile"  # optional, uses default credentials if not set
+s3_profile = "my-aws-profile"
 ```
 
 Then declare the columns in your application file:

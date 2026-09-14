@@ -94,7 +94,7 @@ Default home is `~/.pixeltable`: `pgdata` (PostgreSQL), `media` (generated files
 
 - Inserted local files: the path is stored; the original stays put.
 - Inserted URLs: the URL is stored; first access downloads into the file cache.
-- Generated media: written to the media store (local, or `destination=` / `PIXELTABLE_OUTPUT_MEDIA_DEST`).
+- Generated media: written to the media store (local, or `destination=` / the database entry's `output_media_dest`).
 
 File cache size is `file_cache_size_g` in `config.toml` only. [Configuration](/platform/configuration).
 
@@ -105,7 +105,9 @@ file_cache_size_g = 50
 
 If you only insert and export, the Pixeltable data directory can be temporary: write the result out with `export_sql`. [Self-hosting](/howto/deployment/overview). A long-running service needs a persistent volume at `PIXELTABLE_HOME` (pgdata, media, file_cache). Starter-kit Dockerfiles set `PIXELTABLE_HOME=/data/pixeltable`.
 
-```bash
-PIXELTABLE_INPUT_MEDIA_DEST=s3://your-bucket/input
-PIXELTABLE_OUTPUT_MEDIA_DEST=s3://your-bucket/output
+```toml
+# pixeltable.toml
+[[pixeltable.database]]
+input_media_dest = 's3://your-bucket/input'
+output_media_dest = 's3://your-bucket/output'
 ```
