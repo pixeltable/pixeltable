@@ -421,7 +421,10 @@ def db_root(
             prefix = f'{base_uri}/test_{test_dir}'
             _logger.info('Creating test directory in cloud catalog: %s', prefix)
             pxt.create_dir(prefix)
-            yield DatabaseRoot('cloud', prefix)
+            try:
+                yield DatabaseRoot('cloud', prefix)
+            finally:
+                pxt.drop_dir(prefix, force=True)
 
     _validate_catalog_state()
 

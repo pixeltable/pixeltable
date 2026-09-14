@@ -86,11 +86,14 @@ class TestDb:
         assert plan['returncode'] == EXIT_CHANGES_PENDING
 
         try:
-            applied = db_update(cli, project, absent)
-            assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
+            status = db_update(cli, project, absent)
+            statuses = {op['target']: op['status'] for op in status['ops']}
+            # we always have a fresh archive
+            assert statuses['archive'] == 'applied', status['ops']
+            # we might reuse an image from an earlier test run
+            assert statuses['image'] in ('applied', 'skipped'), status['ops']
             assert db_status(cli, project, absent)['state'] == 'AVAILABLE'
-            # `db logs`: the pod that just came up has logged its startup, and the probes are dropped
-            # unless asked for
+            # the pod that just came up has logged its startup, and the probes are dropped unless asked for
             started = 'Connected to Pixeltable database at:'
             records = read_logs_until(cli, 'db', 'logs', absent, contains=started, cwd=project)
             assert records == sorted(records, key=lambda r: r['ts_ms'])
@@ -159,7 +162,11 @@ class TestDb:
         assert plan['returncode'] == EXIT_CHANGES_PENDING
 
         applied = db_update(cli, project, test_db_uri)
-        assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
+        statuses = {op['target']: op['status'] for op in applied['ops']}
+        # we always have a fresh archive
+        assert statuses['archive'] == 'applied', applied['ops']
+        # we might reuse an image from an earlier test run
+        assert statuses['image'] in ('applied', 'skipped'), applied['ops']
         assert (applied['in_agreement'], applied['returncode']) == (True, EXIT_IN_AGREEMENT)
         assert_in_agreement(cli, project, test_db_uri)
 

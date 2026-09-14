@@ -264,6 +264,8 @@ def _build_image(args: argparse.Namespace) -> None:
         print(json.dumps([op.model_dump(mode='json') for op in ops]))
     else:
         statuses = {op.target: op.status for op in ops}
-        archive = 'uploaded the project files' if statuses.get('archive') == 'applied' else 'reused the stored project'
-        image = 'rebuilt its image' if statuses.get('image') == 'applied' else 'left its image as it was'
+        archive = (
+            'uploaded the project files' if statuses.get('archive') == 'applied' else 'reused the existing archive'
+        )
+        image = 'rebuilt its image' if statuses.get('image') == 'applied' else 'reused the existing image'
         print(f'{db_uri}: {archive}, {image}.')

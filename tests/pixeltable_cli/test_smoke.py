@@ -1207,8 +1207,10 @@ class TestDotSegments:
         assert listing(p('cli_dots/sub/..')) == listing(p('cli_dots'))
         assert listing(p('cli_dots/./sub')) == listing(p('cli_dots/sub'))
         assert listing(p('cli_dots/sub/../sub')) == listing(p('cli_dots/sub'))
-        # '..' at the root keeps the root, as it does in a shell
-        assert listing(p('..')) == listing(p(''))
+        if db_root.id != 'cloud':
+            # '..' at the root keeps the root, as it does in a shell. A hosted target is a directory of
+            # its database rather than the catalog root, so '..' there names the database.
+            assert listing(p('..')) == listing(p(''))
 
 
 @pytest.mark.db_roots(

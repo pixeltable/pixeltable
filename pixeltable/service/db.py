@@ -129,7 +129,6 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
 
 
 def _op_status(op: DbChangeOp, settled: DatabaseStatus, stored: set[DbArtifact]) -> OpStatus:
-    """Whether an update carried out op, or found the database already providing it."""
     if op.target == 'archive':
         return 'applied' if 'archive' in stored else 'skipped'
     if op.target == 'image':
@@ -221,10 +220,11 @@ def db_build_image(db_uri: str) -> list[DbChangeOp]:
             excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'{db_path.uri_str} does not exist; run `pxt db update` to create it'
         )
     settled, stored = _update_db(db_path, config, _db_resources(config), force_image_build=True)
-    ops = [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
-    for op in ops:
-        op.status = _op_status(op, settled, stored)
-    return ops
+    image_op = DbChangeOp.build_image()
+    image_op.status = 'applied' if settled.last_build_outcome == 'SUCCEEDED' else 'skipped'
+    archive_op = DbChangeOp.upload_archive()
+    archive_op.status = 'applied' if 'archive' in stored else 'skipped'
+    return [image_op, archive_op]
 
 
 def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:

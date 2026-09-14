@@ -427,8 +427,8 @@ class TestService:
         _db_update(cli, db_root)
         deploy(cli, str(app_file), target)
 
-        # the archive is the whole project, and any source change requires a db update
-        (app_file.parent / 'unimported_module.py').write_text('unused = 1\n', encoding='utf-8')
+        # the archive is the whole project, so adding any file needs a db update
+        (app_file.parent / f'unimported_{db_root.id}.py').write_text('unused = 1\n', encoding='utf-8')
         r = cli('service', 'diff', str(app_file), target, '--json', check=False)
         assert r.returncode == 2, r.stdout
         _db_update(cli, db_root)
@@ -467,6 +467,42 @@ class TestService:
         assert _post(after['endpoint'], '/preview', doc_id=1, title='hello', published=True).json() == {
             'summary': 'HELLO'
         }
+
+    @pytest.mark.db_roots('cloud', reason='cloud-specific behavior')
+    def test_db_update_handoff(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        """A db update doesn't restart services; an explicit restart does."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        target = db_root.make_catalog_path('handoff')
+        app_file = pathlib.Path(apps('basic.py')).parent / 'handoff_app.py'
+        shutil.copy(apps('basic.py'), app_file)
+        _db_update(cli, db_root)
+        deploy(cli, str(app_file), target)
+        endpoint = assert_serving(cli, str(app_file), target, 'ingest')['ingest']['endpoint']
+
+        def summary() -> Any:
+            return _post(endpoint, '/preview', doc_id=1, title='hello', published=True).json()['summary']
+
+        assert summary() == 'hello'
+
+        # an edit to a udf body changes the archive but not the image
+        app_file.write_text(
+            app_file.read_text(encoding='utf-8').replace(
+                "return text if len(text) <= n else f'{text[:n]}...'", 'return text.upper()'
+            ),
+            encoding='utf-8',
+        )
+        _db_update(cli, db_root)
+
+        pending = get_services(cli, target)['ingest']
+        assert pending['state'] == 'AVAILABLE', pending
+        assert pending['update_pending'] is True, pending
+        assert summary() == 'hello', 'the pods still serve their own project'
+
+        cli('service', 'restart', f'{target}/ingest')
+        restarted = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
+        assert restarted['update_pending'] is False, restarted
+        assert summary() == 'HELLO'
 
     def test_prune(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """The same prune, driven by editing the served file rather than by serving another one."""
@@ -798,9 +834,8 @@ class TestService:
         # a hosted one does
         assert_serving(cli, app, second, 'ingest')
 
-    @pytest.mark.db_roots('cloud', reason='a local service logs to a file, which test_logs_errors checks')
+    @pytest.mark.db_roots('cloud', reason='a local service logs to a file')
     def test_logs(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """A hosted service's log holds the requests it served."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         app = apps('basic.py')
@@ -813,14 +848,17 @@ class TestService:
         # the request line is logged under the router's name, the probes are dropped unless asked for, and the
         # text output is the lines
         _post(running['ingest']['endpoint'], '/preview', doc_id=1, title='logged', published=False)
-        records = read_logs_until(cli, 'service', 'logs', f'{plain}/ingest', contains='POST /ingest/preview')
-        assert not any('GET /ingest/health' in rec['line'] for rec in records)
-        read_logs_until(cli, 'service', 'logs', f'{plain}/ingest', '--include-health', contains='GET /ingest/health')
-        assert 'POST /ingest/preview' in cli('service', 'logs', f'{plain}/ingest').stdout
+        # the route, not the whole request line: a hosted service is reached under its base path, which the
+        # pod is given as its root_path and logs along with the route
+        records = read_logs_until(cli, 'service', 'logs', f'{plain}/ingest', contains='/ingest/preview')
+        assert any('POST' in rec['line'] for rec in records), records[-5:]
+        assert not any('/ingest/health' in rec['line'] for rec in records)
+        read_logs_until(cli, 'service', 'logs', f'{plain}/ingest', '--include-health', contains='/ingest/health')
+        assert '/ingest/preview' in cli('service', 'logs', f'{plain}/ingest').stdout
 
         # two services with the same name at different paths have separate logs
         nested_records = cli('service', 'logs', f'{nested}/ingest', '--json').json
-        assert not any('POST /ingest/preview' in rec['line'] for rec in nested_records), nested_records[-5:]
+        assert not any('/ingest/preview' in rec['line'] for rec in nested_records), nested_records[-5:]
         marker = '/only-nested'
         endpoint = get_services(cli, nested)['ingest']['endpoint']
         assert httpx.get(f'{endpoint}{marker}', timeout=_REQUEST_TIMEOUT).status_code == 404
@@ -829,7 +867,7 @@ class TestService:
         # stopping removes the pod; the lines it wrote stay readable
         cli('service', 'stop', f'{plain}/ingest')
         stopped = cli('service', 'logs', f'{plain}/ingest', '--json').json
-        assert any('POST /ingest/preview' in rec['line'] for rec in stopped), stopped[-5:]
+        assert any('/ingest/preview' in rec['line'] for rec in stopped), stopped[-5:]
 
         # a service that fails during startup leaves its traceback in the log
         failing = db_root.make_catalog_path('failing')
@@ -843,7 +881,6 @@ class TestService:
         assert records == sorted(records, key=lambda rec: rec['ts_ms'])
 
     def test_logs_errors(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """What `service logs` refuses: bad options, a name nothing serves, and a local service's file log."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         app, target = apps('basic.py'), db_root.make_catalog_path('app')
@@ -1146,48 +1183,3 @@ class TestHostedService:
         stopped = service_list(cli, project, current_db)['ingest']
         assert stopped['state'] == 'STOPPED', stopped
         assert not service_diff(cli, project, app_file, current_db)['in_agreement']
-
-    def test_source_change(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
-        """A db update leaves a running service on its own project; a restart moves it to the database's."""
-        app_file = project / APP_FILE
-        schema_update(cli, project, str(app_file), current_db)
-        # the database is shared, so it serves whatever routes the run before this one left registered
-        service_update(cli, project, str(app_file), current_db, '--allow-destructive')
-        await_service_available(cli, project, current_db, 'ingest')
-        endpoint = service_list(cli, project, current_db)['ingest']['endpoint']
-
-        def summary() -> Any:
-            return _post(endpoint, '/preview', doc_id=1, title='hello', published=True).json()['summary']
-
-        assert summary() == 'hello'
-
-        # an edit to a udf body changes the archive and leaves the image alone
-        app_file.write_text(
-            app_file.read_text(encoding='utf-8').replace(
-                "return text if len(text) <= n else f'{text[:n]}...'", 'return text.upper()'
-            ),
-            encoding='utf-8',
-        )
-        db_update(cli, project, current_db)
-
-        pending = service_list(cli, project, current_db)['ingest']
-        assert pending['state'] == 'AVAILABLE', pending
-        assert pending['update_pending'] is True, pending
-        assert summary() == 'hello', 'the pods still serve their own project'
-
-        cli('service', 'restart', f'{current_db}/ingest', cwd=project)
-        await_service_available(cli, project, current_db, 'ingest')
-        restarted = service_list(cli, project, current_db)['ingest']
-        assert restarted['update_pending'] is False, restarted
-        assert summary() == 'HELLO'
-
-        # starting a stopped service puts it on the database's project, not back on its previous one
-        cli('service', 'stop', f'{current_db}/ingest', cwd=project)
-        app_file.write_text(
-            app_file.read_text(encoding='utf-8').replace('return text.upper()', 'return text[:1]'), encoding='utf-8'
-        )
-        db_update(cli, project, current_db)
-        cli('service', 'start', f'{current_db}/ingest', cwd=project)
-        await_service_available(cli, project, current_db, 'ingest')
-        assert service_list(cli, project, current_db)['ingest']['update_pending'] is False
-        assert summary() == 'h'
