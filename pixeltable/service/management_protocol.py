@@ -8,6 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from pixeltable.config import SECRET_ENV_PREFIX
 from pixeltable.serving import ServiceInstanceRecord
 from pixeltable.utils.project import DepsType, ProjectFingerprint
 from pixeltable_cli.types import ServiceSpec
@@ -217,6 +218,17 @@ class SetSecretRequest(BaseModel):
     db: str | None = None
     key: str
     value: str
+
+    @field_validator('key')
+    @classmethod
+    def _validate_key(cls, key: str) -> str:
+        normalized = key.upper()
+        if normalized.startswith('PIXELTABLE_') and not normalized.startswith(SECRET_ENV_PREFIX):
+            raise ValueError(
+                f'Secret name {key!r} is reserved for Pixeltable configuration; '
+                f'user-defined secrets may use the {SECRET_ENV_PREFIX} prefix.'
+            )
+        return key
 
 
 class SetSecretResponse(BaseModel):
