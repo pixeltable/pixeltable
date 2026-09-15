@@ -421,7 +421,6 @@ class TestProbe:
         monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
         monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: None)
         monkeypatch.setattr(client_utils, 'spawn_detached', lambda: None)
-        # a fresh PID, still the wrong version
         monkeypatch.setattr(
             client_utils, 'wait_for_health', lambda timeout=15.0: _health_payload(pxt_version='OLD', pid=200)
         )
