@@ -324,18 +324,51 @@ _MEDIA_CONTENT_TYPES: dict[ts.ColumnType.Type, str] = {
 T = TypeVar('T')
 
 
+class _ResponseMedia:
+    """Turns the local media files of one response into urls the client can fetch.
+
+    A local service serves the file from its /media route. A service in a hosted pod has no route a client
+    can reach, so it stages the file in the database's home bucket and signs a url for the object; flush()
+    finishes those uploads, concurrently, once the response has been built.
+    """
+
+    _home_dir: Path
+    _sink: PxtStorePartSink | None  # one per request, so its uploads share one store client
+    _media_url_base: str  # local service: the /media route's url prefix
+    _home_uri_prefix: str  # hosted service: 'pxtfs://<org>:<db>/home/'
+
+    def __init__(self, request: Request, home_dir: Path) -> None:
+        self._home_dir = home_dir
+        hosted = Env.get().hosted_db()
+        if hosted is None:
+            self._sink = None
+            sample_url = str(request.url_for(_MEDIA_ROUTE_NAME, path='_'))
+            self._media_url_base = sample_url[:-1]
+        else:
+            org, db = hosted
+            # its keys fall under uploads/, which the bucket expires
+            self._sink = PxtStorePartSink(org, db)
+            self._home_uri_prefix = f'pxtfs://{org}:{db}/home/'
+
+    def url_for(self, rel_path: str) -> str:
+        if self._sink is None:
+            return f'{self._media_url_base}{urllib.parse.quote(rel_path, safe="/")}'
+        key = self._sink.add_media_file(str(self._home_dir / rel_path))
+        # signed for an hour, so a client has time to fetch the media after reading the response
+        return ObjectOps.presigned_url(f'{self._home_uri_prefix}{key}', expiration_seconds=3600)
+
+    def flush(self) -> None:
+        if self._sink is not None:
+            self._sink.flush()
+
+
 def _run_endpoint_op(
-    endpoint_op: Callable[..., T],
-    kwargs: dict[str, Any],
-    tmp_paths: list[Path],
-    url_for_media: Callable[[str], str],
-    sink: PxtStorePartSink | None,
+    endpoint_op: Callable[..., T], kwargs: dict[str, Any], tmp_paths: list[Path], media: _ResponseMedia
 ) -> T:
     try:
-        result = endpoint_op(kwargs, url_for_media)
-        if sink is not None:
-            # the response carries the urls before the client can fetch them, so the uploads only need to finish here
-            sink.flush()
+        result = endpoint_op(kwargs, media.url_for)
+        # the response carries the urls before the client can fetch them, so the uploads only need to finish here
+        media.flush()
         return result
     except Exception as e:
         for p in tmp_paths:
@@ -381,39 +414,8 @@ class PxtEndpoint:
     def route_type(self) -> Literal['insert', 'update', 'delete', 'compute', 'query']:
         return self.route.spec.route_type
 
-    def _url_for_media(self, request: Request) -> tuple[Callable[[str], str], PxtStorePartSink | None]:
-        """The function that turns a local media file of a response into a url the client can fetch, and the sink
-        whose flush() finishes the uploads the urls point at.
-
-        A local service serves the file itself, from its /media route and without a sink. A service in a hosted
-        pod has no route a client can reach, so it stages the file in the database's home bucket and signs a url
-        for the object. The sink uploads all staged files of a response in one concurrent flush.
-        """
-        hosted = Env.get().hosted_db()
-        if hosted is None:
-            sample_url = str(request.url_for(_MEDIA_ROUTE_NAME, path='_'))
-            media_url_base = sample_url[:-1]
-
-            def serve_locally(rel_path: str) -> str:
-                return f'{media_url_base}{urllib.parse.quote(rel_path, safe="/")}'
-
-            return serve_locally, None
-
-        org, db = hosted
-        home_dir = self.router._home_dir
-        # one sink per request, so its uploads share one store client; its keys fall under uploads/, which the
-        # bucket expires
-        sink = PxtStorePartSink(org, db)
-
-        def stage_in_home_bucket(rel_path: str) -> str:
-            key = sink.add_media_file(str(home_dir / rel_path))
-            # signed for an hour, so a client has time to fetch the media after reading the response
-            return ObjectOps.presigned_url(f'pxtfs://{org}:{db}/home/{key}', expiration_seconds=3600)
-
-        return stage_in_home_bucket, sink
-
     def __call__(self, request: Request, **kwargs: Any) -> Any:
-        url_for_media, sink = self._url_for_media(request)
+        media = _ResponseMedia(request, self.router._home_dir)
 
         # write out uploads while the request is still alive
         tmp_paths: list[Path] = []
@@ -427,14 +429,12 @@ class PxtEndpoint:
 
         if self.route.spec.background:
             job_id = uuid.uuid4().hex
-            fut = self.router._executor.submit(
-                _run_endpoint_op, self.endpoint_op, kwargs, tmp_paths, url_for_media, sink
-            )
+            fut = self.router._executor.submit(_run_endpoint_op, self.endpoint_op, kwargs, tmp_paths, media)
             with self.router._jobs_lock:
                 self.router._jobs[job_id] = fut
             return BackgroundJobResponse(id=job_id, job_url=str(request.url_for(_JOB_STATUS_ROUTE_NAME, job_id=job_id)))
         else:
-            return _run_endpoint_op(self.endpoint_op, kwargs, tmp_paths, url_for_media, sink)
+            return _run_endpoint_op(self.endpoint_op, kwargs, tmp_paths, media)
 
 
 class FastAPIRouter(fastapi.APIRouter):
