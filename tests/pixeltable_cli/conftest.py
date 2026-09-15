@@ -240,11 +240,14 @@ def write_requirements(project: pathlib.Path, wheel: pathlib.Path, *extra: str) 
 
 
 @pytest.fixture
-def apps(session_project: pathlib.Path) -> Callable[[str], str]:
+def apps(session_project: pathlib.Path, db_root: DatabaseRoot) -> Callable[[str], str]:
     """Returns a Callable that resolves the name of an app file in the shared app corpus to its path.
 
     The corpus needs to be copied into the session's project in order for cli commands to work.
     """
+    if db_root.id == 'cloud':
+        pytest.skip('apps corpus is not available in cloud tests')
+
     directory = copy_app_corpus(session_project)
 
     def _path(name: str) -> str:

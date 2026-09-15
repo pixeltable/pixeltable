@@ -309,6 +309,11 @@ class TestSchema:
         assert "column 'author' will be added  safe" in r.stdout
         assert "column 'body' will be dropped  DESTRUCTIVE" in r.stdout
 
+    @pytest.mark.db_roots(
+        'local',
+        'proxy',
+        reason='a hosted image holds the project it was built from, and this test writes its udf while running',
+    )
     def test_diff_replaces_index(
         self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
