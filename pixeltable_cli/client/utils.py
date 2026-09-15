@@ -75,11 +75,13 @@ def _daemon_log_path() -> str:
 
 
 def read_pidfile() -> int | None:
+    """The PID the daemon recorded, or None if the file is missing or holds no usable one."""
     try:
         with open(pidfile_path(), encoding='utf-8') as f:
-            return int(f.read().strip())
+            pid = int(f.read().strip())
     except (OSError, ValueError):
         return None
+    return pid if pid > 0 else None
 
 
 def fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
@@ -252,6 +254,7 @@ def _pid_is_our_daemon(pid: int) -> bool:
 
 
 def _pid_alive(pid: int) -> bool:
+    assert pid > 0, pid
     try:
         # signal 0 is the 'are you there?' probe (doesn't kill, just raises if the PID is gone)
         os.kill(pid, 0)
@@ -268,6 +271,7 @@ def _pid_alive(pid: int) -> bool:
 
 
 def kill_and_wait(pid: int, timeout: float = 5.0) -> None:
+    assert pid > 0, pid
     # Wait on the PID itself (not /health) so a hung-but-alive daemon that still holds the
     # listen socket is detected and SIGKILLed; otherwise the next spawn would fail with
     # 'address already in use' because we returned early on the health probe.
@@ -302,9 +306,8 @@ def _restart_if_mismatched(health: dict[str, Any]) -> None:
     # the user do it: a non-None health response means fetch_health() already verified the responder is
     # our daemon.
     reported_pid = health.get('pid')
-    if not isinstance(reported_pid, int):
-        # a non-int pid can't be a real process id; refuse to target it for a restart rather than
-        # act on an untrustworthy health response
+    # Refuse to target the process if its pid doesn't look real
+    if not isinstance(reported_pid, int) or isinstance(reported_pid, bool) or reported_pid <= 0:
         raise RuntimeError(f'daemon on port {get_port()} reported an invalid pid ({reported_pid!r}); not restarting it')
     kill_and_wait(reported_pid)
     spawn_detached()

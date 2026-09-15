@@ -407,12 +407,15 @@ class TestProbe:
         assert url.startswith('http://127.0.0.1:')
         assert actions == [('kill', 100), ('spawn',)]
 
-    def test_identity_mismatch_invalid_pid_refuses(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Identity drift but the responder reports a non-int pid: refuse to restart (no kill, no spawn)
-        rather than act on an untrustworthy pid."""
+    # 0 and negative values name a process group rather than a process (-1 every process we may signal),
+    # and bool is an int in Python
+    @pytest.mark.parametrize('reported_pid', ['not-a-pid', 0, -1, True])
+    def test_identity_mismatch_invalid_pid_refuses(self, monkeypatch: pytest.MonkeyPatch, reported_pid: object) -> None:
+        """Identity drift but the responder reports a pid no process can have: refuse to restart (no kill,
+        no spawn) rather than act on an untrustworthy pid."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
         health = _health_payload(pxt_version='OLD')
-        health['pid'] = 'not-a-pid'
+        health['pid'] = reported_pid
         monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: health)
         monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
         monkeypatch.setattr(
@@ -496,10 +499,12 @@ class TestProbe:
         client_utils.ensure_running()
         assert actions == [('kill', 100), ('spawn',)]
 
-    def test_pidfile_malformed(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize('content', ['not-an-int', '0', '-1'])
+    def test_pidfile_malformed(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, content: str) -> None:
+        """A pidfile holding anything but a real process id reads as absent, so nothing signals on it."""
         monkeypatch.setattr(client_utils, 'pidfile_path', lambda: str(tmp_path / 'bogus.pid'))
         with open(client_utils.pidfile_path(), 'w', encoding='utf-8') as f:
-            f.write('not-an-int')
+            f.write(content)
         assert client_utils.read_pidfile() is None
 
     def test_pidfile_missing(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -716,7 +721,7 @@ class TestProbe:
             raise OSError('einval')
 
         monkeypatch.setattr(client_utils.os, 'kill', boom)
-        assert client_utils._pid_alive(0) is False
+        assert client_utils._pid_alive(12345) is False
 
     def test_pid_is_our_daemon_matches_module(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
