@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Mapping, TypedDict
+from typing import TYPE_CHECKING, Literal, Mapping, NamedTuple, TypedDict
 from uuid import UUID
 
 from pixeltable import catalog, exceptions as excs, exprs, func, index
@@ -221,13 +221,24 @@ class TableSchemaChangeSet(TypedDict):
     schema_versions: dict[UUID, int]
 
 
+class ModelUpdates(NamedTuple):
+    """A model's declared changes, resolved as catalog abstractions. References may contain ColumnRefByName."""
+
+    # the columns to add, in declaration order
+    added_cols: list[catalog.Column]
+    # the indices to add, with the index-spec dataclass instances replaced by instances of index.IndexBase
+    added_idxs: list[catalog.IndexSpec]
+    # the new value expression of each altered column, keyed by column name
+    altered_exprs: dict[str, exprs.Expr]
+
+
 def prepare_model_updates(
     tvp: catalog.TableVersionPath,
     display_name: str,
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]],
     altered_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]],
     new_idxs: list[IndexDefinition],
-) -> tuple[list[catalog.Column], list[catalog.IndexSpec], dict[str, exprs.Expr]]:
+) -> ModelUpdates:
     """
     Given `new_columns`, `altered_columns` and `new_idxs` as declared by a model, resolves them into proper catalog
     abstractions in preparation for catalog changes.
@@ -235,13 +246,6 @@ def prepare_model_updates(
     Each column in `new_columns` and `altered_columns` is a (spec, origin) pair. A 'base_query' column comes from
     the view's base query `select()` list and is resolved against the base table's columns; a 'model_body' column is
     resolved against the view's own visible columns.
-
-    Returns:
-        - the columns to add, in declaration order
-        - the indices to add, with the index-spec dataclass instances replaced by instances of index.IndexBase
-        - the new value expression of each altered column, keyed by column name
-
-    The returned references may contain ColumnRefByName.
     """
 
     user_cols: dict[str, catalog.Column] = {}
@@ -335,4 +339,4 @@ def prepare_model_updates(
             )
         altered_exprs[name] = resolved
 
-    return resolved_cols, resolved_idxs, altered_exprs
+    return ModelUpdates(resolved_cols, resolved_idxs, altered_exprs)
