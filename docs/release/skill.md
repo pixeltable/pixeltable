@@ -53,7 +53,7 @@ def excerpt(text: str, n: int = 12) -> str:
 
 
 class Docs(TableModel, name='docs'):
-    doc_id: pxt.Int                          # an annotation: a value you insert
+    doc_id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # a generated key: provided automatically on insert
     title: pxt.String
     body: pxt.String | None
     title_upper = pxtf.string.upper(title)   # an assignment: computed on insert
@@ -62,7 +62,7 @@ class Docs(TableModel, name='docs'):
 
 ingest = FastAPIRouter(name='ingest')
 ingest.add_insert_route(
-    Docs, path='/docs', inputs=[Docs.doc_id, Docs.title, Docs.body], outputs=[Docs.title_upper, Docs.summary]
+    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.doc_id, Docs.title_upper, Docs.summary]
 )
 ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
 ```
@@ -126,7 +126,10 @@ the model rather than helping it:
 Pixeltable Cloud is in Limited Beta. Email contact@pixeltable.com if you are interested.
 The same application file targets a hosted database with `pxt db update`,
 `pxt schema update`, and `pxt service update` against a `pxt://org:db` target, once
-`PIXELTABLE_API_KEY` is set.
+`PIXELTABLE_API_KEY` is exported (API Keys, not toml `api_key`; Pixeltable never loads
+`.env` itself, so source it first). Hosted tables already write media to
+`pxtfs://org:db/home`; dest env vars are for local Pixeltable and bring-your-own buckets.
+Provider keys go under Secrets / `pxt secret`.
 
 ## Reference
 

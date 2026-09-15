@@ -969,7 +969,10 @@ class TestService:
         deploy(cli, str(app_file), target)
         endpoint = assert_serving(cli, str(app_file), target, 'ingest')['ingest']['endpoint']
         # summary comes from the udf the file defines, computed in the service's own process
-        assert _post(endpoint, '/docs', doc_id=1, title='a long enough title', body=None).json() == {
-            'title_upper': 'A LONG ENOUGH TITLE',
-            'summary': 'a long enoug...',
-        }
+        created = _post(endpoint, '/docs', title='a long enough title', body=None).json()
+        assert created['title_upper'] == 'A LONG ENOUGH TITLE'
+        assert created['summary'] == 'a long enoug...'
+
+        # the update route matches rows by the key the insert generated
+        updated = _post(endpoint, '/docs/update', id=created['id'], title='renamed').json()
+        assert updated == {'id': created['id'], 'title_upper': 'RENAMED'}

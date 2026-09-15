@@ -12,11 +12,11 @@ Examples:
   pxt get my_dir/my_table 42 abc                # composite PK (2 cols), in defined PK order
   pxt get my_dir/my_table 42 --cols id,text     # restrict to listed columns
   pxt get my_dir/my_table 42 --json
+  pxt get my_dir/my_table 01a092a5-d30a-779b-96b2-c8eaecac1657   # single-column PK, uuid value
 
 Notes:
-  PK values are coerced to int or float when they parse as numbers; otherwise they stay
-  as strings. There is no way to force a string PK that looks like a number; if your PK
-  column is typed as string but the value is '42', the server will reject the type mismatch.
+  pxt parses each PK value according to its column type: a string column takes '42' as a
+  string, an int column as the number 42. A value that does not parse produces an error.
   Use 'pxt describe <table>' to see the primary_key columns and their order.
   Unstored computed columns are skipped by default; pass them explicitly via --cols to
   include them.
