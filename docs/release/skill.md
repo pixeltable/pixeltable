@@ -56,7 +56,7 @@ class Docs(TableModel, name='docs'):
     id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # a generated key: provided automatically on insert
     title: pxt.String
     body: pxt.String | None
-    title_upper = pxtf.string.upper(title)   # an assignment: computed on insert
+    title_upper = pxtf.string.upper(title)   # an assignment: computed on insert and on update
     summary = excerpt(title)
 
 
