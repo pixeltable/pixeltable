@@ -178,14 +178,15 @@ def _tail_daemon_log(n_lines: int = 10) -> str:
     return '\n'.join(lines[-n_lines:]).rstrip()
 
 
-def _await_health(timeout: float) -> bool:
-    """Poll /api/health until it responds or the timeout elapses. Returns whether it came up."""
+def _await_health(timeout: float) -> dict[str, Any] | None:
+    """Poll /api/health until it responds or the timeout elapses. Returns what it reported, if anything."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if is_running():
-            return True
+        health = fetch_health()
+        if health is not None:
+            return health
         time.sleep(0.1)
-    return False
+    return None
 
 
 # A freshly-spawned daemon doesn't serve /api/health until it finishes importing pixeltable, which on a
@@ -195,9 +196,11 @@ def _await_health(timeout: float) -> bool:
 _STARTUP_HEALTH_TIMEOUT_SECS = 45.0
 
 
-def wait_for_health(timeout: float = _STARTUP_HEALTH_TIMEOUT_SECS) -> None:
-    if _await_health(timeout):
-        return
+def wait_for_health(timeout: float = _STARTUP_HEALTH_TIMEOUT_SECS) -> dict[str, Any]:
+    """Wait for the daemon to serve /api/health, and return what it reported. Raises if it never answers."""
+    health = _await_health(timeout)
+    if health is not None:
+        return health
     tail = _tail_daemon_log()
     msg = f'pxt daemon did not come up within {timeout}s'
     if tail != '':
@@ -286,46 +289,45 @@ def kill_and_wait(pid: int, timeout: float = 5.0) -> None:
         pass
 
 
+def _restart_if_mismatched(health: dict[str, Any]) -> None:
+    """Replace the daemon that reported health if it belongs to another install, environment or project."""
+    client_identity = identity()
+    diff = _identity_diff(client_identity, health)
+    if _serves_another_project(health):
+        diff = [*diff, 'project_root']
+    if len(diff) == 0:
+        return
+    # Identity mismatch: the daemon was launched against a different install or env snapshot than the
+    # client now sees (eg, after pip install -U pixeltable). Restart it ourselves rather than making
+    # the user do it: a non-None health response means fetch_health() already verified the responder is
+    # our daemon.
+    reported_pid = health.get('pid')
+    if not isinstance(reported_pid, int):
+        # a non-int pid can't be a real process id; refuse to target it for a restart rather than
+        # act on an untrustworthy health response
+        raise RuntimeError(f'daemon on port {get_port()} reported an invalid pid ({reported_pid!r}); not restarting it')
+    kill_and_wait(reported_pid)
+    spawn_detached()
+    new_health = wait_for_health()
+    # Cross-verify: the new responder must have a fresh PID and an identity that fully matches the client.
+    # Anything else means the restart did not actually swap in a daemon belonging to this install/env.
+    if new_health.get('pid') == reported_pid:
+        reason = f'new daemon kept the killed PID {reported_pid}'
+    else:
+        new_diff = _identity_diff(client_identity, new_health)
+        if _serves_another_project(new_health):
+            new_diff = [*new_diff, 'project_root']
+        if len(new_diff) > 0:
+            reason = f'new daemon still differs in: {", ".join(new_diff)}'
+        else:
+            reason = ''
+    if reason != '':
+        raise RuntimeError(f'pxt daemon restart did not produce a matching responder on port {get_port()}: {reason}')
+
+
 def ensure_running() -> str:
     health = fetch_health()
-    if health is not None:
-        client_identity = identity()
-        diff = _identity_diff(client_identity, health)
-        if _serves_another_project(health):
-            diff = [*diff, 'project_root']
-        if len(diff) > 0:
-            # Identity mismatch: the daemon was launched against a different install or env snapshot than the
-            # client now sees (eg, after pip install -U pixeltable). Restart it ourselves rather than making
-            # the user do it: a non-None health response means fetch_health() already verified the responder is
-            # our daemon.
-            reported_pid = health.get('pid')
-            if not isinstance(reported_pid, int):
-                # a non-int pid can't be a real process id; refuse to target it for a restart rather than
-                # act on an untrustworthy health response
-                raise RuntimeError(
-                    f'daemon on port {get_port()} reported an invalid pid ({reported_pid!r}); not restarting it'
-                )
-            kill_and_wait(reported_pid)
-            spawn_detached()
-            wait_for_health()
-            # Cross-verify: the new responder must have a fresh PID and an identity that fully matches the client.
-            # Anything else means the restart did not actually swap in a daemon belonging to this install/env.
-            new_health = fetch_health()
-            if new_health is None:
-                reason = 'new daemon did not respond to /api/health'
-            elif new_health.get('pid') == reported_pid:
-                reason = f'new daemon kept the killed PID {reported_pid}'
-            else:
-                new_diff = _identity_diff(client_identity, new_health)
-                if len(new_diff) > 0:
-                    reason = f'new daemon still differs in: {", ".join(new_diff)}'
-                else:
-                    reason = ''
-            if reason != '':
-                raise RuntimeError(
-                    f'pxt daemon restart did not produce a matching responder on port {get_port()}: {reason}'
-                )
-    else:
+    if health is None:
         # Nothing is answering /api/health. Either no daemon is up, or one we started bound the
         # port and then wedged before serving health. The pidfile records the PID, but PIDs get
         # recycled and the file is only bookkeeping, so a live PID is not proof of ownership: only
@@ -333,13 +335,17 @@ def ensure_running() -> str:
         # daemon. An unconfirmed PID is treated as a stale pidfile and we just spawn.
         stale_pid = read_pidfile()
         if stale_pid is not None and _pid_alive(stale_pid) and _pid_is_our_daemon(stale_pid):
-            # It may just be slow to start, so give it a grace window before concluding it is
-            # hung; a daemon that comes up in the meantime is used as-is.
-            if _await_health(_STARTUP_GRACE_PERIOD_SECS):
-                return base_url()
-            kill_and_wait(stale_pid)
-        spawn_detached()
-        wait_for_health()
+            # It may just be slow to answer, so give it a grace window before concluding it is hung;
+            # a daemon that comes up in the meantime goes through the same checks as one that
+            # answered right away.
+            health = _await_health(_STARTUP_GRACE_PERIOD_SECS)
+            if health is None:
+                kill_and_wait(stale_pid)
+        if health is None:
+            spawn_detached()
+            wait_for_health()
+            return base_url()
+    _restart_if_mismatched(health)
     return base_url()
 
 

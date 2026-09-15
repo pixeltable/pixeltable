@@ -268,7 +268,7 @@ class TestProbe:
             m.setattr(client_utils, 'read_pidfile', lambda: 100)
             m.setattr(client_utils, '_pid_alive', lambda pid: True)
             m.setattr(client_utils, '_pid_is_our_daemon', lambda pid: True)
-            m.setattr(client_utils, '_await_health', lambda timeout: False)
+            m.setattr(client_utils, '_await_health', lambda timeout: None)
             actions: list[tuple[str, int] | str] = []
             m.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
             m.setattr(client_utils, 'spawn_detached', lambda: actions.append('spawn'))
@@ -297,13 +297,14 @@ class TestProbe:
 
     def test_slow_daemon_kept(self) -> None:
         """A daemon we started is alive but still importing pixeltable; it answers health within the
-        grace window. It must be used as-is, not killed as if it were hung."""
+        grace window, matching this client. It must be used as-is, not killed as if it were hung."""
         with pytest.MonkeyPatch.context() as m:
+            _patch_identity(m, {})
             m.setattr(client_utils, 'fetch_health', lambda *a, **kw: None)
             m.setattr(client_utils, 'read_pidfile', lambda: 100)
             m.setattr(client_utils, '_pid_alive', lambda pid: True)
             m.setattr(client_utils, '_pid_is_our_daemon', lambda pid: True)
-            m.setattr(client_utils, '_await_health', lambda timeout: True)
+            m.setattr(client_utils, '_await_health', lambda timeout: _health_payload())
             actions: list[str] = []
             m.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append('kill'))
             m.setattr(client_utils, 'spawn_detached', lambda: actions.append('spawn'))
@@ -311,6 +312,27 @@ class TestProbe:
             url = client_utils.ensure_running()
             assert url == client_utils.base_url()
             assert actions == []
+
+    def test_slow_daemon_serving_another_project_replaced(self) -> None:
+        """A daemon that answers only within the grace window is checked like any other: one serving
+        another project is replaced rather than adopted."""
+        with pytest.MonkeyPatch.context() as m:
+            _patch_identity(m, {})
+            m.setattr(client_utils, 'project_root', lambda: '/project')
+            slow = _health_payload(pid=100, project_root='/other')
+            replacement = _health_payload(pid=200, project_root='/project')
+            m.setattr(client_utils, 'fetch_health', lambda *a, **kw: None)
+            m.setattr(client_utils, 'read_pidfile', lambda: 100)
+            m.setattr(client_utils, '_pid_alive', lambda pid: True)
+            m.setattr(client_utils, '_pid_is_our_daemon', lambda pid: True)
+            m.setattr(client_utils, '_await_health', lambda timeout: slow)
+            actions: list[tuple[str, int] | str] = []
+            m.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
+            m.setattr(client_utils, 'spawn_detached', lambda: actions.append('spawn'))
+            m.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: replacement)
+
+            client_utils.ensure_running()
+            assert actions == [('kill', 100), 'spawn']
 
     def test_dead_pidfile_spawns(self) -> None:
         """A stale pidfile naming a PID that is no longer alive (port already released): no reclaim,
@@ -331,13 +353,16 @@ class TestProbe:
         """Version drift restarts the daemon even when the pidfile is missing/corrupt: the health response
         identifies the responder as ours, so its self-reported PID is the one terminated (no pidfile needed)."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
-        responses = iter([_health_payload(pxt_version='OLD', pid=99999), _health_payload(pxt_version='NEW', pid=200)])
-        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(
+            client_utils, 'fetch_health', lambda *a, **kw: _health_payload(pxt_version='OLD', pid=99999)
+        )
         monkeypatch.setattr(client_utils, 'read_pidfile', lambda: None)  # pidfile lost/corrupt
         actions: list[tuple[str, int] | tuple[str, ...]] = []
         monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
         monkeypatch.setattr(client_utils, 'spawn_detached', lambda: actions.append(('spawn',)))
-        monkeypatch.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
+        monkeypatch.setattr(
+            client_utils, 'wait_for_health', lambda timeout=15.0: _health_payload(pxt_version='NEW', pid=200)
+        )
 
         client_utils.ensure_running()
         assert actions == [('kill', 99999), ('spawn',)]
@@ -346,13 +371,14 @@ class TestProbe:
         """Matching pidfile + identity drift: ensure_running kills the old daemon, spawns a
         new one, and cross-verifies the post-restart responder's identity matches ours."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
-        responses = iter([_health_payload(pxt_version='OLD', pid=100), _health_payload(pxt_version='NEW', pid=200)])
-        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: _health_payload(pxt_version='OLD', pid=100))
         monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
         actions: list[tuple[str, ...] | tuple[str, int]] = []
         monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
         monkeypatch.setattr(client_utils, 'spawn_detached', lambda: actions.append(('spawn',)))
-        monkeypatch.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
+        monkeypatch.setattr(
+            client_utils, 'wait_for_health', lambda timeout=15.0: _health_payload(pxt_version='NEW', pid=200)
+        )
 
         url = client_utils.ensure_running()
         assert url.startswith('http://127.0.0.1:')
@@ -377,43 +403,28 @@ class TestProbe:
     def test_cross_verify_kept_killed_pid(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Post-restart cross-verify: the new responder still reports the killed PID."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
-        responses = iter([_health_payload(pxt_version='OLD', pid=100), _health_payload(pxt_version='NEW', pid=100)])
-        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: _health_payload(pxt_version='OLD', pid=100))
         monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
         monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: None)
         monkeypatch.setattr(client_utils, 'spawn_detached', lambda: None)
-        monkeypatch.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
+        monkeypatch.setattr(
+            client_utils, 'wait_for_health', lambda timeout=15.0: _health_payload(pxt_version='NEW', pid=100)
+        )
 
         with pytest.raises(RuntimeError, match='new daemon kept the killed PID 100'):
-            client_utils.ensure_running()
-
-    def test_cross_verify_no_response(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Post-restart cross-verify: the new daemon never responds to /health."""
-        _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
-        responses = iter([_health_payload(pxt_version='OLD', pid=100), None])
-        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: next(responses))
-        monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
-        monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: None)
-        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: None)
-        monkeypatch.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
-
-        with pytest.raises(RuntimeError, match='new daemon did not respond'):
             client_utils.ensure_running()
 
     def test_cross_verify_identity_still_differs(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Post-restart cross-verify: a fresh PID came up but still has the wrong identity."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
-        responses = iter(
-            [
-                _health_payload(pxt_version='OLD', pid=100),
-                _health_payload(pxt_version='OLD', pid=200),  # fresh PID, still wrong version
-            ]
-        )
-        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: _health_payload(pxt_version='OLD', pid=100))
         monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
         monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: None)
         monkeypatch.setattr(client_utils, 'spawn_detached', lambda: None)
-        monkeypatch.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
+        # a fresh PID, still the wrong version
+        monkeypatch.setattr(
+            client_utils, 'wait_for_health', lambda timeout=15.0: _health_payload(pxt_version='OLD', pid=200)
+        )
 
         with pytest.raises(RuntimeError, match='new daemon still differs in: pxt_version'):
             client_utils.ensure_running()
@@ -453,13 +464,12 @@ class TestProbe:
         # under mypy.
         drifted = _health_payload(pid=100)
         drifted[drift_key] = drift_value
-        responses = iter([drifted, _health_payload(pid=200)])
-        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: drifted)
         monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
         actions: list[tuple[str, ...] | tuple[str, int]] = []
         monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
         monkeypatch.setattr(client_utils, 'spawn_detached', lambda: actions.append(('spawn',)))
-        monkeypatch.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
+        monkeypatch.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: _health_payload(pid=200))
 
         client_utils.ensure_running()
         assert actions == [('kill', 100), ('spawn',)]
@@ -610,7 +620,7 @@ class TestProbe:
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         with open(log_path, 'w', encoding='utf-8') as f:
             f.write('startup blew up: address already in use\n')
-        monkeypatch.setattr(client_utils, 'is_running', lambda timeout=0.3: False)
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: None)
         with pytest.raises(RuntimeError, match='did not come up') as ei:
             client_utils.wait_for_health(timeout=0.2)
         assert 'address already in use' in str(ei.value)
@@ -1072,87 +1082,63 @@ class TestHttp:
 class TestShell:
     """Exercise the REPL via subprocess to cover input/eof/error branches."""
 
-    def test_shell_runs_health(self, pxt_daemon: int) -> None:
-        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
-        r = subprocess.run(
-            ['pxt', 'shell'], input='health\nexit\n', capture_output=True, text=True, env=env, timeout=30, check=False
-        )
+    @pytest.fixture
+    def shell(
+        self, pxt_daemon: int, session_project: pathlib.Path
+    ) -> Callable[[str], subprocess.CompletedProcess[str]]:
+        """Runs `pxt shell` against the session's daemon, feeding it the given input"""
+
+        def _run(stdin: str) -> subprocess.CompletedProcess[str]:
+            env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
+            return subprocess.run(
+                ['pxt', 'shell'],
+                input=stdin,
+                capture_output=True,
+                text=True,
+                env=env,
+                cwd=session_project,
+                timeout=30,
+                check=False,
+            )
+
+        return _run
+
+    def test_shell_runs_health(self, shell: Callable[[str], subprocess.CompletedProcess[str]]) -> None:
+        r = shell('health\nexit\n')
         assert r.returncode == 0, r.stderr
         # the health response is JSON; should appear in stdout between two prompts
         assert '"service": "pxt"' in r.stdout
 
-    def test_shell_eof(self, pxt_daemon: int) -> None:
-        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
-        r = subprocess.run(
-            ['pxt', 'shell'],
-            input='',  # immediate EOF
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=30,
-            check=False,
-        )
+    def test_shell_eof(self, shell: Callable[[str], subprocess.CompletedProcess[str]]) -> None:
+        r = shell('')  # immediate EOF
         assert r.returncode == 0
 
-    def test_shell_unknown_command(self, pxt_daemon: int) -> None:
-        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
-        r = subprocess.run(
-            ['pxt', 'shell'],
-            input='not_a_cmd\nhealth\nexit\n',
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=30,
-            check=False,
-        )
+    def test_shell_unknown_command(self, shell: Callable[[str], subprocess.CompletedProcess[str]]) -> None:
+        r = shell('not_a_cmd\nhealth\nexit\n')
         assert r.returncode == 0
         # bad command produces a stderr line, but the follow-up health command still runs
         assert 'unknown command' in r.stderr
         assert '"service": "pxt"' in r.stdout
 
-    def test_shell_nested(self, pxt_daemon: int) -> None:
-        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
-        r = subprocess.run(
-            ['pxt', 'shell'], input='shell\nexit\n', capture_output=True, text=True, env=env, timeout=30, check=False
-        )
+    def test_shell_nested(self, shell: Callable[[str], subprocess.CompletedProcess[str]]) -> None:
+        r = shell('shell\nexit\n')
         assert r.returncode == 0
         assert 'already in shell' in r.stderr
 
-    def test_shell_help(self, pxt_daemon: int) -> None:
-        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
-        r = subprocess.run(
-            ['pxt', 'shell'], input='help\nexit\n', capture_output=True, text=True, env=env, timeout=30, check=False
-        )
+    def test_shell_help(self, shell: Callable[[str], subprocess.CompletedProcess[str]]) -> None:
+        r = shell('help\nexit\n')
         assert r.returncode == 0
         # help lists every non-shell command
         assert all(c in r.stdout for c in ('health', 'ls', 'describe'))
 
-    def test_shell_empty_line(self, pxt_daemon: int) -> None:
-        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
-        r = subprocess.run(
-            ['pxt', 'shell'],
-            input='\n\nhealth\nexit\n',
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=30,
-            check=False,
-        )
+    def test_shell_empty_line(self, shell: Callable[[str], subprocess.CompletedProcess[str]]) -> None:
+        r = shell('\n\nhealth\nexit\n')
         assert r.returncode == 0
         assert '"service": "pxt"' in r.stdout
 
-    def test_shell_parse_error(self, pxt_daemon: int) -> None:
-        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
+    def test_shell_parse_error(self, shell: Callable[[str], subprocess.CompletedProcess[str]]) -> None:
         # unterminated quote -> shlex.split raises ValueError
-        r = subprocess.run(
-            ['pxt', 'shell'],
-            input='ls "unterminated\nexit\n',
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=30,
-            check=False,
-        )
+        r = shell('ls "unterminated\nexit\n')
         assert r.returncode == 0
         assert 'parse error' in r.stderr
 

@@ -131,8 +131,9 @@ def pxt_daemon(
         # The client reports the interpreter behind the pxt script, which need not be spelled the way
         # sys.executable is (python vs python3 in the same environment). ensure_running() restarts a daemon
         # whose identity differs from the caller's and the replacement inherits the caller's environment, so
-        # provoke that restart here, with the environment this fixture started the daemon with.
-        subprocess.run(['pxt', 'ls', '/'], env=env, capture_output=True, check=False, timeout=60)
+        # provoke that restart here, with the environment this fixture started the daemon with, and from the
+        # project this daemon serves: the replacement takes its project from the caller's working directory.
+        subprocess.run(['pxt', 'ls', '/'], env=env, cwd=session_project, capture_output=True, check=False, timeout=60)
         assert is_running()
         print(f'Test daemon is up on port {port}; log at {log_path}', flush=True)
         yield port
@@ -142,6 +143,7 @@ def pxt_daemon(
         subprocess.run(
             ['pxt', 'daemon', 'stop', '-f'],
             env={**os.environ, 'PXT_PORT': str(port)},
+            cwd=session_project,
             capture_output=True,
             check=False,
             timeout=60,
