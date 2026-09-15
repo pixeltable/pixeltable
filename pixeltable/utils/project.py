@@ -163,22 +163,12 @@ class _HashingReader:
 
 
 @dataclasses.dataclass
-class PackagedArchive:
-    """An archive, and the content hash of every file written into it."""
-
-    path: Path
-
-    # path relative to the project root -> sha256 of the bytes written into the archive
-    files: dict[str, str]
-
-
-@dataclasses.dataclass
 class PackagedContext:
-    """An image context, and the content hash of every file written into it."""
+    """Project files packaged for an image build or an upload, and the content hash of each one."""
 
     path: Path
 
-    # path relative to the project root -> sha256 of the bytes written into the context
+    # path relative to the project root -> sha256 of the bytes written into the tar file
     files: dict[str, str]
 
 
@@ -225,7 +215,7 @@ def create_project_archive(
 
 def package_project_archive(
     project_dir: Path | None = None, db_config: DatabaseConfig | None = None, show_progress: bool = False
-) -> PackagedArchive:
+) -> PackagedContext:
     """Produce an archive of the project files, as selected by db_config, and say what went into it.
 
     Includes every git-recognized file below the project root, plus the lockfile. The returned hashes are
@@ -275,7 +265,7 @@ def package_project_archive(
         bar.set_postfix_str('', refresh=False)
 
     _logger.info(f'Project archive created: {archive_path}')
-    return PackagedArchive(path=archive_path, files=hashes)
+    return PackagedContext(path=archive_path, files=hashes)
 
 
 # what pip installs from a file rather than an index, named without a directory

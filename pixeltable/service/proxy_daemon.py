@@ -389,6 +389,25 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     uvicorn.Server(uvicorn.Config(app, log_level=log_level, log_config=None)).run(sockets=[sock])
 
 
+# a 404 from get_archive answers both "this database has no project" and "its release did not resolve
+# just now", so the daemon waits out the second before it settles for serving without one
+_ARCHIVE_FETCH_DELAYS = (0.0, 1.0, 2.0, 4.0)
+
+
+def _unpack_project(db_uri: str, project_dir: Path) -> bool:
+    """Unpack db_uri's project into project_dir; False once 404 is the settled answer."""
+    for delay in _ARCHIVE_FETCH_DELAYS:
+        if delay > 0.0:
+            time.sleep(delay)
+        try:
+            unpack_project_archive(db_uri, project_dir)
+            return True
+        except excs.ExternalServiceError as exc:
+            if exc.provider_http_status_code != 404:
+                raise
+    return False
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog='pixeltable.service.proxy_daemon')
     parser.add_argument('--test', action='store_true')
@@ -402,12 +421,9 @@ def main(argv: list[str] | None = None) -> None:
     if parsed.db is not None:
         if parsed.project_dir is None:
             parser.error('--db requires --project-dir')
-        try:
-            unpack_project_archive(parsed.db, parsed.project_dir)
+        if _unpack_project(parsed.db, parsed.project_dir):
             project_root = parsed.project_dir
-        except excs.ExternalServiceError as exc:
-            if exc.provider_http_status_code != 404:
-                raise
+        else:
             # a database exists before `pxt db update` gives it a project: serve the catalog without one,
             # and a request that needs a udf from it says so
             logging.getLogger('pixeltable').warning('%s has no project; udfs it defines cannot be resolved', parsed.db)

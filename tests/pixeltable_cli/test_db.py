@@ -17,20 +17,19 @@ import pytest
 from pixeltable.service import proxy_daemon
 from tests.utils import DatabaseRoot, skip_test_if_no_config
 
-from .conftest import PxtRunner, disposable_db_uri, read_logs_until
-from .hosted import (
-    APP_FILE,
+from .conftest import (
     APPLY_TIMEOUT,
     EXIT_CHANGES_PENDING,
     EXIT_ERROR,
     EXIT_IN_AGREEMENT,
+    PxtRunner,
     assert_in_agreement,
-    create_project_config,
     db_diff,
     db_update,
-    edit_app,
-    project,
+    disposable_db_uri,
+    read_logs_until,
 )
+from .hosted import APP_FILE, create_project_config, edit_app, project
 
 __all__ = ['project']  # fixtures this module's tests request by name
 

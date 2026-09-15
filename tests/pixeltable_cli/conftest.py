@@ -20,12 +20,29 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
+import filelock
 import pytest
 
 from pixeltable.config import Config
 from pixeltable_cli.client.utils import is_running
 
 from ..utils import DatabaseRoot
+
+# both the session project and the per-test one install these, so their databases share one image
+PROJECT_EXTRAS = (
+    'spacy',
+    'en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/'
+    'en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl',
+    'mistune',
+)
+
+# the exit statuses `pxt db diff` and `pxt db update` document
+EXIT_IN_AGREEMENT = 0
+EXIT_ERROR = 1
+EXIT_CHANGES_PENDING = 2
+
+# a publish that rebuilds the image waits on CodeBuild, far longer than the default cli timeout allows
+APPLY_TIMEOUT = 2400.0
 
 
 def _pick_port() -> int:
@@ -167,6 +184,27 @@ _RUN_TIMEOUT_SECS = 300
 _WHEEL_SUBDIR = 'wheels'
 
 
+def db_diff(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> dict[str, Any]:
+    """What `pxt db diff` reports, its exit status under 'returncode'."""
+    r = cli('db', 'diff', db_uri, '--json', cwd=project, check=False)
+    assert r.returncode in (EXIT_IN_AGREEMENT, EXIT_CHANGES_PENDING), r.stderr
+    return {**r.json, 'returncode': r.returncode}
+
+
+def assert_in_agreement(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> None:
+    plan = db_diff(cli, project, db_uri)
+    assert plan['in_agreement'], plan['ops']
+    assert plan['returncode'] == EXIT_IN_AGREEMENT
+    assert plan['ops'] == []
+
+
+def db_update(cli: PxtRunner, project: pathlib.Path, db_uri: str, *flags: str) -> dict[str, Any]:
+    """What `pxt db update` applied, its exit status under 'returncode'."""
+    r = cli('db', 'update', db_uri, '-f', '--json', *flags, cwd=project, check=False, timeout=APPLY_TIMEOUT)
+    assert r.returncode in (EXIT_IN_AGREEMENT, EXIT_CHANGES_PENDING), r.stderr
+    return {**r.json, 'returncode': r.returncode}
+
+
 def _as_text(stream: bytes | str | None) -> str:
     """Normalize captured output: TimeoutExpired carries bytes even when the run was text=True."""
     if stream is None:
@@ -237,6 +275,38 @@ def write_requirements(project: pathlib.Path, wheel: pathlib.Path, *extra: str) 
     (project / 'requirements.txt').write_text(
         '\n'.join([f'./{_WHEEL_SUBDIR}/{wheel.name}', *extra]) + '\n', encoding='utf-8'
     )
+
+
+@pytest.fixture(scope='session', autouse=True)
+def _reconcile_cloud_db(
+    session_cli: PxtRunner,
+    session_project: pathlib.Path,
+    pixeltable_wheel: pathlib.Path,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Bring the database the cloud axis names into agreement with this working tree, before any test runs.
+
+    The tests resolve udfs the app corpus defines, and those reach a pod only in the database's project
+    archive, so the archive is brought up to date here rather than by hand. Applying it rolls the pods,
+    which is also what gives the daemon a project it fetched just now.
+    """
+    uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
+    if uri is None:
+        return
+    copy_app_corpus(session_project)
+    write_requirements(session_project, pixeltable_wheel, *PROJECT_EXTRAS)
+    (session_project / 'pixeltable.toml').write_text(
+        f'[[pixeltable.database]]\nname = {json.dumps(uri)}\n', encoding='utf-8'
+    )
+    session_cli('daemon', 'restart', cwd=session_project)
+    # every xdist worker runs a session of its own against the one database, and the control plane refuses
+    # a second update while the first is in flight; getbasetemp().parent is the directory they share
+    marker = tmp_path_factory.getbasetemp().parent / 'cloud_db_reconciled'
+    with filelock.FileLock(f'{marker}.lock'):
+        if not marker.exists():
+            db_update(session_cli, session_project, uri)
+            marker.write_text(uri, encoding='utf-8')
+    assert_in_agreement(session_cli, session_project, uri)
 
 
 @pytest.fixture

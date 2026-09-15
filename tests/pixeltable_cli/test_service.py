@@ -27,20 +27,20 @@ from ..utils import (
 )
 from .conftest import (
     BUILD_TIMEOUT,
+    EXIT_ERROR,
+    PROJECT_EXTRAS,
     BackgroundPxt,
     PxtRunner,
     copy_app_corpus,
+    db_update,
     disposable_db_uri,
     read_logs_until,
     write_requirements,
 )
 from .hosted import (
     APP_FILE,
-    EXIT_ERROR,
-    PROJECT_EXTRAS,
     await_service_available,
     current_db,
-    db_update,
     edit_app,
     project,
     schema_update,

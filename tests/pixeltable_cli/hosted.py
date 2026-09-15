@@ -12,23 +12,15 @@ from typing import Any
 
 import pytest
 
-from .conftest import PxtRunner, write_requirements
-
-# both the session project and the per-test one install these, so their databases share one image
-PROJECT_EXTRAS = (
-    'spacy',
-    'en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/'
-    'en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl',
-    'mistune',
+from .conftest import (
+    EXIT_CHANGES_PENDING,
+    EXIT_IN_AGREEMENT,
+    PROJECT_EXTRAS,
+    PxtRunner,
+    assert_in_agreement,
+    db_update,
+    write_requirements,
 )
-
-# the exit statuses `pxt db diff` and `pxt db update` document
-EXIT_IN_AGREEMENT = 0
-EXIT_ERROR = 1
-EXIT_CHANGES_PENDING = 2
-
-# a publish that rebuilds the image waits on CodeBuild, far longer than the default cli timeout allows
-APPLY_TIMEOUT = 2400.0
 
 APP_FILE = 'basic.py'  # the corpus file the project holds, and the pod serves
 
@@ -73,27 +65,6 @@ def create_project_config(cli: PxtRunner, project: pathlib.Path, db_uri: str, **
     (project / 'pixeltable.toml').write_text('\n'.join(lines) + '\n', encoding='utf-8')
     # the daemon read the project config when it started
     cli('daemon', 'restart', cwd=project)
-
-
-def db_diff(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> dict[str, Any]:
-    """What `pxt db diff` reports, its exit status under 'returncode'."""
-    r = cli('db', 'diff', db_uri, '--json', cwd=project, check=False)
-    assert r.returncode in (EXIT_IN_AGREEMENT, EXIT_CHANGES_PENDING), r.stderr
-    return {**r.json, 'returncode': r.returncode}
-
-
-def assert_in_agreement(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> None:
-    plan = db_diff(cli, project, db_uri)
-    assert plan['in_agreement'], plan['ops']
-    assert plan['returncode'] == EXIT_IN_AGREEMENT
-    assert plan['ops'] == []
-
-
-def db_update(cli: PxtRunner, project: pathlib.Path, db_uri: str, *flags: str) -> dict[str, Any]:
-    """What `pxt db update` applied, its exit status under 'returncode'."""
-    r = cli('db', 'update', db_uri, '-f', '--json', *flags, cwd=project, check=False, timeout=APPLY_TIMEOUT)
-    assert r.returncode in (EXIT_IN_AGREEMENT, EXIT_CHANGES_PENDING), r.stderr
-    return {**r.json, 'returncode': r.returncode}
 
 
 def schema_update(cli: PxtRunner, project: pathlib.Path, app_file: str, db_uri: str) -> None:
