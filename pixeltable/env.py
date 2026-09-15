@@ -246,10 +246,7 @@ class Env:
 
     @staticmethod
     def hosted_db(*, required: bool = False) -> tuple[str, str] | None:
-        """(org, db) of the hosted database; the cloud sets PXTCLOUD_ORG and PXTCLOUD_DB on its pods.
-
-        A staticmethod: Config reads it while looking up a setting, before the Env instance exists.
-        """
+        """(org, db) of the hosted database; the cloud sets PXTCLOUD_ORG and PXTCLOUD_DB on its pods."""
         org = os.environ.get('PXTCLOUD_ORG')
         db = os.environ.get('PXTCLOUD_DB')
         if org and db:
