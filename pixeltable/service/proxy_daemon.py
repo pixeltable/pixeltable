@@ -389,13 +389,13 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     uvicorn.Server(uvicorn.Config(app, log_level=log_level, log_config=None)).run(sockets=[sock])
 
 
-# a 404 from get_archive answers both "this database has no project" and "its release did not resolve
-# just now", so the daemon waits out the second before it settles for serving without one
+# get_archive returns 404 both for a database with no project and for one whose release did not
+# resolve just now; retrying tells the two apart
 _ARCHIVE_FETCH_DELAYS = (0.0, 1.0, 2.0, 4.0)
 
 
 def _unpack_project(db_uri: str, project_dir: Path) -> bool:
-    """Unpack db_uri's project into project_dir; False once 404 is the settled answer."""
+    """Unpack db_uri's project into project_dir; False if 404 persists across the retries."""
     for delay in _ARCHIVE_FETCH_DELAYS:
         if delay > 0.0:
             time.sleep(delay)

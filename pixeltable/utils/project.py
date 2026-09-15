@@ -287,52 +287,10 @@ def _direct_reference(requirement: str) -> str | None:
     return target.strip()
 
 
-def _declared_dependencies(parsed: dict[str, Any]) -> list[str]:
-    """Every dependency in pyproject.toml, across the tables a build tool installs from."""
-    project = parsed.get('project', {})
-    uv = parsed.get('tool', {}).get('uv', {})
-    groups: list[list[Any]] = [
-        project.get('dependencies', []),
-        # a build backend is installed before the project, from requirements written the same way
-        parsed.get('build-system', {}).get('requires', []),
-        uv.get('constraint-dependencies', []),
-        uv.get('override-dependencies', []),
-    ]
-    groups += list(project.get('optional-dependencies', {}).values())
-    groups += list(parsed.get('dependency-groups', {}).values())
-    # a dependency group also takes {'include-group': ...}, which names another group rather than a package
-    return [entry for group in groups for entry in group if isinstance(entry, str)]
-
-
 def _local_index_locations(parsed: dict[str, Any]) -> list[str]:
     """The package locations in pyproject.toml that lie on this machine."""
     found = parsed.get('tool', {}).get('uv', {}).get('find-links', [])
     return [entry for entry in found if isinstance(entry, str) and (entry.startswith('file:') or '://' not in entry)]
-
-
-def _local_lock_sources(parsed: dict[str, Any], project_dir: Path) -> list[str]:
-    """The packages uv.lock installs from a path rather than an index, other than the project itself.
-
-    uv records the project's own package as a source too, at the project root; the archive carries
-    that one.
-
-    TODO: carry a path, directory or editable source into the image context and into
-    installed_from_project, as _local_requirement_files() does for requirements.txt. Until then the
-    context holds no such dependency, and image_digest() does not move when one changes.
-    """
-    local: list[str] = []
-    for package in parsed.get('package', []):
-        source = package.get('source', {}) if isinstance(package, dict) else {}
-        if not isinstance(source, dict):
-            continue
-        for key in ('path', 'directory', 'editable', 'virtual'):
-            target = source.get(key)
-            if not isinstance(target, str):
-                continue
-            if (project_dir / target).resolve() == project_dir:
-                continue
-            local.append(f'{package.get("name", "?")} ({key} = {target!r})')
-    return local
 
 
 def _requirement_lines(text: str) -> list[str]:
@@ -459,6 +417,45 @@ def create_image_context(project_dir: Path | None = None) -> Path:
     return package_image_context(project_dir).path
 
 
+def _lock_source_files(parsed: dict[str, Any], project_dir: Path) -> list[Path]:
+    """Files under project_dir belonging to a package uv.lock installs from a path source.
+
+    uv resolves a path, directory or editable source relative to the lockfile, and `uv sync --frozen`
+    reads that source out of the image context, so the context has to carry it. The project root is
+    excluded: uv records the project's own package there. A source outside the project stays behind,
+    and the build reports it missing.
+    """
+    files: list[Path] = []
+    for package in parsed.get('package', []):
+        source = package.get('source', {}) if isinstance(package, dict) else {}
+        if not isinstance(source, dict):
+            continue
+        for key in ('path', 'directory', 'editable'):
+            target = source.get(key)
+            if not isinstance(target, str):
+                continue
+            path = (project_dir / target).resolve()
+            if path == project_dir or not path.is_relative_to(project_dir) or not path.exists():
+                continue
+            if path.is_file():
+                files.append(path)
+            else:
+                files.extend(f for f in sorted(path.rglob('*')) if f.is_file() and '__pycache__' not in f.parts)
+    return files
+
+
+def _lock_sources(project_dir: Path) -> list[Path]:
+    """Files under project_dir belonging to a package its uv.lock installs from a path source."""
+    lock = project_dir / 'uv.lock'
+    if not lock.is_file():
+        return []
+    try:
+        parsed = toml.load(lock)
+    except toml.TomlDecodeError as exc:
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'{lock.name} is not valid TOML: {exc}') from exc
+    return _lock_source_files(parsed, project_dir)
+
+
 def package_image_context(project_dir: Path | None = None) -> PackagedContext:
     """Package the manifests an image build needs, and say what went into it.
 
@@ -469,7 +466,7 @@ def package_image_context(project_dir: Path | None = None) -> PackagedContext:
         project_dir = Path.cwd()
     project_dir = project_dir.resolve()
     files = [project_dir / name for name in IMAGE_INPUT_FILES if (project_dir / name).is_file()]
-    installed_from_project: list[Path] = []
+    installed_from_project: list[Path] = _lock_sources(project_dir)
     # validate the input files
     for f in files:
         if f.name == PYPROJECT_FILE:
@@ -479,50 +476,12 @@ def package_image_context(project_dir: Path | None = None) -> PackagedContext:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION, f'{f.name} is not valid TOML: {exc}'
                 ) from exc
-            sources = parsed.get('tool', {}).get('uv', {}).get('sources', {})
-            for name, source in sources.items():
-                # uv takes a table, or a list of them where it picks one by marker or extra
-                entries = source if isinstance(source, list) else [source]
-                if not any(isinstance(e, dict) and ('path' in e or 'workspace' in e) for e in entries):
-                    continue
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'dependency {name!r} is declared as a local source in {f.name}, which cannot be '
-                    'installed in a hosted image; publish it to an index and depend on the published version',
-                )
-            for requirement in _declared_dependencies(parsed):
-                target = _direct_reference(requirement)
-                # the image build reaches a dependency over a url, or installs it from an index
-                if target is None or ('://' in target and not target.startswith('file:')):
-                    continue
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'{f.name} declares {requirement!r}, which names a source on this machine; instead, '
-                    'publish the package to an index and depend on the published version, so that it can '
-                    'get picked up by the hosted image build',
-                )
             for location in _local_index_locations(parsed):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
                     f'{f.name} looks for packages in {location}, a location on this machine; instead, '
                     'publish the packages to an index and depend on the published versions, so that they '
                     'can get picked up by the hosted image build',
-                )
-            continue
-        if f.name == 'uv.lock':
-            try:
-                parsed = toml.load(f)
-            except toml.TomlDecodeError as exc:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION, f'{f.name} is not valid TOML: {exc}'
-                ) from exc
-            local = _local_lock_sources(parsed, project_dir)
-            if len(local) > 0:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'{f.name} installs {"; ".join(local)} from a path rather than an index; instead, '
-                    'publish the package to an index and depend on the published version, so that it can '
-                    'get picked up by the hosted image build',
                 )
             continue
         if f.name == 'requirements.txt':
@@ -715,7 +674,10 @@ def _content_hash(path: Path) -> str:
 def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
     requirements = project_root / 'requirements.txt'
     local_requirements = _local_requirement_files(project_root, requirements) if requirements.is_file() else []
-    from_project = {p.relative_to(project_root).as_posix(): _path_hash(p) for p in local_requirements}
+    from_project = {
+        p.relative_to(project_root).as_posix(): _path_hash(p)
+        for p in (*local_requirements, *_lock_sources(project_root))
+    }
     files = {path.relative_to(project_root).as_posix(): _path_hash(path) for path in files}
     declared_python = config.python_version if config is not None else None
     return ProjectFingerprint(

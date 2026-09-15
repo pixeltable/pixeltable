@@ -1,0 +1,5 @@
+# `pxt db update` from this directory deploys the app corpus below it, so a pod can import apps.*
+# and resolve the CLI tests' udfs. The core suite's database serves the repository, and its entry
+# is in pyproject.toml.
+[[pixeltable.database]]
+name = "pxt://pixeltable:pxtclitest"

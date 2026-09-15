@@ -20,7 +20,6 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
-import filelock
 import pytest
 
 from pixeltable.config import Config
@@ -277,20 +276,30 @@ def write_requirements(project: pathlib.Path, wheel: pathlib.Path, *extra: str) 
     )
 
 
-@pytest.fixture(scope='session', autouse=True)
-def _reconcile_cloud_db(
-    session_cli: PxtRunner,
-    session_project: pathlib.Path,
-    pixeltable_wheel: pathlib.Path,
-    tmp_path_factory: pytest.TempPathFactory,
-) -> None:
-    """Bring the database the cloud axis names into agreement with this working tree, before any test runs.
+@pytest.fixture(scope='session')
+def cloud_db_uri() -> str:
+    """The hosted database for this package's cloud axis, serving the app corpus as its project.
 
-    The tests resolve udfs the app corpus defines, and those reach a pod only in the database's project
-    archive, so the archive is brought up to date here rather than by hand. Applying it rolls the pods,
-    which is also what gives the daemon a project it fetched just now.
+    The core suite's database serves this repository instead, so its pods import `tests.*` where these
+    import `apps.*`; one database cannot hold both projects, so each suite has its own.
     """
-    uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
+    uri = os.environ.get('PXTTEST_CLI_DB_URI')
+    assert uri, 'set PXTTEST_CLI_DB_URI to the database for the CLI tests'
+    assert uri != os.environ.get('PXTTEST_CLOUD_DB_URI'), (
+        f'PXTTEST_CLI_DB_URI and PXTTEST_CLOUD_DB_URI cannot share the same value (currently {uri})'
+    )
+    return uri
+
+
+@pytest.fixture(scope='session', autouse=True)
+def _check_corpus_db(session_cli: PxtRunner, session_project: pathlib.Path, pixeltable_wheel: pathlib.Path) -> None:
+    """Fail the session unless the cloud axis's database already serves this working tree's app corpus.
+
+    The tests resolve the corpus's udfs, which reach a pod only in the database's project archive.
+    Reporting it here gives the command that fixes it; a stale archive otherwise surfaces much later,
+    as a udf missing from the remote database.
+    """
+    uri = os.environ.get('PXTTEST_CLI_DB_URI')
     if uri is None:
         return
     copy_app_corpus(session_project)
@@ -299,14 +308,8 @@ def _reconcile_cloud_db(
         f'[[pixeltable.database]]\nname = {json.dumps(uri)}\n', encoding='utf-8'
     )
     session_cli('daemon', 'restart', cwd=session_project)
-    # every xdist worker runs a session of its own against the one database, and the control plane refuses
-    # a second update while the first is in flight; getbasetemp().parent is the directory they share
-    marker = tmp_path_factory.getbasetemp().parent / 'cloud_db_reconciled'
-    with filelock.FileLock(f'{marker}.lock'):
-        if not marker.exists():
-            db_update(session_cli, session_project, uri)
-            marker.write_text(uri, encoding='utf-8')
-    assert_in_agreement(session_cli, session_project, uri)
+    plan = db_diff(session_cli, session_project, uri)
+    assert plan['in_agreement'], f'{uri} does not serve this corpus; run `pxt db update {uri}`: {plan["ops"]}'
 
 
 @pytest.fixture

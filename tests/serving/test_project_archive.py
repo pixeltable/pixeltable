@@ -251,45 +251,7 @@ class TestProjectArchive:
             assert tar.getnames() == []
 
     def test_refuses_external_manifests(self, tmp_path: Path) -> None:
-        """Refuse a manifest that names another file, which the context does not hold."""
-        (tmp_path / 'pyproject.toml').write_text('[tool.uv.sources]\nhelper = { path = "../helper" }\n')
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match="dependency 'helper' is declared as a local"):
-            create_image_context(tmp_path)
-
-        # uv picks one entry of a list by marker, so every entry declares a source of its own
-        (tmp_path / 'pyproject.toml').write_text(
-            '[tool.uv.sources]\n'
-            'helper = [{ path = "../helper", marker = "sys_platform == \'linux\'" }, { index = "pypi" }]\n'
-        )
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match="dependency 'helper' is declared as a local"):
-            create_image_context(tmp_path)
-
-        # a list naming only published sources installs in a hosted image
-        (tmp_path / 'pyproject.toml').write_text(
-            '[tool.uv.sources]\nhelper = [{ index = "pypi", marker = "sys_platform == \'linux\'" }]\n'
-        )
-        with tarfile.open(create_image_context(tmp_path)) as tar:
-            assert tar.getnames() == ['pyproject.toml']
-
-        # a direct reference names a source too, whichever dependency table declares it
-        for table in (
-            '[project]\nname = "app"\ndependencies = ["pkg @ file:///home/me/pkg.whl"]\n',
-            '[project]\nname = "app"\ndependencies = ["pkg@file:///home/me/pkg.whl"]\n',
-            '[project]\nname = "app"\n[project.optional-dependencies]\nextra = ["pkg @ ./w/pkg.whl"]\n',
-            '[dependency-groups]\ndev = ["pkg @ file:///home/me/pkg.whl"]\n',
-        ):
-            (tmp_path / 'pyproject.toml').write_text(table)
-            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='names a source on this machine'):
-                create_image_context(tmp_path)
-
-        # the image build can fetch this url, so the dependency installs
-        (tmp_path / 'pyproject.toml').write_text(
-            '[project]\nname = "app"\ndependencies = ["pkg @ https://example.com/pkg-1.0-py3-none-any.whl"]\n'
-        )
-        with tarfile.open(create_image_context(tmp_path)) as tar:
-            assert tar.getnames() == ['pyproject.toml']
-
-        (tmp_path / 'pyproject.toml').unlink()
+        """Refuse a requirements.txt that reads another file, which the context does not hold."""
         (tmp_path / 'requirements.txt').write_text('-r base.txt\npixeltable\n')
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='reads another file'):
             create_image_context(tmp_path)
@@ -368,6 +330,12 @@ class TestProjectArchive:
         with tarfile.open(create_image_context(tmp_path)) as tar:
             assert tar.getnames() == ['requirements.txt']
 
+        # uv reads its own find-links from pyproject, and a relative directory there is just as local
+        (tmp_path / 'requirements.txt').unlink()
+        (tmp_path / 'pyproject.toml').write_text('[tool.uv]\nfind-links = ["./wheels"]\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='a location on this machine'):
+            create_image_context(tmp_path)
+
     def test_requirement_continuations(self, tmp_path: Path) -> None:
         """pip joins a backslash continuation before reading the requirement, so the path spans two lines."""
         wheel = tmp_path / 'w' / 'pkg-1.0-py3-none-any.whl'
@@ -377,45 +345,20 @@ class TestProjectArchive:
 
         assert 'w/pkg-1.0-py3-none-any.whl' in package_image_context(tmp_path).files
 
-    def test_pyproject_tables(self, tmp_path: Path) -> None:
-        """A source can stand in any table a build tool installs from, not only [project] dependencies."""
-        for table in (
-            '[build-system]\nrequires = ["backend @ file:///home/me/backend.whl"]\n',
-            '[tool.uv]\nconstraint-dependencies = ["pkg @ ./w/pkg.whl"]\n',
-            '[tool.uv]\noverride-dependencies = ["pkg @ file:///home/me/pkg.whl"]\n',
-        ):
-            (tmp_path / 'pyproject.toml').write_text(table)
-            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='names a source on this machine'):
-                create_image_context(tmp_path)
-
-        (tmp_path / 'pyproject.toml').write_text('[tool.uv]\nfind-links = ["./wheels"]\n')
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='a location on this machine'):
-            create_image_context(tmp_path)
-
     def test_lock_sources(self, tmp_path: Path) -> None:
-        """uv installs from uv.lock, and the image context carries the manifests alone."""
-        sources = (
-            'directory = "../helper"',
-            'editable = "../helper"',
-            'path = "../w/pkg.whl"',
-            # inside the project, and still absent from the context
-            'directory = "libs/helper"',
-            'editable = "libs/helper"',
-            'path = "vendor/pkg.whl"',
-        )
-        for source in sources:
-            (tmp_path / 'uv.lock').write_text(f'[[package]]\nname = "helper"\nsource = {{ {source} }}\n')
-            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='from a path rather than an index'):
-                create_image_context(tmp_path)
-
-        # uv records the project's own package at the root, as editable or virtual; both are fine
+        """`uv sync --frozen` reads a path source from the context, so one inside the project is carried."""
+        pkg = tmp_path / 'packages' / 'helper'
+        (pkg / 'src').mkdir(parents=True)
+        (pkg / 'pyproject.toml').write_text('[project]\nname = "helper"\n')
+        (pkg / 'src' / 'helper.py').write_text('X = 1\n')
         (tmp_path / 'uv.lock').write_text(
+            '[[package]]\nname = "helper"\nsource = { editable = "packages/helper" }\n'
+            # the project's own package, and one the context cannot reach
             '[[package]]\nname = "app"\nsource = { editable = "." }\n'
-            '[[package]]\nname = "other"\nsource = { virtual = "." }\n'
-            '[[package]]\nname = "pandas"\nsource = { registry = "https://pypi.org/simple" }\n'
+            '[[package]]\nname = "outside"\nsource = { directory = "../elsewhere" }\n'
         )
-        with tarfile.open(create_image_context(tmp_path)) as tar:
-            assert tar.getnames() == ['uv.lock']
+        files = package_image_context(tmp_path).files
+        assert sorted(files) == ['packages/helper/pyproject.toml', 'packages/helper/src/helper.py', 'uv.lock']
 
     def test_executable_bit(self, tmp_path: Path) -> None:
         """tar's 'data' extraction filter keeps the execute bit, so setting one makes a different project."""

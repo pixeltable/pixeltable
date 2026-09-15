@@ -352,8 +352,9 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         else:
             params = ('local', 'proxy', 'cloud')  # Default is all three targets
 
-        if os.environ.get('PXTTEST_CLOUD_DB_URI') is None:
-            # If the cloud db URI is not set, skip generating any cloud tests. We short-circuit them here rather
+        # each package's cloud fixture reads its own variable; either one turns the axis on
+        if os.environ.get('PXTTEST_CLOUD_DB_URI') is None and os.environ.get('PXTTEST_CLI_DB_URI') is None:
+            # If neither db URI is set, skip generating any cloud tests. We short-circuit them here rather
             # than later via pytest.skip(), for performance reasons.
             params = tuple(p for p in params if p != 'cloud')
 
@@ -372,13 +373,13 @@ def served_project() -> pathlib.Path | None:
 
 @pytest.fixture(scope='session')
 def cloud_db_uri() -> str:
-    """The hosted database the cloud axis runs against.
+    """The hosted database for the cloud axis, serving this repository as its project.
 
     A module whose tests must not alter it -- one that builds a database's image, say, which replaces what
     that database runs -- overrides this with a database of its own.
     """
     uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
-    assert uri, 'This should have been intercepted in pytest_generate_tests().'
+    assert uri, 'set PXTTEST_CLOUD_DB_URI to the database for these tests'
     return uri
 
 

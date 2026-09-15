@@ -205,27 +205,26 @@ class TestDb:
         edit_app(project, 'an edit to a file the entry selects')
         assert get_target_ops(db_diff(cli, project, test_db_uri), 'archive') != []
 
-    @pytest.mark.skip(
-        reason='cpu+1 leaves the pod unschedulable, and the database then holds a rollout no later scenario gets past'
-    )
     def test_capacity(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
         create_project_config(cli, project, test_db_uri)
         db_update(cli, project, test_db_uri)
         assert_in_agreement(cli, project, test_db_uri)
 
-        running_on = db_status(cli, project, test_db_uri)['cpu']
-        create_project_config(cli, project, test_db_uri, cpu=running_on + 1)
+        # memory, not cpu: a node has headroom for another 256Mi, where one more cpu leaves the pod
+        # unschedulable and the database then holds a rollout no later scenario gets past
+        running_on = db_status(cli, project, test_db_uri)['memory_mb']
+        create_project_config(cli, project, test_db_uri, memory_mb=running_on + 256)
 
         [op] = get_target_ops(db_diff(cli, project, test_db_uri), 'capacity')
-        assert op['name'] == 'cpu'
+        assert op['name'] == 'memory_mb'
         assert not op['destructive']
-        assert str(running_on + 1) in op['description'], op['description']
+        assert str(running_on + 256) in op['description'], op['description']
 
         assert [op['status'] for op in get_target_ops(db_update(cli, project, test_db_uri), 'capacity')] == ['applied']
         assert_in_agreement(cli, project, test_db_uri)
 
         # taking capacity away is destructive, so it needs the flag that permits it
-        create_project_config(cli, project, test_db_uri, cpu=running_on)
+        create_project_config(cli, project, test_db_uri, memory_mb=running_on)
         refused = cli('db', 'update', test_db_uri, '-f', cwd=project, check=False, timeout=APPLY_TIMEOUT)
         assert refused.returncode == EXIT_ERROR
         assert '--allow-destructive' in refused.stderr, refused.stderr
