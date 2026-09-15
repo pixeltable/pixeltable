@@ -163,6 +163,17 @@ def _post(endpoint: str, path: str, **body: Any) -> httpx.Response:
     return resp
 
 
+def _fetch_media(url: str, db_root: DatabaseRoot) -> bytes:
+    """The bytes behind a media url of a response: a hosted service signs a home bucket url, a local one serves the
+    file itself."""
+    if db_root.id == 'cloud':
+        return fetch_presigned(url, expires_s=3600, host_suffix='.r2.cloudflarestorage.com')
+    assert '/media/' in url, url
+    resp = httpx.get(url, timeout=_REQUEST_TIMEOUT)
+    assert resp.status_code == 200, resp.text
+    return resp.content
+
+
 def _await_job(job_url: str, timeout: float = 120.0) -> Any:
     """Poll a background job until it stops being pending, and return what it produced."""
     deadline = time.time() + timeout
@@ -518,15 +529,11 @@ class TestService:
         body = resp.json()
         assert body['clip_id'] == 1, body
         assert pxt.get_table(f'{target}/frames').count() > 0
-        # the persisted poster comes back as a URL: presigned from the home bucket for a hosted table, served by
-        # the service for a local one
-        if db_root.id == 'cloud':
-            assert_image_bytes(fetch_presigned(body['poster'], expires_s=3600, host_suffix='.r2.cloudflarestorage.com'))
-        else:
-            assert '/media/' in body['poster'], body
-            poster = httpx.get(body['poster'], timeout=_REQUEST_TIMEOUT)
-            assert poster.status_code == 200, poster.text
-            assert_image_bytes(poster.content)
+        # the persisted poster comes back as a url
+        assert_image_bytes(_fetch_media(body['poster'], db_root))
+        # so does media a query makes on the fly, which no row stores
+        thumb_url = _post(running['clips']['endpoint'], '/poster-thumb', clip_id=1).json()['thumb']
+        assert_image_bytes(_fetch_media(thumb_url, db_root), size=(32, 32))
 
         # a URL the pod can fetch, in place of a local path it cannot read
         video_url = sample_file_server.url(video, db_root)
@@ -536,13 +543,10 @@ class TestService:
         assert resp.headers['content-type'].startswith('image/'), resp.headers
         assert_image_bytes(resp.content)
 
-        # a route over the iterator view answers with a row per frame, media rendered as urls
+        # a route over the iterator view answers with a row per frame, media rendered as urls; nothing is stored
         rows = _post(running['frames']['endpoint'], '/frames', clip_id=3, video=video_url).json()
         assert len(rows) > 1, rows
-        assert all(row['thumb'].startswith('http') for row in rows), rows[0]
-        thumb = httpx.get(rows[0]['thumb'], timeout=_REQUEST_TIMEOUT)
-        assert thumb.status_code == 200, thumb.text
-        assert_image_bytes(thumb.content)
+        assert_image_bytes(_fetch_media(rows[0]['thumb'], db_root), size=(32, 32))
 
         # a background route answers with a job to poll, and the two uploads arrive in one request
         audio = get_audio_files()[0]
