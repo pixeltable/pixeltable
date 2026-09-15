@@ -147,10 +147,9 @@ class TableVersion:
     # target for data operation propagation (only set for non-snapshots, and only records non-snapshot views)
     mutable_views: frozenset[TableVersionHandle]
 
-    # User and system columns that are live in this schema version, ordered by column id (asc). The order matters for
-    # iterator_columns().
+    # User and system columns that are live in this schema version, ordered by column id (asc)
     cols_by_id: dict[int, Column]
-    # contains only user-facing (named) columns visible in this version
+    # Only the user-facing (named) columns visible in this version, ordered by column id (asc)
     cols_by_name: dict[str, Column]
 
     # True if this TableVersion instance can have indices:
@@ -1072,9 +1071,9 @@ class TableVersion:
             return
         if new_name in self.cols_by_name:
             raise excs.AlreadyExistsError(excs.ErrorCode.COLUMN_ALREADY_EXISTS, f'Column {new_name!r} already exists')
-        del self.cols_by_name[old_name]
         col.name = new_name
-        self.cols_by_name[new_name] = col
+        # Rebuild col_by_name as it must maintain the order.
+        self.cols_by_name = {c.name: c for c in self.cols_by_id.values() if not c.is_system_col}
         self._schema_version_md.columns[col.id].name = new_name
 
         # we're creating a new schema version
