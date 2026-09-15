@@ -218,7 +218,7 @@ def _alter_column_change(
     """The op for a column whose properties differ; a new value expression for a computed column is the only one
     update_all() can apply."""
     # a computed column becoming a data column, or vice versa, changes more than the value expression
-    is_new_value_expr = altered == ['value'] and spec.get('value') is not None and col_md['is_computed']
+    is_new_value_expr = altered == ['value'] and 'value' in spec and col_md['is_computed']
     if not is_new_value_expr:
         return SchemaChangeOp(
             target='column',
