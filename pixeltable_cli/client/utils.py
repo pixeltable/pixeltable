@@ -343,8 +343,9 @@ def ensure_running() -> str:
                 kill_and_wait(stale_pid)
         if health is None:
             spawn_detached()
-            wait_for_health()
-            return base_url()
+            # the daemon we spawn defers to one that already holds the port, so the responder is not
+            # necessarily the process we started
+            health = wait_for_health()
     _restart_if_mismatched(health)
     return base_url()
 

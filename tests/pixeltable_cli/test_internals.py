@@ -249,12 +249,13 @@ class TestProbe:
     def test_no_pidfile_spawns(self) -> None:
         """Cold start with no pidfile: spawn straight away, nothing to reclaim."""
         with pytest.MonkeyPatch.context() as m:
+            _patch_identity(m, {})
             m.setattr(client_utils, 'fetch_health', lambda *a, **kw: None)
             m.setattr(client_utils, 'read_pidfile', lambda: None)
             actions: list[str] = []
             m.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append('kill'))
             m.setattr(client_utils, 'spawn_detached', lambda: actions.append('spawn'))
-            m.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
+            m.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: _health_payload(pid=200))
 
             client_utils.ensure_running()
             assert actions == ['spawn']
@@ -264,6 +265,7 @@ class TestProbe:
         silent past the grace window: it is hung, so kill it and spawn a replacement instead of
         failing to bind."""
         with pytest.MonkeyPatch.context() as m:
+            _patch_identity(m, {})
             m.setattr(client_utils, 'fetch_health', lambda *a, **kw: None)
             m.setattr(client_utils, 'read_pidfile', lambda: 100)
             m.setattr(client_utils, '_pid_alive', lambda pid: True)
@@ -272,7 +274,7 @@ class TestProbe:
             actions: list[tuple[str, int] | str] = []
             m.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
             m.setattr(client_utils, 'spawn_detached', lambda: actions.append('spawn'))
-            m.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
+            m.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: _health_payload(pid=200))
 
             client_utils.ensure_running()
             assert actions == [('kill', 100), 'spawn']
@@ -282,6 +284,7 @@ class TestProbe:
         recycled after our daemon exited). It must be treated as a stale pidfile: do not kill the
         unrelated process, just spawn a fresh daemon."""
         with pytest.MonkeyPatch.context() as m:
+            _patch_identity(m, {})
             m.setattr(client_utils, 'fetch_health', lambda *a, **kw: None)
             m.setattr(client_utils, 'read_pidfile', lambda: 100)
             m.setattr(client_utils, '_pid_alive', lambda pid: True)
@@ -290,10 +293,29 @@ class TestProbe:
             m.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append('kill'))
             m.setattr(client_utils, '_await_health', lambda timeout: pytest.fail('grace window must be skipped'))
             m.setattr(client_utils, 'spawn_detached', lambda: actions.append('spawn'))
-            m.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
+            m.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: _health_payload(pid=200))
 
             client_utils.ensure_running()
             assert actions == ['spawn']
+
+    def test_spawned_responder_serving_another_project_replaced(self) -> None:
+        """A spawned daemon defers to whoever already holds the port, so the responder is checked too:
+        one serving another project is replaced rather than adopted."""
+        with pytest.MonkeyPatch.context() as m:
+            _patch_identity(m, {})
+            m.setattr(client_utils, 'project_root', lambda: '/project')
+            responders = iter(
+                [_health_payload(pid=100, project_root='/other'), _health_payload(pid=200, project_root='/project')]
+            )
+            m.setattr(client_utils, 'fetch_health', lambda *a, **kw: None)
+            m.setattr(client_utils, 'read_pidfile', lambda: None)
+            actions: list[tuple[str, int] | str] = []
+            m.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
+            m.setattr(client_utils, 'spawn_detached', lambda: actions.append('spawn'))
+            m.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: next(responders))
+
+            client_utils.ensure_running()
+            assert actions == ['spawn', ('kill', 100), 'spawn']
 
     def test_slow_daemon_kept(self) -> None:
         """A daemon we started is alive but still importing pixeltable; it answers health within the
@@ -338,13 +360,14 @@ class TestProbe:
         """A stale pidfile naming a PID that is no longer alive (port already released): no reclaim,
         just spawn."""
         with pytest.MonkeyPatch.context() as m:
+            _patch_identity(m, {})
             m.setattr(client_utils, 'fetch_health', lambda *a, **kw: None)
             m.setattr(client_utils, 'read_pidfile', lambda: 100)
             m.setattr(client_utils, '_pid_alive', lambda pid: False)
             actions: list[str] = []
             m.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append('kill'))
             m.setattr(client_utils, 'spawn_detached', lambda: actions.append('spawn'))
-            m.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
+            m.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: _health_payload(pid=200))
 
             client_utils.ensure_running()
             assert actions == ['spawn']
