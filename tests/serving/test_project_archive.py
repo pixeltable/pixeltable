@@ -241,7 +241,7 @@ class TestProjectArchive:
         (tmp_path / 'pyproject.toml').write_text('[project]\nname = "app"\n')
 
         with tarfile.open(create_image_context(tmp_path)) as tar:
-            assert sorted(tar.getnames()) == ['pyproject.toml', 'uv.lock']
+            assert sorted(tar.getnames()) == ['project/pyproject.toml', 'project/uv.lock']
 
     def test_no_manifests(self, tmp_path: Path) -> None:
         """A project declaring no dependencies still produces a context, so a build always has one input."""
@@ -289,12 +289,12 @@ class TestProjectArchive:
         # the same wheel, named relative to the project, is bundled
         (tmp_path / 'requirements.txt').write_text('w/pkg-1.0-py3-none-any.whl\n')
         with tarfile.open(create_image_context(tmp_path)) as tar:
-            assert sorted(tar.getnames()) == ['requirements.txt', 'w/pkg-1.0-py3-none-any.whl']
+            assert sorted(tar.getnames()) == ['project/requirements.txt', 'project/w/pkg-1.0-py3-none-any.whl']
 
         # an environment marker decides whether pip installs the line, not where the file is
         (tmp_path / 'requirements.txt').write_text('w/pkg-1.0-py3-none-any.whl ; python_version >= "3.11"\n')
         with tarfile.open(create_image_context(tmp_path)) as tar:
-            assert sorted(tar.getnames()) == ['requirements.txt', 'w/pkg-1.0-py3-none-any.whl']
+            assert sorted(tar.getnames()) == ['project/requirements.txt', 'project/w/pkg-1.0-py3-none-any.whl']
 
         # requirements.txt travels unchanged, so pip would look for a path the project does not hold
         (tmp_path / 'requirements.txt').write_text('w/typo-1.0-py3-none-any.whl\n')
@@ -311,12 +311,12 @@ class TestProjectArchive:
         root_wheel.write_bytes(b'')
         (tmp_path / 'requirements.txt').write_text('pkg-2.0-py3-none-any.whl\n')
         with tarfile.open(create_image_context(tmp_path)) as tar:
-            assert sorted(tar.getnames()) == ['pkg-2.0-py3-none-any.whl', 'requirements.txt']
+            assert sorted(tar.getnames()) == ['project/pkg-2.0-py3-none-any.whl', 'project/requirements.txt']
 
         # a bare name with no archive suffix stays a package the index serves
         (tmp_path / 'requirements.txt').write_text('pixeltable\n')
         with tarfile.open(create_image_context(tmp_path)) as tar:
-            assert tar.getnames() == ['requirements.txt']
+            assert tar.getnames() == ['project/requirements.txt']
 
     def test_find_links(self, tmp_path: Path) -> None:
         """--find-links names where to look for packages, and a directory here is one only this machine has."""
@@ -328,7 +328,7 @@ class TestProjectArchive:
         # an index the build can reach is not a local location, and neither is another option
         (tmp_path / 'requirements.txt').write_text('--find-links https://example.com/wheels\n--no-index\npixeltable\n')
         with tarfile.open(create_image_context(tmp_path)) as tar:
-            assert tar.getnames() == ['requirements.txt']
+            assert tar.getnames() == ['project/requirements.txt']
 
         # uv reads its own find-links from pyproject, and a relative directory there is just as local
         (tmp_path / 'requirements.txt').unlink()

@@ -312,7 +312,8 @@ include = ['.git/**', 'pixeltable/_version.py']
 # no pod reads the documentation tree, and it is a quarter of what the archive would otherwise carry
 exclude = ['docs/**']
 system_dependencies = ["libiconv", "ffmpeg==6.1.1=gpl*"]
-memory_mb = 2048
+# 6GB is safe to run the tests
+memory_mb = 6144
 uv_options = "--no-dev"
 
 [tool.pyright]

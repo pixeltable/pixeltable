@@ -457,7 +457,7 @@ def _lock_sources(project_dir: Path) -> list[Path]:
 
 
 def package_image_context(project_dir: Path | None = None) -> PackagedContext:
-    """Package the manifests an image build needs, and say what went into it.
+    """Create a tarfile containing the manifests needed for an image build.
 
     The returned hashes are taken from the bytes written, so they describe the context rather than a
     later reading of the project.
@@ -497,7 +497,8 @@ def package_image_context(project_dir: Path | None = None) -> PackagedContext:
     with tarfile.open(context_path, 'w') as tf:
         for f in files:
             relpath = f.relative_to(project_dir).as_posix()
-            hashes[relpath] = _add_hashed(tf, f, relpath)
+            # project files go into project/
+            hashes[relpath] = _add_hashed(tf, f, f'project/{relpath}')
     _logger.info(f'Image context created: {context_path}')
     return PackagedContext(path=context_path, files=hashes)
 

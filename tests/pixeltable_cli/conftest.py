@@ -292,24 +292,19 @@ def cloud_db_uri() -> str:
 
 
 @pytest.fixture(scope='session', autouse=True)
-def _check_corpus_db(session_cli: PxtRunner, session_project: pathlib.Path, pixeltable_wheel: pathlib.Path) -> None:
-    """Fail the session unless the cloud axis's database already serves this working tree's app corpus.
+def _check_corpus_db(session_cli: PxtRunner) -> None:
+    """Fail the session when the CLI database no longer serves the app corpus in this directory.
 
-    The tests resolve the corpus's udfs, which reach a pod only in the database's project archive.
-    Reporting it here gives the command that fixes it; a stale archive otherwise surfaces much later,
-    as a udf missing from the remote database.
+    The tests resolve the corpus's udfs, which reach a pod only in the database's project archive. The
+    diff runs against this directory because `pxt db update` deploys it; only an archive op means the
+    corpus drifted, where an image op follows the client's version and says nothing about the corpus.
     """
     uri = os.environ.get('PXTTEST_CLI_DB_URI')
     if uri is None:
         return
-    copy_app_corpus(session_project)
-    write_requirements(session_project, pixeltable_wheel, *PROJECT_EXTRAS)
-    (session_project / 'pixeltable.toml').write_text(
-        f'[[pixeltable.database]]\nname = {json.dumps(uri)}\n', encoding='utf-8'
-    )
-    session_cli('daemon', 'restart', cwd=session_project)
-    plan = db_diff(session_cli, session_project, uri)
-    assert plan['in_agreement'], f'{uri} does not serve this corpus; run `pxt db update {uri}`: {plan["ops"]}'
+    project = pathlib.Path(__file__).parent
+    stale = [op for op in db_diff(session_cli, project, uri)['ops'] if op['target'] == 'archive']
+    assert not stale, f'{uri} is out of date; run `pxt db update {uri}` in {project}: {stale}'
 
 
 @pytest.fixture
