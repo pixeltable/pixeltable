@@ -53,7 +53,7 @@ def excerpt(text: str, n: int = 12) -> str:
 
 
 class Docs(TableModel, name='docs'):
-    doc_id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # a generated key: provided automatically on insert
+    id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # a generated key: provided automatically on insert
     title: pxt.String
     body: pxt.String | None
     title_upper = pxtf.string.upper(title)   # an assignment: computed on insert
@@ -62,7 +62,10 @@ class Docs(TableModel, name='docs'):
 
 ingest = FastAPIRouter(name='ingest')
 ingest.add_insert_route(
-    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.doc_id, Docs.title_upper, Docs.summary]
+    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.id, Docs.title_upper, Docs.summary]
+)
+ingest.add_update_route(
+    Docs, path='/docs/update', inputs=[Docs.title], outputs=[Docs.id, Docs.title_upper]
 )
 ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
 ```
@@ -75,8 +78,18 @@ body:
 ```bash
 curl -X POST http://127.0.0.1:<port>/docs \
   -H 'Content-Type: application/json' \
-  -d '{"doc_id": 1, "title": "Hello", "body": "world"}'
-# {"title_upper":"HELLO","summary":"Hello"}
+  -d '{"title": "Hello", "body": "world"}'
+# {"id":"...","title_upper":"HELLO","summary":"Hello"}
+```
+
+`add_update_route` matches the row by its primary key, so the request body carries `id`
+even though `inputs` does not list it:
+
+```bash
+curl -X POST http://127.0.0.1:<port>/docs/update \
+  -H 'Content-Type: application/json' \
+  -d '{"id": "...", "title": "Goodbye"}'
+# {"id":"...","title_upper":"GOODBYE"}
 ```
 
 ## Capabilities
