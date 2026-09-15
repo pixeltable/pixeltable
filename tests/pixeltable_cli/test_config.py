@@ -168,17 +168,18 @@ class TestConfig:
         assert (openai_key['value'], openai_key['source']) == ('<redacted>', 'env')
 
     def test_var_only_in_env(self, cli: PxtRunner) -> None:
-        """A config var with no config file entry is still reported, with its value withheld if it is a secret."""
-        supplied = {'PIXELTABLE_SECRET_PXT_TEST_KEY': _A_KEY, 'PIXELTABLE_VAR_PXT_TEST_DEST': 's3://bucket/prefix'}
+        """A config var with no config file entry is still reported, with a sensitive name's value withheld."""
+        supplied = {'PIXELTABLE_VAR_PXT_TEST_KEY': _A_KEY, 'PIXELTABLE_VAR_PXT_TEST_DEST': 's3://bucket/prefix'}
         # a PIXELTABLE_* variable the daemon lacks restarts it, so the reported values are the ones supplied here
         resp = cli('config', '--json', env_overrides=supplied).json
         entries = {(e['section'], e['key']): e for e in resp['entries']}
 
-        secret = entries['pixeltable.database.secrets', 'pxt_test_key']
-        assert (secret['value'], secret['source']) == ('<redacted>', 'env')
+        # a name ending in a sensitive suffix is redacted, whatever section it sits in
+        sensitive = entries['pixeltable.database.vars', 'pxt_test_key']
+        assert (sensitive['value'], sensitive['source']) == ('<redacted>', 'env')
         var = entries['pixeltable.database.vars', 'pxt_test_dest']
         assert (var['value'], var['source']) == ('s3://bucket/prefix', 'env')
-        assert 'PIXELTABLE_SECRET_PXT_TEST_KEY' in resp['env_var_names']
+        assert 'PIXELTABLE_VAR_PXT_TEST_KEY' in resp['env_var_names']
 
     def test_config_var_from_env(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """A config var a schema declares is bound from the environment, with no entry in any config file."""
@@ -221,7 +222,7 @@ class TestConfig:
     def test_config_var_from_project_config(
         self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
-        """A var and a secret bound in the project's pixeltable.toml reach the daemon."""
+        """A var bound in the project's pixeltable.toml reaches the daemon."""
         target = db_root.make_catalog_path('cfg')
         media_dir = project_dir / 'media'
         media_dir.mkdir()
@@ -250,9 +251,7 @@ class TestConfig:
         project_config = project_dir.parent / 'pixeltable.toml'
         original = project_config.read_text(encoding='utf-8')
         project_config.write_text(
-            f"{original}\n[[pixeltable.database]]\nvars.pxt_proj_dest = '{media_dir.as_posix()}'\n"
-            "secrets.pxt_proj_key = 'from-the-project'\n",
-            encoding='utf-8',
+            f"{original}\n[[pixeltable.database]]\nvars.pxt_proj_dest = '{media_dir.as_posix()}'\n", encoding='utf-8'
         )
         try:
             cli('daemon', 'restart')  # the daemon read the project config when it started
@@ -265,8 +264,6 @@ class TestConfig:
             entries = cli('config', '--json').json['entries']
             var = next(e for e in entries if e['key'] == 'pxt_proj_dest')
             assert (var['section'], var['source']) == ('pixeltable.database.vars', str(project_config))
-            secret = next(e for e in entries if e['key'] == 'pxt_proj_key')
-            assert (secret['section'], secret['source']) == ('pixeltable.database.secrets', str(project_config))
         finally:
             project_config.write_text(original, encoding='utf-8')
             cli('daemon', 'restart')
@@ -289,12 +286,12 @@ class TestConfig:
             # a binding of the local database is another matter: the daemon built its clients from the old one
             time.sleep(0.01)
             project_config.write_text(
-                f"{original}\n{hosted}\n[[pixeltable.database]]\nsecrets.pxt_test_key = '{_A_KEY}'\n", encoding='utf-8'
+                f"{original}\n{hosted}\n[[pixeltable.database]]\nvars.pxt_test_key = '{_A_KEY}'\n", encoding='utf-8'
             )
             r = cli('rows', f'{target}/docs', '-n', '1', check=False)
             assert r.returncode != 0
             # the refusal names the binding as the file spells it, and the file holding it
-            assert 'pixeltable.database.secrets.pxt_test_key' in r.stderr
+            assert 'pixeltable.database.vars.pxt_test_key' in r.stderr
             assert str(project_config) in r.stderr
             assert 'pxt daemon restart' in r.stderr
             assert _A_KEY not in r.stderr
@@ -316,13 +313,13 @@ class TestConfig:
 
         time.sleep(0.01)  # the file stamp is (mtime, size), so a rewrite needs a distinct mtime
         config_file.write_text(
-            f'[pixeltable]\nfile_cache_size_g = 1.0\n\n[pixeltable.database.secrets]\npxt_test_key = "{_A_KEY}"\n',
+            f'[pixeltable]\nfile_cache_size_g = 1.0\n\n[pixeltable.database.vars]\npxt_test_key = "{_A_KEY}"\n',
             encoding='utf-8',
         )
 
         r = cli('rows', f'{target}/docs', '-n', '1', env_overrides=own_config, check=False)
         assert r.returncode != 0
-        assert 'pixeltable.database.secrets.pxt_test_key' in r.stderr
+        assert 'pixeltable.database.vars.pxt_test_key' in r.stderr
         assert 'pxt daemon restart' in r.stderr
         assert _A_KEY not in r.stderr
 
@@ -330,9 +327,7 @@ class TestConfig:
         cli('daemon', 'restart', env_overrides=own_config)
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=own_config).stdout
         entries = cli('config', '--json', env_overrides=own_config).json['entries']
-        test_key = next(
-            e for e in entries if (e['section'], e['key']) == ('pixeltable.database.secrets', 'pxt_test_key')
-        )
+        test_key = next(e for e in entries if (e['section'], e['key']) == ('pixeltable.database.vars', 'pxt_test_key'))
         assert test_key['source'] == str(config_file)
 
     def test_unparseable_config_file(self, cli: PxtRunner, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:

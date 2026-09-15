@@ -26,7 +26,7 @@ def _summary(changes: list[str]) -> str:
 class ChangeOp(pydantic.BaseModel):
     """One reconciliation operation against a target."""
 
-    # what the operation acts on, as communicated to the user (a column, a route, a secret key, a field, etc.)
+    # what the operation acts on, as communicated to the user (a column, a route, a field, etc.)
     name: str | None
 
     op: Literal['add', 'drop', 'alter']
@@ -85,7 +85,7 @@ class SchemaChangeOp(ChangeOp):
 class ServiceChangeOp(ChangeOp):
     """One operation reconciling a running service with a ServiceSpec."""
 
-    target: Literal['service', 'base_path', 'route', 'resources', 'secret', 'project']
+    target: Literal['service', 'base_path', 'route', 'resources', 'project']
 
     details: dict[str, str] = pydantic.Field(default_factory=dict)
 
@@ -252,7 +252,7 @@ class ServiceChangeOp(ChangeOp):
 
 # what a DbChangeOp acts on. The two artifacts are separate: 'image' is the environment the pods run on,
 # 'archive' the sources they fetch, and a source edit moves only the second.
-DbTarget = Literal['image', 'archive', 'capacity', 'secret']
+DbTarget = Literal['image', 'archive', 'capacity']
 
 
 class DbChangeOp(ChangeOp):
@@ -274,21 +274,6 @@ class DbChangeOp(ChangeOp):
             description=f'{field} will be {declared} rather than {was}, which restarts the database',
             details={'from': was, 'to': str(declared)},
             requires_restart=True,
-        )
-
-    # SCALED BACK: uncalled
-    @classmethod
-    def secret(cls, key: str, op: Literal['add', 'drop']) -> DbChangeOp:
-        if op == 'add':
-            return cls(
-                target='secret', name=key, op='add', severity='additive', description=f'secret {key!r} will be set'
-            )
-        return cls(
-            target='secret',
-            name=key,
-            op='drop',
-            severity='destructive',
-            description=f'secret {key!r} will be deleted, and code reading it will fail',
         )
 
     @classmethod

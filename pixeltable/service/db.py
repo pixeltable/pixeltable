@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import tarfile
 import tempfile
@@ -19,18 +18,14 @@ from pixeltable.service.management_protocol import (
     BuildImageRequest,
     CreateDbRequest,
     DeleteDbRequest,
-    DeleteSecretRequest,
     GetArchiveRequest,
     GetArchiveResponse,
     GetArchiveUploadUrlRequest,
     GetArchiveUploadUrlResponse,
     GetDbRequest,
     ListDbRequest,
-    ListSecretsRequest,
-    ListSecretsResponse,
     ReportServiceInstanceRequest,
     SetArchiveRequest,
-    SetSecretRequest,
     UpdateDbRequest,
 )
 from pixeltable.utils.project import (
@@ -50,9 +45,6 @@ _DOWNLOAD_TIMEOUT = 300
 _ARCHIVE_DIR = 'project'
 
 _DB_DESTRUCTIVE_HINT = "Re-run 'pxt db update' with --allow-destructive to apply these changes."
-
-# a defined secret names the environment variable holding its value, as 'env:NAME'
-_ENV_BINDING = 'env:'
 
 # how long a hosted database may stay in a transitional state before an update gives up on it
 _DB_SETTLE_TIMEOUT = 3600.0
@@ -106,7 +98,6 @@ def db_diff(db_uri: str) -> DbPlan:
     if current is None:
         return DbPlan.from_ops(db_uri, None, [])
 
-    # TODO: read the secret keys again, once a diff compares them
     fingerprint = project_fingerprint(_validated_project_root(), config)
     return DbPlan.from_ops(db_uri, current.state, _compare_db(current, config, fingerprint))
 
@@ -123,18 +114,17 @@ def published_fingerprint(db_path: catalog.Path) -> ProjectFingerprint | None:
 def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
     """Reconcile the database at db_uri with its corresponding DatabaseConfig in the project configuration.
 
-    Secrets go first, since code the pods run reads them as they start; capacity last, so that the resize
-    restarts pods already on the new image and the new sources.
+    Capacity goes last, so that the resize restarts pods already on the new image and the new sources.
 
-    This is the one verb that creates a hosted database. A database created here is given every secret and
-    both artifacts -- it reports no fingerprint yet, so the diff has nothing to compare against -- and it is
-    deleted again if any of that fails, so an update either leaves a database that can serve or none at all.
+    This is the one verb that creates a hosted database. A database created here is given both artifacts --
+    it reports no fingerprint yet, so the diff has nothing to compare against -- and it is deleted again if
+    any of that fails, so an update either leaves a database that can serve or none at all.
 
     Returns the plan that was applied, each operation annotated with its status.
 
     Args:
         db_uri: the pxt://org:db uri of the database the entry configures.
-        allow_destructive: whether to apply changes that take capacity away or delete a secret.
+        allow_destructive: whether to apply changes that take capacity away.
     """
     db_path = _validated_db_uri(db_uri)
     config = _get_db_config(db_path)
@@ -180,7 +170,7 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
 def _apply(plan: DbPlan, config: DatabaseConfig, db_path: catalog.Path) -> None:
     """Apply the plan's operations to the database at db_path, marking each one applied.
 
-    TODO: apply the secret and capacity operations again, once a diff plans them.
+    TODO: apply the capacity operations again, once a diff plans them.
     """
     image_ops = _get_target_ops(plan, 'image')
     if len(image_ops) > 0:
@@ -373,44 +363,6 @@ def _set_archive(db_path: catalog.Path, archive_key: str, fingerprint: ProjectFi
         )
 
 
-def _secret_keys(db_path: catalog.Path) -> list[str]:
-    """The keys of the secrets the named database holds."""
-    response = ListSecretsResponse.model_validate(
-        management_client.api_call(ListSecretsRequest(org=db_path.org, db=db_path.db))
-    )
-    return response.keys
-
-
-def _apply_secret_op(db_path: catalog.Path, op: DbChangeOp, config: DatabaseConfig) -> None:
-    """Apply one secret operation: set the defined value, or delete the key."""
-    key = op.name
-    if op.op == 'drop':
-        management_client.api_call(DeleteSecretRequest(org=db_path.org, db=db_path.db, key=key))
-        return
-    binding = (config.secrets or {})[key]
-    management_client.api_call(
-        SetSecretRequest(org=db_path.org, db=db_path.db, key=key, value=_secret_value(key, binding))
-    )
-
-
-def _secret_value(key: str, binding: str) -> str:
-    """Read a defined secret's value from the environment variable its binding names."""
-    name = binding[len(_ENV_BINDING) :] if binding.startswith(_ENV_BINDING) else None
-    if name is None:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f"secret {key!r} is defined as {binding!r}; write '{_ENV_BINDING}NAME' to name the environment "
-            'variable holding the value, which keeps the value out of the project',
-        )
-    value = os.environ.get(name)
-    if value is None or value == '':
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f'secret {key!r} is bound to {name}, which is not set in the environment',
-        )
-    return value
-
-
 def _await_db_settled(db_path: catalog.Path) -> DatabaseState:
     """Poll the named database until it leaves a transitional state, and return the state it reached."""
     deadline = time.monotonic() + _DB_SETTLE_TIMEOUT
@@ -480,7 +432,7 @@ def _compare_db(current: DatabaseState, config: DatabaseConfig, fingerprint: Pro
 
     Always a rebuild: current reports no fingerprint, so nothing identifies the project it already holds.
 
-    TODO: compare the fingerprint GET_DB reports, and restore the capacity and secret comparisons with it.
+    TODO: compare the fingerprint GET_DB reports, and restore the capacity comparison with it.
     """
     return [DbChangeOp.build_image()]
 

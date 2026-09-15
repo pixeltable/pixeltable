@@ -34,30 +34,16 @@ def _forwarded(monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> list[Any]:
 
 class TestSecret:
     def test_set(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        argv = [
-            'set',
-            'pxt://acme:main',
-            'OPENAI_API_KEY=test=value',
-            'PIXELTABLE_SECRET_CUSTOM=custom-value',
-            '--json',
-        ]
+        argv = ['set', 'pxt://acme:main', 'OPENAI_API_KEY=test=value', 'CUSTOM_TOKEN=custom-value', '--json']
         assert _forwarded(monkeypatch, argv) == [
             SetSecretRequest(org='acme', db='main', key='OPENAI_API_KEY', value='test=value'),
-            SetSecretRequest(org='acme', db='main', key='PIXELTABLE_SECRET_CUSTOM', value='custom-value'),
+            SetSecretRequest(org='acme', db='main', key='CUSTOM_TOKEN', value='custom-value'),
         ]
         captured = capsys.readouterr()
-        assert json.loads(captured.out) == ['OPENAI_API_KEY', 'PIXELTABLE_SECRET_CUSTOM']
+        assert json.loads(captured.out) == ['CUSTOM_TOKEN', 'OPENAI_API_KEY']
         assert captured.err == ''
 
-        prohibited_keys = [
-            'PIXELTABLE_HOME',
-            'PIXELTABLE_DB',
-            'PIXELTABLE_VAR_FOO',
-            'PIXELTABLE_UNKNOWN',
-            'PIXELTABLE_SECRET',
-            'pixeltable_home',
-            'Pixeltable_Db',
-        ]
+        prohibited_keys = ['PIXELTABLE_HOME', 'PIXELTABLE_DB', 'PIXELTABLE_VAR_FOO', 'pixeltable_home', 'Pixeltable_Db']
         for key in prohibited_keys:
-            with pytest.raises(excs.RequestError, match='reserved for Pixeltable configuration'):
+            with pytest.raises(excs.RequestError, match='is reserved'):
                 _forwarded(monkeypatch, ['set', 'pxt://acme:main', f'{key}=test-value'])

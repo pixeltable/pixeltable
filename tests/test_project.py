@@ -141,9 +141,9 @@ class TestProject:
         assert after.compare(before) == {BINDINGS}
         assert after.changes(before) == ['var dest changed']
 
-        with_secret = project_fingerprint(project, DatabaseConfig(secrets={'openai': 'env:OPENAI_API_KEY'}))
-        assert with_secret.compare(before) == {BINDINGS}
-        assert with_secret.changes(before) == ['var dest changed', 'secret openai changed']
+        added = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://one', 'other': 's3://three'}))
+        assert added.compare(before) == {BINDINGS}
+        assert added.changes(before) == ['var other changed']
 
     def test_environment(self, project: pathlib.Path) -> None:
         before = project_fingerprint(project, DatabaseConfig(python_version='3.11'))

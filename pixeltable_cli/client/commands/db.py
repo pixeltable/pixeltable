@@ -14,7 +14,7 @@ from ..utils import EXIT_CHANGES_PENDING, EXIT_IN_AGREEMENT, EXIT_REFUSED, confi
 EPILOG = """\
 Examples:
   pxt db diff pxt://org:db     # what update would change; exit 2 if anything is pending
-  pxt db update pxt://org:db   # apply it: secrets, then the artifacts, then capacity
+  pxt db update pxt://org:db   # apply it: the artifacts, then capacity
   pxt db list
   pxt db status pxt://org:db
   pxt db logs pxt://org:db              # what the database's pod logged in the last hour
@@ -30,8 +30,9 @@ The uri selects the matching [[pixeltable.database]] entry in the project config
   name = 'pxt://org:db'      # what 'pxt db update pxt://org:db' looks for
 
 The entry says which of the project's files the database gets (include/exclude), what the image
-holds (system_dependencies, python_version), what the database runs on (cpu, memory_mb, disk_gb, workers)
-and which secrets it holds. 'diff' compares the entry against the database; 'update' applies the difference.
+holds (system_dependencies, python_version) and what the database runs on (cpu, memory_mb, disk_gb,
+workers). 'diff' compares the entry against the database; 'update' applies the difference.
+Secrets are set separately, with 'pxt secret'.
 
 Exit status of diff and update: 0 in agreement, 2 changes pending, 3 refused, 1 error.
 """

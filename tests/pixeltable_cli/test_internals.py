@@ -1911,7 +1911,7 @@ class TestHostedDatabase:
 
     @pytest.fixture
     def api(self, monkeypatch: pytest.MonkeyPatch) -> Any:
-        """A management API holding one database and its secrets, recording every request it is sent."""
+        """A management API holding one database, recording every request it is sent."""
 
         class Api:
             database: dict[str, Any] | None
@@ -1991,14 +1991,11 @@ class TestHostedDatabase:
         entry = Config.get().get_database_config(PxtPath.parse('pxt://acme:main', allow_empty_path=True))
         return project_fingerprint(tmp_path, entry).model_dump()
 
-    def test_update_order(
-        self, api: Any, uploaded: list[str], tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv('OPENAI_API_KEY', 'sk-test')
+    def test_update_order(self, api: Any, uploaded: list[str], tmp_path: pathlib.Path) -> None:
         self._project(
             tmp_path,
             'cpu = 2.0\nsystem_dependencies = ["ffmpeg"]\n'
-            '[pixeltable.database.secrets]\nopenai_api_key = "env:OPENAI_API_KEY"\n',
+            '[pixeltable.database.vars]\nmedia_dest = "s3://bucket/prefix"\n',
         )
         (tmp_path / 'app.py').write_text('import pixeltable as pxt  # edited\n')
 

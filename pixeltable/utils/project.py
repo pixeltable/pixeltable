@@ -41,7 +41,6 @@ class ProjectPart(enum.StrEnum):
 
     ARCHIVE = 'archive'
 
-    # vars and secrets
     BINDINGS = 'bindings'
 
 
@@ -239,9 +238,7 @@ class ProjectFingerprint(pydantic.BaseModel):
     pixeltable_version: str
     uv_options: str | None = None
 
-    # bindings, never resolved values: a secret names the source of its value
     vars: dict[str, str]
-    secrets: dict[str, str]
 
     def compare(self, other: ProjectFingerprint, *, own_files_only: bool = False) -> set[ProjectPart]:
         """The parts that differ from other.
@@ -254,7 +251,7 @@ class ProjectFingerprint(pydantic.BaseModel):
         files_differ = len(self._added_or_changed(other)) > 0 if own_files_only else self.files != other.files
         if files_differ:
             parts.add(ProjectPart.ARCHIVE)
-        if (self.vars, self.secrets) != (other.vars, other.secrets):
+        if self.vars != other.vars:
             parts.add(ProjectPart.BINDINGS)
         return parts
 
@@ -301,7 +298,6 @@ class ProjectFingerprint(pydantic.BaseModel):
                 lines.append('uv_options changed')
         if ProjectPart.BINDINGS in parts:
             lines += [f'var {name} changed' for name in _changed_keys(self.vars, other.vars)]
-            lines += [f'secret {name} changed' for name in _changed_keys(self.secrets, other.secrets)]
         return lines
 
     def _added_or_changed(self, other: ProjectFingerprint) -> list[str]:
@@ -407,5 +403,4 @@ def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConf
         pixeltable_version=pixeltable.__version__,
         uv_options=config.uv_options if config is not None else None,
         vars=(config.vars if config is not None else None) or {},
-        secrets=(config.secrets if config is not None else None) or {},
     )
