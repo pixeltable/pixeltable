@@ -145,13 +145,12 @@ def _raise_unauthorized(resp: Any) -> None:
     """
     kind, where = credential_source()
     detail = resp.text.strip()
-    if kind == 'api_key':
-        # No suggestion to sign in instead: a key always outranks a session, so signing in would
-        # change nothing. The key is what needs fixing.
-        raise excs.AuthorizationError(
-            excs.ErrorCode.MISSING_CREDENTIALS, f'The API key from {where} was rejected ({detail}).'
-        )
-    raise excs.AuthorizationError(excs.ErrorCode.MISSING_CREDENTIALS, _SESSION_FAILED)
+    # No suggestion to sign in when a key was sent: a key always outranks a session, so signing in
+    # would change nothing. The key is what needs fixing.
+    message = f'The API key from {where} was rejected ({detail}).' if kind == 'api_key' else _SESSION_FAILED
+    raise excs.ExternalServiceError(
+        excs.ErrorCode.PROVIDER_AUTH_ERROR, message, provider='pixeltable_cloud', status_code=resp.status_code
+    )
 
 
 def api_call(request: Any) -> dict[str, Any]:
