@@ -191,7 +191,7 @@ dev = [
     # whisperx is disabled because it hard-pins torch 2.8 (four full versions behind at the time of this writing).
     # "whisperx>=3.8.5 ; python_version < '3.14'",
     "ollama>=0.6",
-    # "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
+    "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
     "mcp>=1.27.2",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     # fiftyone is commented out, because even the most recent versions hardcode a dependency on an insecure version
@@ -235,6 +235,12 @@ extra-dev = [
 cuda-dev = [
     # Dependencies that require CUDA.
     "vllm>=0.24"
+]
+cloud-dev = [
+    # Minimal set of dev dependencies needed to run the [cloud*] tests. This is a subset of `dev`.
+    "mistune",
+    "markitdown[pptx,docx,xlsx] ; python_version < '3.14'",
+    "spacy ; python_version < '3.14'",
 ]
 storage-sdks = [
     # Used for CI configurations that need only the storage SDKs (in addition to basic dependencies).
@@ -316,7 +322,7 @@ memory_mb = 6144
 workers = 3
 cpu = 2.0
 disk_gb = 40
-uv_options = "--no-dev"
+uv_options = "--no-dev --group cloud-dev"
 
 [tool.pyright]
 typeCheckingMode = "off"
