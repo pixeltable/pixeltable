@@ -27,13 +27,21 @@ from pixeltable_cli.client.utils import is_running
 
 from ..utils import DatabaseRoot
 
-# both the session project and the per-test one install these, so their databases share one image
-PROJECT_EXTRAS = (
-    'spacy',
-    'en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/'
-    'en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl',
-    'mistune',
-)
+_REPO_ROOT = pathlib.Path(__file__).parents[2]
+_CORPUS_DIR = pathlib.Path(__file__).parent
+
+# the directories a corpus pod ends up running: the installed package, and the project it serves
+_DEPLOYED_PATHS = ('pixeltable', 'pixeltable_cli', 'tests/pixeltable_cli')
+
+
+def _requirements_in() -> list[str]:
+    """The corpus project's dependencies apart from pixeltable, one per line, comments dropped."""
+    lines = (_CORPUS_DIR / 'requirements.in').read_text(encoding='utf-8').splitlines()
+    return [line for line in lines if line.strip() != '' and not line.startswith('#')]
+
+
+# both the corpus project and the per-test ones install these, so their databases share one image
+PROJECT_EXTRAS = tuple(_requirements_in())
 
 # the exit statuses `pxt db diff` and `pxt db update` document
 EXIT_IN_AGREEMENT = 0
@@ -291,20 +299,55 @@ def cloud_db_uri() -> str:
     return uri
 
 
-@pytest.fixture(scope='session', autouse=True)
-def _check_corpus_db(session_cli: PxtRunner) -> None:
-    """Fail the session when the CLI database no longer serves the app corpus in this directory.
+def _git(*args: str) -> str:
+    r = subprocess.run(['git', '-C', str(_REPO_ROOT), *args], capture_output=True, text=True, check=True)
+    return r.stdout.strip()
 
-    The tests resolve the corpus's udfs, which reach a pod only in the database's project archive. The
-    diff runs against this directory because `pxt db update` deploys it; only an archive op means the
-    corpus drifted, where an image op follows the client's version and says nothing about the corpus.
+
+def _pixeltable_repo(sha: str) -> str:
+    """The https url of a remote that carries sha."""
+    # '->' skips the symbolic origin/HEAD, which is a second name for a branch already listed
+    branches = [line.strip() for line in _git('branch', '-r', '--contains', sha).splitlines() if '->' not in line]
+    remotes = list(dict.fromkeys(branch.split('/', maxsplit=1)[0] for branch in branches))
+    assert len(remotes) > 0, f'{sha[:8]} is on no remote branch, and the image build fetches it; push first'
+    url = _git('remote', 'get-url', 'origin' if 'origin' in remotes else remotes[0])
+    return re.sub(r'^git@([^:]+):', r'https://\1/', url).removesuffix('.git')
+
+
+@pytest.fixture(scope='session')
+def corpus_pixeltable_pin() -> str | None:
+    """Write the corpus project's requirements.txt, pinning pixeltable to this checkout's commit.
+
+    A hosted pod speaks the management protocol to the control plane, so it has to run the pixeltable under
+    test rather than the last release. The image build runs in CodeBuild, which reaches GitHub but not this
+    machine, so the pin is a commit on a remote rather than a path here.
+
+    Returns None when no hosted database is configured, since only an image build reads this file.
+    """
+    if os.environ.get('PXTTEST_CLI_DB_URI') is None:
+        return None
+    # an untracked file sits outside the corpus project and is absent from the archive, so it is not drift
+    modified = _git('status', '--porcelain', '--untracked-files=no', '--', *_DEPLOYED_PATHS)
+    assert modified == '', f'a pod installs the commit, not this working tree; commit or stash first:\n{modified}'
+    sha = _git('rev-parse', 'HEAD')
+    pin = f'pixeltable @ git+{_pixeltable_repo(sha)}@{sha}'
+    (_CORPUS_DIR / 'requirements.txt').write_text('\n'.join([pin, *_requirements_in()]) + '\n', encoding='utf-8')
+    return pin
+
+
+@pytest.fixture(scope='session', autouse=True)
+def _check_corpus_db(session_cli: PxtRunner, corpus_pixeltable_pin: str | None) -> None:
+    """Fail the session when the CLI database serves neither this app corpus nor this commit's pixeltable.
+
+    The tests resolve the corpus's udfs, which reach a pod only in the database's project archive, and a
+    pod runs the pixeltable that corpus_pixeltable_pin just wrote into requirements.txt. The diff runs
+    against this directory because `pxt db update` deploys it.
     """
     uri = os.environ.get('PXTTEST_CLI_DB_URI')
     if uri is None:
         return
-    project = pathlib.Path(__file__).parent
-    stale = [op for op in db_diff(session_cli, project, uri)['ops'] if op['target'] == 'archive']
-    assert not stale, f'{uri} is out of date; run `pxt db update {uri}` in {project}: {stale}'
+    pending = [op for op in db_diff(session_cli, _CORPUS_DIR, uri)['ops'] if op['target'] in ('archive', 'image')]
+    assert not pending, f'{uri} is out of date; run `pxt db update {uri}` in {_CORPUS_DIR}: {pending}'
 
 
 @pytest.fixture

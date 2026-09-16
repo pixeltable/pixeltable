@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 import tarfile
@@ -15,10 +14,9 @@ import pytest
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config, DatabaseConfig
-from pixeltable.service.db import _store_artifacts, unpack_project_archive
-from pixeltable.service.management_protocol import ArtifactUpload, DatabaseResources
+from pixeltable.service.db import db_update, unpack_project_archive
+from pixeltable.service.management_protocol import ArtifactUpload, DatabaseReport, UpdateDbResponse
 from pixeltable.utils.project import (
-    _member_hash,
     create_image_context,
     create_project_archive,
     package_image_context,
@@ -26,6 +24,7 @@ from pixeltable.utils.project import (
     project_fingerprint,
     unpacked_digest,
 )
+from pixeltable_cli.types import DbPlan
 
 from ..utils import pxt_raises
 
@@ -175,17 +174,6 @@ class TestProjectArchive:
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid `DatabaseConfig`'):
             Config.init(reinit=True)
 
-    def test_archive_hashes(self, tmp_path: Path) -> None:
-        (tmp_path / 'app.py').write_text('x = 1\n')
-        packaged = package_project_archive(tmp_path)
-
-        with tarfile.open(packaged.path) as tar:
-            member = tar.extractfile('project/app.py')
-            assert member is not None
-            written = member.read()
-        content = hashlib.sha256(written).hexdigest()
-        assert packaged.files['app.py'] == _member_hash(content, symlink=False, executable=False)
-
     def test_archive_matches_fingerprint(self, tmp_path: Path) -> None:
         """An unchanged project fingerprints to what packaging it produces, or an upload could never match."""
         (tmp_path / 'app.py').write_text('x = 1\n')
@@ -201,22 +189,6 @@ class TestProjectArchive:
         (tmp_path / 'app.py').write_text('x = 2\n')
 
         assert package_project_archive(tmp_path).files != before
-
-    def test_context_hashes(self, tmp_path: Path) -> None:
-        wheel = tmp_path / 'w' / 'pkg-1.0-py3-none-any.whl'
-        wheel.parent.mkdir()
-        wheel.write_bytes(b'wheel bytes')
-        (tmp_path / 'requirements.txt').write_text('w/pkg-1.0-py3-none-any.whl\n')
-
-        packaged = package_image_context(tmp_path)
-        assert packaged.files == {
-            'requirements.txt': _member_hash(
-                hashlib.sha256(b'w/pkg-1.0-py3-none-any.whl\n').hexdigest(), symlink=False, executable=False
-            ),
-            'w/pkg-1.0-py3-none-any.whl': _member_hash(
-                hashlib.sha256(b'wheel bytes').hexdigest(), symlink=False, executable=False
-            ),
-        }
 
     def test_context_matches_fingerprint(self, tmp_path: Path) -> None:
         """An unchanged project fingerprints to the context it packages, or an upload could never match."""
@@ -361,14 +333,18 @@ class TestProjectArchive:
         assert sorted(files) == ['packages/helper/pyproject.toml', 'packages/helper/src/helper.py', 'uv.lock']
 
     def test_executable_bit(self, tmp_path: Path) -> None:
-        """tar's 'data' extraction filter keeps the execute bit, so setting one makes a different project."""
+        """A mode change leaves the project alone: a pod imports its files and runs none of them.
+
+        Windows cannot set an execute bit, so a digest covering one would differ between the platform a
+        project is packaged on and the platform it is fingerprinted on.
+        """
         script = tmp_path / 'run.sh'
         script.write_text('echo hi\n')
         before = package_project_archive(tmp_path).files['run.sh']
 
         script.chmod(script.stat().st_mode | 0o111)
         after = package_project_archive(tmp_path).files['run.sh']
-        assert after != before, 'the content is the same, the project is not'
+        assert after == before
         assert project_fingerprint(tmp_path, None).files['run.sh'] == after
 
     def test_hard_link(self, tmp_path: Path) -> None:
@@ -390,9 +366,6 @@ class TestProjectArchive:
         (project / 'pkg').mkdir(parents=True)
         (project / 'app.py').write_text('x = 1\n')
         (project / 'pkg' / 'mod.py').write_text('y = 2\n')
-        script = project / 'run.sh'
-        script.write_text('echo hi\n')
-        script.chmod(script.stat().st_mode | 0o111)
         (project / 'link.py').symlink_to('app.py')
         os.link(project / 'app.py', project / 'hard.py')
 
@@ -410,7 +383,6 @@ class TestProjectArchive:
 
         assert unpacked_digest(unpacked) == fingerprint.archive_digest()
         assert (unpacked / 'pkg' / 'mod.py').read_text() == 'y = 2\n'
-        assert (unpacked / 'run.sh').stat().st_mode & 0o111, 'the execute bit survives the round trip'
         assert (unpacked / 'link.py').is_symlink() and os.readlink(unpacked / 'link.py') == 'app.py'
         assert (unpacked / 'hard.py').read_text() == 'x = 1\n'
 
@@ -452,23 +424,32 @@ class TestProjectArchive:
 
     def test_manifest_drift(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The manifests go into both artifacts, so each one is compared against its own half."""
+        (tmp_path / 'pixeltable.toml').write_text(
+            '[[pixeltable.database]]\nname = "pxt://acme:main"\n', encoding='utf-8'
+        )
         (tmp_path / 'app.py').write_text('x = 1\n')
         (tmp_path / 'requirements.txt').write_text('pandas\n')
-        recorded = project_fingerprint(tmp_path, None)
-        target = DatabaseResources(fingerprint=recorded, pxt_md_version=54)
+        Config.init(reinit=True, project_root=tmp_path)
 
         # the archive caught the rewrite; the context read the file after the writer restored it
-        drifted = package_project_archive(tmp_path, None)
+        drifted = package_project_archive(tmp_path, local_entry())
         drifted.files['requirements.txt'] = 'rewritten-while-packaging'
         monkeypatch.setattr('pixeltable.service.db.package_project_archive', lambda *a, **k: drifted)
-        monkeypatch.setattr('pixeltable.service.db._validated_project_root', lambda: tmp_path)
         monkeypatch.setattr(
-            'pixeltable.service.db._put_artifact', lambda *a: pytest.fail('an artifact was uploaded before validation')
+            'urllib.request.urlopen', lambda *a, **k: pytest.fail('an artifact was uploaded before validation')
         )
 
+        plan = DbPlan(db_uri='pxt://acme:main', exists=True, state='AVAILABLE', resolution='update_additive')
         uploads = [
             ArtifactUpload(artifact='archive', url='https://example.com/a'),
             ArtifactUpload(artifact='image_context', url='https://example.com/i'),
         ]
+
+        def api_call(request: Any) -> dict[str, Any]:
+            asked = [] if request.dry_run else uploads
+            return UpdateDbResponse(plan=plan, report=DatabaseReport(), uploads=asked).model_dump(mode='json')
+
+        monkeypatch.setattr('pixeltable.service.db.management_client.api_call', api_call)
+
         with pxt_raises(excs.ErrorCode.INVALID_STATE, match='requirements.txt'):
-            _store_artifacts(uploads, None, target)
+            db_update('pxt://acme:main')

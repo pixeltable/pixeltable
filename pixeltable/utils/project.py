@@ -172,21 +172,16 @@ class PackagedContext:
     files: dict[str, str]
 
 
-def _member_hash(content_hash: str, *, symlink: bool, executable: bool) -> str:
-    """One hash over what an unpacked project holds at a path: its bytes, its kind and its execute bit.
-
-    Ownership and timestamps are left out: two packagings of one project differ in them, and tarfile's
-    'data' extraction filter discards them. That filter preserves the execute bit, so this hash covers it.
-    """
-    return _digest({'content': content_hash, 'symlink': symlink, 'executable': executable})
+def _member_hash(content_hash: str, *, symlink: bool) -> str:
+    return _digest({'content': content_hash, 'symlink': symlink})
 
 
 def _path_hash(path: Path) -> str:
     """Read the file at path and hash it the way _add_hashed() hashes an archive member."""
     if path.is_symlink():
-        # a symlink holds a path, so the path identifies it; reading through it would hash the target
-        return _member_hash(_digest(os.readlink(path)), symlink=True, executable=False)
-    return _member_hash(_content_hash(path), symlink=False, executable=bool(path.stat().st_mode & 0o111))
+        # a symlink stores a path, so that path identifies it; reading through it would hash the target
+        return _member_hash(_digest(os.readlink(path)), symlink=True)
+    return _member_hash(_content_hash(path), symlink=False)
 
 
 def _add_hashed(tf: tarfile.TarFile, path: Path, arcname: str) -> str:
@@ -194,16 +189,16 @@ def _add_hashed(tf: tarfile.TarFile, path: Path, arcname: str) -> str:
     info = tf.gettarinfo(path, arcname=arcname)
     if info.issym():
         tf.addfile(info)
-        return _member_hash(_digest(info.linkname), symlink=True, executable=False)
+        return _member_hash(_digest(info.linkname), symlink=True)
     if info.islnk():
         # gettarinfo() writes a second path to one inode as a hard link, which extracts as a regular
-        # file holding the same bytes; the member itself holds no content
+        # file with the same bytes; the member itself carries no content
         tf.addfile(info)
-        return _member_hash(_content_hash(path), symlink=False, executable=bool(info.mode & 0o111))
+        return _member_hash(_content_hash(path), symlink=False)
     with path.open('rb') as raw:
         reader = _HashingReader(raw)
         tf.addfile(info, reader)
-    return _member_hash(reader.hexdigest(), symlink=False, executable=bool(info.mode & 0o111))
+    return _member_hash(reader.hexdigest(), symlink=False)
 
 
 def create_project_archive(
