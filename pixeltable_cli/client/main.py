@@ -37,6 +37,9 @@ COMMANDS: dict[str, str] = {
     'service': 'run the services defined in an application file (diff/update/run/prune/stop/list/logs/check/example)',
     'org': 'manage organizations (list/status)',
     'secret': 'manage the secrets an org or database holds (list/set/delete)',
+    'login': 'sign in to Pixeltable Cloud in a browser (no API key needed)',
+    'logout': 'forget the cached session',
+    'whoami': 'show who this machine is signed in as',
 }
 
 

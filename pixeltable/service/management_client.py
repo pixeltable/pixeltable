@@ -6,6 +6,7 @@ Callers pass a request model from management_protocol and get back the raw respo
 from __future__ import annotations
 
 import http.cookiejar
+import os
 from typing import Any
 
 import requests
@@ -14,6 +15,7 @@ from requests.adapters import HTTPAdapter, Retry
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.service import auth, credentials
 from pixeltable.service.management_protocol import ManagementOperationType
 
 _DEFAULT_API_URL = 'https://internal-api.pixeltable.com'
@@ -72,8 +74,80 @@ def _new_session() -> requests.Session:
 _SESSION = _new_session()
 
 
+def credential(purpose: str) -> str:
+    """The credential to present for `purpose`: an API key if one is set, else a `pxt login` session.
+
+    The key wins when both are present. It is the explicit choice -- set in the environment or the
+    config file, and what CI uses -- so an ambient browser session must not quietly take precedence
+    over it.
+
+    Returned as a bare string because every consumer sends it differently -- a header for the
+    control plane, a CONNECT frame for the tunnel -- and because the sidecar tells the two apart by
+    shape (a JWT has two dots; a WorkOS API key never does), so neither needs to be told which it got.
+    """
+    api_key = Env.get().pxt_api_key
+    if api_key is not None:
+        return api_key
+    try:
+        token = auth.access_token(api_url())
+    except auth.AuthError as e:
+        raise excs.AuthorizationError(
+            excs.ErrorCode.MISSING_CREDENTIALS, f'Your Pixeltable session could not be renewed ({e}). Run `pxt login`.'
+        ) from e
+    if token is None:
+        raise excs.AuthorizationError(
+            excs.ErrorCode.MISSING_CREDENTIALS,
+            f'A Pixeltable API key or sign-in is required to {purpose}. '
+            'Run `pxt login`, or set a key with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
+            f'or add `api_key = "your-key"` to the `[pixeltable]` section in {Config.get().config_file}.\n'
+            'For details, see https://docs.pixeltable.com/platform/configuration',
+        )
+    return token
+
+
+def credential_header(purpose: str) -> dict[str, str]:
+    """How to send that credential. One place decides, so no caller has to know which kind it got."""
+    cred = credential(purpose)
+    return {'Authorization': f'Bearer {cred}'} if cred.count('.') == 2 else {'X-api-key': cred}
+
+
 def _api_headers() -> dict[str, str]:
-    return {'Content-Type': 'application/json', 'X-api-key': Env.get().require_api_key()}
+    return {'Content-Type': 'application/json', **credential_header('reach Pixeltable Cloud')}
+
+
+def credential_source() -> tuple[str, str]:
+    """Which credential this client will send, and where it came from.
+
+    Reported rather than inferred because the two are easy to confuse: an API key set once in the
+    config file silently outranks a session created seconds ago, and the resulting failure names
+    neither.
+    """
+    if os.environ.get('PIXELTABLE_API_KEY'):
+        return 'api_key', 'the PIXELTABLE_API_KEY environment variable'
+    if Env.get().pxt_api_key is not None:
+        return 'api_key', f'api_key in {Config.get().config_file}'
+    if credentials.load(api_url()) is not None:
+        return 'session', f'your `pxt login` session for {api_url()}'
+    return 'none', 'nothing'
+
+
+def _raise_unauthorized(resp: Any) -> None:
+    """Turn a 401 into an error that names the credential that failed, and the alternative.
+
+    The bare message is indistinguishable between "your key is wrong" and "your key is wrong and the
+    session you just created is being ignored", which is the case that strands people.
+    """
+    kind, where = credential_source()
+    detail = resp.text.strip()
+    if kind == 'api_key' and credentials.load(api_url()) is not None:
+        raise excs.AuthorizationError(
+            excs.ErrorCode.MISSING_CREDENTIALS,
+            f'The API key from {where} was rejected ({detail}). A `pxt login` session for '
+            f'{api_url()} is also available -- remove that API key to use it.',
+        )
+    raise excs.AuthorizationError(
+        excs.ErrorCode.MISSING_CREDENTIALS, f'Rejected the credential from {where} ({detail}).'
+    )
 
 
 def api_call(request: Any) -> dict[str, Any]:
@@ -92,6 +166,8 @@ def api_call(request: Any) -> dict[str, Any]:
         if op_str not in _READ_OPS:
             raise
         resp = _SESSION.post(api_url(), data=body, headers=_api_headers(), timeout=timeout)
+    if resp.status_code == 401:
+        _raise_unauthorized(resp)
     if resp.status_code not in (200, 201):
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
