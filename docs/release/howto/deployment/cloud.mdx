@@ -106,7 +106,7 @@ holds, and the CPU, memory, disk, and worker counts. See the
 | A column or a table in `app.py` | `pxt db update`, then `pxt schema update`, then `pxt service update` |
 | A dependency, the Python version, a system package | `pxt db update`: the image rebuilds |
 | `cpu`, `memory_mb`, `disk_gb`, or `workers` | `pxt db update`: one resize, pods restart once |
-| A secret | `pxt secret set pxt://org:mydb KEY=...`, then cycle the pods so they read it ([`pxt secret`](/platform/cli#pxt-secret)) |
+| A secret | `pxt secret set pxt://org:mydb KEY=...`, then `pxt db restart pxt://org:mydb` so the pods read it |
 | Nothing, but the last build failed | `pxt db build-image` forces a rebuild |
 
 `pxt db diff pxt://org:mydb` prints what `update` would do without doing it.
@@ -118,6 +118,7 @@ pxt db status pxt://org:mydb     # state, endpoint, location
 pxt db logs   pxt://org:mydb     # the database pod's log
 pxt service list pxt://org:mydb  # the services running there, and their URLs
 pxt service logs ingest          # one service's log
+pxt db restart pxt://org:mydb    # cycle the pods onto what they already run
 pxt db stop   pxt://org:mydb     # sleep: stops the pods, keeps the data
 pxt db start  pxt://org:mydb     # wake it again
 pxt db list                      # every hosted database your key reaches
