@@ -91,8 +91,8 @@ class DatabaseConfig(pydantic.BaseModel):
 # the entry in [[pixeltable.database]] that configures the local database
 LOCAL_DATABASE = 'local'
 
-# the settings a [[pixeltable.database]] entry sets for its database, as the section and key of the lookup that
-# reads each one; the entry's field has the key's name
+# the settings a [[pixeltable.database]] entry can override, as the (section, key) that get_value() reads them
+# under; the entry field of each has the same name as the key
 _DATABASE_SETTINGS = {
     ('pixeltable', 'input_media_dest'),
     ('pixeltable', 'output_media_dest'),
@@ -341,6 +341,9 @@ class Config:
     # the directory holding the project config file, or None when there is no project
     __project_root: Path | None
 
+    # database name -> field or 'vars.<name>' binding -> the file that supplied it
+    __database_sources: dict[str, dict[str, Path | None]]
+
     def __init__(
         self, config_overrides: dict[str, Any], project_root: Path | _Unspecified | None = _UNSPECIFIED
     ) -> None:
@@ -370,7 +373,7 @@ class Config:
         self.__reported_env_vars = set()
         self.__config_file = Path(self.lookup_env('pixeltable', 'config', str(self.__home / 'config.toml')))
         self.__project_config_file = self.__resolve_project_config_file()
-        self.__database_sources: dict[str, dict[str, Path | None]] = {}
+        self.__database_sources = {}
         self.__config_dict = self.__load_user_config()
         self.__stamp = self.__file_stamp()
         self.__warn_about_miscased_env_vars()
