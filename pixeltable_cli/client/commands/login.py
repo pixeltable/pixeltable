@@ -1,7 +1,9 @@
 """`pxt login|logout|whoami` - sign in to Pixeltable Cloud without an API key.
 
-`pxt login` shows a code, you approve it in a browser, and the session lands on this machine. Every
-later command reuses it, renewing silently, so an API key is optional rather than a prerequisite.
+`pxt login` shows a code, you approve it in a browser, and the session lands on this machine. It
+does not care whether that took a sign-in or a whole sign-up: it waits for the browser to finish and
+returns a session you can use. Every later command reuses it, renewing silently, so an API key is
+optional rather than a prerequisite.
 """
 
 from __future__ import annotations
@@ -9,12 +11,20 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
+import webbrowser
+from typing import Optional
 
 from pixeltable.service import auth, credentials, management_client
 from pixeltable.service.auth import AuthError
 from pixeltable.service.management_client import api_url
+from pixeltable.service.management_protocol import ListOrgsRequest, ListOrgsResponse
 
 from ..parser import Parser
+
+# Sign-up runs at human speed -- an email to verify, a name to choose -- so the wait is generous.
+_SETUP_TIMEOUT_S = 900.0
+_SETUP_POLL_S = 3.0
 
 EPILOG = """\
 Examples:
@@ -95,14 +105,42 @@ def run_whoami(argv: list[str]) -> None:
 def _login(args: argparse.Namespace) -> None:
     url = api_url()
     session = auth.device_login(url, open_browser=not args.no_browser)
+    if not session.organization_id:
+        session = _wait_for_organization(url, open_browser=not args.no_browser)
 
     if args.json_output:
         print(json.dumps({'api_url': url, 'email': session.email, 'organization_id': session.organization_id}))
         return
-
     print(f'Signed in as {session.email or "(unknown)"} on {url}.')
-    if not session.organization_id:
-        # Signing in is not the same as having somewhere to work. Said here, once, rather than as an
-        # unexplained failure on whatever command comes next.
-        dashboard = auth.auth_config(url).get('login_url') or 'the dashboard'
-        print(f'You have no organization yet. Create one at {dashboard}, then run `pxt login` again.')
+
+
+def _first_ready_org(url: str) -> Optional[str]:
+    """The caller's organization once it is usable, or None while it is still being created.
+
+    default_db is the readiness signal: an organization exists here only after its first database
+    does, and a token scoped to one without it would fail on the next command.
+    """
+    response = ListOrgsResponse(**management_client.api_call(ListOrgsRequest()))
+    ready = [org for org in response.orgs if org.default_db]
+    return ready[0].org_id if ready else None
+
+
+def _wait_for_organization(url: str, open_browser: bool) -> credentials.Session:
+    """Wait out the rest of a sign-up, then scope the session to what it created.
+
+    Approving the device code only proves who you are. A first-time account has no organization
+    until the dashboard has made one, and `pxt login` promises a session that works, so it waits
+    rather than handing back one that does not.
+    """
+    dashboard = str(auth.auth_config(url).get('login_url') or '')
+    print(f'Finishing setup at {dashboard}')
+    if open_browser and dashboard:
+        webbrowser.open(dashboard)
+
+    deadline = time.time() + _SETUP_TIMEOUT_S
+    while time.time() < deadline:
+        org_id = _first_ready_org(url)
+        if org_id is not None:
+            return auth.authorize_org(url, org_id)
+        time.sleep(_SETUP_POLL_S)
+    raise AuthError('timed out waiting for your organization to be created')

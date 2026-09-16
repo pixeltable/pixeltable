@@ -1,11 +1,13 @@
 """Signing in with a device code, and keeping that session alive across commands."""
 
 import base64
+import contextlib
 import email.message
 import io
 import json
 import pathlib
 import time
+import types
 import urllib.error
 from typing import Any
 
@@ -191,6 +193,22 @@ class TestRefresh:
 
         assert auth.refresh(_API, _session(logged_in_at=signed_in_at)).logged_in_at == signed_in_at
 
+    def test_it_can_scope_the_token_to_an_organization(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """How a session signed in before its organization existed picks it up."""
+        calls = _posting(monkeypatch, {**_GRANTED, 'organization_id': 'org_01NEW'})
+        credentials.save(_API, _session())
+
+        assert auth.authorize_org(_API, 'org_01NEW').organization_id == 'org_01NEW'
+        assert calls.seen[0][1]['organization_id'] == 'org_01NEW'
+
+    def test_a_plain_renewal_asks_for_no_organization(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """WorkOS keeps the one the session already had; naming it here could only narrow it."""
+        calls = _posting(monkeypatch, _GRANTED)
+
+        auth.refresh(_API, _session())
+
+        assert 'organization_id' not in calls.seen[0][1]
+
     def test_a_session_with_nothing_renewable_is_reported(self) -> None:
         with pytest.raises(auth.AuthError, match='cannot be renewed'):
             auth.refresh(_API, _session(refresh_token=None))
@@ -282,6 +300,15 @@ class TestErrorsAreLegible:
 
         with pytest.raises(auth.AuthError, match='504'):
             auth._post_form('/x', {})
+
+    def test_a_200_that_is_not_json_is_not_a_traceback(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An environment too old to serve discovery answers 200 with nothing in it."""
+
+        empty = contextlib.nullcontext(types.SimpleNamespace(read=lambda: b''))
+        monkeypatch.setattr(auth.urllib.request, 'urlopen', lambda *a, **k: empty)
+
+        with pytest.raises(auth.AuthError, match='did not answer with JSON'):
+            auth.auth_config('https://api.example.com')
 
     def test_an_unreachable_host_is_not_a_traceback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._raising(monkeypatch, OSError('name resolution failed'))

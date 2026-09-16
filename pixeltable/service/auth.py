@@ -53,7 +53,13 @@ def _request(url: str, data: Optional[bytes] = None, content_type: str = '') -> 
     req = urllib.request.Request(url, data=data, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
-            return json.loads(resp.read().decode())
+            body = resp.read()
+        try:
+            return json.loads(body)
+        except ValueError as e:
+            # A 200 that is not JSON means something other than what we asked for answered -- an
+            # environment too old to serve this, or a proxy in front of it.
+            raise AuthError(f'{url} did not answer with JSON; is this environment up to date?') from e
     except urllib.error.HTTPError as e:
         try:
             payload = json.loads(e.read().decode())
@@ -168,14 +174,22 @@ def _poll_for_approval(device_code: str, client_id: str, expires_in: float, inte
     raise AuthError('the code expired before it was confirmed')
 
 
-def refresh(api_url: str, session: Session) -> Session:
-    """Exchange the refresh token for a fresh one, persist the result, and return it."""
+def refresh(api_url: str, session: Session, organization_id: str = '') -> Session:
+    """Exchange the refresh token for a fresh one, persist the result, and return it.
+
+    `organization_id` scopes the new token to that organization; without it WorkOS keeps whichever
+    the session already had, which for an account that had none is still none.
+    """
     if not session.can_refresh():
         raise AuthError('this session cannot be renewed')
-    payload = _post_form(
-        _TOKEN_PATH,
-        {'grant_type': 'refresh_token', 'refresh_token': session.refresh_token or '', 'client_id': session.client_id},
-    )
+    fields = {
+        'grant_type': 'refresh_token',
+        'refresh_token': session.refresh_token or '',
+        'client_id': session.client_id,
+    }
+    if organization_id:
+        fields['organization_id'] = organization_id
+    payload = _post_form(_TOKEN_PATH, fields)
     renewed = _session_from(payload, session.client_id, logged_in_at=session.logged_in_at)
     if not renewed.email:
         renewed.email = session.email
@@ -200,3 +214,11 @@ def access_token(api_url: str) -> Optional[str]:
     if session.is_usable():
         return session.access_token
     return refresh(api_url, session).access_token
+
+
+def authorize_org(api_url: str, org_id: str) -> Session:
+    """Re-mint the cached session scoped to `org_id`. For an account that has just acquired one."""
+    session = credentials.load(api_url)
+    if session is None:
+        raise AuthError('not signed in')
+    return refresh(api_url, session, organization_id=org_id)
