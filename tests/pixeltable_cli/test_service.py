@@ -5,7 +5,9 @@ import shutil
 import socket
 import time
 from textwrap import dedent
+from types import SimpleNamespace
 from typing import Any, Callable, ClassVar, Iterator
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -13,6 +15,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable.config import Config
+from pixeltable_cli.client.commands import service as service_cmd
 
 from ..conftest import SampleFileServer
 from ..utils import (
@@ -1151,6 +1154,8 @@ class TestHostedService:
     pytestmark: ClassVar = [
         pytest.mark.remote_api,
         pytest.mark.expensive,
+        # cloud_e2e: this drives a hosted database, which needs a Pixeltable API key; CI has none
+        pytest.mark.cloud_e2e,
         pytest.mark.db_roots(
             'local', reason='pxt service acts on a hosted database, not on the catalog a test runs against'
         ),
@@ -1187,3 +1192,25 @@ class TestHostedService:
         stopped = service_list(cli, project, current_db)['ingest']
         assert stopped['state'] == 'STOPPED', stopped
         assert not service_diff(cli, project, app_file, current_db)['in_agreement']
+
+
+class TestServiceOtel:
+    @pytest.mark.otel
+    @pytest.mark.db_roots('local', reason='run() is patched out, so it reaches no catalog')
+    def test_run_otel(self, tmp_path: pathlib.Path) -> None:
+        """--otel resolves the instrumentation package and wires init()/instrument_fastapi() into run."""
+        skip_test_if_not_installed('fastapi', 'uvicorn', 'opentelemetry.instrumentation.pixeltable')
+        app_file = tmp_path / 'app.py'
+        app_file.write_text('', encoding='utf-8')  # the app it declares is patched out below
+        app = SimpleNamespace(routes=[])  # stands in for the FastAPI app, which run() counts the routes of
+
+        with (
+            patch('pixeltable.serving._app.create_app', return_value=(app, {})),
+            patch('uvicorn.run') as mock_run,
+            patch('opentelemetry.instrumentation.pixeltable.init') as mock_otel_init,
+            patch('opentelemetry.instrumentation.pixeltable.instrument_fastapi') as mock_instrument_fastapi,
+        ):
+            service_cmd.run(['run', str(app_file), 'my_dir', 'ingest', '--otel'])
+        mock_otel_init.assert_called_once_with()
+        mock_instrument_fastapi.assert_called_once_with(app)
+        mock_run.assert_called_once()
