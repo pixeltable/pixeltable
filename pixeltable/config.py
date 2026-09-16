@@ -75,7 +75,8 @@ class DatabaseConfig(pydantic.BaseModel):
         # moves the db_<key> keys of a parsed entry into `settings`, so they validate against DatabaseSetting
         if not isinstance(data, dict):
             return data
-        settings = {key: data.pop(key) for key in list(data) if key in DatabaseSetting}
+        values = {setting.value for setting in DatabaseSetting}
+        settings = {key: data.pop(key) for key in list(data) if key in values}
         if settings:
             data['settings'] = {**data.get('settings', {}), **settings}
         return data
