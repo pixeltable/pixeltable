@@ -319,10 +319,24 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
         proxy_daemon.stop(db)
 
 
+# tests here and tests in the CLI package run against separate hosted databases, so each package has its
+# own axis and its own variable
+_CLI_TESTS_DIR = pathlib.Path(__file__).parent / 'pixeltable_cli'
+_CORE_CLOUD_AXIS = ('cloud', 'PXTTEST_CLOUD_DB_URI')
+_CLI_CLOUD_AXIS = ('cloud-cli', 'PXTTEST_CLI_DB_URI')
+
+
+def _cloud_axis(test_file: pathlib.Path) -> tuple[str, str]:
+    """The cloud axis id for a test in test_file, and the variable that enables it."""
+    return _CLI_CLOUD_AXIS if test_file.is_relative_to(_CLI_TESTS_DIR) else _CORE_CLOUD_AXIS
+
+
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Drive the catalog-backend and data-versioning axes.
 
-    db_root: any test that (transitively) reaches db_root runs against 'local', 'proxy', and 'cloud'.
+    db_root: any test that (transitively) reaches db_root runs against 'local', 'proxy', and the cloud axis
+    of the package it is in. A db_roots marker names that axis 'cloud' wherever the test lives, so it always
+    selects the database serving that test's project.
 
     is_data_versioned: any test that (transitively) reaches is_data_versioned runs against both a
     data-versioned and an operational table.
@@ -352,11 +366,13 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         else:
             params = ('local', 'proxy', 'cloud')  # Default is all three targets
 
-        # each package's cloud fixture reads its own variable; either one turns the axis on
-        if os.environ.get('PXTTEST_CLOUD_DB_URI') is None and os.environ.get('PXTTEST_CLI_DB_URI') is None:
-            # If neither db URI is set, skip generating any cloud tests. We short-circuit them here rather
+        cloud_axis, cloud_db_var = _cloud_axis(metafunc.definition.path)
+        if os.environ.get(cloud_db_var) is None:
+            # If the db URI is not set, skip generating any cloud tests. We short-circuit them here rather
             # than later via pytest.skip(), for performance reasons.
             params = tuple(p for p in params if p != 'cloud')
+        else:
+            params = tuple(cloud_axis if p == 'cloud' else p for p in params)
 
         if params != ('local',):
             # If the only target is 'local', then don't parameterize at all; just leave the nodeid alone.
@@ -391,7 +407,7 @@ def db_root(
     Parameterized variant of uses_db: runs a test against any or all of:
     - the in-process catalog
     - a local proxy daemon instance
-    - a cloud-hosted database (if PXTTEST_CLOUD_DB_URI is set)
+    - the hosted database of this test's package (if that package's db URI variable is set)
 
     Yields a path-builder mapping a bare path to the active catalog: the identity for local, and the bare
     path prefixed with the daemon's pxt:// uri for proxy (with an empty path mapping to the catalog root).
@@ -416,7 +432,7 @@ def db_root(
             proxy_daemon.reinitialize(db)
             yield DatabaseRoot('proxy', f'pxt://local:{db}')
 
-        case 'cloud':
+        case 'cloud' | 'cloud-cli':
             base_uri = request.getfixturevalue('cloud_db_uri')
             test_dir = uuid.uuid4().hex
             prefix = f'{base_uri}/test_{test_dir}'
