@@ -59,11 +59,6 @@ _REQUEST_TIMEOUT = 30.0
 # where the cloud axis's database entry sends inserted media, under its home bucket
 _INPUT_MEDIA_PREFIX = 'entry-input'
 
-_SPACY_MODEL = (
-    'en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/'
-    'en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl'
-)
-
 
 @pytest.fixture(scope='module')
 def hosted_db(session_cli: PxtRunner, session_project: pathlib.Path) -> Iterator[str]:
