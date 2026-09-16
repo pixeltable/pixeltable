@@ -27,8 +27,8 @@ def _session(**kw: Any) -> credentials.Session:
     base = {
         'access_token': 'at',
         'expires_at': time.time() + 3600,
-        'sealed_session': 'sealed',
-        'login_url': 'https://acme.app.pixeltable.com',
+        'refresh_token': 'rt',
+        'client_id': 'client_01TEST',
         'logged_in_at': time.time(),
     }
     return credentials.Session(**{**base, **kw})
@@ -43,7 +43,7 @@ class TestRoundTrip:
         loaded = credentials.load(_PROD)
 
         assert loaded is not None
-        assert (loaded.access_token, loaded.sealed_session, loaded.email) == ('at', 'sealed', 'a@b.c')
+        assert (loaded.access_token, loaded.refresh_token, loaded.email) == ('at', 'rt', 'a@b.c')
 
     def test_environments_do_not_share_a_session(self) -> None:
         """A prod token presented to a sandbox is the failure this keying exists to prevent."""
@@ -77,9 +77,9 @@ class TestExpiry:
         now = time.time()
         assert _session(expires_at=now + 120).expires_in(now) == pytest.approx(120, abs=1)
 
-    def test_a_session_without_a_sealed_session_cannot_renew(self) -> None:
-        assert not _session(sealed_session=None).can_refresh()
-        assert not _session(login_url='').can_refresh()
+    def test_a_session_without_a_refresh_token_cannot_renew(self) -> None:
+        assert not _session(refresh_token=None).can_refresh()
+        assert not _session(client_id='').can_refresh()
         assert _session().can_refresh()
 
 

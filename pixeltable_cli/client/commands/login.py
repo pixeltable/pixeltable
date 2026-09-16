@@ -1,8 +1,7 @@
 """`pxt login|logout|whoami` - sign in to Pixeltable Cloud without an API key.
 
-`pxt login` opens the dashboard, you sign in as you normally would, and the session comes back to
-this machine. Every later command reuses it, renewing silently, so an API key is optional rather
-than a prerequisite.
+`pxt login` shows a code, you approve it in a browser, and the session lands on this machine. Every
+later command reuses it, renewing silently, so an API key is optional rather than a prerequisite.
 """
 
 from __future__ import annotations
@@ -28,14 +27,14 @@ The session is cached in your Pixeltable home directory, readable only by you, a
 for an hour after you sign in; after that, sign in again. An API key, if you have one set, is used
 in preference to it, and does not expire.
 
-Which dashboard to sign in to is answered by the control plane itself, so there is nothing to
-configure. Sign-in needs a browser on this machine; over SSH, forward the port or use an API key.
+Which WorkOS environment to sign in to is answered by the control plane itself, so there is nothing
+to configure. The browser need not be on this machine, so this works over SSH.
 """
 
 
 def run(argv: list[str]) -> None:
     parser = Parser(prog='pxt login', description='sign in to Pixeltable Cloud', epilog=EPILOG)
-    parser.add_argument('--no-browser', action='store_true', help='Print the URL instead of opening a browser')
+    parser.add_argument('--no-browser', action='store_true', help='Print the link instead of opening a browser')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
     try:
@@ -95,9 +94,15 @@ def run_whoami(argv: list[str]) -> None:
 
 def _login(args: argparse.Namespace) -> None:
     url = api_url()
-    session = auth.browser_login(url, open_browser=not args.no_browser)
+    session = auth.device_login(url, open_browser=not args.no_browser)
 
     if args.json_output:
-        print(json.dumps({'api_url': url, 'email': session.email}))
-    else:
-        print(f'Signed in as {session.email or "(unknown)"} on {url}.')
+        print(json.dumps({'api_url': url, 'email': session.email, 'organization_id': session.organization_id}))
+        return
+
+    print(f'Signed in as {session.email or "(unknown)"} on {url}.')
+    if not session.organization_id:
+        # Signing in is not the same as having somewhere to work. Said here, once, rather than as an
+        # unexplained failure on whatever command comes next.
+        dashboard = auth.auth_config(url).get('login_url') or 'the dashboard'
+        print(f'You have no organization yet. Create one at {dashboard}, then run `pxt login` again.')

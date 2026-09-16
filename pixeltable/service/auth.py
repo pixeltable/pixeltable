@@ -1,53 +1,56 @@
 """Signing in from the CLI, and keeping that session alive.
 
-`pxt login` opens the dashboard in a browser and gets the result back on a loopback listener. The
-CLI cannot finish a WorkOS sign-in itself: that needs the WorkOS API key, which a distributed binary
-must never hold, so the dashboard hands over the session instead. What it hands over is a sealed
-session -- WorkOS exposes no raw refresh token -- which renews silently until MAX_SESSION_AGE_S.
+`pxt login` uses the OAuth device authorization grant (RFC 8628): the CLI asks WorkOS for a code,
+you approve it in a browser, and the CLI polls until you have. Nothing secret travels through a URL,
+and the CLI holds its own refresh token rather than a copy of the browser's session, so renewing on
+one side cannot invalidate the other. Renewal is silent until MAX_SESSION_AGE_S.
 """
 
 from __future__ import annotations
 
 import base64
 import binascii
-import http.server
 import json
-import secrets
-import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
-from typing import Any, ClassVar, Optional
+from typing import Any, Optional
 
 from pixeltable.service import credentials
 from pixeltable.service.credentials import Session
 
-# Where a control plane says which dashboard signs people in to it. Unauthenticated by necessity.
+# Where a control plane says which WorkOS environment signs people in to it. Unauthenticated by
+# necessity: a caller needs it before it can authenticate.
 _AUTH_CONFIG_PATH = '/.well-known/pixeltable-auth'
-_CLI_LOGIN_PATH = '/api/auth/cli'
-_CLI_TOKEN_PATH = '/api/auth/cli/token'
+
+# One WorkOS API for every environment; the client id is what tells them apart.
+_WORKOS_API = 'https://api.workos.com'
+_DEVICE_AUTH_PATH = '/user_management/authorize/device'
+_TOKEN_PATH = '/user_management/authenticate'
+_DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
 
 _TIMEOUT_S = 30.0
-# Long enough to cover a first-time sign-up: creating an account, verifying email and naming an
-# organization all happen before the browser comes back.
+# A ceiling on polling. WorkOS sets the real deadline in expires_in, which is usually shorter.
 _LOGIN_TIMEOUT_S = 600.0
-# 256 bits: the state proves a callback answers this login, not another local process's.
-_STATE_BYTES = 32
 
 
 class AuthError(Exception):
-    """Sign-in could not proceed. Carries the OAuth `error` code when the server supplied one."""
+    """Sign-in could not proceed. Carries the OAuth `error` code when the server supplied one.
+
+    The code is what separates "keep polling" from "this failed", so it is kept apart from the text.
+    """
 
     def __init__(self, message: str, code: str = '') -> None:
         super().__init__(message)
         self.code = code
 
 
-def _get_json(url: str, headers: Optional[dict[str, str]] = None, data: Optional[bytes] = None) -> dict[str, Any]:
+def _request(url: str, data: Optional[bytes] = None, content_type: str = '') -> dict[str, Any]:
     """Fetch JSON. An error body becomes an AuthError; a bare HTTPError would discard it."""
-    req = urllib.request.Request(url, data=data, headers=headers or {})
+    headers = {'Content-Type': content_type} if content_type else {}
+    req = urllib.request.Request(url, data=data, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
             return json.loads(resp.read().decode())
@@ -63,16 +66,22 @@ def _get_json(url: str, headers: Optional[dict[str, str]] = None, data: Optional
         raise AuthError(f'could not reach {url}: {e}') from e
 
 
+def _post_form(path: str, fields: dict[str, str]) -> dict[str, Any]:
+    """POST to WorkOS. Form-encoded, and with no client secret: the CLI is a public client."""
+    body = urllib.parse.urlencode(fields).encode()
+    return _request(_WORKOS_API + path, data=body, content_type='application/x-www-form-urlencoded')
+
+
 def auth_config(api_url: str) -> dict[str, Any]:
     """How to sign in to this control plane, asked of the control plane itself."""
-    return _get_json(api_url.rstrip('/') + _AUTH_CONFIG_PATH)
+    return _request(api_url.rstrip('/') + _AUTH_CONFIG_PATH)
 
 
-def login_url_for(api_url: str) -> str:
-    url = str(auth_config(api_url).get('login_url') or '')
-    if not url:
-        raise AuthError(f'{api_url} did not say where to sign in')
-    return url.rstrip('/')
+def client_id_for(api_url: str) -> str:
+    client_id = str(auth_config(api_url).get('client_id') or '')
+    if not client_id:
+        raise AuthError(f'{api_url} did not say which sign-in client to use')
+    return client_id
 
 
 def _expiry_from(token: str, default_s: float = 300.0) -> float:
@@ -88,111 +97,91 @@ def _expiry_from(token: str, default_s: float = 300.0) -> float:
     return time.time() + default_s
 
 
-class _CallbackHandler(http.server.BaseHTTPRequestHandler):
-    """Receives the one redirect the dashboard sends back, and nothing else."""
-
-    result: ClassVar[dict[str, str]] = {}
-
-    def do_GET(self) -> None:  # BaseHTTPRequestHandler's interface names it this way
-        params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        got = {k: v[0] for k, v in params.items() if v}
-        type(self).result.update(got)
-        body = (
-            b'<html><body style="font-family:system-ui;padding:3rem">'
-            b'<h2>Signed in.</h2><p>You can close this tab and return to your terminal.</p>'
-            b'</body></html>'
-        )
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/html')
-        self.send_header('Content-Length', str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, *_args: Any) -> None:
-        """Silence the default stderr access log; the CLI prints its own progress."""
+def _number(payload: dict[str, Any], key: str, default: float) -> float:
+    """A numeric field, or the default when it is absent or unusable. `or` would reject a real 0."""
+    value = payload.get(key)
+    return float(value) if isinstance(value, (int, float)) else default
 
 
-def browser_login(api_url: str, open_browser: bool = True) -> Session:
-    """Sign in through the dashboard and cache the session. Returns it."""
-    login_url = login_url_for(api_url)
-    state = secrets.token_urlsafe(_STATE_BYTES)
-
-    # Loopback explicitly, never 0.0.0.0. Port 0 so concurrent sign-ins cannot collide.
-    handler: type[_CallbackHandler] = type('_Handler', (_CallbackHandler,), {'result': {}})
-    server = http.server.HTTPServer(('127.0.0.1', 0), handler)
-    port = server.server_address[1]
-    callback = f'http://127.0.0.1:{port}/callback'
-
-    query = urllib.parse.urlencode({'callback': callback, 'state': state})
-    target = f'{login_url}{_CLI_LOGIN_PATH}?{query}'
-
-    # Listening before the browser opens: the reply is a redirect that arrives immediately.
-    thread = threading.Thread(target=_serve_until_answered, args=(server, handler), daemon=True)
-    thread.start()
-
-    print(f'Opening {login_url} to sign in.')
-    if open_browser:
-        if not webbrowser.open(target):
-            print(f'Could not open a browser. Open this URL instead:\n  {target}')
-    else:
-        print(f'Open this URL to sign in:\n  {target}')
-
-    thread.join(timeout=_LOGIN_TIMEOUT_S)
-    server.server_close()
-
-    result = handler.result
-    if not result:
-        raise AuthError('no reply from the browser; nothing was saved. Run `pxt login` to try again.')
-    # Before anything in the payload is read: a mismatch means this reply is not ours.
-    if not secrets.compare_digest(result.get('state', ''), state):
-        raise AuthError('the sign-in reply did not match this request; nothing was saved')
-    sealed = result.get('session', '')
-    if not sealed:
-        raise AuthError(result.get('error') or 'the dashboard returned no session')
-
-    token = result.get('access_token', '')
-    session = Session(
-        access_token=token,
-        expires_at=_expiry_from(token) if token else 0.0,
-        sealed_session=sealed,
-        login_url=login_url,
-        email=result.get('email', ''),
-        logged_in_at=time.time(),
-    )
+def _session_from(payload: dict[str, Any], client_id: str, logged_in_at: float) -> Session:
+    token = str(payload.get('access_token') or '')
     if not token:
-        session = refresh(api_url, session)  # saves as a side effect
-    else:
-        credentials.save(api_url, session)
+        raise AuthError('WorkOS returned no access token')
+    user = payload.get('user') or {}
+    return Session(
+        access_token=token,
+        expires_at=_expiry_from(token),
+        refresh_token=str(payload.get('refresh_token') or ''),
+        client_id=client_id,
+        email=str(user.get('email') or ''),
+        organization_id=str(payload.get('organization_id') or ''),
+        logged_in_at=logged_in_at,
+    )
+
+
+def device_login(api_url: str, open_browser: bool = True) -> Session:
+    """Sign in by approving a code in a browser, then cache the session. Returns it."""
+    client_id = client_id_for(api_url)
+    start = _post_form(_DEVICE_AUTH_PATH, {'client_id': client_id})
+
+    user_code = str(start.get('user_code') or '')
+    device_code = str(start.get('device_code') or '')
+    verify = str(start.get('verification_uri_complete') or start.get('verification_uri') or '')
+    if not (user_code and device_code and verify):
+        raise AuthError('WorkOS did not return a device code')
+
+    print(f'Your code is {user_code}')
+    print(f'Confirm it at {verify}')
+    if open_browser and not webbrowser.open(verify):
+        print('Could not open a browser; open the link above.')
+
+    payload = _poll_for_approval(
+        device_code, client_id, _number(start, 'expires_in', 300.0), _number(start, 'interval', 5.0)
+    )
+    session = _session_from(payload, client_id, logged_in_at=time.time())
+    credentials.save(api_url, session)
     return session
 
 
-def _serve_until_answered(server: http.server.HTTPServer, handler: type[_CallbackHandler]) -> None:
-    while not handler.result:
-        server.handle_request()
+def _poll_for_approval(device_code: str, client_id: str, expires_in: float, interval: float) -> dict[str, Any]:
+    """Ask for the token until the code is approved, refused, or expires.
+
+    WorkOS names both the interval and the deadline, so neither is guessed, and `slow_down` means
+    back off rather than give up.
+    """
+    deadline = time.time() + min(expires_in, _LOGIN_TIMEOUT_S)
+    while time.time() < deadline:
+        time.sleep(interval)
+        try:
+            return _post_form(
+                _TOKEN_PATH, {'grant_type': _DEVICE_GRANT, 'device_code': device_code, 'client_id': client_id}
+            )
+        except AuthError as e:
+            if e.code == 'authorization_pending':
+                continue
+            if e.code == 'slow_down':
+                interval += 1.0
+                continue
+            if e.code == 'access_denied':
+                raise AuthError('the sign-in was refused in the browser') from e
+            raise
+    raise AuthError('the code expired before it was confirmed')
 
 
 def refresh(api_url: str, session: Session) -> Session:
-    """Exchange the sealed session for a fresh access token, persist the result, and return it."""
+    """Exchange the refresh token for a fresh one, persist the result, and return it."""
     if not session.can_refresh():
         raise AuthError('this session cannot be renewed')
-    payload = _get_json(
-        session.login_url.rstrip('/') + _CLI_TOKEN_PATH,
-        headers={'Authorization': f'Bearer {session.sealed_session}', 'Content-Type': 'application/json'},
-        data=b'{}',  # a POST: the sealed session is a credential, not something to put in a URL
+    payload = _post_form(
+        _TOKEN_PATH,
+        {'grant_type': 'refresh_token', 'refresh_token': session.refresh_token or '', 'client_id': session.client_id},
     )
-    token = str(payload.get('token') or '')
-    if not token:
-        raise AuthError('the dashboard returned no token')
-    renewed = Session(
-        access_token=token,
-        expires_at=_expiry_from(token),
-        # The dashboard rotates this on renewal; the one we sent is now spent.
-        sealed_session=str(payload.get('session') or session.sealed_session),
-        login_url=session.login_url,
-        email=session.email,
-        logged_in_at=session.logged_in_at,
-    )
-    credentials.save(api_url, renewed)  # saved before use: the old session is spent
+    renewed = _session_from(payload, session.client_id, logged_in_at=session.logged_in_at)
+    if not renewed.email:
+        renewed.email = session.email
+    # WorkOS rotates the refresh token, so the one just sent is spent: saved before the caller uses
+    # the new access token, not after.
+    credentials.save(api_url, renewed)
     return renewed
 
 

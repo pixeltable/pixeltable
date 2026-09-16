@@ -1,7 +1,7 @@
 """The session `pxt login` leaves behind, cached on this device. Modelled on the AWS CLI's SSO cache.
 
 Records are keyed by control-plane URL: a token is only valid against the one that issued it, and a
-prod session must never reach a sandbox. The file holds bearer tokens, so it is 0600 inside a 0700
+prod session must never reach a sandbox. The file holds a refresh token, so it is 0600 inside a 0700
 directory and replaced atomically. Nothing here is long-lived; an API key is that.
 """
 
@@ -34,10 +34,12 @@ class Session:
 
     access_token: str
     expires_at: float  # epoch seconds, from the token's own exp claim
-    # The renewable half: WorkOS hands out no raw refresh token, only this sealed blob.
-    sealed_session: Optional[str] = None
-    login_url: str = ''  # the dashboard that issued this session, and the only place it renews
+    refresh_token: Optional[str] = None  # rotated on every renewal
+    client_id: str = ''  # the public client this session belongs to; renewal needs it
     email: str = ''  # for `pxt whoami`; never load-bearing
+    # Which tenancy the token carries. Empty for an account that has not finished onboarding, which
+    # is worth saying plainly at sign-in rather than as a failure on the next command.
+    organization_id: str = ''
     logged_in_at: float = 0.0  # unchanged by renewal, so the deadline cannot walk forward
 
     def expires_in(self, now: Optional[float] = None) -> float:
@@ -49,7 +51,7 @@ class Session:
         return self.expires_in(now) > EXPIRY_SKEW_S
 
     def can_refresh(self) -> bool:
-        return bool(self.sealed_session and self.login_url)
+        return bool(self.refresh_token and self.client_id)
 
     def session_expires_in(self, now: Optional[float] = None) -> float:
         """Seconds until the browser is needed again. Negative once past it."""
