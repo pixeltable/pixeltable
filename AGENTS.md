@@ -294,7 +294,13 @@ Examples: [pixeltable-starter-kit](https://github.com/pixeltable/pixeltable-star
 
 - Use `pixeltable.exceptions` for custom exceptions
 - Validate inputs early and provide clear error messages
-- Use `exn.Error` for user-facing errors
+- Raise a subclass of `Error`, never `Error` itself: its `__init__` asserts
+  `raise a subclass of Error, not Error itself`. Every instance carries an `ErrorCode`, and the code
+  determines the class, so `RequestError` takes a request code and `NotFoundError` a not-found one.
+- `UserError` is the subclass for a user error with no more specific code:
+  `raise pxt.UserError(pxt.ErrorCode.GENERIC_USER_ERROR, 'message')`. Reach for a specific subclass
+  first (`RequestError`, `NotFoundError`, `AlreadyExistsError`, `AuthorizationError`,
+  `ExternalServiceError`, `ServiceUnavailableError`, `ConcurrencyError`).
 
 ## Documentation
 

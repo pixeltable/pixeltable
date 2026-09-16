@@ -1,7 +1,7 @@
 [project]
 name = "pixeltable"
 dynamic = ["version"]
-description = "Declare tables, transforms, indexes, and endpoints in one app.py. Insert a row and the transforms run."
+description = "The unified multimodal backend agents build with. Database, orchestration, and serving in one Python file."
 authors = [{ name = "Pixeltable, Inc.", email = "contact@pixeltable.com" }]
 requires-python = ">=3.11"
 readme = "README.md"
