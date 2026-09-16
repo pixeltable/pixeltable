@@ -2,7 +2,6 @@
 
 # Notebooks that are always skipped
 SKIP_NOTEBOOKS=(
-    observability                   # pixeltable[otel] extra needs opentelemetry-instrumentation-pixeltable, which is not on PyPI
     llm-tool-calling                # Relies on the user separately running an MCP server
     working-with-bfl                # [PXT-1111] Out of credits
     working-with-fabric             # [PXT-1113] Requires Microsoft Fabric environment
@@ -106,6 +105,11 @@ fi
 
 TARGET_DIR="$1"
 shift
+
+if [[ $DO_PIP_INSTALL == true ]]; then
+    # The instrumentation package is available in the source checkout, but is not yet published on PyPI.
+    SKIP_NOTEBOOKS+=(observability)
+fi
 
 echo "Target path: $TARGET_DIR"
 echo "Notebook paths: $@"
