@@ -53,7 +53,7 @@ def excerpt(text: str, n: int = 12) -> str:
 
 
 class Docs(TableModel, name='docs'):
-    doc_id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # a generated key: provided automatically on insert
+    id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # a generated key: provided automatically on insert
     title: pxt.String
     body: pxt.String | None
     title_upper = pxtf.string.upper(title)      # an assignment: computed on insert and on update
@@ -62,7 +62,10 @@ class Docs(TableModel, name='docs'):
 
 ingest = FastAPIRouter(name='ingest')
 ingest.add_insert_route(                        # POST /docs inserts and returns the computed columns
-    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.doc_id, Docs.title_upper, Docs.summary]
+    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.id, Docs.title_upper, Docs.summary]
+)
+ingest.add_update_route(                        # POST /docs/update takes id plus the new values
+    Docs, path='/docs/update', inputs=[Docs.title], outputs=[Docs.id, Docs.title_upper]
 )
 ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
 ```
@@ -78,7 +81,7 @@ URL=$(pxt service list --json | jq -r '.[0].endpoint')
 curl -X POST "$URL/docs" \
   -H 'Content-Type: application/json' \
   -d '{"title": "Hello", "body": "world"}'
-# {"doc_id":"...","title_upper":"HELLO","summary":"Hello"}
+# {"id":"...","title_upper":"HELLO","summary":"Hello"}
 ```
 
 The same file runs on Pixeltable Cloud. Create an API key in the [Cloud dashboard](https://docs.pixeltable.com/howto/deployment/cloud#get-an-api-key), set `PIXELTABLE_API_KEY`, name the database in `pixeltable.toml`, then target it by URI. `pxt db update` creates or updates the hosted database; it does not insert rows. `pxt service run` is local only and cannot target Cloud.

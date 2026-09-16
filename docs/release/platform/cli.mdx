@@ -122,7 +122,7 @@ pxt db logs   pxt://myorg:mydb   # what the database's pod logged
 
 # cloud — secrets
 pxt secret set  pxt://myorg OPENAI_API_KEY=sk-...
-pxt secret list pxt://myorg
+pxt secret list                  # the org your key reaches
 ```
 
 ## Inspection commands
@@ -956,7 +956,8 @@ List all organizations accessible to the current API key.
 #### `pxt org status`
 
 ```bash
-pxt org status pxt://myorg
+pxt org status                   # only when your key reaches exactly one org
+pxt org status pxt://myorg       # name it when your key reaches several
 ```
 
 Show the organization's name, ID, and default database.
@@ -964,6 +965,7 @@ Show the organization's name, ID, and default database.
 ### `pxt secret`
 
 ```bash
+pxt secret list                    # the org your key reaches
 pxt secret list   pxt://myorg
 pxt secret list   pxt://myorg:mydb
 pxt secret set    pxt://myorg OPENAI_API_KEY=sk-...
