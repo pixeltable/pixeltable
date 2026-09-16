@@ -199,7 +199,7 @@ def _serve_until_answered(server: http.server.HTTPServer, handler: type) -> None
 def refresh(api_url: str, session: Session) -> Session:
     """Exchange the sealed session for a fresh access token, persist the result, and return it."""
     if not session.can_refresh():
-        raise AuthError('it cannot be renewed')
+        raise AuthError('this session cannot be renewed')
     payload = _get_json(
         session.login_url.rstrip('/') + _CLI_TOKEN_PATH,
         headers={'Authorization': f'Bearer {session.sealed_session}', 'Content-Type': 'application/json'},
@@ -235,15 +235,7 @@ def access_token(api_url: str) -> Optional[str]:
     # Checked before the token's own expiry: past the deadline the cached token may well still be
     # valid, and sending it anyway is exactly what the deadline exists to prevent.
     if session.is_expired():
-        raise AuthError(f'it expired {_age_limit_text()} after you signed in')
+        raise AuthError('your sign-in has expired')
     if session.is_usable():
         return session.access_token
     return refresh(api_url, session).access_token
-
-
-def _age_limit_text() -> str:
-    minutes = int(credentials.MAX_SESSION_AGE_S // 60)
-    if minutes % 60 == 0:
-        hours = minutes // 60
-        return '1 hour' if hours == 1 else f'{hours} hours'
-    return f'{minutes} minutes'

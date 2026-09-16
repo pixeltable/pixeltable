@@ -74,13 +74,9 @@ def _new_session() -> requests.Session:
 _SESSION = _new_session()
 
 
-def _how_to_authenticate() -> str:
-    """The two ways in, always named together: they are alternatives, and naming one strands whoever
-    has the other."""
-    return (
-        'Run `pxt login`, or set an API key with `os.environ["PIXELTABLE_API_KEY"] = "your-key"` '
-        f'or `api_key = "your-key"` in the `[pixeltable]` section of {Config.get().config_file}.'
-    )
+# Whatever went wrong with a session, the fix is the same and there is nothing to decide between,
+# so it is one line rather than a diagnosis.
+_SESSION_FAILED = 'Your Pixeltable session may have expired. Run `pxt login` again, or set an API key.'
 
 
 def credential(purpose: str) -> str:
@@ -100,13 +96,16 @@ def credential(purpose: str) -> str:
     try:
         token = auth.access_token(api_url())
     except auth.AuthError as e:
-        raise excs.AuthorizationError(
-            excs.ErrorCode.MISSING_CREDENTIALS, f'Could not use your Pixeltable session: {e}. {_how_to_authenticate()}'
-        ) from e
+        # The underlying reason stays on the exception chain; it is not something the user acts on.
+        raise excs.AuthorizationError(excs.ErrorCode.MISSING_CREDENTIALS, _SESSION_FAILED) from e
     if token is None:
+        # The one message that spells the options out: nothing is set up yet, so the config file and
+        # the docs are what the reader actually needs here.
         raise excs.AuthorizationError(
             excs.ErrorCode.MISSING_CREDENTIALS,
-            f'A Pixeltable API key or sign-in is required to {purpose}. {_how_to_authenticate()}\n'
+            f'A Pixeltable API key or sign-in is required to {purpose}. Run `pxt login`, or set an '
+            'API key with `os.environ["PIXELTABLE_API_KEY"] = "your-key"` or `api_key = "your-key"` '
+            f'in the `[pixeltable]` section of {Config.get().config_file}.\n'
             'For details, see https://docs.pixeltable.com/platform/configuration',
         )
     return token
@@ -152,9 +151,7 @@ def _raise_unauthorized(resp: Any) -> None:
         raise excs.AuthorizationError(
             excs.ErrorCode.MISSING_CREDENTIALS, f'The API key from {where} was rejected ({detail}).'
         )
-    raise excs.AuthorizationError(
-        excs.ErrorCode.MISSING_CREDENTIALS, f'Your Pixeltable session was rejected ({detail}). {_how_to_authenticate()}'
-    )
+    raise excs.AuthorizationError(excs.ErrorCode.MISSING_CREDENTIALS, _SESSION_FAILED)
 
 
 def api_call(request: Any) -> dict[str, Any]:
