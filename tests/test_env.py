@@ -242,7 +242,7 @@ class TestProxyEndpoint:
         self, cloud_host: str, error: str, init_env: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', cloud_host)
-        with pxt_raises(excs.ErrorCode.GENERIC_USER_ERROR, match=error):
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=error):
             Env.get().proxy_endpoint('acme', 'main')
 
 

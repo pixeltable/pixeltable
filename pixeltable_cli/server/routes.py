@@ -28,6 +28,7 @@ from pixeltable.service.management_protocol import (
     ListKeysRequest,
     ListOrgsRequest,
     ListSecretsRequest,
+    RestartDbRequest,
     SetSecretRequest,
     StartDbRequest,
     StopDbRequest,
@@ -277,7 +278,7 @@ def table_row(req: Request) -> models.GetResponse:
     if len(result) == 0:
         return models.GetResponse(pk_columns=pk_names, row=None)
     if len(result) > 1:
-        raise excs.Error(
+        raise excs.InternalError(
             excs.ErrorCode.INTERNAL_ERROR,
             f'{path}: {len(pk_names)}-column PK match returned multiple rows; catalog corruption?',
         )
@@ -562,6 +563,12 @@ def service_prune(req: Request) -> types.ServicePlan:
 def service_stop(req: Request) -> list[types.ServiceChangeOp]:
     body = req.body(models.ServiceStopBody)
     return service.service_stop(body.names)
+
+
+@router.post('/api/service/restart')
+def service_restart(req: Request) -> list[types.ServiceChangeOp]:
+    body = req.body(models.ServiceRestartBody)
+    return service.service_restart(body.names)
 
 
 @router.get('/api/service/list')
@@ -853,6 +860,11 @@ def start_db(req: Request) -> dict[str, Any]:
 @router.post('/api/db/stop')
 def stop_db(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(StopDbRequest))
+
+
+@router.post('/api/db/restart')
+def restart_db(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(RestartDbRequest))
 
 
 @router.get('/api/logs')

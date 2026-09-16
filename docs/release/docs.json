@@ -2,7 +2,7 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "Pixeltable Documentation",
-  "description": "The only open source Python library providing declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, retrieval, and orchestration of data.",
+  "description": "The unified multimodal backend agents build with. Database, orchestration, and serving in one Python file.",
   "markdown": {
     "instructions": [
       "Application code puts a TableModel in app.py, then runs `pxt schema update app.py my_app` to create the tables and `pxt service update app.py my_app` to start HTTP. The last argument can be a Cloud URL such as `pxt://org:db`. Do not call pxt.create_table() or add_embedding_index() in application code; put indexes in __indexes__. Notebooks, tests, and the REPL do use pxt.create_table().",

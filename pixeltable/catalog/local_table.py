@@ -1097,7 +1097,7 @@ class LocalTable(Table):
                 if has_rowid:
                     # every row must specify _rowid if any does
                     if _ROWID_COLUMN_NAME not in row_spec:
-                        raise excs.Error(
+                        raise excs.InternalError(
                             excs.ErrorCode.INTERNAL_ERROR,
                             f'Malformed batch update: row is missing {_ROWID_COLUMN_NAME}',
                         )
