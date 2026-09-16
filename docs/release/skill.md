@@ -53,16 +53,19 @@ def excerpt(text: str, n: int = 12) -> str:
 
 
 class Docs(TableModel, name='docs'):
-    doc_id: pxt.Int                          # an annotation: a value you insert
+    id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # a generated key: provided automatically on insert
     title: pxt.String
     body: pxt.String | None
-    title_upper = pxtf.string.upper(title)   # an assignment: computed on insert
+    title_upper = pxtf.string.upper(title)   # an assignment: computed on insert and on update
     summary = excerpt(title)
 
 
 ingest = FastAPIRouter(name='ingest')
 ingest.add_insert_route(
-    Docs, path='/docs', inputs=[Docs.doc_id, Docs.title, Docs.body], outputs=[Docs.title_upper, Docs.summary]
+    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.id, Docs.title_upper, Docs.summary]
+)
+ingest.add_update_route(
+    Docs, path='/docs/update', inputs=[Docs.title], outputs=[Docs.id, Docs.title_upper]
 )
 ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
 ```
@@ -75,8 +78,18 @@ body:
 ```bash
 curl -X POST http://127.0.0.1:<port>/docs \
   -H 'Content-Type: application/json' \
-  -d '{"doc_id": 1, "title": "Hello", "body": "world"}'
-# {"title_upper":"HELLO","summary":"Hello"}
+  -d '{"title": "Hello", "body": "world"}'
+# {"id":"...","title_upper":"HELLO","summary":"Hello"}
+```
+
+`add_update_route` matches the row by its primary key, so the request body carries `id`
+even though `inputs` does not list it:
+
+```bash
+curl -X POST http://127.0.0.1:<port>/docs/update \
+  -H 'Content-Type: application/json' \
+  -d '{"id": "...", "title": "Goodbye"}'
+# {"id":"...","title_upper":"GOODBYE"}
 ```
 
 ## Capabilities
@@ -126,7 +139,10 @@ the model rather than helping it:
 Pixeltable Cloud is in Limited Beta. Email contact@pixeltable.com if you are interested.
 The same application file targets a hosted database with `pxt db update`,
 `pxt schema update`, and `pxt service update` against a `pxt://org:db` target, once
-`PIXELTABLE_API_KEY` is set.
+`PIXELTABLE_API_KEY` is exported (API Keys, not toml `api_key`; Pixeltable never loads
+`.env` itself, so source it first). Hosted tables already write media to
+`pxtfs://org:db/home`; dest env vars are for local Pixeltable and bring-your-own buckets.
+Provider keys go under Secrets / `pxt secret`.
 
 ## Reference
 

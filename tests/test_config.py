@@ -285,6 +285,36 @@ class TestConfig:
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'`python_version` must be a version'):
             load("[[pixeltable.database]]\npython_version = '3'\n")
 
+    def test_typed_option_values(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An option declaring a scalar type is read from the config file and validated against that type."""
+        home = tmp_path / 'home.toml'
+        monkeypatch.setenv('PIXELTABLE_CONFIG', str(home))
+
+        def load(home_text: str) -> Config:
+            home.write_text(home_text)
+            Config.init(reinit=True)
+            return Config.get()
+
+        config = load('[pixeltable]\ndb_pool_size = 1\ndb_pool_max_overflow = 0\n')
+        assert config.get_int_value('db_pool_size') == 1
+        assert config.get_int_value('db_pool_max_overflow') == 0
+
+        # a bool is refused for an int option, though isinstance() accepts it
+        for value, type_name in (("'five'", 'str'), ('true', 'bool'), ('1.5', 'float')):
+            with pxt_raises(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                match=rf"(?s)Invalid type for option 'pixeltable\.db_pool_size'.*expected `int`, got `{type_name}`",
+            ):
+                load(f'[pixeltable]\ndb_pool_size = {value}\n')
+
+        # in a project file the option is refused as an installation setting, not as a type error
+        project = tmp_path / 'proj'
+        project.mkdir()
+        (project / 'pixeltable.toml').write_text('[pixeltable]\ndb_pool_size = 1\n')
+        home.write_text('')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r"Cannot set 'pixeltable\.db_pool_size'"):
+            Config.init(reinit=True, project_root=project)
+
     def test_project_root_after_reload(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The project root reaches Config through init(), and survives a reload."""
         project = tmp_path / 'proj'

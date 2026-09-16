@@ -108,6 +108,47 @@ class TestFastAPIModels:
         assert resp.status_code == 409, resp.text
         assert 'schema changed' in resp.json()['detail']
 
+    def test_computed_pk_update(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        import pixeltable.functions as pxtf
+        from pixeltable.serving import FastAPIRouter
+
+        TableModel = pxt.model_base()  # noqa: N806
+
+        class Photos(TableModel, name='photos'):
+            id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
+            caption: pxt.String | None
+
+        TableModel.create_all(p(''))
+
+        router = FastAPIRouter()
+        router.add_insert_route(
+            Photos,
+            path='/ins',
+            inputs=[Photos.caption],
+            outputs=[Photos.id, Photos.caption],  # type: ignore[arg-type]
+        )
+        router.add_update_route(
+            Photos,
+            path='/upd',
+            inputs=[Photos.caption],
+            outputs=[Photos.id, Photos.caption],  # type: ignore[arg-type]
+        )
+        client = make_test_client(router)
+        router.bind(p(''))
+
+        created = client.post('/ins', json={'caption': 'first'})
+        assert created.status_code == 200, created.text
+        row_id = created.json()['id']
+
+        updated = client.post('/upd', json={'id': row_id, 'caption': 'second'})
+        assert updated.status_code == 200, updated.text
+        assert updated.json() == {'id': row_id, 'caption': 'second'}
+        # the row was matched, not duplicated, and the key it was matched on is unchanged
+        t = pxt.get_table(p('photos'))
+        assert [dict(r) for r in t.select(t.caption).collect()] == [{'caption': 'second'}]
+
     def test_model_target_errors(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
