@@ -24,6 +24,25 @@ from .conftest import PxtRunner
 
 
 @pytest.mark.db_roots('local', reason='reports daemon liveness/version; not catalog-specific')
+class TestDbJsonSchema:
+    """`pxt db`'s schema output. Not in test_db.py: that module needs a hosted database, and these do not."""
+
+    @pytest.mark.db_roots('local', reason='the schema is generated from the models, so no catalog is read')
+    def test_json_schema(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        plan = json.loads(cli('db', 'diff', '--json-schema').stdout)
+        assert plan['title'] == 'DbPlan'
+        # computed fields reach the output, so they have to reach the schema too
+        assert 'in_agreement' in plan['properties']
+        assert 'summary' in plan['properties']
+        assert 'takes minutes' in plan['$defs']['DbPlanSummary']['properties']['rebuild']['description']
+
+        # status prints the report alone, so the response wrapper stays out of its schema
+        report = json.loads(cli('db', 'status', '--json-schema').stdout)
+        assert report['title'] == 'DatabaseReport'
+        assert 'worker_status' not in report['properties']
+        assert 'current' in report['properties']
+
+
 class TestHealth:
     def test_basics(self, cli: PxtRunner, pxt_daemon: int) -> None:
         out = cli('health').json

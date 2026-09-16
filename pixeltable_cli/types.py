@@ -27,17 +27,22 @@ def _summary(changes: list[str]) -> str:
 class ChangeOp(pydantic.BaseModel):
     """One reconciliation operation against a target."""
 
-    # what the operation acts on, as communicated to the user (a column, a route, a secret key, a field, etc.)
-    name: str | None
+    name: str | None = pydantic.Field(
+        description='the target of this operation: a column, a route, a secret key, a field'
+    )
 
     op: Literal['add', 'drop', 'alter']
     severity: Severity
-    description: str  # one sentence, ready to print
+    description: str = pydantic.Field(description='one sentence, ready to print')
 
-    requires_restart: bool = False  # whether applying this interrupts what is running
-    status: OpStatus | None = None  # the outcome of the operation
+    requires_restart: bool = pydantic.Field(
+        default=False, description='whether applying this interrupts a running database or service'
+    )
+    status: OpStatus | None = pydantic.Field(
+        default=None, description='the outcome of the operation; null before it is applied'
+    )
 
-    @pydantic.computed_field  # type: ignore[prop-decorator]
+    @pydantic.computed_field(description="whether this operation destroys data; true when severity is 'destructive'")  # type: ignore[prop-decorator]
     @property
     def destructive(self) -> bool:
         return self.severity == 'destructive'
@@ -386,14 +391,15 @@ class DbChangeOp(ChangeOp):
 class TableDiff(pydantic.BaseModel):
     """How one model differs from its catalog table."""
 
-    path: str  # catalog path of the table
-    model_cls: str  # model class name, so an agent can map back to code
+    path: str = pydantic.Field(description='catalog path of the table')
+    model_cls: str = pydantic.Field(description='name of the model class declaring this table')
     kind: Literal['table', 'view']
     exists: bool
     resolution: Resolution
 
-    # empty for a create, which subsumes the additions that constitute it
-    ops: list[SchemaChangeOp] = pydantic.Field(default_factory=list)
+    ops: list[SchemaChangeOp] = pydantic.Field(
+        default_factory=list, description='empty for a create: creating the table covers every addition'
+    )
 
     # identity of the existing table, as of the read this diff was computed from; None if it doesn't exist yet
     tbl_id: uuid.UUID | None = pydantic.Field(default=None, exclude=True)
@@ -416,8 +422,10 @@ class SchemaPlanSummary(pydantic.BaseModel):
     update_destructive: int
     unsupported: int
     extras: int
-    destructive: int  # operations, not tables
-    blocked_ops: int  # operations that block the plan until the database changes
+    destructive: int = pydantic.Field(
+        description='number of destructive operations, not the number of destructive tables'
+    )
+    blocked_ops: int = pydantic.Field(description='operations that block the plan until the database changes')
 
 
 class SchemaPlan(pydantic.BaseModel):
@@ -426,12 +434,18 @@ class SchemaPlan(pydantic.BaseModel):
     app_file: str
     catalog_dir: PxtPath
     tables: list[TableDiff] = pydantic.Field(default_factory=list)
-    extras: list[PxtPath] = pydantic.Field(default_factory=list)  # tables under catalog_dir no model declares
+    extras: list[PxtPath] = pydantic.Field(
+        default_factory=list, description='tables under catalog_dir that are absent from the schema file'
+    )
 
-    ops: list[SchemaChangeOp] = pydantic.Field(default_factory=list)  # plan-level, unlike TableDiff.ops
+    ops: list[SchemaChangeOp] = pydantic.Field(
+        default_factory=list, description='operations on the plan as a whole, rather than on one table'
+    )
     status: OpStatus | None = None
 
-    @pydantic.computed_field  # type: ignore[prop-decorator]
+    @pydantic.computed_field(  # type: ignore[prop-decorator]
+        description='true when no table needs a create or an update, and no operation is blocked; extras do not count'
+    )
     @property
     def in_agreement(self) -> bool:
         """True if no table needs a create or an update; extras don't count."""
@@ -555,10 +569,12 @@ class ServicePlanSummary(pydantic.BaseModel):
     update_additive: int
     update_destructive: int
     extras: int
-    blocked: int  # services whose reconciliation the database has to enable first
-    destructive: int  # operations, not services
-    blocked_ops: int  # operations the database has to satisfy before the plan can be applied
-    restarts: int  # services that applying the plan would interrupt
+    blocked: int = pydantic.Field(description='services that cannot be reconciled until the database changes')
+    destructive: int = pydantic.Field(
+        description='number of destructive operations, not the number of destructive services'
+    )
+    blocked_ops: int = pydantic.Field(description='operations that block the plan until the database changes')
+    restarts: int = pydantic.Field(description='services interrupted when the plan is applied')
 
 
 class ServicePlan(pydantic.BaseModel):
@@ -625,8 +641,8 @@ class ServiceInstance(pydantic.BaseModel):
 class DbPlanSummary(pydantic.BaseModel):
     ops: int
     destructive: int
-    rebuild: bool  # whether the plan rebuilds the image, which is the one step that takes minutes
-    restarts: bool  # whether applying the plan interrupts what the database is serving
+    rebuild: bool = pydantic.Field(description='whether the plan rebuilds the image, the one step that takes minutes')
+    restarts: bool = pydantic.Field(description='whether applying the plan interrupts the running database')
 
 
 class DbPlan(pydantic.BaseModel):

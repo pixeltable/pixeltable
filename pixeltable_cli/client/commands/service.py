@@ -6,6 +6,8 @@ import json
 import sys
 from pathlib import Path
 
+import pydantic
+
 from ...types import Resolution, ServiceChangeOp, ServiceInstance, ServicePlan
 from ...utils import PxtPath, split_pxt_uri
 from ..hosted import add_logs_args, print_logs
@@ -19,6 +21,7 @@ from ..utils import (
     confirm_or_exit,
     get_request,
     post_request,
+    print_json_schema,
 )
 
 _EXAMPLE_APP = '''\
@@ -99,6 +102,7 @@ Examples:
   pxt service diff app.py my_dir --json
   pxt service diff app.py my_dir --otel     # also report tracing that is off but was asked for
   pxt service diff app.py pxt://acme:main   # against a hosted database
+  pxt service diff --json-schema            # the schema of the --json output, on its own
 
 Tracing:
   --otel emits OpenTelemetry traces from the services 'update' starts, and needs the instrumentation
@@ -167,6 +171,7 @@ Examples:
   pxt service list                    # every service running locally
   pxt service list my_dir             # those bound at my_dir and below it
   pxt service list pxt://acme:main    # those in a hosted database
+  pxt service list --json-schema      # the schema of the --json output, on its own
 """
 
 CHECK_EPILOG = f"""\
@@ -273,6 +278,10 @@ def run(argv: list[str]) -> None:
         _restart(args.names, as_json=args.as_json)
         return
 
+    if verb == 'list' and argv[1:] == ['--json-schema']:
+        print_json_schema(pydantic.TypeAdapter(list[ServiceInstance]))
+        return
+
     if verb == 'list':
         ap = Parser(prog='pxt service list', epilog=LIST_EPILOG, usage_exit_code=EXIT_ERROR)
         ap.add_argument('target', nargs='?', default=None, help='report only the services bound here and below')
@@ -287,6 +296,10 @@ def run(argv: list[str]) -> None:
         add_logs_args(ap)
         args = ap.parse_args(argv[1:])
         print_logs({'service': args.name}, args)
+        return
+
+    if verb == 'diff' and argv[1:] == ['--json-schema']:
+        print_json_schema(pydantic.TypeAdapter(ServicePlan))
         return
 
     epilogs = {'diff': DIFF_EPILOG, 'update': UPDATE_EPILOG, 'run': RUN_EPILOG, 'prune': PRUNE_EPILOG}

@@ -3,6 +3,8 @@ import textwrap
 from pathlib import Path
 from typing import NamedTuple
 
+import pydantic
+
 from ...types import OpStatus, Resolution, SchemaChangeOp, SchemaPlan
 from ...utils import PxtPath
 from ..parser import Parser
@@ -14,6 +16,7 @@ from ..utils import (
     check_file,
     confirm_or_exit,
     post_request,
+    print_json_schema,
 )
 
 # a working schema file: written verbatim by 'pxt schema example', and shown indented in every verb's epilog,
@@ -144,6 +147,7 @@ Examples:
   pxt schema diff schema.py my_app                 # what 'schema update' would change
   pxt schema diff schema.py my_app --json          # the same plan, machine-readable
   pxt schema diff schema.py pxt://org:db/prod      # against a hosted database
+  pxt schema diff --json-schema                    # the schema of the --json output, on its own
 
 Output:
   + <path>      table will be created        + <column>   will be added
@@ -158,6 +162,8 @@ Exit codes:
   1  error: bad arguments, the schema file failed to import, or the daemon is unreachable
 
 Notes:
+  --json-schema prints the JSON Schema of what --json emits, with every enum value spelled out,
+  and takes no SCHEMA or TARGET. It is generated from the models, so it always matches the output.
   Read-only: never creates TARGET, never touches a table.
   Tables under TARGET that no model defines are reported as extras. 'schema update' never
   removes them, so they do not count as pending changes and do not affect the exit code.
@@ -303,6 +309,10 @@ def run(argv: list[str]) -> None:
         ap.add_argument('--json', action='store_true', dest='as_json')
         args = ap.parse_args(argv[1:])
         check_file('/api/schema/check', 'app_file', args.schema, verb='schema check', as_json=args.as_json)
+        return
+
+    if verb == 'diff' and argv[1:] == ['--json-schema']:
+        print_json_schema(pydantic.TypeAdapter(SchemaPlan))
         return
 
     epilogs = {'diff': DIFF_EPILOG, 'update': UPDATE_EPILOG, 'prune': PRUNE_EPILOG}

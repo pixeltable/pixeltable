@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import psutil
+import pydantic
 
 from pixeltable_cli import types
 from pixeltable_cli.utils import (
@@ -502,3 +503,12 @@ def confirm_or_exit(
     if ans not in ('y', 'yes'):
         print('aborted', file=sys.stderr)
         sys.exit(refused_exit_code)
+
+
+def print_json_schema(adapter: pydantic.TypeAdapter) -> None:
+    """Print the JSON Schema of a --json payload.
+
+    Serialization mode: a computed field reaches the output but not the validation schema, and
+    in_agreement and summary are both computed.
+    """
+    print(json.dumps(adapter.json_schema(mode='serialization'), indent=2))

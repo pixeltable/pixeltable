@@ -6,17 +6,29 @@ import argparse
 import json
 import sys
 
+import pydantic
+
 from ...types import DbChangeOp, DbPlan, DbState, Resolution
 from ..hosted import add_logs_args, exit_unless_reached, poll_db, print_db, print_logs, resolve_db_uri, spinner
 from ..parser import Parser
-from ..utils import EXIT_CHANGES_PENDING, EXIT_IN_AGREEMENT, EXIT_REFUSED, confirm_or_exit, get_request, post_request
+from ..utils import (
+    EXIT_CHANGES_PENDING,
+    EXIT_IN_AGREEMENT,
+    EXIT_REFUSED,
+    confirm_or_exit,
+    get_request,
+    post_request,
+    print_json_schema,
+)
 
 EPILOG = """\
 Examples:
   pxt db diff pxt://org:db     # what update would change; exit 2 if anything is pending
+  pxt db diff --json-schema    # the schema of the --json output, on its own
   pxt db update pxt://org:db   # apply it: the artifacts, then capacity
   pxt db list
   pxt db status pxt://org:db
+  pxt db status --json-schema  # the schema of its --json output, on its own
   pxt db logs pxt://org:db              # what the database's pod logged in the last hour
   pxt db logs pxt://org:db --since 10m --tail 50
   pxt db start pxt://org:db
@@ -41,6 +53,17 @@ Exit status of diff and update: 0 in agreement, 2 changes pending, 3 refused, 1 
 def run(argv: list[str]) -> None:
     parser = Parser(prog='pxt db', description='manage hosted databases', epilog=EPILOG)
     sub = parser.add_subparsers(dest='action', required=True)
+
+    if argv[:2] == ['diff', '--json-schema']:
+        print_json_schema(pydantic.TypeAdapter(DbPlan))
+        return
+
+    if argv[:2] == ['status', '--json-schema']:
+        # local import: management_protocol pulls in pixeltable, which is time-consuming to import
+        from pixeltable.service.management_protocol import DatabaseReport
+
+        print_json_schema(pydantic.TypeAdapter(DatabaseReport))
+        return
 
     for verb in ('diff', 'update'):
         p = sub.add_parser(verb, help=f'{"show" if verb == "diff" else "apply"} what the project defines')
