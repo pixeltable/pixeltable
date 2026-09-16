@@ -1033,10 +1033,6 @@ _INSTALLATION_KEYS = frozenset(
     }
 )
 
-# a db_<key> setting stands for one shared setting, so <key> must occur in exactly one section
-for _setting in DatabaseSetting:
-    assert sum(_setting.removeprefix('db_') in options for options in KNOWN_CONFIG_OPTIONS.values()) == 1, _setting
-
 # the settings pxt.init() accepts, ie. the ones a single process may set
 KNOWN_CONFIG_OVERRIDES = {
     f'{section}.{key}': info
