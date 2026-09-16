@@ -125,10 +125,18 @@ def _session_from(payload: dict[str, Any], client_id: str, logged_in_at: float) 
     )
 
 
-def device_login(api_url: str, open_browser: bool = True) -> Session:
-    """Sign in by approving a code in a browser, then cache the session. Returns it."""
+def device_login(api_url: str, open_browser: bool = True, email: str = '') -> Session:
+    """Sign in by approving a code in a browser, then cache the session. Returns it.
+
+    `email` says who you mean to sign in as. The browser may already hold a session for someone
+    else, and the confirmation page names nobody, so without this you can approve as one account
+    while believing you are another.
+    """
     client_id = client_id_for(api_url)
-    start = _post_form(_DEVICE_AUTH_PATH, {'client_id': client_id})
+    fields = {'client_id': client_id}
+    if email:
+        fields['login_hint'] = email
+    start = _post_form(_DEVICE_AUTH_PATH, fields)
 
     user_code = str(start.get('user_code') or '')
     device_code = str(start.get('device_code') or '')
@@ -145,6 +153,10 @@ def device_login(api_url: str, open_browser: bool = True) -> Session:
         device_code, client_id, _number(start, 'expires_in', 300.0), _number(start, 'interval', 5.0)
     )
     session = _session_from(payload, client_id, logged_in_at=time.time())
+    # Checked rather than trusted: WorkOS may or may not act on login_hint, and a session saved for
+    # the wrong account is one every later command silently uses.
+    if email and session.email and session.email.lower() != email.lower():
+        raise AuthError(f'that browser is signed in as {session.email}, not {email}. Nothing was saved.')
     credentials.save(api_url, session)
     return session
 
@@ -214,47 +226,6 @@ def access_token(api_url: str) -> Optional[str]:
     if session.is_usable():
         return session.access_token
     return refresh(api_url, session).access_token
-
-
-def _claim(token: str, name: str) -> str:
-    """One claim out of a token. Read, never verified: nothing here is an authorization decision."""
-    try:
-        payload = token.split('.')[1]
-        claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
-        value = claims.get(name)
-        return value if isinstance(value, str) else ''
-    except (IndexError, ValueError, binascii.Error):
-        return ''
-
-
-def logout(api_url: str) -> bool:
-    """End the session at WorkOS, not only on this machine. True when there was one to end.
-
-    Deleting the cached copy alone leaves the refresh token live until it expires, so a leaked file
-    still works. This revokes it.
-    """
-    session = credentials.load(api_url)
-    credentials.clear(api_url)
-    if session is None:
-        return False
-    session_id = _claim(session.access_token, 'sid')
-    if session_id:
-        try:
-            _request(f'{_WORKOS_API}/user_management/sessions/logout?session_id={urllib.parse.quote(session_id)}')
-        except AuthError:
-            # The local copy is already gone, which is the part that must not fail.
-            pass
-    return True
-
-
-def browser_logout_url(api_url: str) -> str:
-    """Where to send a browser to end its own sign-in. Empty when this environment names no dashboard.
-
-    The browser holds a different session from the CLI's, and only it can clear that one -- which is
-    what decides whether the next sign-in asks who you are.
-    """
-    dashboard = str(auth_config(api_url).get('login_url') or '')
-    return f'{dashboard.rstrip("/")}/api/auth/logout' if dashboard else ''
 
 
 def authorize_org(api_url: str, org_id: str) -> Session:

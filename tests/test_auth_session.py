@@ -6,6 +6,7 @@ import email.message
 import io
 import json
 import pathlib
+import re
 import time
 import types
 import urllib.error
@@ -109,6 +110,32 @@ class TestDeviceLogin:
         assert saved is not None
         assert (saved.refresh_token, saved.client_id) == ('new-refresh', _CLIENT)
         assert saved.can_refresh()
+
+    def test_it_tells_workos_which_account_you_asked_for(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = _posting(monkeypatch, _DEVICE, _GRANTED)
+
+        auth.device_login(_API, open_browser=False, email='you@example.com')
+
+        assert calls.seen[0][1]['login_hint'] == 'you@example.com'
+
+    def test_approving_as_someone_else_saves_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The browser may hold another account's session, and the confirmation page names nobody."""
+        _posting(monkeypatch, _DEVICE, _GRANTED)
+
+        with pytest.raises(auth.AuthError, match=re.escape('signed in as you@example.com, not other@example.com')):
+            auth.device_login(_API, open_browser=False, email='other@example.com')
+        assert credentials.load(_API) is None
+
+    def test_the_check_ignores_case(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _posting(monkeypatch, _DEVICE, _GRANTED)
+
+        assert auth.device_login(_API, open_browser=False, email='YOU@Example.com').email == 'you@example.com'
+
+    def test_no_email_accepts_whoever_the_browser_is(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = _posting(monkeypatch, _DEVICE, _GRANTED)
+
+        assert auth.device_login(_API, open_browser=False).email == 'you@example.com'
+        assert 'login_hint' not in calls.seen[0][1]
 
     def test_it_records_the_organization_the_token_carries(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Signing in is not the same as having somewhere to work; `pxt login` says so separately."""
@@ -218,40 +245,6 @@ class TestRefresh:
 
         with pytest.raises(auth.AuthError, match='invalid_grant'):
             auth.refresh(_API, _session())
-
-
-class TestLogout:
-    def test_it_revokes_the_session_rather_than_only_forgetting_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A deleted file leaves the refresh token live; a leaked copy of it would still work."""
-        asked: list[str] = []
-
-        def _record(url: str, **_kw: Any) -> dict[str, Any]:
-            asked.append(url)
-            return {}
-
-        monkeypatch.setattr(auth, '_request', _record)
-        token = f'h.{base64.urlsafe_b64encode(json.dumps({"sid": "session_01X"}).encode()).rstrip(b"=").decode()}.s'
-        credentials.save(_API, _session(access_token=token))
-
-        assert auth.logout(_API) is True
-        assert credentials.load(_API) is None
-        assert asked == ['https://api.workos.com/user_management/sessions/logout?session_id=session_01X']
-
-    def test_a_revocation_that_fails_still_clears_this_machine(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(auth, '_request', lambda *a, **k: (_ for _ in ()).throw(auth.AuthError('down')))
-        token = f'h.{base64.urlsafe_b64encode(json.dumps({"sid": "session_01X"}).encode()).rstrip(b"=").decode()}.s'
-        credentials.save(_API, _session(access_token=token))
-
-        assert auth.logout(_API) is True
-        assert credentials.load(_API) is None
-
-    def test_signing_out_when_not_signed_in_is_not_an_error(self) -> None:
-        assert auth.logout(_API) is False
-
-    def test_the_browser_is_sent_to_the_dashboard_it_signed_in_through(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(auth, '_request', lambda *a, **k: {'login_url': 'https://amit1.app.pixeltable.com/'})
-
-        assert auth.browser_logout_url(_API) == 'https://amit1.app.pixeltable.com/api/auth/logout'
 
 
 class TestAccessToken:
