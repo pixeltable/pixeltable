@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import enum
 import json
 import logging
 import os
@@ -30,6 +31,15 @@ ConfVarT = TypeVar('ConfVarT', bound=str)
 # Pydantic models for deployment configuration.
 
 
+class DatabaseSetting(enum.StrEnum):
+    """The shared settings a [[pixeltable.database]] entry overrides for its database, as db_<key>."""
+
+    INPUT_MEDIA_DEST = 'db_input_media_dest'
+    OUTPUT_MEDIA_DEST = 'db_output_media_dest'
+    EXPORTER_OTLP_ENDPOINT = 'db_exporter_otlp_endpoint'
+    EXPORTER_OTLP_PROTOCOL = 'db_exporter_otlp_protocol'
+
+
 class DatabaseConfig(pydantic.BaseModel):
     """The contents of a [[pixeltable.database]] entry from the project config."""
 
@@ -41,12 +51,8 @@ class DatabaseConfig(pydantic.BaseModel):
     # bindings for the config vars
     vars: dict[str, str] | None = None
 
-    # where media that names no destination goes: inserted media, and media that computed columns produce
-    input_media_dest: str | None = None
-    output_media_dest: str | None = None
-    # where the OpenTelemetry bridge exports to, and over which transport
-    exporter_otlp_endpoint: str | None = None
-    exporter_otlp_protocol: str | None = None
+    # the entry's db_<key> keys, collected by _collect_settings()
+    settings: dict[DatabaseSetting, str] | None = None
 
     # the rest applies to a hosted database, whose runtime image is built from the project
     exclude: list[str] | None = None  # glob patterns to exclude from the image
@@ -62,6 +68,17 @@ class DatabaseConfig(pydantic.BaseModel):
     memory_mb: int | None = None
     disk_gb: int | None = None
     workers: int | None = None
+
+    @pydantic.model_validator(mode='before')
+    @classmethod
+    def _collect_settings(cls, data: Any) -> Any:
+        # the entry writes each setting as a top-level key; only `settings` is a field
+        if not isinstance(data, dict):
+            return data
+        settings = {key: data.pop(key) for key in list(data) if key in DatabaseSetting}
+        if settings:
+            data['settings'] = {**data.get('settings', {}), **settings}
+        return data
 
     @pydantic.field_validator('system_dependencies')
     @classmethod
@@ -89,15 +106,6 @@ class DatabaseConfig(pydantic.BaseModel):
 
 # the entry in [[pixeltable.database]] that configures the local database
 LOCAL_DATABASE = 'local'
-
-# the settings a [[pixeltable.database]] entry can override, as the (section, key) that get_value() reads them
-# under; the entry field of each has the same name as the key
-_DATABASE_SETTINGS = {
-    ('pixeltable', 'input_media_dest'),
-    ('pixeltable', 'output_media_dest'),
-    ('otel', 'exporter_otlp_endpoint'),
-    ('otel', 'exporter_otlp_protocol'),
-}
 
 
 class _Unspecified:
@@ -558,8 +566,8 @@ class Config:
         """Combine the database entries of the config files, entry by entry, each with the file it came from.
 
         Entries are matched by name, and a field a later file sets wins, so a project adding a var keeps the
-        vars the home config binds for the same database. The file that supplied each field and each var
-        binding is recorded in __database_sources.
+        vars the home config binds for the same database. The file that supplied each field, var binding and
+        setting is recorded in __database_sources.
         """
         fields_by_name: dict[str, dict[str, Any]] = {}
         for entries, source in layers:
@@ -720,15 +728,16 @@ class Config:
         return {name: (value, sources[f'vars.{name}']) for name, value in (entry.vars or {}).items()}
 
     def __database_setting(self, key: str) -> tuple[Any, Path | None] | None:
-        """The value of key in the entry of this process's database, with the file that supplied it."""
+        """The db_<key> setting of this process's database entry, with the file that supplied it."""
+        try:
+            setting = DatabaseSetting(f'db_{key}')
+        except ValueError:
+            return None
         own = self.__own_database()
-        if own is None:
+        if own is None or own[0].settings is None or setting not in own[0].settings:
             return None
         entry, sources = own
-        value = getattr(entry, key)
-        if value is None:
-            return None
-        return value, sources[key]
+        return entry.settings[setting], sources[f'settings.{setting}']
 
     def __lookup_config_entry(self, section: str, key: str) -> tuple[Any, Path | None] | None:
         """Find key under section in __config_dict. Returns (value, source_path) or None."""
@@ -736,11 +745,10 @@ class Config:
             return self.__database_bindings().get(key)
         if section == SECRET_SECTION:
             return None  # a secret is bound by its environment variable, which get_value() reads first
-        if (section, key) in _DATABASE_SETTINGS:
-            # the entry for this process's database wins over the section, which every database shares
-            setting = self.__database_setting(key)
-            if setting is not None:
-                return setting
+        # the entry for this process's database wins over the section, which every database shares
+        setting = self.__database_setting(key)
+        if setting is not None:
+            return setting
         parts = section.split('.')
         # explicit type decl for readability
         top_section: dict[str, tuple[Any, Path | None]] | None = self.__config_dict.get(parts[0])
@@ -897,8 +905,8 @@ class Config:
         ck = next((ck for ck in self.config_keys() if (ck.section, ck.key) == (section, key)), None)
         # a pyproject.toml holds Pixeltable's settings under [tool], and an array of tables is written [[ ]]
         prefix = 'tool.' if source.name == PYPROJECT_FILE else ''
-        if (section, key) in _DATABASE_SETTINGS and self.__database_setting(key) is not None:
-            name = f'[[{prefix}pixeltable.database]].{key}'
+        if self.__database_setting(key) is not None:
+            name = f'[[{prefix}pixeltable.database]].{DatabaseSetting(f"db_{key}")}'
         elif ck is not None and typing.get_origin(ck.expected_type) is list:
             name = f'[[{prefix}{section}.{key}]]'
         else:
@@ -928,7 +936,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
         'database': (
-            'One entry per database the project uses: variable and secret bindings, its media destinations '
+            'One entry per database the project uses: variable bindings, its db_ overrides of the media destinations '
             'and OTLP endpoint and protocol, and for a hosted database the contents of its runtime image',
             list[DatabaseConfig],
         ),
@@ -1024,6 +1032,10 @@ _INSTALLATION_KEYS = frozenset(
         'db_pool_max_overflow',
     }
 )
+
+# a db_<key> setting stands for one shared setting, so <key> must occur in exactly one section
+for _setting in DatabaseSetting:
+    assert sum(_setting.removeprefix('db_') in options for options in KNOWN_CONFIG_OPTIONS.values()) == 1, _setting
 
 # the settings pxt.init() accepts, ie. the ones a single process may set
 KNOWN_CONFIG_OVERRIDES = {

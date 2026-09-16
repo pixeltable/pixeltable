@@ -94,7 +94,7 @@ Default home is `~/.pixeltable`: `pgdata` (PostgreSQL), `media` (generated files
 
 - Inserted local files: the path is stored; the original stays put.
 - Inserted URLs: the URL is stored; first access downloads into the file cache.
-- Generated media: local disk on a laptop; on Cloud hosted tables, the per-database home bucket (`pxtfs://org:db/home`) unless you set `destination=` / the database entry's `output_media_dest` for a bring-your-own bucket.
+- Generated media: local disk on a laptop; on Cloud hosted tables, the per-database home bucket (`pxtfs://org:db/home`) unless you set `destination=` / the database entry's `db_output_media_dest` for a bring-your-own bucket.
 
 File cache size is `file_cache_size_g` in `config.toml` only. [Configuration](/platform/configuration).
 
@@ -108,6 +108,6 @@ If you only insert and export, the Pixeltable data directory can be temporary: w
 ```toml
 # pixeltable.toml
 [[pixeltable.database]]
-input_media_dest = 's3://your-bucket/input'
-output_media_dest = 's3://your-bucket/output'
+db_input_media_dest = 's3://your-bucket/input'
+db_output_media_dest = 's3://your-bucket/output'
 ```

@@ -220,7 +220,7 @@ class TestHostedMediaDefault:
         project = tmp_path / 'project'
         project.mkdir()
         (project / 'pixeltable.toml').write_text(
-            "[[pixeltable.database]]\nname = 'pxt://org1:db1'\ninput_media_dest = 's3://entry-bucket/input/'\n"
+            "[[pixeltable.database]]\nname = 'pxt://org1:db1'\ndb_input_media_dest = 's3://entry-bucket/input/'\n"
         )
         reset_runtime()
         Config.init(reinit=True, project_root=project)

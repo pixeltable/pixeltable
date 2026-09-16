@@ -510,16 +510,16 @@ class TestConfig:
             dedent(
                 """
                 [[pixeltable.database]]
-                input_media_dest = 's3://local/input/'
-                output_media_dest = 's3://local/output/'
-                exporter_otlp_endpoint = 'https://otlp.local.example'
-                exporter_otlp_protocol = 'grpc'
+                db_input_media_dest = 's3://local/input/'
+                db_output_media_dest = 's3://local/output/'
+                db_exporter_otlp_endpoint = 'https://otlp.local.example'
+                db_exporter_otlp_protocol = 'grpc'
                 vars.media_dest = 's3://local/bucket'
 
                 [[pixeltable.database]]
                 name = 'pxt://myorg:prod'
-                input_media_dest = 's3://prod/input/'
-                exporter_otlp_endpoint = 'https://otlp.prod.example'
+                db_input_media_dest = 's3://prod/input/'
+                db_exporter_otlp_endpoint = 'https://otlp.prod.example'
                 vars.media_dest = 's3://prod/bucket'
                 """
             )
@@ -530,7 +530,7 @@ class TestConfig:
         assert config.get_string_value('exporter_otlp_protocol', section='otel') == 'grpc'
         assert config.get_value_source('input_media_dest') == config_file
         assert config.describe_setting('pixeltable', 'input_media_dest') == (
-            f'[[pixeltable.database]].input_media_dest in {config_file}'
+            f'[[pixeltable.database]].db_input_media_dest in {config_file}'
         )
 
         # on a hosted database's pod the process reads that database's entry, settings and bindings alike
@@ -566,13 +566,19 @@ class TestConfig:
                 exporter_otlp_endpoint = 'https://otlp.shared.example'
 
                 [[pixeltable.database]]
-                input_media_dest = 's3://local/input/'
+                db_input_media_dest = 's3://local/input/'
                 """
             )
         )
         assert config.get_string_value('input_media_dest') == 's3://local/input/'
         assert config.get_string_value('output_media_dest') == 's3://shared/output/'
         assert config.get_string_value('exporter_otlp_endpoint', section='otel') == 'https://otlp.shared.example'
+
+        # only a db_<key> field of DatabaseConfig overrides a setting; the entry accepts no other one
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='db_verbosity'):
+            load('[[pixeltable.database]]\ndb_verbosity = 2\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='input_media_dest'):
+            load("[[pixeltable.database]]\ninput_media_dest = 's3://local/input/'\n")
 
     def test_reload_if_changed(self, tmp_path: Path) -> None:
         """The config file is re-read after it changes, which is how a running daemon picks up an edit."""

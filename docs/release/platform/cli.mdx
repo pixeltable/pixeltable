@@ -811,12 +811,12 @@ Defines which project files the database gets, what its image holds, what it run
 name = 'pxt://myorg:prod'           # matches the uri passed to pxt db update
 
 # where media that names no destination goes (default: the database's home bucket)
-input_media_dest = 's3://bucket/input/'
-output_media_dest = 's3://bucket/output/'
+db_input_media_dest = 's3://bucket/input/'
+db_output_media_dest = 's3://bucket/output/'
 
 # the OpenTelemetry exporter; set its auth headers with pxt secret set
-exporter_otlp_endpoint = 'https://otlp.example.com'
-exporter_otlp_protocol = 'http/protobuf'  # or 'grpc'
+db_exporter_otlp_endpoint = 'https://otlp.example.com'
+db_exporter_otlp_protocol = 'http/protobuf'  # or 'grpc'
 
 # which project files the database gets. Glob patterns relative to the project root; everything git
 # would not ignore is uploaded by default, and the lockfile always is. Patterns use git wildmatch, so

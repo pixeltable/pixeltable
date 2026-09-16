@@ -61,10 +61,10 @@ Set default destinations for all media columns of a database in its `[[pixeltabl
 ```toml
 [[pixeltable.database]]
 # For input media (inserted/referenced files)
-input_media_dest = "s3://my-bucket/input/"
+db_input_media_dest = "s3://my-bucket/input/"
 
 # For computed media (AI-generated outputs)
-output_media_dest = "s3://my-bucket/output/"
+db_output_media_dest = "s3://my-bucket/output/"
 ```
 
 Or via environment variables, which override the entry:
@@ -108,14 +108,14 @@ Then `pxt schema update app.py my_app`. In a notebook or a test, the same column
 `t.add_computed_column(thumbnail=t.image.resize((128, 128)), destination=...)`.
 
 <Note>
-The `destination` parameter only applies to **stored computed columns**. For input columns, use the database's `input_media_dest` setting.
+The `destination` parameter only applies to **stored computed columns**. For input columns, use the database's `db_input_media_dest` setting.
 </Note>
 
 ### Precedence rules
 
 Destinations are resolved in this order:
 1. **Explicit column destination**: highest priority (computed columns only)
-2. **Database default**: `input_media_dest` / `output_media_dest` in the `[[pixeltable.database]]` entry, or the `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST` env vars that override it
+2. **Database default**: `db_input_media_dest` / `db_output_media_dest` in the `[[pixeltable.database]]` entry, or the `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST` env vars that override it
 3. **Hosted Cloud process**: `pxtfs://org:db/home` when the database is running in Cloud
 4. **Local process**: local disk
 
@@ -320,8 +320,8 @@ First, configure the database's default destinations in `pixeltable.toml`:
 
 ```toml
 [[pixeltable.database]]
-input_media_dest = "s3://my-app-bucket/uploads/"
-output_media_dest = "s3://my-app-bucket/generated/"
+db_input_media_dest = "s3://my-app-bucket/uploads/"
+db_output_media_dest = "s3://my-app-bucket/generated/"
 ```
 
 and, optionally, the AWS profile in `~/.pixeltable/config.toml` (default credentials are used if not set):

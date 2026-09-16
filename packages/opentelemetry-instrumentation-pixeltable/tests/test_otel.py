@@ -194,7 +194,7 @@ def check_endpoint_from_database_entry() -> None:
     for k in [k for k in os.environ if k.startswith('OTEL_EXPORTER_OTLP_ENDPOINT')]:
         del os.environ[k]
     Path(os.environ['PIXELTABLE_CONFIG']).write_text(
-        "[pixeltable]\nfile_cache_size_g = 1.0\n\n[[pixeltable.database]]\nexporter_otlp_endpoint = 'http://127.0.0.1:9'\n",
+        "[pixeltable]\nfile_cache_size_g = 1.0\n\n[[pixeltable.database]]\ndb_exporter_otlp_endpoint = 'http://127.0.0.1:9'\n",
         encoding='utf-8',
     )
     pxt_otel.init()

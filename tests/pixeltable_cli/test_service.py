@@ -94,7 +94,7 @@ def cloud_db_uri(
         # the entry sends inserted media under a prefix of the home bucket, which test_media checks on the pod
         (session_project / 'pixeltable.toml').write_text(
             f'[[pixeltable.database]]\nname = {json.dumps(uri)}\n'
-            f'input_media_dest = {json.dumps(f"{home_bucket_uri(uri)}/{_INPUT_MEDIA_PREFIX}/")}\n',
+            f'db_input_media_dest = {json.dumps(f"{home_bucket_uri(uri)}/{_INPUT_MEDIA_PREFIX}/")}\n',
             encoding='utf-8',
         )
         # the daemon read the project config when it started

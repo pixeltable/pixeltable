@@ -64,21 +64,21 @@ rate_limit = 600  # Mistral uses a single rate limit for all models
 
 ### Per-database settings
 
-Media destinations and the OTLP endpoint and protocol belong to one database, so each `[[pixeltable.database]]` entry can set its own, using the same key names as the shared `[pixeltable]` and `[otel]` sections. The entry with no `name` configures the local database; an entry named `pxt://org:db` configures that hosted database, whose pods read the entry from the project files `pxt db update` uploads.
+Media destinations and the OTLP endpoint and protocol belong to one database, so each `[[pixeltable.database]]` entry can set its own: a `db_<key>` field overrides the setting `<key>` of the shared `[pixeltable]` or `[otel]` section. The entry with no `name` configures the local database; an entry named `pxt://org:db` configures that hosted database, whose pods read the entry from the project files `pxt db update` uploads.
 
 ```toml
 # pixeltable.toml
 [[pixeltable.database]]
-input_media_dest = 's3://bucket/input/'
-output_media_dest = 's3://bucket/output/'
-exporter_otlp_endpoint = 'https://otlp.example.com'
-exporter_otlp_protocol = 'grpc'
+db_input_media_dest = 's3://bucket/input/'
+db_output_media_dest = 's3://bucket/output/'
+db_exporter_otlp_endpoint = 'https://otlp.example.com'
+db_exporter_otlp_protocol = 'grpc'
 
 [[pixeltable.database]]
 name = 'pxt://myorg:mydb'
-input_media_dest = 's3://bucket/prod/input/'
-output_media_dest = 's3://bucket/prod/output/'
-exporter_otlp_endpoint = 'https://otlp.example.com'
+db_input_media_dest = 's3://bucket/prod/input/'
+db_output_media_dest = 's3://bucket/prod/output/'
+db_exporter_otlp_endpoint = 'https://otlp.example.com'
 ```
 
 Precedence, highest first: the environment variable from the table above, then the database entry, then `[pixeltable]` / `[otel]` in `config.toml`, which every database on the installation shares. A hosted database with neither uses its home bucket for media.
