@@ -10,6 +10,7 @@ import sys
 import time
 from typing import Any, Iterator
 
+from pixeltable.utils.project import ProjectFingerprint
 from pixeltable_cli import models
 from pixeltable_cli.types import DbState
 from pixeltable_cli.utils import split_pxt_uri
@@ -114,10 +115,64 @@ def _print_workers(workers: list[dict[str, Any]]) -> None:
     print_aligned(['POD ID', 'STATUS', 'READY', 'RESTARTS', 'AGE'], rows, right_align={2, 3}, indent='  ')
 
 
+def _fmt_project(resources: dict[str, Any]) -> str | None:
+    """Describe a database's project by its file count and archive digest."""
+    fp = resources.get('fingerprint')
+    if fp is None:
+        return None
+    files = fp.get('files') or {}
+    digest = ProjectFingerprint.model_validate(fp).archive_digest()[:8]
+    md_version = resources.get('pxt_md_version') or 0
+    return f'{len(files)} files  archive {digest}  md_version {md_version}'
+
+
+_RESOURCE_ROWS: tuple[tuple[str, str, str], ...] = (
+    ('cpu', 'cpu', ''),
+    ('memory', 'memory_mb', ' MiB'),
+    ('disk', 'disk_gb', ' GiB'),
+    ('workers', 'workers', ''),
+)
+
+
 def print_db(report: dict[str, Any], workers: list[dict[str, Any]] | None = None) -> None:
-    """Print one database's report."""
-    current = report.get('current') or {}
-    print(f'{report.get("db", "")}  state={current.get("state", "")}')
+    """Print one database's report: its state, its resources, and what an update would change."""
+    current = report.get('current')
+    if current is None:
+        print(f'{report.get("db", "")}  absent')
+        return
+    print(f'{report.get("db", "")}  {current.get("state", "")}')
+
+    running = current.get('resources') or {}
+    target = report.get('target_resources') or {}
+    rows: list[tuple[str, str]] = []
+    for label, field, unit in _RESOURCE_ROWS:
+        now, want = running.get(field), target.get(field)
+        if now is None and want is None:
+            continue
+        text = f'{now}{unit}' if now is not None else '-'
+        if want is not None and want != now:
+            text += f' -> {want}{unit}   pending'
+        rows.append((label, text))
+
+    now_project, want_project = _fmt_project(running), _fmt_project(target)
+    if now_project is not None or want_project is not None:
+        text = now_project or '-'
+        if want_project is not None and want_project != now_project:
+            text += f' -> {want_project}   pending'
+        rows.append(('project', text))
+    if running.get('default_bucket') is not None:
+        rows.append(('bucket', running['default_bucket']))
+
+    outcome = current.get('last_build_outcome')
+    if outcome is not None and outcome != 'SUCCEEDED':
+        rows.append(('build', outcome))
+    for label, field in (('error', 'last_build_error'), ('reason', 'failure_reason')):
+        if current.get(field) is not None:
+            rows.append((label, str(current[field])))
+
+    width = max((len(label) for label, _ in rows), default=0)
+    for label, text in rows:
+        print(f'  {label.ljust(width)}  {text}')
     _print_workers(workers or [])
 
 

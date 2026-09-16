@@ -266,6 +266,7 @@ class TestSchema:
             'unsupported': 0,
             'extras': 0,
             'destructive': 0,
+            'blocked_ops': 0,
         }
         assert target not in pxt.list_dirs(recursive=True)
 
@@ -681,8 +682,6 @@ class TestSchema:
 
     def test_udfs_in_application_files(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """Computed columns over udfs that an application's own package and its neighbors define."""
-        if db_root.id == 'cloud':
-            pytest.skip('the runtime of a hosted database does not hold this project')
         p = db_root.make_catalog_path
         # project_dir sits directly under the project root, so it leads every module path below it
         package = project_dir.name
@@ -739,6 +738,26 @@ class TestSchema:
                 )
             )
             return app_file
+
+        if db_root.id == 'cloud':
+            app_file = write_app('hosted')
+            target = p('hosted')
+            r = cli('schema', 'diff', str(app_file), target, '--json', check=False)
+            assert r.returncode == 2
+            blocked = [op for op in r.json['ops'] if op['severity'] == 'blocked']
+            assert len(blocked) == 1, r.json['ops']
+            assert f'{package}/hosted/functions.py added' in blocked[0]['description']
+            assert f'{package}/hosted/pkg/inner.py added' in blocked[0]['description']
+            assert f'pxt db update {db_root.prefix}' in blocked[0]['description']
+            assert r.json['summary']['blocked_ops'] == 1
+
+            r = cli('schema', 'update', str(app_file), target, check=False)
+            assert r.returncode == 1
+            assert f'refused   {target}/docs' in r.stdout
+            # nothing was created, so the table is still pending
+            r = cli('schema', 'diff', str(app_file), target, '--json', check=False)
+            assert [t['resolution'] for t in r.json['tables']] == ['create']
+            return
 
         # two applications of one project declare a udf of the same name, in files of the same name
         for name in ('proj1', 'proj2'):

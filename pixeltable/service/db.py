@@ -56,7 +56,7 @@ def db_diff(db_uri: str) -> DbPlan:
 
 def db_fingerprint(db_path: catalog.Path) -> ProjectFingerprint | None:
     """Return the fingerprint of the project deployed to a hosted database; None for a local one."""
-    if db_path.org is None or db_path.db is None:
+    if db_path.org is None or db_path.org == 'local' or db_path.db is None:
         return None
     report = _get_db_report(db_path)
     return None if report is None or report.current is None else report.current.resources.fingerprint

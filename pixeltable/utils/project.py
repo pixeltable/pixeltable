@@ -643,10 +643,7 @@ def unpacked_digest(project_dir: Path) -> str:
 
 
 def project_fingerprint(project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
-    """Fingerprint every file an image built from project_root would hold.
-
-    This decides whether an image is out of date, since an image holds the whole project.
-    """
+    """Fingerprint the project files for project_root."""
     return _fingerprint(_archive_files(project_root, config), project_root, config)
 
 

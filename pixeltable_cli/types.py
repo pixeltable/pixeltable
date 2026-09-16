@@ -62,13 +62,24 @@ class SchemaChangeOp(ChangeOp):
     A single schema change operation (eg, add column, drop column, etc).
     """
 
-    target: Literal['column', 'index', 'table']
+    target: Literal['column', 'index', 'table', 'project']
 
     details: SchemaChangeOpDetails = pydantic.Field(default_factory=SchemaChangeOpDetails)
 
     # excluded from serialization: an expr or a column type does not survive it
     model: Any = pydantic.Field(default=None, exclude=True)  # model-side value; None for drops
     existing: Any = pydantic.Field(default=None, exclude=True)  # catalog-side value; None for adds
+
+    @classmethod
+    def needs_db_update(cls, changes: list[str], command: str) -> SchemaChangeOp:
+        return cls(
+            target='project',
+            name='project',
+            op='alter',
+            severity='blocked',
+            description=f'the udf definitions in the database are out of date ({_summary(changes)}); '
+            f'run {command} first',
+        )
 
     @classmethod
     def drop_table(cls, pxt_path: PxtPath, status: OpStatus) -> SchemaChangeOp:
@@ -406,6 +417,7 @@ class SchemaPlanSummary(pydantic.BaseModel):
     unsupported: int
     extras: int
     destructive: int  # operations, not tables
+    blocked_ops: int  # operations that block the plan until the database changes
 
 
 class SchemaPlan(pydantic.BaseModel):
@@ -416,13 +428,15 @@ class SchemaPlan(pydantic.BaseModel):
     tables: list[TableDiff] = pydantic.Field(default_factory=list)
     extras: list[PxtPath] = pydantic.Field(default_factory=list)  # tables under catalog_dir no model declares
 
-    ops: list[SchemaChangeOp] = pydantic.Field(default_factory=list)  # on whole tables, unlike TableDiff.ops
+    ops: list[SchemaChangeOp] = pydantic.Field(default_factory=list)  # plan-level, unlike TableDiff.ops
     status: OpStatus | None = None
 
     @pydantic.computed_field  # type: ignore[prop-decorator]
     @property
     def in_agreement(self) -> bool:
         """True if no table needs a create or an update; extras don't count."""
+        if any(op.severity == 'blocked' for op in self.ops):
+            return False
         return all(t.resolution == 'up_to_date' for t in self.tables)
 
     @pydantic.computed_field  # type: ignore[prop-decorator]
@@ -436,6 +450,7 @@ class SchemaPlan(pydantic.BaseModel):
             unsupported=self._count('unsupported'),
             extras=len(self.extras),
             destructive=sum(1 for t in self.tables for op in t.ops if op.destructive),
+            blocked_ops=sum(1 for op in self.ops if op.severity == 'blocked'),
         )
 
     def _count(self, resolution: Resolution) -> int:

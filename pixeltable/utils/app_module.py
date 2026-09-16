@@ -227,6 +227,25 @@ def check_udf_references(bases: list[model.TableModelMeta]) -> list[str]:
     return errors
 
 
+def udf_source_files(bases: list[model.TableModelMeta]) -> set[str]:
+    """The local project files containing the udfs referenced by bases, relative to the project root."""
+    project_root = Config.get().project_root
+    assert project_root is not None
+    fn_paths = {fn.self_path for base in bases for cls in base.defined_models() for fn in cls.referenced_functions()}
+    files: set[str] = set()
+    for fn_path in fn_paths:
+        if fn_path is None:
+            continue
+        resolved = _resolved_module(fn_path)
+        file = None if resolved is None else getattr(resolved, '__file__', None)
+        if file is None:
+            continue
+        path = Path(file).resolve()
+        if path.is_relative_to(project_root):
+            files.add(path.relative_to(project_root).as_posix())
+    return files
+
+
 def shadowed_project_modules() -> list[str]:
     """Report the project's top-level modules that an import of the same name reads from somewhere else.
 
