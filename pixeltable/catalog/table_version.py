@@ -735,7 +735,7 @@ class TableVersion:
                     get_runtime().catalog.convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
                     # If it wasn't converted, re-raise as a generic Pixeltable error
                     # (this means it's not a known concurrency error; it's something else)
-                    raise excs.Error(
+                    raise excs.InternalError(
                         excs.ErrorCode.INTERNAL_ERROR,
                         f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}',
                     ) from exc
@@ -1221,12 +1221,12 @@ class TableVersion:
                 # a valid rowid is a list of ints, one per rowid column
                 num_rowid_cols = len(self.store_tbl.rowid_columns())
                 if len(val) != num_rowid_cols:
-                    raise excs.Error(
+                    raise excs.InternalError(
                         excs.ErrorCode.INTERNAL_ERROR,
                         f'Malformed _rowid: expected {num_rowid_cols} components, got {len(val)}',
                     )
                 if not all(isinstance(el, int) for el in val):
-                    raise excs.Error(
+                    raise excs.InternalError(
                         excs.ErrorCode.INTERNAL_ERROR, f'Malformed _rowid: all components must be int, got {val!r}'
                     )
                 continue

@@ -230,7 +230,9 @@ class ExprEvalNode(ExecNode):
                     self.schedulers[pool_name] = scheduler(pool_name, self)
                     break
             if pool_name not in self.schedulers:
-                raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No scheduler found for resource pool {pool_name}')
+                raise excs.InternalError(
+                    excs.ErrorCode.INTERNAL_ERROR, f'No scheduler found for resource pool {pool_name}'
+                )
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         """
@@ -531,6 +533,6 @@ class ExprEvalNode(ExecNode):
                 self.error = exc
             else:
                 # chain the original exception so its traceback is preserved
-                self.error = excs.Error(excs.ErrorCode.GENERIC_USER_ERROR, f'Exception in task: {exc}')
+                self.error = excs.UserError(excs.ErrorCode.GENERIC_USER_ERROR, f'Exception in task: {exc}')
                 self.error.__cause__ = exc
             self.exc_event.set()

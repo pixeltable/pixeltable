@@ -153,7 +153,7 @@ class McpFunction(Function):
 
         # raise outside the client's async context: anyio wraps an exception thrown inside it in a TaskGroup group
         assert error_msg is not None
-        raise excs.Error(excs.ErrorCode.GENERIC_USER_ERROR, error_msg)
+        raise excs.UserError(excs.ErrorCode.GENERIC_USER_ERROR, error_msg)
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         from pixeltable.runtime import get_runtime

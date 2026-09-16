@@ -290,7 +290,7 @@ jobs:
           # Install quarto and mintlify in order to build the docs
           conda install -y -c conda-forge quarto nodejs
           npm install -g mint@$MINTLIFY_VERSION
-          python -m pixeltable_doctools.build
+          python -m pixeltable_doctools.build --no-changelog
           cd target/docs && mint broken-links
       - name: Lint
         if: ${{ matrix.test-category == 'lint' }}

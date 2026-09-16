@@ -1,0 +1,8 @@
+# `pxt db update` from this directory deploys the app corpus below it, so a pod can import apps.*
+# and resolve the CLI tests' udfs. The core suite's database serves the repository, and its entry
+# is in pyproject.toml.
+[[pixeltable.database]]
+name = "pxt://pixeltable:pxtclitest"
+# a pod imports apps.* and nothing else here; without this, editing a test would drift the archive
+# and force a redeploy before the suite could run
+exclude = ["/*.py"]  # anchored: in git wildmatch syntax a bare *.py would take apps/ too
