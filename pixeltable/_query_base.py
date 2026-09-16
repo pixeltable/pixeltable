@@ -1078,11 +1078,11 @@ class QueryBase(ABC):
             return Query
         if classname == 'ModelQuery':
             # ModelQuery refuses to serialize, so a stored one is a query that escaped binding
-            raise excs.Error(
+            raise excs.InternalError(
                 excs.ErrorCode.INTERNAL_ERROR,
                 'This metadata holds a query over a model, which names a table that does not exist.',
             )
-        raise excs.Error(
+        raise excs.InternalError(
             excs.ErrorCode.INTERNAL_ERROR,
             f'Unknown query class {classname!r}; it may have been written by a newer version of Pixeltable.',
         )

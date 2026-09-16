@@ -2,7 +2,21 @@
 
 # AGENTS.md
 
-Instructions for AI coding agents working with the Pixeltable codebase.
+Instructions for AI coding agents working with the Pixeltable codebase. This is the single developer
+guide; `CLAUDE.md` imports it.
+
+## Where the other instructions live
+
+| File | Governs | Read it when |
+|---|---|---|
+| `.github/copilot-instructions.md` | Copilot code review on pull requests | Changing what a reviewer flags |
+| `docs/_guidelines/GUIDELINES_FOR_PROSE.md` | Prose in docs, notebooks, READMEs | Writing anything a user reads |
+| `docs/_guidelines/GUIDELINES_FOR_DOCSTRINGS.md` | Docstrings, which ship as SDK reference | Adding or editing a docstring |
+| `docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md` | Notebook structure and conversion | Touching `docs/release/**/*.ipynb` |
+| `docs/_guidelines/GUIDELINES_FOR_COOKBOOKS.md` | Cookbook recipe structure | Adding a recipe |
+| `dashboard/DESIGN.md`, `dashboard/ARCHITECTURE.md` | The local dashboard UI | Touching `dashboard/` or its server APIs |
+| `docs/release/skill.md` | The user-facing agent skill | Changing what app builders are told |
+| `CONTRIBUTING.md` | Branching, review, merge process | Opening or merging a PR |
 
 ## Protected Configuration
 
@@ -118,6 +132,29 @@ pytest -m "remote_api" tests/functions/test_openai.py
 - `@pytest.mark.expensive` - Long-running tests
 - `@pytest.mark.remote_api` - Tests calling external APIs
 
+### Required After Every Code Change
+
+After every code change, before reporting it done:
+
+1. `make format`: auto-formats code.
+2. `make check`: mypy + ruff static checks; both must pass.
+3. `git add` any new source file, then review the whole change with `git diff HEAD` (no pathspec: source
+   and tests), reading every comment, docstring, and string you added. A diff narrowed to one file does not
+   count, and an unstaged new file does not appear in it. A comment must describe only the code at hand
+   (never a caller's intent or a called function's internals) and must not state behavior you have not
+   verified.
+4. Delete before rewording: cover each comment and read only the identifier, the signature, and the code
+   below it. If those carry the same fact, delete the comment rather than improving it. A docstring that
+   paraphrases the name, an "or None if ..." for a `| None` annotation, and a fact already stated elsewhere
+   all go. Keep what the reader cannot recover: a constraint a callee imposes, the reason for a surprising
+   choice, an invariant that would silently break.
+5. Check the prose that survived for straight word order: no preposition stranded at the end of a clause,
+   no noun-phrase pileup ("the X a Y is Z to"), no fused emphatic ("X is what makes Y work" -> "X makes Y
+   work"). Where a plainer phrase says the same thing, use it. Fix every violation from steps 3 to 5 before
+   proceeding.
+
+Skip only if explicitly directed or if the environment makes it impossible.
+
 ### Creating a Pull Request
 
 1. Create a branch from `main`
@@ -206,17 +243,27 @@ from pixeltable.serving import FastAPIRouter
 TableModel = pxt.model_base()
 
 
+@pxt.udf
+def excerpt(text: str, n: int = 12) -> str:
+    return text if len(text) <= n else f'{text[:n]}...'
+
+
 class Docs(TableModel, name='docs'):
-    doc_id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
+    id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
     title: pxt.String
     body: pxt.String | None
     title_upper = pxtf.string.upper(title)
+    summary = excerpt(title)
 
 
 ingest = FastAPIRouter(name='ingest')
 ingest.add_insert_route(
-    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.doc_id, Docs.title, Docs.title_upper]
+    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.id, Docs.title_upper, Docs.summary]
 )
+ingest.add_update_route(
+    Docs, path='/docs/update', inputs=[Docs.title], outputs=[Docs.id, Docs.title_upper]
+)
+ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
 ```
 
 ```bash
@@ -226,13 +273,34 @@ pxt service update app.py my_app
 
 After `pxt schema update`, open the table with `t = pxt.get_table('my_app.docs')`, then `t.insert()` / `.select()` / `.collect()`. On a `TableModel`, put indexes in `__indexes__`. Do not call `add_embedding_index()` in application code that you later create with `pxt schema update`.
 
+Tests and notebooks (not app files):
+
+```python
+import pixeltable as pxt
+
+t = pxt.create_table('my_dir.my_table', {
+    'text': pxt.String,
+    'image': pxt.Image,
+    'metadata': pxt.Json,
+})
+t.add_computed_column(embedding=some_embedding_fn(t.text))
+t.add_embedding_index('text', embedding=embed_fn)
+t.insert([{'text': 'hello', 'image': 'path/to/image.jpg'}])
+```
+
 Examples: [pixeltable-starter-kit](https://github.com/pixeltable/pixeltable-starter-kit).
 
 ### Error Handling
 
 - Use `pixeltable.exceptions` for custom exceptions
 - Validate inputs early and provide clear error messages
-- Use `exn.Error` for user-facing errors
+- Raise a subclass of `Error`, never `Error` itself: its `__init__` asserts
+  `raise a subclass of Error, not Error itself`. Every instance carries an `ErrorCode`, and the code
+  determines the class, so `RequestError` takes a request code and `NotFoundError` a not-found one.
+- `UserError` is the subclass for a user error with no more specific code:
+  `raise pxt.UserError(pxt.ErrorCode.GENERIC_USER_ERROR, 'message')`. Reach for a specific subclass
+  first (`RequestError`, `NotFoundError`, `AlreadyExistsError`, `AuthorizationError`,
+  `ExternalServiceError`, `ServiceUnavailableError`, `ConcurrencyError`).
 
 ## Documentation
 
@@ -253,6 +321,12 @@ Follow `docs/_guidelines/GUIDELINES_FOR_DOCSTRINGS.md`:
 - Code examples must use `>>>` prompts, not fenced code blocks
 - Backticks must be properly paired
 - HTML tags must be self-closing
+- When describing what a function does, focus on the behavior of the function itself, not its callers
+
+### Code Comments
+
+- Keep code comments succinct; avoid unnecessarily verbose comments.
+- Always use parens to denote functions: in code comments, it's `my_func()`, not `my_func`.
 
 ### Building Docs
 
@@ -263,9 +337,11 @@ make docs
 # Serve locally for development
 make docs-serve
 
-# Deploy to staging
-make docs-deploy TARGET=stage
+# Deploy to the dev environment for preview
+make docs-deploy TARGET=dev
 ```
+
+`TARGET=dev` is the only deploy target an agent may run or suggest. `stage` and `prod` are for humans.
 
 ### Local Dashboard UI
 

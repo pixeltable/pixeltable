@@ -38,9 +38,8 @@ class DatabaseConfig(pydantic.BaseModel):
     # the database name ('local', or the uri of a hosted one)
     name: str = 'local'
 
-    # bindings for the config vars and secrets
+    # bindings for the config vars
     vars: dict[str, str] | None = None
-    secrets: dict[str, str] | None = None
 
     # where media that names no destination goes: inserted media, and media that computed columns produce
     input_media_dest: str | None = None
@@ -109,10 +108,10 @@ _UNSPECIFIED = _Unspecified()
 
 # the recognized config files
 PROJECT_CONFIG_FILE = 'pixeltable.toml'
-_PYPROJECT = 'pyproject.toml'  # with a [tool.pixeltable] section
+PYPROJECT_FILE = 'pyproject.toml'  # with a [tool.pixeltable] section
 
 # both of them, for a caller that handles whichever the project holds
-PROJECT_CONFIG_FILES = (PROJECT_CONFIG_FILE, _PYPROJECT)
+PROJECT_CONFIG_FILES = (PROJECT_CONFIG_FILE, PYPROJECT_FILE)
 
 
 def _find_project_root(start: Path) -> Path | None:
@@ -122,7 +121,7 @@ def _find_project_root(start: Path) -> Path | None:
         if (dir / PROJECT_CONFIG_FILE).is_file():
             # pixeltable.toml takes precedence over pyproject.toml
             return dir
-        pyproject = dir / _PYPROJECT
+        pyproject = dir / PYPROJECT_FILE
         if pyproject.is_file():
             try:
                 parsed = toml.load(pyproject)
@@ -137,7 +136,7 @@ def _find_project_root(start: Path) -> Path | None:
     return None
 
 
-# config section names for database variables and secrets
+# config section names for database variables
 VAR_SECTION = 'pixeltable.database.vars'
 SECRET_SECTION = 'pixeltable.database.secrets'
 
@@ -506,7 +505,7 @@ class Config:
         if root is None:
             return None
         pixeltable_toml = root / PROJECT_CONFIG_FILE
-        return pixeltable_toml if pixeltable_toml.is_file() else root / _PYPROJECT
+        return pixeltable_toml if pixeltable_toml.is_file() else root / PYPROJECT_FILE
 
     def __load_project_config(self) -> dict[str, dict[str, tuple[Any, Path]]]:
         """Load the project's settings, keyed like the home config's.
@@ -516,7 +515,7 @@ class Config:
         if self.__project_config_file is None or not self.__project_config_file.exists():
             return {}
         parsed = self.__read_toml_file(self.__project_config_file)
-        if self.__project_config_file.name == _PYPROJECT:
+        if self.__project_config_file.name == PYPROJECT_FILE:
             parsed = parsed.get('tool', {}).get('pixeltable', {})
             # in a pyproject.toml, tool.pixeltable holds the contents of the 'pixeltable' section
             parsed = {'pixeltable': parsed} if not isinstance(parsed.get('pixeltable'), dict) else parsed
@@ -559,8 +558,8 @@ class Config:
         """Combine the database entries of the config files, entry by entry, each with the file it came from.
 
         Entries are matched by name, and a field a later file sets wins, so a project adding a var keeps the
-        secrets the home config binds for the same database. The file that supplied each field, and each var
-        and secret binding, is recorded in __database_sources.
+        vars the home config binds for the same database. The file that supplied each field and each var
+        binding is recorded in __database_sources.
         """
         fields_by_name: dict[str, dict[str, Any]] = {}
         for entries, source in layers:
@@ -589,7 +588,7 @@ class Config:
                 try:
                     toml.dump(config_dict, stream)
                 except Exception as exc:
-                    raise excs.Error(
+                    raise excs.InternalError(
                         excs.ErrorCode.INTERNAL_ERROR, f'Could not create config file: {self.__config_file}'
                     ) from exc
             _logger.info(f'Created default config file at: {self.__config_file}')
@@ -712,15 +711,13 @@ class Config:
             return None
         return own, self.__database_sources[name]
 
-    def __database_bindings(self, section: str) -> dict[str, tuple[str, Path | None]]:
-        """The vars or secrets of this process's database, each with the file that supplied it."""
+    def __database_bindings(self) -> dict[str, tuple[str, Path | None]]:
+        """The vars of this process's database, each with the file that supplied it."""
         own = self.__own_database()
         if own is None:
             return {}
         entry, sources = own
-        field = 'secrets' if section == SECRET_SECTION else 'vars'
-        bindings: dict[str, str] = getattr(entry, field) or {}
-        return {name: (value, sources[f'{field}.{name}']) for name, value in bindings.items()}
+        return {name: (value, sources[f'vars.{name}']) for name, value in (entry.vars or {}).items()}
 
     def __database_setting(self, key: str) -> tuple[Any, Path | None] | None:
         """The value of key in the entry of this process's database, with the file that supplied it."""
@@ -735,8 +732,10 @@ class Config:
 
     def __lookup_config_entry(self, section: str, key: str) -> tuple[Any, Path | None] | None:
         """Find key under section in __config_dict. Returns (value, source_path) or None."""
-        if section in (VAR_SECTION, SECRET_SECTION):
-            return self.__database_bindings(section).get(key)
+        if section == VAR_SECTION:
+            return self.__database_bindings().get(key)
+        if section == SECRET_SECTION:
+            return None  # a secret is bound by its environment variable, which get_value() reads first
         if (section, key) in _DATABASE_SETTINGS:
             # the entry for this process's database wins over the section, which every database shares
             setting = self.__database_setting(key)
@@ -875,8 +874,10 @@ class Config:
 
     def __section_keys(self, section: str) -> list[str]:
         """The keys defined in section."""
-        if section in (VAR_SECTION, SECRET_SECTION):
-            return list(self.__database_bindings(section))
+        if section == VAR_SECTION:
+            return list(self.__database_bindings())
+        if section == SECRET_SECTION:
+            return []  # a secret is named by its environment variable, which __config_var_keys() scans
         parts = section.split('.')
         node: Any = self.__config_dict.get(parts[0])
         for p in parts[1:]:
@@ -895,7 +896,7 @@ class Config:
             return f'{section}.{key}, no longer set'
         ck = next((ck for ck in self.config_keys() if (ck.section, ck.key) == (section, key)), None)
         # a pyproject.toml holds Pixeltable's settings under [tool], and an array of tables is written [[ ]]
-        prefix = 'tool.' if source.name == _PYPROJECT else ''
+        prefix = 'tool.' if source.name == PYPROJECT_FILE else ''
         if (section, key) in _DATABASE_SETTINGS and self.__database_setting(key) is not None:
             name = f'[[{prefix}pixeltable.database]].{key}'
         elif ck is not None and typing.get_origin(ck.expected_type) is list:

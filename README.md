@@ -5,16 +5,12 @@
   <img alt="Pixeltable" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/_logo/pxt-light.svg" width="40%">
 </picture>
 
-## The unified multimodal backend for AI data apps in one Python file
+## The unified multimodal backend agents build with
 
 [**Quickstart**](https://docs.pixeltable.com/overview/quick-start) |
 [**Documentation**](https://docs.pixeltable.com/) |
 [**CLI**](https://docs.pixeltable.com/platform/cli) |
 [**Cloud**](https://docs.pixeltable.com/howto/deployment/cloud) |
-[**Skill**](https://github.com/pixeltable/pixeltable-skill) |
-[**get-started.md**](https://www.pixeltable.com/get-started.md) |
-[**skill.md**](https://docs.pixeltable.com/skill.md) |
-[**llms-full.txt**](https://docs.pixeltable.com/llms-full.txt) |
 [**Discord**](https://discord.gg/QPyqFYx2UN)
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -24,7 +20,20 @@
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![Python](https://img.shields.io/pypi/pyversions/pixeltable)](https://pypi.org/project/pixeltable/)
 
-Pixeltable is the database, orchestration, and serving layers. Images, video, audio, and documents live in tables. A transform is a computed column. An index is a declaration, and so is an HTTP route. Insert a row and everything below it runs. Object storage, a vector database, an orchestrator, and the endpoint code that copies between them collapse into one application file.
+[![Open in Cursor][cursor-badge]][cursor-prompt]
+[![Open in Claude][claude-badge]][claude-prompt]
+[![Open in ChatGPT][chatgpt-badge]][chatgpt-prompt]
+
+Install into your agent: [Agent Skill](https://github.com/pixeltable/pixeltable-skill) ·
+[MCP server](https://github.com/pixeltable/mcp-server-pixeltable-developer) ·
+[Cursor plugin](https://cursor.directory/plugins/pixeltable) ·
+[ChatGPT plugin](https://chatgpt.com/plugins/plugins_6aa9bce6481c81918d73be74740eed28)
+
+Reading this as an agent? Start at [get-started.md](https://www.pixeltable.com/get-started.md), then
+[skill.md](https://docs.pixeltable.com/skill.md) and
+[llms-full.txt](https://docs.pixeltable.com/llms-full.txt).
+
+Pixeltable is the database, orchestration, and serving layers. Images, video, audio, and documents live in tables. A transform is a computed column. An index is a declaration, and so is an HTTP route. Insert a row and everything below it runs. Object storage, a vector database, an orchestrator, and the endpoint code that copies between them collapse into one application file. That file is what a coding agent can hold: it writes the whole application at once, and you review the change in one diff instead of across four systems.
 
 ```bash
 pip install 'pixeltable[serve]'
@@ -53,7 +62,7 @@ def excerpt(text: str, n: int = 12) -> str:
 
 
 class Docs(TableModel, name='docs'):
-    doc_id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # a generated key: provided automatically on insert
+    id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # a generated key: provided automatically on insert
     title: pxt.String
     body: pxt.String | None
     title_upper = pxtf.string.upper(title)      # an assignment: computed on insert and on update
@@ -62,7 +71,10 @@ class Docs(TableModel, name='docs'):
 
 ingest = FastAPIRouter(name='ingest')
 ingest.add_insert_route(                        # POST /docs inserts and returns the computed columns
-    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.doc_id, Docs.title_upper, Docs.summary]
+    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.id, Docs.title_upper, Docs.summary]
+)
+ingest.add_update_route(                        # POST /docs/update takes id plus the new values
+    Docs, path='/docs/update', inputs=[Docs.title], outputs=[Docs.id, Docs.title_upper]
 )
 ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
 ```
@@ -78,7 +90,7 @@ URL=$(pxt service list --json | jq -r '.[0].endpoint')
 curl -X POST "$URL/docs" \
   -H 'Content-Type: application/json' \
   -d '{"title": "Hello", "body": "world"}'
-# {"doc_id":"...","title_upper":"HELLO","summary":"Hello"}
+# {"id":"...","title_upper":"HELLO","summary":"Hello"}
 ```
 
 The same file runs on Pixeltable Cloud. Create an API key in the [Cloud dashboard](https://docs.pixeltable.com/howto/deployment/cloud#get-an-api-key), set `PIXELTABLE_API_KEY`, name the database in `pixeltable.toml`, then target it by URI. `pxt db update` creates or updates the hosted database; it does not insert rows. `pxt service run` is local only and cannot target Cloud.
@@ -109,7 +121,7 @@ To mount the routes on an existing FastAPI app, `app.include_router(...)`. [HTTP
 
 ## Coding agents
 
-Hand the agent [get-started.md](https://www.pixeltable.com/get-started.md). That playbook installs the package, the skill, and MCP. How the skill writes `app.py`: [AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms). Docs capability file: [skill.md](https://docs.pixeltable.com/skill.md).
+The links above install the skill and MCP. How the skill writes `app.py`: [AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms).
 
 ```bash
 npx skills add pixeltable/pixeltable-skill
@@ -122,3 +134,10 @@ Notebooks and tests still use `pxt.create_table()`. An app puts tables in `app.p
 ## License
 
 Apache 2.0. [Contributing](https://github.com/pixeltable/pixeltable/blob/main/CONTRIBUTING.md) · [Discord](https://discord.gg/QPyqFYx2UN)
+
+[cursor-badge]: https://img.shields.io/badge/Open_in-Cursor-000000
+[claude-badge]: https://img.shields.io/badge/Open_in-Claude-D97757
+[chatgpt-badge]: https://img.shields.io/badge/Open_in-ChatGPT-10A37F
+[cursor-prompt]: https://cursor.com/link/prompt?text=Build+a+multimodal+AI+data+app+with+Pixeltable.+First+follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md+%28install+pxt%2C+the+Pixeltable+Skill%2C+and+MCP%29.+Then+%60pip+install+%27pixeltable%5Bserve%5D%27%60%2C+%60pxt+init%60%2C+and+%60pxt+service+example+--out+app.py%60.+Declare+tables%2C+computed+columns%2C+embeddings%2C+and+FastAPIRouter+routes+in+that+one+Python+file.+Apply+with+%60pxt+schema+update+app.py+my_app%60%2C+serve+locally+with+%60pxt+service+update+app.py+my_app%60.+Same+file+on+Cloud%3A+set+PIXELTABLE_API_KEY%2C+add+%60%5B%5Bpixeltable.database%5D%5D%60+with+%60name+%3D+%27pxt%3A%2F%2Forg%3Adb%27%60%2C+then+%60pxt+db+update+pxt%3A%2F%2Forg%3Adb%60%2C+%60pxt+schema+update+app.py+pxt%3A%2F%2Forg%3Adb%60%2C+%60pxt+service+update+app.py+pxt%3A%2F%2Forg%3Adb%60.+%60pxt+service+run%60+is+local+only.+Read+https%3A%2F%2Fpixeltable.com%2Fllms.txt+and+https%3A%2F%2Fdocs.pixeltable.com.
+[claude-prompt]: https://claude.ai/new?q=Build+a+multimodal+AI+data+app+with+Pixeltable.+First+follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md+%28install+pxt%2C+the+Pixeltable+Skill%2C+and+MCP%29.+Then+%60pip+install+%27pixeltable%5Bserve%5D%27%60%2C+%60pxt+init%60%2C+and+%60pxt+service+example+--out+app.py%60.+Declare+tables%2C+computed+columns%2C+embeddings%2C+and+FastAPIRouter+routes+in+that+one+Python+file.+Apply+with+%60pxt+schema+update+app.py+my_app%60%2C+serve+locally+with+%60pxt+service+update+app.py+my_app%60.+Same+file+on+Cloud%3A+set+PIXELTABLE_API_KEY%2C+add+%60%5B%5Bpixeltable.database%5D%5D%60+with+%60name+%3D+%27pxt%3A%2F%2Forg%3Adb%27%60%2C+then+%60pxt+db+update+pxt%3A%2F%2Forg%3Adb%60%2C+%60pxt+schema+update+app.py+pxt%3A%2F%2Forg%3Adb%60%2C+%60pxt+service+update+app.py+pxt%3A%2F%2Forg%3Adb%60.+%60pxt+service+run%60+is+local+only.+Read+https%3A%2F%2Fpixeltable.com%2Fllms.txt+and+https%3A%2F%2Fdocs.pixeltable.com.
+[chatgpt-prompt]: https://chatgpt.com/?prompt=Build+a+multimodal+AI+data+app+with+Pixeltable.+First+follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md+%28install+pxt%2C+the+Pixeltable+Skill%2C+and+MCP%29.+Then+%60pip+install+%27pixeltable%5Bserve%5D%27%60%2C+%60pxt+init%60%2C+and+%60pxt+service+example+--out+app.py%60.+Declare+tables%2C+computed+columns%2C+embeddings%2C+and+FastAPIRouter+routes+in+that+one+Python+file.+Apply+with+%60pxt+schema+update+app.py+my_app%60%2C+serve+locally+with+%60pxt+service+update+app.py+my_app%60.+Same+file+on+Cloud%3A+set+PIXELTABLE_API_KEY%2C+add+%60%5B%5Bpixeltable.database%5D%5D%60+with+%60name+%3D+%27pxt%3A%2F%2Forg%3Adb%27%60%2C+then+%60pxt+db+update+pxt%3A%2F%2Forg%3Adb%60%2C+%60pxt+schema+update+app.py+pxt%3A%2F%2Forg%3Adb%60%2C+%60pxt+service+update+app.py+pxt%3A%2F%2Forg%3Adb%60.+%60pxt+service+run%60+is+local+only.+Read+https%3A%2F%2Fpixeltable.com%2Fllms.txt+and+https%3A%2F%2Fdocs.pixeltable.com.
