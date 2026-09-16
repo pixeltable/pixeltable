@@ -16,7 +16,6 @@ import socket
 import subprocess
 import sys
 import time
-import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
@@ -263,8 +262,8 @@ def read_logs_until(
 
 
 @contextlib.contextmanager
-def disposable_db_uri(cli: PxtRunner, cwd: pathlib.Path) -> Iterator[str]:
-    uri = f'pxt://pixeltable:pxttest-{uuid.uuid4().hex[:12]}'
+def disposable_db(cli: PxtRunner, uri: str, cwd: pathlib.Path) -> Iterator[str]:
+    """Delete the database at uri once the caller is done with it, whether or not one was ever created."""
     try:
         yield uri
     finally:
@@ -283,6 +282,30 @@ def write_requirements(project: pathlib.Path, wheel: pathlib.Path, *extra: str) 
     (project / 'requirements.txt').write_text(
         '\n'.join([f'./{_WHEEL_SUBDIR}/{wheel.name}', *extra]) + '\n', encoding='utf-8'
     )
+
+
+@pytest.fixture(scope='session')
+def cloud_service_db(
+    cloud_service_db_uri: str, session_cli: PxtRunner, session_project: pathlib.Path, pixeltable_wheel: pathlib.Path
+) -> Iterator[str]:
+    """Create the database the 'cloud-service' root names, serving this session's project, and return it.
+
+    test_service.py deploys that project's application files as services and edits them as it goes, and a
+    pod reaches an edit only through the database's archive, which `pxt db update` replaces. So the root
+    gets a database of its own rather than the corpus database the rest of the package reads.
+
+    Session-scoped, since creating a database provisions storage and runs CodeBuild.
+    """
+    copy_app_corpus(session_project)
+    write_requirements(session_project, pixeltable_wheel, *PROJECT_EXTRAS)
+    with disposable_db(session_cli, cloud_service_db_uri, session_project) as uri:
+        (session_project / 'pixeltable.toml').write_text(
+            f'[[pixeltable.database]]\nname = {json.dumps(uri)}\n', encoding='utf-8'
+        )
+        # the daemon read the project config when it started
+        session_cli('daemon', 'restart', cwd=session_project)
+        session_cli('db', 'update', uri, '-f', cwd=session_project, timeout=BUILD_TIMEOUT)
+        yield uri
 
 
 def _git(*args: str) -> str:

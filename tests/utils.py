@@ -62,8 +62,14 @@ DbRootId = Literal['local', 'proxy', 'cloud', 'cloud-cli', 'cloud-service']
 
 # The database each hosted root names: 'cloud' serves this repository, 'cloud-cli' the CLI app corpus.
 # 'cloud-service' has no standing database, so it is absent here: tests/pixeltable_cli/test_service.py
-# publishes to the database it runs against, and provisions one per session in cloud_service_db_uri.
+# publishes to the database it runs against, and creates one per session in cloud_service_db.
 CLOUD_DB_ROOT_URIS = {'cloud': 'pxt://pixeltable:pxttest', 'cloud-cli': 'pxt://pixeltable:pxtclitest'}
+
+
+def new_db_uri() -> str:
+    """A hosted database uri that names nothing yet, for a test that creates one of its own."""
+    return f'pxt://pixeltable:pxttest-{uuid.uuid4().hex[:12]}'
+
 
 # a hosted root needs a control plane, and these three name one
 _CLOUD_ENV_VARS = ('PIXELTABLE_API_KEY', 'PIXELTABLE_API_URL', 'PIXELTABLE_CLOUD_HOST')
@@ -77,6 +83,7 @@ def cloud_env_configured() -> bool:
 @dataclass
 class DatabaseRoot:
     id: DbRootId
+    base_uri: str
     prefix: str
 
     @property

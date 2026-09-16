@@ -1,4 +1,3 @@
-import json
 import os
 import pathlib
 import shutil
@@ -13,7 +12,6 @@ import httpx
 import pytest
 
 import pixeltable as pxt
-from pixeltable import catalog
 from pixeltable.config import Config
 from pixeltable_cli.client.commands import service as service_cmd
 
@@ -26,20 +24,10 @@ from ..utils import (
     get_documents,
     get_video_files,
     home_bucket_uri,
+    new_db_uri,
     skip_test_if_not_installed,
 )
-from .conftest import (
-    BUILD_TIMEOUT,
-    EXIT_ERROR,
-    PROJECT_EXTRAS,
-    BackgroundPxt,
-    PxtRunner,
-    copy_app_corpus,
-    db_update,
-    disposable_db_uri,
-    read_logs_until,
-    write_requirements,
-)
+from .conftest import BUILD_TIMEOUT, EXIT_ERROR, BackgroundPxt, PxtRunner, db_update, disposable_db, read_logs_until
 from .hosted import (
     APP_FILE,
     await_service_available,
@@ -64,31 +52,7 @@ def hosted_db(session_cli: PxtRunner, session_project: pathlib.Path) -> Iterator
     Its scenarios publish a project of their own with `pxt db update`, which replaces what the database
     serves, so they can share it with nothing. Module-scoped because creating one runs CodeBuild.
     """
-    with disposable_db_uri(session_cli, session_project) as uri:
-        yield uri
-
-
-@pytest.fixture(scope='session')
-def cloud_service_db_uri(
-    session_cli: PxtRunner, session_project: pathlib.Path, pixeltable_wheel: pathlib.Path
-) -> Iterator[str]:
-    """The hosted database of the 'cloud-service' root, built from the session's project.
-
-    These tests deploy the project's application files as services and edit them as they go, and a pod
-    reaches an edit only through the database's archive, which `pxt db update` replaces. So this root gets
-    a database of its own rather than the corpus database the rest of the package reads.
-
-    Session-scoped, since creating a database provisions storage and runs CodeBuild.
-    """
-    copy_app_corpus(session_project)
-    write_requirements(session_project, pixeltable_wheel, *PROJECT_EXTRAS)
-    with disposable_db_uri(session_cli, session_project) as uri:
-        (session_project / 'pixeltable.toml').write_text(
-            f'[[pixeltable.database]]\nname = {json.dumps(uri)}\n', encoding='utf-8'
-        )
-        # the daemon read the project config when it started
-        session_cli('daemon', 'restart', cwd=session_project)
-        session_cli('db', 'update', uri, '-f', cwd=session_project, timeout=BUILD_TIMEOUT)
+    with disposable_db(session_cli, new_db_uri(), session_project) as uri:
         yield uri
 
 
@@ -160,8 +124,7 @@ def deploy(cli: PxtRunner, app: str, target: str) -> None:
 def _db_update(cli: PxtRunner, db_root: DatabaseRoot) -> None:
     if not db_root.is_cloud:
         return
-    path = catalog.Path.parse(db_root.prefix, allow_empty_path=True)
-    cli('db', 'update', f'pxt://{path.org}:{path.db}', '-f', timeout=BUILD_TIMEOUT)
+    cli('db', 'update', db_root.base_uri, '-f', timeout=BUILD_TIMEOUT)
 
 
 def assert_serving(cli: PxtRunner, app: str, target: str, *names: str) -> dict[str, dict[str, Any]]:
@@ -463,7 +426,7 @@ class TestService:
             assert r.returncode == 2, r.stdout
             assert [s['resolution'] for s in r.json['services']] == ['blocked'], r.stdout
             [op] = [op for s in r.json['services'] for op in s['ops'] if op['target'] == 'project']
-            assert f'pxt db update {db_root.prefix.rsplit("/", 1)[0]}' in op['description'], op['description']
+            assert f'pxt db update {db_root.base_uri}' in op['description'], op['description']
             _db_update(cli, db_root)
 
         r = cli('service', 'diff', str(app_file), target, '--json', check=False)
@@ -729,7 +692,7 @@ class TestService:
         assert recordings.where(recordings.recording_id == 1).count() == 1
         # the uploaded audio is persisted in the home bucket for a hosted table, in the media dir for a local one
         audio_url = recordings.select(recordings.audio.fileurl).collect()['audio_fileurl'][0]
-        expected_prefix = f'{home_bucket_uri(db_root.prefix)}/' if db_root.is_cloud else 'file://'
+        expected_prefix = f'{home_bucket_uri(db_root.base_uri)}/' if db_root.is_cloud else 'file://'
         assert audio_url.startswith(expected_prefix), audio_url
 
         # stopping one service of a file leaves the others serving

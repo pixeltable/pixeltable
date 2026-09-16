@@ -748,8 +748,7 @@ class TestSchema:
             assert len(blocked) == 1, r.json['ops']
             assert f'{package}/hosted/functions.py added' in blocked[0]['description']
             assert f'{package}/hosted/pkg/inner.py added' in blocked[0]['description']
-            # rsplit: the command acts on the database, and this prefix has the test's directory too
-            assert f'pxt db update {db_root.prefix.rsplit("/", 1)[0]}' in blocked[0]['description']
+            assert f'pxt db update {db_root.base_uri}' in blocked[0]['description']
             assert r.json['summary']['blocked_ops'] == 1
 
             r = cli('schema', 'update', str(app_file), target, check=False)

@@ -46,6 +46,7 @@ from .utils import (
     create_img_tbl,
     create_test_tbl,
     local_embedding,
+    new_db_uri,
     reload_catalog,
     validate_async_teardown,
 )
@@ -380,6 +381,16 @@ def served_project() -> pathlib.Path | None:
     return None
 
 
+@pytest.fixture(scope='session')
+def cloud_service_db_uri() -> str:
+    """The database the 'cloud-service' root names: a name only, disposable and unique to this session.
+
+    A test can run there once a database exists at it and a project has been published to it, which
+    tests/pixeltable_cli/conftest.py does in cloud_service_db -- the project it serves is that package's.
+    """
+    return new_db_uri()
+
+
 @pytest.fixture(scope='function')
 def db_root(
     init_env: None, served_project: pathlib.Path | None, request: pytest.FixtureRequest
@@ -399,7 +410,7 @@ def db_root(
 
     match db_root_id:
         case 'local':
-            yield DatabaseRoot('local', '')
+            yield DatabaseRoot('local', '', '')
 
         case 'proxy':
             # the daemon is handed the project Config holds when it starts, and never re-reads it
@@ -411,19 +422,21 @@ def db_root(
             # replaces one serving another, so a test never inherits the project of whichever test ran before it
             proxy_daemon.start(db, test_mode=True)
             proxy_daemon.reinitialize(db)
-            yield DatabaseRoot('proxy', f'pxt://local:{db}')
+            base_uri = f'pxt://local:{db}'
+            yield DatabaseRoot('proxy', base_uri, base_uri)
 
         case 'cloud' | 'cloud-cli' | 'cloud-service':
             base_uri = CLOUD_DB_ROOT_URIS.get(db_root_id)
             if base_uri is None:
-                # a root with no standing database provisions one, in the session fixture named after it
-                base_uri = request.getfixturevalue(f'{db_root_id.replace("-", "_")}_db_uri')
+                # the CLI package creates the database the 'cloud-service' root names; asking for it here
+                # keeps a test that never reaches that root from paying the CodeBuild the creation runs
+                base_uri = request.getfixturevalue('cloud_service_db')
             test_dir = uuid.uuid4().hex
             prefix = f'{base_uri}/test_{test_dir}'
             _logger.info('Creating test directory in cloud catalog: %s', prefix)
             pxt.create_dir(prefix)
             try:
-                yield DatabaseRoot(db_root_id, prefix)
+                yield DatabaseRoot(db_root_id, base_uri, prefix)
             finally:
                 pxt.drop_dir(prefix, force=True)
 
