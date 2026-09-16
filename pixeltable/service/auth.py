@@ -125,18 +125,10 @@ def _session_from(payload: dict[str, Any], client_id: str, logged_in_at: float) 
     )
 
 
-def device_login(api_url: str, open_browser: bool = True, email: str = '') -> Session:
-    """Sign in by approving a code in a browser, then cache the session. Returns it.
-
-    `email` says who you mean to sign in as. The browser may already hold a session for someone
-    else, and the confirmation page names nobody, so without this you can approve as one account
-    while believing you are another.
-    """
+def device_login(api_url: str, open_browser: bool = True) -> Session:
+    """Sign in by approving a code in a browser, then cache the session. Returns it."""
     client_id = client_id_for(api_url)
-    fields = {'client_id': client_id}
-    if email:
-        fields['login_hint'] = email
-    start = _post_form(_DEVICE_AUTH_PATH, fields)
+    start = _post_form(_DEVICE_AUTH_PATH, {'client_id': client_id})
 
     user_code = str(start.get('user_code') or '')
     device_code = str(start.get('device_code') or '')
@@ -153,10 +145,6 @@ def device_login(api_url: str, open_browser: bool = True, email: str = '') -> Se
         device_code, client_id, _number(start, 'expires_in', 300.0), _number(start, 'interval', 5.0)
     )
     session = _session_from(payload, client_id, logged_in_at=time.time())
-    # Checked rather than trusted: WorkOS may or may not act on login_hint, and a session saved for
-    # the wrong account is one every later command silently uses.
-    if email and session.email and session.email.lower() != email.lower():
-        raise AuthError(f'that browser is signed in as {session.email}, not {email}. Nothing was saved.')
     credentials.save(api_url, session)
     return session
 

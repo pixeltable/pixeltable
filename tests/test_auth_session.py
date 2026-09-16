@@ -6,7 +6,6 @@ import email.message
 import io
 import json
 import pathlib
-import re
 import time
 import types
 import urllib.error
@@ -110,32 +109,6 @@ class TestDeviceLogin:
         assert saved is not None
         assert (saved.refresh_token, saved.client_id) == ('new-refresh', _CLIENT)
         assert saved.can_refresh()
-
-    def test_it_tells_workos_which_account_you_asked_for(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        calls = _posting(monkeypatch, _DEVICE, _GRANTED)
-
-        auth.device_login(_API, open_browser=False, email='you@example.com')
-
-        assert calls.seen[0][1]['login_hint'] == 'you@example.com'
-
-    def test_approving_as_someone_else_saves_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The browser may hold another account's session, and the confirmation page names nobody."""
-        _posting(monkeypatch, _DEVICE, _GRANTED)
-
-        with pytest.raises(auth.AuthError, match=re.escape('signed in as you@example.com, not other@example.com')):
-            auth.device_login(_API, open_browser=False, email='other@example.com')
-        assert credentials.load(_API) is None
-
-    def test_the_check_ignores_case(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _posting(monkeypatch, _DEVICE, _GRANTED)
-
-        assert auth.device_login(_API, open_browser=False, email='YOU@Example.com').email == 'you@example.com'
-
-    def test_no_email_accepts_whoever_the_browser_is(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        calls = _posting(monkeypatch, _DEVICE, _GRANTED)
-
-        assert auth.device_login(_API, open_browser=False).email == 'you@example.com'
-        assert 'login_hint' not in calls.seen[0][1]
 
     def test_it_records_the_organization_the_token_carries(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Signing in is not the same as having somewhere to work; `pxt login` says so separately."""

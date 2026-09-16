@@ -39,8 +39,7 @@ in preference to it, and does not expire.
 Which WorkOS environment to sign in to is answered by the control plane itself, so there is nothing
 to configure. The browser need not be on this machine, so this works over SSH.
 
-`pxt login` asks which email you mean. The browser may already be signed in as someone else, and the
-confirmation page names nobody, so the account you get back is checked against the one you asked for.
+
 """
 
 
@@ -103,16 +102,9 @@ def run_whoami(argv: list[str]) -> None:
         print(f'Commands use the API key from {where}.{note}')
 
 
-def _ask_for_email() -> str:
-    """Who to sign in as. Blank accepts whoever the browser is already signed in as."""
-    if not sys.stdin.isatty():
-        return ''
-    return input('Email: ').strip()
-
-
 def _login(args: argparse.Namespace) -> None:
     url = api_url()
-    session = auth.device_login(url, open_browser=not args.no_browser, email=_ask_for_email())
+    session = auth.device_login(url, open_browser=not args.no_browser)
     if not session.organization_id:
         session = _wait_for_organization(url, open_browser=not args.no_browser)
 
