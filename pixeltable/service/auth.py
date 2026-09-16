@@ -30,7 +30,9 @@ _CLI_LOGIN_PATH = '/api/auth/cli'
 _CLI_TOKEN_PATH = '/api/auth/cli/token'
 
 _TIMEOUT_S = 30.0
-_LOGIN_TIMEOUT_S = 300.0
+# Long enough to cover a first-time sign-up: creating an account, verifying email and naming an
+# organization all happen before the browser comes back.
+_LOGIN_TIMEOUT_S = 600.0
 # 256 bits: the state proves a callback answers this login, not another local process's.
 _STATE_BYTES = 32
 
@@ -140,11 +142,7 @@ def browser_login(api_url: str, open_browser: bool = True) -> Session:
 
     result = handler.result
     if not result:
-        # A new account is sent to onboarding rather than back here, which looks like a closed tab.
-        raise AuthError(
-            'no reply from the browser. If you just created an account, finish setting up your '
-            'organization in the dashboard and run `pxt login` again.'
-        )
+        raise AuthError('no reply from the browser; nothing was saved. Run `pxt login` to try again.')
     # Before anything in the payload is read: a mismatch means this reply is not ours.
     if not secrets.compare_digest(result.get('state', ''), state):
         raise AuthError('the sign-in reply did not match this request; nothing was saved')
