@@ -1,120 +1,125 @@
-"""Tests for how a cli client adopts, replaces or spawns its daemon.
+"""Tests for how a cli client spawns or adopts its daemon."""
 
-ensure_running() checks every responder on the port, whichever path produced it: one already answering,
-one that answers only within the startup grace window, and one that came up after a spawn. The tests
-monkeypatch client_utils, so no daemon runs here.
-"""
-
+import contextlib
+import json
+import os
 import pathlib
+import signal
+import socket
+import subprocess
+import sys
+from collections.abc import Iterator
+from typing import Any
 
+import psutil
 import pytest
 
-from pixeltable_cli.client import utils as client_utils
+from pixeltable_cli.utils import pidfile_path
 
-# Real identity values are too tied to the host environment to assert against, so tests pin this dict
-# via _patch_identity() and pass responses built from it, overriding a field to provoke a mismatch.
-_DEFAULT_IDENTITY: dict[str, object] = {
-    'pxt_version': 'NEW',
-    'pxt_install_dir': '/opt/site-packages/pixeltable',
-    'python_executable': '/opt/conda/envs/pxt/bin/python',
-    'pixeltable_home': '/home/u/.pixeltable',
-    'pixeltable_pgdata': '/home/u/.pixeltable/pgdata',
-    'pixeltable_config_file': '/home/u/.pixeltable/config.toml',
-    'pixeltable_env': {},
-}
+_HEALTH_TIMEOUT_SECS = 180.0
 
 
-def _patch_identity(monkeypatch: pytest.MonkeyPatch, overrides: dict[str, object]) -> dict[str, object]:
-    """Pin utils.identity() to a known dict so tests don't depend on the host environment."""
-    ident = {**_DEFAULT_IDENTITY, **overrides}
-    monkeypatch.setattr(client_utils, 'identity', lambda: dict(ident))
-    # pin project_root to None to avoid daemon restarts
-    monkeypatch.setattr(client_utils, 'project_root', lambda: None)
-    return ident
+@pytest.fixture
+def daemon_port(init_env: None) -> Iterator[int]:
+    """Picks an available port to use for a daemon. Runs pxt daemon stop after the test."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('127.0.0.1', 0))
+        port = s.getsockname()[1]
+    yield port
+    subprocess.run(
+        ['pxt', 'daemon', 'stop', '-f'],
+        env={**os.environ, 'PXT_PORT': str(port)},
+        capture_output=True,
+        check=False,
+        timeout=60,
+    )
 
 
-def _health_payload(*, pid: int = 100, started_at: str = 'a', **identity_overrides: object) -> dict[str, object]:
-    """Build a /health response dict shaped like the real daemon's, with identity fields
-    matching _DEFAULT_IDENTITY by default. Override any field to simulate drift."""
-    body: dict[str, object] = {
-        'ok': True,
-        'service': 'pxt',
-        'pid': pid,
-        'started_at': started_at,
-        **_DEFAULT_IDENTITY,
-        **identity_overrides,
-    }
-    return body
+def _create_pxt_project(root: pathlib.Path) -> None:
+    """Creates an empty project at root by placing an empty marker file in it."""
+    root.mkdir()
+    (root / 'pixeltable.toml').write_text('', encoding='utf-8')
 
 
-class TestResponderChecks:
-    def test_spawned_responder_serving_another_project_replaced(self) -> None:
-        """A spawned daemon defers to whoever already holds the port, so the responder is checked too:
-        one serving another project is replaced rather than adopted."""
-        with pytest.MonkeyPatch.context() as m:
-            _patch_identity(m, {})
-            m.setattr(client_utils, 'project_root', lambda: '/project')
-            responders = iter(
-                [_health_payload(pid=100, project_root='/other'), _health_payload(pid=200, project_root='/project')]
-            )
-            m.setattr(client_utils, 'fetch_health', lambda *a, **kw: None)
-            m.setattr(client_utils, 'read_pidfile', lambda: None)
-            actions: list[tuple[str, int] | str] = []
-            m.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
-            m.setattr(client_utils, 'spawn_detached', lambda: actions.append('spawn'))
-            m.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: next(responders))
-
-            client_utils.ensure_running()
-            assert actions == ['spawn', ('kill', 100), 'spawn']
-
-    def test_slow_daemon_serving_another_project_replaced(self) -> None:
-        """A daemon that answers only within the grace window is checked like any other: one serving
-        another project is replaced rather than adopted."""
-        with pytest.MonkeyPatch.context() as m:
-            _patch_identity(m, {})
-            m.setattr(client_utils, 'project_root', lambda: '/project')
-            slow = _health_payload(pid=100, project_root='/other')
-            replacement = _health_payload(pid=200, project_root='/project')
-            m.setattr(client_utils, 'fetch_health', lambda *a, **kw: None)
-            m.setattr(client_utils, 'read_pidfile', lambda: 100)
-            m.setattr(client_utils, '_pid_alive', lambda pid: True)
-            m.setattr(client_utils, '_pid_is_our_daemon', lambda pid: True)
-            m.setattr(client_utils, '_await_health', lambda timeout: slow)
-            actions: list[tuple[str, int] | str] = []
-            m.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
-            m.setattr(client_utils, 'spawn_detached', lambda: actions.append('spawn'))
-            m.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: replacement)
-
-            client_utils.ensure_running()
-            assert actions == [('kill', 100), 'spawn']
+def _pxt_health(port: int, cwd: pathlib.Path, env_overrides: dict[str, str] | None = None) -> dict[str, Any]:
+    """Runs `pxt health` and returns its parsed json output. If the daemon is not yet running, `pxt health` will start
+    one, and it inherits this environment."""
+    r = subprocess.run(
+        ['pxt', 'health'],
+        env={**os.environ, 'PXT_PORT': str(port), **(env_overrides or {})},
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        timeout=_HEALTH_TIMEOUT_SECS,
+    )
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
 
 
-class TestPidHygiene:
-    """A pid that names no process must never be signaled."""
+class TestDaemon:
+    def test_replace_another_projects_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """A client working in one project does not talk to a daemon serving another: it takes that daemon
+        down and starts up the replacement."""
+        project1 = tmp_path / 'first'
+        project2 = tmp_path / 'second'
+        _create_pxt_project(project1)
+        _create_pxt_project(project2)
 
-    # 0 and negative values name a process group rather than a process (-1 every process we may signal),
-    # and bool is an int in Python
-    @pytest.mark.parametrize('reported_pid', ['not-a-pid', 0, -1, True])
-    def test_identity_mismatch_invalid_pid_refuses(self, monkeypatch: pytest.MonkeyPatch, reported_pid: object) -> None:
-        """Identity drift but the responder reports a pid no process can have: refuse to restart (no kill,
-        no spawn) rather than act on an untrustworthy pid."""
-        _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
-        health = _health_payload(pxt_version='OLD')
-        health['pid'] = reported_pid
-        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: health)
-        monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
-        monkeypatch.setattr(
-            client_utils, 'kill_and_wait', lambda pid, timeout=5.0: pytest.fail('must not kill an invalid pid')
-        )
-        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: pytest.fail('must not spawn'))
+        health1 = _pxt_health(daemon_port, cwd=project1)
+        assert health1['project_root'] == str(project1)
+        assert psutil.pid_exists(health1['pid'])
 
-        with pytest.raises(RuntimeError, match='invalid pid'):
-            client_utils.ensure_running()
+        health2 = _pxt_health(daemon_port, cwd=project2)
+        assert health2['project_root'] == str(project2)
+        assert health2['pid'] != health1['pid']
+        assert psutil.pid_exists(health2['pid'])
+        assert not psutil.pid_exists(health1['pid'])
 
-    @pytest.mark.parametrize('content', ['not-an-int', '0', '-1'])
-    def test_pidfile_malformed(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, content: str) -> None:
-        """A pidfile holding anything but a real process id reads as absent, so nothing signals on it."""
-        monkeypatch.setattr(client_utils, 'pidfile_path', lambda: str(tmp_path / 'bogus.pid'))
-        with open(client_utils.pidfile_path(), 'w', encoding='utf-8') as f:
-            f.write(content)
-        assert client_utils.read_pidfile() is None
+    def test_replace_drifted_identity_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """A client does not talk to a daemon built from a different environment."""
+        project = tmp_path / 'project'
+        _create_pxt_project(project)
+        drift_env_var = 'PIXELTABLE_TEST_DRIFT'
+
+        health1 = _pxt_health(daemon_port, cwd=project, env_overrides={drift_env_var: '1'})
+        assert drift_env_var in health1['pixeltable_env']
+        assert psutil.pid_exists(health1['pid'])
+
+        health2 = _pxt_health(daemon_port, cwd=project)
+        assert drift_env_var not in health2['pixeltable_env']
+        assert health2['pid'] != health1['pid']
+        assert psutil.pid_exists(health2['pid'])
+        assert not psutil.pid_exists(health1['pid'])
+
+    @pytest.mark.skipif(sys.platform == 'win32', reason='Windows has no SIGSTOP')
+    def test_replace_hung_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        project = tmp_path / 'project'
+        _create_pxt_project(project)
+
+        pid1 = _pxt_health(daemon_port, cwd=project)['pid']
+        pidfile = pathlib.Path(pidfile_path(daemon_port))
+        assert pidfile.read_text(encoding='utf-8').strip() == str(pid1)
+        # SIGSTOP holds the current daemon. The daemon continues to hold the port but doesn't respond on it.
+        os.kill(pid1, signal.SIGSTOP)
+        try:
+            health2 = _pxt_health(daemon_port, cwd=project)
+            assert health2['project_root'] == str(project)
+            assert health2['pid'] != pid1
+            assert psutil.pid_exists(health2['pid'])
+            assert not psutil.pid_exists(pid1)
+        finally:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid1, signal.SIGCONT)
+
+    @pytest.mark.parametrize('pidfile_content', ['not-an-int', '0', '-1'])
+    def test_unusable_pidfile_does_not_block_startup(
+        self, daemon_port: int, tmp_path: pathlib.Path, pidfile_content: str
+    ) -> None:
+        project = tmp_path / 'project'
+        _create_pxt_project(project)
+
+        pathlib.Path(pidfile_path(daemon_port)).write_text(pidfile_content, encoding='utf-8')
+
+        assert _pxt_health(daemon_port, cwd=project)['project_root'] == str(project)
