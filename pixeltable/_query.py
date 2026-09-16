@@ -895,7 +895,9 @@ class Query(QueryBase):
         """The Query a serialized query names. Raises if it names a query of another class."""
         result = super().from_dict(d)
         if not isinstance(result, Query):
-            raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'Expected a serialized Query, got {type(result).__name__}')
+            raise excs.InternalError(
+                excs.ErrorCode.INTERNAL_ERROR, f'Expected a serialized Query, got {type(result).__name__}'
+            )
         return result
 
     def _hash_result_set(self) -> str:
