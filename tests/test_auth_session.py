@@ -220,6 +220,40 @@ class TestRefresh:
             auth.refresh(_API, _session())
 
 
+class TestLogout:
+    def test_it_revokes_the_session_rather_than_only_forgetting_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A deleted file leaves the refresh token live; a leaked copy of it would still work."""
+        asked: list[str] = []
+
+        def _record(url: str, **_kw: Any) -> dict[str, Any]:
+            asked.append(url)
+            return {}
+
+        monkeypatch.setattr(auth, '_request', _record)
+        token = f'h.{base64.urlsafe_b64encode(json.dumps({"sid": "session_01X"}).encode()).rstrip(b"=").decode()}.s'
+        credentials.save(_API, _session(access_token=token))
+
+        assert auth.logout(_API) is True
+        assert credentials.load(_API) is None
+        assert asked == ['https://api.workos.com/user_management/sessions/logout?session_id=session_01X']
+
+    def test_a_revocation_that_fails_still_clears_this_machine(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(auth, '_request', lambda *a, **k: (_ for _ in ()).throw(auth.AuthError('down')))
+        token = f'h.{base64.urlsafe_b64encode(json.dumps({"sid": "session_01X"}).encode()).rstrip(b"=").decode()}.s'
+        credentials.save(_API, _session(access_token=token))
+
+        assert auth.logout(_API) is True
+        assert credentials.load(_API) is None
+
+    def test_signing_out_when_not_signed_in_is_not_an_error(self) -> None:
+        assert auth.logout(_API) is False
+
+    def test_the_browser_is_sent_to_the_dashboard_it_signed_in_through(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(auth, '_request', lambda *a, **k: {'login_url': 'https://amit1.app.pixeltable.com/'})
+
+        assert auth.browser_logout_url(_API) == 'https://amit1.app.pixeltable.com/api/auth/logout'
+
+
 class TestAccessToken:
     def test_no_session_is_not_an_error(self) -> None:
         """The caller falls back to an API key, so this must not raise."""

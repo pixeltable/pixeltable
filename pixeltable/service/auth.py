@@ -216,6 +216,47 @@ def access_token(api_url: str) -> Optional[str]:
     return refresh(api_url, session).access_token
 
 
+def _claim(token: str, name: str) -> str:
+    """One claim out of a token. Read, never verified: nothing here is an authorization decision."""
+    try:
+        payload = token.split('.')[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+        value = claims.get(name)
+        return value if isinstance(value, str) else ''
+    except (IndexError, ValueError, binascii.Error):
+        return ''
+
+
+def logout(api_url: str) -> bool:
+    """End the session at WorkOS, not only on this machine. True when there was one to end.
+
+    Deleting the cached copy alone leaves the refresh token live until it expires, so a leaked file
+    still works. This revokes it.
+    """
+    session = credentials.load(api_url)
+    credentials.clear(api_url)
+    if session is None:
+        return False
+    session_id = _claim(session.access_token, 'sid')
+    if session_id:
+        try:
+            _request(f'{_WORKOS_API}/user_management/sessions/logout?session_id={urllib.parse.quote(session_id)}')
+        except AuthError:
+            # The local copy is already gone, which is the part that must not fail.
+            pass
+    return True
+
+
+def browser_logout_url(api_url: str) -> str:
+    """Where to send a browser to end its own sign-in. Empty when this environment names no dashboard.
+
+    The browser holds a different session from the CLI's, and only it can clear that one -- which is
+    what decides whether the next sign-in asks who you are.
+    """
+    dashboard = str(auth_config(api_url).get('login_url') or '')
+    return f'{dashboard.rstrip("/")}/api/auth/logout' if dashboard else ''
+
+
 def authorize_org(api_url: str, org_id: str) -> Session:
     """Re-mint the cached session scoped to `org_id`. For an account that has just acquired one."""
     session = credentials.load(api_url)

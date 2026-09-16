@@ -30,8 +30,8 @@ EPILOG = """\
 Examples:
   pxt login                     # sign in, or create an account, in a browser
   pxt whoami                    # who this machine is signed in as, and for how long
-  pxt logout                    # forget this environment's session
-  pxt logout --all              # forget every environment's
+  pxt logout                    # sign out of this environment, and this browser
+  pxt logout --all              # sign out of every environment
 
 The session is cached in your Pixeltable home directory, readable only by you, and renews itself
 for an hour after you sign in; after that, sign in again. An API key, if you have one set, is used
@@ -39,6 +39,9 @@ in preference to it, and does not expire.
 
 Which WorkOS environment to sign in to is answered by the control plane itself, so there is nothing
 to configure. The browser need not be on this machine, so this works over SSH.
+
+A browser that is still signed in confirms the code without asking who you are, so `pxt logout` ends
+that sign-in as well as this machine's. To use a different account, log out first.
 """
 
 
@@ -56,15 +59,26 @@ def run(argv: list[str]) -> None:
 
 
 def run_logout(argv: list[str]) -> None:
-    parser = Parser(prog='pxt logout', description='forget a cached session')
-    parser.add_argument('--all', action='store_true', help='Forget every environment, not just this one')
+    parser = Parser(prog='pxt logout', description='sign out')
+    parser.add_argument('--all', action='store_true', help='Sign out of every environment, not just this one')
     args = parser.parse_args(argv)
 
-    target = None if args.all else api_url()
-    if credentials.clear(target):
-        print('Signed out.' if args.all else f'Signed out of {target}.')
-    else:
+    urls = credentials.signed_in() if args.all else [api_url()]
+    ended = [url for url in urls if auth.logout(url)]
+    if args.all:
+        credentials.clear(None)
+
+    if not ended:
         print('Not signed in.')
+        return
+    print('Signed out.' if args.all else f'Signed out of {ended[0]}.')
+
+    # The browser keeps its own sign-in, and while it has one the next `pxt login` confirms the code
+    # without asking who you are.
+    browser = auth.browser_logout_url(api_url())
+    if browser:
+        print(f'Signing this browser out at {browser}')
+        webbrowser.open(browser)
 
 
 def run_whoami(argv: list[str]) -> None:
