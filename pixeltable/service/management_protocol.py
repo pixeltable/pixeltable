@@ -221,6 +221,7 @@ class SetSecretRequest(BaseModel):
     @field_validator('key')
     @classmethod
     def _validate_key(cls, key: str) -> str:
+        # TODO(PXT-1418): pxt secret operations can fail partially
         if key.upper().startswith('PIXELTABLE_'):
             raise ValueError(f'Invalid secret name {key!r}: the PIXELTABLE_ prefix is reserved.')
         return key
