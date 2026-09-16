@@ -63,7 +63,7 @@ DbRootId = Literal['local', 'proxy', 'cloud', 'cloud-cli', 'cloud-service']
 # The database each hosted root names: 'cloud' serves this repository, 'cloud-cli' the CLI app corpus.
 # 'cloud-service' has no standing database, so it is absent here: tests/pixeltable_cli/test_service.py
 # publishes to the database it runs against, and creates one per session in cloud_service_db.
-CLOUD_DB_ROOT_URIS = {'cloud': 'pxt://pixeltable:pxttest', 'cloud-cli': 'pxt://pixeltable:pxtclitest'}
+CLOUD_DB_ROOT_URIS = {'cloud': 'pxt://pixeltable:pxttest', 'cloud-cli': 'pxt://pixeltable:pxttest-cli'}
 
 
 def new_db_uri() -> str:

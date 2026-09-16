@@ -318,7 +318,10 @@ def _pixeltable_repo(sha: str) -> str:
     # '->' skips the symbolic origin/HEAD, which is a second name for a branch already listed
     branches = [line.strip() for line in _git('branch', '-r', '--contains', sha).splitlines() if '->' not in line]
     remotes = list(dict.fromkeys(branch.split('/', maxsplit=1)[0] for branch in branches))
-    assert len(remotes) > 0, f'{sha[:8]} is on no remote branch, and the image build fetches it; push first'
+    assert len(remotes) > 0, (
+        f'commit {sha[:8]} is on no remote branch, and the image build fetches it from GitHub; '
+        'run `git push origin HEAD` and try again'
+    )
     url = _git('remote', 'get-url', 'origin' if 'origin' in remotes else remotes[0])
     return re.sub(r'^git@([^:]+):', r'https://\1/', url).removesuffix('.git')
 
