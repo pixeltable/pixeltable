@@ -10,7 +10,7 @@ import sys
 import threading
 import urllib.parse
 import uuid
-from typing import Callable, Iterator
+from typing import Callable, Iterator, get_args
 
 import pytest
 import requests
@@ -37,8 +37,11 @@ from pixeltable.utils.sql import add_option_to_db_url
 from .utils import (
     IN_CI,
     TESTS_DIR,
+    CLOUD_DB_ROOT_URIS,
     DatabaseRoot,
+    DbRootId,
     ReloadTester,
+    cloud_env_configured,
     create_all_datatypes_tbl,
     create_img_tbl,
     create_test_tbl,
@@ -319,24 +322,15 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
         proxy_daemon.stop(db)
 
 
-# tests here and tests in the CLI package run against separate hosted databases, so each package has its
-# own axis and its own variable
 _CLI_TESTS_DIR = pathlib.Path(__file__).parent / 'pixeltable_cli'
-_CORE_CLOUD_AXIS = ('cloud', 'PXTTEST_CLOUD_DB_URI')
-_CLI_CLOUD_AXIS = ('cloud-cli', 'PXTTEST_CLI_DB_URI')
-
-
-def _cloud_axis(test_file: pathlib.Path) -> tuple[str, str]:
-    """The cloud axis id for a test in test_file, and the variable that enables it."""
-    return _CLI_CLOUD_AXIS if test_file.is_relative_to(_CLI_TESTS_DIR) else _CORE_CLOUD_AXIS
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Drive the catalog-backend and data-versioning axes.
 
-    db_root: any test that (transitively) reaches db_root runs against 'local', 'proxy', and the cloud axis
-    of the package it is in. A db_roots marker names that axis 'cloud' wherever the test lives, so it always
-    selects the database serving that test's project.
+    db_root: any test that (transitively) reaches db_root runs against 'local', 'proxy', and the hosted
+    database of the package it is in; a db_roots marker names the roots it wants instead. The hosted roots
+    are dropped unless the environment names a control plane.
 
     is_data_versioned: any test that (transitively) reaches is_data_versioned runs against both a
     data-versioned and an operational table.
@@ -352,10 +346,9 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         db_roots_marker = metafunc.definition.get_closest_marker('db_roots')
         if db_roots_marker is not None:
             params = db_roots_marker.args
-            if not set(params) <= {'local', 'proxy', 'cloud'}:
+            if not set(params) <= set(get_args(DbRootId)):
                 raise pytest.UsageError(
-                    'Invalid db_roots marker args. Must be a nonempty subset of'
-                    f"('local', 'proxy', 'cloud'); got: {params!r}"
+                    f'Invalid db_roots marker args. Must be a nonempty subset of {get_args(DbRootId)}; got: {params!r}'
                 )
             if (
                 not isinstance(db_roots_marker.kwargs.get('reason'), str)
@@ -364,15 +357,15 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                 raise pytest.UsageError("db_roots marker must include a nonempty 'reason' kwarg")
 
         else:
-            params = ('local', 'proxy', 'cloud')  # Default is all three targets
+            # tests here and tests in the CLI package resolve udfs against different projects, so an
+            # unmarked test runs against the hosted database serving its own package
+            in_cli_package = metafunc.definition.path.is_relative_to(_CLI_TESTS_DIR)
+            params = ('local', 'proxy', 'cloud-cli' if in_cli_package else 'cloud')
 
-        cloud_axis, cloud_db_var = _cloud_axis(metafunc.definition.path)
-        if os.environ.get(cloud_db_var) is None:
-            # If the db URI is not set, skip generating any cloud tests. We short-circuit them here rather
-            # than later via pytest.skip(), for performance reasons.
-            params = tuple(p for p in params if p != 'cloud')
-        else:
-            params = tuple(cloud_axis if p == 'cloud' else p for p in params)
+        if not cloud_env_configured():
+            # Drop the hosted roots. We short-circuit here rather than later via pytest.skip(), for
+            # performance reasons.
+            params = tuple(p for p in params if not p.startswith('cloud'))
 
         if params != ('local',):
             # If the only target is 'local', then don't parameterize at all; just leave the nodeid alone.
@@ -387,18 +380,6 @@ def served_project() -> pathlib.Path | None:
     return None
 
 
-@pytest.fixture(scope='session')
-def cloud_db_uri() -> str:
-    """The hosted database for the cloud axis, serving this repository as its project.
-
-    A module whose tests must not alter it -- one that builds a database's image, say, which replaces what
-    that database runs -- overrides this with a database of its own.
-    """
-    uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
-    assert uri, 'set PXTTEST_CLOUD_DB_URI to the database for these tests'
-    return uri
-
-
 @pytest.fixture(scope='function')
 def db_root(
     init_env: None, served_project: pathlib.Path | None, request: pytest.FixtureRequest
@@ -407,7 +388,7 @@ def db_root(
     Parameterized variant of uses_db: runs a test against any or all of:
     - the in-process catalog
     - a local proxy daemon instance
-    - the hosted database of this test's package (if that package's db URI variable is set)
+    - a hosted database, the one its root id names
 
     Yields a path-builder mapping a bare path to the active catalog: the identity for local, and the bare
     path prefixed with the daemon's pxt:// uri for proxy (with an empty path mapping to the catalog root).
@@ -432,14 +413,17 @@ def db_root(
             proxy_daemon.reinitialize(db)
             yield DatabaseRoot('proxy', f'pxt://local:{db}')
 
-        case 'cloud' | 'cloud-cli':
-            base_uri = request.getfixturevalue('cloud_db_uri')
+        case 'cloud' | 'cloud-cli' | 'cloud-service':
+            base_uri = CLOUD_DB_ROOT_URIS.get(db_root_id)
+            if base_uri is None:
+                # a root with no standing database provisions one, in the session fixture named after it
+                base_uri = request.getfixturevalue(f'{db_root_id.replace("-", "_")}_db_uri')
             test_dir = uuid.uuid4().hex
             prefix = f'{base_uri}/test_{test_dir}'
             _logger.info('Creating test directory in cloud catalog: %s', prefix)
             pxt.create_dir(prefix)
             try:
-                yield DatabaseRoot('cloud', prefix)
+                yield DatabaseRoot(db_root_id, prefix)
             finally:
                 pxt.drop_dir(prefix, force=True)
 
@@ -596,7 +580,7 @@ class SampleFileServer:
             assert rel_path.is_relative_to(_SERVED_DIR)
             rel_path = rel_path.relative_to(_SERVED_DIR)
 
-        if db_root is not None and db_root.id == 'cloud':
+        if db_root is not None and db_root.is_cloud:
             # For cloud tests, we need to send an actual URL; Pixeltable cloud obviously can't see 127.0.0.1
             base_url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/'
         else:

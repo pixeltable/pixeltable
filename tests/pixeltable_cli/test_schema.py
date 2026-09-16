@@ -739,7 +739,7 @@ class TestSchema:
             )
             return app_file
 
-        if db_root.id == 'cloud':
+        if db_root.is_cloud:
             app_file = write_app('hosted')
             target = p('hosted')
             r = cli('schema', 'diff', str(app_file), target, '--json', check=False)
@@ -777,7 +777,7 @@ class TestSchema:
         (project_dir / 'proj1' / 'helpers.py').write_text("TAG = 'edited'\n")
         assert_in_agreement(cli, str(project_dir / 'proj1' / 'app.py'), p('proj1'))
 
-    @pytest.mark.db_roots('local', reason='check reads no catalog, so the target axis adds nothing')
+    @pytest.mark.db_roots('local', reason='check reads no catalog, so the other roots add nothing')
     def test_check(
         self,
         cli: PxtRunner,

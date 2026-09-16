@@ -259,7 +259,7 @@ def assert_sqlite_row(connect: str, table_name: str, where: dict[str, Any], expe
 
 class TestFastAPI:
     def assert_correct_result_url(self, url: str, db_root: DatabaseRoot, always_external: bool) -> None:
-        if db_root.id == 'cloud':
+        if db_root.is_cloud:
             # `image` is served as a presigned R2 URL from a cloud DB ...
             assert 'r2.cloudflarestorage.com' in url, url
         elif always_external or db_root.id == 'proxy':

@@ -25,7 +25,7 @@ import pytest
 from pixeltable.config import Config
 from pixeltable_cli.client.utils import is_running
 
-from ..utils import DatabaseRoot
+from ..utils import CLOUD_DB_ROOT_URIS, DatabaseRoot, cloud_env_configured
 
 _REPO_ROOT = pathlib.Path(__file__).parents[2]
 _CORPUS_DIR = pathlib.Path(__file__).parent
@@ -285,21 +285,6 @@ def write_requirements(project: pathlib.Path, wheel: pathlib.Path, *extra: str) 
     )
 
 
-@pytest.fixture(scope='session')
-def cloud_db_uri() -> str:
-    """The hosted database for this package's cloud axis, serving the app corpus as its project.
-
-    The core suite's database serves this repository instead, so its pods import `tests.*` where these
-    import `apps.*`; one database cannot hold both projects, so each suite has its own.
-    """
-    uri = os.environ.get('PXTTEST_CLI_DB_URI')
-    assert uri, 'set PXTTEST_CLI_DB_URI to the database for the CLI tests'
-    assert uri != os.environ.get('PXTTEST_CLOUD_DB_URI'), (
-        f'PXTTEST_CLI_DB_URI and PXTTEST_CLOUD_DB_URI cannot share the same value (currently {uri})'
-    )
-    return uri
-
-
 def _git(*args: str) -> str:
     r = subprocess.run(['git', '-C', str(_REPO_ROOT), *args], capture_output=True, text=True, check=True)
     return r.stdout.strip()
@@ -323,9 +308,9 @@ def corpus_pixeltable_pin() -> str | None:
     test rather than the last release. The image build runs in CodeBuild, which reaches GitHub but not this
     machine, so the pin is a commit on a remote rather than a path here.
 
-    Returns None when no hosted database is configured, since only an image build reads this file.
+    Returns None where no control plane is configured, since only an image build reads this file.
     """
-    if os.environ.get('PXTTEST_CLI_DB_URI') is None:
+    if not cloud_env_configured():
         return None
     # an untracked file sits outside the corpus project and is absent from the archive, so it is not drift
     modified = _git('status', '--porcelain', '--untracked-files=no', '--', *_PINNED_PATHS)
@@ -344,9 +329,9 @@ def _serve_corpus_db(session_cli: PxtRunner, corpus_pixeltable_pin: str | None) 
     pod runs the pixeltable that corpus_pixeltable_pin wrote into requirements.txt. Publishing both is part
     of the run.
     """
-    uri = os.environ.get('PXTTEST_CLI_DB_URI')
-    if uri is None:
+    if not cloud_env_configured():
         return
+    uri = CLOUD_DB_ROOT_URIS['cloud-cli']
     pending = _corpus_db_ops(session_cli, uri)
     if len(pending) == 0:
         return
@@ -489,7 +474,7 @@ def session_cli(pxt_daemon: int, session_project: pathlib.Path) -> PxtRunner:
 
 @pytest.fixture
 def cli(db_root: DatabaseRoot, session_cli: PxtRunner) -> PxtRunner:
-    # db_root resets the catalog (like uses_db) and pulls in the local/proxy/cloud axis, so a test
+    # db_root resets the catalog (like uses_db) and parameterizes over the database roots, so a test
     # using cli() auto-forks over all backends unless it is marked @pytest.mark.db_roots. The CLI daemon and
     # this test process share PIXELTABLE_HOME, so both resolve a pxt:// path to the same local proxy daemon.
     return session_cli

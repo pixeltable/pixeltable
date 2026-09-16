@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -11,6 +10,8 @@ import pixeltable.exceptions as excs
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath
 
 from .utils import (
+    CLOUD_DB_ROOT_URIS,
+    cloud_env_configured,
     home_bucket_uri,
     pxt_raises,
     skip_test_if_no_pxt_credentials,
@@ -22,11 +23,10 @@ pytestmark = pytest.mark.db_roots('local', reason='exercises ObjectOps/object-st
 
 
 def _pxt_dest_uri() -> str:
-    """The pytest prefix in the home bucket of the database that PXTTEST_CLOUD_DB_URI names."""
-    db_uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
-    if db_uri is None:
-        pytest.skip('PXTTEST_CLOUD_DB_URI is not set')
-    return f'{home_bucket_uri(db_uri)}/pytest'
+    """The pytest prefix in the home bucket of the 'cloud' root's database."""
+    if not cloud_env_configured():
+        pytest.skip('the environment names no control plane')
+    return f'{home_bucket_uri(CLOUD_DB_ROOT_URIS["cloud"])}/pytest'
 
 
 class TestPxtStore:
