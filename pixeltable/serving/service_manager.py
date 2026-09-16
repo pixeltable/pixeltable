@@ -35,11 +35,12 @@ from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.service.management_protocol import LogRecord
+from pixeltable.service.service_md import LocalServiceInstanceRecord, ServiceInstanceRecord
 from pixeltable.utils.app_module import load_app_module, module_name, services_by_name
 from pixeltable.utils.process import is_pid, pid_alive, process_timestamp
 from pixeltable.utils.project import ProjectFingerprint
 
-from .service_instance import ServiceInstance, ServiceInstanceRecord
+from .service_instance import ServiceInstance
 
 if TYPE_CHECKING:
     from pixeltable_cli.types import ServiceSpec
@@ -80,6 +81,10 @@ class ServiceManagerBase(abc.ABC):
         """Stop instance, leaving it startable again."""
 
     @abc.abstractmethod
+    def restart(self, instance: ServiceInstance) -> None:
+        """Cycle instance onto what it already runs."""
+
+    @abc.abstractmethod
     def delete(self, instance: ServiceInstance) -> None:
         """Stop instance and forget it."""
 
@@ -94,7 +99,7 @@ class ServiceManagerBase(abc.ABC):
 
 
 def get_manager(target: str = '') -> ServiceManagerBase:
-    """The manager of the service instances in the catalog that target names."""
+    """The manager of the service instances in the target catalog (db uri)."""
     path = catalog.Path.parse(target, allow_empty_path=True)
     if path.is_local:
         return ServiceManager()
@@ -137,6 +142,22 @@ class ServiceManager(ServiceManagerBase):
         with self._service_lock(name, base_path):
             return self._start(app_file, name, base_path, otel, port)
 
+    def restart(self, instance: ServiceInstance) -> None:
+        # the record names the module, and a module path is relative to the project root
+        record = self._local_record(instance.record)
+        project_root = Config.get().project_root
+        assert project_root is not None  # a service was started from a file inside a project
+        app_file = project_root.joinpath(*record.app_module.split('.')).with_suffix('.py')
+        if not app_file.is_file():
+            raise excs.NotFoundError(
+                excs.ErrorCode.PATH_NOT_FOUND,
+                f'{record.service_name} was started from {record.app_module}, which {project_root} no longer '
+                'holds; start it again from its application file',
+            )
+        with self._service_lock(record.service_name, record.base_path):
+            self.stop(instance)
+            self._start(str(app_file), record.service_name, record.base_path, record.otel, record.port)
+
     def delete(self, instance: ServiceInstance) -> None:
         # a local instance has no registration apart from its process
         self.stop(instance)
@@ -150,8 +171,13 @@ class ServiceManager(ServiceManagerBase):
             f'{self._log_path(instance.service_name, instance.base_path)}',
         )
 
+    def _local_record(self, record: ServiceInstanceRecord) -> LocalServiceInstanceRecord:
+        """The instance's record, which this manager only ever reads back from one it wrote."""
+        assert isinstance(record, LocalServiceInstanceRecord)
+        return record
+
     def stop(self, instance: ServiceInstance) -> None:
-        record = instance.record
+        record = self._local_record(instance.record)
         pid: int | None = record.pid
         assert pid is not None  # a record this manager wrote names its process
         if not self._is_live(record):
@@ -195,9 +221,9 @@ class ServiceManager(ServiceManagerBase):
         spec: ServiceSpec,
         fingerprint: ProjectFingerprint,
         otel: bool = False,
-    ) -> ServiceInstanceRecord:
+    ) -> LocalServiceInstanceRecord:
         """Write the record of the instance this process serves."""
-        record = ServiceInstanceRecord(
+        record = LocalServiceInstanceRecord(
             service_name=service_name,
             base_path=base_path,
             endpoint=f'http://127.0.0.1:{port}',
@@ -226,7 +252,7 @@ class ServiceManager(ServiceManagerBase):
             Path(tmp_name).unlink(missing_ok=True)
             raise
 
-    def remove(self, record: ServiceInstanceRecord) -> None:
+    def remove(self, record: LocalServiceInstanceRecord) -> None:
         """Remove record's file, unless another process has since written its own there."""
         path = self._record_file(record.service_name, record.base_path)
         recorded = self._parse_record(path)
@@ -263,7 +289,7 @@ class ServiceManager(ServiceManagerBase):
     def _start(self, app_file: str, name: str, base_path: str, otel: bool, port: int | None = None) -> ServiceInstance:
         """Start the service and wait for it to report healthy, with self._service_lock() held."""
         instance = self.get(name, base_path)
-        if instance is not None and self._health_ok(instance.record):
+        if instance is not None and self._health_ok(self._local_record(instance.record)):
             return instance
 
         # fail here, in the caller's process, on everything that can be detected without serving: an app file
@@ -322,7 +348,7 @@ class ServiceManager(ServiceManagerBase):
         deadline = time.monotonic() + self._STARTUP_TIMEOUT
         while time.monotonic() < deadline:
             instance = self.get(name, base_path)
-            if instance is not None and self._health_ok(instance.record):
+            if instance is not None and self._health_ok(self._local_record(instance.record)):
                 return instance
             if proc.poll() is not None:
                 break
@@ -342,7 +368,7 @@ class ServiceManager(ServiceManagerBase):
         tail = self._tail_log(log_path)
         if tail != '':
             msg += f'\n--- service log tail ---\n{tail}'
-        raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, msg)
+        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, msg)
 
     def _terminate(self, proc: subprocess.Popen) -> None:
         """Stop proc and reap it, escalating to kill if it does not exit."""
@@ -371,7 +397,7 @@ class ServiceManager(ServiceManagerBase):
             return None
         return ServiceInstance(recorded, self)
 
-    def _parse_record(self, record_file_path: Path) -> ServiceInstanceRecord | None:
+    def _parse_record(self, record_file_path: Path) -> LocalServiceInstanceRecord | None:
         """The record in record_file_path, or None if this version cannot manage what it holds."""
         try:
             record = json.loads(record_file_path.read_text(encoding='utf-8'))
@@ -380,13 +406,13 @@ class ServiceManager(ServiceManagerBase):
         if not isinstance(record, dict) or not is_pid(record.get('pid')):
             return None
         try:
-            return ServiceInstanceRecord.model_validate(record)
+            return LocalServiceInstanceRecord.model_validate(record)
         except pydantic.ValidationError:
             # a record missing a field, or holding a value this version does not know, belongs to whichever
             # version wrote it
             return None
 
-    def _is_live(self, record: ServiceInstanceRecord) -> bool:
+    def _is_live(self, record: LocalServiceInstanceRecord) -> bool:
         """Whether the process record was written for is still running.
 
         A pid alone does not identify it: the OS reissues the pid of an exited process, so a record left
@@ -399,7 +425,7 @@ class ServiceManager(ServiceManagerBase):
             return True  # nothing to compare against: the platform reported no creation time when writing
         return process_timestamp(record.pid) == record.process_started_at
 
-    def _health_ok(self, record: ServiceInstanceRecord) -> bool:
+    def _health_ok(self, record: LocalServiceInstanceRecord) -> bool:
         try:
             # every FastAPI application serves its schema
             return httpx.get(f'{record.endpoint}/openapi.json', timeout=self._HEALTH_TIMEOUT).status_code == 200

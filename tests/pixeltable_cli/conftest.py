@@ -27,6 +27,31 @@ from pixeltable_cli.client.utils import is_running
 
 from ..utils import DatabaseRoot
 
+_REPO_ROOT = pathlib.Path(__file__).parents[2]
+_CORPUS_DIR = pathlib.Path(__file__).parent
+
+# the pin installs these two, so only they need a commit; the corpus is packaged from the working tree,
+# so editing an app or this file needs none
+_PINNED_PATHS = ('pixeltable', 'pixeltable_cli')
+
+
+def _requirements_in() -> list[str]:
+    """The corpus project's dependencies apart from pixeltable, one per line, comments dropped."""
+    lines = (_CORPUS_DIR / 'requirements.in').read_text(encoding='utf-8').splitlines()
+    return [line for line in lines if line.strip() != '' and not line.startswith('#')]
+
+
+# both the corpus project and the per-test ones install these, so their databases share one image
+PROJECT_EXTRAS = tuple(_requirements_in())
+
+# the exit statuses `pxt db diff` and `pxt db update` document
+EXIT_IN_AGREEMENT = 0
+EXIT_ERROR = 1
+EXIT_CHANGES_PENDING = 2
+
+# a publish that rebuilds the image waits on CodeBuild, far longer than the default cli timeout allows
+APPLY_TIMEOUT = 2400.0
+
 
 def _pick_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -169,6 +194,27 @@ _RUN_TIMEOUT_SECS = 300
 _WHEEL_SUBDIR = 'wheels'
 
 
+def db_diff(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> dict[str, Any]:
+    """What `pxt db diff` reports, its exit status under 'returncode'."""
+    r = cli('db', 'diff', db_uri, '--json', cwd=project, check=False)
+    assert r.returncode in (EXIT_IN_AGREEMENT, EXIT_CHANGES_PENDING), r.stderr
+    return {**r.json, 'returncode': r.returncode}
+
+
+def assert_in_agreement(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> None:
+    plan = db_diff(cli, project, db_uri)
+    assert plan['in_agreement'], plan['ops']
+    assert plan['returncode'] == EXIT_IN_AGREEMENT
+    assert plan['ops'] == []
+
+
+def db_update(cli: PxtRunner, project: pathlib.Path, db_uri: str, *flags: str) -> dict[str, Any]:
+    """What `pxt db update` applied, its exit status under 'returncode'."""
+    r = cli('db', 'update', db_uri, '-f', '--json', *flags, cwd=project, check=False, timeout=APPLY_TIMEOUT)
+    assert r.returncode in (EXIT_IN_AGREEMENT, EXIT_CHANGES_PENDING), r.stderr
+    return {**r.json, 'returncode': r.returncode}
+
+
 def _as_text(stream: bytes | str | None) -> str:
     """Normalize captured output: TimeoutExpired carries bytes even when the run was text=True."""
     if stream is None:
@@ -239,6 +285,82 @@ def write_requirements(project: pathlib.Path, wheel: pathlib.Path, *extra: str) 
     (project / 'requirements.txt').write_text(
         '\n'.join([f'./{_WHEEL_SUBDIR}/{wheel.name}', *extra]) + '\n', encoding='utf-8'
     )
+
+
+@pytest.fixture(scope='session')
+def cloud_db_uri() -> str:
+    """The hosted database for this package's cloud axis, serving the app corpus as its project.
+
+    The core suite's database serves this repository instead, so its pods import `tests.*` where these
+    import `apps.*`; one database cannot hold both projects, so each suite has its own.
+    """
+    uri = os.environ.get('PXTTEST_CLI_DB_URI')
+    assert uri, 'set PXTTEST_CLI_DB_URI to the database for the CLI tests'
+    assert uri != os.environ.get('PXTTEST_CLOUD_DB_URI'), (
+        f'PXTTEST_CLI_DB_URI and PXTTEST_CLOUD_DB_URI cannot share the same value (currently {uri})'
+    )
+    return uri
+
+
+def _git(*args: str) -> str:
+    r = subprocess.run(['git', '-C', str(_REPO_ROOT), *args], capture_output=True, text=True, check=True)
+    return r.stdout.strip()
+
+
+def _pixeltable_repo(sha: str) -> str:
+    """The https url of a remote that has sha."""
+    # '->' skips the symbolic origin/HEAD, which is a second name for a branch already listed
+    branches = [line.strip() for line in _git('branch', '-r', '--contains', sha).splitlines() if '->' not in line]
+    remotes = list(dict.fromkeys(branch.split('/', maxsplit=1)[0] for branch in branches))
+    assert len(remotes) > 0, f'{sha[:8]} is on no remote branch, and the image build fetches it; push first'
+    url = _git('remote', 'get-url', 'origin' if 'origin' in remotes else remotes[0])
+    return re.sub(r'^git@([^:]+):', r'https://\1/', url).removesuffix('.git')
+
+
+@pytest.fixture(scope='session')
+def corpus_pixeltable_pin() -> str | None:
+    """Write the corpus project's requirements.txt, pinning pixeltable to this checkout's commit.
+
+    A hosted pod speaks the management protocol to the control plane, so it has to run the pixeltable under
+    test rather than the last release. The image build runs in CodeBuild, which reaches GitHub but not this
+    machine, so the pin is a commit on a remote rather than a path here.
+
+    Returns None when no hosted database is configured, since only an image build reads this file.
+    """
+    if os.environ.get('PXTTEST_CLI_DB_URI') is None:
+        return None
+    # an untracked file sits outside the corpus project and is absent from the archive, so it is not drift
+    modified = _git('status', '--porcelain', '--untracked-files=no', '--', *_PINNED_PATHS)
+    assert modified == '', f'a pod installs the commit, not this working tree; commit or stash first:\n{modified}'
+    sha = _git('rev-parse', 'HEAD')
+    pin = f'pixeltable @ git+{_pixeltable_repo(sha)}@{sha}'
+    (_CORPUS_DIR / 'requirements.txt').write_text('\n'.join([pin, *_requirements_in()]) + '\n', encoding='utf-8')
+    return pin
+
+
+@pytest.fixture(scope='session', autouse=True)
+def _serve_corpus_db(session_cli: PxtRunner, corpus_pixeltable_pin: str | None) -> None:
+    """Publish this app corpus and this commit's pixeltable to the CLI database.
+
+    The tests resolve the corpus's udfs, which reach a pod only in the database's project archive, and a
+    pod runs the pixeltable that corpus_pixeltable_pin wrote into requirements.txt. Publishing both is part
+    of the run.
+    """
+    uri = os.environ.get('PXTTEST_CLI_DB_URI')
+    if uri is None:
+        return
+    pending = _corpus_db_ops(session_cli, uri)
+    if len(pending) == 0:
+        return
+    print(f'Publishing {_CORPUS_DIR} to {uri}: {"; ".join(op["description"] for op in pending)}', flush=True)
+    db_update(session_cli, _CORPUS_DIR, uri)
+    remaining = _corpus_db_ops(session_cli, uri)
+    assert len(remaining) == 0, f'{uri} still differs from {_CORPUS_DIR} after an update: {remaining}'
+
+
+def _corpus_db_ops(cli: PxtRunner, uri: str) -> list[dict[str, Any]]:
+    """The operations that would reconcile uri with the corpus, limited to the archive and the image."""
+    return [op for op in db_diff(cli, _CORPUS_DIR, uri)['ops'] if op['target'] in ('archive', 'image')]
 
 
 @pytest.fixture
