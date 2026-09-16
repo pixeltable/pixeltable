@@ -51,7 +51,7 @@ class DatabaseConfig(pydantic.BaseModel):
     # bindings for the config vars
     vars: dict[str, str] | None = None
 
-    # the entry's db_<key> keys, collected by _collect_settings()
+    # settings this database uses in place of the shared [pixeltable] / [otel] values
     settings: dict[DatabaseSetting, str] | None = None
 
     # the rest applies to a hosted database, whose runtime image is built from the project
@@ -72,7 +72,7 @@ class DatabaseConfig(pydantic.BaseModel):
     @pydantic.model_validator(mode='before')
     @classmethod
     def _collect_settings(cls, data: Any) -> Any:
-        # the entry writes each setting as a top-level key; only `settings` is a field
+        # moves the db_<key> keys of a parsed entry into `settings`, so they validate against DatabaseSetting
         if not isinstance(data, dict):
             return data
         settings = {key: data.pop(key) for key in list(data) if key in DatabaseSetting}
@@ -548,30 +548,30 @@ class Config:
         self.__project_config = self.__load_project_config()
         merged = {section: dict(options) for section, options in self.__home_config.items()}
         for section, options in self.__project_config.items():
-            for key, (supplied, source) in options.items():
-                merged.setdefault(section, {})[key] = (supplied, source)
-        layers = [
-            (config['pixeltable']['database'][0], source)
-            for config, source in (
-                (self.__home_config, self.__config_file),
-                (self.__project_config, self.__project_config_file),
-            )
-            if 'database' in config.get('pixeltable', {})
-        ]
-        if len(layers) > 0:
-            merged['pixeltable']['database'] = (self.__merge_databases(layers), layers[-1][1])
+            merged.setdefault(section, {}).update(options)
+        databases = self.__merge_databases()
+        if databases is not None:
+            merged['pixeltable']['database'] = databases
         return merged
 
-    def __merge_databases(self, layers: list[tuple[list[DatabaseConfig], Path | None]]) -> list[DatabaseConfig]:
-        """Combine the database entries of the config files, entry by entry, each with the file it came from.
+    def __merge_databases(self) -> tuple[list[DatabaseConfig], Path | None] | None:
+        """Combine the database entries of the home and project configs, entry by entry, with the last file that
+        supplied any.
 
-        Entries are matched by name, and a field a later file sets wins, so a project adding a var keeps the
+        Entries are matched by name, and a field the project sets wins, so a project adding a var keeps the
         vars the home config binds for the same database. The file that supplied each field, var binding and
         setting is recorded in __database_sources.
         """
         fields_by_name: dict[str, dict[str, Any]] = {}
-        for entries, source in layers:
-            for entry in entries:
+        last_source: Path | None = None
+        for config, source in (
+            (self.__home_config, self.__config_file),
+            (self.__project_config, self.__project_config_file),
+        ):
+            if 'database' not in config.get('pixeltable', {}):
+                continue
+            last_source = source
+            for entry in config['pixeltable']['database'][0]:
                 fields = fields_by_name.setdefault(entry.name, {})
                 sources = self.__database_sources.setdefault(entry.name, {})
                 for field, value in entry.model_dump(exclude_none=True).items():
@@ -581,7 +581,9 @@ class Config:
                     else:
                         fields[field] = value
                         sources[field] = source
-        return [DatabaseConfig.model_validate(fields) for fields in fields_by_name.values()]
+        if len(fields_by_name) == 0:
+            return None
+        return [DatabaseConfig.model_validate(fields) for fields in fields_by_name.values()], last_source
 
     def __load_home_config(self) -> dict[str, dict[str, tuple[Any, Path]]]:
         """Load the installation's config file, creating a default one if it does not exist."""
@@ -703,9 +705,10 @@ class Config:
         return next((db for db in databases if db.name == db_name), None)
 
     def __own_database(self) -> tuple[DatabaseConfig, dict[str, Path | None]] | None:
-        """The merged entry of this process's database, with the file that supplied each field and binding.
+        """Return the [[pixeltable.database]] entry of the database we are connected to, and the source file of
+        each of its fields.
 
-        A process reads the entry of its own database: the hosted one on its pod, else the local one.
+        On a hosted pod that is the entry named pxt://org:db; anywhere else it is the local entry.
         """
         from pixeltable.env import Env  # env imports this module
 
@@ -720,7 +723,7 @@ class Config:
         return own, self.__database_sources[name]
 
     def __database_bindings(self) -> dict[str, tuple[str, Path | None]]:
-        """The vars of this process's database, each with the file that supplied it."""
+        """Return the var bindings of the database we are connected to, each with its source file."""
         own = self.__own_database()
         if own is None:
             return {}
@@ -728,7 +731,7 @@ class Config:
         return {name: (value, sources[f'vars.{name}']) for name, value in (entry.vars or {}).items()}
 
     def __database_setting(self, key: str) -> tuple[Any, Path | None] | None:
-        """The db_<key> setting of this process's database entry, with the file that supplied it."""
+        """Return the value the database we are connected to sets for `key` (as db_<key>), with its source file."""
         try:
             setting = DatabaseSetting(f'db_{key}')
         except ValueError:
@@ -745,7 +748,7 @@ class Config:
             return self.__database_bindings().get(key)
         if section == SECRET_SECTION:
             return None  # a secret is bound by its environment variable, which get_value() reads first
-        # the entry for this process's database wins over the section, which every database shares
+        # a value the connected database sets as db_<key> wins over section.key in the shared config sections
         setting = self.__database_setting(key)
         if setting is not None:
             return setting
@@ -936,8 +939,9 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
         'database': (
-            'One entry per database the project uses: variable bindings, its db_ overrides of the media destinations '
-            'and OTLP endpoint and protocol, and for a hosted database the contents of its runtime image',
+            'One entry per database the project uses: its variable bindings, per-database values for the media '
+            'destinations and the OTLP endpoint and protocol (db_<key>), and for a hosted database the contents of '
+            'its runtime image',
             list[DatabaseConfig],
         ),
         'db_pool_size': ('Number of database connections the engine keeps open (default: 5)', int),
