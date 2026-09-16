@@ -24,8 +24,9 @@ Examples:
   pxt logout                    # forget this environment's session
   pxt logout --all              # forget every environment's
 
-The session is cached in your Pixeltable home directory, readable only by you, and kept alive by
-renewing in the background. An API key, if you have one set, is used in preference to it.
+The session is cached in your Pixeltable home directory, readable only by you, and renews itself
+for an hour after you sign in; after that, sign in again. An API key, if you have one set, is used
+in preference to it, and does not expire.
 
 Which dashboard to sign in to is answered by the control plane itself, so there is nothing to
 configure. Sign-in needs a browser on this machine; over SSH, forward the port or use an API key.
@@ -75,7 +76,7 @@ def run_whoami(argv: list[str]) -> None:
     record = {
         'api_url': url,
         'email': session.email if session else '',
-        'expires_in_s': int(session.expires_in()) if session else None,
+        'expires_in_s': int(session.session_expires_in()) if session else None,
         'using': kind,
         'credential_source': where,
     }
@@ -84,14 +85,15 @@ def run_whoami(argv: list[str]) -> None:
         return
 
     if session is not None:
-        left = session.expires_in()
-        # A negative number is not an error to report: the next command renews and moves on.
-        renews = 'renewing on next use' if left <= credentials.EXPIRY_SKEW_S else f'valid for {int(left // 60)}m'
-        print(f'{session.email or "(unknown)"} on {url} — {renews}')
+        # Time until the browser is needed again, not until the current token expires: the token
+        # renews on its own, so its clock is not one anybody has to act on.
+        left = session.session_expires_in()
+        state = 'expired, run `pxt login`' if left <= 0 else f'sign in again in {int(left // 60)}m'
+        print(f'{session.email or "(unknown)"} on {url} — {state}')
     if kind == 'api_key':
         # Said plainly: a session that exists but is outranked is the state people misread.
-        note = ', so the session above is not being used' if session is not None else ''
-        print(f'Commands use the API key from {where}{note}.')
+        note = ' An API key always takes precedence over a sign-in.' if session is not None else ''
+        print(f'Commands use the API key from {where}.{note}')
 
 
 def _login(args: argparse.Namespace) -> None:

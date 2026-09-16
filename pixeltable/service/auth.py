@@ -6,8 +6,8 @@ binary must never hold -- so the dashboard, which already has it, hands over the
 
 What comes back is a sealed session rather than a raw refresh token: WorkOS gives the dashboard a
 sealed blob it would normally keep as a cookie. The CLI keeps it on disk and presents it to renew,
-which is the same shape `gh` and `stripe` use against their own backends. Access tokens are
-short-lived; the session behind them lasts as long as WorkOS says, and renewal is invisible.
+which is the same shape `gh` and `stripe` use against their own backends. Renewal is invisible, up
+to `credentials.MAX_SESSION_AGE_S` after the sign-in, at which point the browser is needed again.
 """
 
 from __future__ import annotations
@@ -182,7 +182,7 @@ def browser_login(api_url: str, open_browser: bool = True) -> Session:
         sealed_session=sealed,
         login_url=login_url,
         email=result.get('email', ''),
-        obtained_at=time.time(),
+        logged_in_at=time.time(),
     )
     if not token:
         session = refresh(api_url, session)  # saves as a side effect
@@ -199,7 +199,7 @@ def _serve_until_answered(server: http.server.HTTPServer, handler: type) -> None
 def refresh(api_url: str, session: Session) -> Session:
     """Exchange the sealed session for a fresh access token, persist the result, and return it."""
     if not session.can_refresh():
-        raise AuthError('this session cannot be renewed; run `pxt login`')
+        raise AuthError('it cannot be renewed')
     payload = _get_json(
         session.login_url.rstrip('/') + _CLI_TOKEN_PATH,
         headers={'Authorization': f'Bearer {session.sealed_session}', 'Content-Type': 'application/json'},
@@ -207,7 +207,7 @@ def refresh(api_url: str, session: Session) -> Session:
     )
     token = str(payload.get('token') or '')
     if not token:
-        raise AuthError('the dashboard returned no token; run `pxt login`')
+        raise AuthError('the dashboard returned no token')
     renewed = Session(
         access_token=token,
         expires_at=_expiry_from(token),
@@ -216,7 +216,7 @@ def refresh(api_url: str, session: Session) -> Session:
         sealed_session=str(payload.get('session') or session.sealed_session),
         login_url=session.login_url,
         email=session.email,
-        obtained_at=time.time(),
+        logged_in_at=session.logged_in_at,
     )
     credentials.save(api_url, renewed)  # before the caller sends it: the old session is now spent
     return renewed
@@ -226,12 +226,24 @@ def access_token(api_url: str) -> Optional[str]:
     """A token to send to `api_url`, renewing first if the cached one is spent.
 
     None when there is no session at all, so a caller can fall back to an API key. Raises AuthError
-    when a session exists but cannot be renewed -- that is worth telling the user about, rather than
+    when a session exists but cannot be used -- that is worth telling the user about, rather than
     silently looking like they were never signed in.
     """
     session = credentials.load(api_url)
     if session is None:
         return None
+    # Checked before the token's own expiry: past the deadline the cached token may well still be
+    # valid, and sending it anyway is exactly what the deadline exists to prevent.
+    if session.is_expired():
+        raise AuthError(f'it expired {_age_limit_text()} after you signed in')
     if session.is_usable():
         return session.access_token
     return refresh(api_url, session).access_token
+
+
+def _age_limit_text() -> str:
+    minutes = int(credentials.MAX_SESSION_AGE_S // 60)
+    if minutes % 60 == 0:
+        hours = minutes // 60
+        return '1 hour' if hours == 1 else f'{hours} hours'
+    return f'{minutes} minutes'

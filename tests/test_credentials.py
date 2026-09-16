@@ -28,6 +28,7 @@ def _session(**kw) -> credentials.Session:
         'expires_at': time.time() + 3600,
         'sealed_session': 'sealed',
         'login_url': 'https://acme.app.pixeltable.com',
+        'logged_in_at': time.time(),
     }
     return credentials.Session(**{**base, **kw})
 
@@ -79,6 +80,31 @@ class TestExpiry:
         assert not _session(sealed_session=None).can_refresh()
         assert not _session(login_url='').can_refresh()
         assert _session().can_refresh()
+
+
+class TestSessionAge:
+    """The deadline the browser sign-in carries, separate from the token's own expiry."""
+
+    def test_a_fresh_sign_in_is_not_expired(self) -> None:
+        assert not _session(logged_in_at=time.time()).is_expired()
+
+    def test_a_sign_in_past_the_limit_is_expired(self) -> None:
+        assert _session(logged_in_at=time.time() - credentials.MAX_SESSION_AGE_S - 1).is_expired()
+
+    def test_the_limit_is_counted_from_the_sign_in_not_the_token(self) -> None:
+        """A live token does not extend the deadline; that is the point of having one."""
+        old = _session(logged_in_at=time.time() - credentials.MAX_SESSION_AGE_S - 1, expires_at=time.time() + 3600)
+        assert old.is_usable()
+        assert old.is_expired()
+
+    def test_a_record_from_before_the_deadline_existed_reads_as_expired(self) -> None:
+        """One re-login, rather than a cached session with no deadline at all."""
+        assert _session(logged_in_at=0.0).is_expired()
+
+    def test_time_left_is_reported_for_whoami(self) -> None:
+        now = time.time()
+        left = _session(logged_in_at=now - 600).session_expires_in(now)
+        assert left == pytest.approx(credentials.MAX_SESSION_AGE_S - 600, abs=1)
 
 
 class TestOnDisk:

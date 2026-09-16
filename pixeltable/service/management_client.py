@@ -74,6 +74,15 @@ def _new_session() -> requests.Session:
 _SESSION = _new_session()
 
 
+def _how_to_authenticate() -> str:
+    """The two ways in, always named together: they are alternatives, and naming one strands whoever
+    has the other."""
+    return (
+        'Run `pxt login`, or set an API key with `os.environ["PIXELTABLE_API_KEY"] = "your-key"` '
+        f'or `api_key = "your-key"` in the `[pixeltable]` section of {Config.get().config_file}.'
+    )
+
+
 def credential(purpose: str) -> str:
     """The credential to present for `purpose`: an API key if one is set, else a `pxt login` session.
 
@@ -92,14 +101,12 @@ def credential(purpose: str) -> str:
         token = auth.access_token(api_url())
     except auth.AuthError as e:
         raise excs.AuthorizationError(
-            excs.ErrorCode.MISSING_CREDENTIALS, f'Your Pixeltable session could not be renewed ({e}). Run `pxt login`.'
+            excs.ErrorCode.MISSING_CREDENTIALS, f'Could not use your Pixeltable session: {e}. {_how_to_authenticate()}'
         ) from e
     if token is None:
         raise excs.AuthorizationError(
             excs.ErrorCode.MISSING_CREDENTIALS,
-            f'A Pixeltable API key or sign-in is required to {purpose}. '
-            'Run `pxt login`, or set a key with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
-            f'or add `api_key = "your-key"` to the `[pixeltable]` section in {Config.get().config_file}.\n'
+            f'A Pixeltable API key or sign-in is required to {purpose}. {_how_to_authenticate()}\n'
             'For details, see https://docs.pixeltable.com/platform/configuration',
         )
     return token
@@ -132,21 +139,21 @@ def credential_source() -> tuple[str, str]:
 
 
 def _raise_unauthorized(resp: Any) -> None:
-    """Turn a 401 into an error that names the credential that failed, and the alternative.
+    """Turn a 401 into an error that names the credential that was actually sent.
 
-    The bare message is indistinguishable between "your key is wrong" and "your key is wrong and the
-    session you just created is being ignored", which is the case that strands people.
+    A bare "unauthorized" does not say which of the two was tried, which is the whole question when
+    a machine has both.
     """
     kind, where = credential_source()
     detail = resp.text.strip()
-    if kind == 'api_key' and credentials.load(api_url()) is not None:
+    if kind == 'api_key':
+        # No suggestion to sign in instead: a key always outranks a session, so signing in would
+        # change nothing. The key is what needs fixing.
         raise excs.AuthorizationError(
-            excs.ErrorCode.MISSING_CREDENTIALS,
-            f'The API key from {where} was rejected ({detail}). A `pxt login` session for '
-            f'{api_url()} is also available -- remove that API key to use it.',
+            excs.ErrorCode.MISSING_CREDENTIALS, f'The API key from {where} was rejected ({detail}).'
         )
     raise excs.AuthorizationError(
-        excs.ErrorCode.MISSING_CREDENTIALS, f'Rejected the credential from {where} ({detail}).'
+        excs.ErrorCode.MISSING_CREDENTIALS, f'Your Pixeltable session was rejected ({detail}). {_how_to_authenticate()}'
     )
 
 

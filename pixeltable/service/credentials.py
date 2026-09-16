@@ -30,6 +30,12 @@ from pixeltable.config import Config
 # control plane does not arrive with a token that died in flight.
 EXPIRY_SKEW_S = 60.0
 
+# How long a sign-in lasts before the browser is needed again, counted from `pxt login` and not reset
+# by renewal. The token WorkOS issues outlives this by hours; a credential sitting on a laptop is a
+# bearer token, and an unattended one should stop working the same day it was left behind. Anyone who
+# wants a credential that does not expire wants an API key, which is what those are.
+MAX_SESSION_AGE_S = 3600.0
+
 _FILE_MODE = 0o600
 _DIR_MODE = 0o700
 
@@ -46,7 +52,9 @@ class Session:
     sealed_session: Optional[str] = None
     login_url: str = ''  # the dashboard that issued this session, and the only place it can be renewed
     email: str = ''  # for `pxt whoami`; never load-bearing, the token is what authorizes
-    obtained_at: float = 0.0
+    # When the browser sign-in happened. Carried through renewal unchanged, so renewing cannot walk
+    # the deadline forward -- otherwise a session in daily use would never end.
+    logged_in_at: float = 0.0
 
     def expires_in(self, now: Optional[float] = None) -> float:
         """Seconds left, negative once past expiry. Ignores the skew — that is a refresh decision."""
@@ -58,6 +66,16 @@ class Session:
 
     def can_refresh(self) -> bool:
         return bool(self.sealed_session and self.login_url)
+
+    def session_expires_in(self, now: Optional[float] = None) -> float:
+        """Seconds until the browser is needed again. Negative once past it."""
+        return self.logged_in_at + MAX_SESSION_AGE_S - (time.time() if now is None else now)
+
+    def is_expired(self, now: Optional[float] = None) -> bool:
+        """Whether this sign-in is too old to keep renewing. Records from before this field existed
+        carry logged_in_at == 0, which reads as expired: one re-login, rather than a session with no
+        deadline at all."""
+        return self.session_expires_in(now) <= 0
 
 
 def _path() -> Path:

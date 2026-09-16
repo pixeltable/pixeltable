@@ -31,6 +31,7 @@ def _session(**kw) -> credentials.Session:
         'expires_at': time.time() + 3600,
         'sealed_session': 'old-sealed',
         'login_url': _LOGIN,
+        'logged_in_at': time.time(),
     }
     return credentials.Session(**{**base, **kw})
 
@@ -56,7 +57,7 @@ class TestAccessToken:
         assert auth.access_token(_API) == 'old-access'
 
     def test_an_expired_token_is_refreshed_transparently(self, monkeypatch) -> None:
-        """The five-minute TTL is invisible: the command gets a token, not an error."""
+        """The token TTL is invisible: the command gets a token, not an error."""
         _stub(monkeypatch, {'token': 'new-access', 'session': 'new-sealed'})
         credentials.save(_API, _session(expires_at=time.time() - 1))
 
@@ -67,6 +68,17 @@ class TestAccessToken:
         credentials.save(_API, _session(expires_at=time.time() + credentials.EXPIRY_SKEW_S / 2))
 
         assert auth.access_token(_API) == 'new-access'
+
+    def test_a_sign_in_past_the_deadline_is_refused_rather_than_renewed(self, monkeypatch) -> None:
+        """The cached token is still live here. Sending it anyway is what the deadline prevents."""
+        monkeypatch.setattr(auth, '_get_json', lambda *a, **k: pytest.fail('renewed an expired sign-in'))
+        credentials.save(
+            _API, _session(logged_in_at=time.time() - credentials.MAX_SESSION_AGE_S - 1, expires_at=time.time() + 3600)
+        )
+
+        with pytest.raises(auth.AuthError) as e:
+            auth.access_token(_API)
+        assert 'expired' in str(e.value)
 
 
 class TestRefresh:
@@ -79,6 +91,14 @@ class TestRefresh:
         stored = credentials.load(_API)
 
         assert (stored.access_token, stored.sealed_session) == ('new-access', 'new-sealed')
+
+    def test_renewing_does_not_move_the_sign_in_deadline(self, monkeypatch) -> None:
+        """Otherwise a session in daily use would never require a browser again."""
+        _stub(monkeypatch, {'token': 'new-access', 'session': 'new-sealed'})
+        signed_in_at = time.time() - 300
+        renewed = auth.refresh(_API, _session(logged_in_at=signed_in_at, expires_at=time.time() - 1))
+
+        assert renewed.logged_in_at == signed_in_at
 
     def test_a_response_without_a_rotated_session_keeps_the_old_one(self, monkeypatch) -> None:
         """A response that omits it means unchanged; dropping it would end the session early."""
