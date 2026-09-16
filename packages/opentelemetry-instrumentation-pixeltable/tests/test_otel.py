@@ -191,7 +191,7 @@ def test_protocol_grpc(tmp_path: Path) -> None:
 
 
 def check_endpoint_from_database_entry() -> None:
-    for k in [k for k in os.environ if k.startswith('OTEL_EXPORTER_OTLP_ENDPOINT')]:
+    for k in [k for k in os.environ if k.startswith(('OTEL_EXPORTER_OTLP_ENDPOINT', 'OTEL_EXPORTER_OTLP_PROTOCOL'))]:
         del os.environ[k]
     Path(os.environ['PIXELTABLE_CONFIG']).write_text(
         "[pixeltable]\nfile_cache_size_g = 1.0\n\n[[pixeltable.database]]\ndb_exporter_otlp_endpoint = 'http://127.0.0.1:9'\n",

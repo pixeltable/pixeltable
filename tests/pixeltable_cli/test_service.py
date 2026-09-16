@@ -86,7 +86,7 @@ def cloud_db_uri(
     copy_app_corpus(session_project)
     write_requirements(session_project, pixeltable_wheel, *PROJECT_EXTRAS)
     with disposable_db_uri(session_cli, session_project) as uri:
-        # the entry sends inserted media under a prefix of the home bucket, which test_media checks on the pod
+        # the entry sends inserted media under a prefix of the home bucket
         (session_project / 'pixeltable.toml').write_text(
             f'[[pixeltable.database]]\nname = {json.dumps(uri)}\n'
             f'db_input_media_dest = {json.dumps(f"{home_bucket_uri(uri)}/{_INPUT_MEDIA_PREFIX}/")}\n',
