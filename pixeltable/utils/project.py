@@ -2,27 +2,29 @@
 
 from __future__ import annotations
 
+import dataclasses
 import enum
 import hashlib
-import io
 import json
 import logging
 import os
+import re
 import sys
 import sysconfig
 import tarfile
 import tempfile
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, BinaryIO, Literal
 
 import pydantic
+import toml
 from pathspec import PathSpec
 from tqdm import tqdm
 
 import pixeltable
-from pixeltable import exceptions as excs, metadata
-from pixeltable.config import PROJECT_CONFIG_FILES, DatabaseConfig
+from pixeltable import exceptions as excs
+from pixeltable.config import PROJECT_CONFIG_FILES, PYPROJECT_FILE, DatabaseConfig
 from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
@@ -33,16 +35,7 @@ DepsType = Literal['uv', 'pip', 'none']
 # a project declares its packages in one of these, each installed by the tool it names
 LOCK_FILES: dict[str, DepsType] = {'uv.lock': 'uv', 'requirements.txt': 'pip'}
 
-
-class ProjectPart(enum.StrEnum):
-    """The parts that make up a project's fingerprint."""
-
-    IMAGE = 'image'
-
-    ARCHIVE = 'archive'
-
-    # vars and secrets
-    BINDINGS = 'bindings'
+IMAGE_INPUT_FILES: tuple[str, ...] = (*LOCK_FILES, PYPROJECT_FILE)
 
 
 def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
@@ -94,6 +87,7 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
     .git is skipped here, as git itself does, but only by default: an `include` pattern of `.git/**` still
     reaches it, which a project that derives its version from VCS metadata needs. A virtual environment is
     skipped whether or not a .gitignore covers it, since the pod installs the packages from the lockfile.
+    __pycache__ is ignored: we don't want to ship bytecode
     """
     files: set[Path] = set()
 
@@ -102,7 +96,7 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
         if spec is not None:
             specs = [*specs, (dir_path, spec)]
         for entry in dir_path.iterdir():
-            if entry.name == '.git':
+            if entry.name in ('.git', '__pycache__'):
                 continue
             is_dir = entry.is_dir() and not entry.is_symlink()
             if _is_gitignored(entry, is_dir, specs):
@@ -152,12 +146,75 @@ def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Pa
     return sorted(files)
 
 
+class _HashingReader:
+    """Hashes every byte it yields."""
+
+    def __init__(self, f: BinaryIO) -> None:
+        self._f = f
+        self._digest = hashlib.sha256()
+
+    def read(self, size: int = -1) -> bytes:
+        data = self._f.read(size)
+        self._digest.update(data)
+        return data
+
+    def hexdigest(self) -> str:
+        return self._digest.hexdigest()
+
+
+@dataclasses.dataclass
+class PackagedContext:
+    """Project files packaged for an image build or an upload, and the content hash of each one."""
+
+    path: Path
+
+    # path relative to the project root -> sha256 of the bytes written into the tar file
+    files: dict[str, str]
+
+
+def _member_hash(content_hash: str, *, symlink: bool) -> str:
+    return _digest({'content': content_hash, 'symlink': symlink})
+
+
+def _path_hash(path: Path) -> str:
+    """Read the file at path and hash it the way _add_hashed() hashes an archive member."""
+    if path.is_symlink():
+        # a symlink stores a path, so that path identifies it; reading through it would hash the target
+        return _member_hash(_digest(os.readlink(path)), symlink=True)
+    return _member_hash(_content_hash(path), symlink=False)
+
+
+def _add_hashed(tf: tarfile.TarFile, path: Path, arcname: str) -> str:
+    """Write path into tf and return the hash of the member written."""
+    info = tf.gettarinfo(path, arcname=arcname)
+    if info.issym():
+        tf.addfile(info)
+        return _member_hash(_digest(info.linkname), symlink=True)
+    if info.islnk():
+        # gettarinfo() writes a second path to one inode as a hard link, which extracts as a regular
+        # file with the same bytes; the member itself carries no content
+        tf.addfile(info)
+        return _member_hash(_content_hash(path), symlink=False)
+    with path.open('rb') as raw:
+        reader = _HashingReader(raw)
+        tf.addfile(info, reader)
+    return _member_hash(reader.hexdigest(), symlink=False)
+
+
 def create_project_archive(
     project_dir: Path | None = None, db_config: DatabaseConfig | None = None, show_progress: bool = False
 ) -> Path:
-    """Produce an archive (tar file) of the project files, as selected by db_config.
+    """Produce an archive (tar file) of the project files, as selected by db_config."""
+    return package_project_archive(project_dir, db_config, show_progress).path
 
-    Includes every git-recognized file below the project root, plus the lockfile.
+
+def package_project_archive(
+    project_dir: Path | None = None, db_config: DatabaseConfig | None = None, show_progress: bool = False
+) -> PackagedContext:
+    """Produce an archive of the project files, as selected by db_config, and say what went into it.
+
+    Includes every git-recognized file below the project root, plus the lockfile. The returned hashes are
+    taken from the bytes written, so they describe the archive rather than a later reading of the project.
     """
     if project_dir is None:
         project_dir = Path.cwd()
@@ -192,36 +249,273 @@ def create_project_archive(
         tarfile.open(archive_path, 'w:bz2') as tf,
         tqdm(desc='Packaging project', total=len(files), unit=' files', disable=not show_progress) as bar,
     ):
+        hashes: dict[str, str] = {}
         for f in files:
-            relpath = str(f.relative_to(project_dir))
+            relpath = f.relative_to(project_dir).as_posix()
             abbrev_path = relpath if len(relpath) <= max_pathlen else '…' + relpath[-(max_pathlen - 1) :]
             # refresh=False: the postfix is drawn by the following update(), which respects tqdm's redraw interval
             bar.set_postfix_str(abbrev_path, refresh=False)
-            tf.add(f, arcname=f'project/{relpath}')
+            hashes[relpath] = _add_hashed(tf, f, f'project/{relpath}')
             bar.update(1)
         bar.set_postfix_str('', refresh=False)
-        _add_build_metadata(tf, project_dir, db_config)
 
     _logger.info(f'Project archive created: {archive_path}')
-    return archive_path
+    return PackagedContext(path=archive_path, files=hashes)
 
 
-def _add_build_metadata(tf: tarfile.TarFile, project_dir: Path, db_config: DatabaseConfig | None) -> None:
-    """Add the archive's metadata.json, which tells the image build what environment to create.
+# what pip installs from a file rather than an index, named without a directory
+_ARCHIVE_SUFFIXES = ('.whl', '.zip', '.tar.gz', '.tar.bz2', '.tar.xz', '.tgz')
 
-    TODO: remove this, and the tarfile the caller opens for it, once the build reads BuildImageRequest.
+# a PEP 508 name, optionally with extras: the text before a direct reference's '@'
+_REQUIREMENT_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*(\[[^\]]*\])?$')
+
+
+def _direct_reference(requirement: str) -> str | None:
+    """The target of a 'name @ target' requirement, or None if requirement names a package from an index.
+
+    PEP 508 makes the whitespace around the '@' optional, and a filename may also contain an '@', so the
+    text before the first '@' decides: only a package name makes what follows a target.
     """
-    fingerprint = project_fingerprint(project_dir, db_config)
-    config = db_config if db_config is not None else DatabaseConfig()
-    payload = {
-        'deps_type': fingerprint.deps_type(),
-        'pxt_md_version': metadata.VERSION,
-        'db_config': config.model_dump(mode='json', exclude_none=True) | {'python_version': fingerprint.python_version},
-    }
-    encoded = json.dumps(payload).encode()
-    info = tarfile.TarInfo(name='metadata.json')
-    info.size = len(encoded)
-    tf.addfile(info, io.BytesIO(encoded))
+    name, sep, target = requirement.partition('@')
+    if sep == '' or _REQUIREMENT_NAME.match(name.strip()) is None:
+        return None
+    return target.strip()
+
+
+def _local_index_locations(parsed: dict[str, Any]) -> list[str]:
+    """The package locations in pyproject.toml that lie on this machine."""
+    found = parsed.get('tool', {}).get('uv', {}).get('find-links', [])
+    return [entry for entry in found if isinstance(entry, str) and (entry.startswith('file:') or '://' not in entry)]
+
+
+def _requirement_lines(text: str) -> list[str]:
+    lines: list[str] = []
+    pending = ''
+    for raw in text.splitlines():
+        stripped = raw.rstrip()
+        if stripped.endswith('\\'):
+            pending += stripped[:-1]
+            continue
+        lines.append(pending + stripped)
+        pending = ''
+    if pending != '':
+        lines.append(pending)
+    return lines
+
+
+def _find_links_target(line: str) -> str | None:
+    """Where a --find-links option points, or None if line sets another option."""
+    for name in ('--find-links', '-f'):
+        if not line.startswith(name):
+            continue
+        rest = line[len(name) :]
+        if rest == '':
+            return ''
+        if rest[0] in '= ':
+            return rest[1:].strip()
+        # optparse accepts '-fVALUE'; the '--' guard keeps '--find-links' and other long options out
+        if name == '-f' and not line.startswith('--'):
+            return rest.strip()
+    return None
+
+
+def _local_requirement_files(project_dir: Path, requirements: Path) -> list[Path]:
+    """The files requirements.txt installs from a path in the project, rather than from an index or a url."""
+    files: list[Path] = []
+    for raw in _requirement_lines(requirements.read_text(encoding='utf-8')):
+        line = raw.split('#', 1)[0].strip()
+        if line == '':
+            continue
+        if line.startswith(('-r', '--requirement', '-c', '--constraint')):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} reads another file ({line}), which is not supported; '
+                'write one file naming every dependency',
+            )
+        if line.startswith(('-e', '--editable')):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} declares {line!r}, an editable install, which a hosted image does not '
+                'support; publish the package to an index and depend on the published version',
+            )
+        find_links = _find_links_target(line)
+        if find_links is not None and (find_links.startswith('file:') or '://' not in find_links):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} looks for packages in {find_links}, a location on this machine; '
+                'instead, publish the packages to an index and depend on the published versions, so that '
+                'they can get picked up by the hosted image build',
+            )
+        if line.startswith('-'):
+            continue
+        # an environment marker decides whether pip installs the line
+        line = line.split(';', 1)[0].strip()
+        if line == '':
+            continue
+
+        target = _direct_reference(line)
+        if target is None:
+            target = line
+            # pip reads a bare name as a package, not a path, unless it carries an archive suffix
+            if '/' not in target and not target.startswith('.') and not target.endswith(_ARCHIVE_SUFFIXES):
+                continue
+        if target.startswith('file:'):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} installs {target}, a file: url naming this machine; write the path '
+                'relative to the project root instead',
+            )
+        if '://' in target:
+            continue
+        if Path(target).is_absolute():
+            # the context holds the file under a path relative to the project, so pip in the build
+            # container would look for this one where nothing is
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} installs {target}, an absolute path naming this machine; write it '
+                'relative to the project root instead',
+            )
+
+        root = project_dir.resolve()
+        path = (root / target).resolve()
+        if path != Path(os.path.normpath(root / target)):
+            # resolving follows the symlink, so the context holds the target's name; pip reads the spelling
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} installs {target} through a symlink; write the path of the file '
+                'itself, since pip reads the path as spelled',
+            )
+        if path.is_dir():
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} installs {target}, a source directory, which a hosted image build '
+                'cannot compile; publish the package to an index and depend on the published version',
+            )
+        if not path.is_relative_to(project_dir):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} installs {target}, which is outside the project; an image build '
+                'sends the project alone, so a file above it cannot be installed',
+            )
+        if not path.is_file():
+            # this path doesn't exist
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{requirements.name} installs {target}, which cannot be resolved relative to the project root',
+            )
+        files.append(path)
+    return files
+
+
+def create_image_context(project_dir: Path | None = None) -> Path:
+    """Return the path to a tarfile containing the manifests needed for an image build."""
+    return package_image_context(project_dir).path
+
+
+def _lock_source_files(parsed: dict[str, Any], project_dir: Path) -> list[Path]:
+    """Files under project_dir belonging to a package uv.lock installs from a path source.
+
+    uv resolves a path, directory or editable source relative to the lockfile, and `uv sync --frozen`
+    reads that source out of the image context, so the context has to carry it. The project root is
+    excluded: uv records the project's own package there. A source outside the project stays behind,
+    and the build reports it missing.
+    """
+    files: list[Path] = []
+    for package in parsed.get('package', []):
+        source = package.get('source', {}) if isinstance(package, dict) else {}
+        if not isinstance(source, dict):
+            continue
+        for key in ('path', 'directory', 'editable'):
+            target = source.get(key)
+            if not isinstance(target, str):
+                continue
+            path = (project_dir / target).resolve()
+            if path == project_dir or not path.is_relative_to(project_dir) or not path.exists():
+                continue
+            if path.is_file():
+                files.append(path)
+            else:
+                files.extend(f for f in sorted(path.rglob('*')) if f.is_file() and '__pycache__' not in f.parts)
+    return files
+
+
+def _lock_sources(project_dir: Path) -> list[Path]:
+    """Files under project_dir belonging to a package its uv.lock installs from a path source."""
+    lock = project_dir / 'uv.lock'
+    if not lock.is_file():
+        return []
+    try:
+        parsed = toml.load(lock)
+    except toml.TomlDecodeError as exc:
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'{lock.name} is not valid TOML: {exc}') from exc
+    return _lock_source_files(parsed, project_dir)
+
+
+def package_image_context(project_dir: Path | None = None) -> PackagedContext:
+    """Create a tarfile containing the manifests needed for an image build.
+
+    The returned hashes are taken from the bytes written, so they describe the context rather than a
+    later reading of the project.
+    """
+    if project_dir is None:
+        project_dir = Path.cwd()
+    project_dir = project_dir.resolve()
+    files = [project_dir / name for name in IMAGE_INPUT_FILES if (project_dir / name).is_file()]
+    installed_from_project: list[Path] = _lock_sources(project_dir)
+    # validate the input files
+    for f in files:
+        if f.name == PYPROJECT_FILE:
+            try:
+                parsed = toml.load(f)
+            except toml.TomlDecodeError as exc:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'{f.name} is not valid TOML: {exc}'
+                ) from exc
+            for location in _local_index_locations(parsed):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{f.name} looks for packages in {location}, a location on this machine; instead, '
+                    'publish the packages to an index and depend on the published versions, so that they '
+                    'can get picked up by the hosted image build',
+                )
+            continue
+        if f.name == 'requirements.txt':
+            # pip runs in the context, so a requirement naming a path needs that file alongside the manifests
+            installed_from_project.extend(_local_requirement_files(project_dir, f))
+
+    files.extend(installed_from_project)
+
+    fd, name = tempfile.mkstemp(suffix='.tar', prefix='pxt_image_')
+    os.close(fd)
+    context_path = Path(name)
+    hashes: dict[str, str] = {}
+    with tarfile.open(context_path, 'w') as tf:
+        for f in files:
+            relpath = f.relative_to(project_dir).as_posix()
+            # project files go into project/
+            hashes[relpath] = _add_hashed(tf, f, f'project/{relpath}')
+    _logger.info(f'Image context created: {context_path}')
+    return PackagedContext(path=context_path, files=hashes)
+
+
+def archive_object_name(org_id: str, archive_digest: str) -> str:
+    """The object name of the project archive with this digest."""
+    return f'archives/{org_id}/{archive_digest}.tar.bz2'
+
+
+def image_object_name(org_id: str, image_digest: str) -> str:
+    """The object name of the image context with this digest."""
+    return f'images/{org_id}/{image_digest}/context.tar'
+
+
+class ProjectPart(enum.StrEnum):
+    """The parts that make up a project's fingerprint."""
+
+    IMAGE = 'image'
+
+    ARCHIVE = 'archive'
+
+    BINDINGS = 'bindings'
 
 
 class ProjectFingerprint(pydantic.BaseModel):
@@ -239,9 +533,12 @@ class ProjectFingerprint(pydantic.BaseModel):
     pixeltable_version: str
     uv_options: str | None = None
 
-    # bindings, never resolved values: a secret names the source of its value
+    # path -> sha256 for the files in requirements.txt that install from a path in the project itself; separate
+    # from files, which are affected by DatabaseConfig.exclude
+    installed_from_project: dict[str, str] = {}
+
+    # bindings, never resolved values: a var names the source of its value
     vars: dict[str, str]
-    secrets: dict[str, str]
 
     def compare(self, other: ProjectFingerprint, *, own_files_only: bool = False) -> set[ProjectPart]:
         """The parts that differ from other.
@@ -254,43 +551,30 @@ class ProjectFingerprint(pydantic.BaseModel):
         files_differ = len(self._added_or_changed(other)) > 0 if own_files_only else self.files != other.files
         if files_differ:
             parts.add(ProjectPart.ARCHIVE)
-        if (self.vars, self.secrets) != (other.vars, other.secrets):
+        if self.vars != other.vars:
             parts.add(ProjectPart.BINDINGS)
         return parts
 
     def image_digest(self) -> str:
-        """The identity of an image built for this environment.
-
-        Two fingerprints share it exactly when compare() reports no IMAGE difference, so an environment
-        that has been built once is never built again, whichever project declares it.
-        """
+        """The image identity."""
         return _digest(self._image_inputs())
 
     def archive_digest(self) -> str:
-        """The identity of the archive this project's files package into.
-
-        Two fingerprints share it exactly when compare() reports no ARCHIVE difference.
-        """
+        """The archive identity."""
         return _digest(self.files)
 
-    def changes(
-        self, other: ProjectFingerprint, parts: set[ProjectPart] | None = None, *, own_files_only: bool = False
-    ) -> list[str]:
-        """What differs from other in the given parts, one printable line each; every part by default.
-
-        own_files_only compares only the files in this fingerprint and excludes files that exist only in other.
-        """
+    def changes(self, other: ProjectFingerprint, parts: set[ProjectPart] | None = None) -> list[str]:
+        """What differs from other in the given parts, one printable line each; defaults to every part."""
         if parts is None:
             parts = set(ProjectPart)
         lines: list[str] = []
         if ProjectPart.ARCHIVE in parts:
             lines += self._added_or_changed(other)
-            if not own_files_only:
-                lines += [f'{path} removed' for path in sorted(set(other.files) - set(self.files))]
+            lines += [f'{path} removed' for path in sorted(set(other.files) - set(self.files))]
         if ProjectPart.IMAGE in parts:
             if ProjectPart.ARCHIVE not in parts:
-                # make sure to include the lock files
-                lines += _changed_paths(self._lock_files(), other._lock_files())
+                # make sure to include the manifests
+                lines += _changed_paths(self.image_files(), other.image_files())
             for field in ('python_version', 'pixeltable_version'):
                 was, now = getattr(other, field), getattr(self, field)
                 if was != now:
@@ -301,7 +585,6 @@ class ProjectFingerprint(pydantic.BaseModel):
                 lines.append('uv_options changed')
         if ProjectPart.BINDINGS in parts:
             lines += [f'var {name} changed' for name in _changed_keys(self.vars, other.vars)]
-            lines += [f'secret {name} changed' for name in _changed_keys(self.secrets, other.secrets)]
         return lines
 
     def _added_or_changed(self, other: ProjectFingerprint) -> list[str]:
@@ -316,15 +599,17 @@ class ProjectFingerprint(pydantic.BaseModel):
 
     def _image_inputs(self) -> tuple:
         return (
-            self._lock_files(),
+            self.image_files(),
             self.python_version,
             self.system_dependencies,
             self.pixeltable_version,
             self.uv_options,
         )
 
-    def _lock_files(self) -> dict[str, str]:
-        return {path: content_hash for path, content_hash in self.files.items() if path in LOCK_FILES}
+    def image_files(self) -> dict[str, str]:
+        """The manifests an image build reads, plus the project files they install from."""
+        manifests = {path: content_hash for path, content_hash in self.files.items() if path in IMAGE_INPUT_FILES}
+        return {**manifests, **self.installed_from_project}
 
 
 def _digest(value: Any) -> str:
@@ -342,15 +627,18 @@ def _changed_keys(now: dict[str, str], was: dict[str, str]) -> list[str]:
 
 def unpacked_digest(project_dir: Path) -> str:
     """The archive digest of every file under project_dir, as ProjectFingerprint.archive_digest() computes it."""
-    files = {p.relative_to(project_dir).as_posix(): _content_hash(p) for p in project_dir.rglob('*') if p.is_file()}
+    files = {
+        p.relative_to(project_dir).as_posix(): _path_hash(p)
+        # a symlink counts even where its target is missing: is_file() follows the link, and dropping it
+        # would make a correctly unpacked project look like a different one
+        for p in project_dir.rglob('*')
+        if p.is_symlink() or p.is_file()
+    }
     return _digest(files)
 
 
 def project_fingerprint(project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
-    """Fingerprint every file an image built from project_root would hold.
-
-    This decides whether an image is out of date, since an image holds the whole project.
-    """
+    """Fingerprint the project files for project_root."""
     return _fingerprint(_archive_files(project_root, config), project_root, config)
 
 
@@ -367,26 +655,6 @@ def in_environment(path: Path) -> bool:
     return any(path.is_relative_to(env_dir) for env_dir in _ENV_DIRS)
 
 
-def loaded_fingerprint(project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
-    """Fingerprint the project's own files that the loaded application reached, plus the lockfile.
-
-    Excludes the environment's files.
-
-    Call it after load_app_module(), which removes the project's modules before importing: the project files
-    loaded afterwards are the ones this application reached.
-    """
-    loaded = {
-        Path(file).resolve()
-        for file in (getattr(module, '__file__', None) for module in list(sys.modules.values()))
-        if file is not None
-    }
-    files = [
-        path for path in loaded if path.is_relative_to(project_root) and not in_environment(path) and path.is_file()
-    ]
-    files += [project_root / name for name in LOCK_FILES if (project_root / name).is_file()]
-    return _fingerprint(files, project_root, config)
-
-
 def _content_hash(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open('rb') as f:
@@ -397,15 +665,21 @@ def _content_hash(path: Path) -> str:
 
 
 def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
-    files = {path.relative_to(project_root).as_posix(): _content_hash(path) for path in files}
+    requirements = project_root / 'requirements.txt'
+    local_requirements = _local_requirement_files(project_root, requirements) if requirements.is_file() else []
+    from_project = {
+        p.relative_to(project_root).as_posix(): _path_hash(p)
+        for p in (*local_requirements, *_lock_sources(project_root))
+    }
+    files = {path.relative_to(project_root).as_posix(): _path_hash(path) for path in files}
     declared_python = config.python_version if config is not None else None
     return ProjectFingerprint(
         files=files,
+        installed_from_project=from_project,
         # the version an image would use: the entry's, or the running interpreter's
         python_version=declared_python or f'{sys.version_info.major}.{sys.version_info.minor}',
         system_dependencies=(config.system_dependencies if config is not None else None) or [],
         pixeltable_version=pixeltable.__version__,
         uv_options=config.uv_options if config is not None else None,
         vars=(config.vars if config is not None else None) or {},
-        secrets=(config.secrets if config is not None else None) or {},
     )

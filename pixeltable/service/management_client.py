@@ -28,12 +28,7 @@ def api_url() -> str:
 
 _LONG_OPS = frozenset(
     op.value
-    for op in (
-        ManagementOperationType.CREATE_DB,
-        ManagementOperationType.BUILD_IMAGE,
-        ManagementOperationType.DELETE_DB,
-        ManagementOperationType.GET_LOGS,
-    )
+    for op in (ManagementOperationType.UPDATE_DB, ManagementOperationType.DELETE_DB, ManagementOperationType.GET_LOGS)
 )
 
 # operations that don't change server state; can be sent multiple times

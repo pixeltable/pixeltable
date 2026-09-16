@@ -102,7 +102,7 @@ class Column:
         self.name = name
         self.tbl_handle = tbl_handle
         if col_type is None and computed_with is None:
-            raise excs.Error(
+            raise excs.InternalError(
                 excs.ErrorCode.INTERNAL_ERROR,
                 f'Column {name!r}: `col_type` is required if `computed_with` is not specified',
             )

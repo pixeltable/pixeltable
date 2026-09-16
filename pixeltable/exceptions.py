@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 import traceback
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, ClassVar, Iterator, NoReturn, Self
+from typing import TYPE_CHECKING, Any, NoReturn, Self
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -104,14 +104,13 @@ class Error(Exception):
     # Diagnostic text (e.g. an evaluation-environment stack trace)
     detail: str | None
 
-    # Thousands digit of the ErrorCode values this class is allowed to carry.
-    # The base Error class carries the 0xxx generic codes; each subclass narrows to its own group.
-    _code_group: ClassVar[int] = 0
-
     def __init__(self, error_code: ErrorCode, message: str = '', *, retry_after: float | None = None) -> None:
         cls = type(self)
-        # make sure we got an error code appropriate for this exception class
-        assert error_code.value // 1000 == cls._code_group
+        # every error names what kind it is, so that a caller can catch one kind without catching all of them
+        assert cls is not Error, 'raise a subclass of Error, not Error itself'
+        # the class must match what _error_class() returns for the code, so an error keeps its class
+        # across a round trip; InternalError and UserError share group 0, so only the code separates them
+        assert cls is _error_class(error_code), f'{error_code.name} belongs to {_error_class(error_code).__name__}'
         super().__init__(message)
         self.error_code = error_code
         self.retry_after = retry_after
@@ -162,8 +161,7 @@ class Error(Exception):
     def from_dict(cls, d: dict[str, Any]) -> 'Error':
         """Reconstruct an Error from to_dict() output."""
         code = ErrorCode[d['error_code']]
-        subclass = _error_subclasses_by_group().get(code.value // 1000, Error)
-        return subclass._reconstruct(code, d)
+        return _error_class(code)._reconstruct(code, d)
 
     @classmethod
     def _reconstruct(cls, error_code: ErrorCode, d: dict[str, Any]) -> 'Error':
@@ -175,16 +173,20 @@ class Error(Exception):
         return err
 
 
+class InternalError(Error):
+    """A Pixeltable-internal invalid state."""
+
+
+class UserError(Error):
+    """A user error that does not map to a more specific code."""
+
+
 class NotFoundError(Error):
     """Resource not found."""
-
-    _code_group = 1
 
 
 class AlreadyExistsError(Error):
     """Resource already exists."""
-
-    _code_group = 2
 
 
 class RequestError(Error):
@@ -196,19 +198,13 @@ class RequestError(Error):
     schema/validation codes -> 422, operation codes -> 400.
     """
 
-    _code_group = 3
-
 
 class AuthorizationError(Error):
     """Caller lacks permission for the requested operation."""
 
-    _code_group = 4
-
 
 class ExternalServiceError(Error):
     """An upstream provider or external store returned an error."""
-
-    _code_group = 5
 
     provider: str | None = None
     provider_http_status_code: int | None = None
@@ -246,13 +242,9 @@ class ExternalServiceError(Error):
 class ServiceUnavailableError(Error):
     """Database, store, or other infrastructure is unreachable."""
 
-    _code_group = 6
-
 
 class ConcurrencyError(Error):
     """Serialization failure, deadlock, or concurrent modification conflict."""
-
-    _code_group = 7
 
 
 class ExprEvalError(Exception):
@@ -337,12 +329,24 @@ def is_table_not_found_error(e: BaseException) -> bool:
     return isinstance(e, Error) and e.error_code == ErrorCode.TABLE_NOT_FOUND
 
 
-def _error_subclasses_by_group() -> dict[int, type[Error]]:
-    """Map each error-code group (thousands digit) to its Error subclass.from_dict."""
+_BY_GROUP: dict[int, type[Error]] = {
+    1: NotFoundError,
+    2: AlreadyExistsError,
+    3: RequestError,
+    4: AuthorizationError,
+    5: ExternalServiceError,
+    6: ServiceUnavailableError,
+    7: ConcurrencyError,
+}
 
-    def subclasses(c: type[Error]) -> Iterator[type[Error]]:
-        yield c
-        for sub in c.__subclasses__():
-            yield from subclasses(sub)
 
-    return {c._code_group: c for c in subclasses(Error)}
+def _error_class(code: ErrorCode) -> type[Error]:
+    """Map an error code to the Error subclass that carries it.
+
+    InternalError and UserError share group 0, so that group is resolved by the code itself.
+    """
+    if code is ErrorCode.INTERNAL_ERROR:
+        return InternalError
+    if code is ErrorCode.GENERIC_USER_ERROR:
+        return UserError
+    return _BY_GROUP[code.value // 1000]
