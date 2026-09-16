@@ -2,6 +2,8 @@ import datetime
 import os
 import typing
 import urllib.parse
+import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -13,22 +15,26 @@ from pixeltable.catalog import Path, fold_identifier
 from pixeltable.catalog.model import schema
 from pixeltable.config import SECRET_SECTION, Config
 from pixeltable.env import Env
-from pixeltable.service import db, management_client
+from pixeltable.service import db, management_client, proxy_daemon
 from pixeltable.service.management_protocol import (
     DeleteDbRequest,
     DeleteSecretRequest,
     GetDbRequest,
+    GetLogsRequest,
+    GetLogsResponse,
     ListDbRequest,
     ListOrgsRequest,
     ListSecretsRequest,
+    RestartDbRequest,
     SetSecretRequest,
     StartDbRequest,
     StopDbRequest,
 )
 from pixeltable.serving import service
 from pixeltable.types import TreeNode
+from pixeltable.utils.http import parse_duration_str
 from pixeltable_cli import models, types
-from pixeltable_cli.utils import identity
+from pixeltable_cli.utils import PxtPath, identity
 
 from . import bridge
 from .daemon_state import config_fingerprint, state as daemon_state
@@ -232,11 +238,6 @@ def table_row(req: Request) -> models.GetResponse:
         raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, "missing or empty 'pk' query parameter")
     if any(v.strip() == '' for v in pk):
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'pk' query parameter contains an empty value")
-    # PK values arrive as strings over HTTP; coerce numeric-looking ones to int/float so a
-    # PK column typed as Int compares correctly. String-typed PK columns whose values look
-    # like numbers (eg the string '42') are a documented limitation - there's no way to
-    # force a string interpretation from the URL.
-    pk_values: list[Any] = [_coerce_pk(v) for v in pk]
     cols_list = _split_csv(req.query_str('cols'))
     cols_list = [fold_identifier(c) for c in cols_list] if cols_list is not None else None
 
@@ -247,11 +248,12 @@ def table_row(req: Request) -> models.GetResponse:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT, f'{path}: no primary key defined; row lookup requires one'
         )
-    if len(pk_values) != len(pk_names):
+    if len(pk) != len(pk_names):
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            f'{path}: expected {len(pk_names)} PK value(s) for {pk_names}, got {len(pk_values)}',
+            f'{path}: expected {len(pk_names)} PK value(s) for {pk_names}, got {len(pk)}',
         )
+    pk_values: list[Any] = [_coerce_pk(v, name, md['columns'][name]['type_']) for v, name in zip(pk, pk_names)]
 
     cols_md = md['columns']
     if cols_list is not None:
@@ -272,7 +274,7 @@ def table_row(req: Request) -> models.GetResponse:
     if len(result) == 0:
         return models.GetResponse(pk_columns=pk_names, row=None)
     if len(result) > 1:
-        raise excs.Error(
+        raise excs.InternalError(
             excs.ErrorCode.INTERNAL_ERROR,
             f'{path}: {len(pk_names)}-column PK match returned multiple rows; catalog corruption?',
         )
@@ -559,6 +561,12 @@ def service_stop(req: Request) -> list[types.ServiceChangeOp]:
     return service.service_stop(body.names)
 
 
+@router.post('/api/service/restart')
+def service_restart(req: Request) -> list[types.ServiceChangeOp]:
+    body = req.body(models.ServiceRestartBody)
+    return service.service_restart(body.names)
+
+
 @router.get('/api/service/list')
 def service_list(req: Request) -> list[types.ServiceInstance]:
     target = req.query_str('target')
@@ -632,19 +640,21 @@ def dashboard_table_export(req: Request) -> RawResponse:
 _COUNT_POOL_WORKERS = 16
 
 
-def _coerce_pk(s: str) -> Any:
-    """Numeric-looking PK strings become int or float; everything else stays a string.
+_PK_PARSERS: dict[str, Callable[[str], Any]] = {'Int': int, 'Float': float, 'String': str, 'UUID': uuid.UUID}
 
-    PK values arrive untyped over HTTP, so we restore their natural type here.
-    """
-    try:
-        return int(s)
-    except ValueError:
-        pass
-    try:
-        return float(s)
-    except ValueError:
+
+def _coerce_pk(s: str, col_name: str, col_type: str) -> Any:
+    """Parse s as the declared type of column col_name."""
+    parser = _PK_PARSERS.get(col_type)
+    if parser is None:
         return s
+    try:
+        return parser(s)
+    except ValueError as e:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'{s!r} is not a valid {col_type} value for primary key column {col_name!r}',
+        ) from e
 
 
 def _split_csv(s: str | None) -> list[str] | None:
@@ -772,10 +782,17 @@ def list_orgs(_req: Request) -> dict[str, Any]:
 
 @router.get('/api/org')
 def get_org(req: Request) -> dict[str, Any]:
-    org = req.required_query_str('org')
+    org = req.query_str('org')
     # the management API has no single-org read; pick the requested one out of the accessible orgs
-    resp = management_client.api_call(ListOrgsRequest())
-    result = next((o for o in resp.get('orgs', []) if o.get('org') == org), None)
+    orgs = management_client.api_call(ListOrgsRequest()).get('orgs', [])
+    if org is None:
+        if len(orgs) != 1:
+            names = ', '.join(sorted(o.get('org', '') for o in orgs))
+            raise excs.RequestError(
+                excs.ErrorCode.MISSING_REQUIRED, f'name the org: pxt://<org>. You have {len(orgs)}: {names}'
+            )
+        return {'org': orgs[0]}
+    result = next((o for o in orgs if o.get('org') == org), None)
     if result is None:
         raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f"Org '{org}' not found")
     return {'org': result}
@@ -783,12 +800,12 @@ def get_org(req: Request) -> dict[str, Any]:
 
 @router.get('/api/dbs')
 def list_dbs(req: Request) -> dict[str, Any]:
-    return management_client.api_call(ListDbRequest(org=req.required_query_str('org')))
+    return management_client.api_call(ListDbRequest(org=req.query_str('org')))
 
 
 @router.get('/api/secrets')
 def list_secrets(req: Request) -> dict[str, Any]:
-    return management_client.api_call(ListSecretsRequest(org=req.required_query_str('org'), db=req.query_str('db')))
+    return management_client.api_call(ListSecretsRequest(org=req.query_str('org'), db=req.query_str('db')))
 
 
 @router.post('/api/secrets')
@@ -819,6 +836,42 @@ def start_db(req: Request) -> dict[str, Any]:
 @router.post('/api/db/stop')
 def stop_db(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(StopDbRequest))
+
+
+@router.post('/api/db/restart')
+def restart_db(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(RestartDbRequest))
+
+
+@router.get('/api/logs')
+def get_logs(req: Request) -> dict[str, Any]:
+    """Return the log of a database's pod (org and db), or of one service (service)."""
+    since = req.query_str('since') or '1h'
+    since_seconds = parse_duration_str(since)
+    if since_seconds is None or since_seconds < 1:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f"'since' must be a duration such as 30s, 10m, 1h or 2d; got {since!r}"
+        )
+    limit = req.query_int('limit', default=200, ge=1, le=10000)
+    include_health = req.query_bool('include_health')
+    service_address = req.query_str('service')
+    if service_address is not None:
+        records = service.service_logs(
+            PxtPath(service_address), since_seconds=int(since_seconds), limit=limit, include_health=include_health
+        )
+        return GetLogsResponse(records=list(records)).model_dump(mode='json')
+    org, db_name = req.required_query_str('org'), req.required_query_str('db')
+    if org == 'local':
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'Reading the log of a database on this machine is not supported; the log is at '
+            f'{proxy_daemon.log_path(db_name)}',
+        )
+    return management_client.api_call(
+        GetLogsRequest(
+            org=org, db=db_name, since_seconds=int(since_seconds), limit=limit, include_health=include_health
+        )
+    )
 
 
 # the verbs above forward a management-protocol request: the daemon is a pass-through to the control plane.

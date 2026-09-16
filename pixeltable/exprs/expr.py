@@ -757,7 +757,7 @@ class Expr(abc.ABC):
         if self.col_type.is_array_type():
             if not isinstance(index, tuple):
                 index = (index,)
-            if any(not isinstance(i, (int, slice)) for i in index):
+            if any(not _is_valid_array_index(i) for i in index):
                 raise AttributeError(f'Invalid array indices: {index}')
             return ArraySlice(self, index)
         raise AttributeError(f'Type {self.col_type} is not subscriptable')
@@ -1085,6 +1085,15 @@ class Expr(abc.ABC):
         return func.make_function(
             decorated_fn=lambda x: fn(x), return_type=fn_type, param_types=[self.col_type], function_name=fn.__name__
         )
+
+
+def _is_valid_array_index(index: object) -> bool:
+    if isinstance(index, slice):
+        if not all(el is None or isinstance(el, int) for el in (index.start, index.stop, index.step)):
+            return False
+        # numpy and slice.indices() both reject a zero step; caught here so it does not reach either
+        return index.step != 0
+    return isinstance(index, int)
 
 
 # A dictionary of result types of various stdlib functions that are

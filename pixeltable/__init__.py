@@ -31,6 +31,7 @@ from .exceptions import (
     PixeltableWarning,
     RequestError,
     ServiceUnavailableError,
+    UserError,
 )
 from .func import (
     Aggregator,

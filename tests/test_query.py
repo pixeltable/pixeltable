@@ -159,10 +159,9 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'where\(\) clause already specified'):
             _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to server timeout [PXT-1319]')
     def test_join(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
-        num_rows = 1000
+        num_rows = 100 if db_root.id == 'cloud' else 1000
         t1, t2, t3 = self.create_join_tbls(num_rows, p)
         # inner join
         query = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f, out=t1.i + t2.f).order_by(t2.f)
@@ -187,19 +186,19 @@ class TestQuery:
         # left outer join
         query = t1.join(t3, on=t1.id, how='left').select(t1.i, t3.f, out=t1.i + t3.f).order_by(t1.i)
         pd_df = query.collect().to_pandas()
-        assert len(pd_df) == 1000
-        assert len(pd_df[~pd_df.f.isnull()]) == 100  # correct number of nulls
-        assert (pd_df[~pd_df.f.isnull()].out == 1000.0).all()  # correct sum
+        assert len(pd_df) == num_rows
+        assert len(pd_df[~pd_df.f.isnull()]) == num_rows // 10  # correct number of nulls
+        assert (pd_df[~pd_df.f.isnull()].out == float(num_rows)).all()  # correct sum
 
         # full outer join:
         # - t1 ids are 0..999, t3 ids are 0,10,...,9990
         # - 100 ids match, 900 are t1-only, and 900 are t3-only
         query = t1.join(t3, on=t1.id == t3.id, how='full_outer').select(left_i=t1.i, right_f=t3.f)
         pd_df = query.collect().to_pandas()
-        assert len(pd_df) == 1900
-        assert len(pd_df[pd_df.left_i.isnull()]) == 900  # t3-only rows
-        assert len(pd_df[pd_df.right_f.isnull()]) == 900  # t1-only rows
-        assert len(pd_df[pd_df.left_i.notnull() & pd_df.right_f.notnull()]) == 100  # matched rows
+        assert len(pd_df) == num_rows * 19 // 10
+        assert len(pd_df[pd_df.left_i.isnull()]) == num_rows * 9 // 10  # t3-only rows
+        assert len(pd_df[pd_df.right_f.isnull()]) == num_rows * 9 // 10  # t1-only rows
+        assert len(pd_df[pd_df.left_i.notnull() & pd_df.right_f.notnull()]) == num_rows // 10  # matched rows
 
         # TODO: implement right outer join
         # # right outer join
@@ -214,7 +213,8 @@ class TestQuery:
         # assert (pd_df[~pd_df.f.isnull()].out == 1000.0).all()  # correct sum
 
         # cross join
-        small_t1, small_t2, _ = self.create_join_tbls(100, p)
+        num_cj_rows = num_rows // 10
+        small_t1, small_t2, _ = self.create_join_tbls(num_cj_rows, p)
         query = small_t1.join(small_t2, how='cross').select(small_t1.i, small_t2.f, out=small_t1.i + small_t2.f)
         res = query.collect()
         # TODO: verify result
@@ -222,7 +222,7 @@ class TestQuery:
         # inner join with aggregation and explicit join predicate
         query = t1.join(t2, on=t1.id == t2.id).select(pxt.functions.sum(t1.i + t2.id))
         res = query.collect()[0, 0]
-        assert res == sum(range(1000)) * 2
+        assert res == sum(range(num_rows)) * 2
 
         # inner join with grouping aggregation
         query = t1.join(t2, on=t2.id).group_by(t2.id % 10).select(grp=t2.id % 10, val=pxt.functions.sum(t1.i + t2.id))
@@ -1258,7 +1258,7 @@ class TestQuery:
         assert all('a' in row and 'b' in row for row in rows)
 
     @pytest.mark.benchmark(group='select_inexpensive')
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to server timeout [PXT-1319]')
+    @pytest.mark.db_roots('local', reason='Benchmark test is intended for local only')
     def test_select_inexpensive(self, db_root: DatabaseRoot, benchmark: Any) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test_inexpensive'), {'c1': pxt.Int | None, 'c2': pxt.String | None})

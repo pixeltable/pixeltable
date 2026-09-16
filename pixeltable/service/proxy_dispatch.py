@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import os
 import pathlib
 import shutil
 import time
@@ -22,6 +21,7 @@ import sqlalchemy as sql
 from pixeltable import exceptions as excs
 from pixeltable._query import Query
 from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_loop
+from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
@@ -121,7 +121,7 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
             time.monotonic() - t0,
             tb,
         )
-        err = excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'Internal proxy error (ref: {ref})')
+        err = excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'Internal proxy error (ref: {ref})')
         error_dict = err.to_dict()
         if include_error_detail:
             error_dict['detail'] = tb
@@ -139,7 +139,7 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
 
 
 def _prefetch_remote_parts(request: ProxyRequest) -> None:
-    """Localize the request's out-of-band media parts (object store keys) into TempStore before dispatch.
+    """Localize the request's out-of-band binary parts (object store keys) into TempStore before dispatch.
     Updates request._remote_parts with the temp paths of the localized files.
 
     Should be called outside of a db transaction so that object-store I/O never holds a db connection.
@@ -151,16 +151,8 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
         # only client uploads may be localized; anything else (e.g. 'pixeltable/data/...' store objects)
         # must not be readable through this daemon
         if not remote_key.startswith('uploads/'):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT, f'Invalid uploaded media object key: {remote_key!r}'
-            )
-    org = os.environ.get('PXTCLOUD_ORG')
-    db = os.environ.get('PXTCLOUD_DB')
-    if not (org and db):
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            'Internal error: PXTCLOUD_ORG and PXTCLOUD_DB are not present in the container.',
-        )
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'Invalid uploaded object key: {remote_key!r}')
+    org, db = Env.get().hosted_db(required=True)
     store = ObjectOps.get_store(f'pxtfs://{org}:{db}/home/uploads/', False)
 
     def download(remote_key: str) -> None:
@@ -175,7 +167,7 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
             # gone (expired via the uploads/ lifecycle rule) or was never fully uploaded
             raise excs.NotFoundError(
                 excs.ErrorCode.STORAGE_NOT_FOUND,
-                f'Uploaded media object {remote_key!r} not found (upload expired or incomplete); retry the operation',
+                f'Uploaded object {remote_key!r} not found (upload expired or incomplete); retry the operation',
             ) from e
 
     # concurrent downloads are safe: boto3 clients are thread-safe

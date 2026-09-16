@@ -45,12 +45,14 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
 from pixeltable.runtime import close_threadpool_runtimes
+from pixeltable.service.proxy_protocol import PxtStorePartSink
 from pixeltable.serving import SqlExport
 from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
-from pixeltable.utils.app_module import model_mismatch_error_str
+from pixeltable.utils.app_module import validate_models
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.local_store import LocalStore, TempStore
+from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 from pixeltable_cli.types import RouteSpec, ServiceSpec
 
 # The columns of a route definition, given either as names or as references.
@@ -82,7 +84,8 @@ def _col_name(col: str | exprs.ColumnRef | exprs.ColumnRefByName) -> str:
     if isinstance(col, exprs.ColumnRefByName):
         return col.name
     if isinstance(col, exprs.ColumnRef):
-        return col.col.name
+        # col_md, not col: resolving the Column goes to the local catalog, which holds no hosted table
+        return col.col_md.name
     raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'expected a column name or a column reference, got {col!r}')
 
 
@@ -321,11 +324,52 @@ _MEDIA_CONTENT_TYPES: dict[ts.ColumnType.Type, str] = {
 T = TypeVar('T')
 
 
+class _ResponseMedia:
+    """Turns the local media files of one response into urls the client can fetch.
+
+    A local service serves the file from its /media route. A service in a hosted pod has no route a client
+    can reach, so it stages the file in the database's home bucket and signs a url for the object; flush()
+    finishes those uploads, concurrently, once the response has been built.
+    """
+
+    _home_dir: Path
+    _sink: PxtStorePartSink | None  # one per request, so its uploads share one store client
+    _media_url_base: str  # local service: the /media route's url prefix
+    _home_uri_prefix: str  # hosted service: 'pxtfs://<org>:<db>/home/'
+
+    def __init__(self, request: Request, home_dir: Path) -> None:
+        self._home_dir = home_dir
+        hosted = Env.get().hosted_db()
+        if hosted is None:
+            self._sink = None
+            sample_url = str(request.url_for(_MEDIA_ROUTE_NAME, path='_'))
+            self._media_url_base = sample_url[:-1]
+        else:
+            org, db = hosted
+            # its keys fall under uploads/, which the bucket expires
+            self._sink = PxtStorePartSink(org, db)
+            self._home_uri_prefix = f'pxtfs://{org}:{db}/home/'
+
+    def url_for(self, rel_path: str) -> str:
+        if self._sink is None:
+            return f'{self._media_url_base}{urllib.parse.quote(rel_path, safe="/")}'
+        key = self._sink.add_media_file(str(self._home_dir / rel_path))
+        # signed for an hour, so a client has time to fetch the media after reading the response
+        return ObjectOps.presigned_url(f'{self._home_uri_prefix}{key}', expiration_seconds=3600)
+
+    def flush(self) -> None:
+        if self._sink is not None:
+            self._sink.flush()
+
+
 def _run_endpoint_op(
-    endpoint_op: Callable[..., T], kwargs: dict[str, Any], tmp_paths: list[Path], url_for_media: Callable[[str], str]
+    endpoint_op: Callable[..., T], kwargs: dict[str, Any], tmp_paths: list[Path], media: _ResponseMedia
 ) -> T:
     try:
-        return endpoint_op(kwargs, url_for_media)
+        result = endpoint_op(kwargs, media.url_for)
+        # the response carries the urls before the client can fetch them, so the uploads only need to finish here
+        media.flush()
+        return result
     except Exception as e:
         for p in tmp_paths:
             try:
@@ -371,11 +415,7 @@ class PxtEndpoint:
         return self.route.spec.route_type
 
     def __call__(self, request: Request, **kwargs: Any) -> Any:
-        sample_url = str(request.url_for(_MEDIA_ROUTE_NAME, path='_'))
-        media_url_base = sample_url[:-1]
-
-        def url_for_media(rel_path: str) -> str:
-            return f'{media_url_base}{urllib.parse.quote(rel_path, safe="/")}'
+        media = _ResponseMedia(request, self.router._home_dir)
 
         # write out uploads while the request is still alive
         tmp_paths: list[Path] = []
@@ -389,12 +429,12 @@ class PxtEndpoint:
 
         if self.route.spec.background:
             job_id = uuid.uuid4().hex
-            fut = self.router._executor.submit(_run_endpoint_op, self.endpoint_op, kwargs, tmp_paths, url_for_media)
+            fut = self.router._executor.submit(_run_endpoint_op, self.endpoint_op, kwargs, tmp_paths, media)
             with self.router._jobs_lock:
                 self.router._jobs[job_id] = fut
             return BackgroundJobResponse(id=job_id, job_url=str(request.url_for(_JOB_STATUS_ROUTE_NAME, job_id=job_id)))
         else:
-            return _run_endpoint_op(self.endpoint_op, kwargs, tmp_paths, url_for_media)
+            return _run_endpoint_op(self.endpoint_op, kwargs, tmp_paths, media)
 
 
 class FastAPIRouter(fastapi.APIRouter):
@@ -481,7 +521,7 @@ class FastAPIRouter(fastapi.APIRouter):
         referenced = self.route_models()
         if len(referenced) == 0:
             return  # every route is already resolved to the table it serves
-        reason = model_mismatch_error_str(referenced, base_path)
+        reason = validate_models(referenced, base_path)
         if reason is not None:
             raise excs.RequestError(excs.ErrorCode.SCHEMA_MISMATCH, reason)
 
@@ -644,8 +684,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 if return_fileresponse and e.col_type.is_media_type():
                     # serve from a local path even if the media file is stored externally
                     prop = exprs.ColumnPropertyRef.Property.LOCALPATH
-                elif e.col_type.is_image_type():
-                    # avoid materializing PIL.Image in the response payload
+                elif e.col_type.is_media_type():
                     prop = exprs.ColumnPropertyRef.Property.FILEURL
             if prop is None:
                 rewritten.append(e)
@@ -2641,7 +2680,8 @@ class FastAPIRouter(fastapi.APIRouter):
     def _convert_media_val(self, val: Any, url_for_media: Callable[[str], str]) -> Any:
         """
         If val is a local media file (a file:// uri or a bare absolute path) under an allowed media directory,
-        converts it to a fetchable url of the /media endpoint. Otherwise returns val unchanged.
+        converts it to a fetchable url of the /media endpoint. An object-store uri (pxtfs://, s3://, ...) is
+        converted to a presigned HTTP url. Otherwise returns val unchanged.
 
         Media values reach here in either form: a file:// uri (e.g. a column's fileurl) or a bare local path
         (e.g. a ResultSet's localpath, or a proxy-fetched file in the FileCache).
@@ -2653,7 +2693,14 @@ class FastAPIRouter(fastapi.APIRouter):
         elif os.path.isabs(val):
             file_path = Path(val)
         else:
-            return val  # a relative path or a remote (http/s3/...) url; leave for the client to fetch
+            try:
+                soa = ObjectPath.parse_object_storage_addr(val, allow_obj_name=True)
+            except ValueError:
+                return val  # not a uri Pixeltable knows how to read; leave for the client
+            if soa.storage_target in (StorageTarget.LOCAL_STORE, StorageTarget.HTTP_STORE):
+                return val  # a relative path, or an http url the client can fetch as is
+            # signed for an hour, so a client has time to fetch the media after reading the response
+            return ObjectOps.presigned_url(val, expiration_seconds=3600)
         if file_path is None:
             return val
         resolved = file_path.resolve()

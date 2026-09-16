@@ -52,21 +52,24 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
 
 
     class Docs(TableModel, name='docs'):
-        doc_id: pxt.Int                             # an annotation: a value you insert
+        id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # a generated key: provided automatically on insert
         title: pxt.String
         body: pxt.String | None
-        title_upper = pxtf.string.upper(title)      # an assignment: computed on insert
+        title_upper = pxtf.string.upper(title)      # an assignment: computed on insert and on update
         summary = excerpt(title)
 
 
     ingest = FastAPIRouter(name='ingest')
     ingest.add_insert_route(
-        Docs, path='/docs', inputs=[Docs.doc_id, Docs.title, Docs.body], outputs=[Docs.title_upper, Docs.summary]
+        Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.id, Docs.title_upper, Docs.summary]
+    )
+    ingest.add_update_route(  # POST /docs/update takes id plus the new values
+        Docs, path='/docs/update', inputs=[Docs.title], outputs=[Docs.id, Docs.title_upper]
     )
     ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
     ```
 
-    `title: pxt.String` is a value you insert. `title_upper = ...` is computed on insert and on update. The same file can hold `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document`: [media pipelines](/use-cases/media-processing), [RAG](/use-cases/multimodal-backend).
+    `title: pxt.String` is a value you insert. `title_upper = ...` is computed on insert and on update. `id` is a `uuid7()` primary key: filled on insert, required for `pxt get` and the errors view. The same file can hold `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document`: [media pipelines](/use-cases/media-processing), [RAG](/use-cases/multimodal-backend).
   </Step>
   <Step title="Create tables, then start the endpoints">
     ```bash
@@ -85,7 +88,7 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
     # my_app/ingest  http://127.0.0.1:<port>  pid 12345  app.py
     curl -X POST http://127.0.0.1:<port>/docs \
       -H 'Content-Type: application/json' \
-      -d '{"doc_id": 1, "title": "Hello", "body": "world"}'
+      -d '{"title": "Hello", "body": "world"}'
     ```
   </Step>
 </Steps>
@@ -98,7 +101,7 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
 |---|---|
 | `pxt init` | Mark this directory as a project root |
 | `pxt service example --out app.py` | Write a working file: models plus routes |
-| `pxt schema example --out schema.py` | Schema only. `--brief` writes a small set of classes; without it, every DSL construct |
+| `pxt schema example --out app.py` | Schema only. `--brief` writes a small set of classes; without it, every DSL construct |
 | `pxt schema update FILE my_app` | Create and migrate the tables `FILE` declares under last argument `my_app` |
 | `pxt service update FILE my_app` | Start the services `FILE` declares against those tables |
 | `pxt service list` | What is running, and the URL |
@@ -140,7 +143,7 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
 </Tabs>
 
 <Note>
-This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`. Skill **2.8.0+** writes that `TableModel`. If the agent writes `create_table` in app code, `schema.py`, or `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`.
+This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`. The skill writes that `TableModel`. If the agent writes `create_table` in app code, names the file `schema.py`, or writes the removed command `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`.
 </Note>
 
 ## Next

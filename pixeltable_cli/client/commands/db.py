@@ -1,4 +1,4 @@
-"""`pxt db {diff,update,list,status,start,stop,build-image,delete}` - manage hosted databases."""
+"""`pxt db {diff,update,list,status,logs,start,stop,build-image,delete}` - manage hosted databases."""
 
 from __future__ import annotations
 
@@ -6,19 +6,22 @@ import argparse
 import json
 import sys
 
-from ...types import DbChangeOp, DbPlan, Resolution
-from ..hosted import exit_unless_reached, parse_org_uri, poll_db, print_db, resolve_db_uri, spinner
+from ...types import DbChangeOp, DbPlan, DbState, Resolution
+from ..hosted import add_logs_args, exit_unless_reached, poll_db, print_db, print_logs, resolve_db_uri, spinner
 from ..parser import Parser
 from ..utils import EXIT_CHANGES_PENDING, EXIT_IN_AGREEMENT, EXIT_REFUSED, confirm_or_exit, get_request, post_request
 
 EPILOG = """\
 Examples:
   pxt db diff pxt://org:db     # what update would change; exit 2 if anything is pending
-  pxt db update pxt://org:db   # apply it: secrets, then the artifacts, then capacity
-  pxt db list pxt://org
+  pxt db update pxt://org:db   # apply it: the artifacts, then capacity
+  pxt db list
   pxt db status pxt://org:db
+  pxt db logs pxt://org:db              # what the database's pod logged in the last hour
+  pxt db logs pxt://org:db --since 10m --tail 50
   pxt db start pxt://org:db
   pxt db stop pxt://org:db
+  pxt db restart pxt://org:db   # cycle its pods onto the image and project it runs
   pxt db build-image pxt://org:db   # build an image without comparing first
   pxt db delete pxt://org:db
 
@@ -28,8 +31,8 @@ The uri selects the matching [[pixeltable.database]] entry in the project config
   name = 'pxt://org:db'      # what 'pxt db update pxt://org:db' looks for
 
 The entry says which of the project's files the database gets (include/exclude), what the image
-holds (system_dependencies, python_version), what the database runs on (cpu, memory_mb, disk_gb, workers)
-and which secrets it holds. 'diff' compares the entry against the database; 'update' applies the difference.
+holds (system_dependencies, python_version), and what the database runs on (cpu, memory_mb,
+disk_gb, workers). 'diff' compares the entry against the database; 'update' applies the difference.
 
 Exit status of diff and update: 0 in agreement, 2 changes pending, 3 refused, 1 error.
 """
@@ -50,22 +53,29 @@ def run(argv: list[str]) -> None:
                 '--allow-destructive',
                 action='store_true',
                 dest='allow_destructive',
-                help='permit changes that take capacity away or delete a secret',
+                help='permit changes that take capacity away',
             )
 
-    p = sub.add_parser('list', help='list hosted databases for an org')
-    p.add_argument('org_uri', help='Org URI: pxt://org')
+    p = sub.add_parser('list', help='list hosted databases')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('status', help='show status of a hosted database')
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
+    p = sub.add_parser('logs', help="read the database pod's log")
+    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
+    add_logs_args(p)
+
     p = sub.add_parser('start', help='start (wake) a stopped hosted database')
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('stop', help='stop (sleep) a running hosted database')
+    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
+    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+
+    p = sub.add_parser('restart', help='restart a hosted database')
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
@@ -87,10 +97,14 @@ def run(argv: list[str]) -> None:
         _list(args)
     elif args.action == 'status':
         _status(args)
+    elif args.action == 'logs':
+        _logs(args)
     elif args.action == 'start':
         _start(args)
     elif args.action == 'stop':
         _stop(args)
+    elif args.action == 'restart':
+        _restart(args)
     elif args.action == 'build-image':
         _build_image(args)
     elif args.action == 'delete':
@@ -98,9 +112,8 @@ def run(argv: list[str]) -> None:
 
 
 def _list(args: argparse.Namespace) -> None:
-    org = parse_org_uri(args.org_uri, prog='pxt db list')
-    resp = get_request('/api/dbs', {'org': org})
-    dbs = resp.get('databases', []) if isinstance(resp, dict) else []
+    resp = get_request('/api/dbs')
+    dbs = resp.get('reports', []) if isinstance(resp, dict) else []
     if args.json_output:
         print(json.dumps(dbs))
     elif not dbs:
@@ -113,33 +126,49 @@ def _list(args: argparse.Namespace) -> None:
 def _status(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db status')
     resp = get_request('/api/db', {'org': org, 'db': db})
-    result = resp.get('database', resp) if isinstance(resp, dict) else {}
+    report = resp.get('report', resp) if isinstance(resp, dict) else {}
     if args.json_output:
-        print(json.dumps(result))
+        print(json.dumps(report))
     else:
-        print_db(result)
+        print_db(report, resp.get('worker_status'))
+
+
+def _logs(args: argparse.Namespace) -> None:
+    org, db = resolve_db_uri(args.db_uri, prog='pxt db logs')
+    print_logs({'org': org, 'db': db}, args)
 
 
 def _start(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db start')
     post_request('/api/db/start', {'org': org, 'db': db})
-    result = poll_db(org, db, {'UPDATING', 'STARTING'}, f"Database '{db}' is starting...")
+    result = poll_db(org, db, f"Database '{db}' is starting...")
     if args.json_output:
-        print(json.dumps(result))
+        print(json.dumps(result.get('report', {})))
     else:
-        print_db(result)
-    exit_unless_reached(result, 'AVAILABLE', f'starting database {db!r}')
+        print_db(result.get('report') or {}, result.get('worker_status'))
+    exit_unless_reached(result, DbState.AVAILABLE, f'starting database {db!r}')
 
 
 def _stop(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db stop')
     post_request('/api/db/stop', {'org': org, 'db': db})
-    result = poll_db(org, db, {'STOPPING'}, f"Database '{db}' is stopping...")
+    result = poll_db(org, db, f"Database '{db}' is stopping...")
     if args.json_output:
-        print(json.dumps(result))
+        print(json.dumps(result.get('report', {})))
     else:
-        print_db(result)
-    exit_unless_reached(result, 'STOPPED', f'stopping database {db!r}')
+        print_db(result.get('report') or {}, result.get('worker_status'))
+    exit_unless_reached(result, DbState.STOPPED, f'stopping database {db!r}')
+
+
+def _restart(args: argparse.Namespace) -> None:
+    org, db = resolve_db_uri(args.db_uri, prog='pxt db restart')
+    post_request('/api/db/restart', {'org': org, 'db': db})
+    result = poll_db(org, db, f"Database '{db}' is restarting...")
+    if args.json_output:
+        print(json.dumps(result.get('report', {})))
+    else:
+        print_db(result.get('report') or {}, result.get('worker_status'))
+    exit_unless_reached(result, DbState.AVAILABLE, f'restarting database {db!r}')
 
 
 def _db_uri(args: argparse.Namespace, prog: str) -> str:
@@ -228,14 +257,15 @@ def _delete(args: argparse.Namespace) -> None:
 
 def _build_image(args: argparse.Namespace) -> None:
     db_uri = _db_uri(args, 'pxt db build-image')
-    label = (
-        None
-        if args.json_output
-        else 'Uploading the project files and building the image (this may take 10 minutes or longer) ...'
-    )
+    label = None if args.json_output else 'Building the image (this may take 10 minutes or longer) ...'
     with spinner(label):
         ops = [DbChangeOp.model_validate(op) for op in post_request('/api/db/build-image', {'db_uri': db_uri})]
     if args.json_output:
         print(json.dumps([op.model_dump(mode='json') for op in ops]))
     else:
-        print(f'Uploaded the project files to {db_uri} and rebuilt its image.')
+        statuses = {op.target: op.status for op in ops}
+        archive = (
+            'uploaded the project files' if statuses.get('archive') == 'applied' else 'reused the existing archive'
+        )
+        image = 'rebuilt its image' if statuses.get('image') == 'applied' else 'reused the existing image'
+        print(f'{db_uri}: {archive}, {image}.')

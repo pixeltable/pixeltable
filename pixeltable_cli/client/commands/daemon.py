@@ -161,6 +161,7 @@ def _print_status_text(health: dict[str, Any]) -> None:
         ('Home', str(health.get('pixeltable_home'))),
         ('PgData', str(health.get('pixeltable_pgdata'))),
         ('Config', str(health.get('pixeltable_config_file'))),
+        ('Project', str(health.get('project_root'))),
     ]
     width = max(len(k) for k, _ in rows)
     for k, v in rows:

@@ -182,7 +182,7 @@ dev = [
     "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     "sentencepiece>=0.2.0",
     "tiktoken>=0.10",
-    "sentence-transformers>=5 ; python_version < '3.14'",
+    "sentence-transformers>=5.4 ; python_version < '3.14'",
     "transformers>=5.6.0",
     "timm>=1.0.11,<2",
     "datasets>=4.8.5",
@@ -294,6 +294,10 @@ strict_optional = false
 warn_return_any = true
 warn_unused_ignores = true
 
+# enforce strictness during model construction
+[tool.pydantic-mypy]
+init_forbid_extra = true
+
 # the CLI tests' application corpus needs to be copied into the test session's project; the import paths
 # in their test directory location don't resolve
 [[tool.mypy.overrides]]
@@ -305,7 +309,13 @@ ignore_missing_imports = true
 # package to function. Both are ignored by default
 name = 'pxt://pixeltable:pxttest'
 include = ['.git/**', 'pixeltable/_version.py']
+# no pod reads the documentation tree, and it is a quarter of what the archive would otherwise carry
+exclude = ['docs/**']
 system_dependencies = ["libiconv", "ffmpeg==6.1.1=gpl*"]
+memory_mb = 6144
+workers = 3
+cpu = 2.0
+disk_gb = 40
 uv_options = "--no-dev"
 
 [tool.pyright]

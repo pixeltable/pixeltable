@@ -55,7 +55,8 @@ def assert_in_agreement(cli: PxtRunner, app: str, target: str, cwd: pathlib.Path
     Whatever a command reported about the work it did, this is the reading that says the target converged.
     An undeclared table is not a disagreement, so a target with extras still passes.
     """
-    r = cli('schema', 'diff', app, target, '--json', cwd=cwd)
+    # rc 2 is 'changes pending', so the runner must not treat it as a failed command
+    r = cli('schema', 'diff', app, target, '--json', cwd=cwd, check=False)
     assert r.returncode == 0, r.stdout
     assert r.json['in_agreement'], r.json
     assert [t['resolution'] for t in r.json['tables']] == ['up_to_date'] * len(r.json['tables']), r.json['tables']
@@ -265,14 +266,15 @@ class TestSchema:
             'unsupported': 0,
             'extras': 0,
             'destructive': 0,
+            'blocked_ops': 0,
         }
         assert target not in pxt.list_dirs(recursive=True)
 
         cli('schema', 'update', str(schema_file), target)
 
         # in agreement afterwards
-        r = cli('schema', 'diff', str(schema_file), target, '--json')
-        assert r.returncode == 0
+        r = cli('schema', 'diff', str(schema_file), target, '--json', check=False)
+        assert r.returncode == 0, r.stdout
         assert r.json['in_agreement']
         assert [t['resolution'] for t in r.json['tables']] == ['up_to_date', 'up_to_date']
         assert r.json['summary']['up_to_date'] == 2
@@ -476,8 +478,8 @@ class TestSchema:
         pxt.create_view(f'{target}/scratch_view', scratch.where(scratch.x > 0))
 
         # a table no model declares is reported, but update would not touch it, so the target is still in agreement
-        r = cli('schema', 'diff', str(schema_file), target, '--json')
-        assert r.returncode == 0
+        r = cli('schema', 'diff', str(schema_file), target, '--json', check=False)
+        assert r.returncode == 0, r.stdout
         assert r.json['in_agreement']
         assert sorted(r.json['extras']) == [f'{target}/scratch', f'{target}/scratch_view']
         assert r.json['summary']['extras'] == 2
@@ -625,18 +627,17 @@ class TestSchema:
         docs = pxt.get_table(f'{full_target}/docs')
         docs.insert(
             [
-                {'doc_id': 1, 'title': 'bread', 'body': 'Sourdough needs a long, slow fermentation.'},
-                {'doc_id': 2, 'title': 'sharks', 'body': 'Great white sharks hunt seals along the coast.'},
-                {
-                    'doc_id': 3,
-                    'title': 'sharks',
-                    'body': 'A simple and effective breathing exercise to reduce stress is box breathing',
-                },
+                {'title': 'bread', 'body': 'Sourdough needs a long, slow fermentation.'},
+                {'title': 'sharks', 'body': 'Great white sharks hunt seals along the coast.'},
+                {'title': 'stress', 'body': 'A simple breathing exercise to reduce stress is box breathing'},
             ]
         )
+        # the example's primary key is generated, so every row gets a distinct one
+        assert len(set(docs.select(docs.id).collect()['id'])) == 3
+
         # verify embeddings by running a similarity search
         sim = docs.body.similarity(string='sharks hunting seals near the shore')
-        assert docs.order_by(sim, asc=False).select(docs.doc_id).limit(1).collect()['doc_id'] == [2]
+        assert docs.order_by(sim, asc=False).select(docs.title).limit(1).collect()['title'] == ['sharks']
 
         # the file is reachable from wherever an agent lands: the verb list, and every verb's help
         assert 'example' in cli('schema', check=False).stdout
@@ -681,8 +682,6 @@ class TestSchema:
 
     def test_udfs_in_application_files(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """Computed columns over udfs that an application's own package and its neighbors define."""
-        if db_root.id == 'cloud':
-            pytest.skip('the runtime of a hosted database does not hold this project')
         p = db_root.make_catalog_path
         # project_dir sits directly under the project root, so it leads every module path below it
         package = project_dir.name
@@ -739,6 +738,27 @@ class TestSchema:
                 )
             )
             return app_file
+
+        if db_root.id == 'cloud':
+            app_file = write_app('hosted')
+            target = p('hosted')
+            r = cli('schema', 'diff', str(app_file), target, '--json', check=False)
+            assert r.returncode == 2
+            blocked = [op for op in r.json['ops'] if op['severity'] == 'blocked']
+            assert len(blocked) == 1, r.json['ops']
+            assert f'{package}/hosted/functions.py added' in blocked[0]['description']
+            assert f'{package}/hosted/pkg/inner.py added' in blocked[0]['description']
+            # rsplit: the command acts on the database, and this prefix has the test's directory too
+            assert f'pxt db update {db_root.prefix.rsplit("/", 1)[0]}' in blocked[0]['description']
+            assert r.json['summary']['blocked_ops'] == 1
+
+            r = cli('schema', 'update', str(app_file), target, check=False)
+            assert r.returncode == 1
+            assert f'refused   {target}/docs' in r.stdout
+            # nothing was created, so the table is still pending
+            r = cli('schema', 'diff', str(app_file), target, '--json', check=False)
+            assert [t['resolution'] for t in r.json['tables']] == ['create']
+            return
 
         # two applications of one project declare a udf of the same name, in files of the same name
         for name in ('proj1', 'proj2'):

@@ -1142,7 +1142,7 @@ class TestExprs:
         t = test_tbl
         t.add_computed_column(array_col=pxt.array([[t.c2, 1], [5, t.c2]]))
 
-        def selection_equals(expr: Expr, expected: list[np.ndarray]) -> bool:
+        def selection_equals(expr: Expr, expected: list[Any]) -> bool:
             actual = t.select(out=expr).order_by(t.c2).collect()['out']
             return all(np.array_equal(x, y) for x, y in zip(actual, expected))
 
@@ -1150,9 +1150,115 @@ class TestExprs:
         assert selection_equals(t.array_col[1], [np.array([5, i]) for i in range(100)])
         assert selection_equals(t.array_col[:, 0], [np.array([i, 5]) for i in range(100)])
 
+        assert selection_equals(t.array_col[0, 1], [1] * 100)
+
         with pytest.raises(AttributeError) as excinfo:
             t.array_col[1, 'string']
         assert 'Invalid array indices' in str(excinfo.value)
+
+        with pytest.raises(AttributeError) as excinfo:
+            t.array_col['a':'b']
+        assert 'Invalid array indices' in str(excinfo.value)
+
+        # a zero step is rejected here; numpy and slice.indices() would both raise ValueError on it
+        with pytest.raises(AttributeError) as excinfo:
+            t.array_col[::0]
+        assert 'Invalid array indices' in str(excinfo.value)
+
+        with pytest.raises(AttributeError) as excinfo:
+            t.array_col[0:2:0, 1]
+        assert 'Invalid array indices' in str(excinfo.value)
+
+    def test_array_index_type(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('test'),
+            {
+                # the middle dimension is a wildcard
+                'arr': pxt.Array[(2, None, 3), np.float32],
+                'strs': pxt.Array[(2,), np.str_],
+                'unshaped': pxt.Array[np.float32],
+            },
+        )
+        arr = np.arange(2 * 4 * 3, dtype=np.float32).reshape(2, 4, 3)
+        t.insert(arr=arr, strs=np.array(['a', 'b'], np.str_), unshaped=np.array([1.0, 2.0], np.float32))
+
+        # an int index drops its dimension; a slice retains it; uncovered dimensions are retained. A slice of a
+        # wildcard dimension stays a wildcard, because its length depends on the number of elements in that dimension.
+        expected_types = [
+            (t.arr[1], pxt.Array[(None, 3), np.float32]),
+            (t.arr[0:1], pxt.Array[(1, None, 3), np.float32]),
+            (t.arr[:, 1], pxt.Array[(2, 3), np.float32]),
+            (t.arr[:, 1:], pxt.Array[(2, None, 3), np.float32]),
+            (t.arr[1, ::2], pxt.Array[(None, 3), np.float32]),
+            (t.arr[0, 1], pxt.Array[(3,), np.float32]),
+            (t.arr[1, ::2, 0:2], pxt.Array[(None, 2), np.float32]),
+            # an index that drops every dimension yields the array's scalar dtype
+            (t.arr[0, 1, 2], pxt.Float),
+            (t.arr[-1, -1, -1], pxt.Float),
+            (t.strs[0], pxt.String),
+        ]
+        for expr, expected in expected_types:
+            assert expr.col_type == ts.ColumnType.normalize_type(expected), expr
+
+        # the declared shape of each result agrees with the shape of the value, with a wildcard matching any dimension
+        row = t.select(*(expr for expr, _ in expected_types)).collect()[0]
+        for (expr, _), val in zip(expected_types, row.values()):
+            if not isinstance(expr.col_type, ts.ArrayType):
+                continue
+            declared_shape = expr.col_type.shape
+            assert declared_shape is not None
+            assert len(val.shape) == len(declared_shape), expr
+            assert all(n is None or n == actual for n, actual in zip(declared_shape, val.shape)), expr
+
+        # scalar results are converted to Python scalars, so that they conform to the scalar column type
+        row = t.select(x=t.arr[0, 1, 2], y=t.arr[-1, -1, -1], s=t.strs[0], u=t.unshaped[0]).collect()[0]
+        assert row == {'x': 5.0, 'y': 23.0, 's': 'a', 'u': 1.0}
+        assert type(row['x']) is float
+        assert type(row['s']) is str
+
+        # the ndim of an unshaped array is unknown, so the index cannot be resolved to a scalar type
+        assert t.unshaped[0].col_type == ts.ColumnType.normalize_type(pxt.Array[np.float32])
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as excinfo:
+            _ = t.arr[0, 1, 2, 3]
+        assert 'Too many indices' in str(excinfo.value)
+
+        for bad_index in (2, -3, (0, 0, 3)):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as excinfo:
+                _ = t.arr[bad_index]
+            assert 'out of bounds' in str(excinfo.value)
+
+        # an int index of a wildcard dimension cannot be bounds-checked, and fails at evaluation time instead
+        assert t.arr[0, 100].col_type == ts.ColumnType.normalize_type(pxt.Array[(3,), np.float32])
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as excinfo:
+            _ = t.select(t.arr[0, 100]).collect()
+        assert 'index 100 is out of bounds' in str(excinfo.value)
+
+    def test_array_index_null(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'id': pxt.Int, 'arr': pxt.Array[(2, 3), np.float32] | None})
+        arr = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], np.float32)
+        t.insert([{'id': 0, 'arr': arr}, {'id': 1, 'arr': None}])
+        t.add_computed_column(sliced=t.arr[0:1])
+        t.add_computed_column(element=t.arr[0, 1])
+
+        # indexing a null array yields null, for every index and for stored computed columns
+        exprs_to_check = [t.arr[1], t.arr[0:1], t.arr[:, 0], t.arr[0, 1], t.sliced, t.element]
+        assert all(e.col_type.nullable for e in exprs_to_check)
+        query = t.order_by(t.id).select(*exprs_to_check)
+        rows = reload_tester.run_query(query)
+        assert list(rows[0].values()) == [
+            pytest.approx(np.array([4.0, 5.0, 6.0])),
+            pytest.approx(np.array([[1.0, 2.0, 3.0]])),
+            pytest.approx(np.array([1.0, 4.0])),
+            2.0,
+            pytest.approx(np.array([[1.0, 2.0, 3.0]])),
+            2.0,
+        ]
+        assert all(v is None for v in rows[1].values())
+
+        reload_tester.run_reload_test()
 
     def test_in(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
@@ -1933,7 +2039,8 @@ class TestExprs:
             (t.c_int % 5, 'c_int % 5'),
             (t.c_int // (t.c_int - 5), 'c_int // (c_int - 5)'),
             # ArraySlice
-            (t.c_array[:5, 2], 'c_array[:5, 2]'),
+            (t.c_array[:5], 'c_array[:5]'),
+            (t.c_array[2], 'c_array[2]'),
             # ColumnPropertyRef
             (t.c_image.errormsg, 'c_image.errormsg'),
             # Comparison

@@ -26,6 +26,7 @@ TableModel = pxt.model_base()
 
 
 class Docs(TableModel, name='docs'):
+    id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # a generated primary key
     title: pxt.String                         # a stored column
     body: pxt.String | None                   # a stored column that may be null
     title_upper = pxtf.string.upper(title)    # a computed column: an assignment, not an annotation
@@ -64,8 +65,10 @@ def excerpt(text: str, n: int = 80) -> str:
 class Docs(TableModel, name='docs'):
     """One model becomes one table, named by name=."""
 
+    # a primary key, generated on insert
+    id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
+
     # an annotation defines a stored column
-    doc_id: pxt.Int
     title: pxt.String
     body: pxt.String | None
     published: pxt.Timestamp | None
@@ -368,6 +371,8 @@ def _plan_for(app_file: str, catalog_dir: PxtPath) -> SchemaPlan:
 
 def _format_plan(plan: SchemaPlan) -> list[str]:
     lines: list[str] = []
+    for op in plan.ops:
+        lines.append(f'! {op.description}  {_severity_label(op)}')
     for tbl in plan.tables:
         rendering = _RESOLUTIONS[tbl.resolution]
         lines.append(f'{rendering.marker} {tbl.path:<24s} {rendering.pending}')
@@ -381,6 +386,8 @@ def _format_plan(plan: SchemaPlan) -> list[str]:
     counts = f'{s.create} create, {updates} update, {s.up_to_date} unchanged, {s.extras} extra'
     if s.unsupported > 0:
         counts += f', {s.unsupported} unsupported'
+    if s.blocked_ops > 0:
+        counts += f', {s.blocked_ops} blocked'
     lines.append('')
     lines.append(f'Plan: {counts}  |  {s.destructive} destructive')
     return lines
@@ -453,6 +460,9 @@ def _update(
         )
     )
     _update_output(applied, as_json=as_json)
+    if applied.summary.blocked_ops > 0:
+        # only pxt db update can clear a blocked op
+        sys.exit(EXIT_ERROR)
 
 
 def _decide_update(app_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, allow_destructive: bool) -> None:
@@ -488,8 +498,11 @@ def _update_output(plan: SchemaPlan, *, as_json: bool) -> None:
     if plan.in_agreement:
         print('catalog is up to date')
         return
+    for op in plan.ops:
+        print(f'! {op.description}  {_severity_label(op)}')
     for tbl in plan.tables:
-        print(f'{_RESOLUTIONS[tbl.resolution].applied:9s} {tbl.path}')
+        outcome = 'refused' if tbl.status == 'refused' else _RESOLUTIONS[tbl.resolution].applied
+        print(f'{outcome:9s} {tbl.path}')
 
 
 def _set_statuses(plan: SchemaPlan, *, destructive: OpStatus, other: OpStatus) -> None:

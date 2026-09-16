@@ -54,6 +54,10 @@ def proxy_home(db: str) -> Path:
     return Config.get().home / f'proxy_{fold_identifier(db)}'
 
 
+def log_path(db: str) -> Path:
+    return proxy_home(db) / 'logs' / 'daemon.log'
+
+
 def _port_lock(db: str) -> Path:
     return proxy_home(db) / _LOCK_NAME
 
@@ -153,16 +157,15 @@ def start(db: str, test_mode: bool = False) -> str:
     # attached to a pipe blocks the reader on EOF forever, and attached to a terminal it would spew daemon
     # output into that session. Redirect to a log file and detach into its own session so signals sent to
     # the launching process don't reach the daemon.
-    log_dir = proxy_home(db) / 'logs'
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / 'daemon.log'
+    log_file_path = log_path(db)
+    log_file_path.parent.mkdir(parents=True, exist_ok=True)
     argv = [sys.executable, '-m', 'pixeltable.service.proxy_daemon']
     if test_mode:
         argv.append('--test')
     project_root = Config.get().project_root
     if project_root is not None:
         argv += ['--project-root', str(project_root)]
-    with open(log_path, 'a', encoding='utf-8') as log_file:
+    with open(log_file_path, 'a', encoding='utf-8') as log_file:
         proc = subprocess.Popen(
             argv, env=env, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True
         )
@@ -182,10 +185,10 @@ def start(db: str, test_mode: bool = False) -> str:
         msg += '; the daemon process is still running but never reported healthy'
     else:
         msg += f'; the daemon process exited with code {returncode}'
-    tail = _tail_log(log_path)
+    tail = _tail_log(log_file_path)
     if tail != '':
-        msg += f'\n--- daemon log tail ({log_path}) ---\n{tail}'
-    raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, msg)
+        msg += f'\n--- daemon log tail ({log_file_path}) ---\n{tail}'
+    raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, msg)
 
 
 def stop(db: str) -> None:
@@ -233,7 +236,7 @@ def reinitialize(db: str) -> None:
     """
     ep = endpoint(db)
     if ep is None:
-        raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No running proxy daemon for {db!r}')
+        raise excs.NotFoundError(excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'No running proxy daemon for {db!r}')
     response = httpx.post(f'{ep}/reinitialize', timeout=60.0)
     response.raise_for_status()
 
@@ -346,8 +349,8 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     try:
         import uvicorn
     except ModuleNotFoundError as e:
-        raise excs.Error(
-            excs.ErrorCode.INTERNAL_ERROR,
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
             'The proxy daemon requires the serve dependencies (fastapi, uvicorn). '
             'Install them with: pip install pixeltable[serve]',
         ) from e
@@ -386,6 +389,25 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     uvicorn.Server(uvicorn.Config(app, log_level=log_level, log_config=None)).run(sockets=[sock])
 
 
+# get_archive returns 404 both for a database with no project and for one whose release did not
+# resolve just now; retrying tells the two apart
+_ARCHIVE_FETCH_DELAYS = (0.0, 1.0, 2.0, 4.0)
+
+
+def _unpack_project(db_uri: str, project_dir: Path) -> bool:
+    """Unpack db_uri's project into project_dir; False if 404 persists across the retries."""
+    for delay in _ARCHIVE_FETCH_DELAYS:
+        if delay > 0.0:
+            time.sleep(delay)
+        try:
+            unpack_project_archive(db_uri, project_dir)
+            return True
+        except excs.ExternalServiceError as exc:
+            if exc.provider_http_status_code != 404:
+                raise
+    return False
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog='pixeltable.service.proxy_daemon')
     parser.add_argument('--test', action='store_true')
@@ -399,12 +421,9 @@ def main(argv: list[str] | None = None) -> None:
     if parsed.db is not None:
         if parsed.project_dir is None:
             parser.error('--db requires --project-dir')
-        try:
-            unpack_project_archive(parsed.db, parsed.project_dir)
+        if _unpack_project(parsed.db, parsed.project_dir):
             project_root = parsed.project_dir
-        except excs.ExternalServiceError as exc:
-            if exc.provider_http_status_code != 404:
-                raise
+        else:
             # a database exists before `pxt db update` gives it a project: serve the catalog without one,
             # and a request that needs a udf from it says so
             logging.getLogger('pixeltable').warning('%s has no project; udfs it defines cannot be resolved', parsed.db)

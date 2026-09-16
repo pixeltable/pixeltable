@@ -151,7 +151,6 @@ class TestJson:
 
         assert original == reimported
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_round_trip_media(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Export JSONL with media columns, re-import, and verify file URLs survive the round-trip."""
         p = db_root.make_catalog_path

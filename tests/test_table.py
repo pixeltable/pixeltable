@@ -2461,7 +2461,6 @@ class TestTable:
             assert container.streams.video[0].codec_context.name == 'h264'
 
     @rerun_on_network_error()
-    @pytest.mark.db_roots('local', 'proxy', reason='Cloud service hangs on first insert [PXT-1320]')
     def test_create_video_table(self, db_root: DatabaseRoot) -> None:
         if Env.get().is_using_cockroachdb:
             # TODO(PXT-921): fix this on CockroachDB
@@ -2513,7 +2512,7 @@ class TestTable:
 
         # drop() clears stored images and the cache
         tbl.insert(payload=1, video=get_video_files()[0])
-        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match="the following depend on it: 'test_view'"):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match=r"the following depend on it: '.*test_view'"):
             pxt.drop_table(p('test_tbl'))
         pxt.drop_table(p('test_view'))
         pxt.drop_table(p('test_tbl'))
@@ -2913,6 +2912,21 @@ class TestTable:
         # filter not expressible in SQL
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not expressible'):
             img_t.update({'split': 'train'}, where=img_t.img.width > 100)
+
+    def test_batch_update_computed_pk(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('computed_pk'), {'id': {'value': pxtf.uuid.uuid7(), 'primary_key': True}, 'caption': pxt.String | None}
+        )
+        validate_update_status(t.insert([{'caption': 'first'}]), expected_rows=1)
+        row_id = t.select(t.id).head(1)[0]['id']
+
+        validate_update_status(t.batch_update([{'id': row_id, 'caption': 'second'}]), expected_rows=1)
+        assert t.where(t.id == row_id).collect()[0]['caption'] == 'second'
+
+        # writing the key itself is still refused
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is computed'):
+            t.update({'id': row_id})
 
     def test_batch_update_return_rows(self, db_root: DatabaseRoot) -> None:
         """Coverage for the `return_rows` parameter on Table.batch_update().
@@ -3351,7 +3365,6 @@ class TestTable:
     def img_fn_with_exc(img: PIL.Image.Image) -> PIL.Image.Image:
         raise RuntimeError
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Cloud service hangs on first insert [PXT-1320]')
     def test_computed_img_cols(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         schema: dict[str, Any] = {'img': pxt.Image | None}

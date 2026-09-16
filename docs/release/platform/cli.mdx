@@ -99,10 +99,10 @@ pxt pwd                            # print it
 pxt init                             # mark the current directory as a project root
 
 # declarative schemas
-pxt schema check  schema.py          # validate the file on its own, with no target
-pxt schema diff   schema.py my_app   # what 'update' would change (exit 2 = drift)
-pxt schema update schema.py my_app   # create and migrate the declared tables
-pxt schema prune  schema.py my_app -f # drop the undeclared ones
+pxt schema check  app.py          # validate the file on its own, with no target
+pxt schema diff   app.py my_app   # what 'update' would change (exit 2 = drift)
+pxt schema update app.py my_app   # create and migrate the declared tables
+pxt schema prune  app.py my_app -f # drop the undeclared ones
 
 # interactive
 pxt shell
@@ -112,15 +112,17 @@ pxt service check  app.py            # validate the file on its own, with no tar
 pxt service diff   app.py my_app     # what 'update' would change (exit 2 = drift)
 pxt service update app.py my_app     # start them, restarting what changed
 pxt service list                     # what is running, and where
+pxt service logs my_app/ingest       # what a service logged; pxt://myorg:mydb/my_app/ingest for a hosted one
 
 # cloud — databases
 pxt db update pxt://myorg:mydb   # create the database, or bring it up to what the project declares
 pxt db diff   pxt://myorg:mydb   # what 'update' would change
-pxt db list   pxt://myorg
+pxt db list                      # the databases in your org
+pxt db logs   pxt://myorg:mydb   # what the database's pod logged
 
 # cloud — secrets
 pxt secret set  pxt://myorg OPENAI_API_KEY=sk-...
-pxt secret list pxt://myorg
+pxt secret list                  # the org your key reaches
 ```
 
 ## Inspection commands
@@ -388,7 +390,6 @@ The file it writes holds one entry per database the project uses:
 [[pixeltable.database]]
 # the local database
 vars.media_dest = 's3://bucket/prefix'      # binds a ConfigVar a schema declares
-secrets.openai_api_key = '...'
 
 [[pixeltable.database]]
 name = 'pxt://myorg:prod'                   # a hosted database
@@ -410,7 +411,7 @@ Imports resolve from the root down. This is where a single-file recipe and a lar
 A recorded path is how a later process -- the daemon, a serving worker, a hosted pod -- finds the udf again, so a command given a file outside any project root is refused. `pxt schema check` and `pxt service check` validate a file on its own -- it imports without touching the catalog, it declares what the verb needs, and the udfs its columns call are named by paths another process can resolve:
 
 ```bash
-pxt schema check schema.py           # exit 0 valid, 1 invalid
+pxt schema check app.py           # exit 0 valid, 1 invalid
 pxt service check app.py --json
 ```
 
@@ -433,7 +434,7 @@ The commands above act on one object at a time. `pxt schema` works differently: 
 A schema file defines one or more models on a `pxt.model_base()`. Each model becomes one table, named by `name=`. `pxt schema example` writes a file covering every construct the schema DSL supports, so you never have to start from a blank page and never have to look a construct up:
 
 ```bash
-pxt schema example --out schema.py
+pxt schema example --out app.py
 ```
 
 `pxt schema example --brief` writes the minimal version instead:
@@ -457,11 +458,11 @@ An annotation (`name: type`) declares a stored column; an assignment (`name = ex
 
 The daemon imports the file, so it must be readable there. Its own directory is added to `sys.path`, so it can import modules sitting next to it.
 
-### Reviewing and applying
+### Reviewing and updating
 
 ```bash
-pxt schema diff   schema.py my_app     # review
-pxt schema update schema.py my_app     # apply
+pxt schema diff   app.py my_app     # review
+pxt schema update app.py my_app     # create or migrate tables
 ```
 
 `diff` prints one line per table, then one per operation:
@@ -484,29 +485,29 @@ Plan: 0 create, 1 update, 1 unchanged, 1 extra  |  1 destructive
 | `-` | The column/index will be dropped |
 | `!` | The table cannot be migrated in place, or is not declared by the schema |
 
-### Applying
+### `pxt schema update`
 
 `update` creates missing tables and migrates existing ones, adding and dropping columns and indexes. It takes the same flags as the other mutations, plus one of its own:
 
 | Flag | Description |
 |---|---|
-| `-n`, `--dry-run` | Print the plan; apply nothing. Exit `2` if changes are pending |
+| `-n`, `--dry-run` | Print the plan; do not run `update`. Exit `2` if changes are pending |
 | `--allow-destructive` | Permit operations that drop a column or index |
 | `-f`, `--force` | Skip the `[y/N]` prompt shown before destructive operations |
 
 ```bash
-pxt schema update schema.py my_app                          # safe changes
-pxt schema update schema.py my_app -n                       # the plan, applying nothing
-pxt schema update schema.py my_app --allow-destructive -f   # including drops
+pxt schema update app.py my_app                          # safe changes
+pxt schema update app.py my_app -n                       # the plan; does not run `update`
+pxt schema update app.py my_app --allow-destructive -f   # including drops
 ```
 
-If the plan contains a destructive operation and `--allow-destructive` is absent, nothing at all is applied and `update` exits `3`.
+If the plan contains a destructive operation and `--allow-destructive` is absent, `update` does not change the catalog and exits `3`.
 
 <Warning>
 Dropping a column or an index destroys its data. Run `pxt schema diff` (or `update -n`) first: the plan marks every operation `safe`, `DESTRUCTIVE`, or `UNSUPPORTED`.
 </Warning>
 
-Some differences cannot be applied in place: a table declared where a view exists, a changed iterator, or a column whose type or properties changed. Those are reported as `UNSUPPORTED`, nothing is applied, and `update` exits `1`. Adjust the schema file or the table by hand.
+Some differences cannot be migrated in place: a table declared where a view exists, a changed iterator, or a column whose type or properties changed. Those are reported as `UNSUPPORTED`, `update` changes nothing, and it exits `1`. Adjust the application file or the table by hand.
 
 ### Exit codes
 
@@ -522,7 +523,7 @@ The schema commands report their outcome in the exit status, so a caller never h
 A drift check in CI is therefore one command:
 
 ```bash
-pxt schema diff schema.py pxt://acme:main/prod    # 0 = in sync, 2 = drift, 1 = error
+pxt schema diff app.py pxt://acme:main/prod    # 0 = in sync, 2 = drift, 1 = error
 ```
 
 ### Machine-readable plans
@@ -570,8 +571,8 @@ Every path returns the plan, including the ones that refuse before reaching the 
 | `-f`, `--force` | Skip the `[y/N]` prompt |
 
 ```bash
-pxt schema prune schema.py my_app -n     # list what would be dropped
-pxt schema prune schema.py my_app -f     # drop it
+pxt schema prune app.py my_app -n     # list what would be dropped
+pxt schema prune app.py my_app -f     # drop it
 ```
 
 Only tables under `TARGET` are considered, so nothing elsewhere in the catalog is affected, and declared tables are never dropped. A view is dropped before its base. Prune never force-drops: a table that something outside the pruned set depends on is left in place and the drop fails, naming what depends on it.
@@ -632,7 +633,7 @@ pxt schema update app.py my_dir     # create the tables the models declare
 pxt service update app.py my_dir    # serve this file's services against them
 ```
 
-`TARGET` is the catalog the models bind against, so one file can be applied to a development
+`TARGET` is the catalog the models bind against, so the same file can run against a development
 directory and a production one.
 
 ### Serving your own application
@@ -686,10 +687,33 @@ pxt schema update app.py pxt://acme:main    # create the tables the models decla
 pxt service update app.py pxt://acme:main   # start the services there
 ```
 
-`diff`, `update`, `prune`, `stop` and `list` all accept a hosted target. `run` does not: it serves from the
+`diff`, `update`, `prune`, `stop`, `restart` and `list` all accept a hosted target. `run` does not: it serves from the
 calling process, so it is local by definition. Two verbs differ in meaning against a hosted database, where
 a stopped service keeps its registration: `stop` stops it and leaves it there to be started again, while
 `prune` forgets it.
+
+`pxt service restart` cycles a service's pods onto the database's current image and project, keeping the
+service's registration and endpoint, and accepts the same service addresses as `stop`. Use it after
+`pxt db update` to move a running service onto the new project, and to pick up the current values of its
+referenced secrets. Against a local target it stops the process and starts it again on the same
+port, so callers keep their address.
+
+`pxt service logs` reads a service's log and accepts the same service addresses as `stop`. `pxt db logs` reads
+the log of a hosted database's pod:
+
+```bash
+pxt service logs ingest                          # a bare name, when only one target has a service of that name
+pxt service logs my_dir/ingest                   # the service of that name under my_dir
+pxt service logs pxt://acme:main/my_dir/ingest   # the one in a hosted database
+pxt service logs pxt://acme:main/ingest --since 10m --tail 50
+pxt db logs pxt://acme:main
+```
+
+A hosted log merges the serving process's log records, requests included, with its console output, ordered by
+time. The console output holds the traceback of a service that failed to start. Health probes are left out unless
+`--include-health` is given. The log outlives the pod, so the log of a failed deploy can be read after its pod is
+gone. A line appears in the log a few seconds after it is written. A service running on this machine logs to a
+local file instead, and `pxt service logs` reports the path of that file.
 
 ### `pxt service` verbs
 
@@ -701,6 +725,7 @@ a stopped service keeps its registration: `stop` stops it and leaves it there to
 | `pxt service prune APP TARGET` | Stop and forget the services at `TARGET` that `APP` does not declare |
 | `pxt service stop NAME...` | Stop the named services |
 | `pxt service list [TARGET]` | What is running locally, and where |
+| `pxt service logs NAME` | What the named service logged; `TARGET/NAME` to disambiguate |
 | `pxt service check APP` | Validate the application file on its own. Takes no `TARGET` and reads no catalog |
 | `pxt service example` | Write a working application file to start from |
 
@@ -712,8 +737,9 @@ Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreeme
 | Flag | Verbs | Description |
 |---|---|---|
 | `--json` | all | Emit machine-readable JSON |
+| `--since`, `--tail`, `--include-health` | `logs` | How far back, how many lines, whether to keep health probes |
 | `-f`, `--force` | `update`, `prune` | Skip the `[y/N]` prompt |
-| `-n`, `--dry-run` | `update`, `prune` | Print the intended change; don't apply it |
+| `-n`, `--dry-run` | `update`, `prune` | Print the intended change; do not run `update` or `prune` |
 | `--allow-destructive` | `update` | Permit changes that stop serving a route callers may be using |
 | `--host`, `--port` | `run` | Bind address and port (default `127.0.0.1:8000`) |
 | `--otel` | `run`, `update`, `diff` | Emit OpenTelemetry traces; see [Tracing](#tracing) |
@@ -761,14 +787,14 @@ pxt service run app.py my_dir --port 9000
 
 ### Restarts
 
-A service binds its models once, when its process starts, so a changed declaration is applied by replacing
+A service binds its models once, when its process starts, so a changed declaration takes effect when `pxt service update` replaces
 the process. `diff` reports which services that would interrupt, and `update` says so before it does it.
 Adding a route is additive; changing or removing one stops serving a contract a caller may be using, so it
 needs `--allow-destructive`.
 
 ## Cloud
 
-`pxt db` and `pxt org` manage cloud-hosted databases and organizations. All cloud commands require `PIXELTABLE_API_KEY`. Create the key in the Cloud dashboard: [Get an API key](/howto/deployment/cloud#get-an-api-key). Then set it in the environment or `config.toml` ([Configuration](/platform/configuration)).
+`pxt db` and `pxt org` manage cloud-hosted databases and organizations. All cloud commands require `PIXELTABLE_API_KEY`. Create the key in the Cloud dashboard: [Get an API key](/howto/deployment/cloud#get-an-api-key). Then export it. The CLI reads the process environment and does not load `.env` on its own ([Configuration](/platform/configuration)).
 
 All cloud commands accept `--json` for machine-readable output.
 
@@ -778,14 +804,11 @@ All cloud commands accept `--json` for machine-readable output.
 
 #### `[[pixeltable.database]]` — what a project declares about one database
 
-Defines which project files the database gets, what its image holds, what it runs on, and which secrets it holds.
+Defines which project files the database gets, what its image holds, and what it runs on.
 
 ```toml
 [[pixeltable.database]]
 name = 'pxt://myorg:prod'           # matches the uri passed to pxt db update
-
-# the environment variable holding each secret's value, never the value itself
-secrets.openai_api_key = 'env:OPENAI_API_KEY'
 
 # which project files the database gets. Glob patterns relative to the project root; everything git
 # would not ignore is uploaded by default, and the lockfile always is.
@@ -827,9 +850,9 @@ pxt db update pxt://myorg:mydb --allow-destructive
 
 | Flag | Description |
 |---|---|
-| `-n`, `--dry-run` | Print the plan without applying it |
+| `-n`, `--dry-run` | Print the plan; do not run `update` |
 | `-f`, `--force` | Skip the confirmation |
-| `--allow-destructive` | Permit taking capacity away or deleting a secret |
+| `--allow-destructive` | Permit taking capacity away |
 
 This is the command that creates a hosted database, and the one that keeps it current afterwards. Put the database in a `[[pixeltable.database]]` entry, then run `update` against the URI its `name` holds:
 
@@ -845,13 +868,13 @@ pxt db update pxt://myorg:mydb
 
 The uri on the command line selects the entry by its `name`: an entry naming another database configures that one, and a target no entry names is an error. The first run creates the database, builds the image its environment describes and uploads the project files the pods run; every later run applies whatever has changed since. The [cloud configuration reference](#cloud-configuration-reference) lists everything an entry can declare.
 
-`update` applies secrets first so pods can read them on start, then a new image if dependencies changed, then uploaded project files if sources changed, then one resize for any changed CPU, memory, disk, or worker counts so the pods restart only once. A secret is the name of an environment variable (`openai_api_key = 'env:OPENAI_API_KEY'`), never a value.
+`update` applies a new image if dependencies changed, then uploaded project files if sources changed, then one resize for any changed CPU, memory, disk, or worker counts so the pods restart only once. Secrets are set with [`pxt secret`](#pxt-secret) rather than from the project.
 
 #### `pxt db list`
 
 ```bash
-pxt db list pxt://myorg
-pxt db list pxt://myorg --json
+pxt db list
+pxt db list --json
 ```
 
 #### `pxt db status`
@@ -878,6 +901,15 @@ pxt db stop pxt://myorg:mydb
 
 Stop a running database (releases compute; storage is preserved).
 
+#### `pxt db restart`
+
+```bash
+pxt db restart pxt://myorg:mydb
+```
+
+Cycle the pods onto the image and project they already run, without rebuilding or uploading anything. Use it
+to pick up a secret set since they started. Polls until `AVAILABLE`; a stopped database is started instead.
+
 #### `pxt db diff`
 
 ```bash
@@ -885,7 +917,7 @@ pxt db diff pxt://myorg:mydb
 pxt db diff pxt://myorg:mydb --json
 ```
 
-`pxt db diff` compares the hosted database to that config entry (see the [cloud configuration reference](#cloud-configuration-reference)): capacity, secrets, the Python image, and the project file archive --
+`pxt db diff` compares the hosted database to that config entry (see the [cloud configuration reference](#cloud-configuration-reference)): capacity, the Python image, and the project file archive --
 
 | artifact | holds | moves when |
 |---|---|---|
@@ -900,7 +932,7 @@ so an edit to a source file is uploaded in seconds, and only a dependency change
 pxt db build-image pxt://myorg:mydb
 ```
 
-Uploads the project files and builds the image from its environment, without comparing anything first. `pxt db update` uploads project files or rebuilds the image only when they changed. `pxt db build-image` always does both, which is how you force a rebuild after a failed one. Polls until the build completes or fails; the pods restart on the new image and the new sources.
+Builds the image from the project environment without comparing anything first, which is how you force a rebuild after a failed one; `pxt db update` rebuilds only when that environment changed. The project files are uploaded with it, unless the database already holds that exact archive. Polls until the build completes or fails; the pods restart on the new image and the new sources.
 
 #### `pxt db delete`
 
@@ -924,7 +956,8 @@ List all organizations accessible to the current API key.
 #### `pxt org status`
 
 ```bash
-pxt org status pxt://myorg
+pxt org status                   # only when your key reaches exactly one org
+pxt org status pxt://myorg       # name it when your key reaches several
 ```
 
 Show the organization's name, ID, and default database.
@@ -932,6 +965,7 @@ Show the organization's name, ID, and default database.
 ### `pxt secret`
 
 ```bash
+pxt secret list                    # the org your key reaches
 pxt secret list   pxt://myorg
 pxt secret list   pxt://myorg:mydb
 pxt secret set    pxt://myorg OPENAI_API_KEY=sk-...
@@ -940,9 +974,7 @@ pxt secret delete pxt://myorg:mydb OLD_KEY
 
 An org secret applies to every database in the org. A database secret applies to that database and wins on a key collision. `list` prints names, never values.
 
-A project can declare secrets in its `[[pixeltable.database]]` entry as the name of the environment variable holding each value. `pxt db update` sets them from there.
-
-A running database holds the values it started with. Run `pxt db stop` then `pxt db start` to pick up a change.
+A running database holds the values it started with. `pxt db restart`, or `pxt service restart` for one service, picks up a change; a database or service started afterwards reads it on the way up.
 
 ## What's next
 

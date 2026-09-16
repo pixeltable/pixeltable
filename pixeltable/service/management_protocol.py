@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from pixeltable.serving import ServiceInstanceRecord
-from pixeltable.utils.project import DepsType, ProjectFingerprint
-from pixeltable_cli.types import ServiceSpec
+from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
+from pixeltable.service.service_md import ServiceInstanceRecord
+from pixeltable.utils.project import ProjectFingerprint
+from pixeltable_cli.types import DbArtifact, DbPlan, ServiceSpec
 
 
 class ManagementOperationType(str, Enum):
-    CREATE_DB = 'create_db'
     GET_DB = 'get_db'
     LIST_DBS = 'list_dbs'
     DELETE_DB = 'delete_db'
@@ -26,15 +26,15 @@ class ManagementOperationType(str, Enum):
     REPORT_SERVICE_INSTANCE = 'report_service_instance'
     START_SERVICE_INSTANCE = 'start_service'
     STOP_SERVICE_INSTANCE = 'stop_service'
+    RESTART_SERVICE_INSTANCE = 'restart_service'
     DELETE_SERVICE_INSTANCE = 'delete_service'
 
     START_DB = 'start_db'
     STOP_DB = 'stop_db'
+    RESTART_DB = 'restart_db'
     UPDATE_DB = 'update_db'
-    BUILD_IMAGE = 'build_image'
-    SET_ARCHIVE = 'set_archive'
     GET_ARCHIVE = 'get_archive'
-    GET_ARCHIVE_UPLOAD_URL = 'get_archive_upload_url'
+    GET_LOGS = 'get_logs'
 
     LIST_ORGS = 'list_orgs'
 
@@ -64,19 +64,17 @@ def _validate_hosted_name(value: str, kind: str) -> str:
     return value
 
 
-class CreateDbRequest(BaseModel):
-    operation_type: Literal[ManagementOperationType.CREATE_DB] = ManagementOperationType.CREATE_DB
-    org: str | None = None
-    db: str
-    cpu: float = 0.5
-    memory_mb: int = 512
-    disk_gb: int = 10
-    workers: int = 1
+class DatabaseReport(BaseModel):
+    """A hosted db's requested resources and the ones it provides."""
 
-    @field_validator('db')
-    @classmethod
-    def _validate_db_name(cls, value: str) -> str:
-        return _validate_hosted_name(value, 'Database name')
+    model_config = ConfigDict(extra='ignore')
+
+    db: str = ''
+
+    target_resources: DatabaseResources | None = None
+
+    # None: the database does not exist
+    current: DatabaseStatus | None = None
 
 
 class GetDbRequest(BaseModel):
@@ -85,20 +83,51 @@ class GetDbRequest(BaseModel):
     db: str
 
 
+class GetDbResponse(BaseModel):
+    report: DatabaseReport
+
+    # one entry per pod serving the database; DatabaseResources.workers is how many should run
+    worker_status: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class ListDbRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.LIST_DBS] = ManagementOperationType.LIST_DBS
     org: str | None = None
 
 
 class UpdateDbRequest(BaseModel):
+    """Request for changing the running system to match the spec."""
+
     operation_type: Literal[ManagementOperationType.UPDATE_DB] = ManagementOperationType.UPDATE_DB
     org: str | None = None
     db: str
-    default_bucket: str | None = None
-    workers: int | None = None
-    cpu: float | None = None
-    memory_mb: int | None = None
-    disk_gb: int | None = None
+    target: DatabaseResources | None = None
+
+    # compute the plan without recording the spec, acting on it, or handing out an upload url
+    dry_run: bool = False
+
+    # build the image even when one is already built for the spec's image digest
+    force_image_build: bool = False
+
+    @field_validator('db')
+    @classmethod
+    def _validate_db_name(cls, value: str) -> str:
+        return _validate_hosted_name(value, 'Database name')
+
+
+class ArtifactUpload(BaseModel):
+    """An artifact the spec names and the control plane does not hold, and where to put it."""
+
+    artifact: DbArtifact
+    url: str
+
+
+class UpdateDbResponse(BaseModel):
+    plan: DbPlan
+    report: DatabaseReport
+
+    # if non-empty: perform the uploads first, then retry the request
+    uploads: list[ArtifactUpload] = Field(default_factory=list)
 
 
 class DeleteDbRequest(BaseModel):
@@ -119,32 +148,12 @@ class StopDbRequest(BaseModel):
     db: str
 
 
-class BuildImageRequest(BaseModel):
-    operation_type: Literal[ManagementOperationType.BUILD_IMAGE] = ManagementOperationType.BUILD_IMAGE
+class RestartDbRequest(BaseModel):
+    """Cycle the database's pods onto the image and archive it already runs."""
+
+    operation_type: Literal[ManagementOperationType.RESTART_DB] = ManagementOperationType.RESTART_DB
     org: str | None = None
     db: str
-    archive_key: str
-    # ProjectFingerprint.image_digest()
-    image_digest: str
-    python_version: str
-    system_dependencies: list[str] = []
-    # how the build installs the project's packages, and the options it passes to uv sync
-    deps_type: DepsType
-    uv_options: str | None = None
-    # the metadata schema version of the Pixeltable that packaged the archive
-    pxt_md_version: int
-
-
-class SetArchiveRequest(BaseModel):
-    """Point the database's pods at a stored project archive, restarting them to fetch it."""
-
-    operation_type: Literal[ManagementOperationType.SET_ARCHIVE] = ManagementOperationType.SET_ARCHIVE
-    org: str | None = None
-    db: str
-    archive_key: str
-    # what the archive holds and the environment it runs in; GET_DB reports it back, and a diff compares
-    # the project here against it
-    fingerprint: ProjectFingerprint
 
 
 class GetArchiveRequest(BaseModel):
@@ -157,25 +166,42 @@ class GetArchiveRequest(BaseModel):
 
 class GetArchiveResponse(BaseModel):
     presigned_url: str
-    archive_key: str
     # ProjectFingerprint.archive_digest() of the archive the url serves
     digest: str
 
+    # the fingerprint the archive was published under. A pod reports this rather than one it computes:
+    # loading the application file writes bytecode into the unpacked project, so a pod that walked its own
+    # directory would report files the published project never held.
+    fingerprint: ProjectFingerprint | None = None
 
-class GetArchiveUploadUrlRequest(BaseModel):
-    operation_type: Literal[ManagementOperationType.GET_ARCHIVE_UPLOAD_URL] = (
-        ManagementOperationType.GET_ARCHIVE_UPLOAD_URL
-    )
+
+class GetLogsRequest(BaseModel):
+    """Read the log of the database pod, or of one service when service_name is given.
+
+    The log merges the process's log records with its console output, ordered by time.
+    """
+
+    operation_type: Literal[ManagementOperationType.GET_LOGS] = ManagementOperationType.GET_LOGS
     org: str | None = None
     db: str
-    # ProjectFingerprint.archive_digest(); the control plane keys the stored archive by it
-    digest: str
+    service_name: str | None = None
+    base_path: str = ''
+    since_seconds: int = Field(default=3600, ge=1)
+    # only the newest limit lines of the window are returned
+    limit: int = Field(default=200, ge=1, le=10000)
+    # the readiness and liveness probes are nearly the whole log, so they are left out by default
+    include_health: bool = False
 
 
-class GetArchiveUploadUrlResponse(BaseModel):
-    archive_key: str
-    # None when the digest names a stored archive: nothing left to upload
-    presigned_url: str | None = None
+class LogRecord(BaseModel):
+    # the time the line was written, in milliseconds since the epoch
+    ts_ms: int
+    line: str
+
+
+class GetLogsResponse(BaseModel):
+    # oldest first
+    records: list[LogRecord]
 
 
 # Secrets
@@ -206,7 +232,7 @@ class DeleteSecretResponse(BaseModel):
 
 class ListSecretsRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.LIST_SECRETS] = ManagementOperationType.LIST_SECRETS
-    org: str
+    org: str | None = None
     db: str | None = None
 
 
@@ -329,6 +355,22 @@ class StopServiceInstanceRequest(BaseModel):
 
 
 class StopServiceInstanceResponse(BaseModel):
+    instance: ServiceInstanceRecord
+
+
+class RestartServiceInstanceRequest(BaseModel):
+    """Cycle the service's pods onto the image and archive they already run."""
+
+    operation_type: Literal[ManagementOperationType.RESTART_SERVICE_INSTANCE] = (
+        ManagementOperationType.RESTART_SERVICE_INSTANCE
+    )
+    org: str | None = None
+    db: str
+    service_name: str
+    base_path: str = ''
+
+
+class RestartServiceInstanceResponse(BaseModel):
     instance: ServiceInstanceRecord
 
 
