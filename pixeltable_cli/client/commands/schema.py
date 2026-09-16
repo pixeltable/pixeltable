@@ -46,7 +46,7 @@ Every construct the schema DSL supports appears below; delete what you do not ne
 
 A udf defined here is referenced by this file's path, so moving or renaming the file leaves the columns that
 call it unable to compute.
-Building an application with Pixeltable? The agent skill carries the full API:
+Building an application with Pixeltable? The agent skill covers the full API:
     npx skills add pixeltable/pixeltable-skill
 """
 
@@ -225,10 +225,10 @@ Exit codes:
 
 Notes:
   Checks what the file says on its own: it imports without modifying the catalog, it defines a
-  model base, and every udf its columns call is named by a module path another process resolves.
-  Takes no TARGET and reads no catalog, so it says nothing about what a target already holds;
+  model base, and every udf its columns call has a module path another process resolves.
+  Takes no TARGET and reads no catalog, so it says nothing about what a target already contains;
   'pxt schema diff' answers that.
-  A warning names a project module whose name an installed distribution also answers to: the
+  A warning reports a project module whose name an installed distribution also answers to: the
   project root goes on sys.path after the installed packages, so an import reads the installed one.
 
 {_SCHEMA_FILE}"""
@@ -371,6 +371,8 @@ def _plan_for(app_file: str, catalog_dir: PxtPath) -> SchemaPlan:
 
 def _format_plan(plan: SchemaPlan) -> list[str]:
     lines: list[str] = []
+    for op in plan.ops:
+        lines.append(f'! {op.description}  {_severity_label(op)}')
     for tbl in plan.tables:
         rendering = _RESOLUTIONS[tbl.resolution]
         lines.append(f'{rendering.marker} {tbl.path:<24s} {rendering.pending}')
@@ -384,6 +386,8 @@ def _format_plan(plan: SchemaPlan) -> list[str]:
     counts = f'{s.create} create, {updates} update, {s.up_to_date} unchanged, {s.extras} extra'
     if s.unsupported > 0:
         counts += f', {s.unsupported} unsupported'
+    if s.blocked_ops > 0:
+        counts += f', {s.blocked_ops} blocked'
     lines.append('')
     lines.append(f'Plan: {counts}  |  {s.destructive} destructive')
     return lines
@@ -456,6 +460,9 @@ def _update(
         )
     )
     _update_output(applied, as_json=as_json)
+    if applied.summary.blocked_ops > 0:
+        # only pxt db update can clear a blocked op
+        sys.exit(EXIT_ERROR)
 
 
 def _decide_update(app_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, allow_destructive: bool) -> None:
@@ -491,8 +498,11 @@ def _update_output(plan: SchemaPlan, *, as_json: bool) -> None:
     if plan.in_agreement:
         print('catalog is up to date')
         return
+    for op in plan.ops:
+        print(f'! {op.description}  {_severity_label(op)}')
     for tbl in plan.tables:
-        print(f'{_RESOLUTIONS[tbl.resolution].applied:9s} {tbl.path}')
+        outcome = 'refused' if tbl.status == 'refused' else _RESOLUTIONS[tbl.resolution].applied
+        print(f'{outcome:9s} {tbl.path}')
 
 
 def _set_statuses(plan: SchemaPlan, *, destructive: OpStatus, other: OpStatus) -> None:

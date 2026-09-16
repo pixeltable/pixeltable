@@ -151,7 +151,7 @@ class TestConfig:
     def test_env_var_names(self, tmp_path: Path) -> None:
         """A setting is bound by its name uppercased, so only that spelling of a variable is read."""
         config_file = tmp_path / 'config.toml'
-        config_file.write_text('[pixeltable.database.vars]\ndeclared_in_file = "from-the-file"\n')
+        config_file.write_text('[[pixeltable.database]]\nvars.declared_in_file = "from-the-file"\n')
 
         def config_var_keys(env_vars: dict[str, str]) -> list[str]:
             """The var names Config finds, resolved in a subprocess so the environment is exactly env_vars."""
@@ -426,6 +426,14 @@ class TestConfig:
         (project / 'pixeltable.toml').write_text("[[pixeltable.database]]\nvars.media_dest = 's3://after/edits'\n")
         assert Config.reload_if_changed()
         assert Config.get().get_string_value('media_dest', section=VAR_SECTION) == 's3://after/edits'
+
+    def test_secrets_in_database_entry_refused(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A secret is bound by its environment variable, so an entry naming one is a configuration error."""
+        config_file = tmp_path / 'config.toml'
+        config_file.write_text("[[pixeltable.database]]\nsecrets.openai_api_key = 'sk-x'\n")
+        monkeypatch.setenv('PIXELTABLE_CONFIG', str(config_file))
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='secrets'):
+            Config.init(reinit=True)
 
     def test_database_entries(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The bindings a process reads come from the [[pixeltable.database]] entry for the local database."""

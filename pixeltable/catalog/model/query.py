@@ -40,7 +40,7 @@ class ModelQuery(QueryBase):
         The shape it queries is synthesized from the model and carries no durable table identity, so a
         serialized one could not be read back. bind() produces the query that can be stored.
         """
-        raise excs.Error(
+        raise excs.InternalError(
             excs.ErrorCode.INTERNAL_ERROR,
             f'A query over model `{self.model_cls.__name__}` cannot be serialized; bind it to a table first.',
         )
@@ -122,7 +122,7 @@ class ModelQuery(QueryBase):
             assert col_name is not None
             new_md = path.get_column_md_by_name(col_name)
             if new_md is None:
-                raise excs.RequestError(
+                raise excs.NotFoundError(
                     excs.ErrorCode.COLUMN_NOT_FOUND,
                     f'Table {path.tbl_name()!r} has no column {col_name!r}, which a similarity() call references.',
                 )

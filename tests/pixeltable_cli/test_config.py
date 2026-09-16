@@ -313,7 +313,7 @@ class TestConfig:
 
         time.sleep(0.01)  # the file stamp is (mtime, size), so a rewrite needs a distinct mtime
         config_file.write_text(
-            f'[pixeltable]\nfile_cache_size_g = 1.0\n\n[pixeltable.database.vars]\npxt_test_key = "{_A_KEY}"\n',
+            f'[pixeltable]\nfile_cache_size_g = 1.0\n\n[[pixeltable.database]]\nvars.pxt_test_key = "{_A_KEY}"\n',
             encoding='utf-8',
         )
 

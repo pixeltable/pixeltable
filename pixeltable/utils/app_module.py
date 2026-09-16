@@ -177,9 +177,9 @@ def visible_models(module: ModuleType) -> dict[str, model.TableModelMeta]:
     return models
 
 
-def model_mismatch_error_str(models: dict[str, model.TableModelMeta], base_path: str) -> str | None:
-    """Return an error string explaining a mismatch between the models and their corresponding tables in base_path, or
-    None if there is no mismatch."""
+def validate_models(models: dict[str, model.TableModelMeta], base_path: str) -> str | None:
+    """Validates models against their corresponding tables in base_path, returns None if they match, otherwise an
+    error string."""
     diffs = diff.validate_models(models, base_path)
     mismatched = {name: d for name, d in diffs.items() if d.resolution != 'up_to_date'}
     if len(mismatched) == 0:
@@ -225,6 +225,25 @@ def check_udf_references(bases: list[model.TableModelMeta]) -> list[str]:
         if _first_on_path(top_level) is None:
             errors.append(f'{fn_path}: {top_level!r} is not on sys.path')
     return errors
+
+
+def udf_source_files(bases: list[model.TableModelMeta]) -> set[str]:
+    """The local project files containing the udfs referenced by bases, relative to the project root."""
+    project_root = Config.get().project_root
+    assert project_root is not None
+    fn_paths = {fn.self_path for base in bases for cls in base.defined_models() for fn in cls.referenced_functions()}
+    files: set[str] = set()
+    for fn_path in fn_paths:
+        if fn_path is None:
+            continue
+        resolved = _resolved_module(fn_path)
+        file = None if resolved is None else getattr(resolved, '__file__', None)
+        if file is None:
+            continue
+        path = Path(file).resolve()
+        if path.is_relative_to(project_root):
+            files.add(path.relative_to(project_root).as_posix())
+    return files
 
 
 def shadowed_project_modules() -> list[str]:

@@ -92,10 +92,10 @@ _UNSPECIFIED = _Unspecified()
 
 # the recognized config files
 PROJECT_CONFIG_FILE = 'pixeltable.toml'
-_PYPROJECT = 'pyproject.toml'  # with a [tool.pixeltable] section
+PYPROJECT_FILE = 'pyproject.toml'  # with a [tool.pixeltable] section
 
 # both of them, for a caller that handles whichever the project holds
-PROJECT_CONFIG_FILES = (PROJECT_CONFIG_FILE, _PYPROJECT)
+PROJECT_CONFIG_FILES = (PROJECT_CONFIG_FILE, PYPROJECT_FILE)
 
 
 def _find_project_root(start: Path) -> Path | None:
@@ -105,7 +105,7 @@ def _find_project_root(start: Path) -> Path | None:
         if (dir / PROJECT_CONFIG_FILE).is_file():
             # pixeltable.toml takes precedence over pyproject.toml
             return dir
-        pyproject = dir / _PYPROJECT
+        pyproject = dir / PYPROJECT_FILE
         if pyproject.is_file():
             try:
                 parsed = toml.load(pyproject)
@@ -464,7 +464,7 @@ class Config:
         if root is None:
             return None
         pixeltable_toml = root / PROJECT_CONFIG_FILE
-        return pixeltable_toml if pixeltable_toml.is_file() else root / _PYPROJECT
+        return pixeltable_toml if pixeltable_toml.is_file() else root / PYPROJECT_FILE
 
     def __load_project_config(self) -> dict[str, dict[str, tuple[Any, Path]]]:
         """Load the project's settings, keyed like the home config's.
@@ -474,7 +474,7 @@ class Config:
         if self.__project_config_file is None or not self.__project_config_file.exists():
             return {}
         parsed = self.__read_toml_file(self.__project_config_file)
-        if self.__project_config_file.name == _PYPROJECT:
+        if self.__project_config_file.name == PYPROJECT_FILE:
             parsed = parsed.get('tool', {}).get('pixeltable', {})
             # in a pyproject.toml, tool.pixeltable holds the contents of the 'pixeltable' section
             parsed = {'pixeltable': parsed} if not isinstance(parsed.get('pixeltable'), dict) else parsed
@@ -540,7 +540,7 @@ class Config:
                 try:
                     toml.dump(config_dict, stream)
                 except Exception as exc:
-                    raise excs.Error(
+                    raise excs.InternalError(
                         excs.ErrorCode.INTERNAL_ERROR, f'Could not create config file: {self.__config_file}'
                     ) from exc
             _logger.info(f'Created default config file at: {self.__config_file}')
