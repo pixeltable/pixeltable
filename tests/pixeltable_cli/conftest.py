@@ -30,8 +30,9 @@ from ..utils import DatabaseRoot
 _REPO_ROOT = pathlib.Path(__file__).parents[2]
 _CORPUS_DIR = pathlib.Path(__file__).parent
 
-# the directories a corpus pod ends up running: the installed package, and the project it serves
-_DEPLOYED_PATHS = ('pixeltable', 'pixeltable_cli', 'tests/pixeltable_cli')
+# the pin installs these two, so only they need a commit; the corpus is packaged from the working tree,
+# so editing an app or this file needs none
+_PINNED_PATHS = ('pixeltable', 'pixeltable_cli')
 
 
 def _requirements_in() -> list[str]:
@@ -305,7 +306,7 @@ def _git(*args: str) -> str:
 
 
 def _pixeltable_repo(sha: str) -> str:
-    """The https url of a remote that carries sha."""
+    """The https url of a remote that has sha."""
     # '->' skips the symbolic origin/HEAD, which is a second name for a branch already listed
     branches = [line.strip() for line in _git('branch', '-r', '--contains', sha).splitlines() if '->' not in line]
     remotes = list(dict.fromkeys(branch.split('/', maxsplit=1)[0] for branch in branches))
@@ -327,7 +328,7 @@ def corpus_pixeltable_pin() -> str | None:
     if os.environ.get('PXTTEST_CLI_DB_URI') is None:
         return None
     # an untracked file sits outside the corpus project and is absent from the archive, so it is not drift
-    modified = _git('status', '--porcelain', '--untracked-files=no', '--', *_DEPLOYED_PATHS)
+    modified = _git('status', '--porcelain', '--untracked-files=no', '--', *_PINNED_PATHS)
     assert modified == '', f'a pod installs the commit, not this working tree; commit or stash first:\n{modified}'
     sha = _git('rev-parse', 'HEAD')
     pin = f'pixeltable @ git+{_pixeltable_repo(sha)}@{sha}'
@@ -336,18 +337,28 @@ def corpus_pixeltable_pin() -> str | None:
 
 
 @pytest.fixture(scope='session', autouse=True)
-def _check_corpus_db(session_cli: PxtRunner, corpus_pixeltable_pin: str | None) -> None:
-    """Fail the session when the CLI database serves neither this app corpus nor this commit's pixeltable.
+def _serve_corpus_db(session_cli: PxtRunner, corpus_pixeltable_pin: str | None) -> None:
+    """Publish this app corpus and this commit's pixeltable to the CLI database.
 
     The tests resolve the corpus's udfs, which reach a pod only in the database's project archive, and a
-    pod runs the pixeltable that corpus_pixeltable_pin just wrote into requirements.txt. The diff runs
-    against this directory because `pxt db update` deploys it.
+    pod runs the pixeltable that corpus_pixeltable_pin wrote into requirements.txt. Publishing both is part
+    of the run.
     """
     uri = os.environ.get('PXTTEST_CLI_DB_URI')
     if uri is None:
         return
-    pending = [op for op in db_diff(session_cli, _CORPUS_DIR, uri)['ops'] if op['target'] in ('archive', 'image')]
-    assert not pending, f'{uri} is out of date; run `pxt db update {uri}` in {_CORPUS_DIR}: {pending}'
+    pending = _corpus_db_ops(session_cli, uri)
+    if len(pending) == 0:
+        return
+    print(f'Publishing {_CORPUS_DIR} to {uri}: {"; ".join(op["description"] for op in pending)}', flush=True)
+    db_update(session_cli, _CORPUS_DIR, uri)
+    remaining = _corpus_db_ops(session_cli, uri)
+    assert len(remaining) == 0, f'{uri} still differs from {_CORPUS_DIR} after an update: {remaining}'
+
+
+def _corpus_db_ops(cli: PxtRunner, uri: str) -> list[dict[str, Any]]:
+    """The operations that would reconcile uri with the corpus, limited to the archive and the image."""
+    return [op for op in db_diff(cli, _CORPUS_DIR, uri)['ops'] if op['target'] in ('archive', 'image')]
 
 
 @pytest.fixture
