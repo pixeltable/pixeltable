@@ -116,7 +116,7 @@ def browser_login(api_url: str, open_browser: bool = True) -> Session:
     state = secrets.token_urlsafe(_STATE_BYTES)
 
     # Loopback explicitly, never 0.0.0.0. Port 0 so concurrent sign-ins cannot collide.
-    handler = type('_Handler', (_CallbackHandler,), {'result': {}})
+    handler: type[_CallbackHandler] = type('_Handler', (_CallbackHandler,), {'result': {}})
     server = http.server.HTTPServer(('127.0.0.1', 0), handler)
     port = server.server_address[1]
     callback = f'http://127.0.0.1:{port}/callback'
@@ -168,7 +168,7 @@ def browser_login(api_url: str, open_browser: bool = True) -> Session:
     return session
 
 
-def _serve_until_answered(server: http.server.HTTPServer, handler: type) -> None:
+def _serve_until_answered(server: http.server.HTTPServer, handler: type[_CallbackHandler]) -> None:
     while not handler.result:
         server.handle_request()
 

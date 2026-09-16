@@ -2,13 +2,14 @@
 
 import json
 import os
+import pathlib
 import stat
 import time
+from typing import Any
 
 import pytest
 
 from pixeltable.config import Config
-
 from pixeltable.service import credentials
 
 _PROD = 'https://api.pixeltable.com'
@@ -16,13 +17,13 @@ _DEV = 'https://api.dev.pxt.run'
 
 
 @pytest.fixture(autouse=True)
-def _home(tmp_path, monkeypatch):
+def _home(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Config caches home at first access, so each test needs its own instance to get its own file.
     monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path / 'home'))
     Config.init(reinit=True)
 
 
-def _session(**kw) -> credentials.Session:
+def _session(**kw: Any) -> credentials.Session:
     base = {
         'access_token': 'at',
         'expires_at': time.time() + 3600,

@@ -1,17 +1,19 @@
 """Keeping a session alive across commands, which is what makes an API key optional."""
 
 import base64
+import email.message
 import io
 import json
+import pathlib
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Any
 
 import pytest
 
 from pixeltable.config import Config
-
 from pixeltable.service import auth, credentials
 
 _API = 'https://api.pixeltable.com'
@@ -19,13 +21,13 @@ _LOGIN = 'https://acme.app.pixeltable.com'
 
 
 @pytest.fixture(autouse=True)
-def _home(tmp_path, monkeypatch):
+def _home(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Config caches home at first access, so each test needs its own instance to get its own file.
     monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path / 'home'))
     Config.init(reinit=True)
 
 
-def _session(**kw) -> credentials.Session:
+def _session(**kw: Any) -> credentials.Session:
     base = {
         'access_token': 'old-access',
         'expires_at': time.time() + 3600,
@@ -36,8 +38,8 @@ def _session(**kw) -> credentials.Session:
     return credentials.Session(**{**base, **kw})
 
 
-def _stub(monkeypatch, payload: dict, calls: list | None = None):
-    def _get(url, headers=None, data=None):
+def _stub(monkeypatch: pytest.MonkeyPatch, payload: dict, calls: list | None = None) -> None:
+    def _get(url: str, headers: dict | None = None, data: bytes | None = None) -> dict:
         if calls is not None:
             calls.append((url, headers or {}))
         return payload
@@ -50,26 +52,26 @@ class TestAccessToken:
         """The caller falls back to an API key, so this must not raise."""
         assert auth.access_token(_API) is None
 
-    def test_a_live_token_is_returned_without_a_network_call(self, monkeypatch) -> None:
+    def test_a_live_token_is_returned_without_a_network_call(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(auth, '_get_json', lambda *a, **k: pytest.fail('renewed a live token'))
         credentials.save(_API, _session())
 
         assert auth.access_token(_API) == 'old-access'
 
-    def test_an_expired_token_is_refreshed_transparently(self, monkeypatch) -> None:
+    def test_an_expired_token_is_refreshed_transparently(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The token TTL is invisible: the command gets a token, not an error."""
         _stub(monkeypatch, {'token': 'new-access', 'session': 'new-sealed'})
         credentials.save(_API, _session(expires_at=time.time() - 1))
 
         assert auth.access_token(_API) == 'new-access'
 
-    def test_a_token_dying_inside_the_skew_is_refreshed_too(self, monkeypatch) -> None:
+    def test_a_token_dying_inside_the_skew_is_refreshed_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _stub(monkeypatch, {'token': 'new-access'})
         credentials.save(_API, _session(expires_at=time.time() + credentials.EXPIRY_SKEW_S / 2))
 
         assert auth.access_token(_API) == 'new-access'
 
-    def test_a_sign_in_past_the_deadline_is_refused_rather_than_renewed(self, monkeypatch) -> None:
+    def test_a_sign_in_past_the_deadline_is_refused_rather_than_renewed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The cached token is still live here. Sending it anyway is what the deadline prevents."""
         monkeypatch.setattr(auth, '_get_json', lambda *a, **k: pytest.fail('renewed an expired sign-in'))
         credentials.save(
@@ -82,7 +84,7 @@ class TestAccessToken:
 
 
 class TestRefresh:
-    def test_the_rotated_pair_is_persisted_before_it_is_used(self, monkeypatch) -> None:
+    def test_the_rotated_pair_is_persisted_before_it_is_used(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A spent refresh token left on disk kills the session on the next command."""
         _stub(monkeypatch, {'token': 'new-access', 'session': 'new-sealed'})
         credentials.save(_API, _session(expires_at=time.time() - 1))
@@ -92,7 +94,7 @@ class TestRefresh:
 
         assert (stored.access_token, stored.sealed_session) == ('new-access', 'new-sealed')
 
-    def test_renewing_does_not_move_the_sign_in_deadline(self, monkeypatch) -> None:
+    def test_renewing_does_not_move_the_sign_in_deadline(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Otherwise a session in daily use would never require a browser again."""
         _stub(monkeypatch, {'token': 'new-access', 'session': 'new-sealed'})
         signed_in_at = time.time() - 300
@@ -100,7 +102,7 @@ class TestRefresh:
 
         assert renewed.logged_in_at == signed_in_at
 
-    def test_a_response_without_a_rotated_session_keeps_the_old_one(self, monkeypatch) -> None:
+    def test_a_response_without_a_rotated_session_keeps_the_old_one(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A response that omits it means unchanged; dropping it would end the session early."""
         _stub(monkeypatch, {'token': 'new-access'})
         credentials.save(_API, _session(expires_at=time.time() - 1))
@@ -109,7 +111,7 @@ class TestRefresh:
 
         assert credentials.load(_API).sealed_session == 'old-sealed'
 
-    def test_it_presents_the_sealed_session_to_the_dashboard(self, monkeypatch) -> None:
+    def test_it_presents_the_sealed_session_to_the_dashboard(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """In a header, not a URL: the sealed session is a credential."""
         calls: list = []
         _stub(monkeypatch, {'token': 'a'}, calls)
@@ -121,7 +123,7 @@ class TestRefresh:
         assert url == f'{_LOGIN}/api/auth/cli/token'
         assert headers['Authorization'] == 'Bearer old-sealed'
 
-    def test_a_refused_refresh_is_reported_not_swallowed(self, monkeypatch) -> None:
+    def test_a_refused_refresh_is_reported_not_swallowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Looking signed-out would send the caller to an API key instead of saying 'sign in again'."""
         refused = auth.AuthError('session expired', code='session_expired')
         monkeypatch.setattr(auth, '_get_json', lambda *a, **k: (_ for _ in ()).throw(refused))
@@ -135,9 +137,11 @@ class TestErrorsAreLegible:
     """An OAuth server reports failures in the body, not the status line."""
 
     def _http_error(self, body: bytes, status: int = 403) -> urllib.error.HTTPError:
-        return urllib.error.HTTPError('https://issuer/oauth2/token', status, 'Forbidden', {}, io.BytesIO(body))
+        return urllib.error.HTTPError(
+            'https://issuer/oauth2/token', status, 'Forbidden', email.message.Message(), io.BytesIO(body)
+        )
 
-    def test_the_oauth_error_reaches_the_user(self, monkeypatch) -> None:
+    def test_the_oauth_error_reaches_the_user(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """`HTTP 403` alone hides the diagnosis; the description is the whole message."""
         body = b'{"error":"invalid_client","error_description":"Application not found."}'
         monkeypatch.setattr(
@@ -147,7 +151,7 @@ class TestErrorsAreLegible:
         with pytest.raises(auth.AuthError, match='invalid_client: Application not found'):
             auth._get_json('https://issuer/oauth2/token')
 
-    def test_the_error_code_is_kept_separately(self, monkeypatch) -> None:
+    def test_the_error_code_is_kept_separately(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Polling branches on it, so it cannot only exist inside the formatted message."""
         body = b'{"error":"authorization_pending","error_description":"Still waiting."}'
         monkeypatch.setattr(
@@ -159,7 +163,7 @@ class TestErrorsAreLegible:
 
         assert exc.value.code == 'authorization_pending'
 
-    def test_a_non_json_body_still_says_something(self, monkeypatch) -> None:
+    def test_a_non_json_body_still_says_something(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
             auth.urllib.request,
             'urlopen',
@@ -169,7 +173,7 @@ class TestErrorsAreLegible:
         with pytest.raises(auth.AuthError, match='HTTP 502'):
             auth._get_json('https://issuer/oauth2/token')
 
-    def test_an_unreachable_host_is_not_a_traceback(self, monkeypatch) -> None:
+    def test_an_unreachable_host_is_not_a_traceback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(auth.urllib.request, 'urlopen', lambda *a, **k: (_ for _ in ()).throw(OSError('no route')))
 
         with pytest.raises(auth.AuthError, match='could not reach'):
@@ -181,7 +185,7 @@ class TestErrorsAreLegible:
         with pytest.raises(auth.AuthError, match='cannot be renewed'):
             auth.access_token(_API)
 
-    def test_each_environment_refreshes_its_own_session(self, monkeypatch) -> None:
+    def test_each_environment_refreshes_its_own_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _stub(monkeypatch, {'token': 'prod-new'})
         credentials.save(_API, _session(expires_at=time.time() - 1))
         credentials.save('https://api.dev.pxt.run', _session(access_token='dev-live'))
@@ -193,7 +197,7 @@ class TestErrorsAreLegible:
 class TestBrowserLogin:
     """The handoff from browser to CLI, where the state parameter is the whole defence."""
 
-    def _served(self, monkeypatch, reply: dict, opened: list) -> None:
+    def _served(self, monkeypatch: pytest.MonkeyPatch, reply: dict, opened: list) -> None:
         """Run browser_login with the browser replaced by something that answers the callback."""
 
         def _open(target: str) -> bool:
@@ -209,7 +213,7 @@ class TestBrowserLogin:
         monkeypatch.setattr(auth, 'login_url_for', lambda url: _LOGIN)
         monkeypatch.setattr('webbrowser.open', _open)
 
-    def test_a_matching_reply_is_saved(self, monkeypatch) -> None:
+    def test_a_matching_reply_is_saved(self, monkeypatch: pytest.MonkeyPatch) -> None:
         opened: list = []
         self._served(monkeypatch, {'echo_state': True, 'session': 'sealed-1', 'email': 'a@b.c'}, opened)
         monkeypatch.setattr(auth, 'refresh', lambda url, s: s)
@@ -218,7 +222,7 @@ class TestBrowserLogin:
 
         assert (session.sealed_session, session.email, session.login_url) == ('sealed-1', 'a@b.c', _LOGIN)
 
-    def test_the_callback_is_on_loopback_and_carries_high_entropy_state(self, monkeypatch) -> None:
+    def test_the_callback_is_on_loopback_and_carries_high_entropy_state(self, monkeypatch: pytest.MonkeyPatch) -> None:
         opened: list = []
         self._served(monkeypatch, {'echo_state': True, 'session': 's', 'access_token': 'tok'}, opened)
 
@@ -228,7 +232,7 @@ class TestBrowserLogin:
         assert query['callback'][0].startswith('http://127.0.0.1:')
         assert len(query['state'][0]) >= 32
 
-    def test_a_reply_with_the_wrong_state_is_refused(self, monkeypatch) -> None:
+    def test_a_reply_with_the_wrong_state_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Another local process racing the port must not be able to plant a session."""
         opened: list = []
         self._served(monkeypatch, {'state': 'not-the-one', 'session': 'attacker'}, opened)
@@ -238,14 +242,14 @@ class TestBrowserLogin:
 
         assert credentials.load(_API) is None, 'a mismatched reply must save nothing'
 
-    def test_a_reply_with_no_state_is_refused(self, monkeypatch) -> None:
+    def test_a_reply_with_no_state_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         opened: list = []
         self._served(monkeypatch, {'session': 'attacker'}, opened)
 
         with pytest.raises(auth.AuthError, match='did not match'):
             auth.browser_login(_API)
 
-    def test_a_reply_with_no_session_is_refused(self, monkeypatch) -> None:
+    def test_a_reply_with_no_session_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         opened: list = []
         self._served(monkeypatch, {'echo_state': True, 'error': 'you denied it'}, opened)
 
