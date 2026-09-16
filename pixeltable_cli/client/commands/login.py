@@ -41,8 +41,7 @@ def run(argv: list[str]) -> None:
     try:
         _login(args)
     except AuthError as e:
-        # The CLI reports failures on stderr and exits; a traceback here would bury the one line
-        # that says what the sign-in provider actually refused.
+        # A traceback would bury the one line saying what the sign-in provider refused.
         print(f'pxt login: error: {e}', file=sys.stderr)
         sys.exit(1)
 
@@ -66,7 +65,7 @@ def run_whoami(argv: list[str]) -> None:
 
     url = api_url()
     session = credentials.load(url)
-    # What commands will actually send, which is not always the session: an API key outranks it.
+    # What commands will actually send, which is not always the session.
     kind, where = management_client.credential_source()
 
     if session is None and kind != 'api_key':
@@ -85,13 +84,11 @@ def run_whoami(argv: list[str]) -> None:
         return
 
     if session is not None:
-        # Time until the browser is needed again, not until the current token expires: the token
-        # renews on its own, so its clock is not one anybody has to act on.
+        # Time until the browser is needed again. The token's own clock renews on its own.
         left = session.session_expires_in()
         state = 'expired, run `pxt login`' if left <= 0 else f'sign in again in {int(left // 60)}m'
         print(f'{session.email or "(unknown)"} on {url} — {state}')
     if kind == 'api_key':
-        # Said plainly: a session that exists but is outranked is the state people misread.
         note = ' An API key always takes precedence over a sign-in.' if session is not None else ''
         print(f'Commands use the API key from {where}.{note}')
 

@@ -74,21 +74,16 @@ def _new_session() -> requests.Session:
 _SESSION = _new_session()
 
 
-# Whatever went wrong with a session, the fix is the same and there is nothing to decide between,
-# so it is one line rather than a diagnosis.
+# One line for every way a session can fail: the fix is the same either way.
 _SESSION_FAILED = 'Your Pixeltable session may have expired. Run `pxt login` again, or set an API key.'
 
 
 def credential(purpose: str) -> str:
     """The credential to present for `purpose`: an API key if one is set, else a `pxt login` session.
 
-    The key wins when both are present. It is the explicit choice -- set in the environment or the
-    config file, and what CI uses -- so an ambient browser session must not quietly take precedence
-    over it.
-
-    Returned as a bare string because every consumer sends it differently -- a header for the
-    control plane, a CONNECT frame for the tunnel -- and because the sidecar tells the two apart by
-    shape (a JWT has two dots; a WorkOS API key never does), so neither needs to be told which it got.
+    A key outranks a session: setting one is the explicit choice, and what CI runs on. The string is
+    returned bare because consumers send it differently -- a header here, a CONNECT frame in the
+    tunnel -- and because both ends tell the two apart by shape.
     """
     api_key = Env.get().pxt_api_key
     if api_key is not None:
@@ -96,11 +91,9 @@ def credential(purpose: str) -> str:
     try:
         token = auth.access_token(api_url())
     except auth.AuthError as e:
-        # The underlying reason stays on the exception chain; it is not something the user acts on.
         raise excs.AuthorizationError(excs.ErrorCode.MISSING_CREDENTIALS, _SESSION_FAILED) from e
     if token is None:
-        # The one message that spells the options out: nothing is set up yet, so the config file and
-        # the docs are what the reader actually needs here.
+        # Nothing is set up yet, so this is the one message that spells both ways out in full.
         raise excs.AuthorizationError(
             excs.ErrorCode.MISSING_CREDENTIALS,
             f'A Pixeltable API key or sign-in is required to {purpose}. Run `pxt login`, or set an '
@@ -112,7 +105,7 @@ def credential(purpose: str) -> str:
 
 
 def credential_header(purpose: str) -> dict[str, str]:
-    """How to send that credential. One place decides, so no caller has to know which kind it got."""
+    """That credential as a header. A JWT has two dots; a WorkOS API key never does."""
     cred = credential(purpose)
     return {'Authorization': f'Bearer {cred}'} if cred.count('.') == 2 else {'X-api-key': cred}
 
@@ -122,12 +115,7 @@ def _api_headers() -> dict[str, str]:
 
 
 def credential_source() -> tuple[str, str]:
-    """Which credential this client will send, and where it came from.
-
-    Reported rather than inferred because the two are easy to confuse: an API key set once in the
-    config file silently outranks a session created seconds ago, and the resulting failure names
-    neither.
-    """
+    """Which credential this client will send, and where it came from. For `pxt whoami` and errors."""
     if os.environ.get('PIXELTABLE_API_KEY'):
         return 'api_key', 'the PIXELTABLE_API_KEY environment variable'
     if Env.get().pxt_api_key is not None:
@@ -138,18 +126,12 @@ def credential_source() -> tuple[str, str]:
 
 
 def _raise_unauthorized(resp: Any) -> None:
-    """Turn a 401 into an error that names the credential that was actually sent.
-
-    A bare "unauthorized" does not say which of the two was tried, which is the whole question when
-    a machine has both.
-    """
+    """Report a 401 naming the credential that was sent, so the reader knows where to look."""
     kind, where = credential_source()
     detail = resp.text.strip()
-    # No suggestion to sign in when a key was sent: a key always outranks a session, so signing in
-    # would change nothing. The key is what needs fixing.
     message = f'The API key from {where} was rejected ({detail}).' if kind == 'api_key' else _SESSION_FAILED
     raise excs.ExternalServiceError(
-        excs.ErrorCode.PROVIDER_AUTH_ERROR, message, provider='pixeltable_cloud', status_code=resp.status_code
+        excs.ErrorCode.PROVIDER_ERROR, message, provider='pixeltable_cloud', status_code=resp.status_code
     )
 
 

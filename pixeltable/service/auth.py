@@ -1,13 +1,9 @@
 """Signing in from the CLI, and keeping that session alive.
 
 `pxt login` opens the dashboard in a browser and gets the result back on a loopback listener. The
-CLI cannot finish a WorkOS sign-in itself -- that needs the WorkOS API key, which a distributed
-binary must never hold -- so the dashboard, which already has it, hands over the session instead.
-
-What comes back is a sealed session rather than a raw refresh token: WorkOS gives the dashboard a
-sealed blob it would normally keep as a cookie. The CLI keeps it on disk and presents it to renew,
-which is the same shape `gh` and `stripe` use against their own backends. Renewal is invisible, up
-to `credentials.MAX_SESSION_AGE_S` after the sign-in, at which point the browser is needed again.
+CLI cannot finish a WorkOS sign-in itself: that needs the WorkOS API key, which a distributed binary
+must never hold, so the dashboard hands over the session instead. What it hands over is a sealed
+session -- WorkOS exposes no raw refresh token -- which renews silently until MAX_SESSION_AGE_S.
 """
 
 from __future__ import annotations
@@ -28,25 +24,19 @@ from typing import Any, ClassVar, Optional
 from pixeltable.service import credentials
 from pixeltable.service.credentials import Session
 
-# Where a control plane says which dashboard signs people in to it. Unauthenticated by necessity:
-# it is what a caller needs before it can authenticate.
+# Where a control plane says which dashboard signs people in to it. Unauthenticated by necessity.
 _AUTH_CONFIG_PATH = '/.well-known/pixeltable-auth'
 _CLI_LOGIN_PATH = '/api/auth/cli'
 _CLI_TOKEN_PATH = '/api/auth/cli/token'
 
 _TIMEOUT_S = 30.0
 _LOGIN_TIMEOUT_S = 300.0
-# 256 bits. The state proves a callback answers *this* login, so anything that can be guessed by
-# another local process would let it deliver a token to our listener.
+# 256 bits: the state proves a callback answers this login, not another local process's.
 _STATE_BYTES = 32
 
 
 class AuthError(Exception):
-    """Sign-in could not proceed. Carries the OAuth `error` code when the server supplied one.
-
-    The code is what distinguishes "keep waiting" from "this failed" while polling, so it is kept
-    separate from the message rather than only formatted into it.
-    """
+    """Sign-in could not proceed. Carries the OAuth `error` code when the server supplied one."""
 
     def __init__(self, message: str, code: str = '') -> None:
         super().__init__(message)
@@ -54,10 +44,7 @@ class AuthError(Exception):
 
 
 def _get_json(url: str, headers: Optional[dict[str, str]] = None, data: Optional[bytes] = None) -> dict[str, Any]:
-    """Fetch JSON, turning an error response into an AuthError carrying what the server said.
-
-    A bare HTTPError reports `HTTP 403` and discards the body, which is where the diagnosis lives.
-    """
+    """Fetch JSON. An error body becomes an AuthError; a bare HTTPError would discard it."""
     req = urllib.request.Request(url, data=data, headers=headers or {})
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
@@ -69,7 +56,6 @@ def _get_json(url: str, headers: Optional[dict[str, str]] = None, data: Optional
             raise AuthError(f'{url} returned HTTP {e.code}') from e
         code = str(payload.get('error') or '')
         detail = str(payload.get('error_description') or '') or f'HTTP {e.code}'
-        # Both, when both exist: the code is what to search for, the description is what to read.
         raise AuthError(f'{code}: {detail}' if code else detail, code=code) from e
     except OSError as e:
         raise AuthError(f'could not reach {url}: {e}') from e
@@ -88,11 +74,7 @@ def login_url_for(api_url: str) -> str:
 
 
 def _expiry_from(token: str, default_s: float = 300.0) -> float:
-    """The token's own `exp`, or a short default. Read, never verified -- this only schedules renewal.
-
-    Trusting `exp` here would be a mistake only if we were authorizing with it; the control plane
-    verifies the signature. Getting it wrong costs one needless renewal, not access.
-    """
+    """The token's own `exp`, or a short default. Read, never verified: it only schedules renewal."""
     try:
         payload = token.split('.')[1]
         claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
@@ -133,8 +115,7 @@ def browser_login(api_url: str, open_browser: bool = True) -> Session:
     login_url = login_url_for(api_url)
     state = secrets.token_urlsafe(_STATE_BYTES)
 
-    # Bound to loopback explicitly, never 0.0.0.0: on 0.0.0.0 anything on the same wifi could reach
-    # the listener. Port 0 lets the OS pick a free one, so two sign-ins cannot collide.
+    # Loopback explicitly, never 0.0.0.0. Port 0 so concurrent sign-ins cannot collide.
     handler = type('_Handler', (_CallbackHandler,), {'result': {}})
     server = http.server.HTTPServer(('127.0.0.1', 0), handler)
     port = server.server_address[1]
@@ -143,8 +124,7 @@ def browser_login(api_url: str, open_browser: bool = True) -> Session:
     query = urllib.parse.urlencode({'callback': callback, 'state': state})
     target = f'{login_url}{_CLI_LOGIN_PATH}?{query}'
 
-    # Listening before the browser is pointed here, not after: the reply is a redirect the browser
-    # follows immediately, and a listener that is not up yet would miss it.
+    # Listening before the browser opens: the reply is a redirect that arrives immediately.
     thread = threading.Thread(target=_serve_until_answered, args=(server, handler), daemon=True)
     thread.start()
 
@@ -160,15 +140,12 @@ def browser_login(api_url: str, open_browser: bool = True) -> Session:
 
     result = handler.result
     if not result:
-        # The dashboard sends a brand-new account to onboarding instead of back here, because
-        # nothing works before an organization exists. That looks identical to a closed tab, so
-        # name both rather than reporting a bare timeout.
+        # A new account is sent to onboarding rather than back here, which looks like a closed tab.
         raise AuthError(
             'no reply from the browser. If you just created an account, finish setting up your '
             'organization in the dashboard and run `pxt login` again.'
         )
-    # Compared in constant time and before anything in the payload is used: a mismatch means this
-    # callback answers someone else's login, and its contents are not ours to trust.
+    # Before anything in the payload is read: a mismatch means this reply is not ours.
     if not secrets.compare_digest(result.get('state', ''), state):
         raise AuthError('the sign-in reply did not match this request; nothing was saved')
     sealed = result.get('session', '')
@@ -211,29 +188,26 @@ def refresh(api_url: str, session: Session) -> Session:
     renewed = Session(
         access_token=token,
         expires_at=_expiry_from(token),
-        # The dashboard rotates the sealed session on renewal and returns the new one. Keeping the
-        # old one would work once and then fail with nothing to explain why.
+        # The dashboard rotates this on renewal; the one we sent is now spent.
         sealed_session=str(payload.get('session') or session.sealed_session),
         login_url=session.login_url,
         email=session.email,
         logged_in_at=session.logged_in_at,
     )
-    credentials.save(api_url, renewed)  # before the caller sends it: the old session is now spent
+    credentials.save(api_url, renewed)  # saved before use: the old session is spent
     return renewed
 
 
 def access_token(api_url: str) -> Optional[str]:
     """A token to send to `api_url`, renewing first if the cached one is spent.
 
-    None when there is no session at all, so a caller can fall back to an API key. Raises AuthError
-    when a session exists but cannot be used -- that is worth telling the user about, rather than
-    silently looking like they were never signed in.
+    None when there is no session, so a caller can fall back to an API key; AuthError when a session
+    exists but cannot be used.
     """
     session = credentials.load(api_url)
     if session is None:
         return None
-    # Checked before the token's own expiry: past the deadline the cached token may well still be
-    # valid, and sending it anyway is exactly what the deadline exists to prevent.
+    # Before the token's own expiry: past the deadline, a still-valid token must not be sent.
     if session.is_expired():
         raise AuthError('your sign-in has expired')
     if session.is_usable():

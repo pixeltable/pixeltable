@@ -1,17 +1,8 @@
-"""The session `pxt login` leaves behind, cached on this device.
+"""The session `pxt login` leaves behind, cached on this device. Modelled on the AWS CLI's SSO cache.
 
-Modelled on the AWS CLI's SSO cache: the browser sign-in happens once, the short-lived access token
-it yields is written to disk, and every later command reuses it until it expires, renewing silently
-rather than sending the user back to a browser. Nothing here is a long-lived credential -- an API key
-is that, and it lives in the config file instead.
-
-Two properties matter and are what the shape below is for:
-
-  * a token is only valid against the control plane that issued it, so records are keyed by API URL.
-    A prod session must never be presented to a sandbox, and a developer switching environments must
-    not silently reuse the wrong identity.
-  * the file holds bearer tokens, so it is created 0600 inside a 0700 directory and is never written
-    in place -- a partial write would otherwise leave a truncated token that reads as a bad session.
+Records are keyed by control-plane URL: a token is only valid against the one that issued it, and a
+prod session must never reach a sandbox. The file holds bearer tokens, so it is 0600 inside a 0700
+directory and replaced atomically. Nothing here is long-lived; an API key is that.
 """
 
 from __future__ import annotations
@@ -26,14 +17,11 @@ from typing import Any, Optional
 
 from pixeltable.config import Config
 
-# Refresh this long before the token actually expires, so a command that takes a moment to reach the
-# control plane does not arrive with a token that died in flight.
+# Refresh this early, so a token cannot die in flight.
 EXPIRY_SKEW_S = 60.0
 
-# How long a sign-in lasts before the browser is needed again, counted from `pxt login` and not reset
-# by renewal. The token WorkOS issues outlives this by hours; a credential sitting on a laptop is a
-# bearer token, and an unattended one should stop working the same day it was left behind. Anyone who
-# wants a credential that does not expire wants an API key, which is what those are.
+# How long a sign-in lasts before the browser is needed again, counted from `pxt login` rather than
+# from the last renewal. The token WorkOS issues outlives this by hours.
 MAX_SESSION_AGE_S = 3600.0
 
 _FILE_MODE = 0o600
@@ -45,23 +33,19 @@ class Session:
     """One signed-in identity, against one control plane."""
 
     access_token: str
-    expires_at: float  # epoch seconds, read from the token's own exp claim
-    # The renewable half. WorkOS does not hand out a raw refresh token: it returns a sealed session,
-    # which the dashboard normally keeps as a cookie. A CLI has no cookie jar, so it holds the blob
-    # and presents it to login_url to get a fresh access token.
+    expires_at: float  # epoch seconds, from the token's own exp claim
+    # The renewable half: WorkOS hands out no raw refresh token, only this sealed blob.
     sealed_session: Optional[str] = None
-    login_url: str = ''  # the dashboard that issued this session, and the only place it can be renewed
-    email: str = ''  # for `pxt whoami`; never load-bearing, the token is what authorizes
-    # When the browser sign-in happened. Carried through renewal unchanged, so renewing cannot walk
-    # the deadline forward -- otherwise a session in daily use would never end.
-    logged_in_at: float = 0.0
+    login_url: str = ''  # the dashboard that issued this session, and the only place it renews
+    email: str = ''  # for `pxt whoami`; never load-bearing
+    logged_in_at: float = 0.0  # unchanged by renewal, so the deadline cannot walk forward
 
     def expires_in(self, now: Optional[float] = None) -> float:
-        """Seconds left, negative once past expiry. Ignores the skew — that is a refresh decision."""
+        """Seconds left on the token, negative once past expiry."""
         return self.expires_at - (time.time() if now is None else now)
 
     def is_usable(self, now: Optional[float] = None) -> bool:
-        """Whether this token can still be sent. False inside the skew window, so callers refresh."""
+        """Whether this token can still be sent. False inside the skew window."""
         return self.expires_in(now) > EXPIRY_SKEW_S
 
     def can_refresh(self) -> bool:
@@ -72,9 +56,7 @@ class Session:
         return self.logged_in_at + MAX_SESSION_AGE_S - (time.time() if now is None else now)
 
     def is_expired(self, now: Optional[float] = None) -> bool:
-        """Whether this sign-in is too old to keep renewing. Records from before this field existed
-        carry logged_in_at == 0, which reads as expired: one re-login, rather than a session with no
-        deadline at all."""
+        """Whether this sign-in is too old to renew. A record predating logged_in_at reads as expired."""
         return self.session_expires_in(now) <= 0
 
 
@@ -89,7 +71,7 @@ def _read_all() -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError):
-        # A corrupt cache is not an error worth failing a command over: it means "not signed in".
+        # A corrupt cache means "not signed in", not a failed command.
         return {}
     return data if isinstance(data, dict) else {}
 
