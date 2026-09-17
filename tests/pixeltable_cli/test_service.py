@@ -1088,7 +1088,7 @@ class TestService:
         _db_update(cli, db_root)
         r = cli('service', 'update', str(two), target, '-f', '--port', '8123', check=False)
         assert r.returncode == 1
-        assert '--port names one port' in r.stderr, r.stderr
+        assert '--port takes one port' in r.stderr, r.stderr
         assert get_services(cli, target) == {}, 'a refused update started nothing'
 
         r = cli('service', 'update', str(two), target, 'third', '-f', check=False)

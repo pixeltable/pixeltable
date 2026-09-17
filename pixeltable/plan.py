@@ -410,13 +410,12 @@ class Planner:
         # the pre-compile copies and don't carry slot_idx).
         compiled = query._create_query_plan()
         plan: exec.ExecNode = compiled.exec_root
-
-        needs_cell_materialization = False
-        for col_name, expr in zip(compiled.select_list_schema.keys(), compiled.select_list_exprs):
-            assert col_name in tbl.cols_by_name
-            col = tbl.cols_by_name[col_name]
-            plan.row_builder.add_table_column(col, expr.slot_idx)
-            needs_cell_materialization = needs_cell_materialization or col.col_type.needs_cell_materialization()
+        output_cols = [tbl.cols_by_name.get(col_name) for col_name in compiled.select_list_schema]
+        assert all(col is not None for col in output_cols)
+        plan.row_builder.set_table_output(
+            tbl, expr_cols=[(col, e.slot_idx) for col, e in zip(output_cols, compiled.select_list_exprs)]
+        )
+        needs_cell_materialization = any(col.col_type.needs_cell_materialization() for col in output_cols)
 
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
@@ -534,9 +533,11 @@ class Planner:
         )
 
         # Register output columns with the row builder
-        plan.row_builder.add_table_columns(identity_cols)
-        for i, col in enumerate(evaluated_cols):
-            plan.row_builder.add_table_column(col, select_list[i].slot_idx)
+        plan.row_builder.set_table_output(
+            target,
+            identity_cols=identity_cols,
+            expr_cols=[(col, select_list[i].slot_idx) for i, col in enumerate(evaluated_cols)],
+        )
 
         plan = cls._add_cell_materialization_node(plan)
         plan = cls._add_save_node(plan)
@@ -738,7 +739,7 @@ class Planner:
         # Undo-col remapping expressions (eval_cols not in recomputed_cols) stay in sql_exprs.
         recomputed_expr_ids = {expr.id for col, expr in zip(eval_cols, eval_exprs) if col in recomputed_cols}
         sql_exprs = [e for e in all_sql_exprs if e.id not in recomputed_expr_ids]
-        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], sql_exprs, target)
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], sql_exprs)
         analyzer.finalize(row_builder)
 
         cell_md_col_refs = cls._cell_md_col_refs(sql_exprs)
@@ -761,9 +762,11 @@ class Planner:
 
         # Register output columns with the row builder
         row_builder.set_slot_idxs(select_list, remove_duplicates=False)
-        plan.row_builder.add_table_columns(identity_cols)
-        for i, col in enumerate(evaluated_cols):
-            plan.row_builder.add_table_column(col, select_list[i].slot_idx)
+        plan.row_builder.set_table_output(
+            target,
+            identity_cols=identity_cols,
+            expr_cols=[(col, select_list[i].slot_idx) for i, col in enumerate(evaluated_cols)],
+        )
         ctx = exec.ExecContext(row_builder)
         # TODO: correct batch size?
         ctx.batch_size = 0
@@ -817,8 +820,9 @@ class Planner:
             deleted_at_current_version=[view.tbl_version],
         )
         # Register output columns with the row builder
-        for i, col in enumerate(evaluated_cols):
-            plan.row_builder.add_table_column(col, select_list[i].slot_idx)
+        plan.row_builder.set_table_output(
+            target, expr_cols=[(col, select_list[i].slot_idx) for i, col in enumerate(evaluated_cols)]
+        )
         plan = cls._add_cell_materialization_node(plan)
         plan = cls._add_save_node(plan)
 
@@ -1038,14 +1042,6 @@ class Planner:
             order_by_clause=order_by_clause,
             sample_clause=sample_clause,
         )
-        # If the from_clause has a single table, we can use it as the context table for the RowBuilder.
-        # Otherwise there is no context table, but that's ok, because the context table is only needed for
-        # table mutations, which can't happen during a join.
-        context_tbl = (
-            from_clause.tbls[0].tbl_version.get()
-            if len(from_clause.tbls) == 1 and isinstance(from_clause.tbls[0], catalog.TableVersionPath)
-            else None
-        )
         # Component views with unstored iterator columns need their (stored, live-versioned) iterator args retargeted
         # to the instances this query uses. Resolve each view against the from-clause path it is reached through, so
         # a base table appearing at different versions in different join branches binds correctly per branch.
@@ -1055,7 +1051,7 @@ class Planner:
                 args = h.get().iterator_args_expr()
                 if args is not None:
                     iter_args[h.id] = args.retarget_path(p)
-        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], context_tbl, iter_args=iter_args)
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], iter_args=iter_args)
 
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected
