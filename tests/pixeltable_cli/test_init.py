@@ -63,12 +63,12 @@ class TestInit:
 
         r = cli('init', cwd=nested, check=False)
         assert r.returncode == 3
-        assert 'already holds a project configuration' in r.stderr
+        assert 'already has a project configuration' in r.stderr
         assert str(tmp_path) in r.stderr
         assert not (nested / 'pixeltable.toml').exists()
 
     def test_unusable_directory(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
-        """A directory whose name is not an identifier is reported when it holds Python files."""
+        """A directory whose name is not an identifier is reported when it contains Python files."""
         (tmp_path / 'ad gen').mkdir()
         (tmp_path / 'ad gen' / 'app.py').write_text('', encoding='utf-8')
         (tmp_path / 'plain').mkdir()
@@ -78,7 +78,7 @@ class TestInit:
 
         r = cli('init', cwd=tmp_path)
         assert r.returncode == 0
-        assert "'ad gen' holds Python files, but its name is not a Python identifier" in r.stderr
+        assert "'ad gen' contains Python files, but its name is not a Python identifier" in r.stderr
         assert 'plain' not in r.stderr
         assert 'raw data' not in r.stderr
         assert cli('init', '--json', cwd=tmp_path).json['unusable_dirs'] == ['ad gen']
