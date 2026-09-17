@@ -804,11 +804,19 @@ All cloud commands accept `--json` for machine-readable output.
 
 #### `[[pixeltable.database]]` — what a project declares about one database
 
-Defines which project files the database gets, what its image holds, and what it runs on.
+Defines which project files the database gets, what its image contains, what it runs on, where its media goes, and where and how it exports telemetry.
 
 ```toml
 [[pixeltable.database]]
 name = 'pxt://myorg:prod'           # matches the uri passed to pxt db update
+
+# where media that names no destination goes (default: the database's home bucket)
+db_input_media_dest = 's3://bucket/input/'
+db_output_media_dest = 's3://bucket/output/'
+
+# the OpenTelemetry exporter; set its auth headers with pxt secret set
+db_exporter_otlp_endpoint = 'https://otlp.example.com'
+db_exporter_otlp_protocol = 'http/protobuf'  # or 'grpc'
 
 # which project files the database gets. Glob patterns relative to the project root; everything git
 # would not ignore is uploaded by default, and the lockfile always is. Patterns use git wildmatch, so
@@ -869,7 +877,7 @@ pxt db update pxt://myorg:mydb
 
 The uri on the command line selects the entry by its `name`: an entry naming another database configures that one, and a target no entry names is an error. The first run creates the database, builds the image its environment describes and uploads the project files the pods run; every later run applies whatever has changed since. The [cloud configuration reference](#cloud-configuration-reference) lists everything an entry can declare.
 
-`update` applies a new image if dependencies changed, then uploaded project files if sources changed, then one resize for any changed CPU, memory, disk, or worker counts so the pods restart only once. Secrets are set with [`pxt secret`](#pxt-secret) rather than from the project.
+`update` applies a new image if dependencies changed, then uploaded project files if sources changed, then one resize for any changed CPU, memory, disk, or worker counts so the pods restart only once. Secrets are set with [`pxt secret`](#pxt-secret) rather than from the project. The media destinations and the OTLP endpoint and protocol travel with the project files, which always include the project configuration.
 
 #### `pxt db list`
 

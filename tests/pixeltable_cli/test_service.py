@@ -56,6 +56,9 @@ __all__ = ['current_db', 'project']  # fixtures TestHostedService reaches, direc
 
 _REQUEST_TIMEOUT = 30.0
 
+# where the cloud axis's database entry sends inserted media, under its home bucket
+_INPUT_MEDIA_PREFIX = 'entry-input'
+
 
 @pytest.fixture(scope='module')
 def hosted_db(session_cli: PxtRunner, session_project: pathlib.Path) -> Iterator[str]:
@@ -83,8 +86,11 @@ def cloud_db_uri(
     copy_app_corpus(session_project)
     write_requirements(session_project, pixeltable_wheel, *PROJECT_EXTRAS)
     with disposable_db_uri(session_cli, session_project) as uri:
+        # the entry sends inserted media under a prefix of the home bucket
         (session_project / 'pixeltable.toml').write_text(
-            f'[[pixeltable.database]]\nname = {json.dumps(uri)}\n', encoding='utf-8'
+            f'[[pixeltable.database]]\nname = {json.dumps(uri)}\n'
+            f'db_input_media_dest = {json.dumps(f"{home_bucket_uri(uri)}/{_INPUT_MEDIA_PREFIX}/")}\n',
+            encoding='utf-8',
         )
         # the daemon read the project config when it started
         session_cli('daemon', 'restart', cwd=session_project)
@@ -692,6 +698,14 @@ class TestService:
         body = resp.json()
         assert body['clip_id'] == 1, body
         assert pxt.get_table(f'{target}/frames').count() > 0
+        # the uploaded video is persisted where the database's entry sends inserted media for a hosted table, in
+        # the media dir for a local one
+        clips = pxt.get_table(f'{target}/clips')
+        video_url = clips.select(clips.video.fileurl).collect()['video_fileurl'][0]
+        expected_prefix = (
+            f'{home_bucket_uri(db_root.prefix)}/{_INPUT_MEDIA_PREFIX}/' if db_root.id == 'cloud' else 'file://'
+        )
+        assert video_url.startswith(expected_prefix), video_url
         # the persisted poster comes back as a url
         assert_image_bytes(_fetch_media(body['poster'], db_root))
         # so does media a query makes on the fly, which no row stores

@@ -56,7 +56,8 @@ def init(
 
     Call once, before the first Pixeltable operation. Each argument overrides the matching `[otel]`
     config setting and its standard `OTEL_*` environment variable; when an argument is left as None the
-    value resolves from that env var (highest priority) then the `[otel]` config section. Pass
+    value resolves from the database's `[[pixeltable.database]]` entry where it sets one (the endpoint and
+    protocol, as `db_<key>`), then that env var, then the `[otel]` config section. Pass
     `tracer_provider`/`meter_provider` to instrument against an SDK your application owns instead.
 
     Args:

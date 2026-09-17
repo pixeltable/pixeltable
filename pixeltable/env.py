@@ -237,12 +237,15 @@ class Env:
         return os.environ.get('PIXELTABLE_PROXY_DAEMON') == '1'
 
     @overload
-    def hosted_db(self, *, required: Literal[True]) -> tuple[str, str]: ...
+    @classmethod
+    def hosted_db(cls, *, required: Literal[True]) -> tuple[str, str]: ...
 
     @overload
-    def hosted_db(self, *, required: bool = False) -> tuple[str, str] | None: ...
+    @classmethod
+    def hosted_db(cls, *, required: bool = False) -> tuple[str, str] | None: ...
 
-    def hosted_db(self, *, required: bool = False) -> tuple[str, str] | None:
+    @classmethod
+    def hosted_db(cls, *, required: bool = False) -> tuple[str, str] | None:
         """(org, db) of the hosted database; the cloud sets PXTCLOUD_ORG and PXTCLOUD_DB on its pods."""
         org = os.environ.get('PXTCLOUD_ORG')
         db = os.environ.get('PXTCLOUD_DB')
