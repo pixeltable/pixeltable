@@ -63,9 +63,7 @@ if __name__ == '__main__':
     parser.add_argument('--name', required=True, help='the service to serve')
     parser.add_argument('--base-path', default='')
     parser.add_argument('--project-dir', type=Path, required=True, help='directory that holds the project contents')
-    parser.add_argument(
-        '--project-fingerprint', type=Path, required=True, help='fingerprint of the project contents'
-    )
+    parser.add_argument('--project-fingerprint', type=Path, required=True, help='fingerprint of the project contents')
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--otel', action='store_true')
