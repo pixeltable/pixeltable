@@ -1,9 +1,10 @@
-"""`pxt org {create,list,status} [<uri>]` - manage organizations."""
+"""`pxt org {create,use,list,status} [<uri>]` - manage organizations."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 
 from pixeltable.service import auth
 from pixeltable.service.management_client import api_url
@@ -16,6 +17,7 @@ EPILOG = """\
 Examples:
   pxt org create acme
   pxt org create acme --name "Acme Inc"
+  pxt org use acme
   pxt org list
   pxt org status
   pxt org status pxt://org
@@ -32,6 +34,9 @@ def run(argv: list[str]) -> None:
     p.add_argument('--location', help="e.g. 'aws/us-east-1'")
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
+    p = sub.add_parser('use', help='work in this organization from now on')
+    p.add_argument('org', metavar='NAME', help='Organization to work in')
+
     p = sub.add_parser('list', help='list organizations accessible to the current API key')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
@@ -43,6 +48,8 @@ def run(argv: list[str]) -> None:
 
     if args.action == 'create':
         _create(args)
+    elif args.action == 'use':
+        _use(args)
     elif args.action == 'list':
         _list(args)
     elif args.action == 'status':
@@ -50,28 +57,34 @@ def run(argv: list[str]) -> None:
 
 
 def _create(args: argparse.Namespace) -> None:
-    """Create the organization, then put it on this machine's session.
-
-    A token minted before the organization existed carries no claim for it, so nothing else would
-    work until the next sign-in. Re-minting here is what makes `pxt db list` work on the next line.
-    """
+    """Create the organization. Which one you are working in is `pxt org use`."""
     body = {'org_slug': args.org, 'display_name': args.display_name, 'location': args.location}
     resp = post_request('/api/orgs', {k: v for k, v in body.items() if v is not None})
     record = resp if isinstance(resp, dict) else {}
-
-    org_id = str(record.get('org_id') or '')
-    if org_id:
-        try:
-            auth.authorize_org(api_url(), org_id)
-        except auth.AuthError:
-            # The organization exists either way; only this machine's session is behind, and the
-            # next `pxt login` fixes it. Saying it failed would suggest otherwise.
-            print('Created, but this session could not be updated. Run `pxt login` again.')
 
     if args.json_output:
         print(json.dumps(record))
         return
     print(f'{record.get("org_slug", args.org)}  (database {record.get("default_db_slug", "main")})')
+    print(f'Run `pxt org use {record.get("org_slug", args.org)}` to work in it.')
+
+
+def _use(args: argparse.Namespace) -> None:
+    """Point this machine's session at one organization.
+
+    The control plane authorizes from the token's own org claim, so switching means getting a new
+    token rather than recording a preference.
+    """
+    resp = get_request('/api/orgs')
+    orgs = resp.get('orgs', []) if isinstance(resp, dict) else []
+    match = next((o for o in orgs if o.get('org') == args.org), None)
+    if match is None:
+        names = ', '.join(sorted(str(o.get('org')) for o in orgs)) or 'none'
+        print(f'pxt org use: error: no organization named {args.org!r}. Yours: {names}', file=sys.stderr)
+        sys.exit(1)
+
+    auth.authorize_org(api_url(), str(match['org_id']))
+    print(f'Working in {args.org}.')
 
 
 def _list(args: argparse.Namespace) -> None:
