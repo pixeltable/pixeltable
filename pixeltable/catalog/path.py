@@ -81,6 +81,13 @@ class Path:
         else:
             path_part = normalized
 
+        # 'buckets' at the root addresses object storage, not the catalog. Refused here, before the
+        # ':version' and '.' handling below, both of which would mangle a real object key.
+        #
+        # Reserved at depth 1 only, so pxt://org:db/mydir/buckets stays a legal catalog path.
+        if path_part == 'buckets' or path_part.startswith('buckets/'):
+            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'{path!r} is a storage path, not a catalog path')
+
         # Extract the trailing :version, if present.
         version: int | None = None
         if ':' in path_part:
