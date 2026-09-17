@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -55,11 +56,14 @@ def _request(url: str, data: Optional[bytes] = None, content_type: str = '') -> 
         with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
             body = resp.read()
         try:
-            return json.loads(body)
+            payload = json.loads(body)
         except ValueError as e:
             # A 200 that is not JSON means something other than what we asked for answered -- an
             # environment too old to serve this, or a proxy in front of it.
             raise AuthError(f'{url} did not answer with JSON; is this environment up to date?') from e
+        if not isinstance(payload, dict):
+            raise AuthError(f'{url} answered with {type(payload).__name__}, not an object')
+        return payload
     except urllib.error.HTTPError as e:
         try:
             payload = json.loads(e.read().decode())
@@ -136,10 +140,11 @@ def device_login(api_url: str, open_browser: bool = True) -> Session:
     if not (user_code and device_code and verify):
         raise AuthError('WorkOS did not return a device code')
 
-    print(f'Your code is {user_code}')
-    print(f'Confirm it at {verify}')
+    # stderr, not stdout: this is progress, and `pxt login --json` promises a parseable document.
+    print(f'Your code is {user_code}', file=sys.stderr)
+    print(f'Confirm it at {verify}', file=sys.stderr)
     if open_browser and not webbrowser.open(verify):
-        print('Could not open a browser; open the link above.')
+        print('Could not open a browser; open the link above.', file=sys.stderr)
 
     payload = _poll_for_approval(
         device_code, client_id, _number(start, 'expires_in', 300.0), _number(start, 'interval', 5.0)
@@ -156,8 +161,15 @@ def _poll_for_approval(device_code: str, client_id: str, expires_in: float, inte
     back off rather than give up.
     """
     deadline = time.time() + min(expires_in, _LOGIN_TIMEOUT_S)
-    while time.time() < deadline:
-        time.sleep(interval)
+    while True:
+        # Slept only as long as there is deadline left, and rechecked after: sleeping past expiry
+        # and asking anyway spends a request the server has already stopped honouring.
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            break
+        time.sleep(min(interval, remaining))
+        if time.time() >= deadline:
+            break
         try:
             return _post_form(
                 _TOKEN_PATH, {'grant_type': _DEVICE_GRANT, 'device_code': device_code, 'client_id': client_id}
@@ -166,7 +178,8 @@ def _poll_for_approval(device_code: str, client_id: str, expires_in: float, inte
             if e.code == 'authorization_pending':
                 continue
             if e.code == 'slow_down':
-                interval += 1.0
+                # Five, per RFC 8628: less than that keeps polling faster than the server allows.
+                interval += 5.0
                 continue
             if e.code == 'access_denied':
                 raise AuthError('the sign-in was refused in the browser') from e

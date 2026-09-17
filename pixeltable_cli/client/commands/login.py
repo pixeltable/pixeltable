@@ -106,5 +106,9 @@ def _login(args: argparse.Namespace) -> None:
         # Signing in proves who you are; it does not give you anywhere to work. The control plane
         # refuses a token with no organization on every operation but creating one, so say that here
         # rather than let the next command fail as an authorization error.
-        dashboard = str(auth.auth_config(url).get('login_url') or 'the dashboard')
+        try:
+            dashboard = str(auth.auth_config(url).get('login_url') or 'the dashboard')
+        except AuthError:
+            # The session is already saved. Failing here would report a login that worked as broken.
+            dashboard = 'the dashboard'
         print(f'No organization yet — create one at {dashboard} before running other commands.')
