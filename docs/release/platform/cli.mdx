@@ -39,7 +39,7 @@ Use `pxt <command> --help` for per-subcommand flags and examples.
 | **Schema** | `schema diff`, `schema update`, `schema prune` |
 | **Interactive** | `shell` |
 | **Serving** | `service` |
-| **Cloud** | `db`, `secret`, `org` |
+| **Cloud** | `login`, `logout`, `whoami`, `db`, `secret`, `org` |
 | **Lifecycle** | `daemon`, `dashboard`, `health` |
 
 ### Universal flags
@@ -113,6 +113,11 @@ pxt service diff   app.py my_app     # what 'update' would change (exit 2 = drif
 pxt service update app.py my_app     # start them, restarting what changed
 pxt service list                     # what is running, and where
 pxt service logs my_app/ingest       # what a service logged; pxt://myorg:mydb/my_app/ingest for a hosted one
+
+# cloud — signing in
+pxt login                        # approve a code in a browser; no API key needed
+pxt whoami                       # who this machine is signed in as, and which credential it sends
+pxt logout                       # forget this device's cached session
 
 # cloud — databases
 pxt db update pxt://myorg:mydb   # create the database, or bring it up to what the project declares
@@ -675,6 +680,44 @@ app.include_router(ingest, prefix='/v1')   # ingest's routes are served under /v
 A router not included in `app` would never be served, and in that situation `pxt service` returns with an error.
 The routes of an included `FastAPIRouter` are diffed by their declarations (i.e., they take the data types of path
 parameters into account); the paths the application serves itself are simply diffed as path strings.
+
+### Signing in
+
+Hosted commands need a credential. There are two, and you need one of them.
+
+```bash
+pxt login
+```
+
+`pxt login` prints a code and opens a browser. Approve it there — signing in, or signing up if you
+have no account — and the session lands on this machine. It uses the OAuth device grant, so nothing
+listens on a port and the browser need not be on this machine: this works over SSH.
+
+```bash
+pxt whoami
+you@example.com on https://internal-api.pixeltable.com — sign in again in 46m
+```
+
+A sign-in lasts an hour, counted from `pxt login` and not reset by renewal, so a session left on a
+laptop stops working the same day. Within that hour it renews silently, and a command already
+running is never cut off partway.
+
+```bash
+pxt logout
+```
+
+`pxt logout` forgets this device's cached session. It does not sign out the browser.
+
+<Note>
+An **API key** takes precedence over a sign-in whenever both are present — it is the explicit
+choice, and what CI runs on. Set one with `PIXELTABLE_API_KEY`, or `api_key` in the `[pixeltable]`
+section of your Pixeltable config file. Unlike a sign-in, it does not expire. `pxt whoami` says
+which one your commands will actually send.
+</Note>
+
+Signing in proves who you are; it does not give you an organization. A brand-new account has none,
+and every hosted command needs one, so `pxt login` says so rather than letting the next command
+fail as an authorization error.
 
 ### Hosted targets
 
