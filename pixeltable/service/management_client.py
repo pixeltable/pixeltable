@@ -7,14 +7,13 @@ from __future__ import annotations
 
 import http.cookiejar
 import os
-from typing import Any
+from typing import Any, Optional
 
 import requests
 from requests.adapters import HTTPAdapter, Retry
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
-from pixeltable.env import Env
 from pixeltable.service import auth, credentials
 from pixeltable.service.management_protocol import ManagementOperationType
 
@@ -72,6 +71,15 @@ _SESSION = _new_session()
 _SIGN_IN_AGAIN = 'Run `pxt login` again, or set an API key.'
 
 
+def _api_key() -> Optional[str]:
+    """The configured API key, read without standing up an Env.
+
+    Env.get() initialises the local database, which signing in has no use for: `pxt login` should
+    not start postgres to read a string out of the config file.
+    """
+    return Config.get().get_string_value('api_key')
+
+
 def credential(purpose: str) -> str:
     """The credential to present for `purpose`: an API key if one is set, else a `pxt login` session.
 
@@ -79,7 +87,7 @@ def credential(purpose: str) -> str:
     returned bare because consumers send it differently -- a header here, a CONNECT frame in the
     tunnel -- and because both ends tell the two apart by shape.
     """
-    api_key = Env.get().pxt_api_key
+    api_key = _api_key()
     if api_key is not None:
         return api_key
     try:
@@ -121,7 +129,7 @@ def credential_source() -> tuple[str, str]:
     """Which credential this client will send, and where it came from. For `pxt whoami` and errors."""
     if os.environ.get('PIXELTABLE_API_KEY'):
         return 'api_key', 'the PIXELTABLE_API_KEY environment variable'
-    if Env.get().pxt_api_key is not None:
+    if _api_key() is not None:
         return 'api_key', f'api_key in {Config.get().config_file}'
     if credentials.load(api_url()) is not None:
         return 'session', f'your `pxt login` session for {api_url()}'
@@ -137,8 +145,11 @@ def _raise_unauthorized(resp: Any) -> None:
         if kind == 'api_key'
         else f'Your Pixeltable session was rejected ({detail}). {_SIGN_IN_AGAIN}'
     )
+    # PROVIDER_AUTH_ERROR, not PROVIDER_ERROR: a refused credential is not retryable, and retrying
+    # one only delays the error. A 401 is always the control plane's own decision -- it answers 503,
+    # never 401, when WorkOS is the thing that could not be reached.
     raise excs.ExternalServiceError(
-        excs.ErrorCode.PROVIDER_ERROR, message, provider='pixeltable_cloud', status_code=resp.status_code
+        excs.ErrorCode.PROVIDER_AUTH_ERROR, message, provider='pixeltable_cloud', status_code=resp.status_code
     )
 
 
