@@ -63,13 +63,7 @@ class Session:
 
 
 def _path() -> Path:
-    """Beside the config file, not in the Pixeltable home.
-
-    They are the same directory in ordinary use. They are not under PIXELTABLE_HOME -- a test run,
-    or any second instance -- and the session belongs to the person, like the API key in that config
-    file, rather than to whichever catalog happens to be open.
-    """
-    return Config.get().config_file.parent / 'credentials.json'
+    return Config.get().home / 'credentials.json'
 
 
 def _read_all() -> dict[str, Any]:

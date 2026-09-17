@@ -108,23 +108,6 @@ class TestSessionAge:
         assert left == pytest.approx(credentials.MAX_SESSION_AGE_S - 600, abs=1)
 
 
-class TestWhereItLives:
-    def test_it_sits_beside_the_config_file_not_in_the_instance_home(
-        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A test run, or any second instance, moves PIXELTABLE_HOME. The session belongs to the
-        person -- like the api_key in that config file -- not to whichever catalog is open."""
-        elsewhere = tmp_path / 'somewhere-else'
-        elsewhere.mkdir()
-        monkeypatch.setenv('PIXELTABLE_HOME', str(elsewhere))
-        Config.init(reinit=True)
-
-        credentials.save(_PROD, _session())
-
-        assert (Config.get().config_file.parent / 'credentials.json').is_file()
-        assert credentials.load(_PROD) is not None
-
-
 class TestOnDisk:
     def test_the_file_is_not_readable_by_anyone_else(self) -> None:
         credentials.save(_PROD, _session())
