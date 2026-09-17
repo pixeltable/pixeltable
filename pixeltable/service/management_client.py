@@ -69,8 +69,7 @@ def _new_session() -> requests.Session:
 _SESSION = _new_session()
 
 
-# One line for every way a session can fail: the fix is the same either way.
-_SESSION_FAILED = 'Your Pixeltable session may have expired. Run `pxt login` again, or set an API key.'
+_SIGN_IN_AGAIN = 'Run `pxt login` again, or set an API key.'
 
 
 def credential(purpose: str) -> str:
@@ -86,7 +85,16 @@ def credential(purpose: str) -> str:
     try:
         token = auth.access_token(api_url())
     except auth.AuthError as e:
-        raise excs.AuthorizationError(excs.ErrorCode.MISSING_CREDENTIALS, _SESSION_FAILED) from e
+        # Whether the sign-in is over is knowable here, from the cache and from what WorkOS said.
+        # Everything else -- a name that will not resolve, a provider having a bad day -- is reported
+        # as itself: telling someone to sign in again does not fix a network they cannot reach.
+        if e.code == auth.SESSION_EXPIRED:
+            detail = f'Your Pixeltable sign-in is over: {e}. {_SIGN_IN_AGAIN}'
+        elif e.code in auth.NEEDS_SIGN_IN:
+            detail = f'Your Pixeltable session was rejected ({e}). {_SIGN_IN_AGAIN}'
+        else:
+            detail = f'Could not use your Pixeltable session: {e}.'
+        raise excs.AuthorizationError(excs.ErrorCode.MISSING_CREDENTIALS, detail) from e
     if token is None:
         # Nothing is set up yet, so this is the one message that spells both ways out in full.
         raise excs.AuthorizationError(
@@ -124,7 +132,11 @@ def _raise_unauthorized(resp: Any) -> None:
     """Report a 401 naming the credential that was sent, so the reader knows where to look."""
     kind, where = credential_source()
     detail = resp.text.strip()
-    message = f'The API key from {where} was rejected ({detail}).' if kind == 'api_key' else _SESSION_FAILED
+    message = (
+        f'The API key from {where} was rejected ({detail}).'
+        if kind == 'api_key'
+        else f'Your Pixeltable session was rejected ({detail}). {_SIGN_IN_AGAIN}'
+    )
     raise excs.ExternalServiceError(
         excs.ErrorCode.PROVIDER_ERROR, message, provider='pixeltable_cloud', status_code=resp.status_code
     )
