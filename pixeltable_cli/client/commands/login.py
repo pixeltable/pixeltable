@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import webbrowser
 
 from pixeltable.service import auth, credentials, management_client
 from pixeltable.service.auth import AuthError
@@ -56,6 +57,14 @@ def run_logout(argv: list[str]) -> None:
         print(f'Signed out of {url}.')
     else:
         print('Not signed in.')
+
+    # The browser keeps a sign-in of its own, and while it has one the next `pxt login` confirms the
+    # code without ever asking who you are. Offered rather than done: it also signs that browser out
+    # of the dashboard, and of every other environment sharing the same sign-in.
+    browser = auth.browser_logout_url(url)
+    if browser and sys.stdin.isatty() and input('Also sign out of the browser? [y/N] ').strip().lower() in ('y', 'yes'):
+        print(f'Opening {browser}')
+        webbrowser.open(browser)
 
 
 def run_whoami(argv: list[str]) -> None:

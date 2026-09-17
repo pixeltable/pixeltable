@@ -242,6 +242,19 @@ def access_token(api_url: str) -> Optional[str]:
     return refresh(api_url, session).access_token
 
 
+def browser_logout_url(api_url: str) -> str:
+    """Where to send a browser to end its own sign-in. Empty when this environment names no dashboard.
+
+    The browser holds a different session from the CLI's, and only it can clear that one -- which is
+    what decides whether the next sign-in asks who you are.
+    """
+    try:
+        dashboard = str(auth_config(api_url).get('login_url') or '')
+    except AuthError:
+        return ''
+    return f'{dashboard.rstrip("/")}/api/auth/logout' if dashboard else ''
+
+
 def authorize_org(api_url: str, org_id: str) -> Session:
     """Re-mint the cached session scoped to `org_id`. For an account that has just acquired one."""
     session = credentials.load(api_url)

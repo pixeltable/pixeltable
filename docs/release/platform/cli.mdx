@@ -706,7 +706,10 @@ running is never cut off partway.
 pxt logout
 ```
 
-`pxt logout` forgets this device's cached session. It does not sign out the browser.
+`pxt logout` forgets this device's cached session, then offers to sign the browser out as well.
+Take that if you want the next `pxt login` to ask who you are — a browser that is still signed in
+confirms the code without naming an account. It signs that browser out of the dashboard too, and of
+every other environment sharing the same sign-in.
 
 <Note>
 An **API key** takes precedence over a sign-in whenever both are present — it is the explicit
