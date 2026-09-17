@@ -163,7 +163,7 @@ def start(db: str, test_mode: bool = False) -> str:
         argv.append('--test')
     project_root = Config.get().project_root
     if project_root is not None:
-        argv += ['--project-root', str(project_root)]
+        argv += ['--project-dir', str(project_root)]
     with open(log_file_path, 'a', encoding='utf-8') as log_file:
         proc = subprocess.Popen(
             argv, env=env, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True
@@ -397,16 +397,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument('--host', default=None, help='listen address; either flag serves without a lock file')
     parser.add_argument('--port', type=int, default=None, help='listen port; either flag serves without a lock file')
     parsed = parser.parse_args(argv)
-    project_dir = parsed.project_dir
-    if project_dir is not None and not project_dir.is_dir():
-        # a hosted pod is given the path its init container unpacks into, which does not exist until
-        # `pxt db update` first gives the database a project; serve the catalog without one, and a
-        # request that needs a udf from it says so
-        logging.getLogger('pixeltable').warning(
-            'no project at %s; udfs the database defines cannot be resolved', project_dir
+    if parsed.project_dir is not None and not parsed.project_dir.is_dir():
+        raise excs.InternalError(
+            excs.ErrorCode.INTERNAL_ERROR, f'--project-dir {parsed.project_dir} does not exist or is not a directory'
         )
-        project_dir = None
-    Config.init(reinit=True, project_root=project_dir)
+    Config.init(reinit=True, project_root=parsed.project_dir)
     _serve(test_mode=parsed.test, host=parsed.host, port=parsed.port)
 
 

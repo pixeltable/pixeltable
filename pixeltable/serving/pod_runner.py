@@ -37,9 +37,9 @@ def _serve(
     import uvicorn
 
     if not project_dir.is_dir():
-        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'{db_uri} has no project to serve {service_name} from')
+        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'no project was unpacked at {project_dir}')
     if not fingerprint_file.is_file():
-        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'{db_uri} served an archive without a fingerprint')
+        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'{db_uri} has no project to serve {service_name} from')
     fingerprint = ProjectFingerprint.model_validate_json(fingerprint_file.read_text(encoding='utf-8'))
     # the unpacked project is this process's project root, so its modules and its database entry resolve
     Config.init(reinit=True, project_root=project_dir)
@@ -66,7 +66,7 @@ if __name__ == '__main__':
     parser.add_argument('--app-file', required=True, help='path to the application file, from the project root')
     parser.add_argument('--name', required=True, help='the service to serve')
     parser.add_argument('--base-path', default='')
-    parser.add_argument('--project-root', type=Path, required=True, help='where fetch_archive unpacked the project')
+    parser.add_argument('--project-dir', type=Path, required=True, help='where fetch_archive unpacked the project')
     parser.add_argument(
         '--project-fingerprint', type=Path, required=True, help='the fingerprint fetch_archive recorded'
     )
@@ -79,7 +79,7 @@ if __name__ == '__main__':
         args.app_file,
         args.name,
         args.base_path,
-        args.project_root,
+        args.project_dir,
         args.project_fingerprint,
         args.host,
         args.port,
