@@ -85,6 +85,7 @@ def run_whoami(argv: list[str]) -> None:
     record = {
         'api_url': url,
         'email': session.email if session else '',
+        'organization_id': session.organization_id if session else '',
         'expires_in_s': int(session.session_expires_in()) if session else None,
         'using': kind,
         'credential_source': where,
@@ -98,9 +99,15 @@ def run_whoami(argv: list[str]) -> None:
         left = session.session_expires_in()
         state = 'expired, run `pxt login`' if left <= 0 else f'sign in again in {int(left // 60)}m'
         print(f'{session.email or "(unknown)"} on {url} — {state}')
+        print(_org_line(session))
     if kind == 'api_key':
         note = ' An API key always takes precedence over a sign-in.' if session is not None else ''
         print(f'Commands use the API key from {where}.{note}')
+
+
+def _org_line(session: credentials.Session) -> str:
+    """Which organization the token is scoped to. Two sign-ins differ by this, not by email."""
+    return f'Organization: {session.organization_id or "(none)"}'
 
 
 def _login(args: argparse.Namespace) -> None:
@@ -111,3 +118,4 @@ def _login(args: argparse.Namespace) -> None:
         print(json.dumps({'api_url': url, 'email': session.email, 'organization_id': session.organization_id}))
         return
     print(f'Signed in as {session.email or "(unknown)"} on {url}.')
+    print(_org_line(session))

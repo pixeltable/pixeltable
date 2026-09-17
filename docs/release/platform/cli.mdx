@@ -734,16 +734,8 @@ pxt org create acme --name "Acme Inc"
 Creates the organization, its first database and its storage in one call. The slug is the namespace
 `pxt://acme:main` refers to, and it must be unique across Pixeltable.
 
-Creating one does not move you into it — `gcloud projects create` does not change your project
-either:
-
-```bash
-pxt org use acme
-```
-
-That is what decides which organization commands act on when they do not name one. `pxt login` never
-changes it: signing in says who you are, not what you are working on. `pxt org list` shows the ones
-you can reach.
+Creating one does not move you into it. Name the organization in the URI — `pxt://acme:main` — and
+`pxt org list` shows the ones you can reach.
 
 ### Hosted targets
 
@@ -1018,8 +1010,7 @@ delete followed by an `update` as a new deployment rather than a reset.
 
 ### `pxt org`
 
-#### `pxt org use acme                 # work in this org; `pxt login` never changes it
-pxt org list`
+#### `pxt org list`
 
 ```bash
 pxt org list
