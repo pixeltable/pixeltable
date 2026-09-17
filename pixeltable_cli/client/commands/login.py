@@ -59,11 +59,11 @@ def run_logout(argv: list[str]) -> None:
         print('Not signed in.')
 
     # The browser keeps a sign-in of its own, and while it has one the next `pxt login` confirms the
-    # code without ever asking who you are. Offered rather than done: it also signs that browser out
-    # of the dashboard, and of every other environment sharing the same sign-in.
+    # code without ever asking who you are. Signing out of one without the other is the state that
+    # confuses people, so both go together.
     browser = auth.browser_logout_url(url)
-    if browser and sys.stdin.isatty() and input('Also sign out of the browser? [y/N] ').strip().lower() in ('y', 'yes'):
-        print(f'Opening {browser}')
+    if browser:
+        print(f'Signing out of the browser at {browser}')
         webbrowser.open(browser)
 
 

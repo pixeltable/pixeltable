@@ -84,14 +84,11 @@ class TestLogout:
 
         assert capsys.readouterr().out.strip() == 'Not signed in.'
 
-    def test_it_offers_to_end_the_browsers_sign_in_too(
+    def test_it_ends_the_browsers_sign_in_too(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
-        """Clearing this device leaves the browser signed in, and that is what decides who the next
-        `pxt login` becomes."""
+        """Signing out of one without the other is the state that confuses people."""
         _signed_in()
-        monkeypatch.setattr('pixeltable_cli.client.commands.login.sys.stdin.isatty', lambda: True)
-        monkeypatch.setattr('builtins.input', lambda _prompt: 'y')
         monkeypatch.setattr(auth, 'browser_logout_url', lambda _url: 'https://dash.example.com/api/auth/logout')
         opened: list[str] = []
         monkeypatch.setattr('pixeltable_cli.client.commands.login.webbrowser.open', lambda u: opened.append(u))
@@ -99,28 +96,14 @@ class TestLogout:
         cmd.run_logout([])
 
         assert opened == ['https://dash.example.com/api/auth/logout']
+        assert credentials.load(_API) is None
 
-    def test_declining_leaves_the_browser_alone(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
-    ) -> None:
+    def test_an_environment_naming_no_dashboard_still_clears_this_device(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _signed_in()
-        monkeypatch.setattr('pixeltable_cli.client.commands.login.sys.stdin.isatty', lambda: True)
-        monkeypatch.setattr('builtins.input', lambda _prompt: '')
-        monkeypatch.setattr(auth, 'browser_logout_url', lambda _url: 'https://dash.example.com/api/auth/logout')
-        opened: list[str] = []
-        monkeypatch.setattr('pixeltable_cli.client.commands.login.webbrowser.open', lambda u: opened.append(u))
-
-        cmd.run_logout([])
-
-        assert opened == []
-        assert credentials.load(_API) is None  # the local half happens either way
-
-    def test_a_script_is_never_asked(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """No TTY, no prompt: a pipeline must not block on a question nobody can answer."""
-        _signed_in()
-        monkeypatch.setattr('pixeltable_cli.client.commands.login.sys.stdin.isatty', lambda: False)
-        monkeypatch.setattr('builtins.input', lambda _p: pytest.fail('prompted without a terminal'))
-        monkeypatch.setattr(auth, 'browser_logout_url', lambda _url: 'https://dash.example.com/api/auth/logout')
+        monkeypatch.setattr(auth, 'browser_logout_url', lambda _url: '')
+        monkeypatch.setattr(
+            'pixeltable_cli.client.commands.login.webbrowser.open', lambda _u: pytest.fail('opened nothing')
+        )
 
         cmd.run_logout([])
 
