@@ -39,6 +39,9 @@ COMMANDS: dict[str, str] = {
     ),
     'org': 'manage organizations (list/status)',
     'secret': "manage an org's or a database's secrets (list/set/delete)",
+    'login': 'sign in to Pixeltable Cloud in a browser (no API key needed)',
+    'logout': 'forget the cached session',
+    'whoami': 'show who this machine is signed in as',
 }
 
 

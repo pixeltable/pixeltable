@@ -12,9 +12,7 @@ from typing import Literal
 import requests
 
 from pixeltable import exceptions as excs
-from pixeltable.config import Config
-from pixeltable.env import Env
-from pixeltable.service.management_client import api_url
+from pixeltable.service.management_client import api_url, credential_header
 from pixeltable.service.pxtfs_protocol import (
     GetBucketCredentialsRequest,
     GetBucketCredentialsResponse,
@@ -24,18 +22,12 @@ from pixeltable.service.pxtfs_protocol import (
 
 
 def _api_headers() -> dict[str, str]:
-    headers = {'Content-Type': 'application/json'}
-    api_key = Env.get().pxt_api_key
-    if api_key is None:
-        raise excs.AuthorizationError(
-            excs.ErrorCode.MISSING_CREDENTIALS,
-            'A Pixeltable API key is required for home bucket access. '
-            'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
-            f'or add `api_key = "your-key"` to the `[pixeltable]` section in {Config.get().config_file}.\n'
-            'For details, see https://docs.pixeltable.com/platform/configuration',
-        )
-    headers['X-api-key'] = api_key
-    return headers
+    """Credentials for a home-bucket call: an API key if set, otherwise the `pxt login` session.
+
+    A pod always has the key -- it is mounted as PIXELTABLE_API_KEY -- so the session branch is for
+    a person running the SDK against hosted media from their own machine.
+    """
+    return {'Content-Type': 'application/json', **credential_header('reach the home bucket')}
 
 
 def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str | None = None) -> GetBucketCredentialsResponse:
