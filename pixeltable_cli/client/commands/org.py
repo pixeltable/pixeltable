@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 
-
 from ..hosted import parse_org_uri, print_org
 from ..parser import Parser
 from ..utils import get_request, post_request
