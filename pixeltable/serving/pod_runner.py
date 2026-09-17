@@ -7,19 +7,30 @@ from pathlib import Path
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
-from pixeltable.service.db import report_instance_fingerprint, unpack_project_archive
+from pixeltable.service import fetch_archive
+from pixeltable.service.db import report_instance_fingerprint
 from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
+from pixeltable.utils.project import ProjectFingerprint
 
 
 def _serve(
-    db_uri: str, app_file: str, service_name: str, base_path: str, project_dir: Path, host: str, port: int, otel: bool
+    db_uri: str, app_file: str, service_name: str, base_path: str, archive_dir: Path, host: str, port: int, otel: bool
 ) -> None:
-    """Pod entry point: unpack the database's project, serve one of its services, and report what loaded."""
+    """Pod entry point: serve one service of the project the init container unpacked, and report what loaded.
+
+    The fetch happens ahead of this process, in an init container: see pixeltable.service.fetch_archive.
+    A service pod, unlike the proxy daemon, cannot serve without a project -- its application file is in
+    there -- so an archive the init container could not find is an error here rather than a warning.
+    """
     import uvicorn
 
-    archive = unpack_project_archive(db_uri, project_dir)
-    if archive.fingerprint is None:
+    project_dir = fetch_archive.project_dir(archive_dir)
+    if project_dir is None:
+        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'{db_uri} has no project to serve {service_name} from')
+    recorded = fetch_archive.archive_fingerprint(archive_dir)
+    if recorded is None:
         raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'{db_uri} served an archive without a fingerprint')
+    fingerprint = ProjectFingerprint.model_validate(recorded)
     # the unpacked project is this process's project root, so its modules and its database entry resolve
     Config.init(reinit=True, project_root=project_dir)
 
@@ -29,7 +40,7 @@ def _serve(
     app, _ = create_app(str(project_dir / app_file), service_name, base_path)
     if otel:
         instrument_app(app)
-    report_instance_fingerprint(db_uri, service_name, archive.fingerprint, base_path)
+    report_instance_fingerprint(db_uri, service_name, fingerprint, base_path)
 
     log_level = logging.getLogger('pixeltable').getEffectiveLevel()
     # log_config=None keeps uvicorn from replacing the logging Env has already set up
@@ -45,9 +56,9 @@ if __name__ == '__main__':
     parser.add_argument('--app-file', required=True, help='path to the application file, from the project root')
     parser.add_argument('--name', required=True, help='the service to serve')
     parser.add_argument('--base-path', default='')
-    parser.add_argument('--project-dir', type=Path, required=True, help='unpack the project here')
+    parser.add_argument('--archive-dir', type=Path, required=True, help='where fetch_archive unpacked the project')
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--otel', action='store_true')
     args = parser.parse_args()
-    _serve(args.db, args.app_file, args.name, args.base_path, args.project_dir, args.host, args.port, args.otel)
+    _serve(args.db, args.app_file, args.name, args.base_path, args.archive_dir, args.host, args.port, args.otel)
