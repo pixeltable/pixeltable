@@ -234,19 +234,16 @@ def env_fingerprint(environ: dict[str, str] | None = None) -> dict[str, str]:
 
 
 def identity() -> dict[str, Any]:
-    pxt_version = _pxt_version()
-    pxt_install_dir = _pxt_install_dir()
-    # Surfacing this here turns a broken pixeltable install into one clear error instead
-    # of a daemon that 500s on every /health call and respawns in a tight loop.
-    if pxt_version is None or pxt_install_dir is None:
-        raise RuntimeError(
-            "pixeltable package metadata not found (importlib.metadata can't locate the "
-            "'pixeltable' distribution). Reinstall with: pip install --force-reinstall pixeltable"
-        )
+    """The fingerprint the client compares against a running daemon's.
+
+    pxt_version and pxt_install_dir are None where the served project is pixeltable itself: a hosted
+    image installs a project's dependencies, not the project. `pxt` ships in that distribution, so a
+    local client always resolves both.
+    """
     home = _resolve_pixeltable_home()
     return {
-        'pxt_version': pxt_version,
-        'pxt_install_dir': pxt_install_dir,
+        'pxt_version': _pxt_version(),
+        'pxt_install_dir': _pxt_install_dir(),
         'python_executable': sys.executable,
         'pixeltable_home': home,
         'pixeltable_pgdata': _resolve_pixeltable_pgdata(home),

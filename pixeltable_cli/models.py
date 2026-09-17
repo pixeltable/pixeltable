@@ -41,7 +41,8 @@ class InFlightRequest(BaseModel):
 class HealthResponse(BaseModel):
     ok: bool
     service: Literal['pxt'] = 'pxt'
-    pxt_version: str
+    # None where the served project is pixeltable itself, which its image does not install
+    pxt_version: str | None = None
     pid: int
     started_at: str
 
@@ -49,7 +50,7 @@ class HealthResponse(BaseModel):
     # verbatim on each /health call. The client computes the same fingerprint locally (without
     # importing pixeltable) and restarts the daemon on any mismatch, so the daemon never keeps
     # serving requests against a stale install or a stale snapshot of the environment.
-    pxt_install_dir: str
+    pxt_install_dir: str | None = None
     python_executable: str
     pixeltable_home: str
     pixeltable_pgdata: str
