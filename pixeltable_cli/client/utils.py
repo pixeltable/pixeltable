@@ -506,9 +506,5 @@ def confirm_or_exit(
 
 
 def print_json_schema(adapter: pydantic.TypeAdapter) -> None:
-    """Print the JSON Schema of a --json payload.
-
-    Serialization mode: a computed field reaches the output but not the validation schema, and
-    in_agreement and summary are both computed.
-    """
+    # mode='serialization' for computed fields
     print(json.dumps(adapter.json_schema(mode='serialization'), indent=2))

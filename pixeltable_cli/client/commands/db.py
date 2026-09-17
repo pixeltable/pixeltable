@@ -54,11 +54,11 @@ def run(argv: list[str]) -> None:
     parser = Parser(prog='pxt db', description='manage hosted databases', epilog=EPILOG)
     sub = parser.add_subparsers(dest='action', required=True)
 
-    if argv[:2] == ['diff', '--json-schema']:
+    if argv == ['diff', '--json-schema']:
         print_json_schema(pydantic.TypeAdapter(DbPlan))
         return
 
-    if argv[:2] == ['status', '--json-schema']:
+    if argv == ['status', '--json-schema']:
         # local import: management_protocol pulls in pixeltable, which is time-consuming to import
         from pixeltable.service.management_protocol import DatabaseReport
 

@@ -24,10 +24,20 @@ from .conftest import PxtRunner
 
 
 @pytest.mark.db_roots('local', reason='reports daemon liveness/version; not catalog-specific')
-class TestDbJsonSchema:
-    """`pxt db`'s schema output. Not in test_db.py: that module needs a hosted database, and these do not."""
+class TestHealth:
+    def test_basics(self, cli: PxtRunner, pxt_daemon: int) -> None:
+        out = cli('health').json
+        assert out['ok'] is True
+        assert out['pid'] > 0
+        assert out['service'] == 'pxt'
+        # Compare against the same source the daemon reports (installed distribution metadata), not
+        # pxt.__version__: with an editable install, _version.py tracks the checkout while dist-info is
+        # stamped at install time, so equating the two would assert install freshness, not daemon behavior.
+        assert out['pxt_version'] == importlib.metadata.version('pixeltable')
 
-    @pytest.mark.db_roots('local', reason='the schema is generated from the models, so no catalog is read')
+
+@pytest.mark.db_roots('local', reason='no cloud equivalent')
+class TestDbJsonSchema:
     def test_json_schema(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         plan = json.loads(cli('db', 'diff', '--json-schema').stdout)
         assert plan['title'] == 'DbPlan'
@@ -41,18 +51,6 @@ class TestDbJsonSchema:
         assert report['title'] == 'DatabaseReport'
         assert 'worker_status' not in report['properties']
         assert 'current' in report['properties']
-
-
-class TestHealth:
-    def test_basics(self, cli: PxtRunner, pxt_daemon: int) -> None:
-        out = cli('health').json
-        assert out['ok'] is True
-        assert out['pid'] > 0
-        assert out['service'] == 'pxt'
-        # Compare against the same source the daemon reports (installed distribution metadata), not
-        # pxt.__version__: with an editable install, _version.py tracks the checkout while dist-info is
-        # stamped at install time, so equating the two would assert install freshness, not daemon behavior.
-        assert out['pxt_version'] == importlib.metadata.version('pixeltable')
 
 
 class TestLs:
