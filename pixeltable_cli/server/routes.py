@@ -18,6 +18,7 @@ from pixeltable.env import Env
 from pixeltable.service import db, management_client, proxy_daemon
 from pixeltable.service.management_protocol import (
     CreateKeyRequest,
+    CreateOrgRequest,
     DeleteDbRequest,
     DeleteKeyRequest,
     DeleteSecretRequest,
@@ -782,6 +783,11 @@ def _dir_size(path: str | None) -> int | None:
 @router.get('/api/orgs')
 def list_orgs(_req: Request) -> dict[str, Any]:
     return management_client.api_call(ListOrgsRequest())
+
+
+@router.post('/api/orgs')
+def create_org(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(CreateOrgRequest))
 
 
 @router.get('/api/org')

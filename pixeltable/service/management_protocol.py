@@ -37,6 +37,7 @@ class ManagementOperationType(str, Enum):
     GET_ARCHIVE = 'get_archive'
     GET_LOGS = 'get_logs'
 
+    CREATE_ORG = 'create_org'
     LIST_ORGS = 'list_orgs'
 
     SET_SECRET = 'set_secret'
@@ -404,6 +405,24 @@ class OrgRecord(BaseModel):
     default_db: str | None = None
     created_at: float
     updated_at: float
+
+
+# The control plane owns a CreateOrgRequest of its own, for the dashboard. This one is the CLI's
+# view of the same operation: same wire name, same fields it fills in, and no org_id -- a CLI holds
+# no WorkOS credentials, so the control plane makes the organization itself.
+class CreateOrgRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.CREATE_ORG] = ManagementOperationType.CREATE_ORG
+    org_slug: str  # the namespace, and what `pxt://org:db` names; unique across Pixeltable
+    display_name: str | None = None  # what people see; defaults to the slug
+    location: str | None = None  # e.g. 'aws/us-east-1'
+
+
+class CreateOrgResponse(BaseModel):
+    org_id: str
+    org_slug: str
+    default_db_slug: str | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class ListOrgsRequest(BaseModel):
