@@ -53,17 +53,18 @@ def run_logout(argv: list[str]) -> None:
     parser.parse_args(argv)
 
     url = api_url()
+    # Read before clearing: the session names the sign-in the browser is holding.
+    browser = auth.browser_logout_url(url)
+
     if credentials.clear(url):
         print(f'Signed out of {url}.')
     else:
         print('Not signed in.')
 
-    # The browser keeps a sign-in of its own, and while it has one the next `pxt login` confirms the
-    # code without ever asking who you are. Signing out of one without the other is the state that
-    # confuses people, so both go together.
-    browser = auth.browser_logout_url(url)
+    # A browser still signed in confirms the next code without naming an account, so signing out of
+    # one and not the other is how you end up as someone you did not choose.
     if browser:
-        print(f'Signing out of the browser at {browser}')
+        print('Signing out of the browser.')
         webbrowser.open(browser)
 
 

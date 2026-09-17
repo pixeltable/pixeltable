@@ -252,6 +252,26 @@ class TestRefresh:
             auth.refresh(_API, _session())
 
 
+class TestBrowserLogout:
+    def test_it_names_the_session_the_browser_holds(self) -> None:
+        """WorkOS directly: a device-code sign-in never creates a dashboard session, so the
+        dashboard's own sign-out has no cookie to clear."""
+        claims = base64.urlsafe_b64encode(json.dumps({'sid': 'session_01X'}).encode()).rstrip(b'=').decode()
+        credentials.save(_API, _session(access_token=f'h.{claims}.s'))
+
+        url = auth.browser_logout_url(_API)
+
+        assert url == 'https://api.workos.com/user_management/sessions/logout?session_id=session_01X'
+
+    def test_no_session_means_nothing_to_sign_out_of(self) -> None:
+        assert auth.browser_logout_url(_API) == ''
+
+    def test_a_token_without_a_sid_is_not_guessed_at(self) -> None:
+        credentials.save(_API, _session(access_token='h.e30.s'))
+
+        assert auth.browser_logout_url(_API) == ''
+
+
 class TestAccessToken:
     def test_no_session_is_not_an_error(self) -> None:
         """The caller falls back to an API key, so this must not raise."""
