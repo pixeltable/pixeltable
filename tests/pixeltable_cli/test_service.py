@@ -183,7 +183,7 @@ def _await_job(job_url: str, timeout: float = 120.0) -> Any:
 
 # proxy is excluded because get_manager() hands any non-local path to ServiceManagerProxy, so a
 # 'pxt://local:db' target reaches the cloud management API, which knows no org named 'local'.
-@pytest.mark.db_roots('local', 'cloud-service', reason='a proxy-daemon database has no service manager of its own')
+@pytest.mark.db_roots('local', 'cloud-serving', reason='a proxy-daemon database has no service manager of its own')
 @pytest.mark.usefixtures('authenticated_http', 'no_hosted_services')
 class TestService:
     def test_config_must_agree(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
@@ -445,7 +445,7 @@ class TestService:
             'summary': 'HELLO'
         }
 
-    @pytest.mark.db_roots('cloud-service', reason='cloud-specific behavior')
+    @pytest.mark.db_roots('cloud-serving', reason='cloud-specific behavior')
     def test_db_update_handoff(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A db update doesn't restart services; an explicit restart does."""
         skip_test_if_not_installed('fastapi')
@@ -804,7 +804,7 @@ class TestService:
         # a hosted one does
         assert_serving(cli, app, second, 'ingest')
 
-    @pytest.mark.db_roots('cloud-service', reason='a local service logs to a file')
+    @pytest.mark.db_roots('cloud-serving', reason='a local service logs to a file')
     def test_logs(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')

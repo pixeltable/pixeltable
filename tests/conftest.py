@@ -382,12 +382,8 @@ def served_project() -> pathlib.Path | None:
 
 
 @pytest.fixture(scope='session')
-def cloud_service_db_uri() -> str:
-    """The database the 'cloud-service' root names: a name only, disposable and unique to this session.
-
-    A test can run there once a database exists at it and a project has been published to it, which
-    tests/pixeltable_cli/conftest.py does in cloud_service_db -- the project it serves is that package's.
-    """
+def cloud_serving_db_uri() -> str:
+    """A session-scoped disposable URI that the 'cloud-serving' tests (in pixeltable_cli) can use."""
     return new_db_uri()
 
 
@@ -425,10 +421,10 @@ def db_root(
             base_uri = f'pxt://local:{db}'
             yield DatabaseRoot('proxy', base_uri, base_uri)
 
-        case 'cloud' | 'cloud-cli' | 'cloud-service':
+        case 'cloud' | 'cloud-cli' | 'cloud-serving':
             base_uri = CLOUD_DB_ROOT_URIS.get(db_root_id)
             if base_uri is None:
-                # the CLI package creates the database the 'cloud-service' root names; asking for it here
+                # the CLI package creates the database the 'cloud-serving' root names; asking for it here
                 # keeps a test that never reaches that root from paying the CodeBuild the creation runs
                 base_uri = request.getfixturevalue('cloud_service_db')
             test_dir = uuid.uuid4().hex

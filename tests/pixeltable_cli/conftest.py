@@ -288,9 +288,9 @@ def write_requirements(project: pathlib.Path, wheel: pathlib.Path, *extra: str) 
 
 @pytest.fixture(scope='session')
 def cloud_service_db(
-    cloud_service_db_uri: str, session_cli: PxtRunner, session_project: pathlib.Path, pixeltable_wheel: pathlib.Path
+    cloud_serving_db_uri: str, session_cli: PxtRunner, session_project: pathlib.Path, pixeltable_wheel: pathlib.Path
 ) -> Iterator[str]:
-    """Create the database the 'cloud-service' root names, serving this session's project, and return it.
+    """Create the database the 'cloud-serving' root names, serving this session's project, and return it.
 
     test_service.py deploys that project's application files as services and edits them as it goes, and a
     pod reaches an edit only through the database's archive, which `pxt db update` replaces. So the root
@@ -300,7 +300,7 @@ def cloud_service_db(
     """
     copy_app_corpus(session_project)
     write_requirements(session_project, pixeltable_wheel, *PROJECT_EXTRAS)
-    with disposable_db(session_cli, cloud_service_db_uri, session_project) as uri:
+    with disposable_db(session_cli, cloud_serving_db_uri, session_project) as uri:
         (session_project / 'pixeltable.toml').write_text(
             f'[[pixeltable.database]]\nname = {json.dumps(uri)}\n', encoding='utf-8'
         )

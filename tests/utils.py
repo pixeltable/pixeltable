@@ -58,16 +58,15 @@ if TYPE_CHECKING:
 TESTS_DIR = Path(os.path.dirname(__file__))
 
 
-DbRootId = Literal['local', 'proxy', 'cloud', 'cloud-cli', 'cloud-service']
+DbRootId = Literal['local', 'proxy', 'cloud', 'cloud-cli', 'cloud-serving']
 
 # The database each hosted root names: 'cloud' serves this repository, 'cloud-cli' the CLI app corpus.
-# 'cloud-service' has no standing database, so it is absent here: tests/pixeltable_cli/test_service.py
+# 'cloud-serving' has no standing database, so it is absent here: tests/pixeltable_cli/test_service.py
 # publishes to the database it runs against, and creates one per session in cloud_service_db.
 CLOUD_DB_ROOT_URIS = {'cloud': 'pxt://pixeltable:pxttest', 'cloud-cli': 'pxt://pixeltable:pxttest-cli'}
 
 
 def new_db_uri() -> str:
-    """A hosted database uri that names nothing yet, for a test that creates one of its own."""
     return f'pxt://pixeltable:pxttest-{uuid.uuid4().hex[:12]}'
 
 
