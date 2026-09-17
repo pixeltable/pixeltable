@@ -63,7 +63,15 @@ class Session:
 
 
 def _path() -> Path:
-    return Config.get().home / 'credentials.json'
+    """The cache file: under the Pixeltable home, or wherever PIXELTABLE_CREDENTIALS names.
+
+    The default keeps a session with the instance it belongs to, so a second instance -- a test run,
+    say -- starts signed out rather than inheriting somebody's session. Naming a file overrides that
+    deliberately, which is how a test run borrows a real sign-in without the path resolution having
+    to guess that is what was wanted.
+    """
+    named = os.environ.get('PIXELTABLE_CREDENTIALS')
+    return Path(named).expanduser() if named else Config.get().home / 'credentials.json'
 
 
 def _read_all() -> dict[str, Any]:
