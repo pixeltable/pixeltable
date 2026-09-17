@@ -305,10 +305,7 @@ module = ["apps.*"]
 ignore_missing_imports = true
 
 [[tool.pixeltable.database]]
-# pixeltable/_version.py is gitignored, and the package reads __version__ out of it; the pod imports
-# pixeltable from the unpacked archive, so it has to travel with it. The repo itself no longer does:
-# the image installs dependencies without building the project (uv sync --no-install-project), so
-# uv-dynamic-versioning never runs there and has no git to look for.
+# pixeltable/_version.py is gitignored, and the package reads __version__ out of it
 name = 'pxt://pixeltable:pxttest'
 include = ['pixeltable/_version.py']
 # no pod reads the documentation tree, and it is a quarter of what the archive would otherwise carry

@@ -23,16 +23,12 @@ def _serve(
     port: int,
     otel: bool,
 ) -> None:
-    """Pod entry point: serve one service of the project the init container unpacked, and report what loaded.
+    """
+    Pod entry point: serve one service of the project the init container unpacked, and report what loaded.
 
     The fetch happens ahead of this process, in an init container: see pixeltable.service.fetch_archive.
     A service pod, unlike the proxy daemon, cannot serve without a project -- its application file is in
     there -- so a project the init container could not fetch is an error here rather than a warning.
-
-    The fingerprint is read rather than recomputed or re-fetched: recomputing it here would derive the
-    file set from a .gitignore the pod does not have and stamp the pod's own pixeltable version, and a
-    second GetArchive call could answer with a newer archive than the one on disk. Either way the pod
-    would report a project it is not running.
     """
     import uvicorn
 
@@ -66,9 +62,9 @@ if __name__ == '__main__':
     parser.add_argument('--app-file', required=True, help='path to the application file, from the project root')
     parser.add_argument('--name', required=True, help='the service to serve')
     parser.add_argument('--base-path', default='')
-    parser.add_argument('--project-dir', type=Path, required=True, help='where fetch_archive unpacked the project')
+    parser.add_argument('--project-dir', type=Path, required=True, help='directory that holds the project contents')
     parser.add_argument(
-        '--project-fingerprint', type=Path, required=True, help='the fingerprint fetch_archive recorded'
+        '--project-fingerprint', type=Path, required=True, help='fingerprint of the project contents'
     )
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=8000)
