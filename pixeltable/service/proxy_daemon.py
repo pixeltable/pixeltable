@@ -401,8 +401,6 @@ def main(argv: list[str] | None = None) -> None:
     parsed = parser.parse_args(argv)
     project_root = parsed.project_root
     if parsed.archive_dir is not None:
-        # the init container has already fetched; an absent project means the database has none yet,
-        # so serve the catalog without one, and a request that needs a udf from it says so
         project_root = fetch_archive.project_dir(parsed.archive_dir)
         if project_root is None:
             logging.getLogger('pixeltable').warning(

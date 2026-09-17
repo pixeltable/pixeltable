@@ -22,7 +22,6 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Optional
 
 from pixeltable import exceptions as excs
 from pixeltable.service.db import unpack_project_archive
@@ -38,13 +37,13 @@ _ARCHIVE_FETCH_DELAYS = (0.0, 1.0, 2.0, 4.0)
 _logger = logging.getLogger('pixeltable')
 
 
-def project_dir(archive_dir: Path) -> Optional[Path]:
+def project_dir(archive_dir: Path) -> Path | None:
     """The unpacked project under archive_dir, or None if the database served no archive."""
     unpacked = archive_dir / PROJECT_SUBDIR
     return unpacked if unpacked.is_dir() else None
 
 
-def archive_fingerprint(archive_dir: Path) -> Optional[dict]:
+def archive_fingerprint(archive_dir: Path) -> dict | None:
     """The fingerprint fetch_archive recorded for the project under archive_dir, if there is one."""
     recorded = archive_dir / FINGERPRINT_FILE
     if not recorded.is_file():
@@ -53,11 +52,7 @@ def archive_fingerprint(archive_dir: Path) -> Optional[dict]:
 
 
 def fetch(db_uri: str, archive_dir: Path) -> bool:
-    """Unpack db_uri's project into archive_dir; False if it has no project yet.
-
-    A missing project is not an error: the pod serves the database's catalog without one, and a
-    request that needs a udf from it says so.
-    """
+    """Unpack db_uri's project into archive_dir; False if it has no project yet."""
     archive_dir.mkdir(parents=True, exist_ok=True)
     for delay in _ARCHIVE_FETCH_DELAYS:
         if delay > 0.0:
