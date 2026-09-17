@@ -1,49 +1,111 @@
-"""`pxt secret set`: the management request the daemon builds from what the client posts."""
+"""Tests for `pxt secret set`."""
 
+import http.server
 import json
+import os
+import pathlib
+import subprocess
+import threading
+from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any
 
 import pytest
 
-from pixeltable import exceptions as excs
-from pixeltable.service import management_client
-from pixeltable.service.management_protocol import SetSecretRequest
-from pixeltable_cli.client.commands import secret as secret_cmd
-from pixeltable_cli.server import router as server_router, routes as server_routes
+from .conftest import PxtResult
+
+_RUN_TIMEOUT_SECS = 180.0
 
 
-def _forwarded(monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> list[Any]:
-    """Run one `pxt secret` command into the route it posts to, and return the requests the route forwarded."""
-    sent: list[Any] = []
+@dataclass
+class FakeControlPlane:
+    """A stand-in for the cloud management API, holding the request bodies it was sent."""
 
-    def api_call(request: Any) -> dict[str, Any]:
-        sent.append(request)
-        return {}
+    url: str
+    received_requests: list[dict[str, Any]]
 
-    def post_request(path: str, body: dict[str, Any]) -> dict[str, Any]:
-        handler = server_routes.router.match('POST', path)
-        assert handler is not None, path
-        handler(server_router.Request(query={}, body_bytes=json.dumps(body).encode()))
-        return {}
 
-    monkeypatch.setattr(management_client, 'api_call', api_call)
-    monkeypatch.setattr(secret_cmd, 'post_request', post_request)
-    secret_cmd.run(argv)
-    return sent
+@pytest.fixture
+def control_plane() -> Iterator[FakeControlPlane]:
+    """A control plane on localhost: it remembers every request it was sent, and answers each with {}."""
+    received_requests: list[dict[str, Any]] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            received_requests.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', '2')
+            self.end_headers()
+            self.wfile.write(b'{}')
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        yield FakeControlPlane(f'http://127.0.0.1:{server.server_address[1]}', received_requests)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def _pxt_secret(port: int, cwd: pathlib.Path, control_plane: FakeControlPlane, *args: str) -> PxtResult:
+    """Run `pxt secret`. The daemon it starts inherits this environment, and talk to the fake control plane."""
+    r = subprocess.run(
+        ['pxt', 'secret', *args],
+        env={
+            **os.environ,
+            'PXT_PORT': str(port),
+            'PIXELTABLE_API_URL': control_plane.url,
+            'PIXELTABLE_API_KEY': 'test-key',
+        },
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        timeout=_RUN_TIMEOUT_SECS,
+    )
+    return PxtResult(r.returncode, r.stdout, r.stderr)
 
 
 class TestSecret:
-    def test_set(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        argv = ['set', 'pxt://acme:main', 'OPENAI_API_KEY=test=value', 'CUSTOM_TOKEN=custom-value', '--json']
-        assert _forwarded(monkeypatch, argv) == [
-            SetSecretRequest(org='acme', db='main', key='OPENAI_API_KEY', value='test=value'),
-            SetSecretRequest(org='acme', db='main', key='CUSTOM_TOKEN', value='custom-value'),
+    def test_set(self, daemon_port: int, tmp_path: pathlib.Path, control_plane: FakeControlPlane) -> None:
+        r = _pxt_secret(
+            daemon_port,
+            tmp_path,  # any path will do, as long as it's not the repo root or its subdir
+            control_plane,
+            'set',
+            'pxt://acme:main',
+            'OPENAI_API_KEY=test=value',
+            'CUSTOM_TOKEN=custom-value',
+            '--json',
+        )
+        assert r.returncode == 0, r.stderr
+        assert r.json == ['CUSTOM_TOKEN', 'OPENAI_API_KEY']
+        expected_requests = [
+            {
+                'operation_type': 'set_secret',
+                'org': 'acme',
+                'db': 'main',
+                'key': 'OPENAI_API_KEY',
+                'value': 'test=value',
+            },
+            {
+                'operation_type': 'set_secret',
+                'org': 'acme',
+                'db': 'main',
+                'key': 'CUSTOM_TOKEN',
+                'value': 'custom-value',
+            },
         ]
-        captured = capsys.readouterr()
-        assert json.loads(captured.out) == ['CUSTOM_TOKEN', 'OPENAI_API_KEY']
-        assert captured.err == ''
+        assert control_plane.received_requests == expected_requests
 
-        prohibited_keys = ['PIXELTABLE_HOME', 'PIXELTABLE_DB', 'PIXELTABLE_VAR_FOO', 'pixeltable_home', 'Pixeltable_Db']
-        for key in prohibited_keys:
-            with pytest.raises(excs.RequestError, match='is reserved'):
-                _forwarded(monkeypatch, ['set', 'pxt://acme:main', f'{key}=test-value'])
+        # reserved prefix
+        for key in ('PIXELTABLE_HOME', 'PIXELTABLE_DB', 'PIXELTABLE_VAR_FOO', 'pixeltable_home', 'Pixeltable_Db'):
+            r = _pxt_secret(daemon_port, tmp_path, control_plane, 'set', 'pxt://acme:main', f'{key}=test-value')
+            assert r.returncode != 0
+            assert 'is reserved' in r.stderr, r.stderr
+        assert control_plane.received_requests == expected_requests

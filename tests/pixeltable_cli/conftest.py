@@ -59,6 +59,20 @@ def _pick_port() -> int:
         return s.getsockname()[1]
 
 
+@pytest.fixture
+def daemon_port(init_env: None) -> Iterator[int]:
+    """A free port for a daemon of the test's own, taken down again when the test ends."""
+    port = _pick_port()
+    yield port
+    subprocess.run(
+        ['pxt', 'daemon', 'stop', '-f'],
+        env={**os.environ, 'PXT_PORT': str(port)},
+        capture_output=True,
+        check=False,
+        timeout=60,
+    )
+
+
 @dataclass
 class PxtResult:
     returncode: int
