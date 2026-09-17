@@ -1,19 +1,18 @@
-"""Unpack a hosted database's project archive, ahead of the pod that serves it.
+"""Unpack a hosted database's project archive before its pod starts.
 
-The container that serves a database cannot fetch its own archive. The image installs the project's
+A database's serving container cannot fetch its own archive. The image installs the project's
 dependencies but not the project itself (`uv sync --no-install-project`), because the image context
-carries only the manifests -- so for a project whose own package is pixeltable, the pixeltable that
-would do the fetching is the thing being fetched. This module runs ahead of it, in an init container
-on the base image, which carries a pixeltable of its own regardless of what the project pins.
+has only the manifests. For pixeltable's own repo, deployed as a project, pixeltable would have to
+fetch itself. This module runs first instead, in an init container on the base image, which has its
+own pixeltable.
 
-Layout under --archive-dir, which both containers mount:
+Layout under --archive-dir, mounted by both containers:
 
-    project/          the unpacked project; absent when the database has no project yet
-    fingerprint.json  what the control plane served the archive as
+    project/          the unpacked project; absent until the database has one
+    fingerprint.json  the control plane's fingerprint for that archive
 
-Both are named to a pod by their own path, so this module is the only place that decides where they
-go. The fingerprint is written down rather than re-fetched: a pod reports the archive it actually
-loaded, and a second GetArchive call could answer with a different one.
+The fingerprint is written to disk rather than re-fetched: a pod reports which archive it loaded,
+and a second GetArchive call could return a different one.
 """
 
 from __future__ import annotations
@@ -29,9 +28,8 @@ from pixeltable.service.db import unpack_project_archive
 PROJECT_SUBDIR = 'project'
 FINGERPRINT_FILE = 'fingerprint.json'
 
-# A database exists before `pxt db update` first gives it a project, and an archive uploaded moments
-# ago may not be readable yet; both look like a 404 here, so the delays cover the second case before
-# the first is concluded.
+# get_archive returns 404 both for a database with no project and for an archive uploaded moments ago
+# that is not readable yet. The retries tell the two apart.
 _ARCHIVE_FETCH_DELAYS = (0.0, 1.0, 2.0, 4.0)
 
 _logger = logging.getLogger('pixeltable')
@@ -46,7 +44,7 @@ def fingerprint_path(archive_dir: Path) -> Path:
 
 
 def fetch(db_uri: str, archive_dir: Path) -> bool:
-    """Unpack db_uri's project into archive_dir; False if it has no project yet."""
+    """Unpack db_uri's project into archive_dir; False if the database has no project yet."""
     archive_dir.mkdir(parents=True, exist_ok=True)
     for delay in _ARCHIVE_FETCH_DELAYS:
         if delay > 0.0:
@@ -69,9 +67,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument('--archive-dir', type=Path, required=True, help='unpack the project under here')
     parsed = parser.parse_args(argv)
     if not fetch(parsed.db, parsed.archive_dir):
-        # exit 0 regardless: a non-zero exit crash-loops the pod, and a database with no project is
-        # expected to serve
-        _logger.warning('%s has no project; udfs it defines cannot be resolved', parsed.db)
+        # exit 0: a non-zero exit would crash-loop the pod, and a database with no project still serves
+        _logger.warning('%s has no project; its udfs cannot be resolved', parsed.db)
 
 
 if __name__ == '__main__':
