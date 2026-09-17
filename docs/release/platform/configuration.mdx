@@ -81,7 +81,7 @@ db_output_media_dest = 's3://bucket/prod/output/'
 db_exporter_otlp_endpoint = 'https://otlp.example.com'
 ```
 
-Precedence, highest first: the environment variable from the table above, then the database entry, then `[pixeltable]` / `[otel]` in `config.toml`, which every database on the installation shares. A hosted database with neither uses its home bucket for media.
+Precedence, highest first: the database entry, then the environment variable from the table above or a `pxt.init()` override, then `[pixeltable]` / `[otel]` in `config.toml`, which every database on the installation shares. A hosted database with none of these uses its home bucket for media.
 
 The OTLP auth headers are a secret and do not go in the entry: set `OTEL_EXPORTER_OTLP_HEADERS` in the environment, and on a hosted database with `pxt secret set pxt://org:db OTEL_EXPORTER_OTLP_HEADERS=...` (see [`pxt secret`](/platform/cli#pxt-secret)).
 

@@ -731,8 +731,10 @@ class Config:
         entry, sources = own
         return {name: (value, sources[f'vars.{name}']) for name, value in (entry.vars or {}).items()}
 
-    def __database_setting(self, key: str) -> tuple[Any, Path | None] | None:
+    def __database_setting(self, section: str, key: str) -> tuple[Any, Path | None] | None:
         """Return the value the database we are connected to sets for `key` (as db_<key>), with its source file."""
+        if section in (VAR_SECTION, SECRET_SECTION):
+            return None  # a var or secret named like a setting is not that setting
         try:
             setting = DatabaseSetting(f'db_{key}')
         except ValueError:
@@ -749,10 +751,6 @@ class Config:
             return self.__database_bindings().get(key)
         if section == SECRET_SECTION:
             return None  # a secret is bound by its environment variable, which get_value() reads first
-        # a value the connected database sets as db_<key> wins over section.key in the shared config sections
-        setting = self.__database_setting(key)
-        if setting is not None:
-            return setting
         parts = section.split('.')
         # explicit type decl for readability
         top_section: dict[str, tuple[Any, Path | None]] | None = self.__config_dict.get(parts[0])
@@ -774,18 +772,22 @@ class Config:
             return None
         return (sub_section[key], source)
 
+    def __resolve(self, section: str, key: str) -> tuple[Any, Path | Literal['env'] | None] | None:
+        """The value of section.key and its source, in precedence order: the connected database's db_<key>, then a
+        pxt.init() override or the environment, then the config files."""
+        setting = self.__database_setting(section, key)
+        if setting is not None:
+            return setting
+        value = self.lookup_env(section, key)
+        if value is not None:
+            return value, 'env'
+        return self.__lookup_config_entry(section, key)
+
     def get_value(self, key: str, expected_type: type[T], section: str = 'pixeltable') -> T | None:
-        value: Any = self.lookup_env(section, key)  # Try to get from environment first
-        # Next try the config file
-        if value is None:
-            entry = self.__lookup_config_entry(section, key)
-            if entry is None:
-                return None
-            value = entry[0]
-
-        if value is None:
-            return None  # Not specified
-
+        resolved = self.__resolve(section, key)
+        if resolved is None or resolved[0] is None:
+            return None
+        value = resolved[0]
         try:
             if expected_type is bool and isinstance(value, str):
                 if value.lower() not in ('true', 'false'):
@@ -834,17 +836,14 @@ class Config:
 
     def get_value_source(self, key: str, section: str = 'pixeltable') -> Path | Literal['env', 'unset']:
         """Return the source of the config value returned by get_value():
-        - 'env': an environment variable or a pxt.init() config override is set
         - Path: the config file the value came from
+        - 'env': an environment variable or a pxt.init() config override is set
         - 'unset': neither carries the value
         """
-        if self.lookup_env(section, key) is not None:
-            return 'env'
-        entry = self.__lookup_config_entry(section, key)
-        if entry is None:
+        resolved = self.__resolve(section, key)
+        if resolved is None or resolved[1] is None:
             return 'unset'
-        path = entry[1]
-        return path if path is not None else 'unset'
+        return resolved[1]
 
     def env_keys(self) -> list[ConfigKey]:
         """The config settings that can be set via an environment variable."""
@@ -909,7 +908,7 @@ class Config:
         ck = next((ck for ck in self.config_keys() if (ck.section, ck.key) == (section, key)), None)
         # a pyproject.toml holds Pixeltable's settings under [tool], and an array of tables is written [[ ]]
         prefix = 'tool.' if source.name == PYPROJECT_FILE else ''
-        if self.__database_setting(key) is not None:
+        if self.__database_setting(section, key) is not None:
             name = f'[[{prefix}pixeltable.database]].{DatabaseSetting(f"db_{key}")}'
         elif ck is not None and typing.get_origin(ck.expected_type) is list:
             name = f'[[{prefix}{section}.{key}]]'

@@ -58,13 +58,6 @@ Cloud storage destinations are set as a default for the database, or per column.
 
 A default destination applies to every media column that names none. It can be set in three places, listed here from highest to lowest precedence (see [Configuration](/platform/configuration#per-database-settings) for details).
 
-**Environment variables**, for the current process:
-
-```bash
-export PIXELTABLE_INPUT_MEDIA_DEST="s3://my-bucket/input/"
-export PIXELTABLE_OUTPUT_MEDIA_DEST="s3://my-bucket/output/"
-```
-
 **The database entry** in `pixeltable.toml`, for one database. The entry with no `name` configures the local database; an entry named `pxt://org:db` configures that hosted database:
 
 ```toml
@@ -74,6 +67,13 @@ db_input_media_dest = "s3://my-bucket/input/"
 
 # For computed media (AI-generated outputs)
 db_output_media_dest = "s3://my-bucket/output/"
+```
+
+**Environment variables**, for the current process:
+
+```bash
+export PIXELTABLE_INPUT_MEDIA_DEST="s3://my-bucket/input/"
+export PIXELTABLE_OUTPUT_MEDIA_DEST="s3://my-bucket/output/"
 ```
 
 **The global config** in `~/.pixeltable/config.toml`, for every database on the installation (not the API key):
@@ -117,8 +117,8 @@ The `destination` parameter only applies to **stored computed columns**. For inp
 
 Destinations are resolved in this order:
 1. **Explicit column destination**: highest priority (computed columns only)
-2. **Environment variable**: `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST`
-3. **Database entry**: `db_input_media_dest` / `db_output_media_dest` in `[[pixeltable.database]]`
+2. **Database entry**: `db_input_media_dest` / `db_output_media_dest` in `[[pixeltable.database]]`
+3. **Environment variable**: `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST`
 4. **Global config**: `input_media_dest` / `output_media_dest` under `[pixeltable]` in `config.toml`
 5. **Hosted Cloud process**: `pxtfs://org:db/home` when the database is running in Cloud
 6. **Local process**: local disk

@@ -544,15 +544,25 @@ class TestConfig:
         monkeypatch.delenv('PXTCLOUD_ORG')
         monkeypatch.delenv('PXTCLOUD_DB')
 
-        # an environment variable outranks the entry
+        # the entry outranks the environment variable and a pxt.init() override; a setting the entry leaves unset
+        # still comes from the environment
         monkeypatch.setenv('PIXELTABLE_INPUT_MEDIA_DEST', 's3://from/env/')
-        assert config.get_string_value('input_media_dest') == 's3://from/env/'
-        assert config.get_value_source('input_media_dest') == 'env'
-        # an empty environment variable is unset, and leaves the entry in force
-        monkeypatch.setenv('PIXELTABLE_INPUT_MEDIA_DEST', '')
+        monkeypatch.setenv('PIXELTABLE_OUTPUT_MEDIA_DEST', 's3://from/env/')
         assert config.get_string_value('input_media_dest') == 's3://local/input/'
         assert config.get_value_source('input_media_dest') == config_file
+        monkeypatch.setenv('PXTCLOUD_ORG', 'myorg')
+        monkeypatch.setenv('PXTCLOUD_DB', 'prod')
+        assert config.get_string_value('output_media_dest') == 's3://from/env/'
+        assert config.get_value_source('output_media_dest') == 'env'
+        monkeypatch.delenv('PXTCLOUD_ORG')
+        monkeypatch.delenv('PXTCLOUD_DB')
         monkeypatch.delenv('PIXELTABLE_INPUT_MEDIA_DEST')
+        monkeypatch.delenv('PIXELTABLE_OUTPUT_MEDIA_DEST')
+        Config.init({'pixeltable.input_media_dest': 's3://from/init/'}, reinit=True)
+        assert Config.get().get_string_value('input_media_dest') == 's3://local/input/'
+        # a var named like a setting is a var, not that setting
+        Config.init(reinit=True)
+        assert Config.get().get_string_value('input_media_dest', section=VAR_SECTION) is None
 
         # the entry outranks the section every database shares, which still applies where the entry is silent
         config = load(
