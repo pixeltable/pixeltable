@@ -84,6 +84,31 @@ class TestLogout:
 
         assert capsys.readouterr().out.strip() == 'Not signed in.'
 
+    def test_it_ends_the_browsers_sign_in_too(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Signing out of one without the other is the state that confuses people."""
+        _signed_in()
+        monkeypatch.setattr(auth, 'browser_logout_url', lambda _url: 'https://dash.example.com/api/auth/logout')
+        opened: list[str] = []
+        monkeypatch.setattr('pixeltable_cli.client.commands.login.webbrowser.open', lambda u: opened.append(u))
+
+        cmd.run_logout([])
+
+        assert opened == ['https://dash.example.com/api/auth/logout']
+        assert credentials.load(_API) is None
+
+    def test_an_environment_naming_no_dashboard_still_clears_this_device(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _signed_in()
+        monkeypatch.setattr(auth, 'browser_logout_url', lambda _url: '')
+        monkeypatch.setattr(
+            'pixeltable_cli.client.commands.login.webbrowser.open', lambda _u: pytest.fail('opened nothing')
+        )
+
+        cmd.run_logout([])
+
+        assert credentials.load(_API) is None
+
     def test_it_forgets_the_session(self, capsys: pytest.CaptureFixture) -> None:
         _signed_in()
 
@@ -108,7 +133,7 @@ class TestLoginOutput:
         monkeypatch.setattr(auth, 'device_login', _fake_login)
         monkeypatch.setattr('pixeltable_cli.client.commands.login.auth.device_login', _fake_login)
 
-        cmd.run(['--json', '--no-browser'])
+        cmd.run(['--json'])
 
         out = capsys.readouterr().out
         # The stub deliberately writes to stdout; the assertion is that _login's own JSON is the
@@ -124,7 +149,7 @@ class TestLoginOutput:
         monkeypatch.setattr('pixeltable_cli.client.commands.login.auth.device_login', _refuse)
 
         with pytest.raises(SystemExit) as e:
-            cmd.run(['--no-browser'])
+            cmd.run([])
 
         assert e.value.code == 1
         assert 'refused' in capsys.readouterr().err

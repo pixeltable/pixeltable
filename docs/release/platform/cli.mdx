@@ -706,7 +706,13 @@ running is never cut off partway.
 pxt logout
 ```
 
-`pxt logout` forgets this device's cached session. It does not sign out the browser.
+`pxt logout` forgets this device's cached session and signs the browser out as well. Both, because
+a browser that is still signed in confirms the next code without naming an account — so signing out
+of one and not the other is how you end up logged in as someone you did not choose. It signs that
+browser out of the dashboard too, and of every other environment sharing the same sign-in.
+
+`PIXELTABLE_CREDENTIALS` names the session file to use, if you need one other than the default —
+a test run, which gets its own Pixeltable home, reads a real sign-in that way.
 
 <Note>
 An **API key** takes precedence over a sign-in whenever both are present — it is the explicit
