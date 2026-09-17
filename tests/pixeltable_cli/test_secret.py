@@ -26,7 +26,7 @@ class FakeControlPlane:
 
 
 @pytest.fixture
-def control_plane() -> Iterator[FakeControlPlane]:
+def fake_control_plane() -> Iterator[FakeControlPlane]:
     """A control plane on localhost: it remembers every request it was sent, and answers each with {}."""
     received_requests: list[dict[str, Any]] = []
 
@@ -72,11 +72,11 @@ def _pxt_secret(port: int, cwd: pathlib.Path, control_plane: FakeControlPlane, *
 
 
 class TestSecret:
-    def test_set(self, daemon_port: int, tmp_path: pathlib.Path, control_plane: FakeControlPlane) -> None:
+    def test_set(self, daemon_port: int, tmp_path: pathlib.Path, fake_control_plane: FakeControlPlane) -> None:
         r = _pxt_secret(
             daemon_port,
             tmp_path,  # any path will do, as long as it's not the repo root or its subdir
-            control_plane,
+            fake_control_plane,
             'set',
             'pxt://acme:main',
             'OPENAI_API_KEY=test=value',
@@ -101,11 +101,11 @@ class TestSecret:
                 'value': 'custom-value',
             },
         ]
-        assert control_plane.received_requests == expected_requests
+        assert fake_control_plane.received_requests == expected_requests
 
         # reserved prefix
         for key in ('PIXELTABLE_HOME', 'PIXELTABLE_DB', 'PIXELTABLE_VAR_FOO', 'pixeltable_home', 'Pixeltable_Db'):
-            r = _pxt_secret(daemon_port, tmp_path, control_plane, 'set', 'pxt://acme:main', f'{key}=test-value')
+            r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'set', 'pxt://acme:main', f'{key}=test-value')
             assert r.returncode != 0
             assert 'is reserved' in r.stderr, r.stderr
-        assert control_plane.received_requests == expected_requests
+        assert fake_control_plane.received_requests == expected_requests
