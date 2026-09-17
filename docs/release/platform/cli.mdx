@@ -725,6 +725,18 @@ Signing in proves who you are; it does not give you an organization. A brand-new
 and every hosted command needs one, so `pxt login` says so rather than letting the next command
 fail as an authorization error.
 
+### Organizations
+
+```bash
+pxt org create acme --name "Acme Inc"
+```
+
+Creates the organization, its first database and its storage in one call. The slug is the namespace
+`pxt://acme:main` refers to, and it must be unique across Pixeltable.
+
+Creating one does not move you into it. Name the organization in the URI — `pxt://acme:main` — and
+`pxt org list` shows the ones you can reach.
+
 ### Hosted targets
 
 `TARGET` may be a `pxt://org:db` uri, and the services then run in that database rather than on this
