@@ -1388,7 +1388,9 @@ class TestColdStartBudget:
     budget and defeating the daemon split. The `-X importtime` log is authoritative.
     """
 
-    def test_pixeltable_not_imported_by_pxt_ls(self, cli: PxtRunner, pxt_daemon: int) -> None:
+    def test_pixeltable_not_imported_by_pxt_ls(
+        self, cli: PxtRunner, pxt_daemon: int, session_project: pathlib.Path
+    ) -> None:
         # Use sys.executable so the subprocess runs under the same interpreter as the test,
         # not whatever python resolves to on PATH.
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
@@ -1399,6 +1401,7 @@ class TestColdStartBudget:
             env=env,
             check=False,
             stdin=subprocess.DEVNULL,
+            cwd=session_project,
         )
         # We only inspect the import log; the underlying ls call may pass or fail
         # depending on catalog state, which is irrelevant here.

@@ -42,8 +42,8 @@ The uri selects the matching [[pixeltable.database]] entry in the project config
   [[pixeltable.database]]
   name = 'pxt://org:db'      # what 'pxt db update pxt://org:db' looks for
 
-The entry says which of the project's files the database gets (include/exclude), what the image
-holds (system_dependencies, python_version), and what the database runs on (cpu, memory_mb,
+The entry says which of the project's files the database gets (include/exclude), what goes into
+the image (system_dependencies, python_version), and what the database runs on (cpu, memory_mb,
 disk_gb, workers). 'diff' compares the entry against the database; 'update' applies the difference.
 
 Exit status of diff and update: 0 in agreement, 2 changes pending, 3 refused, 1 error.

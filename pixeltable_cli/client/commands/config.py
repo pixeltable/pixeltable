@@ -17,7 +17,7 @@ Examples:
 Notes:
   Source 'env' means an environment variable supplies the value.
   A file path means the value came from the config file of this Pixeltable instance.
-  Source 'unset' means neither carries the value; pixeltable falls back to its own default.
+  Source 'unset' means neither supplies the value; pixeltable falls back to its own default.
   Credential values (api_key, api_token, api_secret, auth_token) show '<redacted>' when set;
   use the source field to tell set from unset for sensitive keys.
   The daemon resolves values from the environment it was started with, so credentials in your shell

@@ -49,7 +49,7 @@ Every construct the schema DSL supports appears below; delete what you do not ne
 
 A udf defined here is referenced by this file's path, so moving or renaming the file leaves the columns that
 call it unable to compute.
-Building an application with Pixeltable? The agent skill carries the full API:
+Building an application with Pixeltable? The agent skill covers the full API:
     npx skills add pixeltable/pixeltable-skill
 """
 
@@ -231,10 +231,10 @@ Exit codes:
 
 Notes:
   Checks what the file says on its own: it imports without modifying the catalog, it defines a
-  model base, and every udf its columns call is named by a module path another process resolves.
-  Takes no TARGET and reads no catalog, so it says nothing about what a target already holds;
+  model base, and every udf its columns call has a module path another process resolves.
+  Takes no TARGET and reads no catalog, so it says nothing about what a target already contains;
   'pxt schema diff' answers that.
-  A warning names a project module whose name an installed distribution also answers to: the
+  A warning reports a project module whose name an installed distribution also answers to: the
   project root goes on sys.path after the installed packages, so an import reads the installed one.
 
 {_SCHEMA_FILE}"""

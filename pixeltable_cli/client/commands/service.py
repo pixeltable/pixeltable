@@ -27,7 +27,7 @@ from ..utils import (
 _EXAMPLE_APP = '''\
 """Pixeltable application, written by 'pxt service example'.
 
-One file holds both: the models, which name the tables, and the services, which serve routes over them.
+One file defines both: the models, which become the tables, and the services, which serve routes over them.
 The target given on the command line says which catalog directory those tables live in, so the same file
 can be applied to a development directory and a production one.
 
@@ -122,7 +122,7 @@ Examples:
 
 Ports:
   A restarted service keeps its previous port, so its callers keep their address; a service that was not
-  running gets one from the OS. --port pins it instead, and fails if that port is taken. It names one port,
+  running gets one from the OS. --port pins it instead, and fails if that port is taken. It takes one port,
   so name the service too when the file defines more than one.
 
 Tracing:
@@ -185,7 +185,7 @@ Exit codes:
 
 Notes:
   Checks what the file says on its own: it imports without modifying the catalog, it defines a
-  service and a model base, and every udf its columns call is named by a module path another
+  service and a model base, and every udf its columns call has a module path another
   process resolves. Takes no TARGET, so it says nothing about what a target can serve;
   'pxt service diff' answers that.
 {_OWN_APP}{_HOSTED}{_APP_FILE}"""
@@ -199,7 +199,7 @@ Examples:
   pxt service logs pxt://acme:main/ingest --json
 
 A hosted service's log merges the serving process's log records, requests included, with its console output,
-ordered by time. The console output holds the traceback of a service that failed to start. A line appears in the
+ordered by time. The console output has the traceback of a service that failed to start. A line appears in the
 log a few seconds after it is written. A service running on this machine logs to a local file instead, and
 'pxt service logs' reports the path of that file.
 """
@@ -427,7 +427,7 @@ def _update(
         starting = [d.name for d in plan.services if d.resolution != 'up_to_date' and d.status != 'refused']
         if len(starting) > 1:
             print(
-                f'pxt service update: --port names one port, and this would start {len(starting)} services: '
+                f'pxt service update: --port takes one port, and this would start {len(starting)} services: '
                 f'{", ".join(sorted(starting))}.\nName the service to start, or leave --port off to keep each '
                 'service on its current port.',
                 file=sys.stderr,

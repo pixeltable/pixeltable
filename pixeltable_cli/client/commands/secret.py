@@ -36,7 +36,7 @@ A process reads its secrets once, at startup, so a running one keeps the values 
 
 
 def run(argv: list[str]) -> None:
-    parser = Parser(prog='pxt secret', description='manage the secrets a database holds', epilog=EPILOG)
+    parser = Parser(prog='pxt secret', description="manage a database's secrets", epilog=EPILOG)
     sub = parser.add_subparsers(dest='action', required=True)
 
     p = sub.add_parser('list', help='list secret names in a scope (never their values)')
