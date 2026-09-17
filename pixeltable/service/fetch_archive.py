@@ -19,14 +19,25 @@ from __future__ import annotations
 
 import argparse
 import logging
+import shutil
+import tarfile
+import tempfile
 import time
+import urllib.request
 from pathlib import Path
 
 from pixeltable import exceptions as excs
-from pixeltable.service.db import unpack_project_archive
+from pixeltable.service import management_client
+from pixeltable.service.db import _validated_db_uri
+from pixeltable.service.management_protocol import GetArchiveRequest, GetArchiveResponse
+from pixeltable.utils.project import unpacked_digest
 
 PROJECT_SUBDIR = 'project'
 FINGERPRINT_FILE = 'fingerprint.json'
+
+_DOWNLOAD_TIMEOUT = 300
+# the archive's own top-level directory, inside the tarball
+_TARBALL_ROOT = 'project'
 
 # get_archive returns 404 both for a database with no project and for an archive uploaded moments ago
 # that is not readable yet. The retries tell the two apart.
@@ -41,6 +52,61 @@ def project_dir(archive_dir: Path) -> Path:
 
 def fingerprint_path(archive_dir: Path) -> Path:
     return archive_dir / FINGERPRINT_FILE
+
+
+def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:
+    """Unpack db_uri's project archive into dest, and return what the control plane served it as."""
+    db_path = _validated_db_uri(db_uri)
+    response = GetArchiveResponse.model_validate(
+        management_client.api_call(GetArchiveRequest(org=db_path.org, db=db_path.db))
+    )
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    # unpacked next to dest and moved into place, so that dest never holds a file the archive dropped
+    unpacking = Path(tempfile.mkdtemp(dir=dest.parent, prefix=f'.{dest.name}.'))
+    archive_path = unpacking / 'project.tar.bz2'
+    try:
+        # streamed to disk: a project may select files too large to hold in memory
+        with (
+            urllib.request.urlopen(response.presigned_url, timeout=_DOWNLOAD_TIMEOUT) as r,
+            archive_path.open('wb') as f,
+        ):
+            shutil.copyfileobj(r, f)
+
+        staged = unpacking / _TARBALL_ROOT
+        staged.mkdir()  # an archive holding no files still unpacks to an empty project
+        prefix = f'{_TARBALL_ROOT}/'
+        with tarfile.open(archive_path, mode='r:bz2') as tf:
+            members: list[tarfile.TarInfo] = []
+            for member in tf.getmembers():
+                if member.name == _TARBALL_ROOT:
+                    continue
+                if not member.name.startswith(prefix):
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_DATA_FORMAT,
+                        f'{db_path.uri_str} serves an archive holding {member.name!r}, which is outside {prefix}',
+                    )
+                member.name = member.name[len(prefix) :]
+                if member.islnk() and member.linkname.startswith(prefix):
+                    # a hard link points at another member, and that name loses the prefix too
+                    member.linkname = member.linkname[len(prefix) :]
+                members.append(member)
+            # filter='data': refuses a member naming a path outside the directory, and drops ownership bits
+            tf.extractall(staged, members=members, filter='data')
+
+        unpacked = unpacked_digest(staged)
+        if unpacked != response.digest:
+            # what arrived is not what the control plane named, whatever it named
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_DATA_FORMAT,
+                f'{db_path.uri_str} served an archive holding project {unpacked}, not {response.digest}',
+            )
+
+        if dest.exists():
+            shutil.rmtree(dest)
+        staged.rename(dest)
+    finally:
+        shutil.rmtree(unpacking, ignore_errors=True)
+    return response
 
 
 def fetch(db_uri: str, archive_dir: Path) -> bool:

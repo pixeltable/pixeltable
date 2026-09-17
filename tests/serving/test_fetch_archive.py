@@ -1,4 +1,4 @@
-"""The init container's side of the archive handoff.
+"""The init container's side of the archive handoff: unpacking an archive, and the branches around it.
 
 fetch_archive runs before a database's serving container, so everything here is a startup path: a
 regression takes the pod down, or brings it up serving nothing, and shows up only in a cluster. The
@@ -9,6 +9,7 @@ any other failure.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from unittest import mock
 
@@ -16,7 +17,7 @@ import pytest
 
 from pixeltable import exceptions as excs
 from pixeltable.service import fetch_archive
-from pixeltable.utils.project import project_fingerprint
+from pixeltable.utils.project import package_project_archive, project_fingerprint, unpacked_digest
 
 _DB_URI = 'pxt://acme:main'
 
@@ -105,3 +106,35 @@ class TestFetchArchive:
         ):
             fetch_archive.fetch(_DB_URI, archive_dir)
         assert unpack.call_count == 1  # not retried
+
+
+class TestUnpack:
+    def test_round_trip(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Unpacking an archive yields the project it was packaged from, whatever shapes its files take.
+
+        unpack_project_archive() checks the unpacked project against the digest the caller served it, so
+        serving this project's own digest makes the call itself the assertion.
+        """
+        project = tmp_path / 'project'
+        (project / 'pkg').mkdir(parents=True)
+        (project / 'app.py').write_text('x = 1\n')
+        (project / 'pkg' / 'mod.py').write_text('y = 2\n')
+        (project / 'link.py').symlink_to('app.py')
+        os.link(project / 'app.py', project / 'hard.py')
+
+        packaged = package_project_archive(project)
+        fingerprint = project_fingerprint(project, None)
+        served = {
+            'presigned_url': packaged.path.as_uri(),
+            'digest': fingerprint.archive_digest(),
+            'fingerprint': fingerprint.model_dump(mode='json'),
+        }
+        monkeypatch.setattr('pixeltable.service.fetch_archive.management_client.api_call', lambda request: served)
+
+        unpacked = tmp_path / 'unpacked'
+        fetch_archive.unpack_project_archive('pxt://acme:main', unpacked)
+
+        assert unpacked_digest(unpacked) == fingerprint.archive_digest()
+        assert (unpacked / 'pkg' / 'mod.py').read_text() == 'y = 2\n'
+        assert (unpacked / 'link.py').is_symlink() and os.readlink(unpacked / 'link.py') == 'app.py'
+        assert (unpacked / 'hard.py').read_text() == 'x = 1\n'
