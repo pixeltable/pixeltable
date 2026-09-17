@@ -282,12 +282,8 @@ class ObjectPath:
                 account_extension = parsed.netloc
             key = key.lstrip('/')
         elif scheme == 'pxt':
-            # pxt://org:db/buckets/<bucket>[/key]. 'buckets' is what separates storage from the
-            # catalog, which uses the same scheme; 'home' is a logical name resolved to a physical
-            # R2 bucket at runtime.
-            #
-            # Assumes the key is opaque: object keys carry timestamps and dots, so no identifier
-            # validation, version suffix or dotted-path splitting may be applied to it.
+            # pxt://org:db/buckets/<bucket>[/key], where 'home' resolves to a physical R2 bucket
+            # at runtime. Assumes the key is opaque.
             storage_target = StorageTarget.PIXELTABLE_STORE
             netloc_parts = parsed.netloc.split(':')
             if len(netloc_parts) != 2 or not netloc_parts[0] or not netloc_parts[1]:
