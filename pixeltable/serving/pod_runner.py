@@ -23,13 +23,7 @@ def _serve(
     port: int,
     otel: bool,
 ) -> None:
-    """
-    Pod entry point: serve one service of the project the init container unpacked, and report what loaded.
-
-    The fetch happens ahead of this process, in an init container: see pixeltable.service.fetch_archive.
-    A service pod, unlike the proxy daemon, cannot serve without a project -- its application file is in
-    there -- so a project the init container could not fetch is an error here rather than a warning.
-    """
+    """Pod entry point: serve one service of the unpacked project and report what loaded."""
     import uvicorn
 
     if not project_dir.is_dir():
