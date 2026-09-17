@@ -111,11 +111,10 @@ make formatcheck  # ruff format --check
 
 ### Testing
 
-Exercise behavior through public SDK, CLI, or HTTP APIs and assert on public results, metadata, or errors.
-Do not inspect private attributes or mutate internal state when a public API covers the case. For example,
-use `Table.get_metadata()` or queries instead of `col.stored`, `ColumnRef`, or `TableVersion` internals.
-Internal APIs are appropriate only for focused tests of internal components or fixture setup that public APIs
-cannot support; reuse shared test utilities where available.
+Exercise behavior through public SDK, CLI, or HTTP APIs and assert on public results, metadata, or errors:
+use `Table.get_metadata()`, `t.describe()`, or queries rather than `col.stored`, `ColumnRef`, or
+`TableVersion` internals. Reach for an internal API only to test an internal component directly, or to set up
+a fixture no public API can build.
 
 ```bash
 # Run pytest (excludes expensive/remote_api tests)

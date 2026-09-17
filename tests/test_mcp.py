@@ -6,7 +6,7 @@ import sys
 import tempfile
 import time
 from contextlib import contextmanager
-from typing import IO, Iterator
+from typing import IO, Iterator, NoReturn
 
 import pytest
 
@@ -113,6 +113,7 @@ def _mcp_child(env: dict[str, str]) -> Iterator[tuple[subprocess.Popen[bytes], I
         try:
             yield process, err
         finally:
+            _logger.info('Terminating MCP server child process.')
             process.kill()
             process.wait()
 
@@ -124,16 +125,20 @@ def _wait_for_port(port: int, process: subprocess.Popen[bytes], stderr: IO[bytes
     while time.monotonic() < deadline:
         rc = process.poll()
         if rc is not None:
-            stderr.seek(0)
-            err = stderr.read().decode(errors='replace').strip()
-            msg = f'MCP server on port {port} exited with {rc} before listening'
-            raise RuntimeError(f'{msg}: {err}' if err else msg)
+            _raise_startup_failure(f'MCP server on port {port} exited with {rc} before listening', stderr)
         try:
             with socket.create_connection(('localhost', port), timeout=1.0):
                 return
         except OSError:
             time.sleep(0.1)
-    raise RuntimeError(f'MCP server on port {port} did not start within {timeout}s')
+    # a server that hangs instead of crashing leaves its reason only in stderr, so report it here too
+    _raise_startup_failure(f'MCP server on port {port} did not start within {timeout}s', stderr)
+
+
+def _raise_startup_failure(msg: str, stderr: IO[bytes]) -> NoReturn:
+    stderr.seek(0)
+    err = stderr.read().decode(errors='replace').strip()
+    raise RuntimeError(f'{msg}: {err}' if err else msg)
 
 
 def _worker_base_port(worker_id: str) -> int:
@@ -151,11 +156,8 @@ def init_mcp_server(init_env: None, worker_id: str) -> Iterator[str]:
     _logger.info('Starting MCP server pytest fixture.')
     env = {**os.environ, 'PIXELTABLE_MCP_PORT': str(port)}
     with _mcp_child(env) as (mcp_process, err):
-        try:
-            _wait_for_port(port, mcp_process, err)
-            yield f'http://localhost:{port}/mcp'
-        finally:
-            _logger.info('Terminating MCP server pytest fixture.')
+        _wait_for_port(port, mcp_process, err)
+        yield f'http://localhost:{port}/mcp'
 
 
 @contextmanager
