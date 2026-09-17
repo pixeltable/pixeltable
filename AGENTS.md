@@ -115,7 +115,7 @@ Exercise behavior through public SDK, CLI, or HTTP APIs and assert on public res
 Do not inspect private attributes or mutate internal state when a public API covers the case. For example,
 use `Table.get_metadata()` or queries instead of `col.stored`, `ColumnRef`, or `TableVersion` internals.
 Internal APIs are appropriate only for focused tests of internal components or fixture setup that public APIs
-cannot support; explain why they are needed and reuse shared test utilities where available.
+cannot support; reuse shared test utilities where available.
 
 ```bash
 # Run pytest (excludes expensive/remote_api tests)

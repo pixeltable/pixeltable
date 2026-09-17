@@ -6,7 +6,7 @@ import sys
 import tempfile
 import time
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import IO, Iterator
 
 import pytest
 
@@ -104,7 +104,7 @@ class TestMcp:
 
 
 @contextmanager
-def _mcp_child(env: dict[str, str]) -> Iterator[tuple[subprocess.Popen[Any], Any]]:
+def _mcp_child(env: dict[str, str]) -> Iterator[tuple[subprocess.Popen[bytes], IO[bytes]]]:
     # TemporaryFile, not PIPE: the server writes DEBUG logs and a full pipe stalls it.
     with tempfile.TemporaryFile() as err:
         process = subprocess.Popen(
@@ -117,7 +117,7 @@ def _mcp_child(env: dict[str, str]) -> Iterator[tuple[subprocess.Popen[Any], Any
             process.wait()
 
 
-def _wait_for_port(port: int, process: subprocess.Popen[Any], stderr: Any, timeout: float = 30.0) -> None:
+def _wait_for_port(port: int, process: subprocess.Popen[bytes], stderr: IO[bytes], timeout: float = 30.0) -> None:
     # Poll until the server accepts a connection, so startup waits exactly as long as needed instead of a fixed
     # sleep that is both slower than necessary and flaky on a contended runner.
     deadline = time.monotonic() + timeout

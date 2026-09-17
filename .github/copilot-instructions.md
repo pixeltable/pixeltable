@@ -2,7 +2,7 @@ When reviewing Pixeltable PRs, apply these project-specific rules. Pixeltable is
 
 Path-specific rules live in `.github/instructions/`: `tests.instructions.md`, `docs.instructions.md`, `serving.instructions.md`. They apply on top of this file.
 
-Follow the Testing rule in `AGENTS.md` when writing or reviewing tests: use public APIs for behavioral tests, and require a reason for internal access in focused unit tests or fixture setup.
+Follow the Testing rule in `AGENTS.md` when writing or reviewing tests: use public APIs for behavioral tests; reserve internal access for focused unit tests or fixture setup that public APIs cannot support.
 
 ## Expression DSL: Most Common Bug Source
 

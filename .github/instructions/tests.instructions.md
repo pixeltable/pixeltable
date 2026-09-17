@@ -7,7 +7,7 @@ applyTo: "tests/**"
 - A test using `uses_db` needs `@pytest.mark.db_roots('local', reason='...')`; `tests/conftest.py` raises a `UsageError` at collection without it. The reason names a PXT ticket, not a bare TODO. Delete the exclusion when the ticket lands.
 - Any test for `pxt.Error` or a subclass uses `pxt_raises()`, not `pytest.raises()`. Both always take `match=` to verify error text.
 - Follow the Testing rule in `AGENTS.md`: exercise behavior through public SDK, CLI, or HTTP APIs and assert on public results, metadata, or errors. Do not inspect private attributes or mutate internal state when a public API covers the case.
-- Use internal APIs only for focused tests of internal components or fixture setup that public APIs cannot support; explain why they are needed and reuse shared test utilities where available.
+- Use internal APIs only for focused tests of internal components or fixture setup that public APIs cannot support; reuse shared test utilities where available.
 - AI provider tests go in `tests/functions/test_<provider>.py`, marked `remote_api`. Anything hitting a third-party model or service also needs `very_expensive`.
 - Never dodge one backend with a bare `@pytest.mark.skip`. Scope it with `db_roots`. Register any new marker in `pyproject.toml`.
 - No `http://` or `https://` literals. Use the `sample_file_server` fixture, which serves the repo tree over localhost and still exercises the download path.
