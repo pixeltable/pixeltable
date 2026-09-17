@@ -11,14 +11,14 @@ Layout under --archive-dir, which both containers mount:
     project/          the unpacked project; absent when the database has no project yet
     fingerprint.json  what the control plane served the archive as
 
-The fingerprint is written down rather than re-fetched: a pod reports the archive it actually
+Both are named to a pod by their own path, so this module is the only place that decides where they
+go. The fingerprint is written down rather than re-fetched: a pod reports the archive it actually
 loaded, and a second GetArchive call could answer with a different one.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import time
 from pathlib import Path
@@ -37,18 +37,14 @@ _ARCHIVE_FETCH_DELAYS = (0.0, 1.0, 2.0, 4.0)
 _logger = logging.getLogger('pixeltable')
 
 
-def project_dir(archive_dir: Path) -> Path | None:
-    """The unpacked project under archive_dir, or None if the database served no archive."""
-    unpacked = archive_dir / PROJECT_SUBDIR
-    return unpacked if unpacked.is_dir() else None
+def project_dir(archive_dir: Path) -> Path:
+    """Where the project unpacks. Absent on disk until the database has one."""
+    return archive_dir / PROJECT_SUBDIR
 
 
-def archive_fingerprint(archive_dir: Path) -> dict | None:
-    """The fingerprint fetch_archive recorded for the project under archive_dir, if there is one."""
-    recorded = archive_dir / FINGERPRINT_FILE
-    if not recorded.is_file():
-        return None
-    return json.loads(recorded.read_text())
+def fingerprint_path(archive_dir: Path) -> Path:
+    """Where the served archive's fingerprint is recorded."""
+    return archive_dir / FINGERPRINT_FILE
 
 
 def fetch(db_uri: str, archive_dir: Path) -> bool:
@@ -58,13 +54,13 @@ def fetch(db_uri: str, archive_dir: Path) -> bool:
         if delay > 0.0:
             time.sleep(delay)
         try:
-            response = unpack_project_archive(db_uri, archive_dir / PROJECT_SUBDIR)
+            response = unpack_project_archive(db_uri, project_dir(archive_dir))
         except excs.ExternalServiceError as exc:
             if exc.provider_http_status_code != 404:
                 raise
             continue
         if response.fingerprint is not None:
-            (archive_dir / FINGERPRINT_FILE).write_text(response.fingerprint.model_dump_json())
+            fingerprint_path(archive_dir).write_text(response.fingerprint.model_dump_json(), encoding='utf-8')
         return True
     return False
 

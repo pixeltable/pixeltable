@@ -7,30 +7,40 @@ from pathlib import Path
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
-from pixeltable.service import fetch_archive
 from pixeltable.service.db import report_instance_fingerprint
 from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
 from pixeltable.utils.project import ProjectFingerprint
 
 
 def _serve(
-    db_uri: str, app_file: str, service_name: str, base_path: str, archive_dir: Path, host: str, port: int, otel: bool
+    db_uri: str,
+    app_file: str,
+    service_name: str,
+    base_path: str,
+    project_dir: Path,
+    fingerprint_file: Path,
+    host: str,
+    port: int,
+    otel: bool,
 ) -> None:
     """Pod entry point: serve one service of the project the init container unpacked, and report what loaded.
 
     The fetch happens ahead of this process, in an init container: see pixeltable.service.fetch_archive.
     A service pod, unlike the proxy daemon, cannot serve without a project -- its application file is in
-    there -- so an archive the init container could not find is an error here rather than a warning.
+    there -- so a project the init container could not fetch is an error here rather than a warning.
+
+    The fingerprint is read rather than recomputed or re-fetched: recomputing it here would derive the
+    file set from a .gitignore the pod does not have and stamp the pod's own pixeltable version, and a
+    second GetArchive call could answer with a newer archive than the one on disk. Either way the pod
+    would report a project it is not running.
     """
     import uvicorn
 
-    project_dir = fetch_archive.project_dir(archive_dir)
-    if project_dir is None:
+    if not project_dir.is_dir():
         raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'{db_uri} has no project to serve {service_name} from')
-    recorded = fetch_archive.archive_fingerprint(archive_dir)
-    if recorded is None:
+    if not fingerprint_file.is_file():
         raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'{db_uri} served an archive without a fingerprint')
-    fingerprint = ProjectFingerprint.model_validate(recorded)
+    fingerprint = ProjectFingerprint.model_validate_json(fingerprint_file.read_text(encoding='utf-8'))
     # the unpacked project is this process's project root, so its modules and its database entry resolve
     Config.init(reinit=True, project_root=project_dir)
 
@@ -56,9 +66,22 @@ if __name__ == '__main__':
     parser.add_argument('--app-file', required=True, help='path to the application file, from the project root')
     parser.add_argument('--name', required=True, help='the service to serve')
     parser.add_argument('--base-path', default='')
-    parser.add_argument('--archive-dir', type=Path, required=True, help='where fetch_archive unpacked the project')
+    parser.add_argument('--project-root', type=Path, required=True, help='where fetch_archive unpacked the project')
+    parser.add_argument(
+        '--project-fingerprint', type=Path, required=True, help='the fingerprint fetch_archive recorded'
+    )
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--otel', action='store_true')
     args = parser.parse_args()
-    _serve(args.db, args.app_file, args.name, args.base_path, args.archive_dir, args.host, args.port, args.otel)
+    _serve(
+        args.db,
+        args.app_file,
+        args.name,
+        args.base_path,
+        args.project_root,
+        args.project_fingerprint,
+        args.host,
+        args.port,
+        args.otel,
+    )

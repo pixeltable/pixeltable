@@ -38,7 +38,6 @@ from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.process import is_pid, pid_alive
 
 from . import proxy_dispatch
-from . import fetch_archive
 from .proxy_protocol import decode_body
 
 if TYPE_CHECKING:
@@ -394,19 +393,20 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog='pixeltable.service.proxy_daemon')
     parser.add_argument('--test', action='store_true')
-    parser.add_argument('--project-root', type=Path, default=None)
-    parser.add_argument('--archive-dir', type=Path, default=None, help='serve the project fetch_archive unpacked here')
+    parser.add_argument('--project-dir', type=Path, default=None)
     parser.add_argument('--host', default=None, help='listen address; either flag serves without a lock file')
     parser.add_argument('--port', type=int, default=None, help='listen port; either flag serves without a lock file')
     parsed = parser.parse_args(argv)
-    project_root = parsed.project_root
-    if parsed.archive_dir is not None:
-        project_root = fetch_archive.project_dir(parsed.archive_dir)
-        if project_root is None:
-            logging.getLogger('pixeltable').warning(
-                'no project was unpacked in %s; udfs the database defines cannot be resolved', parsed.archive_dir
-            )
-    Config.init(reinit=True, project_root=project_root)
+    project_dir = parsed.project_dir
+    if project_dir is not None and not project_dir.is_dir():
+        # a hosted pod is given the path its init container unpacks into, which does not exist until
+        # `pxt db update` first gives the database a project; serve the catalog without one, and a
+        # request that needs a udf from it says so
+        logging.getLogger('pixeltable').warning(
+            'no project at %s; udfs the database defines cannot be resolved', project_dir
+        )
+        project_dir = None
+    Config.init(reinit=True, project_root=project_dir)
     _serve(test_mode=parsed.test, host=parsed.host, port=parsed.port)
 
 
