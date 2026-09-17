@@ -40,6 +40,8 @@ def _home(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     Config.init(reinit=True)
     # Polling is the one place this code sleeps; no test should wait on it.
     monkeypatch.setattr(auth.time, 'sleep', lambda _s: None)
+    # Per-process state, so each test starts having authorized nothing.
+    auth._authorized.clear()
 
 
 def _session(**kw: Any) -> credentials.Session:
@@ -283,6 +285,16 @@ class TestAccessToken:
 
         with pytest.raises(auth.AuthError, match='expired'):
             auth.access_token(_API)
+
+    def test_work_already_under_way_is_not_cut_off_at_the_deadline(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A bulk ingest that began inside the hour reconnects after it; failing there loses work."""
+        _posting(monkeypatch, _GRANTED)
+        credentials.save(_API, _session())
+
+        assert auth.access_token(_API) == 'old-access'  # authorizes this process
+        credentials.save(_API, _session(logged_in_at=time.time() - credentials.MAX_SESSION_AGE_S - 1))
+
+        assert auth.access_token(_API) == 'old-access'  # still serving, deadline notwithstanding
 
     def test_each_environment_refreshes_its_own_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A prod token presented to a sandbox is the failure this keying exists to prevent."""

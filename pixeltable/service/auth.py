@@ -32,6 +32,12 @@ _DEVICE_AUTH_PATH = '/user_management/authorize/device'
 _TOKEN_PATH = '/user_management/authenticate'
 _DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
 
+# Set when the cache alone proves the sign-in is over, so a caller can say so instead of guessing.
+# WorkOS uses the second for a refresh token it has rejected, which means the same thing to a user.
+SESSION_EXPIRED = 'session_expired'
+_REJECTED_GRANT = 'invalid_grant'
+NEEDS_SIGN_IN = (SESSION_EXPIRED, _REJECTED_GRANT)
+
 _TIMEOUT_S = 30.0
 # A ceiling on polling. WorkOS sets the real deadline in expires_in, which is usually shorter.
 _LOGIN_TIMEOUT_S = 600.0
@@ -194,7 +200,7 @@ def refresh(api_url: str, session: Session, organization_id: str = '') -> Sessio
     the session already had, which for an account that had none is still none.
     """
     if not session.can_refresh():
-        raise AuthError('this session cannot be renewed')
+        raise AuthError('this session cannot be renewed', code=SESSION_EXPIRED)
     fields = {
         'grant_type': 'refresh_token',
         'refresh_token': session.refresh_token or '',
@@ -212,6 +218,12 @@ def refresh(api_url: str, session: Session, organization_id: str = '') -> Sessio
     return renewed
 
 
+# Control planes this process has already been authorized against. The deadline decides whether work
+# may start, not whether work already running may finish: a bulk ingest that began inside the hour
+# reconnects its tunnel after it, and failing there would lose the work rather than protect anything.
+_authorized: set[str] = set()
+
+
 def access_token(api_url: str) -> Optional[str]:
     """A token to send to `api_url`, renewing first if the cached one is spent.
 
@@ -221,9 +233,10 @@ def access_token(api_url: str) -> Optional[str]:
     session = credentials.load(api_url)
     if session is None:
         return None
-    # Before the token's own expiry: past the deadline, a still-valid token must not be sent.
-    if session.is_expired():
-        raise AuthError('your sign-in has expired')
+    # Checked before the token's own expiry, and only once per process -- see _authorized.
+    if api_url not in _authorized and session.is_expired():
+        raise AuthError('your Pixeltable sign-in has expired', code=SESSION_EXPIRED)
+    _authorized.add(api_url)
     if session.is_usable():
         return session.access_token
     return refresh(api_url, session).access_token
