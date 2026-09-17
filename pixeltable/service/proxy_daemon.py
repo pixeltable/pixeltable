@@ -388,8 +388,6 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     uvicorn.Server(uvicorn.Config(app, log_level=log_level, log_config=None)).run(sockets=[sock])
 
 
-# get_archive returns 404 both for a database with no project and for one whose release did not
-# resolve just now; retrying tells the two apart
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog='pixeltable.service.proxy_daemon')
     parser.add_argument('--test', action='store_true')

@@ -1,10 +1,10 @@
 """Unpack a hosted database's project archive, ahead of the pod that serves it.
 
-A pod cannot fetch its own archive. The image installs the project's dependencies but not the
-project itself (`uv sync --no-install-project`), because the image context carries only the
-manifests -- so for a project whose own package is pixeltable, the pixeltable that would do the
-fetching is the thing being fetched. This module runs first, in an init container on the base
-image, which carries a pixeltable of its own regardless of what the project pins.
+The container that serves a database cannot fetch its own archive. The image installs the project's
+dependencies but not the project itself (`uv sync --no-install-project`), because the image context
+carries only the manifests -- so for a project whose own package is pixeltable, the pixeltable that
+would do the fetching is the thing being fetched. This module runs ahead of it, in an init container
+on the base image, which carries a pixeltable of its own regardless of what the project pins.
 
 Layout under --archive-dir, which both containers mount:
 
@@ -38,12 +38,10 @@ _logger = logging.getLogger('pixeltable')
 
 
 def project_dir(archive_dir: Path) -> Path:
-    """Where the project unpacks. Absent on disk until the database has one."""
     return archive_dir / PROJECT_SUBDIR
 
 
 def fingerprint_path(archive_dir: Path) -> Path:
-    """Where the served archive's fingerprint is recorded."""
     return archive_dir / FINGERPRINT_FILE
 
 
