@@ -27,18 +27,17 @@ def _home(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _signed_in(**kw: object) -> None:
-    credentials.save(
-        _API,
-        credentials.Session(
-            access_token='a.b.c',
-            expires_at=time.time() + 3600,
-            refresh_token='r',
-            client_id='c',
-            email='you@example.com',
-            logged_in_at=time.time(),
-            **kw,  # type: ignore[arg-type]
-        ),
-    )
+    fields: dict[str, object] = {
+        'access_token': 'a.b.c',
+        'expires_at': time.time() + 3600,
+        'refresh_token': 'r',
+        'client_id': 'c',
+        'email': 'you@example.com',
+        'organization_id': 'org_01TEST',
+        'logged_in_at': time.time(),
+    }
+    fields.update(kw)
+    credentials.save(_API, credentials.Session(**fields))  # type: ignore[arg-type]
 
 
 class TestWhoami:
@@ -57,6 +56,21 @@ class TestWhoami:
 
         assert 'you@example.com' in capsys.readouterr().out
 
+    def test_it_names_the_organization_the_session_is_scoped_to(self, capsys: pytest.CaptureFixture) -> None:
+        """One account in two organizations: the id is all that tells the two sessions apart."""
+        _signed_in()
+
+        cmd.run_whoami([])
+
+        assert 'org_01TEST' in capsys.readouterr().out
+
+    def test_an_account_belonging_to_no_organization_says_so(self, capsys: pytest.CaptureFixture) -> None:
+        _signed_in(organization_id='')
+
+        cmd.run_whoami([])
+
+        assert '(none)' in capsys.readouterr().out
+
     def test_json_is_parseable(self, capsys: pytest.CaptureFixture) -> None:
         _signed_in()
 
@@ -64,6 +78,7 @@ class TestWhoami:
 
         record = json.loads(capsys.readouterr().out)
         assert record['email'] == 'you@example.com'
+        assert record['organization_id'] == 'org_01TEST'
         assert record['using'] == 'session'
 
     def test_an_api_key_is_reported_as_what_commands_will_send(
