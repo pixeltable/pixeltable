@@ -65,7 +65,7 @@ def _create(args: argparse.Namespace) -> None:
     if args.json_output:
         print(json.dumps(record))
         return
-    print(f'{record.get("org_slug", args.org)}  (database {record.get("default_db_slug", "main")})')
+    print(f'{record.get("org_slug", args.org)}  (database {record.get("default_db_slug") or "main"})')
     print(f'Run `pxt org use {record.get("org_slug", args.org)}` to work in it.')
 
 
@@ -83,7 +83,11 @@ def _use(args: argparse.Namespace) -> None:
         print(f'pxt org use: error: no organization named {args.org!r}. Yours: {names}', file=sys.stderr)
         sys.exit(1)
 
-    auth.authorize_org(api_url(), str(match['org_id']))
+    try:
+        auth.authorize_org(api_url(), str(match['org_id']))
+    except (auth.AuthError, OSError) as e:
+        print(f'pxt org use: error: {e}', file=sys.stderr)
+        sys.exit(1)
     print(f'Working in {args.org}.')
 
 
