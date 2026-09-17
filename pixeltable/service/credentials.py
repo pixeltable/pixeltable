@@ -75,7 +75,11 @@ def _read_all() -> dict[str, Any]:
     except (OSError, ValueError):
         # A corrupt cache means "not signed in", not a failed command.
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    # Checked one level down as well: {"sessions": []} parses, and every reader here calls .get on it.
+    sessions = data.get('sessions')
+    return data if sessions is None or isinstance(sessions, dict) else {}
 
 
 def _write_all(sessions: dict[str, Any]) -> None:

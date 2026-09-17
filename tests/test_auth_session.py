@@ -139,6 +139,36 @@ class TestDeviceLogin:
 
         assert waits[1] > waits[0]
 
+    def test_progress_does_not_pollute_stdout(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """`pxt login --json` promises a parseable document; the code and link are progress."""
+        _posting(monkeypatch, _DEVICE, _GRANTED)
+
+        auth.device_login(_API, open_browser=False)
+
+        captured = capsys.readouterr()
+        assert captured.out == ''
+        assert 'ABCD-EFGH' in captured.err
+
+    def test_it_backs_off_by_five_seconds_when_told_to_slow_down(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """RFC 8628 says five; less keeps polling faster than the server allows."""
+        waits: list[float] = []
+        monkeypatch.setattr(auth.time, 'sleep', lambda s: waits.append(s))
+        _posting(monkeypatch, {**_DEVICE, 'interval': 5}, _oauth_error('slow_down'), _GRANTED)
+
+        auth.device_login(_API, open_browser=False)
+
+        assert waits == [5, 10]
+
+    def test_a_non_object_answer_is_an_auth_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """json.loads happily returns a list; callers here index it as a mapping."""
+        body = contextlib.nullcontext(types.SimpleNamespace(read=lambda: b'[]'))
+        monkeypatch.setattr(auth.urllib.request, 'urlopen', lambda *a, **k: body)
+
+        with pytest.raises(auth.AuthError, match='not an object'):
+            auth.auth_config('https://api.example.com')
+
     def test_a_refusal_in_the_browser_is_reported_as_one(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _posting(monkeypatch, _DEVICE, _oauth_error('access_denied'))
 

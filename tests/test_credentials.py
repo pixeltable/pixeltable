@@ -129,6 +129,15 @@ class TestOnDisk:
         assert credentials.load(_PROD) is None
         assert credentials.signed_in() == []
 
+    def test_a_wrongly_shaped_cache_reads_as_signed_out(self) -> None:
+        """Valid JSON of the wrong shape: every reader here calls .get on what it finds."""
+        path = Config.get().home / 'credentials.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"sessions": []}')
+
+        assert credentials.load(_PROD) is None
+        assert credentials.signed_in() == []
+
     def test_an_unknown_field_from_a_newer_version_is_ignored(self) -> None:
         credentials.save(_PROD, _session())
         raw = json.loads(credentials._path().read_text(encoding='utf-8'))
