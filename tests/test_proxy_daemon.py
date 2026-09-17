@@ -234,13 +234,29 @@ class TestProxyDaemon:
         local_sink = HttpTransport('http://127.0.0.1:1').new_part_sink()
         assert type(local_sink) is proxy_protocol.InlinePartSink
 
-        tunnel = TunnelTransport('org1', 'db1', 'key', host='h', port=443)
+        tunnel = TunnelTransport('org1', 'db1', lambda: 'key', host='h', port=443)
         remote_sink = tunnel.new_part_sink()
         next_sink = tunnel.new_part_sink()
         assert isinstance(remote_sink, PxtStorePartSink)
         assert isinstance(next_sink, PxtStorePartSink)
         # each request gets its own uploads/ prefix
         assert next_sink._key_prefix != remote_sink._key_prefix
+
+    def test_each_handshake_asks_for_the_credential_again(self) -> None:
+        """A tunnel outlives the credential that opened it, and a session token expires."""
+        issued = iter(['first', 'second'])
+        transport = TunnelTransport('org1', 'db1', lambda: next(issued), host='h', port=443)
+
+        frames = []
+
+        def _frame() -> str:
+            return f'PXT/1.0 CONNECT org1/db1\r\nAuthorization: Bearer {transport._credential()}\r\n\r\n'
+
+        frames.append(_frame())
+        frames.append(_frame())
+
+        assert 'Bearer first' in frames[0]
+        assert 'Bearer second' in frames[1]
 
     def test_pxt_store_sink_defers_uploads(
         self, init_env: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
@@ -449,7 +465,7 @@ class TestTunnelRetries:
     @staticmethod
     def _transport(conns: list[_ScriptedConn]) -> tuple[TunnelTransport, list[_ScriptedConn]]:
         """A transport that hands out conns in order, and the list of the ones it actually opened."""
-        transport = TunnelTransport('org1', 'db1', 'key', host='h', port=443)
+        transport = TunnelTransport('org1', 'db1', lambda: 'key', host='h', port=443)
         opened: list[_ScriptedConn] = []
         queue = list(conns)
 

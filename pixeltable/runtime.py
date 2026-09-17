@@ -160,10 +160,14 @@ class Runtime:
             return CatalogProxy(catalog_uri, ProxyClient.local(f'http://127.0.0.1:{info["port"]}'))
 
         # Remote database: connect via TLS to the proxy endpoint.
-        # Either kind works: the sidecar picks its validation path by the credential's shape.
-        cred = credential(f'connect to hosted database {catalog_uri!r}')
+        # Either kind works: the sidecar picks its validation path by the credential's shape. Passed
+        # as a callable because this client is cached and the tunnel reconnects: reading it once
+        # would pin a session token that expires long before the process does.
+        purpose = f'connect to hosted database {catalog_uri!r}'
         host, port = Env.get().proxy_endpoint(catalog_uri.org, catalog_uri.db)
-        client = ProxyClient.remote(catalog_uri.org, catalog_uri.db, cred, host=host, port=port)
+        client = ProxyClient.remote(
+            catalog_uri.org, catalog_uri.db, lambda: credential(purpose), host=host, port=port
+        )
         return CatalogProxy(catalog_uri, client)
 
     @property
