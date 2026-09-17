@@ -108,6 +108,39 @@ class TestSessionAge:
         assert left == pytest.approx(credentials.MAX_SESSION_AGE_S - 600, abs=1)
 
 
+class TestWhereItLives:
+    def test_by_default_it_belongs_to_the_instance(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """So a second instance -- a test run -- starts signed out rather than inheriting a session."""
+        monkeypatch.delenv('PIXELTABLE_CREDENTIALS', raising=False)
+        credentials.save(_PROD, _session())
+
+        assert (Config.get().home / 'credentials.json').is_file()
+
+    def test_a_named_file_is_used_instead(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """How a test run borrows a real sign-in, said out loud rather than inferred."""
+        named = tmp_path / 'elsewhere' / 'creds.json'
+        named.parent.mkdir()
+        monkeypatch.setenv('PIXELTABLE_CREDENTIALS', str(named))
+
+        credentials.save(_PROD, _session(email='a@b.c'))
+
+        assert named.is_file()
+        assert not (Config.get().home / 'credentials.json').exists()
+        loaded = credentials.load(_PROD)
+        assert loaded is not None and loaded.email == 'a@b.c'
+
+    def test_a_named_file_expands_a_home_relative_path(
+        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """~/.pixeltable/credentials.json is what anyone would actually type."""
+        monkeypatch.setenv('HOME', str(tmp_path))
+        monkeypatch.setenv('PIXELTABLE_CREDENTIALS', '~/creds.json')
+
+        credentials.save(_PROD, _session())
+
+        assert (tmp_path / 'creds.json').is_file()
+
+
 class TestOnDisk:
     def test_the_file_is_not_readable_by_anyone_else(self) -> None:
         credentials.save(_PROD, _session())

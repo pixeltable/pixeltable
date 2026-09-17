@@ -242,6 +242,31 @@ def access_token(api_url: str) -> Optional[str]:
     return refresh(api_url, session).access_token
 
 
+def _claim(token: str, name: str) -> str:
+    """One claim out of a token. Read, never verified: nothing here is an authorization decision."""
+    try:
+        payload = token.split('.')[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+        value = claims.get(name)
+        return value if isinstance(value, str) else ''
+    except (IndexError, ValueError, binascii.Error):
+        return ''
+
+
+def browser_logout_url(api_url: str) -> str:
+    """Where to send a browser to end the sign-in behind this session. Empty when there is none.
+
+    WorkOS directly, not the dashboard: signing in with a device code never creates a dashboard
+    session, so the dashboard's own sign-out has no cookie to clear and does nothing. The session
+    this ends is named by the token itself.
+    """
+    session = credentials.load(api_url)
+    session_id = _claim(session.access_token, 'sid') if session else ''
+    if not session_id:
+        return ''
+    return f'{_WORKOS_API}/user_management/sessions/logout?session_id={urllib.parse.quote(session_id)}'
+
+
 def authorize_org(api_url: str, org_id: str) -> Session:
     """Re-mint the cached session scoped to `org_id`. For an account that has just acquired one."""
     session = credentials.load(api_url)

@@ -97,7 +97,7 @@ def credential(purpose: str) -> str:
         # Everything else -- a name that will not resolve, a provider having a bad day -- is reported
         # as itself: telling someone to sign in again does not fix a network they cannot reach.
         if e.code == auth.SESSION_EXPIRED:
-            detail = f'Your Pixeltable sign-in is over: {e}. {_SIGN_IN_AGAIN}'
+            detail = f'Your Pixeltable sign-in has expired. {_SIGN_IN_AGAIN}'
         elif e.code in auth.NEEDS_SIGN_IN:
             detail = f'Your Pixeltable session was rejected ({e}). {_SIGN_IN_AGAIN}'
         else:
