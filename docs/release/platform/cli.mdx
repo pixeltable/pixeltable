@@ -39,7 +39,7 @@ Use `pxt <command> --help` for per-subcommand flags and examples.
 | **Schema** | `schema diff`, `schema update`, `schema prune` |
 | **Interactive** | `shell` |
 | **Serving** | `service` |
-| **Cloud** | `login`, `logout`, `whoami`, `db`, `secret`, `org` |
+| **Cloud** | `login`, `logout`, `whoami`, `db`, `secret`, `org`, `key` |
 | **Lifecycle** | `daemon`, `dashboard`, `health` |
 
 ### Universal flags
@@ -128,6 +128,11 @@ pxt db logs   pxt://myorg:mydb   # what the database's pod logged
 # cloud — secrets
 pxt secret set  pxt://myorg OPENAI_API_KEY=sk-...
 pxt secret list                  # the org your key reaches
+
+# cloud — keys
+pxt key create ci                # a key that acts as you
+pxt key create app --grant access:pxt://myorg:mydb/services/ingest
+pxt key list                     # your keys, and the org's runtime keys
 ```
 
 ## Inspection commands
@@ -737,6 +742,37 @@ Creates the organization, its first database and its storage in one call. The sl
 Creating one does not move you into it. Name the organization in the URI — `pxt://acme:main` — and
 `pxt org list` shows the ones you can reach.
 
+### Keys
+
+A key is the credential that does not expire, for the places a browser sign-in cannot reach: CI, a
+cron job, a deployed service. There is one command and two shapes, and the grants decide which.
+
+```bash
+pxt key create ci                                                 # acts as you
+pxt key create app --grant access:pxt://acme:main/services/ingest # acts as nobody
+```
+
+Without grants, the key acts as whoever created it and reaches whatever they reach — the API key you
+already know. With grants it belongs to the organization instead, and reaches only what it was
+granted, so a service you deploy carries no more authority than its job needs.
+
+A grant is a verb on a resource, never a bare resource: naming a service does not say whether the
+holder may call it or reconfigure it, and those are not the same permission.
+
+| Grant | What it allows |
+| --- | --- |
+| `access:pxt://org:db` | every service in the database, and its storage |
+| `access:pxt://org:db/services` | call any service in the database |
+| `access:pxt://org:db/services/name` | call that service, every route under it |
+| `manage:pxt://org:db/services` | create, list and manage any service in the database |
+| `manage:pxt://org:db/services/name` | start, stop, update, delete that service |
+
+`access` and `manage` are independent: a key that can call a service cannot reconfigure it, and one
+that can stop it cannot read what flows through it.
+
+The secret is shown once, when the key is created, and is never retrievable afterwards. Deleting a
+key revokes it.
+
 ### Hosted targets
 
 `TARGET` may be a `pxt://org:db` uri, and the services then run in that database rather than on this
@@ -1027,6 +1063,27 @@ pxt org status pxt://myorg       # name it when your key reaches several
 ```
 
 Show the organization's name, ID, and default database.
+
+### `pxt key`
+
+```bash
+pxt key create NAME                       # a key that acts as you
+pxt key create NAME --grant VERB:URI      # a scoped key that belongs to the org; repeatable
+pxt key list                              # your keys, and the org's runtime keys
+pxt key update NAME --grant VERB:URI      # add a grant
+pxt key update NAME --revoke VERB:URI     # remove one
+pxt key delete NAME                       # revoke the secret
+```
+
+`create` prints the secret once. `list` never does.
+
+`update` is a delta, not a replacement, so widening a key does not depend on resending everything it
+already had. Revoking a grant the key never held is an error rather than a no-op — a typo there would
+otherwise read as a completed revocation. It applies only to a key that has grants: one that acts as
+you has nothing to change.
+
+Names are unique per organization across both shapes, so `pxt key delete NAME` never has two keys to
+choose from.
 
 ### `pxt secret`
 
