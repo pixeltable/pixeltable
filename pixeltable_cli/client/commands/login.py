@@ -37,7 +37,6 @@ to configure. The browser need not be on this machine, so this works over SSH.
 
 def run(argv: list[str]) -> None:
     parser = Parser(prog='pxt login', description='sign in to Pixeltable Cloud', epilog=EPILOG)
-    parser.add_argument('--no-browser', action='store_true', help='Print the link instead of opening a browser')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
     try:
@@ -96,19 +95,9 @@ def run_whoami(argv: list[str]) -> None:
 
 def _login(args: argparse.Namespace) -> None:
     url = api_url()
-    session = auth.device_login(url, open_browser=not args.no_browser)
+    session = auth.device_login(url)
 
     if args.json_output:
         print(json.dumps({'api_url': url, 'email': session.email, 'organization_id': session.organization_id}))
         return
     print(f'Signed in as {session.email or "(unknown)"} on {url}.')
-    if not session.organization_id:
-        # Signing in proves who you are; it does not give you anywhere to work. The control plane
-        # refuses a token with no organization on every operation but creating one, so say that here
-        # rather than let the next command fail as an authorization error.
-        try:
-            dashboard = str(auth.auth_config(url).get('login_url') or 'the dashboard')
-        except AuthError:
-            # The session is already saved. Failing here would report a login that worked as broken.
-            dashboard = 'the dashboard'
-        print(f'No organization yet — create one at {dashboard} before running other commands.')

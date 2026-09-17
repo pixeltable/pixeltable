@@ -165,9 +165,7 @@ class Runtime:
         # would pin a session token that expires long before the process does.
         purpose = f'connect to hosted database {catalog_uri!r}'
         host, port = Env.get().proxy_endpoint(catalog_uri.org, catalog_uri.db)
-        client = ProxyClient.remote(
-            catalog_uri.org, catalog_uri.db, lambda: credential(purpose), host=host, port=port
-        )
+        client = ProxyClient.remote(catalog_uri.org, catalog_uri.db, lambda: credential(purpose), host=host, port=port)
         return CatalogProxy(catalog_uri, client)
 
     @property

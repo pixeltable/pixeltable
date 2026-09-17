@@ -108,7 +108,7 @@ class TestLoginOutput:
         monkeypatch.setattr(auth, 'device_login', _fake_login)
         monkeypatch.setattr('pixeltable_cli.client.commands.login.auth.device_login', _fake_login)
 
-        cmd.run(['--json', '--no-browser'])
+        cmd.run(['--json'])
 
         out = capsys.readouterr().out
         # The stub deliberately writes to stdout; the assertion is that _login's own JSON is the
@@ -124,7 +124,7 @@ class TestLoginOutput:
         monkeypatch.setattr('pixeltable_cli.client.commands.login.auth.device_login', _refuse)
 
         with pytest.raises(SystemExit) as e:
-            cmd.run(['--no-browser'])
+            cmd.run([])
 
         assert e.value.code == 1
         assert 'refused' in capsys.readouterr().err
