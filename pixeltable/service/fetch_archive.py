@@ -55,17 +55,17 @@ def fingerprint_path(archive_dir: Path) -> Path:
 
 
 def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:
-    """Unpack db_uri's project archive into dest, and return what the control plane served it as."""
+    """Unpack db_uri's project archive into dest; returns the control plane's response."""
     db_path = _validated_db_uri(db_uri)
     response = GetArchiveResponse.model_validate(
         management_client.api_call(GetArchiveRequest(org=db_path.org, db=db_path.db))
     )
     dest.parent.mkdir(parents=True, exist_ok=True)
-    # unpacked next to dest and moved into place, so that dest never holds a file the archive dropped
+    # staged next to dest and moved into place, so that dest ends up with exactly the archive's files
     unpacking = Path(tempfile.mkdtemp(dir=dest.parent, prefix=f'.{dest.name}.'))
     archive_path = unpacking / 'project.tar.bz2'
     try:
-        # streamed to disk: a project may select files too large to hold in memory
+        # streamed to disk: a project's files may be too large for memory
         with (
             urllib.request.urlopen(response.presigned_url, timeout=_DOWNLOAD_TIMEOUT) as r,
             archive_path.open('wb') as f,
@@ -73,7 +73,7 @@ def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:
             shutil.copyfileobj(r, f)
 
         staged = unpacking / _TARBALL_ROOT
-        staged.mkdir()  # an archive holding no files still unpacks to an empty project
+        staged.mkdir()  # an empty archive still unpacks to an empty project
         prefix = f'{_TARBALL_ROOT}/'
         with tarfile.open(archive_path, mode='r:bz2') as tf:
             members: list[tarfile.TarInfo] = []
@@ -83,22 +83,21 @@ def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:
                 if not member.name.startswith(prefix):
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_DATA_FORMAT,
-                        f'{db_path.uri_str} serves an archive holding {member.name!r}, which is outside {prefix}',
+                        f'{db_path.uri_str} served an archive with a member outside {prefix}: {member.name!r}',
                     )
                 member.name = member.name[len(prefix) :]
                 if member.islnk() and member.linkname.startswith(prefix):
                     # a hard link points at another member, and that name loses the prefix too
                     member.linkname = member.linkname[len(prefix) :]
                 members.append(member)
-            # filter='data': refuses a member naming a path outside the directory, and drops ownership bits
+            # filter='data': refuses a member whose path is outside the directory, and drops ownership bits
             tf.extractall(staged, members=members, filter='data')
 
         unpacked = unpacked_digest(staged)
         if unpacked != response.digest:
-            # what arrived is not what the control plane named, whatever it named
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_DATA_FORMAT,
-                f'{db_path.uri_str} served an archive holding project {unpacked}, not {response.digest}',
+                f'{db_path.uri_str} served project {unpacked}, not {response.digest}',
             )
 
         if dest.exists():
@@ -121,9 +120,15 @@ def fetch(db_uri: str, archive_dir: Path) -> bool:
             if exc.provider_http_status_code != 404:
                 raise
             continue
+        # archive_dir reflects this run alone: an archive served without a fingerprint must not leave
+        # an earlier one for the pod to report
+        fingerprint_path(archive_dir).unlink(missing_ok=True)
         if response.fingerprint is not None:
             fingerprint_path(archive_dir).write_text(response.fingerprint.model_dump_json(), encoding='utf-8')
         return True
+    # the database has no project now, whatever an earlier run left here
+    shutil.rmtree(project_dir(archive_dir), ignore_errors=True)
+    fingerprint_path(archive_dir).unlink(missing_ok=True)
     return False
 
 

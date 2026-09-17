@@ -19,6 +19,8 @@ from pixeltable import exceptions as excs
 from pixeltable.service import fetch_archive
 from pixeltable.utils.project import package_project_archive, project_fingerprint, unpacked_digest
 
+from ..utils import pxt_raises
+
 _DB_URI = 'pxt://acme:main'
 
 
@@ -56,6 +58,11 @@ class TestFetchArchive:
     def test_a_database_with_no_project_is_not_a_failure(self, tmp_path: Path) -> None:
         """A 404 that outlasts the retries means the database has no project yet. Pods must still serve it."""
         archive_dir = tmp_path / 'archive'
+        # an earlier run's project and fingerprint, which this one must not leave behind
+        fetch_archive.project_dir(archive_dir).mkdir(parents=True)
+        (fetch_archive.project_dir(archive_dir) / 'stale.py').write_text('x = 1\n', encoding='utf-8')
+        fetch_archive.fingerprint_path(archive_dir).write_text('{}', encoding='utf-8')
+
         with (
             mock.patch.object(fetch_archive, 'unpack_project_archive', side_effect=_not_found()) as unpack,
             mock.patch.object(fetch_archive.time, 'sleep') as sleep,
@@ -93,6 +100,20 @@ class TestFetchArchive:
         assert attempts == 3
         assert fetch_archive.fingerprint_path(archive_dir).is_file()
 
+    def test_an_archive_without_a_fingerprint_clears_the_old_one(self, tmp_path: Path) -> None:
+        """GetArchiveResponse.fingerprint is optional, and a pod reports whatever is on disk."""
+        archive_dir = tmp_path / 'archive'
+        fetch_archive.fingerprint_path(archive_dir).parent.mkdir(parents=True)
+        fetch_archive.fingerprint_path(archive_dir).write_text('{}', encoding='utf-8')
+
+        def _unpack(db_uri: str, dest: Path) -> mock.Mock:
+            dest.mkdir(parents=True, exist_ok=True)
+            return mock.Mock(fingerprint=None)
+
+        with mock.patch.object(fetch_archive, 'unpack_project_archive', side_effect=_unpack):
+            assert fetch_archive.fetch(_DB_URI, archive_dir) is True
+        assert not fetch_archive.fingerprint_path(archive_dir).exists()
+
     @pytest.mark.parametrize('status_code', [401, 500])
     def test_other_failures_propagate(self, tmp_path: Path, status_code: int) -> None:
         """Only a 404 means 'no project'. Anything else fails the init container, instead of bringing the
@@ -102,7 +123,7 @@ class TestFetchArchive:
         with (
             mock.patch.object(fetch_archive, 'unpack_project_archive', side_effect=err) as unpack,
             mock.patch.object(fetch_archive.time, 'sleep'),
-            pytest.raises(excs.ExternalServiceError),
+            pxt_raises(excs.ErrorCode.PROVIDER_ERROR, match='nope'),
         ):
             fetch_archive.fetch(_DB_URI, archive_dir)
         assert unpack.call_count == 1  # not retried
