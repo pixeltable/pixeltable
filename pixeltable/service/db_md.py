@@ -5,7 +5,7 @@ The control plane stores these and the management protocol sends them, so the wi
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from pixeltable.utils.project import ProjectFingerprint
 from pixeltable_cli.types import DbState
@@ -14,20 +14,20 @@ from pixeltable_cli.types import DbState
 class DatabaseResources(BaseModel):
     """The resources of a database, in the widest sense (everything available in the runtime environment)."""
 
-    # None: the "base image" of the "default" database, created when the org was created
     # TODO: make that fingerprint accessible instead and record it here
-    fingerprint: ProjectFingerprint | None = None
+    fingerprint: ProjectFingerprint | None = Field(
+        default=None, description='the deployed project; null for the base image of a new org'
+    )
 
-    # the metadata schema version of the Pixeltable that packaged the archive, which only that
-    # Pixeltable can report
-    pxt_md_version: int = 0
+    pxt_md_version: int = Field(
+        default=0, description='metadata schema version of the Pixeltable that packaged the archive'
+    )
     default_bucket: str | None = None
 
-    # None: take default
-    cpu: float | None = None
-    memory_mb: int | None = None
-    disk_gb: int | None = None
-    workers: int | None = None
+    cpu: float | None = Field(default=None, description='cores; null takes the default for the tier')
+    memory_mb: int | None = Field(default=None, description='null takes the default for the tier')
+    disk_gb: int | None = Field(default=None, description='null takes the default for the tier')
+    workers: int | None = Field(default=None, description='pods serving the database; null takes the default')
 
     def capacity(self) -> dict[str, int | float]:
         result: dict[str, int | float] = {}
@@ -50,8 +50,8 @@ class DatabaseStatus(BaseModel):
     resources: DatabaseResources
     state: DbState
 
-    last_build_outcome: str | None = None
+    last_build_outcome: str | None = Field(
+        default=None, description="the last image build's outcome; null when no build has run"
+    )
     last_build_error: str | None = None
-
-    # why the state is FAILED
-    failure_reason: str | None = None
+    failure_reason: str | None = Field(default=None, description='why the state is FAILED')
