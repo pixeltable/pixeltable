@@ -1,4 +1,4 @@
-"""Pixeltable Cloud home storage (``pxtfs://org:db/<bucket>/...``)"""
+"""Pixeltable Cloud home storage (``pxt://org:db/buckets/<bucket>/...``)"""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ from pixeltable.utils.s3_store import S3Store
 
 _logger = logging.getLogger(__name__)
 
-_PXTFS_URI_PATTERN = re.compile(r'^pxtfs://[^/]+/([^/?#]+)(.*)$')
+_PXT_URI_PATTERN = re.compile(r'^pxt://[^/]+/buckets/([^/?#]+)(.*)$')
 
 
 @dataclass
@@ -72,7 +72,7 @@ def _handle_no_space_warning(no_space_left: bool, entry: _PxtStoreCacheEntry, or
         if entry.no_space_warned:
             return
         warnings.warn(
-            f'Pixeltable store for pxtfs://{org}:{db}/{bucket} has no space left. '
+            f'Pixeltable store for pxt://{org}:{db}/buckets/{bucket} has no space left. '
             'Only read and delete operations are allowed.',
             category=excs.PixeltableWarning,
             stacklevel=3,
@@ -165,7 +165,7 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) -> _PxtS
     )
     entry.resource = boto3_session.resource('s3', endpoint_url=creds.endpoint_url, region_name='auto')
 
-    _logger.info(f'Initialized session for pxtfs://{org}:{db}/{bucket}')
+    _logger.info(f'Initialized session for pxt://{org}:{db}/{bucket}')
     return entry
 
 
@@ -222,12 +222,12 @@ class PxtStore(ObjectStoreBase):
         return S3Store(soa, client=self._pxt_store_entry.client, resource=self._pxt_store_entry.resource)
 
     def _to_logical_uri(self, store_object_uri: str) -> str:
-        """Create object uri with logical bucket name, store_object_uri is a pxtfs:// uri with physical bucket name."""
-        assert store_object_uri.startswith('pxtfs://')
+        """Create object uri with logical bucket name, store_object_uri is a pxt:// uri with physical bucket name."""
+        assert store_object_uri.startswith('pxt://')
         physical, logical = self._pxt_store_entry.physical_bucket_name, self.soa.container
 
-        matched = _PXTFS_URI_PATTERN.match(store_object_uri)
-        assert matched, f'Unexpected pxtfs URI shape in {store_object_uri!r}'
+        matched = _PXT_URI_PATTERN.match(store_object_uri)
+        assert matched, f'Unexpected pxt URI shape in {store_object_uri!r}'
 
         bucket, path = matched.group(1), matched.group(2)
         if bucket == logical:
@@ -236,7 +236,7 @@ class PxtStore(ObjectStoreBase):
             f'Unexpected bucket segment {bucket!r} in {store_object_uri!r} (expected {physical!r} or {logical!r})'
         )
         org_db = store_object_uri.split('/')[2]
-        return f'pxtfs://{org_db}/{logical}{path}'
+        return f'pxt://{org_db}/buckets/{logical}{path}'
 
     def validate(self, error_col_name: str) -> str | None:
         """Probe the temp-credential-scoped prefix and return the logical base URI on success."""
@@ -273,7 +273,7 @@ class PxtStore(ObjectStoreBase):
                 'No space left in Pixeltable store. Only read and delete operations are allowed.',
             )
         # Inner S3 store reads dest.remote_key for the upload and returns dest.url; since
-        # dest.url is already the logical (pxtfs://) URL, we can pass dest through unchanged.
+        # dest.url is already the logical (pxt://) URL, we can pass dest through unchanged.
         return self._store.copy_local_file(src_path, dest)
 
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
