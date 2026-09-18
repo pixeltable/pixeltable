@@ -231,6 +231,15 @@ class TableProxy(Table):
         bound_args['columns'] = bound_args.pop('kwargs')
         return self._dispatch('add_computed_column', bound_args)
 
+    def alter_computed_column(
+        self, *, recompute: bool = True, cascade: bool = True, **kwargs: exprs.Expr
+    ) -> UpdateStatus:
+        bound_args = self._dispatch_args(locals())
+        self._check_single_column_kwarg('alter_computed_column', '`col_name=expression`', kwargs)
+        self._check_mutable('alter columns of')
+        bound_args['columns'] = bound_args.pop('kwargs')
+        return self._dispatch('alter_computed_column', bound_args)
+
     def drop_column(self, column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         bound_args = self._dispatch_args(locals())
         self._check_mutable('drop columns from')

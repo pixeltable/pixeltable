@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 from typing import Any, Callable
 
@@ -477,8 +478,9 @@ class TestConcurrentModelUpdate:
         # base table's schema version is unchanged and the CAS doesn't fire; the dependents check does.
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Column 'x' was removed from the model for 'test_table', but cannot be dropped "
-            r'because the following depend on it:\ndep',
+            match=re.escape(
+                "Column 'dep' in 'test_view' would be left referencing column 'test_table.x', which no longer exists."
+            ),
         ):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT, allow_destructive=True), concurrent)
 
@@ -510,8 +512,10 @@ class TestConcurrentModelUpdate:
         v = View.table
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Index 'idx0' was removed from the model for 'test_table', but cannot be dropped "
-            r'because the following depend on it:\ndep',
+            match=re.escape(
+                "Column 'dep' in 'test_view' would be left referencing a column of 'test_table', "
+                'which no longer exists.'
+            ),
         ):
             _run_with_concurrent_apply(
                 lambda: TM2.update_all(ROOT, allow_destructive=True),

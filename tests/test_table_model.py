@@ -4,6 +4,7 @@
 
 import os
 import pathlib
+import re
 import textwrap
 from typing import Any
 
@@ -14,6 +15,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exceptions as excs
 from pixeltable.catalog.model import BtreeIndex, Column, EmbeddingIndex
+from pixeltable.catalog.model.diff import format_diff
 from pixeltable.config import Config
 from pixeltable_cli.types import TableDiff
 
@@ -1982,8 +1984,10 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Column 'value' was removed from the model for 'test_table', but cannot be dropped "
-            r'because the following depend on it:\nvc1',
+            match=re.escape(
+                "Column 'vc1' in 'test_view' would be left referencing column 'test_table.value', "
+                'which no longer exists.'
+            ),
         ):
             TableModelV2.update_all(p(''), allow_destructive=True)
 
@@ -1997,34 +2001,112 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Index 'idx' was removed from the model for 'test_table', but cannot be dropped "
-            r'because the following depend on it:\nvc2',
+            match=re.escape(
+                "Column 'vc2' in 'test_view' would be left referencing a column of 'test_table', "
+                'which no longer exists.'
+            ),
         ):
             TableModelV3.update_all(p(''), allow_destructive=True)
 
-    def test_drop_col_with_view_index(self, db_root: DatabaseRoot) -> None:
-        """update_all() cannot drop a column that a view's index is built on."""
-        p = db_root.make_catalog_path
-        base = pxt.create_table(p('base_t'), {'c0': pxt.String | None, 'c1': pxt.String | None})
-        v = pxt.create_view(p('view_t'), base)
-        v.add_embedding_index('c0', idx_name='v_idx', embedding=dummy_embedding.using(n=32))
+        # A column altered to reference a column that the same change set drops.
+        AlterModel = pxt.model_base()
 
-        TableModel = pxt.model_base()
+        class AlterBase(AlterModel, name='alter_base'):
+            id: pxt.Int
+            extra: pxt.Int
+            doubled = id * 2
 
-        # the view isn't part of the model, so its index survives the update and still depends on the base column
-        class BaseV2(TableModel, name='base_t'):
-            c1: pxt.String | None
+        class AlterView(AlterModel, name='alter_view', base=AlterBase):
+            vc = AlterBase.id + 1
+
+        AlterModel.create_all(p(''))
+        pxt.get_table(p('alter_base')).insert([{'id': 1, 'extra': 7}])
+
+        # the altered column belongs to the table that drops 'extra'
+        SameTableModel = pxt.model_base()
+
+        class SameTableBase(SameTableModel, name='alter_base'):
+            id: pxt.Int
+            doubled = AlterBase.extra * 3
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Column 'c0' was removed from the model for 'base_t', but cannot be dropped "
-            r"because the following depend on it:\nindex 'v_idx' on 'view_t'",
+            match=re.escape(
+                "Column 'doubled' in 'alter_base' would be left referencing column 'alter_base.extra', "
+                'which no longer exists.'
+            ),
+        ):
+            SameTableModel.update_all(p(''), allow_destructive=True)
+
+        # the altered column belongs to a view of the table that drops 'extra'
+        CrossTableModel = pxt.model_base()
+
+        class CrossTableBase(CrossTableModel, name='alter_base'):
+            id: pxt.Int
+            doubled = id * 2
+
+        class CrossTableView(CrossTableModel, name='alter_view', base=CrossTableBase):
+            vc = AlterBase.extra + 1
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=re.escape(
+                "Column 'vc' in 'alter_view' would be left referencing column 'alter_base.extra', "
+                'which no longer exists.'
+            ),
+        ):
+            CrossTableModel.update_all(p(''), allow_destructive=True)
+
+        # none of the rejected attempts changed the catalog
+        alter_base = pxt.get_table(p('alter_base'))
+        assert alter_base.columns() == ['id', 'extra', 'doubled']
+        assert alter_base.select(alter_base.doubled).collect()['doubled'] == [2]
+        assert all(d.resolution == 'up_to_date' for d in AlterModel.get_model_diff(p('')).values())
+
+    def test_drop_col_with_dependent_view(self, db_root: DatabaseRoot) -> None:
+        """update_all() cannot drop a base column a view still reads, whether through an index or an iterator."""
+        skip_test_if_not_installed('spacy')
+
+        p = db_root.make_catalog_path
+        base = pxt.create_table(p('base_t'), {'c0': pxt.String, 'c1': pxt.String | None})
+        base.insert([{'c0': 'one. two.', 'c1': 'x'}])
+
+        TableModel = pxt.model_base()
+
+        # neither view below is part of the model, so both survive the update and keep depending on the base column
+        class BaseV2(TableModel, name='base_t'):
+            c1: pxt.String | None
+
+        idx_v = pxt.create_view(p('idx_view'), base)
+        idx_v.add_embedding_index('c0', idx_name='v_idx', embedding=dummy_embedding.using(n=32))
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=re.escape(
+                "Index 'v_idx' on 'idx_view' would be left referencing column 'base_t.c0', which no longer exists."
+            ),
         ):
             TableModel.update_all(p(''), allow_destructive=True)
         assert 'c0' in pxt.get_table(p('base_t')).columns()
+        idx_v.drop_embedding_index(idx_name='v_idx')
 
-        # dropping the index first unblocks it: nothing is left depending on the column
-        v.drop_embedding_index(idx_name='v_idx')
+        # an iterator reads its arguments without going through a value expression, so it blocks the drop too
+        iter_v = pxt.create_view(
+            p('iter_view'), base, iterator=pxtf.string.string_splitter(text=base.c0, separators='sentence')
+        )
+        assert iter_v.select(iter_v.text).collect()['text'] == ['one. two.']
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=re.escape(
+                "The iterator arguments of view 'iter_view' would be left referencing column 'base_t.c0', "
+                'which no longer exists.'
+            ),
+        ):
+            TableModel.update_all(p(''), allow_destructive=True)
+        # the rejected attempt left the view able to serve its rows
+        assert pxt.get_table(p('iter_view')).select(iter_v.text).collect()['text'] == ['one. two.']
+
+        # with both blockers gone, nothing is left depending on the column
+        pxt.drop_table(p('iter_view'))
         TableModel.update_all(p(''), allow_destructive=True)
         assert pxt.get_table(p('base_t')).columns() == ['c1']
 
@@ -2053,9 +2135,10 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'Cannot drop the following columns, because view predicates depend on them:\n'
-            r'column: value, view: other_view, predicate: value > 2.0\n'
-            r'column: value, view: test_view, predicate: value > 1.0',
+            match=re.escape(
+                "The predicate of view 'other_view' would be left referencing column 'test_table.value', "
+                'which no longer exists.'
+            ),
         ):
             TableModelV2.update_all(p(''), allow_destructive=True)
 
@@ -2515,6 +2598,55 @@ class TestTableModel:
         assert [r['from_two'] for r in rows] == [[{'title': 'gamma'}], [{'title': 'gamma'}]]
         assert [r['match_count'] for r in rows] == [3, 1]
 
+    def test_update_all_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
+        """`update_all()` binds query udfs over models in both altered and newly added computed columns."""
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            doc_id: pxt.Int
+            title: pxt.String
+
+        @pxt.query
+        def titles_after(cutoff: int) -> pxt.Query:
+            return Docs.where(Docs.doc_id > cutoff).order_by(Docs.doc_id).select(Docs.title)  # type: ignore[arg-type]
+
+        class Probe(TableModel, name='probe'):
+            cutoff: pxt.Int
+            matches = titles_after(cutoff)
+
+        target = db_root.make_catalog_path('qudf_update')
+        pxt.create_dir(target, parents=True)
+        TableModel.create_all(target)
+        pxt.get_table(f'{target}/docs').insert([{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 5, 'title': 'beta'}])
+        pxt.get_table(f'{target}/probe').insert([{'cutoff': 0}, {'cutoff': 1}])
+
+        reload_catalog()
+        TableModelV2 = pxt.model_base()
+
+        class DocsV2(TableModelV2, name='docs'):
+            doc_id: pxt.Int
+            title: pxt.String
+
+        @pxt.query
+        def titles_after_v2(cutoff: int) -> pxt.Query:
+            return DocsV2.where(DocsV2.doc_id > cutoff).order_by(DocsV2.doc_id).select(DocsV2.title)  # type: ignore[arg-type]
+
+        class ProbeV2(TableModelV2, name='probe'):
+            cutoff: pxt.Int
+            matches = titles_after_v2(cutoff + 1)
+            from_zero = titles_after_v2(0)
+
+        TableModelV2.update_all(target)
+
+        reload_catalog()
+        probe = pxt.get_table(f'{target}/probe')
+        rows = probe.order_by(probe.cutoff).select(probe.from_zero).collect()
+        assert [r['from_zero'] for r in rows] == [[{'title': 'alpha'}, {'title': 'beta'}]] * 2
+
+        probe.recompute_columns('matches')
+        rows = probe.order_by(probe.cutoff).select(probe.matches).collect()
+        assert [r['matches'] for r in rows] == [[{'title': 'beta'}], [{'title': 'beta'}]]
+
     def test_table_model_validation_errors(self, db_root: DatabaseRoot) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
         p = db_root.make_catalog_path
@@ -2802,3 +2934,270 @@ class TestTableModel:
                     EmbeddingIndex(a, embedding=dummy_embedding.using(n=512), name='Idx'),
                     EmbeddingIndex(b, embedding=dummy_embedding.using(n=512), name='idx'),
                 ]
+
+    def test_update_all_altered_computed_column(self, db_root: DatabaseRoot) -> None:
+        """`update_all()` replaces a computed column's value expression without recomputing its stored values."""
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class ExampleTable(TableModel, name='test_table'):
+            id: pxt.Int
+            extra: pxt.Int
+            doubled = id * 2 + extra
+            u = Column(value=id * 3, stored=False)
+
+        class ExampleView(TableModel, name='test_view', base=ExampleTable):
+            vc1 = ExampleTable.doubled + 1
+
+        TableModel.create_all(root)
+        t = pxt.get_table(p('test_table'))
+        v = pxt.get_table(p('test_view'))
+        t.insert([{'id': 1, 'extra': 0}, {'id': 2, 'extra': 0}])
+        assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [2, 4]
+
+        AlteredModel = pxt.model_base()
+
+        class AlteredTable(AlteredModel, name='test_table'):
+            id: pxt.Int
+            extra: pxt.Int
+            doubled = id * 100 + extra
+            u = Column(value=id * 3, stored=False)
+
+        class AlteredView(AlteredModel, name='test_view', base=AlteredTable):
+            vc1 = AlteredTable.doubled + 1
+
+        diffs = AlteredModel.get_model_diff(root)
+        assert diffs['test_table'].resolution == 'update_additive'
+        (op,) = diffs['test_table'].ops
+        assert (op.target, op.op, op.severity, op.name) == ('column', 'alter', 'additive', 'doubled')
+        assert 'existing values will not be recomputed' in '\n'.join(format_diff('test_table', diffs['test_table']))
+
+        # applies without allow_destructive, since no stored value is overwritten
+        AlteredModel.update_all(root)
+        t = pxt.get_table(p('test_table'))
+        assert all(d.resolution == 'up_to_date' for d in AlteredModel.get_model_diff(root).values())
+
+        # update_all does not recompute
+        assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [2, 4]
+
+        t.recompute_columns('doubled')
+        assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [100, 200]
+        v = pxt.get_table(p('test_view'))
+        assert v.select(v.vc1).order_by(v.id).collect()['vc1'] == [101, 201]
+
+        # one change set that adds a column an altered one depends on (bonus), and one that depends on an altered
+        # one (s). s is declared before bonus but reads it through unstored u, so Pixeltable needs to be smart about
+        # the order in which these columns are created and populated.
+        WidenedModel = pxt.model_base()
+
+        class WidenedTable(WidenedModel, name='test_table'):
+            id: pxt.Int
+            extra: pxt.Int
+            s = ExampleTable.u + 1  # type: ignore[operator]
+            bonus = id * 1000
+            doubled = id * 100 + extra + bonus
+            u = Column(value=bonus * 7, stored=False)
+
+        class WidenedView(WidenedModel, name='test_view', base=WidenedTable):
+            vc1 = WidenedTable.doubled + 1
+
+        diff = WidenedModel.get_model_diff(root)['test_table']
+        assert diff.resolution == 'update_additive'
+        assert {(op.op, op.name) for op in diff.ops} == {
+            ('alter', 'doubled'),
+            ('add', 'bonus'),
+            ('alter', 'u'),
+            ('add', 's'),
+        }
+
+        WidenedModel.update_all(root)
+        t = pxt.get_table(p('test_table'))
+        assert all(d.resolution == 'up_to_date' for d in WidenedModel.get_model_diff(root).values())
+        # s must be populated using u's new expression, and after bonus
+        assert t.select(t.u, t.s).order_by(t.id).collect()[0] == {'u': 7000, 's': 7001}
+        t.recompute_columns('doubled')
+        assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [1100, 2200]
+
+        # a single update that both narrows an expression and drops the column it no longer references
+        NarrowedModel = pxt.model_base()
+
+        class NarrowedTable(NarrowedModel, name='test_table'):
+            id: pxt.Int
+            doubled = id * 100
+
+        class NarrowedView(NarrowedModel, name='test_view', base=NarrowedTable):
+            vc1 = NarrowedTable.doubled + 1
+
+        diff = NarrowedModel.get_model_diff(root)['test_table']
+        assert diff.resolution == 'update_destructive'
+        assert {(op.target, op.op, op.name) for op in diff.ops} == {
+            ('column', 'alter', 'doubled'),
+            ('column', 'drop', 'bonus'),
+            ('column', 'drop', 'extra'),
+            ('column', 'drop', 's'),
+            ('column', 'drop', 'u'),
+        }
+
+        NarrowedModel.update_all(root, allow_destructive=True)
+        t = pxt.get_table(p('test_table'))
+        assert t.columns() == ['id', 'doubled']
+        assert all(d.resolution == 'up_to_date' for d in NarrowedModel.get_model_diff(root).values())
+        t.recompute_columns('doubled')
+        assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [100, 200]
+
+    def test_update_all_altered_column_unsupported(self, db_root: DatabaseRoot) -> None:
+        """Unsupported column changes"""
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class ExampleTable(TableModel, name='test_table'):
+            id: pxt.Int
+            other: pxt.Int
+            derived = id * 2
+            derived2 = id * 3
+
+        class UnrelatedTable(TableModel, name='unrelated_table'):
+            v: pxt.Int
+
+        TableModel.create_all(root)
+        pxt.get_table(p('test_table')).insert([{'id': 1, 'other': 5}])
+
+        # a different output type
+        NewTypeModel = pxt.model_base()
+
+        class NewTypeTable(NewTypeModel, name='test_table'):
+            id: pxt.Int
+            other: pxt.Int
+            derived = id / 2
+            derived2 = id * 3
+
+        diff = NewTypeModel.get_model_diff(root)['test_table']
+        assert diff.resolution == 'unsupported'
+        assert sorted(diff.ops[0].model.keys()) == ['type', 'value']
+
+        # referencing a cell metadata property
+        CellMdModel = pxt.model_base()
+
+        class CellMdTable(CellMdModel, name='test_table'):
+            id: pxt.Int
+            other: pxt.Int
+            derived = id * 2
+            derived2 = (id * 3 + (ExampleTable.derived.errortype != None).astype(pxt.Int)).astype(  # type: ignore[attr-defined]
+                pxt.Int
+            )
+
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape("'errortype' property")):
+            CellMdModel.update_all(root)
+
+        # the same reference in a newly added column, which reaches the catalog by a different route
+        AddCellMdModel = pxt.model_base()
+
+        class AddCellMdTable(AddCellMdModel, name='test_table'):
+            id: pxt.Int
+            other: pxt.Int
+            derived = id * 2
+            derived2 = id * 3
+            derived3 = ExampleTable.derived.errortype != None  # type: ignore[attr-defined]
+
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape("'errortype' property")):
+            AddCellMdModel.update_all(root)
+
+        # referencing a column of a snapshot, which pins it to a version the live table has moved past
+        snap = pxt.create_snapshot(p('test_snap'), pxt.get_table(p('test_table')))
+        SnapshotModel = pxt.model_base()
+
+        class SnapshotTable(SnapshotModel, name='test_table'):
+            id: pxt.Int
+            other: pxt.Int
+            derived = snap.id * 3
+            derived2 = id * 3
+
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='snapshot, which it cannot reference'):
+            SnapshotModel.update_all(root)
+
+        # referencing a column from outside of the table's ancestry
+        OutOfScopeModel = pxt.model_base()
+
+        class OutOfScopeTable(OutOfScopeModel, name='test_table'):
+            id: pxt.Int
+            other: pxt.Int
+            derived = UnrelatedTable.v + 1
+            derived2 = id * 3
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=re.escape("a column of a table that 'test_table' cannot reference."),
+        ):
+            OutOfScopeModel.update_all(root)
+
+        # none of the rejected attempts changed the catalog
+        t = pxt.get_table(p('test_table'))
+        assert t.select(t.derived, t.derived2).collect()[0] == {'derived': 2, 'derived2': 3}
+        assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(root).values())
+
+    def test_update_all_altered_columns_cycle(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class ExampleTable(TableModel, name='test_table'):
+            x: pxt.Int
+            c1 = x * 2
+            c2 = c1 + 1
+            c3 = x * 3
+
+        TableModel.create_all(root)
+        pxt.get_table(p('test_table')).insert([{'x': 1}])
+
+        # Two alter computed columns happen at once, such that neither of them alone would create a dependency cycle,
+        # but together they do. The cycle closes through a third column, c2, that doesn't change.
+        CycleModel = pxt.model_base()
+
+        class CycleTable(CycleModel, name='test_table'):
+            x: pxt.Int
+            c1 = ExampleTable.c3 + 1
+            c2 = c1 + 1
+            c3 = c2 + 1
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=re.escape("circular dependency between columns 'c1', 'c3', 'c2'"),
+        ):
+            CycleModel.update_all(root)
+
+        # A cycle that runs through a column the same change set adds
+        AddedCycleModel = pxt.model_base()
+
+        class AddedCycleTable(AddedCycleModel, name='test_table'):
+            x: pxt.Int
+            c1 = x * 2
+            c2 = c1 + 1
+            c4 = ExampleTable.c3 + 1
+            c3 = c4 + 1
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape("circular dependency between columns 'c3', 'c4'")
+        ):
+            AddedCycleModel.update_all(root)
+        assert pxt.get_table(p('test_table')).columns() == ['x', 'c1', 'c2', 'c3']
+
+        # Now c1 gets a dependency on c2, but c2 gives up a dependency on c1 so no cycle after both changes are applied.
+        SwapModel = pxt.model_base()
+
+        class SwapTable(SwapModel, name='test_table'):
+            x: pxt.Int
+            c1 = ExampleTable.c2 + 1
+            c2 = x * 5
+            c3 = x * 3
+
+        SwapModel.update_all(root)
+        t = pxt.get_table(p('test_table'))
+        assert all(d.resolution == 'up_to_date' for d in SwapModel.get_model_diff(root).values())
+        # recomputing the head of the chain cascades to c1
+        t.recompute_columns('c2')
+        assert t.select(t.c1, t.c2, t.c3).collect()[0] == {'c1': 6, 'c2': 5, 'c3': 3}
