@@ -1037,7 +1037,7 @@ class Catalog(CatalogBase):
                 tbl_ids |= child_tbl_ids
             return subtree_dirs, tbl_ids
 
-        # Resolve each write path. With lock_path_subtree, a directory additionally brings every table in it
+        # Resolve each write path. With lock_path_subtree, a directory additionally brings its subdirs and tables
         # recursively.
         write_path_tbl_ids: set[UUID] = set()
         for path in write_paths:
@@ -1049,7 +1049,8 @@ class Catalog(CatalogBase):
                 continue
 
             # Add the parent to the lock set. We do this regardless of what path points at, even if it points at
-            # nothing. This prevents two concurrent creators from taking the same name in the same directory.
+            # nothing. This prevents two concurrent table or directory creators from taking the same name in the same
+            # parent dir.
             dirs_to_lock.setdefault(parent.id, path.parent)
 
             # If path points at a directory, add it to the lock set
@@ -1071,7 +1072,7 @@ class Catalog(CatalogBase):
             tbl_id_to_op_classes[tbl_id].add(op_class)
 
         # Various state necessary to discover all the dirs and tables that need to be locked
-        # table ids that we already handled, including those that did not exist in the store
+        # table ids that we already looked up, including those that did not exist in the store
         visited_tbl_ids: set[UUID] = set()
         # table id -> its parent dir id
         tbl_dirs: dict[UUID, UUID] = {}
@@ -1080,7 +1081,8 @@ class Catalog(CatalogBase):
 
         def visit_tables(where: sql.ColumnElement, op_class: _TblOpClass) -> set[UUID]:
             """Read the rows from `tables` matching `where`, record op_class for each one, and record other relevant
-            metadata."""
+            metadata for those tables. Adds the ancestors of each table to tbl_id_to_op_classes with DATA_READ class.
+            Returns table ids that matched the predicate."""
             rows = conn.execute(sql.select(schema.Table.id, schema.Table.dir_id, schema.Table.md).where(where)).all()
             read_ids: set[UUID] = set()
             for row in rows:
@@ -1102,10 +1104,10 @@ class Catalog(CatalogBase):
             return read_ids
 
         def visit_transitive_views(tbl_ids: set[UUID], *, mutable_only: bool) -> set[UUID]:
-            """The view tree of every id in tbl_ids."""
+            """Invokes visit_tables() on every mutable view in the tree for the given tables. Returns table ids visited."""
             snapshot_filter = sql.true()
             if mutable_only:
-                # Exclude snapshots, i.e. select only where the base effective version is None
+                # Exclude snapshots by selecting only where the base effective version is None
                 snapshot_filter = schema.Table.md['view_md']['base_versions'][0][1].astext.is_(None)
 
             # Start with the input set of table ids and find the views of those tables. Those view ids become the input
@@ -1128,12 +1130,10 @@ class Catalog(CatalogBase):
         # Mutable view ids of the tables from the write paths
         write_path_mutable_views: set[UUID] = set()
         if lock_path_subtree:
-            # a table is the parent of its views in the subtree the path names, so they come along whether or not
-            # the operation asked for a mutable tree -- and snapshots with them, since a forced drop reaches those
             write_path_mutable_views = visit_transitive_views(write_path_tbl_ids, mutable_only=False)
 
-        # Visit every table to be locked that is not visited yet. Visiting a table can lead to discovering more
-        # tables that need to be locked, namely its ancestors, so this repeats until there are no more to visit.
+        # Visit every table to be locked that is not visited yet. Visiting a table can lead to a discovery of more
+        # tables that need to be locked, so this repeats until there are no more to visit.
         while True:
             todo = tbl_id_to_op_classes.keys() - visited_tbl_ids
             if len(todo) == 0:
