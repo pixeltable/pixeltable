@@ -144,14 +144,11 @@ After every code change, before reporting it done:
    (never a caller's intent or a called function's internals) and must not state behavior you have not
    verified.
 4. Delete before rewording: cover each comment and read only the identifier, the signature, and the code
-   below it. If those carry the same fact, delete the comment rather than improving it. A docstring that
-   paraphrases the name, an "or None if ..." for a `| None` annotation, and a fact already stated elsewhere
-   all go. Keep what the reader cannot recover: a constraint a callee imposes, the reason for a surprising
-   choice, an invariant that would silently break.
-5. Check the prose that survived for straight word order: no preposition stranded at the end of a clause,
-   no noun-phrase pileup ("the X a Y is Z to"), no fused emphatic ("X is what makes Y work" -> "X makes Y
-   work"). Where a plainer phrase says the same thing, use it. Fix every violation from steps 3 to 5 before
-   proceeding.
+   below it. If those carry the same fact, delete the comment rather than improving it. See
+   [Prose and grammar](#prose-and-grammar).
+5. Check every sentence that survived against [Prose and grammar](#prose-and-grammar): straight word
+   order, no banned construction, no vacuous or informal term. Fix every violation from steps 3 to 5
+   before proceeding.
 
 Skip only if explicitly directed or if the environment makes it impossible.
 
@@ -301,6 +298,76 @@ Examples: [pixeltable-starter-kit](https://github.com/pixeltable/pixeltable-star
   `raise pxt.UserError(pxt.ErrorCode.GENERIC_USER_ERROR, 'message')`. Reach for a specific subclass
   first (`RequestError`, `NotFoundError`, `AlreadyExistsError`, `AuthorizationError`,
   `ExternalServiceError`, `ServiceUnavailableError`, `ConcurrencyError`).
+
+## Prose and grammar
+
+These rules cover every sentence we write: code comments, docstrings, error messages, CLI help, MDX docs,
+commit messages and PR descriptions. `docs/_guidelines/GUIDELINES_FOR_PROSE.md` governs what an MDX page
+says; this section governs how a sentence is built.
+
+Write the shortest sentence that states the fact, in straight word order.
+
+### Four principles
+
+1. **Use the shortest form for the relation.** A relative clause expressing only possession or
+   attribution is a possessive with extra steps: "the models a service serves" -> "the service's models";
+   "the file a binding came from" -> "the binding's source file". The tell is a verb at the end of a noun
+   phrase. Such a clause has no relative pronoun, so scanning for "that" or "which" misses every instance.
+2. **Cut a qualifier already established by the context.** Name the thing plainly and put the
+   distinguishing fact in the predicate: "a file the served project does not hold cannot be imported" ->
+   "loading a file outside the project is refused".
+3. **Name the referent, not its category.** A sentence built out of category nouns can only be skimmed.
+   Keep one concrete term, the method or the class or the field: not "refuse a Query member that needs a
+   table, naming the model that has none", but "raise an error for an attribute only a bound query has,
+   such as collect()".
+4. **Straight word order.** No preposition stranded at the end of a clause, no noun-phrase pileup ("the X
+   a Y is Z to"), no fused emphatic ("X is what makes Y work" -> "X makes Y work").
+
+### Banned constructions
+
+| Instead of | Write |
+|---|---|
+| `<noun> holds <x>` | has, contains, stores, or the relation itself: the image *contains* the file |
+| `<x> names <y>` | specifies, points at, is set to |
+| `<x> carries <y>` | has, contains, includes |
+| `the <noun> the <other> <verbs>` | the possessive, or a clause with the verb in it: "the docstring states this rule" |
+| "... has none", "... holds none", "... declares none" | say what is there, or state what is missing |
+| "resolve against", "runs against" | to, with, or according to |
+
+### Banned terms
+
+- **Vacuous**: footgun, load-bearing, happy path, self-heal(ing), envelope, leaf. Name the behavior, the
+  constraint, or the failure mode instead. "Default `mix_duration='first'` truncates the output when the
+  audio is shorter than the video" informs; "is a footgun" does not.
+- **Informal**, in anything a user reads: knob -> setting, magic -> the actual behavior, under the hood ->
+  internally, kicks in -> applies, gotcha -> the specific failure mode.
+- **slug**: `org_slug` and `db_slug` store a user-supplied name, so prose says the org's name, the
+  database's name. Naming the identifier is accurate where the code is the subject: "`db_slug` was empty".
+- **Non-ASCII typography**, in every file: no em or en dash, smart quotes, arrows, ellipsis, or math
+  symbols. Write `-`, `"`, `->`, `...`, `>=`. Leave unicode already in a file alone.
+
+### Economy
+
+One fact per comment, on one line where possible, stated once at the site that does the thing. Cut the
+"so that ..." clause when the code shows it.
+
+Delete before rewording: cover the comment and read only the identifier, the signature, and the code below
+it. If those carry the same fact, delete the comment rather than improve it. Deletion is the default
+outcome. A docstring paraphrasing the name, an "or None if ..." for a `| None` annotation, and a fact
+already stated elsewhere all go. Keep what the reader cannot recover: a constraint imposed by a callee, the
+reason for a surprising choice, an invariant that would silently break.
+
+### How to check
+
+Negative pattern-matching is not enough, since it passes any sentence whose shape is new. Run these in
+order on every sentence added or edited:
+
+1. Read it aloud. If you cannot say what happens in one breath, rewrite it rather than reflow it.
+2. Look for a noun phrase ending in a verb, and rewrite it as a possessive or a prepositional phrase.
+3. Delete any qualifier already established by the surrounding text.
+4. Check that at least one noun is the concrete referent.
+5. Then the surface checks: stranded preposition, pileup, fused emphatic, and the constructions and terms
+   banned above.
 
 ## Documentation
 

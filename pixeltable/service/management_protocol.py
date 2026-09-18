@@ -71,10 +71,13 @@ class DatabaseReport(BaseModel):
 
     db: str = ''
 
-    target_resources: DatabaseResources | None = None
+    target_resources: DatabaseResources | None = Field(
+        default=None, description='what the project configuration asks for; an update moves the database to this'
+    )
 
-    # None: the database does not exist
-    current: DatabaseStatus | None = None
+    current: DatabaseStatus | None = Field(
+        default=None, description='what the database provides now; null when the database does not exist'
+    )
 
 
 class GetDbRequest(BaseModel):
