@@ -9,7 +9,7 @@ from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
-from .definition import BtreeIndex, EmbeddingIndex, IndexDefinition, TableModelMeta
+from .definition import BtreeIndex, EmbeddingIndex, IndexDefinition, TableModelMeta, _bind_query_templates
 from .diff import (
     _PY_MISMATCH_HINT,
     PY_DESTRUCTIVE_HINT,
@@ -22,14 +22,29 @@ from .diff import (
 from .resolution import TableSchemaChangeSet
 
 
+def _queried_models(col_spec: ColumnSpec) -> set[TableModelMeta]:
+    """The models a column's value queries through a @pxt.query UDF."""
+    from pixeltable import exprs, func
+
+    from .query import ModelQuery
+
+    value = col_spec.get('value')
+    if not isinstance(value, exprs.Expr):
+        return set()
+    result: set[TableModelMeta] = set()
+    for fn_call in value.subexprs(exprs.FunctionCall):
+        fn = fn_call.fn
+        if isinstance(fn, func.QueryTemplateFunction) and isinstance(fn.template_query, ModelQuery):
+            result.add(fn.template_query.model_cls)
+    return result
+
+
 def _referenced_models(model: TableModelMeta) -> set[TableModelMeta]:
     """The models that have to be tables before `model` can be created.
 
     Its base, and every model a computed column queries through a @pxt.query UDF: both are recorded against
     the table the model resolves to, so that table has to exist first.
     """
-    from pixeltable import exprs, func
-
     from .query import ModelQuery
 
     result: set[TableModelMeta] = set()
@@ -37,13 +52,7 @@ def _referenced_models(model: TableModelMeta) -> set[TableModelMeta]:
     if isinstance(base, ModelQuery):
         result.add(base.model_cls)
     for col_spec in model.__columns__.values():
-        value = col_spec.get('value')
-        if not isinstance(value, exprs.Expr):
-            continue
-        for fn_call in value.subexprs(exprs.FunctionCall):
-            fn = fn_call.fn
-            if isinstance(fn, func.QueryTemplateFunction) and isinstance(fn.template_query, ModelQuery):
-                result.add(fn.template_query.model_cls)
+        result |= _queried_models(col_spec)
     return result
 
 
@@ -88,12 +97,16 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         for model in registered_models.values():
             model._bind(catalog_dir)
 
-    def _create_models(catalog_dir: str, expect_created: set[str]) -> None:
+    def _create_models(catalog_dir: str, expect_created: set[str], *, only: set[TableModelMeta] | None = None) -> None:
         """Create every model that doesn't exist yet and bind all of them.
+
+        only= restricts the pass to those models, so it has to name a set closed under _referenced_models().
 
         Raises ConcurrencyError if a model named in expect_created already exists.
         """
         for name, model in _creation_order(registered_models):
+            if only is not None and model not in only:
+                continue
             tbl, was_created = model._create(catalog_dir)
             if name in expect_created and not was_created:
                 raise excs.ConcurrencyError(
@@ -171,8 +184,31 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             (name, d) for name, d in diffs.items() if d.resolution in ('update_additive', 'update_destructive')
         ]
 
+        pending_creates = {name for name, d in diffs.items() if d.resolution == 'create'}
+
         if len(update_diffs) > 0:
             catalog_dir = catalog.Path.dir_prefix(catalog_dir)
+
+            # A new column may query a model this same call creates. Binding the column's query needs that
+            # table, so create it, and whatever it references in turn, ahead of the migrations below.
+            queried: set[TableModelMeta] = set()
+            for name, d in update_diffs:
+                new_col_names = {c.name for c in d.ops if c.target == 'column' and c.op == 'add'}
+                for col_name, col_spec in user_columns(registered_models[name]).items():
+                    if col_name in new_col_names:
+                        queried |= _queried_models(col_spec)
+            prerequisites: set[TableModelMeta] = set()
+            while len(queried) > 0:
+                queried_model = queried.pop()
+                if queried_model in prerequisites:
+                    continue
+                prerequisites.add(queried_model)
+                queried |= _referenced_models(queried_model)
+            if len(prerequisites) > 0:
+                precreated = {n for n, m in registered_models.items() if m in prerequisites}
+                _create_models(catalog_dir, pending_creates & precreated, only=prerequisites)
+                pending_creates -= precreated
+
             change_sets: list[TableSchemaChangeSet] = []
             for name, d in update_diffs:
                 model = registered_models[name]
@@ -194,6 +230,8 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                         spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
                             spec['type'], allow_builtin_types=False
                         )
+                    if 'value' in spec:
+                        spec['value'] = _bind_query_templates(spec['value'].copy(), catalog_dir)
                     origin: Literal['base_query', 'model_body'] = (
                         'base_query' if col_name in base_query_cols else 'model_body'
                     )
@@ -236,7 +274,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         # Now create any new tables, and bind every model to its table. The diff computed above is the one being
         # applied, so the models it found up-to-date are not re-examined against the catalog.
         try:
-            _create_models(catalog_dir, {name for name, d in diffs.items() if d.resolution == 'create'})
+            _create_models(catalog_dir, pending_creates)
         except excs.Error as e:
             # the migrations above are already committed; name them, so that a failure here doesn't read as
             # though the catalog were untouched. Augmenting in place keeps the exception's type and fields.

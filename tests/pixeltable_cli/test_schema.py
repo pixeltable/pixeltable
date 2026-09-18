@@ -419,6 +419,50 @@ class TestSchema:
         ]
         assert_in_agreement(cli, apps('retrieval.py'), target)
 
+    def test_query_udf_column_added(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
+        """A column calling a query udf, added to a table that already exists."""
+        schema_file = project_dir / 'app.py'
+
+        def write_app(*, with_docs: bool, with_hits: bool) -> None:
+            docs = "class Docs(TableModel, name='docs'):\n    body: pxt.String\n" if with_docs else ''
+            query = (
+                '@pxt.query\ndef find(q: str):\n    return Docs.where(Docs.body == q).select(body=Docs.body).limit(3)\n'
+                if with_docs
+                else ''
+            )
+            hits = '    hits = find(question)\n' if with_hits else ''
+            schema_file.write_text(
+                f'import pixeltable as pxt\n\n'
+                f'TableModel = pxt.model_base()\n\n'
+                f'{docs}\n{query}\n'
+                f"class Asks(TableModel, name='asks'):\n    question: pxt.String\n{hits}",
+                encoding='utf-8',
+            )
+
+        # the query udf's table exists already, and only the column that calls it is added
+        target = db_root.make_catalog_path('added')
+        write_app(with_docs=True, with_hits=False)
+        cli('schema', 'update', str(schema_file), target)
+        write_app(with_docs=True, with_hits=True)
+        cli('schema', 'update', str(schema_file), target, '-f')
+        pxt.get_table(f'{target}/docs').insert([{'body': 'alpha'}, {'body': 'beta'}])
+        asks = pxt.get_table(f'{target}/asks')
+        asks.insert([{'question': 'alpha'}])
+        assert asks.select(asks.hits).collect()['hits'] == [[{'body': 'alpha'}]]
+        assert_in_agreement(cli, str(schema_file), target)
+
+        # the same call creates the query udf's table and adds the column that queries it
+        both = db_root.make_catalog_path('both')
+        write_app(with_docs=False, with_hits=False)
+        cli('schema', 'update', str(schema_file), both)
+        write_app(with_docs=True, with_hits=True)
+        cli('schema', 'update', str(schema_file), both, '-f')
+        pxt.get_table(f'{both}/docs').insert([{'body': 'gamma'}])
+        asks = pxt.get_table(f'{both}/asks')
+        asks.insert([{'question': 'gamma'}])
+        assert asks.select(asks.hits).collect()['hits'] == [[{'body': 'gamma'}]]
+        assert_in_agreement(cli, str(schema_file), both)
+
     @pytest.mark.db_roots('local', reason='TODO: re-enable for hosted once cloud PR 199 is in')
     def test_media_columns(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A schema with media columns and a view over an iterator that extracts frames from them."""
