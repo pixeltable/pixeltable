@@ -27,9 +27,7 @@ def _summary(changes: list[str]) -> str:
 class ChangeOp(pydantic.BaseModel):
     """One reconciliation operation against a target."""
 
-    name: str | None = pydantic.Field(
-        description='the target of this operation: a column, a route, a secret key, a field'
-    )
+    name: str | None = pydantic.Field(description='the target of this operation: a column, a route, a field')
 
     op: Literal['add', 'drop', 'alter']
     severity: Severity
@@ -102,7 +100,7 @@ class SchemaChangeOp(ChangeOp):
 class ServiceChangeOp(ChangeOp):
     """One operation reconciling a running service with a ServiceSpec."""
 
-    target: Literal['service', 'base_path', 'route', 'resources', 'secret', 'project']
+    target: Literal['service', 'base_path', 'route', 'resources', 'project']
 
     details: dict[str, str] = pydantic.Field(default_factory=dict)
 
