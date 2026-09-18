@@ -52,7 +52,7 @@ def fake_control_plane() -> Iterator[FakeControlPlane]:
 
 
 def _pxt_secret(port: int, cwd: pathlib.Path, control_plane: FakeControlPlane, *args: str) -> PxtResult:
-    """Run `pxt secret`. The daemon it starts inherits this environment, and talk to the fake control plane."""
+    """Run `pxt secret`. The daemon it starts inherits this environment and talks to the fake control plane."""
     r = subprocess.run(
         ['pxt', 'secret', *args],
         env={
