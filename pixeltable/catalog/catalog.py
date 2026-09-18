@@ -1182,14 +1182,13 @@ class Catalog(CatalogBase):
         stale, the produced lock set is not guaranteed to be up to date either.
 
         For reads we lock the target tables and their ancestry. For writes we additionally lock the mutable views of the
-        targets, if lock_mutable_tree is True.
-
-        op_class is operation class for write targets and affects their lock mode."""
+        targets, if lock_mutable_tree is True. op_class is operation class for write targets and affects their lock
+        mode."""
 
         targets: dict[str, tuple[_LockTarget, bool]] = {}
 
-        def add(new: Sequence[tuple[_LockTarget, bool]]) -> None:
-            for target, is_data_versioned in new:
+        def add(new_targets: Sequence[tuple[_LockTarget, bool]]) -> None:
+            for target, is_data_versioned in new_targets:
                 held = targets.get(target.store_tbl_name)
                 if held is None or target.mode.is_at_least(held[0].mode):
                     targets[target.store_tbl_name] = (target, is_data_versioned)
