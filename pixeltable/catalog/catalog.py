@@ -882,19 +882,6 @@ class Catalog(CatalogBase):
         except sql_exc.DBAPIError:
             pass
 
-    @classmethod
-    def _make_lock_set(
-        cls, targets: Collection[_LockTarget], dir_ids: Collection[UUID] = (), *, blocking: bool
-    ) -> _LockSet:
-        """Assemble a LockSet from every target the operation touches, in acquisition order."""
-        # TODO inline this, allow LockSet to be unsorted, sort at the lock time. to achieve this, dirs need to be
-        # ordered by dir id and not path.
-        return _LockSet(
-            tbl_targets=tuple(sorted(targets, key=lambda t: t.store_tbl_name)),
-            dir_ids=tuple(dir_ids),
-            blocking=blocking,
-        )
-
     def _lock_target_from_cache(self, key: TableVersionKey, op_class: _TblOpClass) -> tuple[_LockTarget, bool] | None:
         """Creates a LockTarget for a particular table, paired with whether that table is data-versioned.
 
@@ -1163,7 +1150,7 @@ class Catalog(CatalogBase):
                     dirs_to_lock.setdefault(dir_id, self.get_dir_path(dir_id))
 
         # Finally combine all the accumulated state about dirs and tables to a _LockSet instance
-        targets = [
+        sorted_tbl_targets = tuple(
             _LockTarget(
                 store_tbl_name=store_tbl_name,
                 mode=_TblLockMode.strongest_of(
@@ -1171,11 +1158,13 @@ class Catalog(CatalogBase):
                     for op_class in tbl_id_to_op_classes[tbl_id]
                 ),
             )
-            for tbl_id, store_tbl_name in store_tbl_names.items()
-        ]
-        sorted_dir_ids = [dir_id for dir_id, _ in sorted(dirs_to_lock.items(), key=lambda item: item[1])]
-        return self._make_lock_set(
-            targets, sorted_dir_ids, blocking=_lock_set_blocking(op_class, any(is_data_versioned.values()))
+            for tbl_id, store_tbl_name in sorted(store_tbl_names.items(), key=lambda item: item[1])
+        )
+        sorted_dir_ids = tuple(dir_id for dir_id, _ in sorted(dirs_to_lock.items(), key=lambda item: item[1]))
+        return _LockSet(
+            tbl_targets=sorted_tbl_targets,
+            dir_ids=sorted_dir_ids,
+            blocking=_lock_set_blocking(op_class, any(is_data_versioned.values())),
         )
 
     def _lock_set_from_cache(
@@ -1232,8 +1221,8 @@ class Catalog(CatalogBase):
                 if tree_targets is None:
                     return None
                 add(tree_targets)
-        return self._make_lock_set(
-            [target for target, _ in targets.values()],
+        return _LockSet(
+            tbl_targets=tuple(targets[store_tbl_name][0] for store_tbl_name in sorted(targets)),
             blocking=_lock_set_blocking(op_class, any(is_data_versioned for _, is_data_versioned in targets.values())),
         )
 
