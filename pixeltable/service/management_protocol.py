@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
@@ -36,11 +37,18 @@ class ManagementOperationType(str, Enum):
     GET_ARCHIVE = 'get_archive'
     GET_LOGS = 'get_logs'
 
+    CREATE_ORG = 'create_org'
     LIST_ORGS = 'list_orgs'
 
     SET_SECRET = 'set_secret'
     DELETE_SECRET = 'delete_secret'
     LIST_SECRETS = 'list_secrets'
+
+    CREATE_KEY = 'create_key'
+    GET_KEY = 'get_key'
+    LIST_KEYS = 'list_keys'
+    UPDATE_KEY = 'update_key'
+    DELETE_KEY = 'delete_key'
 
 
 # Db operations
@@ -402,9 +410,121 @@ class OrgRecord(BaseModel):
     updated_at: float
 
 
+# The control plane owns a CreateOrgRequest of its own, for the dashboard. This one is the CLI's
+# view of the same operation: same wire name, same fields it fills in, and no org_id -- a CLI holds
+# no WorkOS credentials, so the control plane makes the organization itself.
+class CreateOrgRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.CREATE_ORG] = ManagementOperationType.CREATE_ORG
+    org_slug: str  # the namespace, and what `pxt://org:db` names; unique across Pixeltable
+    display_name: str | None = None  # what people see; defaults to the slug
+    location: str | None = None  # e.g. 'aws/us-east-1'
+
+
+class CreateOrgResponse(BaseModel):
+    org_id: str
+    org_slug: str
+    default_db_slug: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class ListOrgsRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.LIST_ORGS] = ManagementOperationType.LIST_ORGS
 
 
 class ListOrgsResponse(BaseModel):
     orgs: list[OrgRecord]
+
+
+# API keys
+
+# Keys
+#
+# One thing with two shapes. A key with no grants acts as whoever created it and reaches whatever
+# they can reach. A key with grants acts as nobody: it belongs to the organization, like the WorkOS
+# key it is, and reaches only what it was granted. There is no third kind and no unscoped grant --
+# asking for grants is what asks for the second shape.
+#
+# A grant is a verb on a pxt:// resource, never a bare resource: naming a service does not say
+# whether the holder may call it or reconfigure it, and those are not the same permission. The split
+# follows the one every IAM makes -- Cloud Run's run.invoker vs run.admin.
+#
+#     access:pxt://org:db                     reach the data: every service in the database, and its storage
+#     access:pxt://org:db/services            call any service in the database
+#     access:pxt://org:db/services/name       call that service: every route under it
+#     manage:pxt://org:db/services            create, list, and manage any service in the database
+#     manage:pxt://org:db/services/name       start, stop, update, delete that service
+#
+# `access` and `manage` are independent: neither implies the other, so a key that can call a service
+# cannot reconfigure it, and one that can stop it cannot read what flows through it.
+#
+# The org segment must be the organization the caller's own key belongs to. It is not how the control
+# plane decides whose keys these are -- the credential settles that -- so a grant naming another
+# organization is refused rather than quietly reinterpreted.
+#
+# No request here names an organization on its own, for the same reason: a field for it would
+# suggest a caller could act on another one, which no credential permits.
+
+
+class KeyRecord(BaseModel):
+    name: str
+    key_type: str  # 'user' or 'runtime'; the Principal.type the control plane records for it
+    grants: list[str] = Field(default_factory=list)  # empty for a key that acts as its creator
+    created_at: datetime
+    # Set only in a create response: the secret is shown once and never stored in retrievable form.
+    api_key: str | None = None
+
+
+class CreateKeyRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.CREATE_KEY] = ManagementOperationType.CREATE_KEY
+    name: str
+    # Empty asks for a key that acts as you. Any grant asks for one that acts as nobody -- and that
+    # shape is never unscoped, which is why there is no way to spell an empty grant list for it.
+    grants: list[str] = Field(default_factory=list)
+
+
+class CreateKeyResponse(BaseModel):
+    key: KeyRecord
+
+
+class GetKeyRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.GET_KEY] = ManagementOperationType.GET_KEY
+    name: str
+
+
+class GetKeyResponse(BaseModel):
+    key: KeyRecord
+
+
+class ListKeysRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.LIST_KEYS] = ManagementOperationType.LIST_KEYS
+
+
+class ListKeysResponse(BaseModel):
+    keys: list[KeyRecord]
+
+
+class UpdateKeyRequest(BaseModel):
+    """Add and remove grants on an existing key, leaving the rest alone.
+
+    A delta rather than a replacement list, so granting one more resource does not depend on the
+    caller first knowing -- and faithfully resending -- everything the key already had.
+    """
+
+    operation_type: Literal[ManagementOperationType.UPDATE_KEY] = ManagementOperationType.UPDATE_KEY
+    name: str
+    allow: list[str] = Field(default_factory=list)
+    revoke: list[str] = Field(default_factory=list)
+
+
+class UpdateKeyResponse(BaseModel):
+    key: KeyRecord
+
+
+class DeleteKeyRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.DELETE_KEY] = ManagementOperationType.DELETE_KEY
+    name: str
+
+
+class DeleteKeyResponse(BaseModel):
+    name: str

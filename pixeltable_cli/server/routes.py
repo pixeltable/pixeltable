@@ -17,18 +17,23 @@ from pixeltable.config import SECRET_SECTION, Config
 from pixeltable.env import Env
 from pixeltable.service import db, management_client, proxy_daemon
 from pixeltable.service.management_protocol import (
+    CreateKeyRequest,
+    CreateOrgRequest,
     DeleteDbRequest,
+    DeleteKeyRequest,
     DeleteSecretRequest,
     GetDbRequest,
     GetLogsRequest,
     GetLogsResponse,
     ListDbRequest,
+    ListKeysRequest,
     ListOrgsRequest,
     ListSecretsRequest,
     RestartDbRequest,
     SetSecretRequest,
     StartDbRequest,
     StopDbRequest,
+    UpdateKeyRequest,
 )
 from pixeltable.serving import service
 from pixeltable.types import TreeNode
@@ -780,6 +785,11 @@ def list_orgs(_req: Request) -> dict[str, Any]:
     return management_client.api_call(ListOrgsRequest())
 
 
+@router.post('/api/orgs')
+def create_org(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(CreateOrgRequest))
+
+
 @router.get('/api/org')
 def get_org(req: Request) -> dict[str, Any]:
     org = req.query_str('org')
@@ -816,6 +826,26 @@ def set_secret(req: Request) -> dict[str, Any]:
 @router.post('/api/secrets/delete')
 def delete_secret(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(DeleteSecretRequest))
+
+
+@router.get('/api/keys')
+def list_keys(req: Request) -> dict[str, Any]:
+    return management_client.api_call(ListKeysRequest())
+
+
+@router.post('/api/keys')
+def create_key(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(CreateKeyRequest))
+
+
+@router.post('/api/keys/update')
+def update_key(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(UpdateKeyRequest))
+
+
+@router.post('/api/keys/delete')
+def delete_key(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(DeleteKeyRequest))
 
 
 @router.get('/api/db')
