@@ -1104,7 +1104,8 @@ class Catalog(CatalogBase):
             return read_ids
 
         def visit_transitive_views(tbl_ids: set[UUID], *, mutable_only: bool) -> set[UUID]:
-            """Invokes visit_tables() on every mutable view in the tree for the given tables. Returns table ids visited."""
+            """Invokes visit_tables() on every mutable view in the tree for the given tables. Returns table ids
+            visited."""
             snapshot_filter = sql.true()
             if mutable_only:
                 # Exclude snapshots by selecting only where the base effective version is None
@@ -1161,7 +1162,7 @@ class Catalog(CatalogBase):
                 if dir_id is not None:
                     dirs_to_lock.setdefault(dir_id, self.get_dir_path(dir_id))
 
-        # Finally convert all the accumulated state about dirs and tables to a _LockSet instance
+        # Finally combine all the accumulated state about dirs and tables to a _LockSet instance
         targets = [
             _LockTarget(
                 store_tbl_name=store_tbl_name,
@@ -1172,10 +1173,9 @@ class Catalog(CatalogBase):
             )
             for tbl_id, store_tbl_name in store_tbl_names.items()
         ]
+        sorted_dir_ids = [dir_id for dir_id, _ in sorted(dirs_to_lock.items(), key=lambda item: item[1])]
         return self._make_lock_set(
-            targets,
-            [dir_id for dir_id, _ in sorted(dirs_to_lock.items(), key=lambda item: item[1])],
-            blocking=_lock_set_blocking(op_class, any(is_data_versioned.values())),
+            targets, sorted_dir_ids, blocking=_lock_set_blocking(op_class, any(is_data_versioned.values()))
         )
 
     def _lock_set_from_cache(
