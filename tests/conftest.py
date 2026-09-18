@@ -35,9 +35,9 @@ from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.sql import add_option_to_db_url
 
 from .utils import (
+    CLOUD_DB_ROOT_URIS,
     IN_CI,
     TESTS_DIR,
-    CLOUD_DB_ROOT_URIS,
     DatabaseRoot,
     DbRootId,
     ReloadTester,
