@@ -399,7 +399,7 @@ def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 def _compute(request: ProxyRequest, tbl: LocalTable) -> Any:
     kwargs = _deserialize_args(request)
-    return tbl.compute(kwargs['rows'], on_error=kwargs['on_error'])
+    return tbl.compute(kwargs['rows'], outputs=kwargs['outputs'], on_error=kwargs['on_error'])
 
 
 def _update(request: ProxyRequest, tbl: LocalTable) -> Any:

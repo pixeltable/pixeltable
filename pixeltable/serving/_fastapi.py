@@ -777,12 +777,14 @@ class FastAPIRouter(fastapi.APIRouter):
             t: The table or view over which to compute rows, or the model that defines it.
             path: The URL path for the endpoint.
             inputs: Columns to accept as request fields. Defaults to all non-computed columns
-                (of the base table, if `t` is a view).
+                (of the base table, if `t` is a view). Together with `uploadfile_inputs`, they must include
+                every required (non-nullable, non-computed) column that the `outputs` depend on.
             uploadfile_inputs: Columns to accept as
                 [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
                 (must be media-typed). These are sent as multipart form data; all other inputs
                 become [`Form`](https://fastapi.tiangolo.com/tutorial/request-forms/) fields.
             outputs: Columns to include in the response. Defaults to all columns (including inputs).
+                Only these columns and the columns they depend on are computed.
             return_fileresponse: If True, return the single media-typed output column as a
                 [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse).
                 Requires exactly one media-typed output column, and the computation must produce
@@ -904,7 +906,8 @@ class FastAPIRouter(fastapi.APIRouter):
         Args:
             t: The table to insert into, or the model that defines it.
             path: The URL path for the endpoint.
-            inputs: Columns to accept as request fields. Defaults to all non-computed columns.
+            inputs: Columns to accept as request fields. Defaults to all non-computed columns. Together with
+                `uploadfile_inputs`, they must include every required (non-nullable, non-computed) column.
             uploadfile_inputs: Columns to accept as
                 [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
                 (must be media-typed). These are sent as multipart form data; all other inputs
@@ -1142,13 +1145,15 @@ class FastAPIRouter(fastapi.APIRouter):
             t: The table or view over which to compute rows, or the model that defines it.
             path: The URL path for the endpoint.
             inputs: Columns to accept as request fields. Defaults to all non-computed columns
-                (of the base table, if `t` is a view).
+                (of the base table, if `t` is a view). Together with `uploadfile_inputs`, they must include
+                every required (non-nullable, non-computed) column that the `outputs` depend on.
             uploadfile_inputs: Columns to accept as
                 [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
                 (must be media-typed). These are sent as multipart form data; all other inputs
                 become [`Form`](https://fastapi.tiangolo.com/tutorial/request-forms/) fields.
             outputs: Columns from the computed rows to pass to the decorated function.
-                Defaults to all columns (including inputs).
+                Defaults to all columns (including inputs). Only these columns and the columns they
+                depend on are computed.
             export_sql: If set, export the decorated function's return value into an external
                 RDBMS table after the computation succeeds. See
                 [`SqlExport`][pixeltable.serving.SqlExport] for the target specification and
@@ -1249,7 +1254,8 @@ class FastAPIRouter(fastapi.APIRouter):
         Args:
             t: The table to insert into, or the model that defines it.
             path: The URL path for the endpoint.
-            inputs: Columns to accept as request fields. Defaults to all non-computed columns.
+            inputs: Columns to accept as request fields. Defaults to all non-computed columns. Together with
+                `uploadfile_inputs`, they must include every required (non-nullable, non-computed) column.
             uploadfile_inputs: Columns to accept as
                 [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
                 (must be media-typed). These are sent as multipart form data; all other inputs
@@ -2170,7 +2176,7 @@ class FastAPIRouter(fastapi.APIRouter):
                     raise HTTPException(status_code=404, detail='row not found')
                 rows = status.rows or []
             elif route_type == 'compute':
-                rows = tbl.compute([row_kwargs])
+                rows = tbl.compute([row_kwargs], outputs=output_col_names)
             else:  # 'insert'
                 status = tbl.insert([row_kwargs], return_rows=True)
                 rows = status.rows or []
@@ -2419,6 +2425,21 @@ class FastAPIRouter(fastapi.APIRouter):
             input_item_str='column',
             output_item_str='column',
         )
+        if route_type != 'update':
+            # the request carries only the declared inputs, so they must cover every column the operation requires:
+            # for an insert every required column of the table, for a compute those the outputs depend on
+            output_md = None if route_type == 'insert' else [cols_by_name[name] for name in output_col_names]
+            required_names = [c.name for c in defined_path.required_input_columns(output_md) if c.name is not None]
+            missing = [name for name in required_names if name not in input_col_names]
+            if len(missing) > 0:
+                remedy = (
+                    '' if route_type == 'insert' else ', or restrict `outputs` to columns that do not depend on them'
+                )
+                raise pxt.RequestError(
+                    pxt.ErrorCode.MISSING_REQUIRED,
+                    f'{error_prefix}: inputs must include the required column(s) {", ".join(missing)}; '
+                    f'add them to `inputs`{remedy}',
+                )
         return self.DmlArgsValidationResult(pk_col_names, input_col_names, output_col_names, cols_by_name)
 
     def _validate_args(

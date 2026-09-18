@@ -4,10 +4,11 @@ import abc
 import copy
 import dataclasses
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable
 from uuid import UUID
 
 import pixeltable.exceptions as excs
+import pixeltable.exprs as exprs
 from pixeltable.func.globals import resolve_symbol
 from pixeltable.index import IndexBase
 from pixeltable.metadata import schema
@@ -122,6 +123,10 @@ class TablePath(abc.ABC):
         """True if this table or one of its ancestors is defined with a sample clause."""
 
     @abc.abstractmethod
+    def view_md(self) -> schema.ViewMd | None:
+        """The view definition of this path's leaf table; None for a base table."""
+
+    @abc.abstractmethod
     def is_data_versioned(self) -> bool: ...
 
     @property
@@ -172,6 +177,57 @@ class TablePath(abc.ABC):
 
     @abc.abstractmethod
     def column_md(self) -> list[ColumnVersionMd]: ...
+
+    def columns_to_compute(self, outputs: Iterable[ColumnVersionMd] | None) -> list[ColumnVersionMd]:
+        """Return the columns a compute of `outputs` has to materialize.
+
+        These are the outputs themselves, every column their value expressions read, transitively, and the columns
+        read by the filter and iterator arguments of every view in this path. `outputs` defaults to all columns
+        visible in this path.
+        """
+        expr_dicts: list[dict[str, Any]] = []
+        level: TablePath | None = self
+        while level is not None:
+            view_md = level.view_md()
+            if view_md is not None:
+                if view_md.predicate is not None:
+                    expr_dicts.append(view_md.predicate)
+                if view_md.iterator_call is not None:
+                    expr_dicts.extend(view_md.iterator_call['args'])
+                    expr_dicts.extend(view_md.iterator_call['kwargs'].values())
+            level = level.base
+        refd_qcolids = sorted(
+            {qcolid for d in expr_dicts for qcolid in exprs.Expr.get_refd_column_ids(d)},
+            key=lambda qcolid: (qcolid.tbl_id, qcolid.col_id),
+        )
+
+        pending = list(self.column_md() if outputs is None else outputs)
+        pending.extend(self.get_column_md(qcolid) for qcolid in refd_qcolids)
+        result: dict[QColumnId, ColumnVersionMd] = {}
+        while len(pending) > 0:
+            col_md = pending.pop(0)
+            if col_md.qcolid in result:
+                continue
+            result[col_md.qcolid] = col_md
+            if col_md.schema_col.value_expr is not None:
+                value_qcolids = sorted(
+                    exprs.Expr.get_refd_column_ids(col_md.schema_col.value_expr),
+                    key=lambda qcolid: (qcolid.tbl_id, qcolid.col_id),
+                )
+                pending.extend(self.get_column_md(qcolid) for qcolid in value_qcolids)
+        return list(result.values())
+
+    def required_input_columns(self, outputs: Iterable[ColumnVersionMd] | None) -> list[ColumnVersionMd]:
+        """Return the root table's stored, non-nullable columns that computing `outputs` reads.
+
+        These are the columns an input row must supply; `outputs` defaults to all columns visible in this path.
+        """
+        root_id = self.root.tbl_id
+        return [
+            col_md
+            for col_md in self.columns_to_compute(outputs)
+            if col_md.qcolid.tbl_id == root_id and not col_md.is_computed and not col_md.col_type.nullable
+        ]
 
     @abc.abstractmethod
     def has_column(self, qcolid: QColumnId) -> bool:
@@ -373,6 +429,9 @@ class TableVersionPath(TablePath):
         if self._cached_tv().sample_clause is not None:
             return True
         return self.base is not None and self.base.has_sample_clause()
+
+    def view_md(self) -> schema.ViewMd | None:
+        return self._cached_tv().view_md
 
     def comment(self) -> str:
         return self._cached_tv().comment
@@ -609,6 +668,9 @@ class TableMdPath(TablePath):
 
     def is_component_view(self) -> bool:
         return self.md.tbl_md.view_md is not None and self.md.tbl_md.view_md.iterator_call is not None
+
+    def view_md(self) -> schema.ViewMd | None:
+        return self.md.tbl_md.view_md
 
     def is_mutable(self) -> bool:
         return self.md.tbl_md.is_mutable

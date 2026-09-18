@@ -1384,6 +1384,44 @@ class TestTable:
         out = t.compute(({'id': 1}, {'id': 2}))
         assert out == [{'id': 1, 'plus1': 2}, {'id': 2, 'plus1': 3}]
 
+        # outputs must name existing columns, at least one
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column: nope'):
+            t.compute([{'id': 1}], outputs=['nope'])
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='At least one output column'):
+            t.compute([{'id': 1}], outputs=[])
+
+        # a row must supply the required (non-nullable) columns that the requested outputs read, and no others
+        r = pxt.create_table(p('test_compute_required'), {'req': pxt.Int, 'x': pxt.Int | None})
+        r.add_computed_column(y=r.x + 1)
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'Missing required column\(s\) \(req\)'):
+            r.compute([{'x': 1}])
+        assert r.compute([{'x': 1}], outputs=['y']) == [{'y': 2}]
+        # a required column that is itself an output must be supplied
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'\(req\)'):
+            r.compute([{'x': 1}], outputs=['y', 'req'])
+        # values for columns the outputs don't read are validated and ignored; the outputs keep the requested order
+        out = r.compute([{'x': 1, 'req': 5}], outputs=[r.y, 'x'])
+        assert out.column_names == ['y', 'x']
+        assert out == [{'y': 2, 'x': 1}]
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column name nope'):
+            r.compute([{'x': 1, 'nope': 5}], outputs=['y'])
+
+        # a pydantic model only needs the fields the outputs read
+        class XOnly(pydantic.BaseModel):
+            x: int
+
+        assert r.compute([XOnly(x=3)], outputs=['y']) == [{'y': 4}]
+
+        # a view's filter and iterator arguments are always evaluated, so the columns they read are required too
+        rv = pxt.create_view(p('test_compute_required_v'), r.where(r.req > 0))
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'\(req\)'):
+            rv.compute([{'x': 1}], outputs=['y'])
+        assert rv.compute([{'x': 1, 'req': 0}, {'x': 2, 'req': 1}], outputs=['y']) == [{'y': 3}]
+        rcv = pxt.create_view(p('test_compute_required_cv'), r, iterator=DummyIterator(limit=r.req))
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'\(req\)'):
+            rcv.compute([{'x': 1}], outputs=['y'])
+        assert rcv.compute([{'x': 1, 'req': 2}], outputs=['y', 'pos']) == [{'y': 2, 'pos': 0}, {'y': 2, 'pos': 1}]
+
     def test_array_and_media_columns(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         # arrays and in-memory images cross the wire inlined; a file-backed media path is read directly (the
         # daemon shares this client's filesystem and media store)
@@ -1465,6 +1503,11 @@ class TestTable:
         t.insert(input_rows)
         assert out == [dict(r) for r in v.order_by(v.id).collect()]
 
+        # requested outputs only; the view's filter still applies
+        out = v.compute(input_rows, outputs=['double', 'note'])
+        assert out.column_names == ['double', 'note']
+        assert out == [{'double': 4, 'note': None}, {'double': 6, 'note': None}]
+
         # a predicate that rejects every input row yields an empty batch that still carries the view's schema
         out = v.compute([{'id': 0, 's': 'x'}, {'id': -1, 's': 'y'}])
         assert isinstance(out, pxt.RowBatch)
@@ -1539,6 +1582,9 @@ class TestTable:
         assert sorted((dict(r) for r in out), key=lambda r: (r['id'], r['pos'])) == [
             dict(r) for r in v.order_by(v.id, v.pos).collect()
         ]
+
+        # the iterator still fans out when no iterator column is requested
+        assert v.compute([{'id': 2}], outputs=['o2x2']) == [{'o2x2': 0}, {'o2x2': 2}]
 
         # stacked iterators; the filter between the levels applies to the first level's component rows, and the
         # second level's pos/out1 shadow the first level's, which are no longer visible
