@@ -242,6 +242,9 @@ cloud-dev = [
     "markitdown[pptx,docx,xlsx] ; python_version < '3.14'",
     "spacy ; python_version < '3.14'",
     "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+    "datasets",
+    "lancedb",
+    "pylance",
 ]
 storage-sdks = [
     # Used for CI configurations that need only the storage SDKs (in addition to basic dependencies).
