@@ -56,9 +56,9 @@ Cloud storage destinations are set as a default for the database, or per column.
 
 ### Default destinations
 
-A default destination applies to every media column that names none. It can be set in three places, listed here from highest to lowest precedence (see [Configuration](/platform/configuration#per-database-settings) for details).
+You can set default destinations for all media columns in three places, listed here from highest to lowest precedence (see [Configuration](/platform/configuration#per-database-settings) for details).
 
-**The database entry** in `pixeltable.toml`, for one database. The entry with no `name` configures the local database; an entry named `pxt://org:db` configures that hosted database:
+**The database entry** in `pixeltable.toml`, for one database (see the [`[[pixeltable.database]]` reference](/platform/cli#cloud-configuration-reference)). Leave `name` off for the local database, or set `name = 'pxt://org:db'` for a hosted one:
 
 ```toml
 [[pixeltable.database]]
@@ -120,8 +120,7 @@ Destinations are resolved in this order:
 2. **Database entry**: `db_input_media_dest` / `db_output_media_dest` in `[[pixeltable.database]]`
 3. **Environment variable**: `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST`
 4. **Global config**: `input_media_dest` / `output_media_dest` under `[pixeltable]` in `config.toml`
-5. **Hosted Cloud process**: `pxtfs://org:db/home` when the database is running in Cloud
-6. **Local process**: local disk
+5. **Fallback destination**: `pxtfs://org:db/home` when the database is hosted in Cloud; local disk (usually `~/.pixeltable/media`) when it is running locally
 
 ## Provider configuration
 
