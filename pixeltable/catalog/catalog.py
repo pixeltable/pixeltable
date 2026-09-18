@@ -984,7 +984,6 @@ class Catalog(CatalogBase):
         """
         assert get_runtime().in_xact
         conn = get_runtime().conn
-        # TODO go over the variables again, see if everything makes sense. e.g. "pending"
         # tbl id -> op classes that it needs. This starts with just the input tables that may or may not actually exist
         # in the store. Then, as we traverse the mutable trees and directory trees as requested, we add tables that
         # need locking here.
