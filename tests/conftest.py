@@ -329,9 +329,9 @@ _CLI_TESTS_DIR = pathlib.Path(__file__).parent / 'pixeltable_cli'
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Drive the catalog-backend and data-versioning axes.
 
-    db_root: any test that (transitively) reaches db_root runs against 'local', 'proxy', and the hosted
-    database of the package it is in; a db_roots marker names the roots it wants instead. The hosted roots
-    are dropped unless the environment names a control plane.
+    db_root: any test that (transitively) reaches db_root runs against 'local', 'proxy', and its package's
+    hosted database; a db_roots marker overrides that list. The hosted roots are dropped unless the three
+    PIXELTABLE_ variables are set.
 
     is_data_versioned: any test that (transitively) reaches is_data_versioned runs against both a
     data-versioned and an operational table.
@@ -358,14 +358,13 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                 raise pytest.UsageError("db_roots marker must include a nonempty 'reason' kwarg")
 
         else:
-            # tests here and tests in the CLI package resolve udfs against different projects, so an
-            # unmarked test runs against the hosted database serving its own package
+            # each package's udfs live in a different project, so an unmarked test gets its own
+            # package's database
             in_cli_package = metafunc.definition.path.is_relative_to(_CLI_TESTS_DIR)
             params = ('local', 'proxy', 'cloud-cli' if in_cli_package else 'cloud')
 
         if not cloud_env_configured():
-            # Drop the hosted roots. We short-circuit here rather than later via pytest.skip(), for
-            # performance reasons.
+            # We short-circuit here rather than later via pytest.skip(), for performance reasons.
             params = tuple(p for p in params if not p.startswith('cloud'))
 
         if params != ('local',):
@@ -383,7 +382,7 @@ def served_project() -> pathlib.Path | None:
 
 @pytest.fixture(scope='session')
 def cloud_serving_db_uri() -> str:
-    """A session-scoped disposable URI that the 'cloud-serving' tests (in pixeltable_cli) can use."""
+    """A disposable URI for the 'cloud-serving' tests in pixeltable_cli."""
     return new_db_uri()
 
 
@@ -395,7 +394,7 @@ def db_root(
     Parameterized variant of uses_db: runs a test against any or all of:
     - the in-process catalog
     - a local proxy daemon instance
-    - a hosted database, the one its root id names
+    - a hosted database
 
     Yields a path-builder mapping a bare path to the active catalog: the identity for local, and the bare
     path prefixed with the daemon's pxt:// uri for proxy (with an empty path mapping to the catalog root).
@@ -424,8 +423,8 @@ def db_root(
         case 'cloud' | 'cloud-cli' | 'cloud-serving':
             base_uri = CLOUD_DB_ROOT_URIS.get(db_root_id)
             if base_uri is None:
-                # the CLI package creates the database the 'cloud-serving' root names; asking for it here
-                # keeps a test that never reaches that root from paying the CodeBuild the creation runs
+                # fetched here rather than as a fixture parameter, so only a 'cloud-serving' test runs
+                # the CodeBuild that creates this database
                 base_uri = request.getfixturevalue('cloud_service_db')
             test_dir = uuid.uuid4().hex
             prefix = f'{base_uri}/test_{test_dir}'

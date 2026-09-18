@@ -47,10 +47,10 @@ _REQUEST_TIMEOUT = 30.0
 
 @pytest.fixture(scope='module')
 def hosted_db(session_cli: PxtRunner, session_project: pathlib.Path) -> Iterator[str]:
-    """The database TestHostedService acts on, which no database root names.
+    """A database for TestHostedService alone.
 
-    Its scenarios publish a project of their own with `pxt db update`, which replaces what the database
-    serves, so they can share it with nothing. Module-scoped because creating one runs CodeBuild.
+    Its scenarios publish their own project with `pxt db update`, which replaces what the database serves,
+    so no other test can use it. Creating one runs CodeBuild, hence the module scope.
     """
     with disposable_db(session_cli, new_db_uri(), session_project) as uri:
         yield uri

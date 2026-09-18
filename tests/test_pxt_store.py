@@ -25,7 +25,7 @@ pytestmark = pytest.mark.db_roots('local', reason='exercises ObjectOps/object-st
 def _pxt_dest_uri() -> str:
     """The pytest prefix in the home bucket of the 'cloud' root's database."""
     if not cloud_env_configured():
-        pytest.skip('the environment names no control plane')
+        pytest.skip('the cloud environment is unconfigured')
     return f'{home_bucket_uri(CLOUD_DB_ROOT_URIS["cloud"])}/pytest'
 
 

@@ -60,9 +60,9 @@ TESTS_DIR = Path(os.path.dirname(__file__))
 
 DbRootId = Literal['local', 'proxy', 'cloud', 'cloud-cli', 'cloud-serving']
 
-# The database each hosted root names: 'cloud' serves this repository, 'cloud-cli' the CLI app corpus.
-# 'cloud-serving' has no standing database, so it is absent here: tests/pixeltable_cli/test_service.py
-# publishes to the database it runs against, and creates one per session in cloud_service_db.
+# The 'cloud' database serves this repository; the 'cloud-cli' database serves the CLI app corpus.
+# 'cloud-serving' is missing because test_service.py publishes to its database, so cloud_service_db
+# creates one per session.
 CLOUD_DB_ROOT_URIS = {'cloud': 'pxt://pixeltable:pxttest', 'cloud-cli': 'pxt://pixeltable:pxttest-cli'}
 
 
@@ -70,12 +70,10 @@ def new_db_uri() -> str:
     return f'pxt://pixeltable:pxttest-{uuid.uuid4().hex[:12]}'
 
 
-# a hosted root needs a control plane, and these three name one
 _CLOUD_ENV_VARS = ('PIXELTABLE_API_KEY', 'PIXELTABLE_API_URL', 'PIXELTABLE_CLOUD_HOST')
 
 
 def cloud_env_configured() -> bool:
-    """True if the environment names a control plane, which every hosted root needs."""
     return all(os.environ.get(var) for var in _CLOUD_ENV_VARS)
 
 

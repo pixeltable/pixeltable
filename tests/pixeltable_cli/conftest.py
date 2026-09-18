@@ -265,7 +265,7 @@ def read_logs_until(
 
 @contextlib.contextmanager
 def disposable_db(cli: PxtRunner, uri: str, cwd: pathlib.Path) -> Iterator[str]:
-    """Delete the database at uri once the caller is done with it, whether or not one was ever created."""
+    """Delete the database at uri when the caller finishes, even if none was ever created."""
     try:
         yield uri
     finally:
@@ -290,13 +290,11 @@ def write_requirements(project: pathlib.Path, wheel: pathlib.Path, *extra: str) 
 def cloud_service_db(
     cloud_serving_db_uri: str, session_cli: PxtRunner, session_project: pathlib.Path, pixeltable_wheel: pathlib.Path
 ) -> Iterator[str]:
-    """Create the database the 'cloud-serving' root names, serving this session's project, and return it.
+    """Create the 'cloud-serving' database, serving this session's project.
 
     test_service.py deploys that project's application files as services and edits them as it goes, and a
-    pod reaches an edit only through the database's archive, which `pxt db update` replaces. So the root
-    gets a database of its own rather than the corpus database the rest of the package reads.
-
-    Session-scoped, since creating a database provisions storage and runs CodeBuild.
+    pod sees an edit only through the database's archive, which `pxt db update` replaces. So this root gets
+    its own database instead of the corpus database. Creating one runs CodeBuild, hence the session scope.
     """
     copy_app_corpus(session_project)
     write_requirements(session_project, pixeltable_wheel, *PROJECT_EXTRAS)
@@ -336,7 +334,7 @@ def corpus_pixeltable_pin() -> str | None:
     test rather than the last release. The image build runs in CodeBuild, which reaches GitHub but not this
     machine, so the pin is a commit on a remote rather than a path here.
 
-    Returns None where no control plane is configured, since only an image build reads this file.
+    Returns None when the cloud environment is unconfigured, since only an image build reads this file.
     """
     if not cloud_env_configured():
         return None
