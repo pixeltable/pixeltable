@@ -1007,10 +1007,8 @@ class Catalog(CatalogBase):
         store_tbl_names: dict[UUID, str] = {}
         # True for data-versioned tables. Contains exactly the same tables as store_tbl_names.
         is_data_versioned: dict[UUID, bool] = {}
-        # dir id -> path, the sort key of the `dirs` row locks. Always the catalog-local form: Path orders by
-        # (org, db, components), and a path a caller named can carry an org where get_dir_path() never does, so
-        # mixing the two forms would compare None against a str.
-        # TODO do we have to order by Path? Can't we sort by UUID instead?
+        # dir id -> path for directories in the lock set. Path defines the lock acquisition order. All paths are in
+        # the local form.
         dirs_to_lock: dict[UUID, Path] = {}
 
         # Add the read/write tables to the lock set. For a write table path, only the leaf is locked for a write, and
