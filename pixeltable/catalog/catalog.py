@@ -882,81 +882,6 @@ class Catalog(CatalogBase):
         except sql_exc.DBAPIError:
             pass
 
-    def _lock_target_from_cache(self, key: TableVersionKey, op_class: _TblOpClass) -> tuple[_LockTarget, bool] | None:
-        """Creates a LockTarget for a particular table, paired with whether that table is data-versioned.
-
-        Uses metadata cache only. Returns None on a cache miss.
-        """
-        tv = self._tbl_versions.get(key)
-        if tv is None or not tv.is_initialized:
-            return None
-        target = _LockTarget(
-            store_tbl_name=_store_tbl_name(tv.id, is_view=tv.is_view),
-            mode=_tbl_lock_mode(op_class, tv.is_data_versioned),
-        )
-        return target, tv.is_data_versioned
-
-    def _path_lock_targets_from_cache(
-        self, tbl_path: Sequence[TableVersionKey], leaf_op_class: _TblOpClass
-    ) -> list[tuple[_LockTarget, bool]] | None:
-        """Lock targets + is_data_versioned for the given path, represented by its keys in the view-before-base order.
-
-        leaf_op_class applies to the leaf only. For the ancestors, read operation is assumed.
-
-        Uses metadata cache only. Returns None if not all LockTargets can be created from the cache.
-        """
-        result: list[tuple[_LockTarget, bool]] = []
-        for i, key in enumerate(tbl_path):
-            op_class = leaf_op_class if i == 0 else _TblOpClass.DATA_READ
-            entry = self._lock_target_from_cache(key, op_class)
-            if entry is None:
-                return None
-            # every element along the way except the last one is a view. The last one is a base table.
-            is_view = i < len(tbl_path) - 1
-            assert entry[0].store_tbl_name == _store_tbl_name(key.tbl_id, is_view=is_view), (i, tbl_path)
-            result.append(entry)
-        return result
-
-    def _ancestors_lock_targets_from_cache(
-        self, key: TableVersionKey, leaf_op_class: _TblOpClass
-    ) -> list[tuple[_LockTarget, bool]] | None:
-        """Lock targets for `key` and its ancestors, from cached metadata only.
-
-        leaf_op_class applies to the leaf only. For the ancestors, read operation is assumed.
-
-        Doesn't talk to the store; uses cached metadata only to build the list. If the cached state is insufficient to
-        build the chain, returns None."""
-        # We can't rely on TableVersion.path because it is unset on snapshots
-        keys: list[TableVersionKey] = []
-        current_key = key
-        while True:
-            tv = self._tbl_versions.get(current_key)
-            if tv is None or not tv.is_initialized:
-                return None
-            keys.append(current_key)
-            if tv.base is None:
-                return self._path_lock_targets_from_cache(keys, leaf_op_class)
-            current_key = tv.base.key
-
-    def _mutable_tree_lock_targets_from_cache(
-        self, tbl_id: UUID, op_class: _TblOpClass
-    ) -> list[tuple[_LockTarget, bool]] | None:
-        """Returns lock targets for tbl_id's mutable tree: the target and its transitive mutable views.
-
-        Doesn't talk to the store; uses cached metadata only to build the list. If the cached state is unsufficient to
-        build the tree, returns None."""
-        key = TableVersionKey(tbl_id, None)
-        entry = self._lock_target_from_cache(key, op_class)
-        if entry is None:
-            return None
-        result = [entry]
-        for view in self._tbl_versions[key].mutable_views:
-            subtree = self._mutable_tree_lock_targets_from_cache(view.id, op_class)
-            if subtree is None:
-                return None
-            result.extend(subtree)
-        return result
-
     def _lock_set_from_store(
         self,
         *,
@@ -1165,6 +1090,81 @@ class Catalog(CatalogBase):
             dir_ids=sorted_dir_ids,
             blocking=_lock_set_blocking(op_class, any(is_data_versioned.values())),
         )
+
+    def _lock_target_from_cache(self, key: TableVersionKey, op_class: _TblOpClass) -> tuple[_LockTarget, bool] | None:
+        """Creates a LockTarget for a particular table, paired with whether that table is data-versioned.
+
+        Uses metadata cache only. Returns None on a cache miss.
+        """
+        tv = self._tbl_versions.get(key)
+        if tv is None or not tv.is_initialized:
+            return None
+        target = _LockTarget(
+            store_tbl_name=_store_tbl_name(tv.id, is_view=tv.is_view),
+            mode=_tbl_lock_mode(op_class, tv.is_data_versioned),
+        )
+        return target, tv.is_data_versioned
+
+    def _path_lock_targets_from_cache(
+        self, tbl_path: Sequence[TableVersionKey], leaf_op_class: _TblOpClass
+    ) -> list[tuple[_LockTarget, bool]] | None:
+        """Lock targets + is_data_versioned for the given path, represented by its keys in the view-before-base order.
+
+        leaf_op_class applies to the leaf only. For the ancestors, read operation is assumed.
+
+        Uses metadata cache only. Returns None if not all LockTargets can be created from the cache.
+        """
+        result: list[tuple[_LockTarget, bool]] = []
+        for i, key in enumerate(tbl_path):
+            op_class = leaf_op_class if i == 0 else _TblOpClass.DATA_READ
+            entry = self._lock_target_from_cache(key, op_class)
+            if entry is None:
+                return None
+            # every element along the way except the last one is a view. The last one is a base table.
+            is_view = i < len(tbl_path) - 1
+            assert entry[0].store_tbl_name == _store_tbl_name(key.tbl_id, is_view=is_view), (i, tbl_path)
+            result.append(entry)
+        return result
+
+    def _ancestors_lock_targets_from_cache(
+        self, key: TableVersionKey, leaf_op_class: _TblOpClass
+    ) -> list[tuple[_LockTarget, bool]] | None:
+        """Lock targets for `key` and its ancestors, from cached metadata only.
+
+        leaf_op_class applies to the leaf only. For the ancestors, read operation is assumed.
+
+        Doesn't talk to the store; uses cached metadata only to build the list. If the cached state is insufficient to
+        build the chain, returns None."""
+        # We can't rely on TableVersion.path because it is unset on snapshots
+        keys: list[TableVersionKey] = []
+        current_key = key
+        while True:
+            tv = self._tbl_versions.get(current_key)
+            if tv is None or not tv.is_initialized:
+                return None
+            keys.append(current_key)
+            if tv.base is None:
+                return self._path_lock_targets_from_cache(keys, leaf_op_class)
+            current_key = tv.base.key
+
+    def _mutable_tree_lock_targets_from_cache(
+        self, tbl_id: UUID, op_class: _TblOpClass
+    ) -> list[tuple[_LockTarget, bool]] | None:
+        """Returns lock targets for tbl_id's mutable tree: the target and its transitive mutable views.
+
+        Doesn't talk to the store; uses cached metadata only to build the list. If the cached state is unsufficient to
+        build the tree, returns None."""
+        key = TableVersionKey(tbl_id, None)
+        entry = self._lock_target_from_cache(key, op_class)
+        if entry is None:
+            return None
+        result = [entry]
+        for view in self._tbl_versions[key].mutable_views:
+            subtree = self._mutable_tree_lock_targets_from_cache(view.id, op_class)
+            if subtree is None:
+                return None
+            result.extend(subtree)
+        return result
 
     def _lock_set_from_cache(
         self,
