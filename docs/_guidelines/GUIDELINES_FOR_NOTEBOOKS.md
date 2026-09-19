@@ -6,83 +6,27 @@
 
 ## Overview
 
-These guidelines ensure that Jupyter notebooks convert properly to Mintlify MDX format using Quarto. The conversion process preserves YAML frontmatter and converts markdown/code cells to MDX.
+The docs build converts each notebook to a Mintlify page with Quarto. The page title comes from the
+notebook's first heading. Open-in links (Kaggle, Colab, GitHub) appear on every rendered page; do not
+hand-write them in cells.
 
-## Required: YAML Frontmatter
+## Required: Title in the first cell
 
-Every notebook MUST start with a **raw cell** (not markdown) containing YAML frontmatter.
+The first cell is a **markdown** cell, and its first line is the notebook's one H1. That H1 becomes the
+page title.
 
-### How to Add YAML Frontmatter in Jupyter
-
-1. Insert a new cell at the **very top** of the notebook
-2. Change cell type to **Raw** (not Markdown, not Code)
-   - In Jupyter: Cell → Cell Type → Raw
-   - In JupyterLab: Click cell type dropdown and select "Raw"
-3. Add the YAML frontmatter block
-
-### Exact Frontmatter Template
-
-**This is the exact format to use for every notebook.** Simply replace:
-- `Your Notebook Title` with your notebook's title
-- `path/to/your-notebook.ipynb` with the actual path (e.g., `use-cases/rag-operations.ipynb`)
-
-```yaml
----
-title: "Your Notebook Title"
-icon: "notebook"
-description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/release/path/to/your-notebook.ipynb) | [Open in Colab](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/path/to/your-notebook.ipynb) | [View on GitHub](https://github.com/pixeltable/pixeltable/blob/release/docs/release/path/to/your-notebook.ipynb)"
----
-```
-
-**Example for a notebook at `docs/release/howto/cookbooks/agents/pattern-rag-pipeline.ipynb`:**
-
-```yaml
----
-title: "RAG Operations"
-icon: "notebook"
-description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/release/howto/cookbooks/agents/pattern-rag-pipeline.ipynb) | [Open in Colab](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/cookbooks/agents/pattern-rag-pipeline.ipynb) | [View on GitHub](https://github.com/pixeltable/pixeltable/blob/release/docs/release/howto/cookbooks/agents/pattern-rag-pipeline.ipynb)"
----
-```
-
-### Frontmatter Fields
-
-- **title**: The display title for the notebook page (required)
-  - Use title case (e.g., "Working with OpenAI")
-  - This becomes the H1 heading in the rendered documentation
-- **icon**: Always use `"notebook"` for consistency across all notebooks
-- **description**: Contains three links separated by ` | ` (space-pipe-space)
-  - **Kaggle link**: Opens notebook in Kaggle kernel
-  - **Colab link**: Opens notebook in Google Colab
-  - **GitHub link**: Views notebook source on GitHub
-  - All three links use the `release` branch for stability
-  - Path must be relative to `docs/release/` directory
-
-## Required: Remove H1 Headers from Markdown
-
-**Do NOT use H1 headers (`#`) in markdown cells.** The title comes from the YAML frontmatter.
-
-### ❌ Wrong
 ```markdown
-# Pixeltable Basics
+# Build a RAG pipeline
 
-Welcome to this tutorial...
+Create a retrieval-augmented generation system that answers questions using your documents as context.
 ```
 
-### ✅ Correct
-```markdown
-Welcome to this tutorial...
+Use `##` for sections and `###` for subsections below it. Do not add a second `#` anywhere in the
+notebook.
 
-## Section Title
-
-Content here...
-```
-
-### Header Hierarchy
-
-- **Frontmatter `title`**: Acts as the H1 (page title)
-- **`##` (H2)**: Main sections
-- **`###` (H3)**: Subsections
-- **`####` (H4)**: Sub-subsections
+A raw YAML frontmatter cell is not required. Of the notebooks in `docs/release`, 93 use an H1 and 7 use
+a frontmatter cell; both render. If you do write frontmatter, `title` replaces the H1 and the notebook
+must then have no H1.
 
 ## Required: No Download or Badge Links
 
