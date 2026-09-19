@@ -25,6 +25,7 @@ from ..utils import (
     get_video_files,
     home_bucket_uri,
     new_db_uri,
+    skip_test_if_no_config,
     skip_test_if_not_installed,
 )
 from .conftest import BUILD_TIMEOUT, EXIT_ERROR, BackgroundPxt, PxtRunner, db_update, disposable_db, read_logs_until
@@ -1111,20 +1112,15 @@ class TestService:
         assert updated == {'id': created['id'], 'title_upper': 'RENAMED'}
 
 
+@pytest.mark.remote_api
+@pytest.mark.expensive
+@pytest.mark.db_roots('local', reason='pxt service acts on a hosted database, not on the catalog a test runs against')
 class TestHostedService:
     """`pxt service` against a hosted database."""
 
-    pytestmark: ClassVar = [
-        pytest.mark.remote_api,
-        pytest.mark.expensive,
-        # cloud_e2e: this drives a hosted database, which needs a Pixeltable API key; CI has none
-        pytest.mark.cloud_e2e,
-        pytest.mark.db_roots(
-            'local', reason='pxt service acts on a hosted database, not on the catalog a test runs against'
-        ),
-    ]
-
     def test_service_lifecycle(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+        skip_test_if_no_config('api_key')
+
         app_file = str(project / APP_FILE)
         schema_update(cli, project, app_file, current_db)
         # the database is shared, so it serves whatever routes the run before this one left registered
