@@ -472,6 +472,9 @@
         <outline text="module|pixeltable.functions.openrouter">
           <outline text="udf|pixeltable.functions.openrouter.chat_completions" />
         </outline>
+        <outline text="module|pixeltable.functions.orcarouter">
+          <outline text="udf|pixeltable.functions.orcarouter.chat_completions" />
+        </outline>
         <outline text="module|pixeltable.functions.replicate">
           <outline text="udf|pixeltable.functions.replicate.run" />
         </outline>

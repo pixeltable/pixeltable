@@ -35,6 +35,7 @@ from . import (
     ollama,
     openai,
     openrouter,
+    orcarouter,
     replicate,
     runwayml,
     string,

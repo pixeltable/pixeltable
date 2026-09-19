@@ -125,6 +125,7 @@
                       "sdk/latest/ollama",
                       "sdk/latest/openai",
                       "sdk/latest/openrouter",
+                      "sdk/latest/orcarouter",
                       "sdk/latest/replicate",
                       "sdk/latest/runwayml",
                       "sdk/latest/together",
