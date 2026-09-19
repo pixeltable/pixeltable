@@ -258,8 +258,9 @@ def assert_sqlite_row(connect: str, table_name: str, where: dict[str, Any], expe
 
 
 class TestFastAPI:
+    @classmethod
     def assert_correct_result_url(
-        self, url: str, db_root: DatabaseRoot, always_external: bool, route_type: str | None = None
+        cls, url: str, db_root: DatabaseRoot, always_external: bool, route_type: str | None = None
     ) -> None:
         if route_type != 'compute' and db_root.is_cloud:  # compute routes never return cloud URLs
             # `image` is served as a presigned R2 URL from a cloud DB ...

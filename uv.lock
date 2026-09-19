@@ -5954,10 +5954,8 @@ serve = [
 cloud-dev = [
     { name = "datasets" },
     { name = "en-core-web-sm" },
-    { name = "lancedb" },
     { name = "markitdown", extra = ["docx", "pptx", "xlsx"], marker = "python_full_version < '3.14'" },
     { name = "mistune" },
-    { name = "pylance" },
     { name = "spacy", marker = "python_full_version < '3.14'" },
 ]
 cuda-dev = [
@@ -6114,10 +6112,8 @@ provides-extras = ["otel", "serve"]
 cloud-dev = [
     { name = "datasets" },
     { name = "en-core-web-sm", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
-    { name = "lancedb" },
     { name = "markitdown", extras = ["pptx", "docx", "xlsx"], marker = "python_full_version < '3.14'" },
     { name = "mistune" },
-    { name = "pylance" },
     { name = "spacy", marker = "python_full_version < '3.14'" },
 ]
 cuda-dev = [{ name = "vllm", specifier = ">=0.24" }]
