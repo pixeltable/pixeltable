@@ -660,9 +660,10 @@ def all_datatypes_tbl(db_root: DatabaseRoot, request: pytest.FixtureRequest) -> 
 
 @pytest.fixture(scope='function')
 def img_tbl(db_root: DatabaseRoot, request: pytest.FixtureRequest) -> pxt.Table:
-    return create_img_tbl(
-        db_root.make_catalog_path('test_img_tbl'), is_data_versioned=_requested_is_data_versioned(request)
-    )
+    # on cloud/proxy, limit the number of rows so that we're not sending a massive image set on every test that uses
+    # img_tbl. For local, use the full image set.
+    num_rows = 0 if db_root.id == 'local' else 20
+    return create_img_tbl(db_root.make_catalog_path('test_img_tbl'), num_rows, _requested_is_data_versioned(request))
 
 
 @pytest.fixture(scope='function')
