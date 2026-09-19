@@ -5,10 +5,8 @@ import json
 import os
 import pathlib
 import signal
-import socket
 import subprocess
 import sys
-from collections.abc import Iterator
 from typing import Any
 
 import psutil
@@ -17,22 +15,6 @@ import pytest
 from pixeltable_cli.utils import pidfile_path
 
 _HEALTH_TIMEOUT_SECS = 180.0
-
-
-@pytest.fixture
-def daemon_port(init_env: None) -> Iterator[int]:
-    """Picks an available port to use for a daemon. Runs pxt daemon stop after the test."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('127.0.0.1', 0))
-        port = s.getsockname()[1]
-    yield port
-    subprocess.run(
-        ['pxt', 'daemon', 'stop', '-f'],
-        env={**os.environ, 'PXT_PORT': str(port)},
-        capture_output=True,
-        check=False,
-        timeout=60,
-    )
 
 
 def _create_pxt_project(root: pathlib.Path) -> None:

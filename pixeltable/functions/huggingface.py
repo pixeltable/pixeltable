@@ -74,6 +74,7 @@ def sentence_transformer(
 
 @sentence_transformer.conditional_return_type
 def _(model_id: str) -> ts.ArrayType:
+    env.Env.get().require_package('sentence_transformers', min_version=[5, 4])
     from sentence_transformers import SentenceTransformer
 
     model = _lookup_model(model_id, SentenceTransformer)

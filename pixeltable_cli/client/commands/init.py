@@ -20,10 +20,9 @@ What it writes:
 
     [[pixeltable.database]]         # the local database
     vars.media_dest = 's3://bucket/prefix'
-    secrets.openai_api_key = '...'
 
-  vars and secrets bind the config vars of a schema. A hosted database is a second entry,
-  identified by its uri, which also records what goes into its image ('pxt db update').
+  vars supply the values of the config vars a schema declares. A hosted database is a second
+  entry, identified by its uri, which also records what goes into its image ('pxt db update').
   In a directory with a pyproject.toml, the same entry is appended there as
   [[tool.pixeltable.database]] rather than writing a second file.
   A directory that already has a project configuration is reported, and left as it is.
@@ -48,10 +47,9 @@ _PYPROJECT = 'pyproject.toml'
 # what a fresh project configuration holds: the local database, and the bindings that go on it
 _DATABASE_ENTRY = """\
 {header}
-# The local database. vars and secrets bind the config vars of a schema; a hosted database is
-# a second entry, named by its uri.
+# The local database. vars supply the values of the config vars a schema declares; a hosted
+# database is a second entry, named by its uri.
 # vars.media_dest = 's3://bucket/prefix'
-# secrets.openai_api_key = '...'
 """
 _PROJECT_CONFIG = f"""\
 # Pixeltable project configuration. This file makes its directory the project root, which every
