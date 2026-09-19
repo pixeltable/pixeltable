@@ -1,5 +1,6 @@
 """Tests for 'pxt schema diff', 'pxt schema update' and 'pxt schema prune'."""
 
+import json
 import pathlib
 import re
 from textwrap import dedent
@@ -283,6 +284,27 @@ class TestSchema:
         r = cli('schema', 'diff', str(schema_file), target)
         assert f'= {target}/docs' in r.stdout
         assert 'Plan: 0 create, 0 update, 2 unchanged, 0 extra  |  0 destructive' in r.stdout
+
+    @pytest.mark.db_roots('local', reason='the schema is generated from the models, so no catalog is read')
+    def test_diff_json_schema(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        """--json-schema describes the --json output, including the values an enum field takes."""
+        r = cli('schema', 'diff', '--json-schema')
+        schema = json.loads(r.stdout)
+
+        assert schema['$defs']['TableDiff']['properties']['resolution']['enum'] == [
+            'up_to_date',
+            'create',
+            'update_additive',
+            'update_destructive',
+            'unsupported',
+            'blocked',
+        ]
+        assert 'in_agreement' in schema['properties']
+        assert 'SchemaPlanSummary' in schema['$defs']
+        assert (
+            'not the number of destructive tables'
+            in (schema['$defs']['SchemaPlanSummary']['properties']['destructive']['description'])
+        )
 
     def test_diff_drift(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         p = db_root.make_catalog_path

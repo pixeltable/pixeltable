@@ -1,3 +1,4 @@
+import json
 import os
 import pathlib
 import shutil
@@ -5,7 +6,7 @@ import socket
 import time
 from textwrap import dedent
 from types import SimpleNamespace
-from typing import Any, Callable, ClassVar, Iterator
+from typing import Any, Callable, Iterator
 from unittest.mock import patch
 
 import httpx
@@ -187,6 +188,20 @@ def _await_job(job_url: str, timeout: float = 120.0) -> Any:
 @pytest.mark.db_roots('local', 'cloud-serving', reason='a proxy-daemon database has no service manager of its own')
 @pytest.mark.usefixtures('authenticated_http', 'no_hosted_services')
 class TestService:
+    @pytest.mark.db_roots('local', reason='the schema is generated from the models, so no catalog is read')
+    def test_json_schema(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        """Both verbs that emit JSON describe it: a plan as an object, a listing as an array."""
+        plan = json.loads(cli('service', 'diff', '--json-schema').stdout)
+        assert plan['title'] == 'ServicePlan'
+        # computed fields reach the output, so they have to reach the schema too
+        assert 'in_agreement' in plan['properties']
+        assert 'summary' in plan['properties']
+        assert plan['$defs']['ServicePlanSummary']['properties']['restarts']['description'] != ''
+
+        listing = json.loads(cli('service', 'list', '--json-schema').stdout)
+        assert listing['type'] == 'array'
+        assert 'ServiceInstance' in listing['$defs']
+
     def test_config_must_agree(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A service inherits the daemon's config values, so a caller resolving them differently cannot deploy."""
         skip_test_if_not_installed('fastapi')

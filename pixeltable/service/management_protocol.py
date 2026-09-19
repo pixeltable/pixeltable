@@ -71,10 +71,13 @@ class DatabaseReport(BaseModel):
 
     db: str = ''
 
-    target_resources: DatabaseResources | None = None
+    target_resources: DatabaseResources | None = Field(
+        default=None, description='what the project configuration asks for; an update moves the database to this'
+    )
 
-    # None: the database does not exist
-    current: DatabaseStatus | None = None
+    current: DatabaseStatus | None = Field(
+        default=None, description='what the database provides now; null when the database does not exist'
+    )
 
 
 class GetDbRequest(BaseModel):
@@ -213,6 +216,14 @@ class SetSecretRequest(BaseModel):
     db: str | None = None
     key: str
     value: str
+
+    @field_validator('key')
+    @classmethod
+    def _validate_key(cls, key: str) -> str:
+        # TODO(PXT-1418): pxt secret operations can fail partially
+        if key.upper().startswith('PIXELTABLE_'):
+            raise ValueError(f'Invalid secret name {key!r}: the PIXELTABLE_ prefix is reserved.')
+        return key
 
 
 class SetSecretResponse(BaseModel):
