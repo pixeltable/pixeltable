@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from pixeltable import exceptions as excs
-from pixeltable.env import Env
+from pixeltable.env import Env, _pip_install_hint
 from pixeltable.utils.app_module import load_app_module, module_routers, service_spec, services_by_name, visible_models
 
 if TYPE_CHECKING:
@@ -49,7 +49,7 @@ def create_app(app_file: str, name: str, base_path: str = '') -> tuple['fastapi.
 
 
 _OTEL_NOT_INSTALLED = (
-    "OpenTelemetry tracing requires the instrumentation package; install: `pip install 'pixeltable[otel]'`"
+    f'OpenTelemetry tracing requires the instrumentation package; install: `{_pip_install_hint("pixeltable[otel]")}`'
 )
 
 

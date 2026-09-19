@@ -4,9 +4,12 @@ Adapters for web serving frameworks.
 
 from typing import Any
 
+from pixeltable.env import _pip_install_hint
 from pixeltable.serving.globals import SqlExport
 
-_NO_FASTAPI_MSG = "pixeltable.serving.FastAPIRouter requires fastapi; install it with `pip install 'pixeltable[serve]'`"
+_NO_FASTAPI_MSG = (
+    f'pixeltable.serving.FastAPIRouter requires fastapi; install it with `{_pip_install_hint("pixeltable[serve]")}`'
+)
 
 # the methods an application file calls to define its routes; mirrored by the stub below, and checked
 # against the real router by tests/serving/test_stub_router.py

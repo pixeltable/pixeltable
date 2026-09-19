@@ -11,8 +11,10 @@ import inspect
 import logging
 import math
 import os
+import shlex
 import shutil
 import subprocess
+import sys
 import threading
 import types
 import typing
@@ -99,6 +101,21 @@ def validate_db_name(db_name: str) -> None:
             excs.ErrorCode.INVALID_CONFIGURATION,
             f'Database name is too long ({len(db_name)} characters; the limit is {MAX_DB_NAME_LEN}): {db_name}',
         )
+
+
+def _is_homebrew_venv() -> bool:
+    return 'Cellar/pxt/' in sys.prefix
+
+
+def _pip_install_hint(library_name: str) -> str:
+    library_name = shlex.quote(library_name)
+    if _is_homebrew_venv():
+        # `pip` alone resolves outside the formula's virtualenv; pxt-pip is the formula's shim for it,
+        # absent from kegs built before the shim existed.
+        if shutil.which('pxt-pip') is not None:
+            return f'pxt-pip install -U {library_name}'
+        return f'{sys.executable} -m pip install -U {library_name}'
+    return f'pip install -U {library_name}'
 
 
 class Env:
@@ -976,7 +993,7 @@ class Env:
                         not_installed_msg = f'This feature requires the `{package_name}` package'
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'{not_installed_msg}. To install it, run: `pip install -U {package_info.library_name}`',
+                        f'{not_installed_msg}. To install it, run: `{_pip_install_hint(package_info.library_name)}`',
                     )
 
             if min_version is None:
@@ -996,7 +1013,7 @@ class Env:
                     f'The installed version of package `{package_name}` is '
                     f'{".".join(str(v) for v in package_info.version)}, '
                     f'but version >={".".join(str(v) for v in min_version)} is required. '
-                    f'To fix this, run: `pip install -U {package_info.library_name}`',
+                    f'To fix this, run: `{_pip_install_hint(package_info.library_name)}`',
                 )
 
     def clear_tmp_dir(self) -> None:

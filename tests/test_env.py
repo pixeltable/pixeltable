@@ -1,5 +1,8 @@
 import asyncio
+import importlib.util
 import os
+import shutil
+import sys
 from typing import Iterator
 
 import numpy as np
@@ -325,3 +328,38 @@ class TestApiClients:
         clients = _test_clients[n_clients:]
         assert len(clients) == 1
         assert (clients[0].closes, clients[0].loop_was_open) == (1, True)
+
+
+class TestInstallHints:
+    """Install hints for optional packages running inside the Homebrew formula's virtualenv."""
+
+    def test_pip_install_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(sys, 'prefix', '/opt/homebrew/Cellar/pxt/0.7.8/libexec')
+        monkeypatch.setattr(shutil, 'which', lambda _: '/opt/homebrew/bin/pxt-pip')
+        assert env._pip_install_hint('openai') == 'pxt-pip install -U openai'
+
+        # kegs built before the shim existed fall back to the venv's interpreter
+        monkeypatch.setattr(shutil, 'which', lambda _: None)
+        assert env._pip_install_hint('openai') == f'{sys.executable} -m pip install -U openai'
+
+        monkeypatch.setattr(sys, 'prefix', '/usr/local/mambaforge/envs/pxt')
+        assert env._pip_install_hint('openai') == 'pip install -U openai'
+        assert env._pip_install_hint('pixeltable[serve]') == "pip install -U 'pixeltable[serve]'"
+
+    def test_require_package_uses_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(sys, 'prefix', '/opt/homebrew/Cellar/pxt/0.7.8/libexec')
+        monkeypatch.setattr(shutil, 'which', lambda _: '/opt/homebrew/bin/pxt-pip')
+        info = env.Env.get()._Env__optional_packages['openai']  # type: ignore[attr-defined]
+        monkeypatch.setattr(info, 'is_installed', False)
+        monkeypatch.setattr(importlib.util, 'find_spec', lambda _: None)
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='pxt-pip install -U openai'):
+            env.Env.get().require_package('openai')
+
+    def test_spacy_model_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        pytest.importorskip('spacy')
+        from pixeltable.utils.spacy import get_spacy_model
+
+        monkeypatch.setattr(sys, 'prefix', '/opt/homebrew/Cellar/pxt/0.7.8/libexec')
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
+            get_spacy_model('bogus-model;echo hi')
+        assert f"{sys.executable} -m spacy download 'bogus-model;echo hi'" in str(exc_info.value)
