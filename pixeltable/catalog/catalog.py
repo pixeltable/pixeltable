@@ -1097,7 +1097,10 @@ class Catalog(CatalogBase):
     ) -> tuple[list[_LockTarget], bool] | None:
         """Return a path's targets and whether any table is data-versioned.
 
-        The path is in view-before-base order. Ancestors use read mode. Return None on a cache miss.
+        All metadata is read from cache, no store reads. Returns None on a cache miss.
+
+        tbl_path is in view-before-base order. target_op_class applies to the leaf view only. Its ancestors receive read
+        mode.
         """
         targets: list[_LockTarget] = []
         any_data_versioned = False
@@ -1121,9 +1124,11 @@ class Catalog(CatalogBase):
     ) -> tuple[list[_LockTarget], bool] | None:
         """Return targets for `key` and its ancestors, and whether any table is data-versioned.
 
-        Ancestors use read mode. Return None on a cache miss.
+        All metadata is read from cache, no store reads. Returns None on a cache miss.
+
+        target_op_class applies to the key table only. Its ancestors receive read mode.
         """
-        # TableVersion.path is unset on snapshots.
+        # Can't use TableVersion.path because it's unset on snapshots.
         keys: list[TableVersionKey] = []
         current_key = key
         while True:
@@ -1140,8 +1145,9 @@ class Catalog(CatalogBase):
     ) -> tuple[list[_LockTarget], bool] | None:
         """Return targets for the table and its transitive mutable views, and whether any is data-versioned.
 
-        Return None on a cache miss.
-        """
+        All metadata is read from cache, no store reads. Returns None on a cache miss.
+
+        op_class applies to all tables."""
         tv = self._tbl_versions.get(TableVersionKey(tbl_id, None))
         if tv is None or not tv.is_initialized:
             return None
