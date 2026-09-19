@@ -106,6 +106,11 @@ fi
 TARGET_DIR="$1"
 shift
 
+if [[ $DO_PIP_INSTALL == true ]]; then
+    # The instrumentation package is available in the source checkout, but is not yet published on PyPI.
+    SKIP_NOTEBOOKS+=(observability)
+fi
+
 echo "Target path: $TARGET_DIR"
 echo "Notebook paths: $@"
 if [[ $DO_PIP_INSTALL == false ]]; then

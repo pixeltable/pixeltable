@@ -47,7 +47,7 @@ jobs:
         python-version: ["3.11", "3.13"]
         package-configs:
           - ""
-          - "lancedb pylance mcp opencv-python scenedetect"
+          - "lancedb pylance 'mcp>=1.27.2,<2' opencv-python scenedetect"
           - "anthropic fireworks-ai 'google-genai<1.72.0' groq jina mistralai openai replicate together"
           - "fal-client runwayml twelvelabs voyageai"
           - "huggingface-hub llama-cpp-python openai-whisper"
@@ -57,7 +57,7 @@ jobs:
         include:
           # transformers-based tests need to run on a larger runner.
           - python-version: "3.11"
-            package-configs: "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm"
+            package-configs: "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm spacy"
             os: ubuntu-large
           - python-version: "3.11"
             package-configs: "whisperx transformers timm"
