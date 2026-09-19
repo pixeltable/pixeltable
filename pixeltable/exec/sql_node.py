@@ -410,6 +410,17 @@ class SqlNode(ExecNode):
     def set_offset(self, offset: exprs.Expr) -> None:
         self.offset = offset
 
+    def _check_catalog_locks(self) -> None:
+        """Check that Catalog holds all locks necessary for this query"""
+        for input in self._cte_inputs:
+            input._check_catalog_locks()
+        if self.tbl is None:
+            return
+        cat = get_runtime().catalog
+        for handle in self.tbl.get_tbl_versions():
+            # a pure snapshot has no store table to lock, and does not appear in its own path
+            cat.check_rows_read_locked(handle.get())
+
     def _log_explain(self, stmt: sql.Select) -> None:
         try:
             # don't set dialect=Env.get().engine.dialect: x % y turns into x %% y -> syntax error
@@ -428,6 +439,7 @@ class SqlNode(ExecNode):
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         # run the query; do this here rather than in _open(), exceptions are only expected during iteration
+        self._check_catalog_locks()
         with warnings.catch_warnings(record=True) as w:
             if self._stmt is None:
                 self._stmt = self._create_stmt()

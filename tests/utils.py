@@ -40,7 +40,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
 from pixeltable._query import ResultSet
-from pixeltable.catalog import Path as PxtPath, retry_loop
+from pixeltable.catalog import Path as PxtPath, retry_read_md_loop
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
@@ -980,7 +980,7 @@ class ReloadTester:
         # enumerate(): the list index is useful for debugging
         for idx, (query_dict, result_set) in enumerate(self.query_info):
 
-            @retry_loop()
+            @retry_read_md_loop()
             def query_from_dict() -> pxt.Query:
                 return pxt.Query.from_dict(query_dict)
 
