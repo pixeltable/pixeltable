@@ -1091,7 +1091,6 @@ class Catalog(CatalogBase):
             blocking=_lock_set_blocking(op_class, any(is_data_versioned.values())),
         )
 
-    # TODO continue from here
     def _path_lock_targets_from_cache(
         self, tbl_path: Sequence[TableVersionKey], target_op_class: _TblOpClass
     ) -> tuple[list[_LockTarget], bool] | None:
@@ -1197,30 +1196,20 @@ class Catalog(CatalogBase):
                 if current_target is None or target.mode.is_at_least(current_target.mode):
                     targets[target.store_tbl_name] = target
 
-        for tvp in read_tvps:
-            path_result = self._path_lock_targets_from_cache(tvp.tbl_keys, _TblOpClass.DATA_READ)
-            if path_result is None:
-                return None
-            add(path_result[0])
-            any_data_versioned |= path_result[1]
-        for tvp in write_tvps:
-            path_result = self._path_lock_targets_from_cache(tvp.tbl_keys, op_class)
-            if path_result is None:
-                return None
-            add(path_result[0])
-            any_data_versioned |= path_result[1]
-        for key in read_tbl_keys:
-            ancestors_result = self._ancestors_lock_targets_from_cache(key, _TblOpClass.DATA_READ)
-            if ancestors_result is None:
-                return None
-            add(ancestors_result[0])
-            any_data_versioned |= ancestors_result[1]
-        for key in write_tbl_keys:
-            ancestors_result = self._ancestors_lock_targets_from_cache(key, op_class)
-            if ancestors_result is None:
-                return None
-            add(ancestors_result[0])
-            any_data_versioned |= ancestors_result[1]
+        for tvps, target_op_class in ((read_tvps, _TblOpClass.DATA_READ), (write_tvps, op_class)):
+            for tvp in tvps:
+                path_result = self._path_lock_targets_from_cache(tvp.tbl_keys, target_op_class)
+                if path_result is None:
+                    return None
+                add(path_result[0])
+                any_data_versioned |= path_result[1]
+        for tbl_keys, target_op_class in ((read_tbl_keys, _TblOpClass.DATA_READ), (write_tbl_keys, op_class)):
+            for key in tbl_keys:
+                ancestors_result = self._ancestors_lock_targets_from_cache(key, target_op_class)
+                if ancestors_result is None:
+                    return None
+                add(ancestors_result[0])
+                any_data_versioned |= ancestors_result[1]
         if lock_mutable_tree:
             for write_tbl_id in self._mutable_write_tbl_ids(write_tvps, write_tbl_keys):
                 tree_result = self._mutable_tree_lock_targets_from_cache(write_tbl_id, op_class)
@@ -1233,6 +1222,7 @@ class Catalog(CatalogBase):
             blocking=_lock_set_blocking(op_class, any_data_versioned),
         )
 
+    # TODO continue from here
     def _resolve_lock_set(
         self,
         *,
