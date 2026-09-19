@@ -1091,51 +1091,39 @@ class Catalog(CatalogBase):
             blocking=_lock_set_blocking(op_class, any(is_data_versioned.values())),
         )
 
-    def _lock_target_from_cache(self, key: TableVersionKey, op_class: _TblOpClass) -> tuple[_LockTarget, bool] | None:
-        """Creates a LockTarget for a particular table, paired with whether that table is data-versioned.
-
-        Uses metadata cache only. Returns None on a cache miss.
-        """
-        tv = self._tbl_versions.get(key)
-        if tv is None or not tv.is_initialized:
-            return None
-        target = _LockTarget(
-            store_tbl_name=_store_tbl_name(tv.id, is_view=tv.is_view),
-            mode=_tbl_lock_mode(op_class, tv.is_data_versioned),
-        )
-        return target, tv.is_data_versioned
-
+    # TODO continue from here
     def _path_lock_targets_from_cache(
-        self, tbl_path: Sequence[TableVersionKey], leaf_op_class: _TblOpClass
-    ) -> list[tuple[_LockTarget, bool]] | None:
-        """Lock targets + is_data_versioned for the given path, represented by its keys in the view-before-base order.
+        self, tbl_path: Sequence[TableVersionKey], target_op_class: _TblOpClass
+    ) -> tuple[list[_LockTarget], bool] | None:
+        """Return a path's targets and whether any table is data-versioned.
 
-        leaf_op_class applies to the leaf only. For the ancestors, read operation is assumed.
-
-        Uses metadata cache only. Returns None if not all LockTargets can be created from the cache.
+        The path is in view-before-base order. Ancestors use read mode. Return None on a cache miss.
         """
-        result: list[tuple[_LockTarget, bool]] = []
+        targets: list[_LockTarget] = []
+        any_data_versioned = False
         for i, key in enumerate(tbl_path):
-            op_class = leaf_op_class if i == 0 else _TblOpClass.DATA_READ
-            entry = self._lock_target_from_cache(key, op_class)
-            if entry is None:
+            tv = self._tbl_versions.get(key)
+            if tv is None or not tv.is_initialized:
                 return None
-            # every element along the way except the last one is a view. The last one is a base table.
-            is_view = i < len(tbl_path) - 1
-            assert entry[0].store_tbl_name == _store_tbl_name(key.tbl_id, is_view=is_view), (i, tbl_path)
-            result.append(entry)
-        return result
+            assert tv.is_view == (i < len(tbl_path) - 1), (i, tbl_path)
+            op_class = target_op_class if i == 0 else _TblOpClass.DATA_READ
+            targets.append(
+                _LockTarget(
+                    store_tbl_name=_store_tbl_name(tv.id, is_view=tv.is_view),
+                    mode=_tbl_lock_mode(op_class, tv.is_data_versioned),
+                )
+            )
+            any_data_versioned |= tv.is_data_versioned
+        return targets, any_data_versioned
 
     def _ancestors_lock_targets_from_cache(
-        self, key: TableVersionKey, leaf_op_class: _TblOpClass
-    ) -> list[tuple[_LockTarget, bool]] | None:
-        """Lock targets for `key` and its ancestors, from cached metadata only.
+        self, key: TableVersionKey, target_op_class: _TblOpClass
+    ) -> tuple[list[_LockTarget], bool] | None:
+        """Return targets for `key` and its ancestors, and whether any table is data-versioned.
 
-        leaf_op_class applies to the leaf only. For the ancestors, read operation is assumed.
-
-        Doesn't talk to the store; uses cached metadata only to build the list. If the cached state is insufficient to
-        build the chain, returns None."""
-        # We can't rely on TableVersion.path because it is unset on snapshots
+        Ancestors use read mode. Return None on a cache miss.
+        """
+        # TableVersion.path is unset on snapshots.
         keys: list[TableVersionKey] = []
         current_key = key
         while True:
@@ -1144,27 +1132,34 @@ class Catalog(CatalogBase):
                 return None
             keys.append(current_key)
             if tv.base is None:
-                return self._path_lock_targets_from_cache(keys, leaf_op_class)
+                return self._path_lock_targets_from_cache(keys, target_op_class)
             current_key = tv.base.key
 
     def _mutable_tree_lock_targets_from_cache(
         self, tbl_id: UUID, op_class: _TblOpClass
-    ) -> list[tuple[_LockTarget, bool]] | None:
-        """Returns lock targets for tbl_id's mutable tree: the target and its transitive mutable views.
+    ) -> tuple[list[_LockTarget], bool] | None:
+        """Return targets for the table and its transitive mutable views, and whether any is data-versioned.
 
-        Doesn't talk to the store; uses cached metadata only to build the list. If the cached state is unsufficient to
-        build the tree, returns None."""
-        key = TableVersionKey(tbl_id, None)
-        entry = self._lock_target_from_cache(key, op_class)
-        if entry is None:
+        Return None on a cache miss.
+        """
+        tv = self._tbl_versions.get(TableVersionKey(tbl_id, None))
+        if tv is None or not tv.is_initialized:
             return None
-        result = [entry]
-        for view in self._tbl_versions[key].mutable_views:
+        targets = [
+            _LockTarget(
+                store_tbl_name=_store_tbl_name(tv.id, is_view=tv.is_view),
+                mode=_tbl_lock_mode(op_class, tv.is_data_versioned),
+            )
+        ]
+        any_data_versioned = tv.is_data_versioned
+        for view in tv.mutable_views:
             subtree = self._mutable_tree_lock_targets_from_cache(view.id, op_class)
             if subtree is None:
                 return None
-            result.extend(subtree)
-        return result
+            subtree_targets, subtree_data_versioned = subtree
+            targets.extend(subtree_targets)
+            any_data_versioned |= subtree_data_versioned
+        return targets, any_data_versioned
 
     def _lock_set_from_cache(
         self,
@@ -1184,44 +1179,52 @@ class Catalog(CatalogBase):
         For reads we lock the target tables and their ancestry. For writes we additionally lock the mutable views of the
         targets, if lock_mutable_tree is True. op_class is operation class for write targets and affects their lock
         mode."""
-        # store tbl name -> TODO
-        targets: dict[str, tuple[_LockTarget, bool]] = {}
+        # store tbl name -> its lock target with the strongest (most exclusive) lock mode so far
+        targets: dict[str, _LockTarget] = {}
+        # is any of these tables data versioned?
+        any_data_versioned = False
 
-        def add(new_targets: Sequence[tuple[_LockTarget, bool]]) -> None:
-            for target, is_data_versioned in new_targets:
-                held = targets.get(target.store_tbl_name)
-                if held is None or target.mode.is_at_least(held[0].mode):
-                    targets[target.store_tbl_name] = (target, is_data_versioned)
+        def add(new_targets: Sequence[_LockTarget]) -> None:
+            for target in new_targets:
+                current_target = targets.get(target.store_tbl_name)
+                # If already in the dict, replace if the new mode is stronger. Otherwise add.
+                if current_target is None or target.mode.is_at_least(current_target.mode):
+                    targets[target.store_tbl_name] = target
 
         for tvp in read_tvps:
-            path_targets = self._path_lock_targets_from_cache(tvp.tbl_keys, _TblOpClass.DATA_READ)
-            if path_targets is None:
+            path_result = self._path_lock_targets_from_cache(tvp.tbl_keys, _TblOpClass.DATA_READ)
+            if path_result is None:
                 return None
-            add(path_targets)
+            add(path_result[0])
+            any_data_versioned |= path_result[1]
         for tvp in write_tvps:
-            path_targets = self._path_lock_targets_from_cache(tvp.tbl_keys, op_class)
-            if path_targets is None:
+            path_result = self._path_lock_targets_from_cache(tvp.tbl_keys, op_class)
+            if path_result is None:
                 return None
-            add(path_targets)
+            add(path_result[0])
+            any_data_versioned |= path_result[1]
         for key in read_tbl_keys:
-            ancestors_targets = self._ancestors_lock_targets_from_cache(key, _TblOpClass.DATA_READ)
-            if ancestors_targets is None:
+            ancestors_result = self._ancestors_lock_targets_from_cache(key, _TblOpClass.DATA_READ)
+            if ancestors_result is None:
                 return None
-            add(ancestors_targets)
+            add(ancestors_result[0])
+            any_data_versioned |= ancestors_result[1]
         for key in write_tbl_keys:
-            ancestors_targets = self._ancestors_lock_targets_from_cache(key, op_class)
-            if ancestors_targets is None:
+            ancestors_result = self._ancestors_lock_targets_from_cache(key, op_class)
+            if ancestors_result is None:
                 return None
-            add(ancestors_targets)
+            add(ancestors_result[0])
+            any_data_versioned |= ancestors_result[1]
         if lock_mutable_tree:
             for write_tbl_id in self._mutable_write_tbl_ids(write_tvps, write_tbl_keys):
-                tree_targets = self._mutable_tree_lock_targets_from_cache(write_tbl_id, op_class)
-                if tree_targets is None:
+                tree_result = self._mutable_tree_lock_targets_from_cache(write_tbl_id, op_class)
+                if tree_result is None:
                     return None
-                add(tree_targets)
+                add(tree_result[0])
+                any_data_versioned |= tree_result[1]
         return _LockSet(
-            tbl_targets=tuple(targets[store_tbl_name][0] for store_tbl_name in sorted(targets)),
-            blocking=_lock_set_blocking(op_class, any(is_data_versioned for _, is_data_versioned in targets.values())),
+            tbl_targets=tuple(targets[name] for name in sorted(targets)),
+            blocking=_lock_set_blocking(op_class, any_data_versioned),
         )
 
     def _resolve_lock_set(
@@ -1326,7 +1329,8 @@ class Catalog(CatalogBase):
                 if mutable_tree is None:
                     _logger.debug(f'lock set mismatch: mutable tree of {write_tbl_id} is not fully cached')
                     raise _StaleLockSetError
-                validate_targets_locked([target for target, _ in mutable_tree])
+                targets, _ = mutable_tree
+                validate_targets_locked(targets)
 
         if len(write_paths) > 0:
             # re-resolve the paths against the metadata the locks made current, and check the result is covered.
