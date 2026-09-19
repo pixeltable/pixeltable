@@ -1184,7 +1184,7 @@ class Catalog(CatalogBase):
         For reads we lock the target tables and their ancestry. For writes we additionally lock the mutable views of the
         targets, if lock_mutable_tree is True. op_class is operation class for write targets and affects their lock
         mode."""
-
+        # store tbl name -> TODO
         targets: dict[str, tuple[_LockTarget, bool]] = {}
 
         def add(new_targets: Sequence[tuple[_LockTarget, bool]]) -> None:
