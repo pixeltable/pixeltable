@@ -436,13 +436,21 @@
       "weight": 400
     }
   },
+  "seo": {
+    "metatags": {
+      "canonical": "https://docs.pixeltable.com"
+    }
+  },
   "contextual": {
     "options": [
       "copy",
       "view",
       "chatgpt",
       "claude",
-      "cursor"
+      "mcp",
+      "add-mcp",
+      "cursor",
+      "vscode"
     ]
   },
   "integrations": {
