@@ -24,6 +24,12 @@ Iterators are particularly useful when:
 In an app file, set `iterator=` on the view's `TableModel`. In a notebook, pass `iterator=` to `pxt.create_view()`.
 </Note>
 
+<Note>
+Two `document_splitter` separators need a package the base install does not include: `sentence` needs
+`spacy` and `token_limit` needs `tiktoken`. The examples below use both, so run
+`pip install spacy tiktoken` first.
+</Note>
+
 ```python
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -445,10 +451,13 @@ words_view = pxt.create_view(
 )
 ```
 
-Use `unstored_cols` to mark columns that should not be persisted:
+Use `unstored_cols` to mark columns that should not be persisted. An unstored column is recomputed
+when a row is read, so the iterator must be able to jump straight to that row: `unstored_cols`
+requires a `seek()` method, and only a class can supply one. A function-style `@pxt.iterator`
+cannot use `unstored_cols`.
 
 ```python
-from typing import Iterator, TypedDict
+from typing import TypedDict
 import pixeltable as pxt
 
 class FrameRow(TypedDict):
@@ -456,9 +465,20 @@ class FrameRow(TypedDict):
     timestamp: float
 
 @pxt.iterator(unstored_cols=['frame'])
-def my_frame_extractor(video: pxt.Video) -> Iterator[FrameRow]:
-    # Custom frame extraction logic
-    ...
+class my_frame_extractor(pxt.PxtIterator[FrameRow]):
+    def __init__(self, video: pxt.Video, *, fps: float = 1.0):
+        self.video = video
+        self.fps = fps
+        self.pos = 0
+
+    def __next__(self) -> FrameRow:
+        # Custom frame extraction logic; raise StopIteration when done
+        ...
+
+    # seek() receives the position of the row being read, plus the stored
+    # output columns of that row as keyword arguments.
+    def seek(self, pos: int, **kwargs) -> None:
+        self.pos = pos
 ```
 
 <Card title="Custom Iterators Cookbook" icon="code" href="/howto/cookbooks/core/custom-iterators">

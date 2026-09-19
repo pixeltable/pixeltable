@@ -142,7 +142,9 @@ The same application file targets a hosted database with `pxt db update`,
 `PIXELTABLE_API_KEY` is exported (API Keys, not toml `api_key`; Pixeltable never loads
 `.env` itself, so source it first). Hosted tables already write media to
 `pxtfs://org:db/home`; dest env vars are for local Pixeltable and bring-your-own buckets.
-Provider keys go under Secrets / `pxt secret`.
+Provider keys go under Secrets / `pxt secret`. A running database or service holds the
+values it started with: after `pxt secret set`, run `pxt db restart pxt://org:db`, or
+`pxt service restart <name>` for one service, so the pods read the new value.
 
 ## Reference
 
