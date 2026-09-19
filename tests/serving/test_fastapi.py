@@ -258,11 +258,14 @@ def assert_sqlite_row(connect: str, table_name: str, where: dict[str, Any], expe
 
 
 class TestFastAPI:
-    def assert_correct_result_url(self, url: str, db_root: DatabaseRoot, always_external: bool) -> None:
-        if db_root.id == 'cloud':
+    @classmethod
+    def assert_correct_result_url(
+        cls, url: str, db_root: DatabaseRoot, always_external: bool, route_type: str | None = None
+    ) -> None:
+        if route_type != 'compute' and db_root.is_cloud:  # compute routes never return cloud URLs
             # `image` is served as a presigned R2 URL from a cloud DB ...
             assert 'r2.cloudflarestorage.com' in url, url
-        elif always_external or db_root.id == 'proxy':
+        elif always_external or db_root.id != 'local':
             # ... or as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
             # be shipped to the daemon, ...
             assert '/media/' in url, url
@@ -540,7 +543,7 @@ class TestFastAPI:
         result = single_row(resp.json(), route_type)
         assert result['id'] == 1 and result['width'] == 320 and result['height'] == 240
 
-        self.assert_correct_result_url(result['video'], db_root, use_uploadfile)
+        self.assert_correct_result_url(result['video'], db_root, use_uploadfile, route_type)
 
         if route_type == 'insert':
             if db_root.id == 'local':
@@ -680,7 +683,7 @@ class TestFastAPI:
         result = single_row(resp.json(), route_type)
         assert result['id'] == 1 and result['width'] == 128 and result['height'] == 96
 
-        self.assert_correct_result_url(result['image'], db_root, use_uploadfile)
+        self.assert_correct_result_url(result['image'], db_root, use_uploadfile, route_type)
 
         if route_type == 'insert':
             if db_root.id == 'local':
@@ -806,7 +809,7 @@ class TestFastAPI:
         result = single_row(resp.json(), route_type)
         assert result['id'] == 1 and result['factor'] == 0.5 and result['end_time'] == 0.5
 
-        self.assert_correct_result_url(result['audio'], db_root, use_uploadfile)
+        self.assert_correct_result_url(result['audio'], db_root, use_uploadfile, route_type)
 
         if route_type == 'insert':
             if db_root.id == 'local':
@@ -918,7 +921,7 @@ class TestFastAPI:
         result = single_row(await_background_job(client, job)['result'], route_type)
         assert result['id'] == 1 and result['width'] == 320 and result['height'] == 240
 
-        self.assert_correct_result_url(result['video'], db_root, use_uploadfile)
+        self.assert_correct_result_url(result['video'], db_root, use_uploadfile, route_type)
 
         if route_type == 'insert':
             if db_root.id == 'local':
@@ -2404,7 +2407,7 @@ class TestFastAPI:
         resp = client.post('/img', json={'id': 1, 'image': image_path})
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        self.assert_correct_result_url(body['thumb_url'], db_root, True)
+        self.assert_correct_result_url(body['thumb_url'], db_root, True, route_type)
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
@@ -2451,15 +2454,15 @@ class TestFastAPI:
         else:
             resp = client.post('/upl', json={'id': 1, 'image': image_path})
         assert resp.status_code == 200, resp.text
-        self.assert_correct_result_url(resp.json()['thumb_url'], db_root, True)
+        self.assert_correct_result_url(resp.json()['thumb_url'], db_root, True, route_type)
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     def test_insert_route_background(self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']) -> None:
         """Background variant: 202-like response with job_url; poll for the decorated fn's result."""
-        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
+        p = db_root.make_catalog_path
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
             p('test_serve/bg_dec'), {'id': pxt.Int | None, 'delay': pxt.Float | None, 'value': pxt.Int | None}

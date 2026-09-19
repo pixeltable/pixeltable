@@ -15,7 +15,7 @@ from typing import Any, Iterator
 import pytest
 
 from pixeltable.service import proxy_daemon
-from tests.utils import DatabaseRoot, skip_test_if_no_config
+from tests.utils import DatabaseRoot, new_db_uri, skip_test_if_no_config
 
 from .conftest import (
     APPLY_TIMEOUT,
@@ -26,7 +26,7 @@ from .conftest import (
     assert_in_agreement,
     db_diff,
     db_update,
-    disposable_db_uri,
+    disposable_db,
     read_logs_until,
 )
 from .hosted import APP_FILE, create_project_config, edit_app, project
@@ -60,7 +60,7 @@ def test_db_uri(session_cli: PxtRunner, session_project: pathlib.Path) -> Iterat
     Module-scoped, unlike the per-test fixture on main: creating a database runs CodeBuild, and the tests
     here only need one to publish to in turn, which costs an archive upload each.
     """
-    with disposable_db_uri(session_cli, session_project) as uri:
+    with disposable_db(session_cli, new_db_uri(), session_project) as uri:
         yield uri
 
 

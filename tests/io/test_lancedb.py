@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import PIL.Image
+import pytest
 
 import pixeltable as pxt
 
@@ -19,6 +20,7 @@ def udf_with_exc(i: int, val: int) -> int:
     return i
 
 
+@pytest.mark.db_roots('local', 'proxy', reason='lancedb dependencies are not installed on cloud tests')
 class TestLanceDb:
     def test_export(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
         skip_test_if_not_installed('lance', 'lancedb')
