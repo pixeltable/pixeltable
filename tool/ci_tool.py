@@ -13,7 +13,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal, NamedTuple, NoReturn
 
-# Pixeltable cloud deployment, and is run on demand rather than from the matrix
 DEFAULT_PYTEST = "-m 'not expensive and not very_expensive and not benchmark'"
 EXPENSIVE_PYTEST = "-m 'not very_expensive and not benchmark'"
 VERY_EXPENSIVE_PYTEST = "-m 'not benchmark'"
