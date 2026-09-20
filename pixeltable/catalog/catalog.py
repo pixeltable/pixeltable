@@ -1244,12 +1244,17 @@ class Catalog(CatalogBase):
         schema change in progress, which is preferable to `list_tables()` or `describe()` blocking or failing.
         """
         assert not get_runtime().in_xact
+        # Metadata-only reads take no locks
         if op_class is _TblOpClass.MD_READ:
             return _LockSet()
+
         lock_set: _LockSet | None = None
+
+        # Attempt to build the lock set from the metadata cache. That is only possible if no write paths are requested,
+        # because Catalog does not cache paths or directory structures. Operations with write paths are create/drop
+        # table/dir, and move. They always fall back to the store read in a dedicated transaction, which is more
+        # expensive, but shouldn't happen too frequenly.
         if len(write_paths) == 0:
-            # a write path is resolved by reading the store: nothing caches what a path names, so a transaction
-            # that has one skips the cache entirely
             lock_set = self._lock_set_from_cache(
                 op_class=op_class,
                 read_tvps=read_tvps,
@@ -1258,20 +1263,22 @@ class Catalog(CatalogBase):
                 write_tbl_keys=write_tbl_keys,
                 lock_mutable_tree=lock_mutable_tree,
             )
-        if lock_set is None:
-            # the cache cannot answer; read the shape of the lock set from the store instead
-            with self.begin_read_md_xact():
-                lock_set = self._lock_set_from_store(
-                    op_class=op_class,
-                    read_tvps=read_tvps,
-                    read_tbl_keys=read_tbl_keys,
-                    write_tvps=write_tvps,
-                    write_tbl_keys=write_tbl_keys,
-                    lock_mutable_tree=lock_mutable_tree,
-                    write_paths=write_paths,
-                    lock_path_subtree=lock_path_subtree,
-                )
-        return lock_set
+
+        if lock_set is not None:
+            return lock_set
+
+        # It isn't possible to build the lock set from the cache, fall back to the store
+        with self.begin_read_md_xact():
+            return self._lock_set_from_store(
+                op_class=op_class,
+                read_tvps=read_tvps,
+                read_tbl_keys=read_tbl_keys,
+                write_tvps=write_tvps,
+                write_tbl_keys=write_tbl_keys,
+                lock_mutable_tree=lock_mutable_tree,
+                write_paths=write_paths,
+                lock_path_subtree=lock_path_subtree,
+            )
 
     def _invalidate_lock_set(
         self,
