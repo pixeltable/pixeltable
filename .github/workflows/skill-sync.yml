@@ -1,0 +1,25 @@
+name: skill-sync
+
+# docs/release/skill.md is generated from pixeltable/pixeltable-skill by tool/sync_skill.py.
+# This fails when the committed file no longer matches a fresh build from the canonical skill.
+
+on:
+  schedule:
+    - cron: "17 2 * * *"  # Daily at 02:17 UTC
+  pull_request:
+    paths:
+      - 'docs/release/skill.md'
+      - 'tool/sync_skill.py'
+      - '.github/workflows/skill-sync.yml'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Compare docs/release/skill.md to the canonical skill
+        run: python tool/sync_skill.py --check
