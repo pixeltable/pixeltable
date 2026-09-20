@@ -74,19 +74,10 @@ class ControlPlane:
     device: dict[str, Any] = field(default_factory=lambda: dict(_DEVICE))
     tokens: list[tuple[int, dict[str, Any]]] = field(default_factory=list)
     token_seen: list[dict[str, str]] = field(default_factory=list)
-    # the issuer metadata, in the shape AuthKit publishes; filled once the port is known
-    oidc: dict[str, Any] = field(init=False, default_factory=dict)
 
     @property
     def url(self) -> str:
         return _API_URL.format(port=self.port)
-
-    def __post_init__(self) -> None:
-        self.oidc = {
-            'issuer': self.url,
-            'device_authorization_endpoint': f'{self.url}/oauth2/device_authorization',
-            'token_endpoint': f'{self.url}/oauth2/token',
-        }
 
     def last(self, operation: str) -> dict[str, Any]:
         """The most recent request for an operation, which must have been made."""
@@ -122,17 +113,15 @@ def _serve(plane: ControlPlane) -> HTTPServer:
 
         def do_GET(self) -> None:
             if self.path == '/.well-known/pixeltable-auth':
-                self._reply(200, {'client_id': plane.client_id, 'issuer': plane.url})
-            elif self.path == '/.well-known/openid-configuration':
-                self._reply(200, plane.oidc)
+                self._reply(200, {'client_id': plane.client_id, 'workos_api': plane.url})
             else:
                 self._reply(404, {})
 
         def do_POST(self) -> None:
             body = self.rfile.read(int(self.headers.get('Content-Length') or 0))
-            if self.path.startswith('/oauth2/'):
+            if self.path.startswith('/user_management/'):
                 fields = {k: v[0] for k, v in urllib.parse.parse_qs(body.decode()).items()}
-                if self.path == '/oauth2/device_authorization':
+                if self.path.endswith('/authorize/device'):
                     self._reply(200, plane.device)
                 else:
                     self._reply(*plane.next_token(fields))
@@ -595,7 +584,7 @@ class TestLogin:
 
 
 class TestDiscovery:
-    """Resolving where to sign in: the control plane's issuer, then that issuer's OIDC metadata."""
+    """Resolving where to sign in, which the control plane answers."""
 
     @pytest.fixture
     def plane(self) -> Iterator[ControlPlane]:
@@ -611,19 +600,11 @@ class TestDiscovery:
         resolved = auth.sign_in_config(plane.url)
 
         assert resolved.client_id == plane.client_id
-        assert resolved.device_authorization_endpoint == f'{plane.url}/oauth2/device_authorization'
-        assert resolved.token_endpoint == f'{plane.url}/oauth2/token'
+        assert resolved.workos_api == plane.url
+        assert resolved.url('/user_management/authenticate') == f'{plane.url}/user_management/authenticate'
 
-    @pytest.mark.parametrize('field_name', ['device_authorization_endpoint', 'token_endpoint'])
-    def test_issuer_missing_endpoint(self, plane: ControlPlane, field_name: str) -> None:
-        """An issuer without the device grant cannot sign in a CLI, and says so rather than 404ing."""
-        del plane.oidc[field_name]
-
-        with pytest.raises(excs.Error, match=f'omits {field_name}'):
-            auth.sign_in_config(plane.url)
-
-    def test_control_plane_without_issuer(self, plane: ControlPlane) -> None:
+    def test_control_plane_without_a_client(self, plane: ControlPlane) -> None:
         plane.client_id = ''
 
-        with pytest.raises(excs.Error, match='did not say which sign-in service'):
+        with pytest.raises(excs.Error, match='did not say which sign-in client'):
             auth.sign_in_config(plane.url)

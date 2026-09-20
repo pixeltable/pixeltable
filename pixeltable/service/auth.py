@@ -30,17 +30,21 @@ from pixeltable.service.session_cache import Session
 from pixeltable.utils.http import SESSION
 from pixeltable_cli.models import LoginStartResponse
 
-# Where a control plane says which issuer signs people in to it; served without authentication.
+# Where a control plane says which WorkOS environment signs people in to it; served without
+# authentication.
 _AUTH_CONFIG_PATH = '/.well-known/pixeltable-auth'
-# The issuer's own metadata: OIDC Discovery 1.0, registered by RFC 8414.
-_OIDC_CONFIG_PATH = '/.well-known/openid-configuration'
 
 # What an error calls it: the user never chose WorkOS and cannot act on its name.
 _SIGN_IN_SERVICE = 'the Pixeltable sign-in service'
 _DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
 
-# Ending the browser's own sign-in has no metadata field to discover it, so WorkOS's URL stands.
-_WORKOS_LOGOUT = 'https://api.workos.com/user_management/sessions/logout'
+# AuthKit CLI auth lives on the WorkOS API, not on the AuthKit domain: the /oauth2 endpoints that
+# domain advertises through OIDC discovery serve Connect apps, and a public CLI client is not one.
+# https://workos.com/docs/authkit/cli-auth
+_WORKOS_API = 'https://api.workos.com'
+_DEVICE_AUTH_PATH = '/user_management/authorize/device'
+_TOKEN_PATH = '/user_management/authenticate'
+_LOGOUT_PATH = '/user_management/sessions/logout'
 
 # WorkOS's code for a refresh token it no longer honors.
 _REJECTED_GRANT = 'invalid_grant'
@@ -111,7 +115,7 @@ def _token_request(api_url: str, fields: dict[str, str]) -> dict[str, Any] | Tok
     a pending approval or too fast a poll, neither of which is a failure.
     """
     try:
-        resp = SESSION.post(sign_in_config(api_url).token_endpoint, data=fields, timeout=_TIMEOUT_S)
+        resp = SESSION.post(sign_in_config(api_url).url(_TOKEN_PATH), data=fields, timeout=_TIMEOUT_S)
     except requests.RequestException as e:
         raise _unreachable(_SIGN_IN_SERVICE, e) from e
     if resp.status_code in (200, 201):
@@ -128,11 +132,13 @@ def _token_request(api_url: str, fields: dict[str, str]) -> dict[str, Any] | Tok
 
 @dataclasses.dataclass(frozen=True)
 class SignInConfig:
-    """One control plane's sign-in endpoints, and the public client to present at them."""
+    """One control plane's sign-in service, and the public client to present to it."""
 
     client_id: str
-    device_authorization_endpoint: str
-    token_endpoint: str
+    workos_api: str
+
+    def url(self, path: str) -> str:
+        return self.workos_api + path
 
 
 _config_cache: dict[str, SignInConfig] = {}  # key: API URL
@@ -140,37 +146,22 @@ _config_lock = threading.Lock()
 
 
 def sign_in_config(api_url: str) -> SignInConfig:
-    """Read this control plane's public client and its issuer's grant endpoints into _config_cache."""
+    """Read this control plane's public client and its WorkOS API into _config_cache.
+
+    workos_api is optional: every environment reaches the same WorkOS today, so a control plane that
+    states none gets the default. A test control plane sets it to point the flow at itself.
+    """
     with _config_lock:
         cached = _config_cache.get(api_url)
         if cached is not None:
             return cached
         config = _json_request(api_url.rstrip('/') + _AUTH_CONFIG_PATH, api_url)
         client_id = str(config.get('client_id') or '')
-        issuer = str(config.get('issuer') or '').rstrip('/')
-        if client_id == '' or issuer == '':
+        if client_id == '':
             raise excs.InternalError(
-                excs.ErrorCode.INTERNAL_ERROR, f'{api_url} did not say which sign-in service to use'
+                excs.ErrorCode.INTERNAL_ERROR, f'{api_url} did not say which sign-in client to use'
             )
-
-        metadata = _json_request(issuer + _OIDC_CONFIG_PATH, _SIGN_IN_SERVICE)
-        device_authorization_endpoint = str(metadata.get('device_authorization_endpoint') or '')
-        token_endpoint = str(metadata.get('token_endpoint') or '')
-        missing = [
-            name
-            for name, value in (
-                ('device_authorization_endpoint', device_authorization_endpoint),
-                ('token_endpoint', token_endpoint),
-            )
-            if value == ''
-        ]
-        if len(missing) > 0:
-            raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_ERROR,
-                f'{issuer} cannot sign in a CLI: its OIDC metadata omits {", ".join(missing)}.',
-                provider='pixeltable_cloud',
-            )
-        resolved = SignInConfig(client_id, device_authorization_endpoint, token_endpoint)
+        resolved = SignInConfig(client_id, str(config.get('workos_api') or _WORKOS_API).rstrip('/'))
         _config_cache[api_url] = resolved
         return resolved
 
@@ -212,7 +203,7 @@ def device_login_start(api_url: str) -> LoginStartResponse:
     """Start the device flow. This returns as soon as the code exists: no browser, no waiting."""
     resolved = sign_in_config(api_url)
     client_id = resolved.client_id
-    authz_resp = _json_request(resolved.device_authorization_endpoint, _SIGN_IN_SERVICE, {'client_id': client_id})
+    authz_resp = _json_request(resolved.url(_DEVICE_AUTH_PATH), _SIGN_IN_SERVICE, {'client_id': client_id})
     device_code = str(authz_resp.get('device_code') or '')
     user_code = str(authz_resp.get('user_code') or '')
     verification_uri = str(authz_resp.get('verification_uri_complete') or authz_resp.get('verification_uri') or '')
@@ -300,4 +291,5 @@ def browser_logout_url(api_url: str) -> str:
     session_id = value if isinstance(value, str) else ''
     if not session_id:
         return ''
-    return f'{_WORKOS_LOGOUT}?session_id={urllib.parse.quote(session_id)}'
+    logout = sign_in_config(api_url).url(_LOGOUT_PATH)
+    return f'{logout}?session_id={urllib.parse.quote(session_id)}'
