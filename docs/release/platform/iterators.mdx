@@ -25,9 +25,13 @@ In an app file, set `iterator=` on the view's `TableModel`. In a notebook, pass 
 </Note>
 
 <Note>
-Two `document_splitter` separators need a package the base install does not include: `sentence` needs
-`spacy` and `token_limit` needs `tiktoken`. The examples below use both, so run
-`pip install spacy tiktoken` first.
+The examples below use `sentence` and `token_limit`. Install `spacy` and `tiktoken`, then download
+spaCy's default English model:
+
+```bash
+pip install spacy tiktoken
+python -m spacy download en_core_web_sm
+```
 </Note>
 
 ```python
@@ -455,6 +459,10 @@ Use `unstored_cols` to mark columns that should not be persisted. An unstored co
 when a row is read, so the iterator must be able to jump straight to that row: `unstored_cols`
 requires a `seek()` method, and only a class can supply one. A function-style `@pxt.iterator`
 cannot use `unstored_cols`.
+
+This skeleton shows the required methods, not a runnable frame extractor. Implement `__next__()`
+to return a `FrameRow`, advance the position, and raise `StopIteration` at the end. After `seek(pos)`,
+the next call to `__next__()` must return the row at `pos`. The cookbook below has a runnable example.
 
 ```python
 from typing import TypedDict

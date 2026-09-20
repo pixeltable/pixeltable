@@ -375,8 +375,8 @@ order on every sentence added or edited:
 
 Documentation notebooks are in `docs/release/`. Follow `docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md`:
 
-- Start with YAML frontmatter in a **Raw cell** (not Markdown)
-- No H1 headers in markdown (title comes from frontmatter)
+- Use one title source: a leading markdown H1, or a first **Raw cell** with YAML `title`
+- Do not include an H1 when using a raw frontmatter title
 - Use `##` for main sections, `###` for subsections
 - Clear outputs before committing unless output is instructive
 - Use `raw.githubusercontent.com` for GitHub raw links
