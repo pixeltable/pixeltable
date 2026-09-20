@@ -235,12 +235,15 @@ class TestExprs:
         res = img_t.select(img_t.img.fileurl).collect().to_pandas()
         stored_urls = set(res.iloc[:, 0])
         assert len(stored_urls) == len(res)
-        if db_root.id == 'local':
-            all_urls = {Path(path).as_uri() for path in get_image_files()}
-            assert stored_urls <= all_urls
-        else:
-            # over the proxy each fileurl is a fetchable daemon media URL, not the local source file
-            assert all(u.startswith(('http://', 'https://')) and '/media/' in u for u in stored_urls)
+        match db_root.id:
+            case 'local':
+                all_urls = {Path(path).as_uri() for path in get_image_files()}
+                assert stored_urls <= all_urls
+            case 'proxy':
+                # over the proxy each fileurl is a fetchable daemon media URL, not the local source file
+                assert all(u.startswith(('http://', 'https://')) and '/media/' in u for u in stored_urls), stored_urls
+            case 'cloud':
+                assert all(u.startswith('pxtfs://') and '/home/' in u for u in stored_urls), stored_urls
 
         # localpath
         res = img_t.select(img_t.img.localpath).collect().to_pandas()
@@ -251,7 +254,7 @@ class TestExprs:
             assert stored_paths <= all_paths
         else:
             # over the proxy each localpath is a fetched local copy, openable but not the original source file
-            assert all(os.path.exists(p) for p in stored_paths)
+            assert all(os.path.exists(p) for p in stored_paths), stored_paths
 
         # errortype/-msg for image column
         res = img_t.select(error=img_t.img.errortype).collect().to_pandas()
