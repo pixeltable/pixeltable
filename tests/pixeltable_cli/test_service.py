@@ -26,7 +26,6 @@ from ..utils import (
     get_video_files,
     home_bucket_uri,
     new_db_uri,
-    skip_test_if_no_config,
     skip_test_if_not_installed,
 )
 from .conftest import BUILD_TIMEOUT, EXIT_ERROR, BackgroundPxt, PxtRunner, db_update, disposable_db, read_logs_until

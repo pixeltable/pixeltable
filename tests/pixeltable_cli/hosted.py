@@ -13,7 +13,6 @@ from typing import Any
 import pytest
 
 from ..utils import skip_test_if_no_config
-
 from .conftest import (
     EXIT_CHANGES_PENDING,
     EXIT_IN_AGREEMENT,
