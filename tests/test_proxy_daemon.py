@@ -242,22 +242,6 @@ class TestProxyDaemon:
         # each request gets its own uploads/ prefix
         assert next_sink._key_prefix != remote_sink._key_prefix
 
-    def test_each_handshake_asks_for_the_credential_again(self) -> None:
-        """A tunnel outlives the credential that opened it, and a session token expires."""
-        issued = iter(['first', 'second'])
-        transport = TunnelTransport('org1', 'db1', lambda: next(issued), host='h', port=443)
-
-        frames = []
-
-        def _frame() -> str:
-            return f'PXT/1.0 CONNECT org1/db1\r\nAuthorization: Bearer {transport._credential()}\r\n\r\n'
-
-        frames.append(_frame())
-        frames.append(_frame())
-
-        assert 'Bearer first' in frames[0]
-        assert 'Bearer second' in frames[1]
-
     def test_pxt_store_sink_defers_uploads(
         self, init_env: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

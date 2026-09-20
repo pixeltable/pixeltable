@@ -1388,14 +1388,17 @@ class TestColdStartBudget:
     budget and defeating the daemon split. The `-X importtime` log is authoritative.
     """
 
-    def test_pixeltable_not_imported_by_pxt_ls(
-        self, cli: PxtRunner, pxt_daemon: int, session_project: pathlib.Path
+    # 'org', 'db' and 'service' are left out: client/hosted.py imports ProjectFingerprint from
+    # pixeltable.utils.project, so they cost the full import until that is resolved
+    @pytest.mark.parametrize('command', ['ls', 'login', 'logout', 'whoami', 'key'])
+    def test_pixeltable_not_imported_by_client(
+        self, cli: PxtRunner, pxt_daemon: int, session_project: pathlib.Path, command: str
     ) -> None:
         # Use sys.executable so the subprocess runs under the same interpreter as the test,
         # not whatever python resolves to on PATH.
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
-            [sys.executable, '-X', 'importtime', '-m', 'pixeltable_cli.client.main', 'ls'],
+            [sys.executable, '-X', 'importtime', '-m', 'pixeltable_cli.client.main', command, '--help'],
             capture_output=True,
             text=True,
             env=env,
@@ -1403,8 +1406,8 @@ class TestColdStartBudget:
             stdin=subprocess.DEVNULL,
             cwd=session_project,
         )
-        # We only inspect the import log; the underlying ls call may pass or fail
-        # depending on catalog state, which is irrelevant here.
+        # We only inspect the import log; the command itself may pass or fail depending on catalog
+        # state, which is irrelevant here.
         imported = [line for line in r.stderr.splitlines() if line.startswith('import time:')]
         # Each line of the form 'import time: ...' ends with the dotted module name; we want to catch
         # the top-level package alone, not e.g. a stdlib numbers module sharing a prefix.
@@ -1416,6 +1419,6 @@ class TestColdStartBudget:
             if top in forbidden and top not in offenders:
                 offenders[top] = line
         assert len(offenders) == 0, (
-            'cold-start budget broken; the following packages were imported during `pxt ls` startup:\n'
+            f'cold-start budget broken; these packages were imported during `pxt {command}` startup:\n'
             + '\n'.join(f'  {pkg}: {line}' for pkg, line in offenders.items())
         )

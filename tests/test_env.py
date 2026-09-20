@@ -169,22 +169,6 @@ class TestEnvReset:
         assert result[0]['amount_doubled'] == 300.0
 
 
-class TestApiKey:
-    def test_require_api_key(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv('PIXELTABLE_API_KEY', 'sk-test')
-        assert Env.get().require_api_key() == 'sk-test'
-        assert Env.get().require_api_key('create a database') == 'sk-test'
-
-        monkeypatch.delenv('PIXELTABLE_API_KEY', raising=False)
-        monkeypatch.setattr(Config, 'get_string_value', lambda self, key, section='pixeltable': None)
-        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='A Pixeltable API key is required\\. Set it with'):
-            Env.get().require_api_key()
-        with pxt_raises(
-            excs.ErrorCode.MISSING_CREDENTIALS, match='API key is required to create a database\\. Set it with'
-        ):
-            Env.get().require_api_key('create a database')
-
-
 class TestHostedMediaDefault:
     def test_home_bucket_default(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
         """On a hosted db's pod, media that has no configured destination goes to the db's home bucket."""

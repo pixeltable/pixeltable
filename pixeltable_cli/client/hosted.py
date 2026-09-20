@@ -26,7 +26,7 @@ DB_POLL_TIMEOUT = 600
 def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
     """Parse pxt://org:db and return (org, db). Exits on error."""
     parts = split_pxt_uri(uri)
-    if parts is None or parts.db is None or parts.path is not None:
+    if parts is None or parts.db is None or parts.namespace is not None or parts.path is not None:
         print(f'{prog}: error: URI must be pxt://org:db, got {uri!r}', file=sys.stderr)
         sys.exit(2)
     return parts.org, parts.db
@@ -50,7 +50,7 @@ def resolve_db_uri(db_uri: str | None, prog: str = 'pxt') -> tuple[str, str]:
 def parse_org_uri(uri: str, prog: str = 'pxt') -> str:
     """Parse pxt://org and return org. Exits on error."""
     parts = split_pxt_uri(uri)
-    if parts is None or parts.db is not None or parts.path is not None:
+    if parts is None or parts.db is not None or parts.namespace is not None or parts.path is not None:
         print(f'{prog}: error: URI must be pxt://org, got {uri!r}', file=sys.stderr)
         sys.exit(2)
     return parts.org

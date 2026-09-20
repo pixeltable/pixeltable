@@ -19,7 +19,7 @@ PxtPath = Annotated[utils.PxtPath, AfterValidator(_validate_pxt_path)]
 
 def _validate_db_uri(v: str) -> str:
     parts = utils.split_pxt_uri(v)
-    if parts is None or parts.db is None or parts.path is not None:
+    if parts is None or parts.db is None or parts.namespace is not None or parts.path is not None:
         raise ValueError(f'{v!r} does not name a hosted database; write pxt://org:db')
     return v
 
@@ -305,3 +305,43 @@ class CwdBody(BaseModel):
 
 class CwdResponse(BaseModel):
     uri: str | None  # the session's working directory, or None when unset (catalog root)
+
+
+class LoginStartResponse(BaseModel):
+    """What the browser needs to approve, and what the next poll has to send back."""
+
+    client_id: str
+    device_code: str
+    user_code: str
+    verification_uri: str
+    interval: float
+    expires_in: float
+
+
+class LoginPollBody(BaseModel):
+    client_id: str
+    device_code: str
+
+
+class LoginPollResponse(BaseModel):
+    # 'granted', or the OAuth error code the sign-in service answered with
+    status: str
+    email: str = ''
+    organization_id: str = ''
+    detail: str = ''
+
+
+class WhoamiResponse(BaseModel):
+    api_url: str
+    email: str
+    organization_id: str
+    using: str  # 'api_key', 'session' or 'none'
+    credential_source: str
+    accepted: bool
+    rejection: str = ''
+
+
+class LogoutResponse(BaseModel):
+    signed_out: bool
+    # where to send a browser to end the sign-in behind the session, empty when there is none
+    browser_logout_url: str

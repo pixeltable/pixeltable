@@ -217,18 +217,19 @@ class TunnelTransport(Transport):
 
     _org: str
     _db: str
-    # Asked for per handshake, not held: a tunnel outlives the credential that opened it, and a
-    # session token expires. An API key's callable just returns the same string every time.
-    _credential: Callable[[], str]
+
+    # needed per handshake; not static
+    _credential_cb: Callable[[], str]
+
     _host: str
     _port: int
     _endpoint: str
     _pool: _TunnelPool
 
-    def __init__(self, org: str, db: str, credential: Callable[[], str], host: str, port: int):
+    def __init__(self, org: str, db: str, credential_cb: Callable[[], str], host: str, port: int):
         self._org = org
         self._db = db
-        self._credential = credential
+        self._credential_cb = credential_cb
         self._host = host
         self._port = port
         self._pool = _TunnelPool(self._connect_tunnel)
@@ -255,7 +256,7 @@ class TunnelTransport(Transport):
 
             # the sidecar authenticates via the API key and routes the tunnel to org/db, then relays to the
             # proxy daemon's HTTP server; it answers 'PXT/1.0 200' on success (checked below)
-            frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {self._credential()}\r\n\r\n'
+            frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {self._credential_cb()}\r\n\r\n'
             ssl_sock.sendall(frame.encode())
 
             buf = b''
@@ -361,13 +362,9 @@ class ProxyClient:
         return cls(HttpTransport(endpoint))
 
     @classmethod
-    def remote(cls, org: str, db: str, credential: Callable[[], str], host: str, port: int) -> ProxyClient:
-        """Connect to the Pixeltable cloud service's proxy daemon over an authenticated TLS tunnel.
-
-        `credential` is called for each handshake rather than read once: this client is cached for the
-        life of the process, and a session token does not last that long.
-        """
-        return cls(TunnelTransport(org, db, credential, host=host, port=port))
+    def remote(cls, org: str, db: str, credential_cb: Callable[[], str], host: str, port: int) -> ProxyClient:
+        """Connect to the Pixeltable cloud service's proxy daemon over an authenticated TLS tunnel."""
+        return cls(TunnelTransport(org, db, credential_cb, host=host, port=port))
 
     def _prepare(self, args: dict[str, Any]) -> tuple[dict[str, Any], list[bytes]]:
         """Serialize args for the wire, exactly once per logical request (media files are read, and for a

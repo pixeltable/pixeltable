@@ -133,7 +133,7 @@ pxt db logs   pxt://myorg:mydb   # what the database's pod logged
 pxt secret set  pxt://myorg OPENAI_API_KEY=sk-...
 pxt secret list                  # the org your key reaches
 
-# cloud — keys
+# cloud -- keys
 pxt key create ci                # a key that acts as you
 pxt key create app --grant access:pxt://myorg:mydb/services/ingest
 pxt key list                     # your keys, and the org's runtime keys
@@ -700,33 +700,32 @@ Hosted commands need a credential. There are two, and you need one of them.
 pxt login
 ```
 
-`pxt login` prints a code and opens a browser. Approve it there — signing in, or signing up if you
-have no account — and the session lands on this machine. It uses the OAuth device grant, so nothing
+`pxt login` prints a code and opens a browser. Approve it there, signing in or signing up, and the
+session lands on this machine. It uses the OAuth device grant, so nothing
 listens on a port and the browser need not be on this machine: this works over SSH.
 
 ```bash
 pxt whoami
-you@example.com on https://internal-api.pixeltable.com — sign in again in 46m
+you@example.com on https://internal-api.pixeltable.com
+Organization: org_01H8XYZ
 ```
 
-A sign-in lasts an hour, counted from `pxt login` and not reset by renewal, so a session left on a
-laptop stops working the same day. Within that hour it renews silently, and a command already
-running is never cut off partway.
+A sign-in lasts as long as Pixeltable Cloud honors it, renewing itself in the background. Nothing
+on this machine expires it on a timer. `pxt whoami` asks whether the credential is still accepted
+and exits nonzero when it is not, so it answers "will my next command work" rather than "is there a
+file here"; `pxt whoami --offline` reports the cached session without asking.
 
 ```bash
 pxt logout
 ```
 
 `pxt logout` forgets this device's cached session and signs the browser out as well. Both, because
-a browser that is still signed in confirms the next code without naming an account — so signing out
-of one and not the other is how you end up logged in as someone you did not choose. It signs that
+a browser that is still signed in confirms the next code without saying which account it is for, so
+signing out of one and not the other leaves you logged in as someone you did not choose. It signs that
 browser out of the dashboard too, and of every other environment sharing the same sign-in.
 
-`PIXELTABLE_CREDENTIALS` names the session file to use, if you need one other than the default —
-a test run, which gets its own Pixeltable home, reads a real sign-in that way.
-
 <Note>
-An **API key** takes precedence over a sign-in whenever both are present — it is the explicit
+An **API key** takes precedence over a sign-in whenever both are present: it is the explicit
 choice, and what CI runs on. Set one with `PIXELTABLE_API_KEY`, or `api_key` in the `[pixeltable]`
 section of your Pixeltable config file. Unlike a sign-in, it does not expire. `pxt whoami` says
 which one your commands will actually send.
@@ -742,10 +741,10 @@ fail as an authorization error.
 pxt org create acme --name "Acme Inc"
 ```
 
-Creates the organization, its first database and its storage in one call. The slug is the namespace
-`pxt://acme:main` refers to, and it must be unique across Pixeltable.
+Creates the organization, its first database and its storage in one call. The name is the namespace
+in `pxt://acme:main`, and it must be unique across Pixeltable.
 
-Creating one does not move you into it. Name the organization in the URI — `pxt://acme:main` — and
+Creating one does not move you into it. Give the organization in the URI (`pxt://acme:main`), and
 `pxt org list` shows the ones you can reach.
 
 ### Keys
@@ -758,12 +757,12 @@ pxt key create ci                                                 # acts as you
 pxt key create app --grant access:pxt://acme:main/services/ingest # acts as nobody
 ```
 
-Without grants, the key acts as whoever created it and reaches whatever they reach — the API key you
+Without grants, the key acts as whoever created it and reaches whatever they reach: the API key you
 already know. With grants it belongs to the organization instead, and reaches only what it was
-granted, so a service you deploy carries no more authority than its job needs.
+granted, so a service you deploy has no more authority than its job needs.
 
-A grant is a verb on a resource, never a bare resource: naming a service does not say whether the
-holder may call it or reconfigure it, and those are not the same permission.
+A grant is a verb on a resource, never a bare resource: a service on its own does not say whether
+the holder may call it or reconfigure it, and those are not the same permission.
 
 | Grant | What it allows |
 | --- | --- |
@@ -1088,12 +1087,12 @@ pxt key delete NAME                       # revoke the secret
 `create` prints the secret once. `list` never does.
 
 `update` is a delta, not a replacement, so widening a key does not depend on resending everything it
-already had. Revoking a grant the key never held is an error rather than a no-op — a typo there would
-otherwise read as a completed revocation. It applies only to a key that has grants: one that acts as
+already had. Revoking a grant the key never had is an error rather than a no-op, since a typo would otherwise
+read as a completed revocation. It applies only to a key that has grants: one that acts as
 you has nothing to change.
 
-Names are unique per organization across both shapes, so `pxt key delete NAME` never has two keys to
-choose from.
+Names are unique per organization across both shapes, so `pxt key delete NAME` never has to choose
+between two keys.
 
 ### `pxt secret`
 

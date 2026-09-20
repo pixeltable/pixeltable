@@ -15,7 +15,7 @@ from pixeltable.catalog import Path, fold_identifier
 from pixeltable.catalog.model import schema
 from pixeltable.config import SECRET_SECTION, Config
 from pixeltable.env import Env
-from pixeltable.service import db, management_client, proxy_daemon
+from pixeltable.service import auth, db, management_client, proxy_daemon, session_cache
 from pixeltable.service.management_protocol import (
     CreateKeyRequest,
     CreateOrgRequest,
@@ -780,12 +780,64 @@ def _dir_size(path: str | None) -> int | None:
 # Cloud management API proxy routes
 
 
+@router.post('/api/login/start')
+def login_start(_req: Request) -> dict[str, Any]:
+    return auth.device_login_start(management_client.api_url()).model_dump()
+
+
+@router.post('/api/login/poll')
+def login_poll(req: Request) -> dict[str, Any]:
+    body = req.body(models.LoginPollBody)
+    answer = auth.device_login_poll(management_client.api_url(), body.client_id, body.device_code)
+    if isinstance(answer, str):
+        return models.LoginPollResponse(status=answer).model_dump()
+    return models.LoginPollResponse(
+        status='granted', email=answer.email, organization_id=answer.organization_id
+    ).model_dump()
+
+
+@router.get('/api/whoami')
+def whoami(req: Request) -> dict[str, Any]:
+    url = management_client.api_url()
+    session = session_cache.load(url)
+    kind, where = management_client.credential_source()
+    # A cached session says nothing about whether it still works: it can be revoked, and another
+    # device can rotate its refresh token away.
+    rejection = '' if req.query_bool('offline') or kind == 'none' else _credential_rejection()
+    return models.WhoamiResponse(
+        api_url=url,
+        email=session.email if session is not None else '',
+        organization_id=session.organization_id if session is not None else '',
+        using=kind,
+        credential_source=where,
+        accepted=rejection == '',
+        rejection=rejection,
+    ).model_dump()
+
+
+def _credential_rejection() -> str:
+    """What the control plane said when it would not accept the credential, empty when it did."""
+    try:
+        management_client.api_call(ListOrgsRequest())
+    except excs.Error as e:
+        return str(e)
+    return ''
+
+
+@router.post('/api/logout')
+def logout(_req: Request) -> dict[str, Any]:
+    url = management_client.api_url()
+    # Read before clearing: the session id comes from the cached token.
+    browser_url = auth.browser_logout_url(url)
+    return models.LogoutResponse(signed_out=session_cache.clear(url), browser_logout_url=browser_url).model_dump()
+
+
 @router.get('/api/orgs')
 def list_orgs(_req: Request) -> dict[str, Any]:
     return management_client.api_call(ListOrgsRequest())
 
 
-@router.post('/api/orgs')
+@router.post('/api/org/create')
 def create_org(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(CreateOrgRequest))
 
@@ -829,21 +881,21 @@ def delete_secret(req: Request) -> dict[str, Any]:
 
 
 @router.get('/api/keys')
-def list_keys(req: Request) -> dict[str, Any]:
+def list_keys(_req: Request) -> dict[str, Any]:
     return management_client.api_call(ListKeysRequest())
 
 
-@router.post('/api/keys')
+@router.post('/api/key/create')
 def create_key(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(CreateKeyRequest))
 
 
-@router.post('/api/keys/update')
+@router.post('/api/key/update')
 def update_key(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(UpdateKeyRequest))
 
 
-@router.post('/api/keys/delete')
+@router.post('/api/key/delete')
 def delete_key(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(DeleteKeyRequest))
 

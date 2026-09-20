@@ -1,116 +1,188 @@
 """Signing in from the CLI, and keeping that session alive.
 
-`pxt login` uses the OAuth device authorization grant (RFC 8628): the CLI asks WorkOS for a code,
-you approve it in a browser, and the CLI polls until you have. Nothing secret travels through a URL,
-and the CLI holds its own refresh token rather than a copy of the browser's session, so renewing on
-one side cannot invalidate the other. Renewal is silent until MAX_SESSION_AGE_S.
+`pxt login` uses the OAuth device authorization grant (RFC 8628): the CLI asks for a code, you
+approve it in a browser, and the CLI polls until you have. Nothing secret travels through a URL, and
+the CLI keeps its own refresh token rather than a copy of the browser's session, so renewing on one
+side cannot invalidate the other. Renewal is silent for as long as the refresh token is honored.
+
+The CLI is a public client, so no request here sends a client secret.
+
+Every endpoint comes from the issuer's OIDC metadata, and the control plane points at the issuer, so
+no sign-in URL is compiled in here.
 """
 
 from __future__ import annotations
 
 import base64
 import binascii
+import dataclasses
 import json
-import sys
+import threading
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
-import webbrowser
-from typing import Any, Optional
+from typing import Any
 
-from pixeltable.service import credentials
-from pixeltable.service.credentials import Session
+import requests
 
-# Where a control plane says which WorkOS environment signs people in to it. Unauthenticated by
-# necessity: a caller needs it before it can authenticate.
+from pixeltable import exceptions as excs
+from pixeltable.service import session_cache
+from pixeltable.service.session_cache import Session
+from pixeltable.utils.http import SESSION
+from pixeltable_cli.models import LoginStartResponse
+
+# Where a control plane says which issuer signs people in to it; served without authentication.
 _AUTH_CONFIG_PATH = '/.well-known/pixeltable-auth'
+# The issuer's own metadata: OIDC Discovery 1.0, registered by RFC 8414.
+_OIDC_CONFIG_PATH = '/.well-known/openid-configuration'
 
-# One WorkOS API for every environment; the client id is what tells them apart.
-_WORKOS_API = 'https://api.workos.com'
-_DEVICE_AUTH_PATH = '/user_management/authorize/device'
-_TOKEN_PATH = '/user_management/authenticate'
+# What an error calls it: the user never chose WorkOS and cannot act on its name.
+_SIGN_IN_SERVICE = 'the Pixeltable sign-in service'
 _DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
 
-# Set when the cache alone proves the sign-in is over, so a caller can say so instead of guessing.
-# WorkOS uses the second for a refresh token it has rejected, which means the same thing to a user.
-SESSION_EXPIRED = 'session_expired'
+# Ending the browser's own sign-in has no metadata field to discover it, so WorkOS's URL stands.
+_WORKOS_LOGOUT = 'https://api.workos.com/user_management/sessions/logout'
+
+# WorkOS's code for a refresh token it no longer honors.
 _REJECTED_GRANT = 'invalid_grant'
-NEEDS_SIGN_IN = (SESSION_EXPIRED, _REJECTED_GRANT)
+
+SIGN_IN_AGAIN = 'Run `pxt login` again, or set an API key.'
 
 _TIMEOUT_S = 30.0
-# A ceiling on polling. WorkOS sets the real deadline in expires_in, which is usually shorter.
-_LOGIN_TIMEOUT_S = 600.0
 
 
-class AuthError(Exception):
-    """Sign-in could not proceed. Carries the OAuth `error` code when the server supplied one.
+@dataclasses.dataclass(frozen=True)
+class TokenErrorResponse:
+    """The token endpoint's error response, RFC 6749 section 5.2."""
 
-    The code is what separates "keep polling" from "this failed", so it is kept apart from the text.
-    """
-
-    def __init__(self, message: str, code: str = '') -> None:
-        super().__init__(message)
-        self.code = code
+    code: str
+    description: str
 
 
-def _request(url: str, data: Optional[bytes] = None, content_type: str = '') -> dict[str, Any]:
-    """Fetch JSON. An error body becomes an AuthError; a bare HTTPError would discard it."""
-    headers = {'Content-Type': content_type} if content_type else {}
-    req = urllib.request.Request(url, data=data, headers=headers)
+def _unreachable(what: str, exc: Exception) -> excs.Error:
+    return excs.ExternalServiceError(
+        excs.ErrorCode.PROVIDER_ERROR, f'Could not reach {what}: {exc}', provider='pixeltable_cloud'
+    )
+
+
+def _bad_status(what: str, resp: requests.Response) -> excs.Error:
+    return excs.ExternalServiceError(
+        excs.ErrorCode.PROVIDER_ERROR,
+        f'{what} returned HTTP {resp.status_code}.',
+        provider='pixeltable_cloud',
+        status_code=resp.status_code,
+    )
+
+
+def _payload(what: str, resp: requests.Response) -> dict[str, Any]:
+    """The JSON object in a response. Anything else raises InternalError: the two ends disagree on the protocol."""
     try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
-            body = resp.read()
-        try:
-            payload = json.loads(body)
-        except ValueError as e:
-            # A 200 that is not JSON means something other than what we asked for answered -- an
-            # environment too old to serve this, or a proxy in front of it.
-            raise AuthError(f'{url} did not answer with JSON; is this environment up to date?') from e
-        if not isinstance(payload, dict):
-            raise AuthError(f'{url} answered with {type(payload).__name__}, not an object')
-        return payload
-    except urllib.error.HTTPError as e:
-        try:
-            payload = json.loads(e.read().decode())
-        except Exception:
-            raise AuthError(f'{url} returned HTTP {e.code}') from e
-        code = str(payload.get('error') or '')
-        detail = str(payload.get('error_description') or '') or f'HTTP {e.code}'
-        raise AuthError(f'{code}: {detail}' if code else detail, code=code) from e
-    except OSError as e:
-        raise AuthError(f'could not reach {url}: {e}') from e
+        body = resp.json()
+    except ValueError as e:
+        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'{what} did not answer with JSON') from e
+    if not isinstance(body, dict):
+        raise excs.InternalError(
+            excs.ErrorCode.INTERNAL_ERROR, f'{what} answered with {type(body).__name__}, not an object'
+        )
+    return body
 
 
-def _post_form(path: str, fields: dict[str, str]) -> dict[str, Any]:
-    """POST to WorkOS. Form-encoded, and with no client secret: the CLI is a public client."""
-    body = urllib.parse.urlencode(fields).encode()
-    return _request(_WORKOS_API + path, data=body, content_type='application/x-www-form-urlencoded')
+def _json_request(url: str, what: str, fields: dict[str, str] | None = None) -> dict[str, Any]:
+    """GET url, or POST fields to it as a form, and return the JSON object in the answer.
+
+    Anything but 200 or 201 raises.
+    """
+    try:
+        resp = (
+            SESSION.get(url, timeout=_TIMEOUT_S)
+            if fields is None
+            else SESSION.post(url, data=fields, timeout=_TIMEOUT_S)
+        )
+    except requests.RequestException as e:
+        raise _unreachable(what, e) from e
+    if resp.status_code not in (200, 201):
+        raise _bad_status(what, resp)
+    return _payload(what, resp)
 
 
-def auth_config(api_url: str) -> dict[str, Any]:
-    """How to sign in to this control plane, asked of the control plane itself."""
-    return _request(api_url.rstrip('/') + _AUTH_CONFIG_PATH)
+def _token_request(api_url: str, fields: dict[str, str]) -> dict[str, Any] | TokenErrorResponse:
+    """The token fields, or the OAuth error code and description.
+
+    A 4xx with an OAuth error body is returned rather than raised: under the device grant it reports
+    a pending approval or too fast a poll, neither of which is a failure.
+    """
+    try:
+        resp = SESSION.post(sign_in_config(api_url).token_endpoint, data=fields, timeout=_TIMEOUT_S)
+    except requests.RequestException as e:
+        raise _unreachable(_SIGN_IN_SERVICE, e) from e
+    if resp.status_code in (200, 201):
+        return _payload(_SIGN_IN_SERVICE, resp)
+    try:
+        body = resp.json()
+    except ValueError:
+        raise _bad_status(_SIGN_IN_SERVICE, resp) from None
+    code = str(body.get('error') or '') if isinstance(body, dict) else ''
+    if code == '':
+        raise _bad_status(_SIGN_IN_SERVICE, resp)
+    return TokenErrorResponse(code, str(body.get('error_description') or ''))
 
 
-def client_id_for(api_url: str) -> str:
-    client_id = str(auth_config(api_url).get('client_id') or '')
-    if not client_id:
-        raise AuthError(f'{api_url} did not say which sign-in client to use')
-    return client_id
+@dataclasses.dataclass(frozen=True)
+class SignInConfig:
+    """One control plane's sign-in endpoints, and the public client to present at them."""
+
+    client_id: str
+    device_authorization_endpoint: str
+    token_endpoint: str
 
 
-def _expiry_from(token: str, default_s: float = 300.0) -> float:
-    """The token's own `exp`, or a short default. Read, never verified: it only schedules renewal."""
+_config_cache: dict[str, SignInConfig] = {}  # key: API URL
+_config_lock = threading.Lock()
+
+
+def sign_in_config(api_url: str) -> SignInConfig:
+    """Read this control plane's public client and its issuer's grant endpoints into _config_cache."""
+    with _config_lock:
+        cached = _config_cache.get(api_url)
+        if cached is not None:
+            return cached
+        config = _json_request(api_url.rstrip('/') + _AUTH_CONFIG_PATH, api_url)
+        client_id = str(config.get('client_id') or '')
+        issuer = str(config.get('issuer') or '').rstrip('/')
+        if client_id == '' or issuer == '':
+            raise excs.InternalError(
+                excs.ErrorCode.INTERNAL_ERROR, f'{api_url} did not say which sign-in service to use'
+            )
+
+        metadata = _json_request(issuer + _OIDC_CONFIG_PATH, _SIGN_IN_SERVICE)
+        device_authorization_endpoint = str(metadata.get('device_authorization_endpoint') or '')
+        token_endpoint = str(metadata.get('token_endpoint') or '')
+        missing = [
+            name
+            for name, value in (
+                ('device_authorization_endpoint', device_authorization_endpoint),
+                ('token_endpoint', token_endpoint),
+            )
+            if value == ''
+        ]
+        if len(missing) > 0:
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'{issuer} cannot sign in a CLI: its OIDC metadata omits {", ".join(missing)}.',
+                provider='pixeltable_cloud',
+            )
+        resolved = SignInConfig(client_id, device_authorization_endpoint, token_endpoint)
+        _config_cache[api_url] = resolved
+        return resolved
+
+
+def _claims(token: str) -> dict[str, Any]:
+    """A token's payload. Read, never verified: nothing here is an authorization decision."""
     try:
         payload = token.split('.')[1]
-        claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
-        exp = claims.get('exp')
-        if isinstance(exp, (int, float)):
-            return float(exp)
+        decoded = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
     except (IndexError, ValueError, binascii.Error):
-        pass
-    return time.time() + default_s
+        return {}
+    return decoded if isinstance(decoded, dict) else {}
 
 
 def _number(payload: dict[str, Any], key: str, default: float) -> float:
@@ -119,157 +191,113 @@ def _number(payload: dict[str, Any], key: str, default: float) -> float:
     return float(value) if isinstance(value, (int, float)) else default
 
 
-def _session_from(payload: dict[str, Any], client_id: str, logged_in_at: float) -> Session:
+def _create_session(payload: dict[str, Any], client_id: str) -> Session:
     token = str(payload.get('access_token') or '')
-    if not token:
-        raise AuthError('WorkOS returned no access token')
+    if token == '':
+        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'{_SIGN_IN_SERVICE} returned no access token')
     user = payload.get('user') or {}
+    exp = _claims(token).get('exp')
+    expires_at = float(exp) if isinstance(exp, (int, float)) else time.time() + 300.0
     return Session(
         access_token=token,
-        expires_at=_expiry_from(token),
+        expires_at=expires_at,
         refresh_token=str(payload.get('refresh_token') or ''),
         client_id=client_id,
         email=str(user.get('email') or ''),
         organization_id=str(payload.get('organization_id') or ''),
-        logged_in_at=logged_in_at,
     )
 
 
-def device_login(api_url: str, open_browser: bool = True) -> Session:
-    """Sign in by approving a code in a browser, then cache the session. Returns it."""
-    client_id = client_id_for(api_url)
-    start = _post_form(_DEVICE_AUTH_PATH, {'client_id': client_id})
-
-    user_code = str(start.get('user_code') or '')
-    device_code = str(start.get('device_code') or '')
-    verify = str(start.get('verification_uri_complete') or start.get('verification_uri') or '')
-    if not (user_code and device_code and verify):
-        raise AuthError('WorkOS did not return a device code')
-
-    # stderr, not stdout: this is progress, and `pxt login --json` promises a parseable document.
-    print(f'Your code is {user_code}', file=sys.stderr)
-    print(f'Confirm it at {verify}', file=sys.stderr)
-    if open_browser and not webbrowser.open(verify):
-        print('Could not open a browser; open the link above.', file=sys.stderr)
-
-    payload = _poll_for_approval(
-        device_code, client_id, _number(start, 'expires_in', 300.0), _number(start, 'interval', 5.0)
+def device_login_start(api_url: str) -> LoginStartResponse:
+    """Start the device flow. This returns as soon as the code exists: no browser, no waiting."""
+    resolved = sign_in_config(api_url)
+    client_id = resolved.client_id
+    authz_resp = _json_request(resolved.device_authorization_endpoint, _SIGN_IN_SERVICE, {'client_id': client_id})
+    device_code = str(authz_resp.get('device_code') or '')
+    user_code = str(authz_resp.get('user_code') or '')
+    verification_uri = str(authz_resp.get('verification_uri_complete') or authz_resp.get('verification_uri') or '')
+    if device_code == '' or user_code == '' or verification_uri == '':
+        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'{_SIGN_IN_SERVICE} did not return a device code')
+    return LoginStartResponse(
+        client_id=client_id,
+        device_code=device_code,
+        user_code=user_code,
+        verification_uri=verification_uri,
+        interval=_number(authz_resp, 'interval', 5.0),
+        expires_in=_number(authz_resp, 'expires_in', 300.0),
     )
-    session = _session_from(payload, client_id, logged_in_at=time.time())
-    credentials.save(api_url, session)
+
+
+def device_login_poll(api_url: str, client_id: str, device_code: str) -> Session | str:
+    """Ask once whether the code has been approved.
+
+    The cached Session on approval, otherwise the OAuth error code: 'authorization_pending' while
+    the browser is still open, 'slow_down' to poll less often, and 'access_denied' or
+    'expired_token' when no further poll can succeed.
+    """
+    answer = _token_request(api_url, {'grant_type': _DEVICE_GRANT, 'device_code': device_code, 'client_id': client_id})
+    if isinstance(answer, TokenErrorResponse):
+        return answer.code
+    session = _create_session(answer, client_id)
+    session_cache.save(api_url, session)
     return session
 
 
-def _poll_for_approval(device_code: str, client_id: str, expires_in: float, interval: float) -> dict[str, Any]:
-    """Ask for the token until the code is approved, refused, or expires.
+# Renewal spends the refresh token and writes back the rotated one; WorkOS refuses a token it has
+# already rotated, so renewals run one at a time.
+_renewal_lock = threading.Lock()
 
-    WorkOS names both the interval and the deadline, so neither is guessed, and `slow_down` means
-    back off rather than give up.
-    """
-    deadline = time.time() + min(expires_in, _LOGIN_TIMEOUT_S)
-    while True:
-        # Slept only as long as there is deadline left, and rechecked after: sleeping past expiry
-        # and asking anyway spends a request the server has already stopped honouring.
-        remaining = deadline - time.time()
-        if remaining <= 0:
-            break
-        time.sleep(min(interval, remaining))
-        if time.time() >= deadline:
-            break
-        try:
-            return _post_form(
-                _TOKEN_PATH, {'grant_type': _DEVICE_GRANT, 'device_code': device_code, 'client_id': client_id}
+
+def access_token(api_url: str) -> str | None:
+    """A token to send to api_url, renewing first if the cached one is spent. None when there is no session."""
+    with _renewal_lock:
+        session = session_cache.load(api_url)
+        if session is None:
+            return None
+        if session.is_usable():
+            return session.access_token
+        if not session.can_refresh():
+            raise excs.AuthorizationError(
+                excs.ErrorCode.MISSING_CREDENTIALS, f'This Pixeltable session cannot be renewed. {SIGN_IN_AGAIN}'
             )
-        except AuthError as e:
-            if e.code == 'authorization_pending':
-                continue
-            if e.code == 'slow_down':
-                # Five, per RFC 8628: less than that keeps polling faster than the server allows.
-                interval += 5.0
-                continue
-            if e.code == 'access_denied':
-                raise AuthError('the sign-in was refused in the browser') from e
-            raise
-    raise AuthError('the code expired before it was confirmed')
 
-
-def refresh(api_url: str, session: Session, organization_id: str = '') -> Session:
-    """Exchange the refresh token for a fresh one, persist the result, and return it.
-
-    `organization_id` scopes the new token to that organization; without it WorkOS keeps whichever
-    the session already had, which for an account that had none is still none.
-    """
-    if not session.can_refresh():
-        raise AuthError('this session cannot be renewed', code=SESSION_EXPIRED)
-    fields = {
-        'grant_type': 'refresh_token',
-        'refresh_token': session.refresh_token or '',
-        'client_id': session.client_id,
-    }
-    if organization_id:
-        fields['organization_id'] = organization_id
-    payload = _post_form(_TOKEN_PATH, fields)
-    renewed = _session_from(payload, session.client_id, logged_in_at=session.logged_in_at)
-    if not renewed.email:
-        renewed.email = session.email
-    # WorkOS rotates the refresh token, so the one just sent is spent: saved before the caller uses
-    # the new access token, not after.
-    credentials.save(api_url, renewed)
-    return renewed
-
-
-# Control planes this process has already been authorized against. The deadline decides whether work
-# may start, not whether work already running may finish: a bulk ingest that began inside the hour
-# reconnects its tunnel after it, and failing there would lose the work rather than protect anything.
-_authorized: set[str] = set()
-
-
-def access_token(api_url: str) -> Optional[str]:
-    """A token to send to `api_url`, renewing first if the cached one is spent.
-
-    None when there is no session, so a caller can fall back to an API key; AuthError when a session
-    exists but cannot be used.
-    """
-    session = credentials.load(api_url)
-    if session is None:
-        return None
-    # Checked before the token's own expiry, and only once per process -- see _authorized.
-    if api_url not in _authorized and session.is_expired():
-        raise AuthError('your Pixeltable sign-in has expired', code=SESSION_EXPIRED)
-    _authorized.add(api_url)
-    if session.is_usable():
-        return session.access_token
-    return refresh(api_url, session).access_token
-
-
-def _claim(token: str, name: str) -> str:
-    """One claim out of a token. Read, never verified: nothing here is an authorization decision."""
-    try:
-        payload = token.split('.')[1]
-        claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
-        value = claims.get(name)
-        return value if isinstance(value, str) else ''
-    except (IndexError, ValueError, binascii.Error):
-        return ''
+        # refresh token
+        answer = _token_request(
+            api_url,
+            {
+                'grant_type': 'refresh_token',
+                'refresh_token': session.refresh_token or '',
+                'client_id': session.client_id,
+            },
+        )
+        if isinstance(answer, TokenErrorResponse):
+            if answer.code == _REJECTED_GRANT:
+                raise excs.AuthorizationError(
+                    excs.ErrorCode.MISSING_CREDENTIALS,
+                    f'Your Pixeltable session was rejected ({answer.code}: {answer.description}). {SIGN_IN_AGAIN}',
+                )
+            raise excs.AuthorizationError(
+                excs.ErrorCode.MISSING_CREDENTIALS,
+                f'Renewing your Pixeltable session failed ({answer.code}: {answer.description}). {SIGN_IN_AGAIN}',
+            )
+        renewed = _create_session(answer, session.client_id)
+        if not renewed.email:
+            renewed.email = session.email
+        # WorkOS rotates on every renewal, so the token just sent is already spent: losing the new
+        # one here would leave no way back into the session.
+        session_cache.save(api_url, renewed)
+        return renewed.access_token
 
 
 def browser_logout_url(api_url: str) -> str:
-    """Where to send a browser to end the sign-in behind this session. Empty when there is none.
+    """WorkOS's sign-out URL for this session, or empty when the token has no session id.
 
-    WorkOS directly, not the dashboard: signing in with a device code never creates a dashboard
-    session, so the dashboard's own sign-out has no cookie to clear and does nothing. The session
-    this ends is named by the token itself.
+    WorkOS directly, not the dashboard: a device-code sign-in never creates a dashboard session, so
+    the dashboard's own sign-out has no cookie to clear.
     """
-    session = credentials.load(api_url)
-    session_id = _claim(session.access_token, 'sid') if session else ''
+    session = session_cache.load(api_url)
+    value = _claims(session.access_token).get('sid') if session is not None else ''
+    session_id = value if isinstance(value, str) else ''
     if not session_id:
         return ''
-    return f'{_WORKOS_API}/user_management/sessions/logout?session_id={urllib.parse.quote(session_id)}'
-
-
-def authorize_org(api_url: str, org_id: str) -> Session:
-    """Re-mint the cached session scoped to `org_id`. For an account that has just acquired one."""
-    session = credentials.load(api_url)
-    if session is None:
-        raise AuthError('not signed in')
-    return refresh(api_url, session, organization_id=org_id)
+    return f'{_WORKOS_LOGOUT}?session_id={urllib.parse.quote(session_id)}'

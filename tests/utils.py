@@ -44,7 +44,7 @@ from pixeltable.catalog import Path as PxtPath, retry_loop
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
-from pixeltable.service import proxy_daemon
+from pixeltable.service import management_client, proxy_daemon
 from pixeltable.types import ColumnSpec
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
@@ -784,8 +784,8 @@ def skip_test_if_no_client(client_name: str) -> None:
 
 
 def skip_test_if_no_pxt_credentials() -> None:
-    if not Env.get().pxt_api_key:
-        pytest.skip('No Pixeltable API key is configured.')
+    if management_client.credential_source()[0] == 'none':
+        pytest.skip('No Pixeltable API key or sign-in is configured.')
 
 
 def skip_test_if_no_aws_credentials() -> None:

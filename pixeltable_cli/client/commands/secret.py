@@ -66,7 +66,7 @@ def run(argv: list[str]) -> None:
 def _scope(uri: str, prog: str) -> tuple[str, str | None]:
     """Parse pxt://org or pxt://org:db; a db is the narrower scope, its absence means the whole org."""
     parts = split_pxt_uri(uri)
-    if parts is None or parts.path is not None:
+    if parts is None or parts.namespace is not None or parts.path is not None:
         print(f'{prog}: error: URI must be pxt://org or pxt://org:db, got {uri!r}', file=sys.stderr)
         sys.exit(2)
     return parts.org, parts.db

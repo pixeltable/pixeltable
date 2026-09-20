@@ -12,7 +12,7 @@ from typing import Literal
 import requests
 
 from pixeltable import exceptions as excs
-from pixeltable.service.management_client import api_url, credential_header
+from pixeltable.service.management_client import api_url, resolve
 from pixeltable.service.pxtfs_protocol import (
     GetBucketCredentialsRequest,
     GetBucketCredentialsResponse,
@@ -22,12 +22,8 @@ from pixeltable.service.pxtfs_protocol import (
 
 
 def _api_headers() -> dict[str, str]:
-    """Credentials for a home-bucket call: an API key if set, otherwise the `pxt login` session.
-
-    A pod always has the key -- it is mounted as PIXELTABLE_API_KEY -- so the session branch is for
-    a person running the SDK against hosted media from their own machine.
-    """
-    return {'Content-Type': 'application/json', **credential_header('reach the home bucket')}
+    """Credentials for a home-bucket call: an API key if set, otherwise the `pxt login` session."""
+    return {'Content-Type': 'application/json', **resolve('reach the home bucket').header()}
 
 
 def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str | None = None) -> GetBucketCredentialsResponse:

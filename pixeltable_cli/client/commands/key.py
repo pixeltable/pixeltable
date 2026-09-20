@@ -5,9 +5,9 @@ Two shapes share the command because they are the same thing to a user asking fo
   * a user key acts as you, reaching whatever you can reach. It is yours, it has no grants, and
     there is nothing to edit.
   * a runtime key acts as nobody. It belongs to the organization, reaches only what it is granted,
-    and is what an agent or a job should hold instead of a copy of yours.
+    and is the one an agent or a job should use instead of a copy of yours.
 
-Passing --grant is what asks for the second.
+Passing --grant asks for the second.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from typing import NoReturn
 
 from pixeltable_cli.utils import split_pxt_uri
 
@@ -33,13 +34,9 @@ Examples:
   pxt key list
   pxt key delete myci
 
-A grant is a verb on a pxt:// resource:
-
-  access:pxt://org:db                   reach the data: every service in it, and its storage
-  access:pxt://org:db/services          call any service in the database
-  access:pxt://org:db/services/name     call that service - every route under it
-  manage:pxt://org:db/services          create, list and manage any service in the database
-  manage:pxt://org:db/services/name     start, stop, update, delete that service
+A grant is a verb on a pxt:// resource: `access` to use it, `manage` to change it. The resource is
+a database, its services, or one named service. `pxt key --help` lists the forms; the full table is
+in the CLI reference under `pxt key`.
 
 access and manage are independent: neither implies the other. A key that can call a service cannot
 reconfigure it, and one that can stop it cannot read what flows through it.
@@ -91,7 +88,7 @@ def run(argv: list[str]) -> None:
     {'list': _list, 'create': _create, 'update': _update, 'delete': _delete}[args.action](args)
 
 
-def _bad(flag: str, token: str) -> None:
+def _bad(flag: str, token: str) -> NoReturn:
     print(f'pxt key: error: {flag} takes {_GRANT}, got {token!r}', file=sys.stderr)
     sys.exit(2)
 
@@ -101,7 +98,7 @@ def _grants(values: list[str] | None, flag: str) -> list[str]:
 
     Only the shape is checked here, so a typo is answered next to the flag that caused it. Which
     verbs a resource actually admits, and whether the organization is yours, are the control plane's
-    to decide - it is the credential that settles which organization you are in.
+    to decide: the credential settles which organization you are in.
     """
     out: list[str] = []
     for value in values or []:
@@ -113,10 +110,10 @@ def _grants(values: list[str] | None, flag: str) -> list[str]:
             parts = split_pxt_uri(uri)
             if parts is None or parts.db is None:
                 _bad(flag, spec)
-                return []  # unreachable; _bad exits
-            path = (parts.path or '').strip('/')
-            named_service = path.startswith('services/') and path.count('/') == 1 and path != 'services/'
-            if path not in ('', 'services') and not named_service:
+            # the database, its services, or one of them; a service name is a single component
+            is_db_scope = parts.namespace is None and parts.path is None
+            is_service_scope = parts.namespace == 'services' and (parts.path is None or '/' not in parts.path)
+            if not is_db_scope and not is_service_scope:
                 _bad(flag, spec)
             if spec not in out:
                 out.append(spec)
@@ -130,21 +127,27 @@ def _group(grants: list[str]) -> dict[str, list[str]]:
         verb, _sep, uri = spec.partition(':')
         parts = split_pxt_uri(uri)
         if parts is None or parts.db is None:
+            # unparseable here means the server granted something this version cannot read; saying
+            # so beats leaving it out of what the key can do
+            out.setdefault('?', []).append(spec)
             continue
-        path = (parts.path or '').strip('/')
-        if path == '':
+        if parts.namespace is None and parts.path is None:
             what = 'all services and storage'
-        elif path == 'services':
-            what = 'all services'
+        elif parts.namespace == 'services':
+            what = parts.path or 'all services'
         else:
-            what = path[len('services/') :]
+            # a resource this version does not know: show it whole rather than trim it to nothing
+            what = '/'.join(p for p in (parts.namespace, parts.path) if p)
         out.setdefault(parts.db, []).append(f'{verb} {what}')
     return {db: sorted(items) for db, items in sorted(out.items())}
 
 
 def _render(name: str, kind: str, grants: list[str] | None) -> None:
-    """Grouped by database rather than one URI per line: the organization repeats on every grant, and
-    what differs between them is the database, the verb, and what it applies to."""
+    """Print one key: its name, and its grants grouped by database.
+
+    Grouped rather than one URI per line, since the organization repeats on every grant and only
+    the database, the verb and the resource differ.
+    """
     if kind == 'user':
         print(f'{name}  (acts as you: control plane and every database in the org)')
         return
@@ -187,7 +190,7 @@ def _list(args: argparse.Namespace) -> None:
 def _create(args: argparse.Namespace) -> None:
     # No --grant asks for a key that acts as you; any grant asks for one that acts as nobody.
     grants = _grants(args.grant, '--grant') if args.grant is not None else []
-    resp = post_request('/api/keys', {'name': args.name, 'grants': grants})
+    resp = post_request('/api/key/create', {'name': args.name, 'grants': grants})
     key = resp.get('key', {}) if isinstance(resp, dict) else {}
     if args.json_output:
         print(json.dumps(key, indent=2))
@@ -201,7 +204,7 @@ def _update(args: argparse.Namespace) -> None:
     if not grant and not revoke:
         print('pxt key update: error: nothing to do; pass --grant and/or --revoke', file=sys.stderr)
         sys.exit(2)
-    resp = post_request('/api/keys/update', {'name': args.name, 'allow': grant, 'revoke': revoke})
+    resp = post_request('/api/key/update', {'name': args.name, 'allow': grant, 'revoke': revoke})
     key = resp.get('key', {}) if isinstance(resp, dict) else {}
     if args.json_output:
         print(json.dumps(key, indent=2))
@@ -210,5 +213,5 @@ def _update(args: argparse.Namespace) -> None:
 
 
 def _delete(args: argparse.Namespace) -> None:
-    post_request('/api/keys/delete', {'name': args.name})
+    post_request('/api/key/delete', {'name': args.name})
     print(json.dumps({'name': args.name}) if args.json_output else args.name)

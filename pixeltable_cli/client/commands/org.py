@@ -24,7 +24,7 @@ def run(argv: list[str]) -> None:
     sub = parser.add_subparsers(dest='action', required=True)
 
     p = sub.add_parser('create', help='create an organization, with its first database')
-    p.add_argument('org', metavar='NAME', help='Namespace for the org; what pxt://org:db names')
+    p.add_argument('org', metavar='NAME', help='Namespace for the org, as in pxt://org:db')
     p.add_argument('--name', dest='display_name', help='Display name; defaults to NAME')
     p.add_argument('--location', help="e.g. 'aws/us-east-1'")
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
@@ -47,15 +47,15 @@ def run(argv: list[str]) -> None:
 
 
 def _create(args: argparse.Namespace) -> None:
-    """Create the organization. Which one you are working in is `pxt org use`."""
-    body = {'org_slug': args.org, 'display_name': args.display_name, 'location': args.location}
-    resp = post_request('/api/orgs', {k: v for k, v in body.items() if v is not None})
+    """Create the organization and its first database."""
+    body = {'org': args.org, 'display_name': args.display_name, 'location': args.location}
+    resp = post_request('/api/org/create', body)
     record = resp if isinstance(resp, dict) else {}
 
     if args.json_output:
         print(json.dumps(record))
         return
-    print(f'{record.get("org_slug", args.org)}  (database {record.get("default_db_slug") or "main"})')
+    print(f'{record.get("org", args.org)}  (database {record.get("default_db") or "main"})')
 
 
 def _list(args: argparse.Namespace) -> None:
