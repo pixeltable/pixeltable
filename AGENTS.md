@@ -15,7 +15,7 @@ guide; `CLAUDE.md` imports it.
 | `docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md` | Notebook structure and conversion | Touching `docs/release/**/*.ipynb` |
 | `docs/_guidelines/GUIDELINES_FOR_COOKBOOKS.md` | Cookbook recipe structure | Adding a recipe |
 | `dashboard/DESIGN.md`, `dashboard/ARCHITECTURE.md` | The local dashboard UI | Touching `dashboard/` or its server APIs |
-| `docs/release/skill.md` | The user-facing agent skill | Changing what app builders are told |
+| `docs/release/skill.md` | Pointer to the canonical skill in `pixeltable/pixeltable-skill` | Changing what app builders are told: edit the skill repo, not this file |
 | `CONTRIBUTING.md` | Branching, review, merge process | Opening or merging a PR |
 
 ## Protected Configuration
