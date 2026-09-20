@@ -1134,8 +1134,6 @@ class TestHostedService:
     """`pxt service` against a hosted database."""
 
     def test_service_lifecycle(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
-        skip_test_if_no_config('api_key')
-
         app_file = str(project / APP_FILE)
         schema_update(cli, project, app_file, current_db)
         # the database is shared, so it serves whatever routes the run before this one left registered
