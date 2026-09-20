@@ -460,7 +460,7 @@ class TestDestination:
         """Media that names no destination lands in the hosted database's home bucket; a column that names one goes
         there instead."""
         p = db_root.make_catalog_path
-        home = home_bucket_uri(db_root.prefix)
+        home = home_bucket_uri(db_root.base_uri)
         elsewhere = f'{home}/elsewhere'
         t = pxt.create_table(
             p('home_default'), {'img': pxt.Image, 'video': pxt.Video | None, 'audio': pxt.Audio | None}

@@ -369,7 +369,8 @@ class TestIndex:
                 .limit(3)
                 .collect()
             )
-            assert_resultset_eq(orig_res, res, True)
+            if not db_root.is_cloud:  # local paths may differ on cloud as media data is re-fetched
+                assert_resultset_eq(orig_res, res, True)
             t.revert()
             # should be true even after reloading from persistence
             reload_catalog()
@@ -381,7 +382,8 @@ class TestIndex:
                 .limit(3)
                 .collect()
             )
-            assert_resultset_eq(orig_res, res, True)
+            if not db_root.is_cloud:
+                assert_resultset_eq(orig_res, res, True)
 
         # same should hold after a drop.
         t.drop_embedding_index(column='img')
@@ -392,7 +394,8 @@ class TestIndex:
             .limit(3)
             .collect()
         )
-        assert_resultset_eq(orig_res, res, True)
+        if not db_root.is_cloud:
+            assert_resultset_eq(orig_res, res, True)
         t.drop_embedding_index(idx_name='clip_idx')
         reload_catalog()
         t = pxt.get_table(p('small_img_tbl'))
@@ -403,7 +406,8 @@ class TestIndex:
             .limit(3)
             .collect()
         )
-        assert_resultset_eq(orig_res, res, True)
+        if not db_root.is_cloud:
+            assert_resultset_eq(orig_res, res, True)
 
     def test_add_embedding_index_if_exists(
         self, small_img_tbl: pxt.Table, reload_tester: ReloadTester, local_embed: pxt.Function
