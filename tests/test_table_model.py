@@ -1146,7 +1146,10 @@ class TestTableModel:
         Docs.insert(body='A sample doc body that has a bunch of text')
         Asks2.insert(question='A sample doc body')
         res = Asks2.table.order_by(Asks2.question).collect()  # type: ignore[arg-type]
-        assert res[0] == {'question': 'A sample doc body', 'hits': [{'body': 'A sample doc body that has a bunch of text'}]}
+        assert res[0] == {
+            'question': 'A sample doc body',
+            'hits': [{'body': 'A sample doc body that has a bunch of text'}],
+        }
 
     def test_diff_all(self, db_root: DatabaseRoot) -> None:
         """diff_all() reports added/dropped columns and an iterator mismatch against already-created tables."""

@@ -97,16 +97,12 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         for model in registered_models.values():
             model._bind(catalog_dir)
 
-    def _create_models(catalog_dir: str, expect_created: set[str], *, only: set[TableModelMeta] | None = None) -> None:
+    def _create_models(catalog_dir: str, expect_created: set[str]) -> None:
         """Create every model that doesn't exist yet and bind all of them.
-
-        only= restricts the pass to those models, so it has to name a set closed under _referenced_models().
 
         Raises ConcurrencyError if a model named in expect_created already exists.
         """
         for name, model in _creation_order(registered_models):
-            if only is not None and model not in only:
-                continue
             tbl, was_created = model._create(catalog_dir)
             if name in expect_created and not was_created:
                 raise excs.ConcurrencyError(
@@ -204,10 +200,14 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     continue
                 prerequisites.add(queried_model)
                 queried |= _referenced_models(queried_model)
-            if len(prerequisites) > 0:
-                precreated = {n for n, m in registered_models.items() if m in prerequisites}
-                _create_models(catalog_dir, pending_creates & precreated, only=prerequisites)
-                pending_creates -= precreated
+            # _creation_order() puts each model after the ones it references, so a prerequisite that is
+            # itself new is created before the model that queries it. A name left in pending_creates is one
+            # the table already existed for, which the pass below reports as a concurrent creation.
+            for create_name, create_model in _creation_order(registered_models):
+                if create_model in prerequisites:
+                    _, was_created = create_model._create(catalog_dir)
+                    if was_created:
+                        pending_creates.discard(create_name)
 
             change_sets: list[TableSchemaChangeSet] = []
             for name, d in update_diffs:
