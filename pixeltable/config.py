@@ -71,13 +71,11 @@ class DatabaseConfig(pydantic.BaseModel):
 
     @pydantic.model_validator(mode='before')
     @classmethod
-    def _collect_settings(cls, data: Any) -> Any:
+    def _collect_settings(cls, data: dict[str, Any]) -> dict[str, Any]:
         # moves the db_<key> keys of a parsed entry into `settings`, so they validate against DatabaseSetting
-        if not isinstance(data, dict):
-            return data
         values = {setting.value for setting in DatabaseSetting}
         settings = {key: data.pop(key) for key in list(data) if key in values}
-        if settings:
+        if len(settings) > 0:
             data['settings'] = {**data.get('settings', {}), **settings}
         return data
 
@@ -535,15 +533,13 @@ class Config:
         return merged
 
     def __merge_databases(self) -> tuple[list[DatabaseConfig], Path | None] | None:
-        """Combine the database entries of the home and project configs, entry by entry, with the last file that
-        supplied any.
+        """Merge the database entries of the home config and the project config.
 
-        Entries are matched by name, and a field the project sets wins, so a project adding a var keeps the
-        vars the home config binds for the same database. The file that supplied each field, var binding and
-        setting is recorded in __database_sources.
+        Returns the merged entries and the last config file that has any, or None if neither file has one.
         """
         fields_by_name: dict[str, dict[str, Any]] = {}
         last_source: Path | None = None
+        # the project config comes last, so its fields overwrite the home config's
         for config, source in (
             (self.__home_config, self.__config_file),
             (self.__project_config, self.__project_config_file),
@@ -553,6 +549,7 @@ class Config:
             last_source = source
             for entry in config['pixeltable']['database'][0]:
                 fields = fields_by_name.setdefault(entry.name, {})
+                # __database_sources records the file that set each field
                 sources = self.__database_sources.setdefault(entry.name, {})
                 for field, value in entry.model_dump(exclude_none=True).items():
                     if isinstance(value, dict):
@@ -639,6 +636,14 @@ class Config:
         subscript = typing.get_args(expected_type)
         assert subscript is not None and len(subscript) == 1 and issubclass(subscript[0], pydantic.BaseModel)
         model_type = subscript[0]
+        # a list element that is not a table (eg, database = ['local']) would fail inside the model's
+        # before-validator, this gives a clearer error message to the user
+        for entry in value:
+            if not isinstance(entry, dict):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f"'{section}.{key}' must be an array of tables in config file: {source}",
+                )
         try:
             validated_config = [model_type.model_validate(entry) for entry in value]
         except pydantic.ValidationError as e:
