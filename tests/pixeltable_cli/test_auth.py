@@ -1,11 +1,12 @@
-"""Tests for `pxt login`, `pxt logout`, `pxt whoami`, `pxt key` and `pxt org create`.
+"""Tests for `pxt login`, `pxt logout`, `pxt whoami`, `pxt org create`, and what `pxt key` refuses.
 
 The session commands read and write the daemon's own cache, so a prepared file in it stands in for a
 sign-in. The commands that reach the control plane talk to a stub of it, served by a daemon this
-module starts with `PIXELTABLE_API_URL` set to it.
+module starts with `PIXELTABLE_API_URL` set to it. The stub also plays the sign-in service, which is
+what lets a test script an approval, a rotation or a refusal that real WorkOS will not perform.
 
-The stub also stands in for the sign-in service: it advertises itself as its own OIDC issuer, so
-discovery sends every device-flow request back to it.
+What a stub cannot check is whether the control plane stores what it reports, so `pxt key` is
+exercised against a real one in test_key.py, and only its client-side refusals remain here.
 """
 
 import json
@@ -311,59 +312,10 @@ def _key(name: str, key_type: str = 'runtime', grants: list[str] | None = None, 
 
 
 class TestKey:
-    def test_key_list(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        control_plane.answers['list_keys'] = {
-            'keys': [_key('ci', key_type='user'), _key('app', grants=['access:pxt://acme:main/services/ingest'])]
-        }
-
-        r = cloud_cli('key', 'list')
-
-        assert 'ci' in r.stdout
-        assert 'acts as you' in r.stdout
-        assert 'app' in r.stdout
-        assert 'main:' in r.stdout
-
-    def test_key_list_json(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        control_plane.answers['list_keys'] = {'keys': [_key('ci', key_type='user')]}
-
-        r = cloud_cli('key', 'list', '--json')
-
-        assert [k['name'] for k in r.json['keys']] == ['ci']
-
     def test_key_list_empty(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         control_plane.answers['list_keys'] = {'keys': []}
 
         assert 'No keys.' in cloud_cli('key', 'list').stdout
-
-    def test_key_create(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        """The secret is printed once, by create, and cannot be retrieved afterwards."""
-        control_plane.answers['create_key'] = {
-            'key': _key('app', grants=['access:pxt://acme:main/services/ingest'], api_key='sk-secret-once')
-        }
-
-        r = cloud_cli('key', 'create', 'app', '--grant', 'access:pxt://acme:main/services/ingest')
-
-        sent = control_plane.last('create_key')
-        assert sent['name'] == 'app'
-        assert sent['grants'] == ['access:pxt://acme:main/services/ingest']
-        assert 'sk-secret-once' in r.stdout
-
-    def test_key_create_without_grants(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        """No grant asks for a key that acts as you; the control plane is told by an empty list."""
-        control_plane.answers['create_key'] = {'key': _key('ci', key_type='user', api_key='sk-user-key')}
-
-        r = cloud_cli('key', 'create', 'ci')
-
-        assert control_plane.last('create_key')['grants'] == []
-        assert 'acts as you' in r.stdout
-
-    def test_key_create_json(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        control_plane.answers['create_key'] = {'key': _key('app', api_key='sk-secret-once')}
-
-        r = cloud_cli('key', 'create', 'app', '--json')
-
-        assert r.json['name'] == 'app'
-        assert r.json['api_key'] == 'sk-secret-once'
 
     def test_key_create_repeated_grants(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         """Repeated and comma-joined flags both flatten, and a duplicate is sent once."""
@@ -384,31 +336,6 @@ class TestKey:
             'manage:pxt://acme:main/services',
         ]
 
-    def test_key_update(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        control_plane.answers['update_key'] = {'key': _key('app', grants=['access:pxt://acme:db2/services'])}
-
-        r = cloud_cli(
-            'key',
-            'update',
-            'app',
-            '--grant',
-            'access:pxt://acme:db2/services',
-            '--revoke',
-            'access:pxt://acme:main/services',
-        )
-
-        sent = control_plane.last('update_key')
-        assert sent['allow'] == ['access:pxt://acme:db2/services']
-        assert sent['revoke'] == ['access:pxt://acme:main/services']
-        assert 'db2:' in r.stdout
-
-    def test_key_update_json(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        control_plane.answers['update_key'] = {'key': _key('app', grants=['access:pxt://acme:db2/services'])}
-
-        r = cloud_cli('key', 'update', 'app', '--grant', 'access:pxt://acme:db2/services', '--json')
-
-        assert r.json['name'] == 'app'
-
     def test_key_update_no_args(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         before = len(control_plane.seen)
 
@@ -417,21 +344,6 @@ class TestKey:
         assert r.returncode == 2
         assert 'nothing to do' in r.stderr
         assert len(control_plane.seen) == before
-
-    def test_key_delete(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        control_plane.answers['delete_key'] = {'name': 'app'}
-
-        r = cloud_cli('key', 'delete', 'app')
-
-        assert control_plane.last('delete_key')['name'] == 'app'
-        assert r.stdout.strip() == 'app'
-
-    def test_key_delete_json(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        control_plane.answers['delete_key'] = {'name': 'app'}
-
-        r = cloud_cli('key', 'delete', 'app', '--json')
-
-        assert r.json == {'name': 'app'}
 
     @pytest.mark.parametrize(
         'grant',
