@@ -53,6 +53,16 @@ def _org(cli: PxtRunner) -> str:
 
 @pytest.mark.usefixtures('hosted_environment')
 class TestKey:
+    def test_whoami_api_key(self, cli: PxtRunner) -> None:
+        """What whoami reports where an API key is configured: the key, and no session identity."""
+        answer = cli('whoami', '--json').json
+
+        assert answer['using'] == 'api_key'
+        assert answer['credential_source'] != ''
+        assert answer['accepted']
+        # the identity fields describe a session, so an API key leaves them empty
+        assert answer['email'] == ''
+
     def test_key_create(self, cli: PxtRunner, key_name: str) -> None:
         """A key with no grants acts as its creator, and its secret is shown once."""
         created = cli('key', 'create', key_name, '--json').json

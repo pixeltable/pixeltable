@@ -111,13 +111,13 @@ def run_whoami(argv: list[str]) -> None:
     args = parser.parse_args(argv)
 
     answer = get_request('/api/whoami', {'offline': args.offline})
+    if args.json_output:
+        print(json.dumps(answer))
+        sys.exit(0 if answer['using'] != 'none' and answer['accepted'] else 1)
+
     if answer['using'] == 'none':
         print(f'Not signed in to {answer["api_url"]}. Run `pxt login`.', file=sys.stderr)
         sys.exit(1)
-
-    if args.json_output:
-        print(json.dumps(answer))
-        sys.exit(0 if answer['accepted'] else 1)
 
     if answer['email'] != '':
         print(f'{answer["email"]} on {answer["api_url"]}')

@@ -120,6 +120,9 @@ def _token_request(api_url: str, fields: dict[str, str]) -> dict[str, Any] | Tok
         raise _unreachable(_SIGN_IN_SERVICE, e) from e
     if resp.status_code in (200, 201):
         return _payload(_SIGN_IN_SERVICE, resp)
+    # a 5xx means the service broke, not that it decided something about this request
+    if resp.status_code >= 500:
+        raise _bad_status(_SIGN_IN_SERVICE, resp)
     try:
         body = resp.json()
     except ValueError:

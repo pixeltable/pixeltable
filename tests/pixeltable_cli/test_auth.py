@@ -515,7 +515,7 @@ class TestDiscovery:
         assert resolved.workos_api == plane.url
         assert resolved.url('/user_management/authenticate') == f'{plane.url}/user_management/authenticate'
 
-    def test_control_plane_without_a_client(self, plane: ControlPlane) -> None:
+    def test_control_plane_without_client(self, plane: ControlPlane) -> None:
         plane.client_id = ''
 
         with pytest.raises(excs.Error, match='did not say which sign-in client'):

@@ -10,6 +10,8 @@ import tempfile
 import time
 from typing import Any
 
+from fasteners import InterProcessLock  # type: ignore[import-untyped]
+
 from pixeltable.config import Config
 
 # Treat a token as spent this long before it expires, so it cannot die in flight.
@@ -88,20 +90,33 @@ def load(api_url: str) -> Session | None:
         return None
 
 
+def _exclusive() -> InterProcessLock:
+    """The lock a writer takes for the whole of its read-modify-write.
+
+    Daemons for different projects share one Pixeltable home, so two renewals for different control
+    planes would otherwise each read the old file and the later replace() would drop the earlier one.
+    """
+    path = Config.get().home / 'auth'
+    path.mkdir(parents=True, exist_ok=True)
+    return InterProcessLock(str(path / 'sessions.lock'))
+
+
 def save(api_url: str, session: Session) -> None:
-    cache = _read_sessions()
-    cache[api_url] = dataclasses.asdict(session)
-    _write_sessions(cache)
+    with _exclusive():
+        cache = _read_sessions()
+        cache[api_url] = dataclasses.asdict(session)
+        _write_sessions(cache)
 
 
 def clear(api_url: str | None = None) -> bool:
     """Forget one control plane's session, or every one. True when something was removed."""
-    cache = _read_sessions()
-    if api_url is None:
-        removed = len(cache) > 0
-        cache = {}
-    else:
-        removed = cache.pop(api_url, None) is not None
-    if removed:
-        _write_sessions(cache)
+    with _exclusive():
+        cache = _read_sessions()
+        if api_url is None:
+            removed = len(cache) > 0
+            cache = {}
+        else:
+            removed = cache.pop(api_url, None) is not None
+        if removed:
+            _write_sessions(cache)
     return removed

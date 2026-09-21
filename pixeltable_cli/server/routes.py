@@ -795,37 +795,45 @@ def login_poll(req: Request) -> dict[str, Any]:
 @router.get('/api/whoami')
 def whoami(req: Request) -> dict[str, Any]:
     url = management_client.api_url()
-    session = session_cache.load(url)
-    kind, where = management_client.credential_source()
+    cred = management_client.configured_credential()
+    # An API key takes precedence, and may belong to a different account than a cached session.
+    session = session_cache.load(url) if cred is not None and cred.kind == 'session' else None
+
     # A cached session says nothing about whether it still works: it can be revoked, and another
     # device can rotate its refresh token away.
-    rejection = '' if req.query_bool('offline') or kind == 'none' else _credential_rejection()
+    rejection = ''
+    if not req.query_bool('offline') and cred is not None:
+        try:
+            management_client.api_call(ListOrgsRequest())
+        except excs.Error as e:
+            # A 401 arrives as ExternalServiceError, so the code separates a refused credential
+            # from an outage where the class does not.
+            if e.error_code not in (excs.ErrorCode.PROVIDER_AUTH_ERROR, excs.ErrorCode.MISSING_CREDENTIALS):
+                raise
+            rejection = str(e)
+
     return models.WhoamiResponse(
         api_url=url,
         email=session.email if session is not None else '',
         organization_id=session.organization_id if session is not None else '',
-        using=kind,
-        credential_source=where,
+        using=cred.kind if cred is not None else 'none',
+        credential_source=cred.source if cred is not None else 'nothing',
         accepted=rejection == '',
         rejection=rejection,
     ).model_dump()
 
 
-def _credential_rejection() -> str:
-    """What the control plane said when it would not accept the credential, empty when it did."""
-    try:
-        management_client.api_call(ListOrgsRequest())
-    except excs.Error as e:
-        return str(e)
-    return ''
-
-
 @router.post('/api/logout')
 def logout(_req: Request) -> dict[str, Any]:
     url = management_client.api_url()
-    # Read before clearing: the session id comes from the cached token.
-    browser_url = auth.browser_logout_url(url)
-    return models.LogoutResponse(signed_out=session_cache.clear(url), browser_logout_url=browser_url).model_dump()
+    browser_url: str
+    try:
+        browser_url = auth.browser_logout_url(url)
+    except excs.Error:
+        browser_url = ''
+    # make sure we clear the cache in any case
+    is_signed_out = session_cache.clear(url)
+    return models.LogoutResponse(signed_out=is_signed_out, browser_logout_url=browser_url).model_dump()
 
 
 @router.get('/api/orgs')

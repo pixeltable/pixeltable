@@ -808,7 +808,7 @@ def skip_test_if_no_client(client_name: str) -> None:
 
 
 def skip_test_if_no_pxt_credentials() -> None:
-    if management_client.credential_source()[0] == 'none':
+    if management_client.configured_credential() is None:
         pytest.skip('No Pixeltable API key or sign-in is configured.')
 
 

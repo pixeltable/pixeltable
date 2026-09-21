@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from pixeltable.config import Config
-from pixeltable.service import management_client, session_cache
+from pixeltable.service import session_cache
 
 _PROD = 'https://api.pixeltable.com'
 _DEV = 'https://api.dev.pxt.run'
@@ -91,30 +91,3 @@ class TestClear:
 
     def test_clear_absent(self) -> None:
         assert session_cache.clear(_PROD) is False
-
-
-class TestCredentialChoice:
-    """Which credential a command sends, and where it came from."""
-
-    def test_api_key_outranks_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Setting a key is the explicit choice, and what CI runs on."""
-        monkeypatch.setenv('PIXELTABLE_API_KEY', 'sk-test')
-        session_cache.save(management_client.api_url(), _session())
-
-        kind, where = management_client.credential_source()
-
-        assert kind == 'api_key'
-        assert 'PIXELTABLE_API_KEY' in where
-
-    def test_session_without_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv('PIXELTABLE_API_KEY', raising=False)
-        session_cache.save(management_client.api_url(), _session())
-
-        assert management_client.credential_source()[0] == 'session'
-
-    def test_neither(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv('PIXELTABLE_API_KEY', raising=False)
-
-        kind, where = management_client.credential_source()
-
-        assert (kind, where) == ('none', 'nothing')

@@ -37,6 +37,7 @@ _READ_OPS = frozenset(
     op.value
     for op in (
         ManagementOperationType.LIST_ORGS,
+        ManagementOperationType.LIST_KEYS,
         ManagementOperationType.LIST_DBS,
         ManagementOperationType.GET_DB,
         ManagementOperationType.LIST_SERVICE_INSTANCES,
@@ -63,12 +64,9 @@ def _api_key_source() -> str:
     )
 
 
-def _configured() -> Credential | None:
-    """What a command would send, read without renewing anything. None when there is neither.
-
-    A session's token here is the cached one, which may be spent; resolve() renews it.
-    """
-    # an API key outranks a session: setting one is the explicit choice, and the credential CI uses
+def configured_credential() -> Credential | None:
+    """Return the API key or session credential, depending on what's available."""
+    # an API key outranks a session
     api_key = Config.get().get_string_value('api_key')
     if api_key is not None:
         return Credential('api_key', api_key, _api_key_source())
@@ -76,16 +74,6 @@ def _configured() -> Credential | None:
     if session is None:
         return None
     return Credential('session', session.access_token, f'your `pxt login` session for {api_url()}')
-
-
-def credential_source() -> tuple[str, str]:
-    """Which credential a command will send, and its source, without spending anything to find out.
-
-    ('none', 'nothing') when there is neither, which `pxt whoami` reports differently from a
-    credential that exists and is refused.
-    """
-    configured = _configured()
-    return ('none', 'nothing') if configured is None else (configured.kind, configured.source)
 
 
 def _no_credential(purpose: str) -> excs.Error:
@@ -100,7 +88,7 @@ def _no_credential(purpose: str) -> excs.Error:
 
 def resolve(purpose: str) -> Credential:
     """The credential to present for `purpose`, renewing a spent session token first."""
-    configured = _configured()
+    configured = configured_credential()
     if configured is None:
         raise _no_credential(purpose)
     if configured.kind == 'api_key':

@@ -133,6 +133,8 @@ def resolve_dot_segments(path: str) -> str:
         if parts is None:
             return path  # malformed URI; validate_path_shape() reports it
         prefix = f'pxt://{parts.org}' + ('' if parts.db is None else f':{parts.db}')
+        # the namespace is part of the URI rather than of the path, so '..' never walks out of it
+        prefix += '' if parts.namespace is None else f'/{parts.namespace}'
         in_catalog = parts.path or ''
     if '.' not in in_catalog:
         return path
