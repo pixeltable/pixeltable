@@ -38,7 +38,6 @@ from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.process import is_pid, pid_alive
 
 from . import proxy_dispatch
-from .db import unpack_project_archive
 from .proxy_protocol import decode_body
 
 if TYPE_CHECKING:
@@ -164,7 +163,7 @@ def start(db: str, test_mode: bool = False) -> str:
         argv.append('--test')
     project_root = Config.get().project_root
     if project_root is not None:
-        argv += ['--project-root', str(project_root)]
+        argv += ['--project-dir', str(project_root)]
     with open(log_file_path, 'a', encoding='utf-8') as log_file:
         proc = subprocess.Popen(
             argv, env=env, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True
@@ -389,45 +388,18 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     uvicorn.Server(uvicorn.Config(app, log_level=log_level, log_config=None)).run(sockets=[sock])
 
 
-# get_archive returns 404 both for a database with no project and for one whose release did not
-# resolve just now; retrying tells the two apart
-_ARCHIVE_FETCH_DELAYS = (0.0, 1.0, 2.0, 4.0)
-
-
-def _unpack_project(db_uri: str, project_dir: Path) -> bool:
-    """Unpack db_uri's project into project_dir; False if 404 persists across the retries."""
-    for delay in _ARCHIVE_FETCH_DELAYS:
-        if delay > 0.0:
-            time.sleep(delay)
-        try:
-            unpack_project_archive(db_uri, project_dir)
-            return True
-        except excs.ExternalServiceError as exc:
-            if exc.provider_http_status_code != 404:
-                raise
-    return False
-
-
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog='pixeltable.service.proxy_daemon')
     parser.add_argument('--test', action='store_true')
-    parser.add_argument('--project-root', type=Path, default=None)
-    parser.add_argument('--db', help='pxt://org:db')
-    parser.add_argument('--project-dir', type=Path, default=None, help='unpack that database project here')
+    parser.add_argument('--project-dir', type=Path, default=None)
     parser.add_argument('--host', default=None, help='listen address; either flag serves without a lock file')
     parser.add_argument('--port', type=int, default=None, help='listen port; either flag serves without a lock file')
     parsed = parser.parse_args(argv)
-    project_root = parsed.project_root
-    if parsed.db is not None:
-        if parsed.project_dir is None:
-            parser.error('--db requires --project-dir')
-        if _unpack_project(parsed.db, parsed.project_dir):
-            project_root = parsed.project_dir
-        else:
-            # a database exists before `pxt db update` gives it a project: serve the catalog without one,
-            # and a request that needs a udf from it says so
-            logging.getLogger('pixeltable').warning('%s has no project; udfs it defines cannot be resolved', parsed.db)
-    Config.init(reinit=True, project_root=project_root)
+    if parsed.project_dir is not None and not parsed.project_dir.is_dir():
+        raise excs.InternalError(
+            excs.ErrorCode.INTERNAL_ERROR, f'--project-dir {parsed.project_dir} does not exist or is not a directory'
+        )
+    Config.init(reinit=True, project_root=parsed.project_dir)
     _serve(test_mode=parsed.test, host=parsed.host, port=parsed.port)
 
 

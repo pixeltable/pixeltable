@@ -21,6 +21,11 @@ Choose views over tables when your data is derived from other base tables and ne
 Production apps declare views as `TableModel` classes in a Python file and create them with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()` / `pxt.create_view()`.
 </Note>
 
+<Note>
+The `token_limit` separator below needs `tiktoken`, which the base install does not include:
+`pip install tiktoken`.
+</Note>
+
 ## Phase 1: Define your base table and view structure
 
 ```python

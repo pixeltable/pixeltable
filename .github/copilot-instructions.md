@@ -49,8 +49,8 @@ Roughly 18 of the last 100 PRs drew a maintainer comment about this. It outranks
 
 ## Error Handling
 
-- `assert` is for internal invariants only. User-reachable paths must raise `excs.Error` or a subclass.
-- The `pxt.Error` subclass and error code must match the error being signalled.
+- `assert` is for internal invariants only. User-reachable paths must raise a subclass of `excs.Error`; `Error` itself asserts on construction.
+- The `pxt.Error` subclass and error code must match: the code determines the class, and a mismatch asserts. `UserError` carries `GENERIC_USER_ERROR` when nothing more specific fits.
 - Error messages should be friendly and specific. Don't stringify large objects.
 
 ## Schema & Migrations
@@ -81,7 +81,7 @@ Roughly 18 of the last 100 PRs drew a maintainer comment about this. It outranks
 | `pixeltable/metadata/` | Migration tests + `tests/data/` + `tool/create_test_db_dump.py` |
 | `tests/data/dbdumps/*-info.toml` | Regenerate the matching `.dump.gz` in the same commit |
 | `pyproject.toml` (deps) | `uv.lock` |
-| The `app.py` example | Its copies in `README.md`, `AGENTS.md`, `docs/release/skill.md`, `quick-start.mdx`, `cloud.mdx` |
+| The `app.py` example | Its copies in `README.md`, `AGENTS.md`, `quick-start.mdx`, `cloud.mdx` |
 
 ## Current API (Citing a Stale One Wastes Review Time)
 
