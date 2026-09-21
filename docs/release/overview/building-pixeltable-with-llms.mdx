@@ -28,14 +28,14 @@ Works with tools that support [Agent Skills](https://agentskills.io/specificatio
     ```
   </Tab>
   <Tab title="Any LLM">
-    If your tool has no skill support, append `.md` to any docs URL and paste that markdown into the chat. Site index: [llms.txt](https://docs.pixeltable.com/llms.txt) ([standard](https://llmstxt.org/)). Capability summary: [skill.md](https://docs.pixeltable.com/skill.md).
+    If your tool has no skill support, append `.md` to any docs URL and paste that markdown into the chat. Site index: [llms.txt](https://docs.pixeltable.com/llms.txt) ([standard](https://llmstxt.org/)). The skill: [SKILL.md](https://raw.githubusercontent.com/pixeltable/pixeltable-skill/main/skills/pixeltable-skill/SKILL.md).
 
     | Resource | URL |
     |----------|-----|
     | This page as markdown | [building-pixeltable-with-llms.md](https://docs.pixeltable.com/overview/building-pixeltable-with-llms.md) |
     | Site index | [llms.txt](https://docs.pixeltable.com/llms.txt) |
     | Full map | [llms-full.txt](https://docs.pixeltable.com/llms-full.txt) |
-    | Capability summary | [skill.md](https://docs.pixeltable.com/skill.md) |
+    | The skill | [SKILL.md](https://raw.githubusercontent.com/pixeltable/pixeltable-skill/main/skills/pixeltable-skill/SKILL.md) |
   </Tab>
 </Tabs>
 
@@ -73,6 +73,8 @@ Hosted docs MCP for the editor:
 ```
 https://docs.pixeltable.com/mcp
 ```
+
+The page menu copies that URL and installs the server in Cursor or VS Code.
 
 Catalog inspection without importing Python: `pxt ls --json`, `pxt describe --json`, `pxt errors`. The `pxt` CLI (v0.7.4+) exposes `--json` on inspection and query commands. See the [CLI](/platform/cli).
 

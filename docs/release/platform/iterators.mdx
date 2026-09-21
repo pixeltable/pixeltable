@@ -24,6 +24,16 @@ Iterators are particularly useful when:
 In an app file, set `iterator=` on the view's `TableModel`. In a notebook, pass `iterator=` to `pxt.create_view()`.
 </Note>
 
+<Note>
+The examples below use `sentence` and `token_limit`. Install `spacy` and `tiktoken`, then download
+spaCy's default English model:
+
+```bash
+pip install spacy tiktoken
+python -m spacy download en_core_web_sm
+```
+</Note>
+
 ```python
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -445,10 +455,17 @@ words_view = pxt.create_view(
 )
 ```
 
-Use `unstored_cols` to mark columns that should not be persisted:
+Use `unstored_cols` to mark columns that should not be persisted. An unstored column is recomputed
+when a row is read, so the iterator must be able to jump straight to that row: `unstored_cols`
+requires a `seek()` method, and only a class can supply one. A function-style `@pxt.iterator`
+cannot use `unstored_cols`.
+
+This skeleton shows the required methods, not a runnable frame extractor. Implement `__next__()`
+to return a `FrameRow`, advance the position, and raise `StopIteration` at the end. After `seek(pos)`,
+the next call to `__next__()` must return the row at `pos`. The cookbook below has a runnable example.
 
 ```python
-from typing import Iterator, TypedDict
+from typing import TypedDict
 import pixeltable as pxt
 
 class FrameRow(TypedDict):
@@ -456,9 +473,20 @@ class FrameRow(TypedDict):
     timestamp: float
 
 @pxt.iterator(unstored_cols=['frame'])
-def my_frame_extractor(video: pxt.Video) -> Iterator[FrameRow]:
-    # Custom frame extraction logic
-    ...
+class my_frame_extractor(pxt.PxtIterator[FrameRow]):
+    def __init__(self, video: pxt.Video, *, fps: float = 1.0):
+        self.video = video
+        self.fps = fps
+        self.pos = 0
+
+    def __next__(self) -> FrameRow:
+        # Custom frame extraction logic; raise StopIteration when done
+        ...
+
+    # seek() receives the position of the row being read, plus the stored
+    # output columns of that row as keyword arguments.
+    def seek(self, pos: int, **kwargs) -> None:
+        self.pos = pos
 ```
 
 <Card title="Custom Iterators Cookbook" icon="code" href="/howto/cookbooks/core/custom-iterators">
