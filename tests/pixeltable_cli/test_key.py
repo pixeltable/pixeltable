@@ -94,6 +94,22 @@ class TestKey:
 
         assert _listed(cli)[key_name]['grants'] == [reports]
 
+    def test_key_grant_same_service_name(self, cli: PxtRunner, key_name: str) -> None:
+        """Two services share a name under different base paths, and stay two grants.
+
+        A service is addressed by base_path/service_name, so the base path is part of what a grant
+        identifies. Whether one key then reaches the other service is the gateway's to answer, and
+        pixeltable-cloud's test_gateway.py asks it there.
+        """
+        org = _org(cli)
+        grants = [
+            f'access:{_ORG_URI.format(org=org)}/services/a/b/ingest',
+            f'access:{_ORG_URI.format(org=org)}/services/b/ingest',
+        ]
+        cli('key', 'create', key_name, '--grant', grants[0], '--grant', grants[1], '--json')
+
+        assert _listed(cli)[key_name]['grants'] == sorted(grants)
+
     def test_key_delete(self, cli: PxtRunner, key_name: str) -> None:
         cli('key', 'create', key_name, '--json')
         assert key_name in _listed(cli)

@@ -49,7 +49,7 @@ in place and leaves the secret alone, so widening or narrowing a key does not me
 """
 
 _VERBS = ('access', 'manage')
-_GRANT = 'access|manage:pxt://org:db[/services[/name]]'
+_GRANT = 'access|manage:pxt://org:db[/services[/path]]'
 
 
 def run(argv: list[str]) -> None:
@@ -110,9 +110,10 @@ def _grants(values: list[str] | None, flag: str) -> list[str]:
             parts = split_pxt_uri(uri)
             if parts is None or parts.db is None:
                 _bad(flag, spec)
-            # the database, its services, or one of them; a service name is a single component
+            # the database, its services, or one of them. A service is addressed by
+            # base_path/service_name, so its path may hold more than one component.
             is_db_scope = parts.namespace is None and parts.path is None
-            is_service_scope = parts.namespace == 'services' and (parts.path is None or '/' not in parts.path)
+            is_service_scope = parts.namespace == 'services'
             if not is_db_scope and not is_service_scope:
                 _bad(flag, spec)
             if spec not in out:
