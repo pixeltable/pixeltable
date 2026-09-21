@@ -159,7 +159,7 @@ pytest: install
 .PHONY: fullpytest
 fullpytest: install
 	@echo 'Running `pytest`, including expensive tests ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) -m 'not cloud_e2e' tests
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) -m '' tests
 
 .PHONY: slimpytest
 slimpytest: install
@@ -170,7 +170,7 @@ slimpytest: install
 	    tests/test_{exceptions,exprs,fault_injection,file_cache,function,history,index,iterator,mcp,path}.py \
 	    tests/test_{primary_key_index,query,sample,snapshot,table,table_model,table_model_2,types,view}.py \
 	    tests/serving/test_fastapi.py tests/serving/test_fastapi_models.py \
-	    tests/pixeltable_cli/test_{bridge,schema,service,smoke}.py
+	    tests/pixeltable_cli/test_{bridge,daemon,schema,service,smoke}.py
 
 .PHONY: nbtest
 nbtest: install

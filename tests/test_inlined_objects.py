@@ -66,7 +66,7 @@ class TestInlinedObjects:
         )
         rows: list[dict[str, Any]] = [
             {'id': i, 'ar1': next(vals), 'ar2': next(vals), 'ar3': next(vals), 'ar4': next(vals), 'ar5': next(vals)}
-            for i in range(5 if db_root.id == 'cloud' else 60)
+            for i in range(5 if db_root.is_cloud else 60)
         ]
         total_bytes = sum(
             row['ar1'].nbytes + row['ar2'].nbytes + row['ar3'].nbytes + row['ar4'].nbytes + row['ar5'].nbytes
@@ -149,7 +149,7 @@ class TestInlinedObjects:
         imgs = inf_image_iterator()
         rng = np.random.default_rng(0)
         rows: list[dict[str, Any]] = []
-        for i in range(2 if db_root.id == 'cloud' else 10):
+        for i in range(2 if db_root.is_cloud else 10):
             img1 = next(imgs)
             img2 = next(imgs)
             img3 = next(imgs)
@@ -235,7 +235,7 @@ class TestInlinedObjects:
                 'img3': next(imgs),
                 'img4': next(imgs),
             }
-            for i in range(2 if db_root.id == 'cloud' else 100)
+            for i in range(2 if db_root.is_cloud else 100)
         ]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 

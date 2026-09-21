@@ -168,17 +168,18 @@ class TestConfig:
         assert (openai_key['value'], openai_key['source']) == ('<redacted>', 'env')
 
     def test_var_only_in_env(self, cli: PxtRunner) -> None:
-        """A config var with no config file entry is still reported, with its value withheld if it is a secret."""
-        supplied = {'PIXELTABLE_SECRET_PXT_TEST_KEY': _A_KEY, 'PIXELTABLE_VAR_PXT_TEST_DEST': 's3://bucket/prefix'}
+        """A config var with no config file entry is still reported, with a sensitive name's value withheld."""
+        supplied = {'PIXELTABLE_VAR_PXT_TEST_KEY': _A_KEY, 'PIXELTABLE_VAR_PXT_TEST_DEST': 's3://bucket/prefix'}
         # a PIXELTABLE_* variable the daemon lacks restarts it, so the reported values are the ones supplied here
         resp = cli('config', '--json', env_overrides=supplied).json
         entries = {(e['section'], e['key']): e for e in resp['entries']}
 
-        secret = entries['pixeltable.database.secrets', 'pxt_test_key']
-        assert (secret['value'], secret['source']) == ('<redacted>', 'env')
+        # a name ending in a sensitive suffix is redacted, whatever section it sits in
+        sensitive = entries['pixeltable.database.vars', 'pxt_test_key']
+        assert (sensitive['value'], sensitive['source']) == ('<redacted>', 'env')
         var = entries['pixeltable.database.vars', 'pxt_test_dest']
         assert (var['value'], var['source']) == ('s3://bucket/prefix', 'env')
-        assert 'PIXELTABLE_SECRET_PXT_TEST_KEY' in resp['env_var_names']
+        assert 'PIXELTABLE_VAR_PXT_TEST_KEY' in resp['env_var_names']
 
     def test_config_var_from_env(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """A config var a schema declares is bound from the environment, with no entry in any config file."""

@@ -6,6 +6,8 @@ import json
 import sys
 from pathlib import Path
 
+import pydantic
+
 from ...types import Resolution, ServiceChangeOp, ServiceInstance, ServicePlan
 from ...utils import PxtPath, split_pxt_uri
 from ..hosted import add_logs_args, print_logs
@@ -19,12 +21,13 @@ from ..utils import (
     confirm_or_exit,
     get_request,
     post_request,
+    print_json_schema,
 )
 
 _EXAMPLE_APP = '''\
 """Pixeltable application, written by 'pxt service example'.
 
-One file holds both: the models, which name the tables, and the services, which serve routes over them.
+One file defines both: the models, which become the tables, and the services, which serve routes over them.
 The target given on the command line says which catalog directory those tables live in, so the same file
 can be applied to a development directory and a production one.
 
@@ -99,6 +102,7 @@ Examples:
   pxt service diff app.py my_dir --json
   pxt service diff app.py my_dir --otel     # also report tracing that is off but was asked for
   pxt service diff app.py pxt://acme:main   # against a hosted database
+  pxt service diff --json-schema            # the schema of the --json output, on its own
 
 Tracing:
   --otel emits OpenTelemetry traces from the services 'update' starts, and needs the instrumentation
@@ -118,7 +122,7 @@ Examples:
 
 Ports:
   A restarted service keeps its previous port, so its callers keep their address; a service that was not
-  running gets one from the OS. --port pins it instead, and fails if that port is taken. It names one port,
+  running gets one from the OS. --port pins it instead, and fails if that port is taken. It takes one port,
   so name the service too when the file defines more than one.
 
 Tracing:
@@ -167,6 +171,7 @@ Examples:
   pxt service list                    # every service running locally
   pxt service list my_dir             # those bound at my_dir and below it
   pxt service list pxt://acme:main    # those in a hosted database
+  pxt service list --json-schema      # the schema of the --json output, on its own
 """
 
 CHECK_EPILOG = f"""\
@@ -180,7 +185,7 @@ Exit codes:
 
 Notes:
   Checks what the file says on its own: it imports without modifying the catalog, it defines a
-  service and a model base, and every udf its columns call is named by a module path another
+  service and a model base, and every udf its columns call has a module path another
   process resolves. Takes no TARGET, so it says nothing about what a target can serve;
   'pxt service diff' answers that.
 {_OWN_APP}{_HOSTED}{_APP_FILE}"""
@@ -194,7 +199,7 @@ Examples:
   pxt service logs pxt://acme:main/ingest --json
 
 A hosted service's log merges the serving process's log records, requests included, with its console output,
-ordered by time. The console output holds the traceback of a service that failed to start. A line appears in the
+ordered by time. The console output has the traceback of a service that failed to start. A line appears in the
 log a few seconds after it is written. A service running on this machine logs to a local file instead, and
 'pxt service logs' reports the path of that file.
 """
@@ -273,6 +278,10 @@ def run(argv: list[str]) -> None:
         _restart(args.names, as_json=args.as_json)
         return
 
+    if verb == 'list' and argv[1:] == ['--json-schema']:
+        print_json_schema(pydantic.TypeAdapter(list[ServiceInstance]))
+        return
+
     if verb == 'list':
         ap = Parser(prog='pxt service list', epilog=LIST_EPILOG, usage_exit_code=EXIT_ERROR)
         ap.add_argument('target', nargs='?', default=None, help='report only the services bound here and below')
@@ -287,6 +296,10 @@ def run(argv: list[str]) -> None:
         add_logs_args(ap)
         args = ap.parse_args(argv[1:])
         print_logs({'service': args.name}, args)
+        return
+
+    if verb == 'diff' and argv[1:] == ['--json-schema']:
+        print_json_schema(pydantic.TypeAdapter(ServicePlan))
         return
 
     epilogs = {'diff': DIFF_EPILOG, 'update': UPDATE_EPILOG, 'run': RUN_EPILOG, 'prune': PRUNE_EPILOG}
@@ -414,7 +427,7 @@ def _update(
         starting = [d.name for d in plan.services if d.resolution != 'up_to_date' and d.status != 'refused']
         if len(starting) > 1:
             print(
-                f'pxt service update: --port names one port, and this would start {len(starting)} services: '
+                f'pxt service update: --port takes one port, and this would start {len(starting)} services: '
                 f'{", ".join(sorted(starting))}.\nName the service to start, or leave --port off to keep each '
                 'service on its current port.',
                 file=sys.stderr,

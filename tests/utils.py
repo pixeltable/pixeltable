@@ -58,10 +58,34 @@ if TYPE_CHECKING:
 TESTS_DIR = Path(os.path.dirname(__file__))
 
 
+DbRootId = Literal['local', 'proxy', 'cloud', 'cloud-cli', 'cloud-serving']
+
+# The 'cloud' database serves this repository; the 'cloud-cli' database serves the CLI app corpus.
+# 'cloud-serving' is missing because test_service.py publishes to its database, so cloud_service_db
+# creates one per session.
+CLOUD_DB_ROOT_URIS = {'cloud': 'pxt://pixeltable:pxttest', 'cloud-cli': 'pxt://pixeltable:pxttest-cli'}
+
+
+def new_db_uri() -> str:
+    return f'pxt://pixeltable:pxttest-{uuid.uuid4().hex[:12]}'
+
+
+_CLOUD_ENV_VARS = ('PIXELTABLE_API_KEY', 'PIXELTABLE_API_URL', 'PIXELTABLE_CLOUD_HOST')
+
+
+def cloud_env_configured() -> bool:
+    return all(os.environ.get(var) for var in _CLOUD_ENV_VARS)
+
+
 @dataclass
 class DatabaseRoot:
-    id: Literal['local', 'proxy', 'cloud']
+    id: DbRootId
+    base_uri: str
     prefix: str
+
+    @property
+    def is_cloud(self) -> bool:
+        return self.id.startswith('cloud')
 
     def make_catalog_path(self, path: str) -> str:
         """Return a catalog path for the given relative path, using this database root."""
@@ -1150,7 +1174,7 @@ def check_media_store_count(
     A cloud database's media store lives in its own container, unreachable from the test process, so the check
     is skipped in that mode.
     """
-    if db_root.id == 'cloud':
+    if db_root.is_cloud:
         # TODO: We should find a way to assert this [PXT-1313].
         return  # media store not reachable; don't assert anything
 
@@ -1224,7 +1248,7 @@ def fetch_presigned(url: str, expires_s: int, host_suffix: str) -> bytes:
 
 def get_temp_store_count(tbl: pxt.Table, db_root: DatabaseRoot) -> int:
     """Count the objects in the temp store of the catalog tbl lives in."""
-    if db_root.id == 'cloud':
+    if db_root.is_cloud:
         return 0  # temp store not reachable
 
     catalog_uri = tbl._tbl_path.catalog_uri
@@ -1236,7 +1260,7 @@ def get_temp_store_count(tbl: pxt.Table, db_root: DatabaseRoot) -> int:
 
 def check_temp_store_count(tbl: pxt.Table, expected_count: int, db_root: DatabaseRoot) -> None:
     """Count the objects in the temp store of the catalog tbl lives in."""
-    if db_root.id == 'cloud':
+    if db_root.is_cloud:
         # TODO: We should find a way to assert this [PXT-1313].
         return  # temp store not reachable; don't assert anything
 

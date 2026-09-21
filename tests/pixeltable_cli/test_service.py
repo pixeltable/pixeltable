@@ -6,14 +6,13 @@ import socket
 import time
 from textwrap import dedent
 from types import SimpleNamespace
-from typing import Any, Callable, ClassVar, Iterator
+from typing import Any, Callable, Iterator
 from unittest.mock import patch
 
 import httpx
 import pytest
 
 import pixeltable as pxt
-from pixeltable import catalog
 from pixeltable.config import Config
 from pixeltable_cli.client.commands import service as service_cmd
 
@@ -26,19 +25,18 @@ from ..utils import (
     get_documents,
     get_video_files,
     home_bucket_uri,
+    new_db_uri,
     skip_test_if_not_installed,
 )
 from .conftest import (
     BUILD_TIMEOUT,
     EXIT_ERROR,
-    PROJECT_EXTRAS,
+    INPUT_MEDIA_PREFIX,
     BackgroundPxt,
     PxtRunner,
-    copy_app_corpus,
     db_update,
-    disposable_db_uri,
+    disposable_db,
     read_logs_until,
-    write_requirements,
 )
 from .hosted import (
     APP_FILE,
@@ -56,45 +54,15 @@ __all__ = ['current_db', 'project']  # fixtures TestHostedService reaches, direc
 
 _REQUEST_TIMEOUT = 30.0
 
-# where the cloud axis's database entry sends inserted media, under its home bucket
-_INPUT_MEDIA_PREFIX = 'entry-input'
-
 
 @pytest.fixture(scope='module')
 def hosted_db(session_cli: PxtRunner, session_project: pathlib.Path) -> Iterator[str]:
-    """The database TestHostedService acts on: its own, not the one the cloud axis reads.
+    """A database for TestHostedService alone.
 
-    Its scenarios run `pxt db update`, which replaces what the database serves, so they cannot share the
-    session's. Module-scoped because creating one runs CodeBuild.
+    Its scenarios publish their own project with `pxt db update`, which replaces what the database serves,
+    so no other test can use it. Creating one runs CodeBuild, hence the module scope.
     """
-    with disposable_db_uri(session_cli, session_project) as uri:
-        yield uri
-
-
-@pytest.fixture(scope='session')
-def cloud_db_uri(
-    session_cli: PxtRunner, session_project: pathlib.Path, pixeltable_wheel: pathlib.Path
-) -> Iterator[str]:
-    """A hosted database of this module's own, built from the session's project.
-
-    These tests deploy the project's application files as services, and a service pod runs the image its
-    database was built with, so the project reaches the pods only by building one. That is why the database
-    the cloud axis normally uses cannot serve here: `pxt db update` would replace the image it runs.
-
-    Session-scoped, since creating a database provisions storage and runs CodeBuild.
-    """
-    copy_app_corpus(session_project)
-    write_requirements(session_project, pixeltable_wheel, *PROJECT_EXTRAS)
-    with disposable_db_uri(session_cli, session_project) as uri:
-        # the entry sends inserted media under a prefix of the home bucket
-        (session_project / 'pixeltable.toml').write_text(
-            f'[[pixeltable.database]]\nname = {json.dumps(uri)}\n'
-            f'db_input_media_dest = {json.dumps(f"{home_bucket_uri(uri)}/{_INPUT_MEDIA_PREFIX}/")}\n',
-            encoding='utf-8',
-        )
-        # the daemon read the project config when it started
-        session_cli('daemon', 'restart', cwd=session_project)
-        session_cli('db', 'update', uri, '-f', cwd=session_project, timeout=BUILD_TIMEOUT)
+    with disposable_db(session_cli, new_db_uri(), session_project) as uri:
         yield uri
 
 
@@ -106,7 +74,7 @@ def authenticated_http(db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -
     authenticates every request and reads the key from X-api-key. Patching the verbs rather than the
     call sites keeps a test's request identical whichever target serves it.
     """
-    if db_root.id != 'cloud':
+    if not db_root.is_cloud:
         return
     import httpx
 
@@ -128,7 +96,7 @@ def no_hosted_services(db_root: DatabaseRoot) -> Iterator[None]:
     The hosted database outlives every test that runs against it, so a service one test leaves behind is
     still deployed while the next one runs, and a recursive list finds it.
     """
-    if db_root.id != 'cloud':
+    if not db_root.is_cloud:
         yield
         return
     from pixeltable.serving.service_manager import get_manager
@@ -164,10 +132,9 @@ def deploy(cli: PxtRunner, app: str, target: str) -> None:
 
 
 def _db_update(cli: PxtRunner, db_root: DatabaseRoot) -> None:
-    if db_root.id != 'cloud':
+    if not db_root.is_cloud:
         return
-    path = catalog.Path.parse(db_root.prefix, allow_empty_path=True)
-    cli('db', 'update', f'pxt://{path.org}:{path.db}', '-f', timeout=BUILD_TIMEOUT)
+    cli('db', 'update', db_root.base_uri, '-f', timeout=BUILD_TIMEOUT)
 
 
 def assert_serving(cli: PxtRunner, app: str, target: str, *names: str) -> dict[str, dict[str, Any]]:
@@ -204,7 +171,7 @@ def _post(endpoint: str, path: str, **body: Any) -> httpx.Response:
 def _fetch_media(url: str, db_root: DatabaseRoot) -> bytes:
     """The bytes behind a media url of a response: a hosted service signs a home bucket url, a local one serves the
     file itself."""
-    if db_root.id == 'cloud':
+    if db_root.is_cloud:
         return fetch_presigned(url, expires_s=3600, host_suffix='.r2.cloudflarestorage.com')
     assert '/media/' in url, url
     resp = httpx.get(url, timeout=_REQUEST_TIMEOUT)
@@ -226,9 +193,23 @@ def _await_job(job_url: str, timeout: float = 120.0) -> Any:
 
 # proxy is excluded because get_manager() hands any non-local path to ServiceManagerProxy, so a
 # 'pxt://local:db' target reaches the cloud management API, which knows no org named 'local'.
-@pytest.mark.db_roots('local', 'cloud', reason='a proxy-daemon database has no service manager of its own')
+@pytest.mark.db_roots('local', 'cloud-serving', reason='a proxy-daemon database has no service manager of its own')
 @pytest.mark.usefixtures('authenticated_http', 'no_hosted_services')
 class TestService:
+    @pytest.mark.db_roots('local', reason='the schema is generated from the models, so no catalog is read')
+    def test_json_schema(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        """Both verbs that emit JSON describe it: a plan as an object, a listing as an array."""
+        plan = json.loads(cli('service', 'diff', '--json-schema').stdout)
+        assert plan['title'] == 'ServicePlan'
+        # computed fields reach the output, so they have to reach the schema too
+        assert 'in_agreement' in plan['properties']
+        assert 'summary' in plan['properties']
+        assert plan['$defs']['ServicePlanSummary']['properties']['restarts']['description'] != ''
+
+        listing = json.loads(cli('service', 'list', '--json-schema').stdout)
+        assert listing['type'] == 'array'
+        assert 'ServiceInstance' in listing['$defs']
+
     def test_config_must_agree(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A service inherits the daemon's config values, so a caller resolving them differently cannot deploy."""
         skip_test_if_not_installed('fastapi')
@@ -320,7 +301,7 @@ class TestService:
 
         after = assert_serving(cli, app, target, 'ingest')['ingest']
         assert after['endpoint'] == before['endpoint']
-        if db_root.id != 'cloud':
+        if not db_root.is_cloud:
             # a local instance is one process, and a restart replaces it
             assert after['pid'] != before['pid']
         resp = _post(after['endpoint'], '/docs', doc_id=1, title='a long enough title', body=None, published=True)
@@ -371,14 +352,14 @@ class TestService:
         # a dry run reports the same and changes nothing
         r = cli('service', 'update', str(app_file), target, '-n', check=False)
         assert r.returncode == 2
-        if db_root.id != 'cloud':
+        if not db_root.is_cloud:
             # pid is only available for local
             assert get_services(cli, target)['ingest']['pid'] == before['pid']
 
         r = cli('service', 'update', str(app_file), target, '-f', '--json')
         assert [s['status'] for s in r.json['services']] == ['applied']
         after = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
-        if db_root.id != 'cloud':
+        if not db_root.is_cloud:
             # pid and port are only available for local
             assert after['pid'] != before['pid'], 'a changed declaration is applied by replacing the process'
             assert after['port'] == before['port'], 'a restart serves on the port callers were given'
@@ -431,7 +412,7 @@ class TestService:
 
         cli('service', 'update', str(app_file), target, '-f')
         after = assert_serving(cli, str(app_file), target, 'notes_app')['notes_app']
-        if db_root.id != 'cloud':
+        if not db_root.is_cloud:
             # pid is only available for local
             assert after['pid'] != running['pid'], 'a changed application is applied by replacing the process'
         upper = httpx.get(f'{after["endpoint"]}/notes/upper', timeout=_REQUEST_TIMEOUT)
@@ -463,13 +444,13 @@ class TestService:
             encoding='utf-8',
         )
 
-        if db_root.id == 'cloud':
+        if db_root.is_cloud:
             # this needs a db update
             r = cli('service', 'diff', str(app_file), target, '--json', check=False)
             assert r.returncode == 2, r.stdout
             assert [s['resolution'] for s in r.json['services']] == ['blocked'], r.stdout
             [op] = [op for s in r.json['services'] for op in s['ops'] if op['target'] == 'project']
-            assert f'pxt db update {db_root.prefix.rsplit("/", 1)[0]}' in op['description'], op['description']
+            assert f'pxt db update {db_root.base_uri}' in op['description'], op['description']
             _db_update(cli, db_root)
 
         r = cli('service', 'diff', str(app_file), target, '--json', check=False)
@@ -481,14 +462,14 @@ class TestService:
 
         cli('service', 'update', str(app_file), target, '-f')
         after = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
-        if db_root.id != 'cloud':
+        if not db_root.is_cloud:
             # pid is only available for local
             assert after['pid'] != before['pid'], 'the new source is served by a new process'
         assert _post(after['endpoint'], '/preview', doc_id=1, title='hello', published=True).json() == {
             'summary': 'HELLO'
         }
 
-    @pytest.mark.db_roots('cloud', reason='cloud-specific behavior')
+    @pytest.mark.db_roots('cloud-serving', reason='cloud-specific behavior')
     def test_db_update_handoff(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A db update doesn't restart services; an explicit restart does."""
         skip_test_if_not_installed('fastapi')
@@ -703,7 +684,7 @@ class TestService:
         clips = pxt.get_table(f'{target}/clips')
         video_url = clips.select(clips.video.fileurl).collect()['video_fileurl'][0]
         expected_prefix = (
-            f'{home_bucket_uri(db_root.prefix)}/{_INPUT_MEDIA_PREFIX}/' if db_root.id == 'cloud' else 'file://'
+            f'{home_bucket_uri(db_root.base_uri)}/{INPUT_MEDIA_PREFIX}/' if db_root.is_cloud else 'file://'
         )
         assert video_url.startswith(expected_prefix), video_url
         # the persisted poster comes back as a url
@@ -743,7 +724,7 @@ class TestService:
         assert recordings.where(recordings.recording_id == 1).count() == 1
         # the uploaded audio is persisted in the home bucket for a hosted table, in the media dir for a local one
         audio_url = recordings.select(recordings.audio.fileurl).collect()['audio_fileurl'][0]
-        expected_prefix = f'{home_bucket_uri(db_root.prefix)}/' if db_root.id == 'cloud' else 'file://'
+        expected_prefix = f'{home_bucket_uri(db_root.base_uri)}/' if db_root.is_cloud else 'file://'
         assert audio_url.startswith(expected_prefix), audio_url
 
         # stopping one service of a file leaves the others serving
@@ -837,7 +818,7 @@ class TestService:
         # a listing narrows to one target
         assert sorted(get_services(cli, first)) == ['ingest']
 
-        if db_root.id != 'cloud':
+        if not db_root.is_cloud:
             # a bare name reaches local services only: a project config may name several databases, so an
             # un-targeted command has no one hosted database to read
             assert len(cli('service', 'list', '--json').json) == 2
@@ -855,7 +836,7 @@ class TestService:
         # a hosted one does
         assert_serving(cli, app, second, 'ingest')
 
-    @pytest.mark.db_roots('cloud', reason='a local service logs to a file')
+    @pytest.mark.db_roots('cloud-serving', reason='a local service logs to a file')
     def test_logs(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
@@ -916,7 +897,7 @@ class TestService:
         r = cli('service', 'logs', f'{target}/nosuch', check=False)
         assert r.returncode == 1 and 'No service' in r.stderr, r.stderr
 
-        if db_root.id == 'cloud':
+        if db_root.is_cloud:
             # a bare name reaches local services only
             r = cli('service', 'logs', 'ingest', check=False)
             assert r.returncode == 1 and "No service 'ingest' is running" in r.stderr, r.stderr
@@ -937,7 +918,7 @@ class TestService:
         assert r.returncode == 1 and 'ambiguous' in r.stderr, r.stderr
         assert f'{target}/ingest' in r.stderr and f'{other}/ingest' in r.stderr
 
-    @pytest.mark.db_roots('local', reason='drives the local proxy daemon directly, so the target axis adds nothing')
+    @pytest.mark.db_roots('local', reason='drives the local proxy daemon directly, so the other roots add nothing')
     def test_proxy_daemon_project_handoff(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
         """A running proxy daemon is reused for its own project, and replaced for another."""
         skip_test_if_not_installed('fastapi')
@@ -974,7 +955,7 @@ class TestService:
             proxy_daemon.stop(db)
             Config.init(reinit=True, project_root=original)
 
-    @pytest.mark.db_roots('local', reason='check reads no catalog, so the target axis adds nothing')
+    @pytest.mark.db_roots('local', reason='check reads no catalog, so the other roots add nothing')
     def test_check(self, cli: PxtRunner, apps: Callable[[str], str], project_dir: pathlib.Path) -> None:
         """check validates an application file on its own: it imports and declares a service."""
         skip_test_if_not_installed('fastapi')
@@ -1101,7 +1082,7 @@ class TestService:
         _db_update(cli, db_root)
         r = cli('service', 'update', str(two), target, '-f', '--port', '8123', check=False)
         assert r.returncode == 1
-        assert '--port names one port' in r.stderr, r.stderr
+        assert '--port takes one port' in r.stderr, r.stderr
         assert get_services(cli, target) == {}, 'a refused update started nothing'
 
         r = cli('service', 'update', str(two), target, 'third', '-f', check=False)
@@ -1113,19 +1094,19 @@ class TestService:
         with socket.socket() as probe:
             probe.bind(('127.0.0.1', 0))
             free_port = probe.getsockname()[1]
-        if db_root.id == 'cloud':
+        if db_root.is_cloud:
             # naming one service leaves only the hosted rule to refuse --port: a hosted service answers
             # on its own hostname
             r = cli('service', 'update', str(two), target, 'second', '-f', '--port', str(free_port), check=False)
             assert r.returncode == 1
             assert 'not a port' in r.stderr, r.stderr
 
-        port_args = [] if db_root.id == 'cloud' else ['--port', str(free_port)]
+        port_args = [] if db_root.is_cloud else ['--port', str(free_port)]
         r = cli('service', 'update', str(two), target, 'second', '-f', *port_args, '--json')
         assert [d['name'] for d in r.json['services']] == ['second'], r.json
         running = get_services(cli, target)
         assert sorted(running) == ['second'], running
-        if db_root.id != 'cloud':
+        if not db_root.is_cloud:
             assert running['second']['port'] == free_port
             assert running['second']['endpoint'].endswith(f':{free_port}')
 
@@ -1162,18 +1143,11 @@ class TestService:
         assert updated == {'id': created['id'], 'title_upper': 'RENAMED'}
 
 
+@pytest.mark.remote_api
+@pytest.mark.expensive
+@pytest.mark.db_roots('local', reason='pxt service acts on a hosted database, not on the catalog a test runs against')
 class TestHostedService:
     """`pxt service` against a hosted database."""
-
-    pytestmark: ClassVar = [
-        pytest.mark.remote_api,
-        pytest.mark.expensive,
-        # cloud_e2e: this drives a hosted database, which needs a Pixeltable API key; CI has none
-        pytest.mark.cloud_e2e,
-        pytest.mark.db_roots(
-            'local', reason='pxt service acts on a hosted database, not on the catalog a test runs against'
-        ),
-    ]
 
     def test_service_lifecycle(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
         app_file = str(project / APP_FILE)

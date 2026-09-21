@@ -1,5 +1,6 @@
 """Tests for 'pxt schema diff', 'pxt schema update' and 'pxt schema prune'."""
 
+import json
 import pathlib
 import re
 from textwrap import dedent
@@ -283,6 +284,27 @@ class TestSchema:
         r = cli('schema', 'diff', str(schema_file), target)
         assert f'= {target}/docs' in r.stdout
         assert 'Plan: 0 create, 0 update, 2 unchanged, 0 extra  |  0 destructive' in r.stdout
+
+    @pytest.mark.db_roots('local', reason='the schema is generated from the models, so no catalog is read')
+    def test_diff_json_schema(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        """--json-schema describes the --json output, including the values an enum field takes."""
+        r = cli('schema', 'diff', '--json-schema')
+        schema = json.loads(r.stdout)
+
+        assert schema['$defs']['TableDiff']['properties']['resolution']['enum'] == [
+            'up_to_date',
+            'create',
+            'update_additive',
+            'update_destructive',
+            'unsupported',
+            'blocked',
+        ]
+        assert 'in_agreement' in schema['properties']
+        assert 'SchemaPlanSummary' in schema['$defs']
+        assert (
+            'not the number of destructive tables'
+            in (schema['$defs']['SchemaPlanSummary']['properties']['destructive']['description'])
+        )
 
     def test_diff_drift(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         p = db_root.make_catalog_path
@@ -739,7 +761,7 @@ class TestSchema:
             )
             return app_file
 
-        if db_root.id == 'cloud':
+        if db_root.is_cloud:
             app_file = write_app('hosted')
             target = p('hosted')
             r = cli('schema', 'diff', str(app_file), target, '--json', check=False)
@@ -748,8 +770,7 @@ class TestSchema:
             assert len(blocked) == 1, r.json['ops']
             assert f'{package}/hosted/functions.py added' in blocked[0]['description']
             assert f'{package}/hosted/pkg/inner.py added' in blocked[0]['description']
-            # rsplit: the command acts on the database, and this prefix has the test's directory too
-            assert f'pxt db update {db_root.prefix.rsplit("/", 1)[0]}' in blocked[0]['description']
+            assert f'pxt db update {db_root.base_uri}' in blocked[0]['description']
             assert r.json['summary']['blocked_ops'] == 1
 
             r = cli('schema', 'update', str(app_file), target, check=False)
@@ -777,7 +798,7 @@ class TestSchema:
         (project_dir / 'proj1' / 'helpers.py').write_text("TAG = 'edited'\n")
         assert_in_agreement(cli, str(project_dir / 'proj1' / 'app.py'), p('proj1'))
 
-    @pytest.mark.db_roots('local', reason='check reads no catalog, so the target axis adds nothing')
+    @pytest.mark.db_roots('local', reason='check reads no catalog, so the other roots add nothing')
     def test_check(
         self,
         cli: PxtRunner,
