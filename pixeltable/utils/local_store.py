@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import glob
 import logging
 import os
@@ -152,7 +153,13 @@ class LocalStore(ObjectStoreBase):
 
     def move_local_file(self, src_path: Path, dest: FileDestination) -> str | None:
         assert dest.local_path is not None
-        src_path.rename(dest.local_path)
+        try:
+            src_path.rename(dest.local_path)
+        except OSError as e:
+            if e.errno != errno.EXDEV:
+                raise
+            # report the move as unsupported, so that the caller falls back to copy-then-delete
+            return None
         _logger.debug(f'Media Storage: moved {src_path} to {dest.url}')
         return dest.url
 
