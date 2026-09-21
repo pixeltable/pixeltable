@@ -503,7 +503,9 @@ class RowBuilder:
         """Record an exception in data_row and propagate it to dependents"""
         data_row.set_exc(slot_idx, exc)
         for idx in self._exc_dependents[slot_idx]:
-            data_row.set_exc(idx, exc)
+            if not data_row.has_exc(idx):
+                # a dependent that already failed keeps its own exception, which is closer to the root cause
+                data_row.set_exc(idx, exc)
 
     def eval(
         self,

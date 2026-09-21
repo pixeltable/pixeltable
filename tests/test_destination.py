@@ -382,6 +382,56 @@ class TestDestination:
         # Ensure that local file is copied to a specified destination
         assert ObjectOps.count(t._id, dest=dest1_uri) == len(r)
 
+    @pytest.mark.db_roots('local', reason='media destination/object-store internals')
+    def test_dest_put_failure(self, monkeypatch: pytest.MonkeyPatch, uses_db: None) -> None:
+        """A failed persist aborts under on_error='abort' and becomes a cell error under on_error='ignore'."""
+        dest_uri = f'{self.resolve_destination_uri(StorageTarget.LOCAL_STORE)}/bucket1'
+        t = pxt.create_table('test_dest_put_failure', schema={'img': pxt.Image | None})
+        t.add_computed_column(img_rot=t.img.rotate(90), destination=dest_uri)
+
+        def fail_put(*args: object, **kwargs: object) -> str:
+            raise OSError('injected put failure')
+
+        monkeypatch.setattr(ObjectOps, 'put_file_resolved', fail_put)
+
+        rows = [{'img': get_image_files()[0]}]
+        with pytest.raises(OSError, match='injected put failure'):
+            t.insert(rows)
+
+        status = t.insert(rows, on_error='ignore')
+        assert status.num_rows == 1
+        assert status.num_excs >= 1
+        assert 'test_dest_put_failure.img_rot' in status.cols_with_excs
+
+        res = t.select(msg=t.img_rot.errormsg, url=t.img_rot.fileurl).collect()
+        assert len(res) == 1
+        assert 'injected put failure' in res[0]['msg']
+        assert res[0]['url'] is None
+        assert ObjectOps.count(t._id, dest=dest_uri) == 0
+
+    @pytest.mark.db_roots('local', reason='media destination/object-store internals')
+    def test_dest_put_failure_shared_dependent(self, monkeypatch: pytest.MonkeyPatch, uses_db: None) -> None:
+        """Two persists failing in one row propagate to their common dependent without colliding."""
+        dest_uri = f'{self.resolve_destination_uri(StorageTarget.LOCAL_STORE)}/bucket1'
+        t = pxt.create_table('test_dest_put_failure_shared', schema={'img': pxt.Image | None})
+        t.add_computed_column(rot90=t.img.rotate(90), destination=dest_uri)
+        t.add_computed_column(rot180=t.img.rotate(180), destination=dest_uri)
+        t.add_computed_column(widths=t.rot90.width + t.rot180.width)
+
+        def fail_put(*args: object, **kwargs: object) -> str:
+            raise OSError('injected put failure')
+
+        monkeypatch.setattr(ObjectOps, 'put_file_resolved', fail_put)
+
+        status = t.insert([{'img': get_image_files()[0]}], on_error='ignore')
+        assert status.num_rows == 1
+        assert set(status.cols_with_excs) == {
+            'test_dest_put_failure_shared.rot90',
+            'test_dest_put_failure_shared.rot180',
+            'test_dest_put_failure_shared.widths',
+        }
+        assert t.where(t.widths.errortype != None).count() == 1
+
     @pytest.mark.very_expensive
     def test_dest_all(self, db_root: DatabaseRoot) -> None:
         """Test destination with all available storage targets"""
