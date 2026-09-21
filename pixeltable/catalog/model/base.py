@@ -9,7 +9,7 @@ from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
-from .definition import BtreeIndex, EmbeddingIndex, IndexDefinition, TableModelMeta, _bind_query_templates
+from .definition import BtreeIndex, EmbeddingIndex, IndexDefinition, TableModelMeta, bind_query_templates
 from .diff import (
     _PY_MISMATCH_HINT,
     PY_DESTRUCTIVE_HINT,
@@ -231,7 +231,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                             spec['type'], allow_builtin_types=False
                         )
                     if 'value' in spec:
-                        spec['value'] = _bind_query_templates(spec['value'].copy(), catalog_dir)
+                        spec['value'] = bind_query_templates(spec['value'].copy(), catalog_dir)
                     origin: Literal['base_query', 'model_body'] = (
                         'base_query' if col_name in base_query_cols else 'model_body'
                     )

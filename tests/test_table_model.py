@@ -1118,6 +1118,36 @@ class TestTableModel:
             view_from_query2.order_by(view_from_query2.id, view_from_query2.pos).collect(),
         )
 
+    def test_table_model_with_query(self, db_root: DatabaseRoot) -> None:
+        """Table model involving a @pxt.query."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Asks(TableModel, name='asks'):
+            question: pxt.String
+
+        TableModel.update_all(p(''))
+
+        TableModel2 = pxt.model_base()
+
+        class Docs(TableModel2, name='docs'):
+            body: pxt.String
+
+        @pxt.query
+        def find(q: str) -> pxt.Query:
+            return Docs.where(Docs.body.startswith(q)).select(body=Docs.body).limit(3)  # type: ignore[arg-type]
+
+        class Asks2(TableModel2, name='asks'):
+            question: pxt.String
+            hits = find(question)
+
+        TableModel2.update_all(p(''))
+
+        Docs.insert(body='A sample doc body that has a bunch of text')
+        Asks2.insert(question='A sample doc body')
+        res = Asks2.table.order_by(Asks2.question).collect()  # type: ignore[arg-type]
+        assert res[0] == {'question': 'A sample doc body', 'hits': [{'body': 'A sample doc body that has a bunch of text'}]}
+
     def test_diff_all(self, db_root: DatabaseRoot) -> None:
         """diff_all() reports added/dropped columns and an iterator mismatch against already-created tables."""
         skip_test_if_not_installed('imagehash')
