@@ -13,7 +13,7 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path, fold_identifier
 from pixeltable.catalog.model import schema
-from pixeltable.config import SECRET_SECTION, Config
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.service import auth, db, management_client, proxy_daemon, session_cache
 from pixeltable.service.management_protocol import (
@@ -106,11 +106,7 @@ def config(_req: Request) -> models.ConfigResponse:
     entries: list[models.ConfigEntry] = []
     for ck in Config.get().config_keys():
         source = Config.get().get_value_source(ck.key, section=ck.section)
-        is_sensitive = (
-            ck.section == SECRET_SECTION
-            or ck.key in client_creds
-            or any(ck.key.endswith(s) for s in sensitive_suffixes)
-        )
+        is_sensitive = ck.key in client_creds or any(ck.key.endswith(s) for s in sensitive_suffixes)
         if source == 'unset':
             value: str | None = None
         elif is_sensitive:

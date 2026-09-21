@@ -5,12 +5,12 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import sys
 import time
 from typing import Any, Iterator
 
-from pixeltable.utils.project import ProjectFingerprint
 from pixeltable_cli import models
 from pixeltable_cli.types import DbState
 from pixeltable_cli.utils import split_pxt_uri
@@ -121,7 +121,9 @@ def _fmt_project(resources: dict[str, Any]) -> str | None:
     if fp is None:
         return None
     files = fp.get('files') or {}
-    digest = ProjectFingerprint.model_validate(fp).archive_digest()[:8]
+    # must match ProjectFingerprint.archive_digest() in pixeltable/utils/project.py;
+    # inlined to avoid importing from pixeltable here, which adds substantial load latency
+    digest = hashlib.sha256(json.dumps(files, sort_keys=True, separators=(',', ':')).encode()).hexdigest()[:8]
     md_version = resources.get('pxt_md_version') or 0
     return f'{len(files)} files  archive {digest}  md_version {md_version}'
 

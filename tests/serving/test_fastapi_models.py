@@ -15,7 +15,7 @@ import pixeltable as pxt
 from pixeltable_cli.types import ServiceSpec
 
 from ..utils import DatabaseRoot, get_image_files, pxt_raises, skip_test_if_not_installed
-from .test_fastapi import add_one, make_test_client
+from .test_fastapi import add_one, assert_correct_result_url, make_test_client
 
 
 class TestFastAPIModels:
@@ -97,7 +97,7 @@ class TestFastAPIModels:
         # each route serves the media column the way its own response needs it
         rows = client.post('/thumb-json', json={'note_id': 5}).json()['rows']
         assert len(rows) == 1, rows
-        assert '/media/' in rows[0]['thumb'], rows[0]['thumb']
+        assert_correct_result_url(rows[0]['thumb'], db_root, True)
         resp = client.post('/thumb-file', json={'note_id': 5})
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('image/'), resp.headers['content-type']
