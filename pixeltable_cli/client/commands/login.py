@@ -23,12 +23,12 @@ from ..utils import get_request, post_request
 EPILOG = """\
 Examples:
   pxt login                     # sign in, or create an account, in a browser
-  pxt whoami                    # who this machine is signed in as, and whether that still works
+  pxt whoami                    # who this machine is signed in as, and whether Pixeltable Cloud recognizes it
   pxt logout                    # forget this device's cached session
 
-The session is cached in your Pixeltable home directory, readable only by you. A command that needs
-it renews it first when its token has expired, for as long as Pixeltable Cloud honors it. An API
-key, if you have one set, is used in preference to it.
+The session is cached in your Pixeltable home directory. When its token expires, the next command
+that needs a token renews the session, for as long as Pixeltable Cloud honors it. An API key, if
+you have one set, is used in preference to it.
 
 The control plane says where to sign in, so there is nothing to configure. The browser need not be
 on this machine, so this works over SSH.
@@ -68,7 +68,6 @@ def _await_approval(start: dict[str, Any]) -> dict[str, Any]:
     poll = {'client_id': start['client_id'], 'device_code': start['device_code']}
     while True:
         time.sleep(min(interval, max(deadline - time.time(), 0.0)))
-        # after the sleep, which can end at the deadline: a poll with an expired code gets the service's error
         if time.time() >= deadline:
             _fail(_EXPIRED)
         answer = post_request('/api/login/poll', poll)
@@ -115,7 +114,9 @@ def run_logout(argv: list[str]) -> None:
 
 
 def run_whoami(argv: list[str]) -> None:
-    parser = Parser(prog='pxt whoami', description='show the credential commands send, and whether it works')
+    parser = Parser(
+        prog='pxt whoami', description='show the credential commands send, and whether Pixeltable Cloud recognizes it'
+    )
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     parser.add_argument(
         '--offline', action='store_true', help='Report the cached session without asking the control plane'
