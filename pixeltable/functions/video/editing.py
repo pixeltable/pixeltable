@@ -27,7 +27,7 @@ class make_video(pxt.Aggregator):
     Aggregate function that creates a video from a sequence of images, using the default video encoder and
     yuv420p pixel format.
 
-    Call as `make_video(order_expr, frame, *, fps=25)`. `order_expr` is a frame index or timestamp.
+    Call as `make_video(order_key, frame, *, fps=25)`. `order_key` is a frame index or timestamp.
     `order_by=` is invalid.
 
     Args:
