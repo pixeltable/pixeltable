@@ -26,12 +26,12 @@ Examples:
   pxt whoami                    # who this machine is signed in as, and whether that still works
   pxt logout                    # forget this device's cached session
 
-The session is cached in your Pixeltable home directory, readable only by you, and renews itself in
-the background for as long as Pixeltable Cloud honors it. An API key, if you have one set, is used
-in preference to it.
+The session is cached in your Pixeltable home directory, readable only by you. A command that needs
+it renews it first when its token has expired, for as long as Pixeltable Cloud honors it. An API
+key, if you have one set, is used in preference to it.
 
-Which WorkOS environment to sign in to is answered by the control plane itself, so there is nothing
-to configure. The browser need not be on this machine, so this works over SSH.
+The control plane says where to sign in, so there is nothing to configure. The browser need not be
+on this machine, so this works over SSH.
 
 
 """

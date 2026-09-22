@@ -713,22 +713,24 @@ you@example.com on https://internal-api.pixeltable.com
 Organization: org_01H8XYZ
 ```
 
-A sign-in lasts as long as Pixeltable Cloud honors it, renewing itself in the background. Nothing
-on this machine expires it on a timer. `pxt whoami` asks whether the credential is still accepted
-and exits nonzero when it is not, so it answers "will my next command work" rather than "is there a
-file here"; `pxt whoami --offline` reports the cached session without asking. A key whose grants do
-not cover the check still counts as accepted, and `pxt whoami` prints the refusal as a note.
+A sign-in lasts as long as Pixeltable Cloud honors it: a command that needs the session renews it
+first when its token has expired, and nothing on this machine expires it on a timer. `pxt whoami`
+asks whether the credential is still accepted and exits nonzero when it is not, so it answers "will
+my next command work" rather than "is there a file here"; `pxt whoami --offline` reports the cached
+session without asking. A key whose grants do not cover the check still counts as accepted, and
+`pxt whoami` prints the refusal as a note.
 
 ```bash
 pxt logout
 ```
 
-`pxt logout` forgets this machine's cached session. When the session has a WorkOS session id, it
-also opens the sign-in service's sign-out page for that session in your browser, and prints the link
-when no browser opens. Both, because a browser that is still signed in confirms the next code without
-saying which account it is for, so signing out of one and not the other leaves you signed in as
-someone you did not choose. Forgetting the session needs no network: when the sign-in service cannot
-be reached, `pxt logout` still signs this machine out, and warns that the browser is still signed in.
+`pxt logout` forgets this machine's cached session. When the session has a sign-in service session
+id, it also opens the sign-in service's sign-out page for that session in your browser, and prints
+the link when no browser opens. Both, because a browser that is still signed in confirms the next
+code without saying which account it is for, so signing out of one and not the other leaves you
+signed in as someone you did not choose. Forgetting the session needs no network: when the sign-in
+service cannot be reached, `pxt logout` still signs this machine out, and warns that the browser is
+still signed in.
 
 <Note>
 An **API key** takes precedence over a sign-in whenever both are present: it is the explicit
