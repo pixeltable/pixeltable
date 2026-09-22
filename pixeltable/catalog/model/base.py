@@ -185,13 +185,16 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         if len(update_diffs) > 0:
             catalog_dir = catalog.Path.dir_prefix(catalog_dir)
 
+            added_cols = {
+                name: {c.name for c in d.ops if c.target == 'column' and c.op == 'add'} for name, d in update_diffs
+            }
+
             # A new column may query a model this same call creates. Binding the column's query needs that
             # table, so create it, and whatever it references in turn, ahead of the migrations below.
             queried: set[TableModelMeta] = set()
-            for name, d in update_diffs:
-                new_col_names = {c.name for c in d.ops if c.target == 'column' and c.op == 'add'}
+            for name, added in added_cols.items():
                 for col_name, col_spec in user_columns(registered_models[name]).items():
-                    if col_name in new_col_names:
+                    if col_name in added:
                         queried |= _queried_models(col_spec)
             prerequisites: set[TableModelMeta] = set()
             while len(queried) > 0:
@@ -200,21 +203,17 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     continue
                 prerequisites.add(queried_model)
                 queried |= _referenced_models(queried_model)
-            # Only the prerequisites that don't exist yet: an existing one is already usable, and creating it
-            # here would bind its model to the schema it has before the migrations below.
-            # _creation_order() puts each model after the ones it references.
+            # only the ones that don't exist yet: _create() also binds the model, and binding it before the
+            # migrations below would fix its columns to the pre-migration schema
             for create_name, create_model in _creation_order(registered_models):
                 if create_model in prerequisites and create_name in pending_creates:
                     _, was_created = create_model._create(catalog_dir)
                     if was_created:
-                        # another writer got there first if not; leaving the name in place lets the creation
-                        # pass at the end report that
-                        pending_creates.discard(create_name)
+                        pending_creates.discard(create_name)  # not a concurrent creation: this call made it
 
             change_sets: list[TableSchemaChangeSet] = []
             for name, d in update_diffs:
                 model = registered_models[name]
-                new_col_names = {c.name for c in d.ops if c.target == 'column' and c.op == 'add'}
                 dropped_col_names = [c.name for c in d.ops if c.target == 'column' and c.op == 'drop']
                 new_idx_refs = [c.details.index_ref for c in d.ops if c.target == 'index' and c.op == 'add']
                 dropped_idx_names = [c.name for c in d.ops if c.target == 'index' and c.op == 'drop']
@@ -225,7 +224,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 base_query_cols = base_query_columns(model)
                 new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]] = {}
                 for col_name, col_spec in user_cols.items():
-                    if col_name not in new_col_names:
+                    if col_name not in added_cols[name]:
                         continue
                     spec = col_spec.copy()
                     if 'type' in spec:
