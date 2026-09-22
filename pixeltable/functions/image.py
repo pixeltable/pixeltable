@@ -584,7 +584,11 @@ class stitch_tiles(pxt.Aggregator):
     The reconstruction is naive: tiles are pasted in the order they arrive, so where tiles overlap, later tiles
     overwrite earlier ones. It composites pixels and does not merge or deduplicate detections across tile seams.
 
+    Call as `stitch_tiles(order_expr, tile, tile_box, width, height)`. `order_by=` is invalid.
+
     Args:
+        order_expr: The expression that orders the tiles within a group, typically the tile position emitted
+            by `tile_iterator`.
         tile: The image tile to paste, the same size as the tiles emitted by
         [`tile_iterator`][pixeltable.functions.image.tile_iterator]. All tiles in a group must have the same mode
             (and palette, for palette images).
