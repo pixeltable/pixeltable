@@ -54,7 +54,7 @@ class Session:
         return bool(self.refresh_token and self.client_id)
 
 
-# The JSON types a cache record may give each Session field.
+# The types each Session field may have in a cache record.
 _FIELD_TYPES: dict[str, tuple[type, ...]] = {
     'access_token': (str,),
     'expires_at': (int, float),
