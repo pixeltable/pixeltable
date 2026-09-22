@@ -842,8 +842,38 @@ def list_orgs(_req: Request) -> dict[str, Any]:
 
 
 @router.post('/api/org/create')
-def create_org(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(CreateOrgRequest))
+def create_org(req: Request) -> models.OrgCreateResponse:
+    body = req.body(CreateOrgRequest)
+    # read before the call, since the reply depends on which credential created the organization
+    cred = management_client.configured_credential()
+    created = management_client.api_call(body)
+    name = str(created.get('org') or body.org)
+    if cred is not None and cred.kind == 'api_key':
+        return models.OrgCreateResponse(
+            org=created,
+            warning=f'Your API key stays bound to its own organization. To work in {name}, run `pxt login`, '
+            f'or use a key created in {name}.',
+        )
+
+    # The control plane takes the organization from the token, so the session is renewed for the new one.
+    # The organization exists by now and create_org must not be repeated, so a failed switch is a warning.
+    org_id = str(created.get('org_id') or '')
+    if org_id == '':
+        return models.OrgCreateResponse(
+            org=created,
+            warning=f'Pixeltable Cloud did not return the id of {name}, so your `pxt login` session was not '
+            f'switched to it. Run `pxt login` to use {name}.',
+        )
+    try:
+        session = auth.rescope(management_client.api_url(), org_id)
+    except (excs.Error, OSError) as e:
+        reason = e.message if isinstance(e, excs.Error) else e.strerror or type(e).__name__
+        # an AuthorizationError already says how to sign in again
+        hint = '' if isinstance(e, excs.AuthorizationError) else f' Run `pxt login` to use {name}.'
+        return models.OrgCreateResponse(
+            org=created, warning=f'Your `pxt login` session could not switch to {name}: {reason}{hint}'
+        )
+    return models.OrgCreateResponse(org=created, session_organization_id=session.organization_id)
 
 
 @router.get('/api/org')

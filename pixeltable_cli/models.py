@@ -345,3 +345,10 @@ class LogoutResponse(BaseModel):
     signed_out: bool
     # where to send a browser to end the sign-in behind the session, empty when there is none
     browser_logout_url: str
+
+
+class OrgCreateResponse(BaseModel):
+    org: dict[str, Any]  # the control plane's answer
+    # the organization the `pxt login` session was switched to; empty when it was not switched
+    session_organization_id: str = ''
+    warning: str = ''

@@ -26,6 +26,8 @@ import pytest
 
 from pixeltable import exceptions as excs
 from pixeltable.service import auth
+from pixeltable_cli.server import routes
+from pixeltable_cli.server.router import Request
 
 from .conftest import PxtResult, PxtRunner
 
@@ -147,6 +149,17 @@ def _free_port() -> int:
 
 @pytest.fixture(scope='module')
 def control_plane() -> Iterator[ControlPlane]:
+    plane = ControlPlane(port=_free_port())
+    server = _serve(plane)
+    try:
+        yield plane
+    finally:
+        server.shutdown()
+
+
+@pytest.fixture
+def fresh_plane() -> Iterator[ControlPlane]:
+    """A stub on a port of its own, so its URL misses the process-wide endpoint cache."""
     plane = ControlPlane(port=_free_port())
     server = _serve(plane)
     try:
@@ -360,9 +373,12 @@ class TestKey:
         assert len(control_plane.seen) == before
 
 
+_CREATED_ORG = {'org_id': 'org_01NEW', 'org': _ORG, 'default_db': 'main'}
+
+
 class TestOrgCreate:
     def test_org_create(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        control_plane.answers['create_org'] = {'org': _ORG, 'default_db': 'main'}
+        control_plane.answers['create_org'] = dict(_CREATED_ORG)
 
         r = cloud_cli('org', 'create', _ORG, '--name', 'Acme Inc', '--location', 'aws/us-east-1')
 
@@ -375,7 +391,7 @@ class TestOrgCreate:
 
     def test_org_create_defaults(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         """A display name and a location are optional, and reach the control plane as null when omitted."""
-        control_plane.answers['create_org'] = {'org': _ORG, 'default_db': 'main'}
+        control_plane.answers['create_org'] = dict(_CREATED_ORG)
 
         cloud_cli('org', 'create', _ORG)
 
@@ -384,11 +400,69 @@ class TestOrgCreate:
         assert sent['location'] is None
 
     def test_org_create_json(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        control_plane.answers['create_org'] = {'org': _ORG, 'default_db': 'main'}
+        control_plane.answers['create_org'] = dict(_CREATED_ORG)
 
         r = cloud_cli('org', 'create', _ORG, '--json')
 
         assert r.json['org'] == _ORG
+
+    def test_org_create_switches_session(
+        self, cloud_cli: PxtRunner, control_plane: ControlPlane, signed_in: Callable[..., None]
+    ) -> None:
+        """The control plane takes the organization from the token, so the session is renewed for the new one."""
+        signed_in(organization_id='')
+        control_plane.answers['create_org'] = dict(_CREATED_ORG)
+        control_plane.token_seen.clear()
+        control_plane.tokens[:] = [(200, control_plane.grant(organization_id='org_01NEW', refresh_token='refresh-2'))]
+
+        r = cloud_cli('org', 'create', _ORG)
+
+        assert control_plane.token_seen == [
+            {
+                'grant_type': 'refresh_token',
+                'refresh_token': 'refresh-1',
+                'client_id': control_plane.client_id,
+                'organization_id': 'org_01NEW',
+            }
+        ]
+        assert f'session now uses {_ORG}' in r.stdout
+        assert 'Organization: org_01NEW' in cloud_cli('whoami').stdout
+        assert len(control_plane.token_seen) == 1
+
+    def test_org_create_switch_refused(
+        self, cloud_cli: PxtRunner, control_plane: ControlPlane, signed_in: Callable[..., None]
+    ) -> None:
+        """The organization exists either way, so a refused renewal is a warning and not a failure."""
+        control_plane.answers['create_org'] = dict(_CREATED_ORG)
+        signed_in(organization_id='')
+        control_plane.tokens[:] = [_REJECTED]
+
+        r = cloud_cli('org', 'create', _ORG)
+
+        assert _ORG in r.stdout
+        assert 'pxt login' in r.stderr
+
+        signed_in(organization_id='')
+        control_plane.tokens[:] = [_REJECTED]
+
+        r = cloud_cli('org', 'create', _ORG, '--json')
+
+        assert r.json['org'] == _ORG
+        assert 'pxt login' in r.stderr
+
+    def test_org_create_with_api_key(
+        self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An API key belongs to one organization, so creating another one leaves the key where it was."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
+        fresh_plane.answers['create_org'] = dict(_CREATED_ORG)
+
+        answer = routes.create_org(Request(query={}, body_bytes=json.dumps({'org': _ORG}).encode()))
+
+        assert 'stays bound to its own organization' in answer.warning
+        assert answer.session_organization_id == ''
+        assert fresh_plane.token_seen == []
 
 
 class TestLogin:
@@ -472,16 +546,27 @@ class TestLogin:
 
     def test_renewal_rotated_token(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         """WorkOS rotates on every renewal, so the next one has to present the token it just issued."""
-        # a token already past its expiry, so the next command renews before sending anything
-        control_plane.tokens[:] = [(200, control_plane.grant(access_token=_claims(exp=time.time() - 1)))]
+        # tokens already past their expiry, so each command renews before sending anything
+        spent = _claims(exp=time.time() - 1)
+        control_plane.tokens[:] = [(200, control_plane.grant(access_token=spent))]
         cloud_cli('login')
-        control_plane.tokens[:] = [(200, control_plane.grant(refresh_token='refresh-2'))]
+        control_plane.tokens[:] = [
+            (200, control_plane.grant(access_token=spent, refresh_token='refresh-2')),
+            (200, control_plane.grant(refresh_token='refresh-3')),
+        ]
 
         cloud_cli('whoami')
+        cloud_cli('whoami')
 
-        renewal = control_plane.token_seen[-1]
-        assert renewal['grant_type'] == 'refresh_token'
-        assert renewal['refresh_token'] == 'refresh-1'
+        first, second = control_plane.token_seen[-2:]
+        assert first == {
+            'grant_type': 'refresh_token',
+            'refresh_token': 'refresh-1',
+            'client_id': control_plane.client_id,
+            'organization_id': 'org_01TEST',
+        }
+        assert second['refresh_token'] == 'refresh-2'
+        assert second['organization_id'] == 'org_01TEST'
 
     def test_renewal_rejected(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         """A refresh token the server no longer honors sends you back to the browser."""
@@ -498,25 +583,15 @@ class TestLogin:
 class TestDiscovery:
     """Resolving where to sign in, which the control plane answers."""
 
-    @pytest.fixture
-    def plane(self) -> Iterator[ControlPlane]:
-        """A stub on a port of its own, so its URL misses the process-wide endpoint cache."""
-        plane = ControlPlane(port=_free_port())
-        server = _serve(plane)
-        try:
-            yield plane
-        finally:
-            server.shutdown()
+    def test_sign_in_config(self, fresh_plane: ControlPlane) -> None:
+        resolved = auth.sign_in_config(fresh_plane.url)
 
-    def test_sign_in_config(self, plane: ControlPlane) -> None:
-        resolved = auth.sign_in_config(plane.url)
+        assert resolved.client_id == fresh_plane.client_id
+        assert resolved.workos_api == fresh_plane.url
+        assert resolved.url('/user_management/authenticate') == f'{fresh_plane.url}/user_management/authenticate'
 
-        assert resolved.client_id == plane.client_id
-        assert resolved.workos_api == plane.url
-        assert resolved.url('/user_management/authenticate') == f'{plane.url}/user_management/authenticate'
-
-    def test_control_plane_without_client(self, plane: ControlPlane) -> None:
-        plane.client_id = ''
+    def test_control_plane_without_client(self, fresh_plane: ControlPlane) -> None:
+        fresh_plane.client_id = ''
 
         with pytest.raises(excs.Error, match='did not say which sign-in client'):
-            auth.sign_in_config(plane.url)
+            auth.sign_in_config(fresh_plane.url)

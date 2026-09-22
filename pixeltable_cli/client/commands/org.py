@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 
 from ..hosted import parse_org_uri, print_org
 from ..parser import Parser
@@ -47,15 +48,21 @@ def run(argv: list[str]) -> None:
 
 
 def _create(args: argparse.Namespace) -> None:
-    """Create the organization and its first database."""
+    """Create the organization and its first database, and switch a `pxt login` session to it."""
     body = {'org': args.org, 'display_name': args.display_name, 'location': args.location}
     resp = post_request('/api/org/create', body)
-    record = resp if isinstance(resp, dict) else {}
+    record = resp['org']
+    # stderr, so that --json leaves one document on stdout
+    if resp['warning'] != '':
+        print(f'pxt org create: warning: {resp["warning"]}', file=sys.stderr)
 
     if args.json_output:
         print(json.dumps(record))
         return
-    print(f'{record.get("org", args.org)}  (database {record.get("default_db") or "main"})')
+    name = record.get('org', args.org)
+    print(f'{name}  (database {record.get("default_db") or "main"})')
+    if resp['session_organization_id'] != '':
+        print(f'Your `pxt login` session now uses {name}.')
 
 
 def _list(args: argparse.Namespace) -> None:
