@@ -210,7 +210,6 @@ def _list(args: argparse.Namespace) -> None:
 
 
 def _create(args: argparse.Namespace) -> None:
-    # No --grant asks for a key that acts as you; any grant asks for one that acts as nobody.
     grants = _grants(args.grant, '--grant') if args.grant is not None else []
     resp = post_request('/api/key/create', {'name': args.name, 'grants': grants})
     key = resp.get('key', {}) if isinstance(resp, dict) else {}
