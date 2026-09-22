@@ -8,7 +8,9 @@ import json
 import os
 import stat
 import tempfile
+import threading
 import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -132,15 +134,61 @@ def load(api_url: str) -> Session | None:
     return _from_record(_read_sessions(check_private=True).get(api_url))
 
 
-def _exclusive() -> InterProcessLock:
-    """The lock a writer takes for the whole of its read-modify-write.
+# InterProcessLock excludes other processes but not other threads of this one
+_thread_lock = threading.Lock()
 
-    Daemons for different projects share one Pixeltable home, so two renewals for different control
-    planes would otherwise each read the old file and the later replace() would drop the earlier one.
+
+@contextlib.contextmanager
+def _exclusive() -> Iterator[None]:
+    """Hold the cache file for the whole of a read-modify-write, against this process's threads and other processes.
+
+    Daemons for different projects share one Pixeltable home, so two writers would otherwise each read the
+    old file and the later replace() would drop the earlier one's change. Neither lock is reentrant, so the
+    holder must not call save(), clear() or renew().
     """
-    path = Config.get().home / 'auth'
-    path.mkdir(parents=True, exist_ok=True)
-    return InterProcessLock(str(path / 'sessions.lock'))
+    with _thread_lock:
+        path = Config.get().home / 'auth'
+        path.mkdir(parents=True, exist_ok=True)
+        with InterProcessLock(str(path / 'sessions.lock')):
+            yield
+
+
+class RejectedRefreshError(Exception):
+    """Raised by the refresh() passed to renew() when the sign-in service refuses the refresh token.
+
+    renew() discards the session, as WorkOS asks of a client whose refresh token was refused, and then
+    raises `error`.
+    """
+
+    error: excs.Error
+
+    def __init__(self, error: excs.Error) -> None:
+        super().__init__(error.message)
+        self.error = error
+
+
+def renew(api_url: str, stale: Callable[[Session], bool], refresh: Callable[[Session], Session]) -> Session | None:
+    """The session for api_url, replaced by refresh(session) if stale(session) holds once the cache is locked.
+
+    The lock is held across refresh(): WorkOS refuses a refresh token it has already rotated, so a second
+    renewal of the same session would fail. Rereading under the lock picks up a renewal that finished
+    meanwhile, and a sign-out, in which case this returns None.
+    """
+    with _exclusive():
+        cache = _read_sessions(check_private=True)
+        session = _from_record(cache.get(api_url))
+        if session is None or not stale(session):
+            return session
+        try:
+            renewed = refresh(session)
+        except RejectedRefreshError as e:
+            del cache[api_url]
+            _write_sessions(cache)
+            raise e.error from None
+        # the refresh token just spent is gone, so losing the rotated one would leave no way back into the session
+        cache[api_url] = dataclasses.asdict(renewed)
+        _write_sessions(cache)
+        return renewed
 
 
 def save(api_url: str, session: Session) -> None:

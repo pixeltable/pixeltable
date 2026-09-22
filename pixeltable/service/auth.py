@@ -240,11 +240,6 @@ def device_login_poll(api_url: str, client_id: str, device_code: str) -> Session
     return session
 
 
-# Renewal spends the refresh token and writes back the rotated one; WorkOS refuses a token it has
-# already rotated, so renewals run one at a time.
-_renewal_lock = threading.Lock()
-
-
 def _refresh(api_url: str, session: Session, organization_id: str) -> Session:
     """Spend the session's refresh token on a new token, scoped to organization_id unless it is empty.
 
@@ -264,9 +259,11 @@ def _refresh(api_url: str, session: Session, organization_id: str) -> Session:
     answer = _token_request(api_url, fields)
     if isinstance(answer, TokenErrorResponse):
         if answer.code == _REJECTED_GRANT:
-            raise excs.AuthorizationError(
-                excs.ErrorCode.MISSING_CREDENTIALS,
-                f'Your Pixeltable session was rejected ({answer.code}: {answer.description}). {SIGN_IN_AGAIN}',
+            raise session_cache.RejectedRefreshError(
+                excs.AuthorizationError(
+                    excs.ErrorCode.MISSING_CREDENTIALS,
+                    f'Your Pixeltable session was rejected ({answer.code}: {answer.description}). {SIGN_IN_AGAIN}',
+                )
             )
         raise excs.AuthorizationError(
             excs.ErrorCode.MISSING_CREDENTIALS,
@@ -280,17 +277,12 @@ def _refresh(api_url: str, session: Session, organization_id: str) -> Session:
 
 def access_token(api_url: str) -> str | None:
     """A token to send to api_url, renewing first if the cached one is spent. None when there is no session."""
-    with _renewal_lock:
-        session = session_cache.load(api_url)
-        if session is None:
-            return None
-        if session.is_usable():
-            return session.access_token
-        renewed = _refresh(api_url, session, session.organization_id)
-        # WorkOS rotates on every renewal, so the token just sent is already spent: losing the new
-        # one here would leave no way back into the session.
-        session_cache.save(api_url, renewed)
-        return renewed.access_token
+    session = session_cache.load(api_url)
+    if session is not None and not session.is_usable():
+        session = session_cache.renew(
+            api_url, lambda s: not s.is_usable(), lambda s: _refresh(api_url, s, s.organization_id)
+        )
+    return None if session is None else session.access_token
 
 
 def rescope(api_url: str, organization_id: str) -> Session:
@@ -298,15 +290,12 @@ def rescope(api_url: str, organization_id: str) -> Session:
 
     This renews a usable token too: one issued before the organization existed is scoped to no organization.
     """
-    with _renewal_lock:
-        session = session_cache.load(api_url)
-        if session is None:
-            raise excs.AuthorizationError(
-                excs.ErrorCode.MISSING_CREDENTIALS, f'There is no Pixeltable session to switch. {SIGN_IN_AGAIN}'
-            )
-        renewed = _refresh(api_url, session, organization_id)
-        session_cache.save(api_url, renewed)
-        return renewed
+    renewed = session_cache.renew(api_url, lambda _s: True, lambda s: _refresh(api_url, s, organization_id))
+    if renewed is None:
+        raise excs.AuthorizationError(
+            excs.ErrorCode.MISSING_CREDENTIALS, f'There is no Pixeltable session to switch. {SIGN_IN_AGAIN}'
+        )
+    return renewed
 
 
 def browser_logout_url(api_url: str, session: Session) -> str:

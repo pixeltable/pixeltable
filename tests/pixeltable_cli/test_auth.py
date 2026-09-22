@@ -19,6 +19,7 @@ import threading
 import time
 import urllib.parse
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Callable, Iterator
@@ -82,6 +83,7 @@ class ControlPlane:
     device: dict[str, Any] = field(default_factory=lambda: dict(_DEVICE))
     tokens: list[tuple[int, dict[str, Any]]] = field(default_factory=list)
     token_seen: list[dict[str, str]] = field(default_factory=list)
+    token_delay_s: float = 0.0  # how long the token endpoint takes to answer
 
     @property
     def url(self) -> str:
@@ -106,6 +108,7 @@ class ControlPlane:
 
     def next_token(self, fields: dict[str, str]) -> tuple[int, dict[str, Any]]:
         self.token_seen.append(fields)
+        time.sleep(self.token_delay_s)
         return self.tokens.pop(0) if len(self.tokens) > 0 else (200, self.grant())
 
 
@@ -604,7 +607,7 @@ class TestLogin:
         assert second['organization_id'] == 'org_01TEST'
 
     def test_renewal_rejected(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        """A refresh token the server no longer honors sends you back to the browser."""
+        """A refresh token the server no longer honors sends you back to the browser, and is discarded."""
         control_plane.tokens[:] = [(200, control_plane.grant(access_token=_claims(exp=time.time() - 1)))]
         cloud_cli('login')
         control_plane.tokens[:] = [_REJECTED]
@@ -613,6 +616,99 @@ class TestLogin:
 
         assert r.returncode == 1
         assert 'rejected' in r.stderr
+        assert 'Not signed in' in cloud_cli('whoami', check=False).stderr
+
+
+# Renew the session of the control plane at argv[1] once the file at argv[3] exists, having created the one
+# at argv[2] to say it is ready.
+_RENEW_IN_A_PROCESS = """\
+import pathlib
+import sys
+import time
+
+from pixeltable.service import auth
+
+pathlib.Path(sys.argv[2]).touch()
+while not pathlib.Path(sys.argv[3]).exists():
+    time.sleep(0.01)
+print(auth.access_token(sys.argv[1]))
+"""
+
+
+class TestRenewal:
+    """Renewing a spent session, which every process sharing the Pixeltable home does from one file."""
+
+    _CALLERS = 4
+
+    @staticmethod
+    def _renew_in_threads(api_url: str, workdir: pathlib.Path) -> list[str]:
+        barrier = threading.Barrier(TestRenewal._CALLERS)
+
+        def renew(_i: int) -> str:
+            barrier.wait(timeout=30)
+            return str(auth.access_token(api_url))
+
+        with ThreadPoolExecutor(max_workers=TestRenewal._CALLERS) as pool:
+            return list(pool.map(renew, range(TestRenewal._CALLERS)))
+
+    @staticmethod
+    def _renew_in_processes(api_url: str, workdir: pathlib.Path) -> list[str]:
+        go = workdir / 'go'
+        ready = [workdir / f'ready-{i}' for i in range(TestRenewal._CALLERS)]
+        procs = [
+            subprocess.Popen(
+                [sys.executable, '-c', _RENEW_IN_A_PROCESS, api_url, str(r), str(go)],
+                cwd=workdir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for r in ready
+        ]
+        try:
+            deadline = time.time() + 120
+            while not all(r.exists() for r in ready):
+                exited = [p for p in procs if p.poll() is not None]
+                assert len(exited) == 0, [p.communicate() for p in exited]
+                assert time.time() < deadline, 'the renewing processes did not start'
+                time.sleep(0.05)
+            go.touch()
+            outputs = [p.communicate(timeout=60) for p in procs]
+        finally:
+            for p in procs:
+                p.kill()
+        assert all(p.returncode == 0 for p in procs), [stderr for _stdout, stderr in outputs]
+        return [stdout.strip().splitlines()[-1] for stdout, _stderr in outputs]
+
+    @pytest.mark.parametrize('callers', ['threads', 'processes'])
+    def test_concurrent_renewals_refresh_once(
+        self, fresh_plane: ControlPlane, private_home: pathlib.Path, tmp_path: pathlib.Path, callers: str
+    ) -> None:
+        """Callers that share a spent session wait for one renewal instead of each spending the refresh token.
+
+        WorkOS refuses a refresh token it has already rotated, so a second renewal would read as a sign-out.
+        """
+        spent_at = time.time() - 1
+        session_cache.save(
+            fresh_plane.url,
+            session_cache.Session(
+                access_token=_claims(exp=spent_at),
+                expires_at=spent_at,
+                refresh_token='refresh-1',
+                client_id=fresh_plane.client_id,
+            ),
+        )
+        renewed = fresh_plane.grant(refresh_token='refresh-2')
+        fresh_plane.tokens[:] = [(200, renewed)]
+        # long enough for every caller to arrive while the first renewal is in flight
+        fresh_plane.token_delay_s = 0.3
+
+        renew = self._renew_in_threads if callers == 'threads' else self._renew_in_processes
+        tokens = renew(fresh_plane.url, tmp_path)
+
+        assert len(fresh_plane.token_seen) == 1
+        assert tokens == [renewed['access_token']] * self._CALLERS
+        assert session_cache.load(fresh_plane.url).refresh_token == 'refresh-2'
 
 
 class TestDiscovery:
