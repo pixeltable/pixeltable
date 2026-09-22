@@ -49,7 +49,7 @@ These flags work the same way across the catalog commands that support them and 
 | Flag | Available on | Description |
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
-| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs, plus `login`, `whoami`, `db`, `secret`, `org`, `key`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), or the commands that print plain status lines (`logout`, `daemon start`/`stop`). |
+| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs other than `example`, plus `init`, `login`, `whoami`, `db`, `secret`, `org`, `key`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), `schema example` and `service example` (which print an example file), or the commands that print plain status lines (`logout`, `daemon start`/`stop`/`restart`). |
 | `--json-schema` | `schema diff`, `service diff`, `db diff`, `db status`, `service list` | Print the JSON Schema of that command's `--json` output, with descriptions of every field and enum value, and exit. |
 | `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), plus `schema update`, `schema prune`, `service update` and `service prune` | Print the intended action; don't execute. |
 | `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
@@ -617,7 +617,7 @@ Inside the shell, every `pxt` command is available unmodified. Errors from one c
 
 ## Output and scripting
 
-Most catalog commands accept `--json` for stable, machine-readable output (exceptions: `shell` is interactive, `health` is already JSON):
+Most catalog commands accept `--json` for stable, machine-readable output; [Universal flags](#universal-flags) lists the commands that do not:
 
 ```bash
 pxt ls --json | jq '.entries[] | select(.kind == "table")'
@@ -864,7 +864,7 @@ Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreeme
 
 | Flag | Verbs | Description |
 |---|---|---|
-| `--json` | all | Emit machine-readable JSON |
+| `--json` | every verb except `example` | Emit machine-readable JSON |
 | `--since`, `--tail`, `--include-health` | `logs` | How far back, how many lines, whether to keep health probes |
 | `-f`, `--force` | `update`, `prune` | Skip the `[y/N]` prompt |
 | `-n`, `--dry-run` | `update`, `prune` | Print the intended change; do not run `update` or `prune` |
