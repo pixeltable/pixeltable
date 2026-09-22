@@ -15,7 +15,7 @@ guide; `CLAUDE.md` imports it.
 | `docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md` | Notebook structure and conversion | Touching `docs/release/**/*.ipynb` |
 | `docs/_guidelines/GUIDELINES_FOR_COOKBOOKS.md` | Cookbook recipe structure | Adding a recipe |
 | `dashboard/DESIGN.md`, `dashboard/ARCHITECTURE.md` | The local dashboard UI | Touching `dashboard/` or its server APIs |
-| `docs/release/skill.md` | The user-facing agent skill | Changing what app builders are told |
+| `docs/release/skill.md` | Pointer to the canonical skill in `pixeltable/pixeltable-skill` | Changing what app builders are told: edit the skill repo, not this file |
 | `CONTRIBUTING.md` | Branching, review, merge process | Opening or merging a PR |
 
 ## Protected Configuration
@@ -110,6 +110,11 @@ make formatcheck  # ruff format --check
 ```
 
 ### Testing
+
+Exercise behavior through public SDK, CLI, or HTTP APIs and assert on public results, metadata, or errors:
+use `Table.get_metadata()`, `t.describe()`, or queries rather than `col.stored`, `ColumnRef`, or
+`TableVersion` internals. Avoid using the internal API as much as possible. Only use it to test behaviors that
+are very difficult or impossible to reproduce using only the public API.
 
 ```bash
 # Run pytest (excludes expensive/remote_api tests)
@@ -375,10 +380,10 @@ order on every sentence added or edited:
 
 Documentation notebooks are in `docs/release/`. Follow `docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md`:
 
-- Start with YAML frontmatter in a **Raw cell** (not Markdown)
-- No H1 headers in markdown (title comes from frontmatter)
+- Use one title source: a leading markdown H1, or a first **Raw cell** with YAML `title`
+- Do not include an H1 when using a raw frontmatter title
 - Use `##` for main sections, `###` for subsections
-- Clear outputs before committing unless output is instructive
+- Keep cell outputs: `tool/check_notebooks.py` requires them on at least 50% of code cells. Clear only outputs that are noise, such as progress bars or warnings
 - Use `raw.githubusercontent.com` for GitHub raw links
 
 ### Docstrings

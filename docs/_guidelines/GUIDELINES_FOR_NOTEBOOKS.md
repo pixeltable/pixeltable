@@ -6,96 +6,39 @@
 
 ## Overview
 
-These guidelines ensure that Jupyter notebooks convert properly to Mintlify MDX format using Quarto. The conversion process preserves YAML frontmatter and converts markdown/code cells to MDX.
+The docs build converts each notebook to a Mintlify page with Quarto. The page title comes from a
+leading H1 or a raw YAML frontmatter cell. The build adds Kaggle, Colab, and notebook download links;
+do not hand-write them in cells.
 
-## Required: YAML Frontmatter
+## Required: Title in the first cell
 
-Every notebook MUST start with a **raw cell** (not markdown) containing YAML frontmatter.
+Use one title source. By default, start with a **markdown** cell whose first line is the notebook's
+only H1. Quarto converts that H1 to the page title:
 
-### How to Add YAML Frontmatter in Jupyter
-
-1. Insert a new cell at the **very top** of the notebook
-2. Change cell type to **Raw** (not Markdown, not Code)
-   - In Jupyter: Cell → Cell Type → Raw
-   - In JupyterLab: Click cell type dropdown and select "Raw"
-3. Add the YAML frontmatter block
-
-### Exact Frontmatter Template
-
-**This is the exact format to use for every notebook.** Simply replace:
-- `Your Notebook Title` with your notebook's title
-- `path/to/your-notebook.ipynb` with the actual path (e.g., `use-cases/rag-operations.ipynb`)
-
-```yaml
----
-title: "Your Notebook Title"
-icon: "notebook"
-description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/release/path/to/your-notebook.ipynb) | [Open in Colab](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/path/to/your-notebook.ipynb) | [View on GitHub](https://github.com/pixeltable/pixeltable/blob/release/docs/release/path/to/your-notebook.ipynb)"
----
-```
-
-**Example for a notebook at `docs/release/howto/cookbooks/agents/pattern-rag-pipeline.ipynb`:**
-
-```yaml
----
-title: "RAG Operations"
-icon: "notebook"
-description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/release/howto/cookbooks/agents/pattern-rag-pipeline.ipynb) | [Open in Colab](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/cookbooks/agents/pattern-rag-pipeline.ipynb) | [View on GitHub](https://github.com/pixeltable/pixeltable/blob/release/docs/release/howto/cookbooks/agents/pattern-rag-pipeline.ipynb)"
----
-```
-
-### Frontmatter Fields
-
-- **title**: The display title for the notebook page (required)
-  - Use title case (e.g., "Working with OpenAI")
-  - This becomes the H1 heading in the rendered documentation
-- **icon**: Always use `"notebook"` for consistency across all notebooks
-- **description**: Contains three links separated by ` | ` (space-pipe-space)
-  - **Kaggle link**: Opens notebook in Kaggle kernel
-  - **Colab link**: Opens notebook in Google Colab
-  - **GitHub link**: Views notebook source on GitHub
-  - All three links use the `release` branch for stability
-  - Path must be relative to `docs/release/` directory
-
-## Required: Remove H1 Headers from Markdown
-
-**Do NOT use H1 headers (`#`) in markdown cells.** The title comes from the YAML frontmatter.
-
-### ❌ Wrong
 ```markdown
-# Pixeltable Basics
+# Build a RAG pipeline
 
-Welcome to this tutorial...
+Create a retrieval-augmented generation system that answers questions using your documents as context.
 ```
 
-### ✅ Correct
-```markdown
-Welcome to this tutorial...
+Use `##` for sections and `###` for subsections below it. Do not add a second `#` anywhere in the
+notebook.
 
-## Section Title
-
-Content here...
-```
-
-### Header Hierarchy
-
-- **Frontmatter `title`**: Acts as the H1 (page title)
-- **`##` (H2)**: Main sections
-- **`###` (H3)**: Subsections
-- **`####` (H4)**: Sub-subsections
+Alternatively, start with a **raw** cell containing YAML frontmatter with a `title` field, enclosed
+by `---` lines. In that form, do not include an H1 in any markdown cell.
 
 ## Required: No Download or Badge Links
 
 **Do NOT include "Download Notebook" badges or similar HTML badge images in markdown cells.**
 
-These cause MDX parsing errors because HTML `<img>` tags with self-closing syntax are not compatible with MDX.
+The docs build generates these links. Hand-written badges duplicate them.
 
 ### ❌ Wrong
 ```html
 <a href="..."><img src="https://img.shields.io/badge/..." alt="Download Notebook"></a>
 ```
 
-The Kaggle/Colab/GitHub links should only appear in the frontmatter `description` field.
+Do not add these links to frontmatter `description` either. The build generates them from the notebook path.
 
 ## Required: Use Full GitHub URLs
 
@@ -154,7 +97,8 @@ from pixeltable.functions import openai
 ```
 
 ### Output Display
-- Clear output before committing notebooks (when appropriate)
+- Keep outputs: `tool/check_notebooks.py` requires them on at least 50% of code cells
+- Clear only outputs that are noise, such as progress bars or warnings
 - Keep meaningful outputs that help explain concepts
 - For long outputs, consider using `head()` or limiting results
 
@@ -181,69 +125,60 @@ from pixeltable.functions import openai
 Before committing, verify your notebook:
 
 1. **Run all cells** from a fresh kernel to ensure reproducibility
-2. **Check frontmatter** is in a Raw cell at the very top
-3. **Verify no H1 headers** (`#`) in markdown cells (use `##` and below)
+2. **Check the title source**: a leading markdown H1, or a first raw cell with YAML `title`, but not both
+3. **Check heading levels**: use `##` and below after the title; frontmatter-based notebooks must have no H1
 4. **Test links** to ensure they point to correct locations
 5. **Review output** to ensure it's appropriate for documentation
 
 ## Example Notebook Structure
 
+The default structure starts with a markdown title cell. For the frontmatter alternative, add a raw
+YAML title cell before it and omit `# Example Notebook` from the markdown.
+
+**Markdown cell:**
+
+```markdown
+# Example Notebook
+
+Brief introduction to the notebook.
+
+## Prerequisites
+
+What you need to know...
 ```
-┌─────────────────────────────────────┐
-│ RAW CELL (Cell Type: Raw)          │
-│ ---                                 │
-│ title: "Example Notebook"           │
-│ icon: "notebook"                    │
-│ description: "..."                  │
-│ ---                                 │
-└─────────────────────────────────────┘
 
-┌─────────────────────────────────────┐
-│ MARKDOWN CELL                       │
-│ Brief introduction to the notebook  │
-│                                     │
-│ ## Prerequisites                    │
-│ What you need to know...            │
-└─────────────────────────────────────┘
+**Code cell:**
 
-┌─────────────────────────────────────┐
-│ CODE CELL                           │
-│ # Imports                           │
-│ import pixeltable as pxt            │
-└─────────────────────────────────────┘
-
-┌─────────────────────────────────────┐
-│ MARKDOWN CELL                       │
-│ ## First Section                    │
-│ Explanation of what we'll do...     │
-└─────────────────────────────────────┘
-
-┌─────────────────────────────────────┐
-│ CODE CELL                           │
-│ # Create table                      │
-│ t = pxt.create_table(...)           │
-└─────────────────────────────────────┘
-
-... continue pattern ...
+```python
+import pixeltable as pxt
 ```
+
+**Markdown cell:**
+
+```markdown
+## First section
+
+Explanation of what we'll do...
+```
+
+Continue with code and markdown cells for each step.
 
 ## Common Issues and Solutions
 
 ### Issue: "Double titles" in rendered docs
 **Cause**: H1 header in markdown cell when frontmatter already has title
-**Solution**: Remove `# Title` from markdown, use frontmatter title only
+**Solution**: Keep one title source: remove the raw title cell to use the leading H1, or remove the H1 to keep frontmatter
 
-### Issue: Kaggle/Colab badges don't render
-**Cause**: Badge links in markdown body instead of frontmatter
-**Solution**: Move links to frontmatter `description` field
+### Issue: Duplicate notebook links
+**Cause**: Hand-written links duplicate the generated links
+**Solution**: Remove hand-written badges and open-in links; the docs build adds them
 
 ### Issue: GitHub raw links broken
 **Cause**: Using `raw.github.com` instead of `raw.githubusercontent.com`
 **Solution**: Update to full `raw.githubusercontent.com` URLs
 
-### Issue: Parsing errors in Mintlify
-**Cause**: Missing or malformed YAML frontmatter
-**Solution**: Ensure frontmatter is in a Raw cell with proper YAML syntax
+### Issue: Malformed YAML frontmatter
+**Solution**: If you use frontmatter, put valid YAML between `---` lines in the first raw cell. Frontmatter is not required for the leading-H1 form.
 
 ## Questions?
 
