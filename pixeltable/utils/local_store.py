@@ -156,9 +156,9 @@ class LocalStore(ObjectStoreBase):
         try:
             src_path.rename(dest.local_path)
         except OSError as e:
-            if e.errno != errno.EXDEV:
-                raise
-            return None
+            if e.errno == errno.EXDEV:
+                return None  # cross-device move; return None to indicate move is not possible
+            raise
         _logger.debug(f'Media Storage: moved {src_path} to {dest.url}')
         return dest.url
 
