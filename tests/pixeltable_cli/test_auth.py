@@ -412,6 +412,34 @@ class TestKey:
             'manage:pxt://acme:main/services',
         ]
 
+    def test_key_list_creator(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """Every member of the organization sees every key, so each one says who created it."""
+        control_plane.answers['list_keys'] = {
+            'keys': [
+                _key('ci', key_type='user', created_by='ada@example.com', created_at='2026-09-18T00:00:00+00:00'),
+                _key('app', grants=['access:pxt://acme:main/services/ingest'], created_by='bob@example.com'),
+                _key('old', key_type='user'),
+            ]
+        }
+
+        r = cloud_cli('key', 'list')
+
+        assert 'ci  (acts as ada@example.com:' in r.stdout
+        assert 'app  (created by bob@example.com)' in r.stdout
+        assert 'old  (acts as its creator:' in r.stdout
+        listed = cloud_cli('key', 'list', '--json').json['keys']
+        assert listed[0]['created_at'] == '2026-09-18T00:00:00+00:00'
+
+    def test_key_create_creator(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        control_plane.answers['create_key'] = {
+            'key': _key('ci', key_type='user', created_by='you@example.com', api_key='sk-pxt-created')
+        }
+
+        r = cloud_cli('key', 'create', 'ci')
+
+        assert 'ci  (acts as you@example.com:' in r.stdout
+        assert 'sk-pxt-created' in r.stdout
+
     def test_key_update_no_args(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         before = len(control_plane.seen)
 

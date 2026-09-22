@@ -42,8 +42,12 @@ services only. `pxt key --help` lists the forms; the full table is in the CLI re
 access and manage are independent: neither implies the other. A key that can call a service cannot
 reconfigure it, and one that can stop it cannot read what flows through it.
 
-The organization must be your own - the one your key already belongs to. Keys are named uniquely
-across both kinds, so a name always identifies one key.
+The organization must be your own - the one your credential belongs to. Keys are named uniquely
+across both kinds, so a name always identifies one key. Every member of the organization sees every
+key, and can delete any of them.
+
+Keys with grants are a preview: Pixeltable Cloud refuses them until they are enabled for your
+organization.
 
 The secret is printed once, by `create`, and cannot be retrieved afterwards. `update` edits grants
 in place and leaves the secret alone, so widening or narrowing a key does not mean reissuing it.
@@ -57,7 +61,7 @@ def run(argv: list[str]) -> None:
     parser = Parser(prog='pxt key', description='manage the keys that reach your organization', epilog=EPILOG)
     sub = parser.add_subparsers(dest='action', required=True)
 
-    p = sub.add_parser('list', help="list your keys and the organization's runtime keys")
+    p = sub.add_parser('list', help="list every key in the organization, and each one's creator")
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('create', help='create a key; --grant makes it a scoped runtime key')
@@ -155,17 +159,17 @@ def _group(grants: list[str]) -> dict[str, list[str]]:
     return {db: sorted(items) for db, items in sorted(out.items())}
 
 
-def _render(name: str, kind: str, grants: list[str] | None) -> None:
-    """Print one key: its name, and its grants grouped by database.
+def _render(name: str, kind: str, grants: list[str], created_by: str) -> None:
+    """Print one key: its name, its creator when known, and its grants grouped by database.
 
     Grouped rather than one URI per line, since the organization repeats on every grant and only
     the database, the verb and the resource differ.
     """
     if kind == 'user':
-        print(f'{name}  (acts as you: control plane and every database in the org)')
+        print(f'{name}  (acts as {created_by or "its creator"}: control plane and every database in the org)')
         return
-    print(name)
-    grouped = _group(grants or [])
+    print(name if created_by == '' else f'{name}  (created by {created_by})')
+    grouped = _group(grants)
     if not grouped:
         print('  (nothing)')
         return
@@ -185,7 +189,12 @@ def _fetch() -> list[dict]:
 
 
 def _show(key: dict, fallback_name: str = '') -> None:
-    _render(key.get('name', fallback_name), key.get('key_type', 'runtime'), key.get('grants') or [])
+    _render(
+        key.get('name', fallback_name),
+        key.get('key_type', 'runtime'),
+        key.get('grants') or [],
+        key.get('created_by') or '',
+    )
 
 
 def _list(args: argparse.Namespace) -> None:
