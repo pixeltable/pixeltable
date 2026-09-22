@@ -210,10 +210,22 @@ def cloud_cli(
     """A CLI runner whose daemon reaches the stub, and signs in and out against it.
 
     A daemon of its own: the one serving the suite took its environment at spawn, and both the
-    address of the management API and the cache the session lands in are read there.
+    address of the management API and the cache the session lands in are read there. Its home and
+    config file are its own too, since an API key in the developer's config file would outrank
+    every session these tests create.
     """
     port = auth_daemon_port
-    env = {**os.environ, 'PXT_PORT': str(port), 'BROWSER': 'true', 'PIXELTABLE_API_URL': control_plane.url}
+    home = tmp_path_factory.mktemp('auth-home')
+    env = {
+        **os.environ,
+        'HOME': str(home),
+        'USERPROFILE': str(home),
+        'PIXELTABLE_HOME': str(home / '.pixeltable'),
+        'PIXELTABLE_CONFIG': str(home / '.pixeltable' / 'config.toml'),
+        'PXT_PORT': str(port),
+        'BROWSER': 'true',
+        'PIXELTABLE_API_URL': control_plane.url,
+    }
     env.pop('PIXELTABLE_API_KEY', None)
     log_path = tmp_path_factory.mktemp('auth-daemon') / 'daemon.log'
     with open(log_path, 'w', encoding='utf-8') as log:
