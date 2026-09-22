@@ -738,6 +738,24 @@ class TestLogin:
         assert second['refresh_token'] == 'refresh-2'
         assert second['organization_id'] == 'org_01TEST'
 
+    def test_renewal_outage(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """A failing sign-in service decides nothing about the session, which renews once the service is back.
+
+        Its answer is not read as an OAuth error, even one that looks like a refusal.
+        """
+        control_plane.tokens[:] = [(200, control_plane.grant(access_token=_claims(exp=time.time() - 1)))]
+        cloud_cli('login')
+        control_plane.tokens[:] = [(503, {'error': 'invalid_grant', 'error_description': 'upstream is down'})]
+
+        r = cloud_cli('whoami', check=False)
+
+        assert r.returncode == 1
+        assert 'HTTP 503' in r.stderr
+        assert 'pxt login' not in r.stderr
+
+        control_plane.tokens[:] = [(200, control_plane.grant())]
+        assert 'you@example.com' in cloud_cli('whoami').stdout
+
     def test_renewal_rejected(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         """A refresh token the server no longer honors sends you back to the browser, and is discarded."""
         control_plane.tokens[:] = [(200, control_plane.grant(access_token=_claims(exp=time.time() - 1)))]
