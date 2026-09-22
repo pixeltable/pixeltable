@@ -517,11 +517,6 @@ def _update_output(plan: SchemaPlan, *, as_json: bool) -> None:
 
 
 def _print_recompute_notice(plan: SchemaPlan) -> None:
-    """Report the columns whose stored values the applied changes left stale.
-
-    This is the only signal a user gets: a value-expression change updates the definition without recomputing, and
-    a later `schema diff` compares metadata, so it reports the table as up to date regardless.
-    """
     altered_computed_cols: list[str] = [
         f'  {tbl.path}.{op.name}'
         for tbl in plan.tables
