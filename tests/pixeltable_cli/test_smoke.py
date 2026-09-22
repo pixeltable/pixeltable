@@ -1402,17 +1402,17 @@ class TestColdStartBudget:
     budget and defeating the daemon split. The `-X importtime` log is authoritative.
     """
 
-    # 'org', 'db' and 'service' are left out: client/hosted.py imports ProjectFingerprint from
-    # pixeltable.utils.project, so they cost the full import until that is resolved
-    @pytest.mark.parametrize('command', ['ls', 'login', 'logout', 'whoami', 'key'])
+    @pytest.mark.parametrize('command', ['ls', 'login', 'logout', 'whoami', 'key', 'org', 'db', 'service'])
     def test_pixeltable_not_imported_by_client(
         self, cli: PxtRunner, pxt_daemon: int, session_project: pathlib.Path, command: str
     ) -> None:
+        # `ls` runs in full; the others would reach the control plane, so only their parsers run
+        argv = [command] if command == 'ls' else [command, '--help']
         # Use sys.executable so the subprocess runs under the same interpreter as the test,
         # not whatever python resolves to on PATH.
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
-            [sys.executable, '-X', 'importtime', '-m', 'pixeltable_cli.client.main', command, '--help'],
+            [sys.executable, '-X', 'importtime', '-m', 'pixeltable_cli.client.main', *argv],
             capture_output=True,
             text=True,
             env=env,
