@@ -48,7 +48,7 @@ When you configure a storage destination, Pixeltable automatically:
 | Local Pixeltable against that Cloud home bucket | `PIXELTABLE_API_KEY` (API Keys, then export) plus `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST` pointing at the `pxtfs://` URI. |
 | Your own S3 / GCS / Azure bucket | Provider keys in [Secrets](https://www.pixeltable.com/dashboard) or `pxt secret`, and those dest env vars pointing at `s3://`, `gs://`, or `wasbs://`. |
 
-Do not put `PIXELTABLE_API_KEY` in `config.toml` as `api_key`. Use the env name. Hosted pods get their own worker key from the platform; you do not set it.
+The key can also be `api_key` in the `[pixeltable]` section of the Pixeltable config file; `PIXELTABLE_API_KEY` wins when both are set, and either one outranks a `pxt login` session ([Signing in](/platform/cli#signing-in)). Hosted pods get their own worker key from the platform; you do not set it.
 
 ## Configuration
 
@@ -63,7 +63,7 @@ export PIXELTABLE_INPUT_MEDIA_DEST="s3://my-bucket/input/"
 export PIXELTABLE_OUTPUT_MEDIA_DEST="s3://my-bucket/output/"
 ```
 
-Or the same dest keys in `~/.pixeltable/config.toml` (not the API key):
+Or the same dest keys in `~/.pixeltable/config.toml`:
 
 ```toml
 [pixeltable]

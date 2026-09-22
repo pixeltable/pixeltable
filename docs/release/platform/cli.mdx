@@ -735,9 +735,10 @@ that the browser is still signed in.
 
 <Note>
 An **API key** takes precedence over a sign-in whenever both are present: it is the explicit
-choice, and what CI runs on. Set one with `PIXELTABLE_API_KEY`, or `api_key` in the `[pixeltable]`
-section of your Pixeltable config file. Unlike a sign-in, it does not expire. `pxt whoami` says
-which one your commands will actually send.
+choice, and what CI runs on. Set one with `PIXELTABLE_API_KEY`, or with `api_key` in the
+`[pixeltable]` section of your Pixeltable config file; the environment variable wins when both are
+set. Unlike a sign-in, it does not expire. `pxt whoami` says which one your commands will actually
+send.
 </Note>
 
 Signing in proves who you are; it does not give you an organization. A brand-new account has none,
