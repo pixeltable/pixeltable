@@ -30,7 +30,7 @@ def run(argv: list[str]) -> None:
     p.add_argument('--location', help="e.g. 'aws/us-east-1'")
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
-    p = sub.add_parser('list', help='list organizations accessible to the current API key')
+    p = sub.add_parser('list', help='list organizations accessible to the current credential')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('status', help='show status of an organization')
