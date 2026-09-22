@@ -360,7 +360,8 @@ class TestWhoami:
         finally:
             control_plane.status = 200
 
-        assert 'is valid but is not permitted to list_orgs' in r.stdout
+        assert 'is valid but is not permitted to list organizations' in r.stdout
+        assert 'list_orgs' not in r.stdout
         assert 'pxt login' not in r.stdout + r.stderr
         assert answer['accepted']
         assert 'not permitted' in answer['note']
@@ -957,7 +958,7 @@ class TestHomeBucket:
                 excs.ErrorCode.PROVIDER_AUTH_ERROR,
                 'API key from the PIXELTABLE_API_KEY environment variable was rejected',
             ),
-            (403, excs.ErrorCode.INSUFFICIENT_PRIVILEGES, 'is valid but is not permitted to get_bucket_credentials'),
+            (403, excs.ErrorCode.INSUFFICIENT_PRIVILEGES, 'is valid but is not permitted to reach the home bucket'),
         ],
     )
     def test_refused_credential(

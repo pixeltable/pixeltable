@@ -26,10 +26,11 @@ def _post(request: GetBucketCredentialsRequest | GetPresignedUrlRequest, timeout
 
     A refused credential raises as it does for a management call, since retrying cannot help.
     """
-    sent = resolve('reach the home bucket')
+    purpose = 'reach the home bucket'
+    sent = resolve(purpose)
     headers = {'Content-Type': 'application/json', **sent.header()}
     response = requests.post(api_url(), data=request.model_dump_json(), headers=headers, timeout=timeout)
-    raise_if_refused(response, sent, request.operation_type.value)
+    raise_if_refused(response, sent, purpose)
     return response
 
 

@@ -47,6 +47,37 @@ _READ_OPS = frozenset(
     )
 )
 
+# what a 403 says the credential is not permitted to do
+_PURPOSES = {
+    ManagementOperationType.GET_DB.value: 'read a database',
+    ManagementOperationType.LIST_DBS.value: 'list databases',
+    ManagementOperationType.DELETE_DB.value: 'delete a database',
+    ManagementOperationType.CREATE_SERVICE_INSTANCE.value: 'create a service',
+    ManagementOperationType.GET_SERVICE_INSTANCE.value: 'read a service',
+    ManagementOperationType.LIST_SERVICE_INSTANCES.value: 'list services',
+    ManagementOperationType.UPDATE_SERVICE_INSTANCE.value: 'update a service',
+    ManagementOperationType.REPORT_SERVICE_INSTANCE.value: 'report which project a service loaded',
+    ManagementOperationType.START_SERVICE_INSTANCE.value: 'start a service',
+    ManagementOperationType.STOP_SERVICE_INSTANCE.value: 'stop a service',
+    ManagementOperationType.RESTART_SERVICE_INSTANCE.value: 'restart a service',
+    ManagementOperationType.DELETE_SERVICE_INSTANCE.value: 'delete a service',
+    ManagementOperationType.START_DB.value: 'start a database',
+    ManagementOperationType.STOP_DB.value: 'stop a database',
+    ManagementOperationType.RESTART_DB.value: 'restart a database',
+    ManagementOperationType.UPDATE_DB.value: 'create or update a database',
+    ManagementOperationType.GET_ARCHIVE.value: "download a database's project",
+    ManagementOperationType.GET_LOGS.value: 'read logs',
+    ManagementOperationType.CREATE_ORG.value: 'create an organization',
+    ManagementOperationType.LIST_ORGS.value: 'list organizations',
+    ManagementOperationType.SET_SECRET.value: 'set secrets',
+    ManagementOperationType.DELETE_SECRET.value: 'delete secrets',
+    ManagementOperationType.LIST_SECRETS.value: 'list secrets',
+    ManagementOperationType.CREATE_KEY.value: 'create keys',
+    ManagementOperationType.LIST_KEYS.value: 'list keys',
+    ManagementOperationType.UPDATE_KEY.value: 'update keys',
+    ManagementOperationType.DELETE_KEY.value: 'delete keys',
+}
+
 
 @dataclasses.dataclass(frozen=True)
 class Credential:
@@ -99,8 +130,11 @@ def resolve(purpose: str) -> Credential:
     return dataclasses.replace(configured, value=token)
 
 
-def raise_if_refused(resp: requests.Response, sent: Credential, operation: str) -> None:
-    """Raise for a 401 or a 403, saying which credential the request sent."""
+def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) -> None:
+    """Raise for a 401 or a 403, saying which credential the request sent.
+
+    purpose is the verb phrase that completes "is not permitted to", such as 'list organizations'.
+    """
     if resp.status_code not in (401, 403):
         return
     detail = resp.text.strip()
@@ -108,7 +142,7 @@ def raise_if_refused(resp: requests.Response, sent: Credential, operation: str) 
         # the control plane accepted the credential and refused the operation, so signing in again cannot help
         holder = f'The API key from {sent.source}' if sent.kind == 'api_key' else 'Your Pixeltable session'
         raise excs.AuthorizationError(
-            excs.ErrorCode.INSUFFICIENT_PRIVILEGES, f'{holder} is valid but is not permitted to {operation} ({detail}).'
+            excs.ErrorCode.INSUFFICIENT_PRIVILEGES, f'{holder} is valid but is not permitted to {purpose} ({detail}).'
         )
     message = (
         f'The API key from {sent.source} was rejected ({detail}).'
@@ -141,7 +175,7 @@ def api_call(request: Any) -> dict[str, Any]:
         if op_str not in _READ_OPS:
             raise
         resp = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
-    raise_if_refused(resp, sent, op_str)
+    raise_if_refused(resp, sent, _PURPOSES.get(op_str, 'do this'))
     if resp.status_code not in (200, 201):
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
