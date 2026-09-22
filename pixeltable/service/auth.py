@@ -7,8 +7,9 @@ side cannot invalidate the other. Renewal is silent for as long as the refresh t
 
 The CLI is a public client, so no request here sends a client secret.
 
-Every endpoint comes from the issuer's OIDC metadata, and the control plane points at the issuer, so
-no sign-in URL is compiled in here.
+The control plane says which public client to present, at /.well-known/pixeltable-auth. The
+endpoints belong to WorkOS CLI auth, whose address is compiled in here; a control plane can
+replace it, as a test stub does.
 """
 
 from __future__ import annotations
@@ -148,6 +149,33 @@ _config_cache: dict[str, SignInConfig] = {}  # key: API URL
 _config_lock = threading.Lock()
 
 
+def _discovery(api_url: str) -> dict[str, Any]:
+    """The control plane's answer at _AUTH_CONFIG_PATH."""
+    try:
+        resp = SESSION.get(api_url.rstrip('/') + _AUTH_CONFIG_PATH, timeout=_TIMEOUT_S)
+    except requests.RequestException as e:
+        raise _unreachable(api_url, e) from e
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    if resp.status_code != 200:
+        # a control plane with no sign-in configured answers 503 and says so under 'error'
+        reason = body.get('error') if isinstance(body, dict) else None
+        if not isinstance(reason, str) or reason == '':
+            raise _bad_status(api_url, resp)
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'{api_url} cannot sign you in: {reason} (HTTP {resp.status_code}).',
+            provider='pixeltable_cloud',
+            status_code=resp.status_code,
+        )
+    if not isinstance(body, dict):
+        # a control plane that predates `pxt login` answers this path with an empty 200
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'{api_url} does not support `pxt login` yet.')
+    return body
+
+
 def sign_in_config(api_url: str) -> SignInConfig:
     """Read this control plane's public client and its WorkOS API into _config_cache.
 
@@ -158,7 +186,7 @@ def sign_in_config(api_url: str) -> SignInConfig:
         cached = _config_cache.get(api_url)
         if cached is not None:
             return cached
-        config = _json_request(api_url.rstrip('/') + _AUTH_CONFIG_PATH, api_url)
+        config = _discovery(api_url)
         client_id = str(config.get('client_id') or '')
         if client_id == '':
             raise excs.InternalError(

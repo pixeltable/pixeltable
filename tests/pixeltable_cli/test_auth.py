@@ -34,6 +34,7 @@ from pixeltable_cli.client.commands import login
 from pixeltable_cli.server import routes
 from pixeltable_cli.server.router import Request
 
+from ..utils import pxt_raises
 from .conftest import PxtResult, PxtRunner
 
 pytestmark = pytest.mark.db_roots('local', reason='the CLI surface under test never reaches a catalog')
@@ -874,5 +875,22 @@ class TestDiscovery:
     def test_control_plane_without_client(self, fresh_plane: ControlPlane) -> None:
         fresh_plane.client_id = ''
 
-        with pytest.raises(excs.Error, match='did not say which sign-in client'):
+        with pxt_raises(excs.ErrorCode.INTERNAL_ERROR, match='did not say which sign-in client'):
+            auth.sign_in_config(fresh_plane.url)
+
+    def test_sign_in_not_configured(self, fresh_plane: ControlPlane) -> None:
+        """The control plane's own reason is the actionable part."""
+        fresh_plane.discovery = (503, {'error': 'sign-in is not configured for this environment'})
+
+        with pxt_raises(
+            excs.ErrorCode.PROVIDER_ERROR, match='cannot sign you in: sign-in is not configured for this environment'
+        ):
+            auth.sign_in_config(fresh_plane.url)
+
+    @pytest.mark.parametrize('body', [b'', b'<html></html>', b'null'])
+    def test_control_plane_without_login(self, fresh_plane: ControlPlane, body: bytes) -> None:
+        """A control plane that predates `pxt login` answers the discovery path with an empty 200."""
+        fresh_plane.discovery = (200, body)
+
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='does not support `pxt login` yet'):
             auth.sign_in_config(fresh_plane.url)
