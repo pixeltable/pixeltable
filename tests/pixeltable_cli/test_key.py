@@ -15,12 +15,6 @@ from tests.utils import skip_test_if_no_config
 
 from .conftest import PxtRunner
 
-pytestmark = [
-    pytest.mark.remote_api,
-    pytest.mark.expensive,
-    pytest.mark.db_roots('local', reason='pxt key acts on an organization, never on a catalog'),
-]
-
 _ORG_URI = 'pxt://{org}:main'
 
 
@@ -51,6 +45,9 @@ def _org(cli: PxtRunner) -> str:
     return str(orgs[0]['org'])
 
 
+@pytest.mark.remote_api
+@pytest.mark.expensive
+@pytest.mark.db_roots('local', reason='pxt key acts on an organization, never on a catalog')
 @pytest.mark.usefixtures('hosted_environment')
 class TestKey:
     def test_whoami_api_key(self, cli: PxtRunner) -> None:

@@ -40,8 +40,6 @@ from pixeltable_cli.server.router import Request
 from ..utils import pxt_raises
 from .conftest import PxtResult, PxtRunner
 
-pytestmark = pytest.mark.db_roots('local', reason='the CLI surface under test never reaches a catalog')
-
 _API_URL = 'http://127.0.0.1:{port}'
 _A_KEY = 'sk-pxt-test-auth'
 _ORG = 'acme'
