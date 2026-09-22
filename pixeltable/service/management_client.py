@@ -38,6 +38,7 @@ _READ_OPS = frozenset(
     for op in (
         ManagementOperationType.LIST_ORGS,
         ManagementOperationType.LIST_KEYS,
+        ManagementOperationType.LIST_SECRETS,
         ManagementOperationType.LIST_DBS,
         ManagementOperationType.GET_DB,
         ManagementOperationType.LIST_SERVICE_INSTANCES,
