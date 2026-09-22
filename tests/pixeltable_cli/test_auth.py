@@ -306,11 +306,17 @@ class TestWhoami:
 
         assert 'Organization: org_01ACME' in cloud_cli('whoami').stdout
 
-    def test_whoami_no_organization(self, cloud_cli: PxtRunner, signed_in: Callable[..., None]) -> None:
-        """An account that has not finished onboarding has none, and is told how to create one."""
-        signed_in(organization_id='')
+    @pytest.mark.parametrize('user', [{'email': 'you@example.com'}, {}], ids=['email', 'no_email'])
+    def test_whoami_no_organization(
+        self, cloud_cli: PxtRunner, control_plane: ControlPlane, signed_in: Callable[..., None], user: dict[str, str]
+    ) -> None:
+        """An account that has not finished onboarding lacks an organization, and is told how to create one."""
+        signed_in(organization_id='', user=user)
 
-        assert 'No organization yet: create one with `pxt org create NAME`' in cloud_cli('whoami').stdout
+        r = cloud_cli('whoami')
+
+        assert f'{user.get("email", "(unknown)")} on {control_plane.url}' in r.stdout
+        assert 'No organization yet: create one with `pxt org create NAME`' in r.stdout
 
     def test_whoami_json(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         r = cloud_cli('whoami', '--json')
@@ -329,7 +335,7 @@ class TestWhoami:
             control_plane.status = 200
 
         assert r.returncode == 1
-        assert 'not accepted' in r.stderr
+        assert 'Your Pixeltable session was rejected' in r.stderr
 
     def test_whoami_offline(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         """--offline reports the cached session without asking, for a machine with no network."""
@@ -351,7 +357,7 @@ class TestWhoami:
 
         assert r.returncode == 1
         assert '503' in r.stderr
-        assert 'not accepted' not in r.stderr
+        assert 'rejected' not in r.stderr
 
     def test_whoami_scoped_credential(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         """A 403 refuses the operation, not the credential, as for a key limited by its grants."""
@@ -376,6 +382,59 @@ class TestWhoami:
         assert r.returncode == 1
         assert r.json['using'] == 'none'
         assert not r.json['accepted']
+
+    def test_whoami_api_key_outranks_session(
+        self,
+        fresh_plane: ControlPlane,
+        private_home: pathlib.Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The key may belong to an account other than the saved session's, so whoami reports nothing of the session."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
+        expires_at = time.time() + 3600
+        session = session_cache.Session(
+            access_token=_claims(exp=expires_at),
+            expires_at=expires_at,
+            email='you@example.com',
+            organization_id='org_01TEST',
+        )
+        session_cache.save(fresh_plane.url, session)
+
+        answer = routes.whoami(Request(query={}, body_bytes=b''))
+
+        assert (answer.using, answer.email, answer.organization_id) == ('api_key', '', '')
+        assert answer.accepted
+        monkeypatch.setattr(login, 'get_request', lambda _path, _params: answer.model_dump())
+        login.run_whoami([])
+        assert capsys.readouterr().out.splitlines() == [
+            f'API key on {fresh_plane.url}',
+            'Commands use the API key from the PIXELTABLE_API_KEY environment variable.',
+        ]
+
+    def test_whoami_rejected_api_key(
+        self,
+        fresh_plane: ControlPlane,
+        private_home: pathlib.Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A deleted key's rejection is the only line that states the key's source."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
+        fresh_plane.status = 401
+        fresh_plane.answers['list_orgs'] = b'Unauthorized : Pixeltable API key is invalid or expired.'
+        answer = routes.whoami(Request(query={}, body_bytes=b''))
+        monkeypatch.setattr(login, 'get_request', lambda _path, _params: answer.model_dump())
+
+        with pytest.raises(SystemExit, match=r'^1$'):
+            login.run_whoami([])
+
+        out, err = capsys.readouterr()
+        assert out == f'API key on {fresh_plane.url}\n'
+        assert err == f'{answer.rejection}\n'
+        assert (out + err).count('PIXELTABLE_API_KEY') == 1
 
 
 class TestLogout:

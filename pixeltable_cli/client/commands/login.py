@@ -131,16 +131,19 @@ def run_whoami(argv: list[str]) -> None:
         print(f'Not signed in to {answer["api_url"]}. Run `pxt login`.', file=sys.stderr)
         sys.exit(1)
 
-    if answer['email'] != '':
-        print(f'{answer["email"]} on {answer["api_url"]}')
+    if answer['using'] == 'session':
+        print(f'{answer["email"] or "(unknown)"} on {answer["api_url"]}')
         print(_org_line(answer['organization_id']))
-    if answer['using'] == 'api_key':
-        print(f'Commands use the API key from {answer["credential_source"]}.')
+    else:
+        print(f'API key on {answer["api_url"]}')
+    # a rejection or a note already says which credential was sent
+    if not answer['accepted']:
+        print(answer['rejection'], file=sys.stderr)
+        sys.exit(1)
     if answer['note'] != '':
         print(answer['note'])
-    if not answer['accepted']:
-        print(f'That credential was not accepted: {answer["rejection"]}', file=sys.stderr)
-        sys.exit(1)
+    elif answer['using'] == 'api_key':
+        print(f'Commands use the API key from {answer["credential_source"]}.')
 
 
 def _org_line(organization_id: str) -> str:
