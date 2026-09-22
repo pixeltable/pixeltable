@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 import urllib.parse
+import webbrowser
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Callable, Iterator
@@ -25,7 +26,8 @@ from typing import Any, Callable, Iterator
 import pytest
 
 from pixeltable import exceptions as excs
-from pixeltable.service import auth
+from pixeltable.service import auth, session_cache
+from pixeltable_cli.client.commands import login
 from pixeltable_cli.server import routes
 from pixeltable_cli.server.router import Request
 
@@ -74,6 +76,9 @@ class ControlPlane:
     seen: list[dict[str, Any]] = field(default_factory=list)
     status: int = 200
     client_id: str = 'client_01TEST'
+    # the status and body of the discovery document; None answers with client_id and this stub's address,
+    # and a bytes body is sent as it is
+    discovery: tuple[int, Any] | None = None
     device: dict[str, Any] = field(default_factory=lambda: dict(_DEVICE))
     tokens: list[tuple[int, dict[str, Any]]] = field(default_factory=list)
     token_seen: list[dict[str, str]] = field(default_factory=list)
@@ -107,7 +112,7 @@ class ControlPlane:
 def _serve(plane: ControlPlane) -> HTTPServer:
     class Handler(BaseHTTPRequestHandler):
         def _reply(self, status: int, answer: Any) -> None:
-            payload = json.dumps(answer).encode()
+            payload = answer if isinstance(answer, bytes) else json.dumps(answer).encode()
             self.send_response(status)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(payload)))
@@ -116,7 +121,7 @@ def _serve(plane: ControlPlane) -> HTTPServer:
 
         def do_GET(self) -> None:
             if self.path == '/.well-known/pixeltable-auth':
-                self._reply(200, {'client_id': plane.client_id, 'workos_api': plane.url})
+                self._reply(*(plane.discovery or (200, {'client_id': plane.client_id, 'workos_api': plane.url})))
             else:
                 self._reply(404, {})
 
@@ -318,6 +323,36 @@ class TestLogout:
 
         assert 'Signed out' in r.stdout
         assert 'Signing out of the browser' not in r.stdout
+
+    def test_logout_clears_when_sign_in_service_is_down(
+        self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Forgetting the session takes no network; the browser's sign-out does, and is reported as not done."""
+        fresh_plane.discovery = (503, {'error': 'sign-in is not configured for this environment'})
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        expires_at = time.time() + 3600
+        token = _claims(sid='session_01TEST', exp=expires_at)
+        session_cache.save(fresh_plane.url, session_cache.Session(access_token=token, expires_at=expires_at))
+
+        answer = routes.logout(Request(query={}, body_bytes=b'{}'))
+
+        assert answer.signed_out
+        assert session_cache.load(fresh_plane.url) is None
+        assert answer.browser_logout_url == ''
+        assert 'browser could not be signed out' in answer.warning
+
+    def test_logout_without_browser(
+        self, control_plane: ControlPlane, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """With no browser to open, the sign-out link is printed for the user to open."""
+        url = f'{control_plane.url}/user_management/sessions/logout?session_id=session_01TEST'
+        answer = {'signed_out': True, 'browser_logout_url': url, 'warning': ''}
+        monkeypatch.setattr(login, 'post_request', lambda _path, _body: answer)
+        monkeypatch.setattr(webbrowser, 'open', lambda _url: False)
+
+        login.run_logout([])
+
+        assert url in capsys.readouterr().err
 
 
 def _key(name: str, key_type: str = 'runtime', grants: list[str] | None = None, **extra: Any) -> dict[str, Any]:

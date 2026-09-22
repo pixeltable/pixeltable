@@ -345,6 +345,7 @@ class LogoutResponse(BaseModel):
     signed_out: bool
     # where to send a browser to end the sign-in behind the session, empty when there is none
     browser_logout_url: str
+    warning: str = ''
 
 
 class OrgCreateResponse(BaseModel):

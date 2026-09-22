@@ -309,14 +309,13 @@ def rescope(api_url: str, organization_id: str) -> Session:
         return renewed
 
 
-def browser_logout_url(api_url: str) -> str:
+def browser_logout_url(api_url: str, session: Session) -> str:
     """WorkOS's sign-out URL for this session, or empty when the token has no session id.
 
     WorkOS directly, not the dashboard: a device-code sign-in never creates a dashboard session, so
     the dashboard's own sign-out has no cookie to clear.
     """
-    session = session_cache.load(api_url)
-    value = _claims(session.access_token).get('sid') if session is not None else ''
+    value = _claims(session.access_token).get('sid')
     session_id = value if isinstance(value, str) else ''
     if not session_id:
         return ''

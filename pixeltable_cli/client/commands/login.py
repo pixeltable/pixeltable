@@ -94,12 +94,16 @@ def run_logout(argv: list[str]) -> None:
 
     answer = post_request('/api/logout', {})
     print('Signed out.' if answer['signed_out'] else 'Not signed in.')
+    if answer['warning'] != '':
+        print(f'pxt logout: warning: {answer["warning"]}', file=sys.stderr)
 
     # A browser still signed in confirms the next code without saying which account it is for, so
     # signing out of one and not the other leaves you as someone you did not choose.
-    if answer['browser_logout_url'] != '':
+    url = answer['browser_logout_url']
+    if url != '':
         print('Signing out of the browser.')
-        webbrowser.open(answer['browser_logout_url'])
+        if not webbrowser.open(url):
+            print(f'Could not open a browser; open {url} to sign it out.', file=sys.stderr)
 
 
 def run_whoami(argv: list[str]) -> None:

@@ -824,16 +824,22 @@ def whoami(req: Request) -> dict[str, Any]:
 
 
 @router.post('/api/logout')
-def logout(_req: Request) -> dict[str, Any]:
+def logout(_req: Request) -> models.LogoutResponse:
     url = management_client.api_url()
-    browser_url: str
+    # the browser's sign-out needs the session id, so read it before clearing; clearing needs no network
     try:
-        browser_url = auth.browser_logout_url(url)
+        session = session_cache.load(url)
     except excs.Error:
-        browser_url = ''
-    # make sure we clear the cache in any case
-    is_signed_out = session_cache.clear(url)
-    return models.LogoutResponse(signed_out=is_signed_out, browser_logout_url=browser_url).model_dump()
+        session = None
+    signed_out = session_cache.clear(url)
+    browser_url = ''
+    warning = ''
+    if session is not None:
+        try:
+            browser_url = auth.browser_logout_url(url, session)
+        except excs.Error as e:
+            warning = f'This machine is signed out, but the browser could not be signed out: {e.message}'
+    return models.LogoutResponse(signed_out=signed_out, browser_logout_url=browser_url, warning=warning)
 
 
 @router.get('/api/orgs')
