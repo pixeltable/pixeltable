@@ -210,7 +210,7 @@ class TestCredentialChoice:
         assert 'PIXELTABLE_API_KEY' in cred.source
 
     def test_api_key_from_config_file(self) -> None:
-        """The source names the config file without its path, which is under the Pixeltable home."""
+        """The source says "the Pixeltable config file" rather than its path, which is under the Pixeltable home."""
         Config.get().config_file.write_text('[pixeltable]\napi_key = "sk-file"\n', encoding='utf-8')
         Config.init(reinit=True, project_root=Config.get().project_root)
 

@@ -133,7 +133,7 @@ def _write_sessions(cache: dict[str, Any]) -> None:
 def _from_record(record: Any) -> Session | None:
     """The session in one control plane's cache record; None when there is no record.
 
-    Raises for a record that is not an object with each field at its type in _FIELD_TYPES: a dataclass does
+    Raises for a record that is not an object whose fields have the types in _FIELD_TYPES: a dataclass does
     not check the types of its fields, and a string in expires_at would fail the next renewal, not this read.
     """
     if record is None:
