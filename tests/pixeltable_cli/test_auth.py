@@ -291,10 +291,10 @@ class TestWhoami:
         assert 'Organization: org_01ACME' in cloud_cli('whoami').stdout
 
     def test_whoami_no_organization(self, cloud_cli: PxtRunner, signed_in: Callable[..., None]) -> None:
-        """An account that has not finished onboarding has none, and is told so at sign-in."""
+        """An account that has not finished onboarding has none, and is told how to create one."""
         signed_in(organization_id='')
 
-        assert 'Organization: (none)' in cloud_cli('whoami').stdout
+        assert 'No organization yet: create one with `pxt org create NAME`' in cloud_cli('whoami').stdout
 
     def test_whoami_json(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         r = cloud_cli('whoami', '--json')
@@ -324,6 +324,41 @@ class TestWhoami:
             control_plane.status = 200
 
         assert 'you@example.com' in r.stdout
+
+    def test_whoami_outage(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """An unreachable control plane says nothing about the credential, so it is reported as an outage."""
+        control_plane.status = 503
+        try:
+            r = cloud_cli('whoami', check=False)
+        finally:
+            control_plane.status = 200
+
+        assert r.returncode == 1
+        assert '503' in r.stderr
+        assert 'not accepted' not in r.stderr
+
+    def test_whoami_scoped_credential(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """A 403 refuses the operation, not the credential, as it does for a key that its grants limit."""
+        control_plane.status = 403
+        try:
+            r = cloud_cli('whoami')
+            answer = cloud_cli('whoami', '--json').json
+        finally:
+            control_plane.status = 200
+
+        assert 'is valid but is not permitted to list_orgs' in r.stdout
+        assert 'pxt login' not in r.stdout + r.stderr
+        assert answer['accepted']
+        assert 'not permitted' in answer['note']
+
+    def test_whoami_json_no_credential(self, cloud_cli: PxtRunner) -> None:
+        cloud_cli('logout')
+
+        r = cloud_cli('whoami', '--json', check=False)
+
+        assert r.returncode == 1
+        assert r.json['using'] == 'none'
+        assert not r.json['accepted']
 
 
 class TestLogout:
@@ -641,6 +676,14 @@ class TestLogin:
 
         assert 'Traceback' not in r.stderr
         assert len(r.stderr.strip().splitlines()) <= 3
+
+    def test_login_no_organization(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """Every hosted command needs an organization, so the sign-in says how to create the first one."""
+        control_plane.tokens[:] = [(200, control_plane.grant(organization_id=''))]
+
+        r = cloud_cli('login')
+
+        assert 'No organization yet: create one with `pxt org create NAME`' in r.stdout
 
     def test_login_json(self, cloud_cli: PxtRunner) -> None:
         """The code and the link are progress, so a caller parsing stdout must not see them."""

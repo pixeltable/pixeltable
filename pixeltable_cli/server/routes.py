@@ -819,7 +819,7 @@ def login_poll(req: Request) -> models.LoginPollResponse:
 
 
 @router.get('/api/whoami')
-def whoami(req: Request) -> dict[str, Any]:
+def whoami(req: Request) -> models.WhoamiResponse:
     url = management_client.api_url()
     cred = management_client.configured_credential()
     # An API key takes precedence, and may belong to a different account than a cached session.
@@ -828,15 +828,19 @@ def whoami(req: Request) -> dict[str, Any]:
     # A cached session says nothing about whether it still works: it can be revoked, and another
     # device can rotate its refresh token away.
     rejection = ''
+    note = ''
     if not req.query_bool('offline') and cred is not None:
         try:
             management_client.api_call(ListOrgsRequest())
         except excs.Error as e:
             # A 401 arrives as ExternalServiceError, so the code separates a refused credential
-            # from an outage where the class does not.
-            if e.error_code not in (excs.ErrorCode.PROVIDER_AUTH_ERROR, excs.ErrorCode.MISSING_CREDENTIALS):
+            # from an outage where the class does not. A 403 refuses the operation, not the credential.
+            if e.error_code == excs.ErrorCode.INSUFFICIENT_PRIVILEGES:
+                note = e.message
+            elif e.error_code in (excs.ErrorCode.PROVIDER_AUTH_ERROR, excs.ErrorCode.MISSING_CREDENTIALS):
+                rejection = e.message
+            else:
                 raise
-            rejection = str(e)
 
     return models.WhoamiResponse(
         api_url=url,
@@ -844,9 +848,10 @@ def whoami(req: Request) -> dict[str, Any]:
         organization_id=session.organization_id if session is not None else '',
         using=cred.kind if cred is not None else 'none',
         credential_source=cred.source if cred is not None else 'nothing',
-        accepted=rejection == '',
+        accepted=cred is not None and rejection == '',
         rejection=rejection,
-    ).model_dump()
+        note=note,
+    )
 
 
 @router.post('/api/logout')

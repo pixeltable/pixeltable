@@ -117,7 +117,7 @@ def run_whoami(argv: list[str]) -> None:
     answer = get_request('/api/whoami', {'offline': args.offline})
     if args.json_output:
         print(json.dumps(answer))
-        sys.exit(0 if answer['using'] != 'none' and answer['accepted'] else 1)
+        sys.exit(0 if answer['accepted'] else 1)
 
     if answer['using'] == 'none':
         print(f'Not signed in to {answer["api_url"]}. Run `pxt login`.', file=sys.stderr)
@@ -127,8 +127,9 @@ def run_whoami(argv: list[str]) -> None:
         print(f'{answer["email"]} on {answer["api_url"]}')
         print(_org_line(answer['organization_id']))
     if answer['using'] == 'api_key':
-        note = ' An API key always takes precedence over a sign-in.' if answer['email'] != '' else ''
-        print(f'Commands use the API key from {answer["credential_source"]}.{note}')
+        print(f'Commands use the API key from {answer["credential_source"]}.')
+    if answer['note'] != '':
+        print(answer['note'])
     if not answer['accepted']:
         print(f'That credential was not accepted: {answer["rejection"]}', file=sys.stderr)
         sys.exit(1)
@@ -136,7 +137,9 @@ def run_whoami(argv: list[str]) -> None:
 
 def _org_line(organization_id: str) -> str:
     """Which organization the token is scoped to."""
-    return f'Organization: {organization_id or "(none)"}'
+    if organization_id == '':
+        return 'No organization yet: create one with `pxt org create NAME`'
+    return f'Organization: {organization_id}'
 
 
 # A ceiling on polling. The sign-in service sets the real deadline in expires_in, usually shorter.

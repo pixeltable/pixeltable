@@ -100,9 +100,17 @@ def resolve(purpose: str) -> Credential:
     return dataclasses.replace(configured, value=token)
 
 
-def _raise_unauthorized(resp: Any, sent: Credential) -> None:
-    """Report a 401, saying which credential the request sent."""
+def raise_if_refused(resp: requests.Response, sent: Credential, operation: str) -> None:
+    """Raise for a 401 or a 403, saying which credential the request sent."""
+    if resp.status_code not in (401, 403):
+        return
     detail = resp.text.strip()
+    if resp.status_code == 403:
+        # the control plane accepted the credential and refused the operation, so signing in again cannot help
+        holder = f'The API key from {sent.source}' if sent.kind == 'api_key' else 'Your Pixeltable session'
+        raise excs.AuthorizationError(
+            excs.ErrorCode.INSUFFICIENT_PRIVILEGES, f'{holder} is valid but is not permitted to {operation} ({detail}).'
+        )
     message = (
         f'The API key from {sent.source} was rejected ({detail}).'
         if sent.kind == 'api_key'
@@ -134,8 +142,7 @@ def api_call(request: Any) -> dict[str, Any]:
         if op_str not in _READ_OPS:
             raise
         resp = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
-    if resp.status_code == 401:
-        _raise_unauthorized(resp, sent)
+    raise_if_refused(resp, sent, op_str)
     if resp.status_code not in (200, 201):
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,

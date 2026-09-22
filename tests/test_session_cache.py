@@ -11,7 +11,7 @@ import pytest
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
-from pixeltable.service import session_cache
+from pixeltable.service import management_client, session_cache
 
 from .utils import pxt_raises
 
@@ -20,10 +20,9 @@ _DEV = 'https://api.dev.pxt.run'
 
 
 @pytest.fixture(autouse=True)
-def _home(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Config caches home at first access, so each test needs its own instance to get its own file.
-    monkeypatch.setenv('PIXELTABLE_HOME', str(tmp_path / 'home'))
-    Config.init(reinit=True)
+def _home(private_home: pathlib.Path) -> pathlib.Path:
+    """Each test gets a cache file of its own, and no configured API key."""
+    return private_home
 
 
 def _session(**kw: Any) -> session_cache.Session:
@@ -171,3 +170,37 @@ class TestFileSafety:
 
         assert session_cache.clear(_PROD) is True
         assert session_cache.load(_PROD) is None
+
+
+class TestCredentialChoice:
+    """Which credential a command sends, and where it came from."""
+
+    def test_api_key_outranks_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Setting a key is the explicit choice, and what CI runs on."""
+        monkeypatch.setenv('PIXELTABLE_API_KEY', 'sk-test')
+        session_cache.save(management_client.api_url(), _session())
+
+        cred = management_client.configured_credential()
+
+        assert cred is not None
+        assert (cred.kind, cred.value) == ('api_key', 'sk-test')
+        assert 'PIXELTABLE_API_KEY' in cred.source
+
+    def test_session_without_key(self) -> None:
+        session_cache.save(management_client.api_url(), _session(access_token='session-token'))
+
+        cred = management_client.configured_credential()
+
+        assert cred is not None
+        assert (cred.kind, cred.value) == ('session', 'session-token')
+
+    def test_neither(self) -> None:
+        assert management_client.configured_credential() is None
+
+    def test_no_credential(self) -> None:
+        """The error says what the credential was for, and both ways to provide one."""
+        with pxt_raises(
+            excs.ErrorCode.MISSING_CREDENTIALS,
+            match=r'API key or sign-in is required to reach the home bucket\. Run `pxt login`, or set an API key',
+        ):
+            management_client.resolve('reach the home bucket')
