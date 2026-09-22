@@ -155,6 +155,18 @@ def load(api_url: str) -> Session | None:
     return _from_record(_read_sessions(check_private=True).get(api_url))
 
 
+def load_for_sign_out(api_url: str) -> Session | None:
+    """The cached session for this control plane, even from a file that other users can read.
+
+    None when never signed in, and when the file or this control plane's record in it is unreadable. The
+    session's token must not be sent: another user may have copied it.
+    """
+    try:
+        return _from_record(_read_sessions(check_private=False).get(api_url))
+    except excs.AuthorizationError:
+        return None
+
+
 # InterProcessLock excludes other processes but not other threads of this one
 _thread_lock = threading.Lock()
 

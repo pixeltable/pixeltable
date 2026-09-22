@@ -120,12 +120,16 @@ class TestFileSafety:
 
     @pytest.mark.skipif(os.name != 'posix', reason='Windows has no POSIX permissions')
     def test_refuses_readable_by_others(self) -> None:
-        """A token another user could have copied is not sent, and signing out and in again replaces it."""
+        """A token another user could have copied is not sent, and signing out and in again replaces it.
+
+        Signing out still reads it, for the session id that signs the browser out.
+        """
         session_cache.save(_PROD, _session())
         _cache_file().chmod(0o644)
 
         with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='other users'):
             session_cache.load(_PROD)
+        assert session_cache.load_for_sign_out(_PROD).access_token == 'at'
         assert session_cache.clear() is True
 
         session_cache.save(_PROD, _session())
@@ -139,6 +143,7 @@ class TestFileSafety:
 
         with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='is unreadable'):
             session_cache.load(_PROD)
+        assert session_cache.load_for_sign_out(_PROD) is None
 
         session_cache.save(_PROD, _session(access_token='new'))
         assert session_cache.load(_PROD).access_token == 'new'
@@ -169,6 +174,7 @@ class TestFileSafety:
 
         with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='is unreadable'):
             session_cache.load(_PROD)
+        assert session_cache.load_for_sign_out(_PROD) is None
         assert session_cache.load(_DEV).access_token == 'dev'
 
         assert session_cache.clear(_PROD) is True

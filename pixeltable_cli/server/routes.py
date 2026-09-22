@@ -858,10 +858,7 @@ def whoami(req: Request) -> models.WhoamiResponse:
 def logout(_req: Request) -> models.LogoutResponse:
     url = management_client.api_url()
     # the browser's sign-out needs the session id, so read it before clearing; clearing needs no network
-    try:
-        session = session_cache.load(url)
-    except excs.Error:
-        session = None
+    session = session_cache.load_for_sign_out(url)
     signed_out = session_cache.clear(url)
     browser_url = ''
     warning = ''

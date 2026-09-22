@@ -31,7 +31,7 @@ from typing import Any, Callable, Iterator
 import pytest
 
 from pixeltable import exceptions as excs
-from pixeltable.service import auth, session_cache
+from pixeltable.service import auth, management_client, session_cache
 from pixeltable.utils import cloud_utils
 from pixeltable_cli.client.commands import login
 from pixeltable_cli.server import routes
@@ -417,6 +417,36 @@ class TestLogout:
         assert session_cache.load(fresh_plane.url) is None
         assert answer.browser_logout_url == ''
         assert 'browser could not be signed out' in answer.warning
+
+    @pytest.mark.parametrize('cache', ['mode_0644', 'not_json'])
+    def test_logout_unusable_cache(
+        self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch, cache: str
+    ) -> None:
+        """The error for an unusable cache says to run `pxt logout`, which clears it.
+
+        A file that other users can read still has the session id that signs the browser out.
+        """
+        if cache == 'mode_0644' and os.name != 'posix':
+            pytest.skip('Windows has no POSIX permissions')
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        expires_at = time.time() + 3600
+        token = _claims(sid='session_01TEST', exp=expires_at)
+        session_cache.save(fresh_plane.url, session_cache.Session(access_token=token, expires_at=expires_at))
+        cache_file = private_home / 'auth' / 'sessions.json'
+        if cache == 'mode_0644':
+            cache_file.chmod(0o644)
+        else:
+            cache_file.write_bytes(b'{not json')
+        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match=r'Run `pxt logout`, then `pxt login`\.'):
+            management_client.resolve('reach Pixeltable Cloud')
+
+        answer = routes.logout(Request(query={}, body_bytes=b'{}'))
+
+        assert answer.signed_out
+        assert session_cache.load(fresh_plane.url) is None
+        signed_out_url = f'{fresh_plane.url}/user_management/sessions/logout?session_id=session_01TEST'
+        assert answer.browser_logout_url == (signed_out_url if cache == 'mode_0644' else '')
+        assert answer.warning == ''
 
     def test_logout_without_browser(
         self, control_plane: ControlPlane, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
