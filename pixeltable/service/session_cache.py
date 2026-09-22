@@ -1,4 +1,4 @@
-"""Session-scoped credentials cache utilities"""
+"""The on-disk cache of `pxt login` sessions, one per control plane."""
 
 from __future__ import annotations
 
