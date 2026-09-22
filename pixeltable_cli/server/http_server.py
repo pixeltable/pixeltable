@@ -362,8 +362,12 @@ def bind(host: str, port: int) -> _QuietServer:
     """Bind the listen socket. Raises OSError if the address is already taken."""
     server = _QuietServer((host, port), _DaemonHandler)
     if _is_loopback(host):
-        bound_port = server.server_address[1]
-        server.allowed_hosts = (f'127.0.0.1:{bound_port}', f'localhost:{bound_port}')
+        bound_host, bound_port = str(server.server_address[0]), server.server_address[1]
+        names = {host, bound_host}
+        # localhost reaches 127.0.0.1 and no other loopback address
+        if bound_host == '127.0.0.1':
+            names.add('localhost')
+        server.allowed_hosts = tuple(sorted(f'{name}:{bound_port}' for name in names))
     return server
 
 

@@ -1,12 +1,14 @@
 """Tests for how a cli client spawns or adopts its daemon."""
 
 import contextlib
+import errno
 import json
 import os
 import pathlib
 import signal
 import subprocess
 import sys
+import threading
 import urllib.error
 import urllib.request
 from typing import Any
@@ -14,6 +16,7 @@ from typing import Any
 import psutil
 import pytest
 
+from pixeltable_cli.server import http_server
 from pixeltable_cli.utils import pidfile_path
 
 _HEALTH_TIMEOUT_SECS = 180.0
@@ -110,13 +113,19 @@ class TestDaemon:
 
 
 def _request_daemon(
-    port: int, path: str, *, host: str, body: bytes | None = None, content_type: str | None = None
+    port: int,
+    path: str,
+    *,
+    host: str,
+    body: bytes | None = None,
+    content_type: str | None = None,
+    address: str = '127.0.0.1',
 ) -> tuple[int, dict[str, Any]]:
-    """Send a request to the daemon on port with the given Host header, and return the status and the answer."""
+    """Send a request to the daemon on address:port with the given Host header, and return the status and the answer."""
     headers = {'Host': host}
     if content_type is not None:
         headers['Content-Type'] = content_type
-    req = urllib.request.Request(f'http://127.0.0.1:{port}{path}', data=body, headers=headers)
+    req = urllib.request.Request(f'http://{address}:{port}{path}', data=body, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=60) as r:
             return r.status, json.loads(r.read())
@@ -137,6 +146,29 @@ class TestBrowserRequests:
         assert code == status
         if status == 403:
             assert 'only answers requests addressed to' in answer['detail']
+
+    def test_host_header_other_loopback_address(self) -> None:
+        """A daemon bound to another loopback address answers requests addressed to that address."""
+        try:
+            server = http_server.bind('127.0.0.2', 0)
+        except OSError as e:
+            if e.errno != errno.EADDRNOTAVAIL:
+                raise
+            pytest.skip('127.0.0.2 is not a local address here, as on macOS, which assigns 127.0.0.1 alone')
+        port = server.server_address[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            own_code, _ = _request_daemon(port, '/api/health', host=f'127.0.0.2:{port}', address='127.0.0.2')
+            foreign_code, answer = _request_daemon(
+                port, '/api/health', host=f'attacker.example:{port}', address='127.0.0.2'
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        assert own_code == 200
+        assert foreign_code == 403
+        assert answer['detail'] == f'this daemon only answers requests addressed to 127.0.0.2:{port}'
 
     def test_form_post(self, pxt_daemon: int) -> None:
         """A page needs no CORS preflight to post a form, but it does to post JSON."""
