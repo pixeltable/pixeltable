@@ -17,7 +17,9 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -177,15 +179,38 @@ def fresh_plane() -> Iterator[ControlPlane]:
 
 
 @pytest.fixture(scope='module')
+def auth_daemon_port() -> int:
+    return _free_port()
+
+
+def _post_to_daemon(port: int, path: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """POST body to the daemon on port the way the CLI does, and return the status and the answer."""
+    req = urllib.request.Request(
+        f'http://127.0.0.1:{port}{path}',
+        data=json.dumps(body).encode(),
+        headers={'Content-Type': 'application/json'},
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+@pytest.fixture(scope='module')
 def cloud_cli(
-    control_plane: ControlPlane, tmp_path_factory: pytest.TempPathFactory, session_project: pathlib.Path
+    control_plane: ControlPlane,
+    auth_daemon_port: int,
+    tmp_path_factory: pytest.TempPathFactory,
+    session_project: pathlib.Path,
 ) -> Iterator[PxtRunner]:
     """A CLI runner whose daemon reaches the stub, and signs in and out against it.
 
     A daemon of its own: the one serving the suite took its environment at spawn, and both the
     address of the management API and the cache the session lands in are read there.
     """
-    port = _free_port()
+    port = auth_daemon_port
     env = {**os.environ, 'PXT_PORT': str(port), 'BROWSER': 'true', 'PIXELTABLE_API_URL': control_plane.url}
     env.pop('PIXELTABLE_API_KEY', None)
     log_path = tmp_path_factory.mktemp('auth-daemon') / 'daemon.log'
@@ -596,6 +621,21 @@ class TestLogin:
         assert r.json['email'] == 'you@example.com'
         assert r.json['organization_id'] == 'org_01TEST'
         assert 'ABCD-EFGH' not in r.stdout
+
+    def test_login_poll_refuses_unknown_code(
+        self, cloud_cli: PxtRunner, control_plane: ControlPlane, auth_daemon_port: int
+    ) -> None:
+        """Redeeming a code this daemon did not issue would sign this machine in as whoever approved it."""
+        status, answer = _post_to_daemon(
+            auth_daemon_port,
+            '/api/login/poll',
+            {'client_id': control_plane.client_id, 'device_code': 'someone-elses-code'},
+        )
+
+        assert status == 422
+        assert 'not issued by this daemon' in answer['detail']
+        assert control_plane.token_seen == []
+        assert 'Not signed in' in cloud_cli('whoami', check=False).stderr
 
     def test_login_outlives_the_command(self, cloud_cli: PxtRunner) -> None:
         """The sign-in is for the machine, not for the process that ran it."""

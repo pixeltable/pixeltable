@@ -7,6 +7,8 @@ import pathlib
 import signal
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from typing import Any
 
 import psutil
@@ -105,3 +107,46 @@ class TestDaemon:
         pathlib.Path(pidfile_path(daemon_port)).write_text(pidfile_content, encoding='utf-8')
 
         assert _pxt_health(daemon_port, cwd=project)['project_root'] == str(project)
+
+
+def _request_daemon(
+    port: int, path: str, *, host: str, body: bytes | None = None, content_type: str | None = None
+) -> tuple[int, dict[str, Any]]:
+    """Send a request to the daemon on port with the given Host header, and return the status and the answer."""
+    headers = {'Host': host}
+    if content_type is not None:
+        headers['Content-Type'] = content_type
+    req = urllib.request.Request(f'http://127.0.0.1:{port}{path}', data=body, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+class TestBrowserRequests:
+    """Any web page in a browser on this machine can send requests to the daemon's loopback port."""
+
+    @pytest.mark.parametrize(
+        ('host', 'status'), [('attacker.example:{port}', 403), ('127.0.0.1:{port}', 200), ('LOCALHOST:{port}', 200)]
+    )
+    def test_host_header(self, pxt_daemon: int, host: str, status: int) -> None:
+        """A page that rebinds its own host name to 127.0.0.1 reaches the port, but sends that name as Host."""
+        code, answer = _request_daemon(pxt_daemon, '/api/health', host=host.format(port=pxt_daemon))
+
+        assert code == status
+        if status == 403:
+            assert 'only answers requests addressed to' in answer['detail']
+
+    def test_form_post(self, pxt_daemon: int) -> None:
+        """A page needs no CORS preflight to post a form, but it does to post JSON."""
+        code, answer = _request_daemon(
+            pxt_daemon,
+            '/api/cwd',
+            host=f'127.0.0.1:{pxt_daemon}',
+            body=b'uri=elsewhere',
+            content_type='application/x-www-form-urlencoded',
+        )
+
+        assert code == 415
+        assert 'application/json' in answer['detail']

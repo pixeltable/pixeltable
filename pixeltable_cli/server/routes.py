@@ -1,5 +1,7 @@
 import datetime
 import os
+import threading
+import time
 import typing
 import urllib.parse
 import uuid
@@ -776,20 +778,44 @@ def _dir_size(path: str | None) -> int | None:
 # Cloud management API proxy routes
 
 
+# Each device code from /api/login/start that a poll may still redeem, and its deadline on the
+# time.monotonic() clock. Redeeming another code would sign this machine in as whoever approved it.
+_issued_device_codes: dict[str, float] = {}
+_issued_device_codes_lock = threading.Lock()
+
+# the poll answers after which a device code can still be approved (RFC 8628 section 3.5)
+_PENDING_LOGIN = ('authorization_pending', 'slow_down')
+
+
 @router.post('/api/login/start')
-def login_start(_req: Request) -> dict[str, Any]:
-    return auth.device_login_start(management_client.api_url()).model_dump()
+def login_start(_req: Request) -> models.LoginStartResponse:
+    start = auth.device_login_start(management_client.api_url())
+    now = time.monotonic()
+    with _issued_device_codes_lock:
+        for code, deadline in list(_issued_device_codes.items()):
+            if deadline <= now:
+                del _issued_device_codes[code]
+        _issued_device_codes[start.device_code] = now + start.expires_in
+    return start
 
 
 @router.post('/api/login/poll')
-def login_poll(req: Request) -> dict[str, Any]:
+def login_poll(req: Request) -> models.LoginPollResponse:
     body = req.body(models.LoginPollBody)
+    with _issued_device_codes_lock:
+        deadline = _issued_device_codes.get(body.device_code)
+    if deadline is None or deadline <= time.monotonic():
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            'This sign-in code was not issued by this daemon, or it has expired. Run `pxt login` again.',
+        )
     answer = auth.device_login_poll(management_client.api_url(), body.client_id, body.device_code)
+    if not isinstance(answer, str) or answer not in _PENDING_LOGIN:
+        with _issued_device_codes_lock:
+            _issued_device_codes.pop(body.device_code, None)
     if isinstance(answer, str):
-        return models.LoginPollResponse(status=answer).model_dump()
-    return models.LoginPollResponse(
-        status='granted', email=answer.email, organization_id=answer.organization_id
-    ).model_dump()
+        return models.LoginPollResponse(status=answer)
+    return models.LoginPollResponse(status='granted', email=answer.email, organization_id=answer.organization_id)
 
 
 @router.get('/api/whoami')

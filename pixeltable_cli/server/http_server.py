@@ -12,6 +12,7 @@ level `router` singleton.
 from __future__ import annotations
 
 import http
+import ipaddress
 import json
 import logging
 import mimetypes
@@ -19,7 +20,7 @@ import sys
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, unquote, urlparse
 
 import pydantic
@@ -89,6 +90,11 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         self._dispatch('POST')
 
     def _dispatch(self, method: Method) -> None:
+        refusal = self._refusal(method)
+        if refusal is not None:
+            self._send_json({'detail': refusal[1]}, refusal[0])
+            return
+
         # Users edit the config file directly, so pick up an edit here rather than at the next daemon
         # restart. Doing it once per request means a request sees one consistent set of values.
         parsed = urlparse(self.path)
@@ -161,6 +167,22 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             self._send_raw(result)
         else:
             self._send_json(_to_jsonable(result))
+
+    def _refusal(self, method: Method) -> tuple[http.HTTPStatus, str] | None:
+        """The status and reason for refusing a request that a web page may have forged, or None to serve it.
+
+        Any page in a browser on this machine can send requests to a loopback port. One that rebinds its own
+        host name to 127.0.0.1 sends that name as Host, and one on another origin cannot send a JSON body
+        without a CORS preflight, which only _DEV_ORIGINS pass.
+        """
+        allowed = cast('_QuietServer', self.server).allowed_hosts
+        if allowed is None:
+            return None
+        if (self.headers.get('Host') or '').lower() not in allowed:
+            return http.HTTPStatus.FORBIDDEN, f'this daemon only answers requests addressed to {" or ".join(allowed)}'
+        if method == 'POST' and self.headers.get_content_type() != 'application/json':
+            return http.HTTPStatus.UNSUPPORTED_MEDIA_TYPE, 'a request body must be sent as application/json'
+        return None
 
     def _env_values_agree(self, req: Request) -> bool:
         """Whether this daemon's config values are the ones it recorded and the caller expects."""
@@ -316,6 +338,10 @@ class _QuietServer(ThreadingHTTPServer):
 
     daemon_threads = True
 
+    # the accepted values of a request's Host header, in lowercase; None accepts any, for a daemon bound
+    # beyond loopback, which only a proxy that authenticates its callers may front
+    allowed_hosts: tuple[str, ...] | None = None
+
     def handle_error(self, request: Any, client_address: Any) -> None:
         exc = sys.exc_info()[1]
         if isinstance(exc, (BrokenPipeError, ConnectionResetError)):
@@ -323,9 +349,22 @@ class _QuietServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
+def _is_loopback(host: str) -> bool:
+    if host == 'localhost':
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def bind(host: str, port: int) -> _QuietServer:
     """Bind the listen socket. Raises OSError if the address is already taken."""
-    return _QuietServer((host, port), _DaemonHandler)
+    server = _QuietServer((host, port), _DaemonHandler)
+    if _is_loopback(host):
+        bound_port = server.server_address[1]
+        server.allowed_hosts = (f'127.0.0.1:{bound_port}', f'localhost:{bound_port}')
+    return server
 
 
 def run(server: _QuietServer) -> None:
