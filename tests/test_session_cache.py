@@ -186,6 +186,16 @@ class TestCredentialChoice:
         assert (cred.kind, cred.value) == ('api_key', 'sk-test')
         assert 'PIXELTABLE_API_KEY' in cred.source
 
+    def test_api_key_from_config_file(self) -> None:
+        """The source names the config file without its path, which is under the Pixeltable home."""
+        Config.get().config_file.write_text('[pixeltable]\napi_key = "sk-file"\n', encoding='utf-8')
+        Config.init(reinit=True, project_root=Config.get().project_root)
+
+        cred = management_client.configured_credential()
+
+        assert cred is not None
+        assert (cred.kind, cred.value, cred.source) == ('api_key', 'sk-file', 'api_key in the Pixeltable config file')
+
     def test_session_without_key(self) -> None:
         session_cache.save(management_client.api_url(), _session(access_token='session-token'))
 
@@ -198,9 +208,11 @@ class TestCredentialChoice:
         assert management_client.configured_credential() is None
 
     def test_no_credential(self) -> None:
-        """The error says what the credential was for, and both ways to provide one."""
+        """The error says what the credential was for, and both ways to provide one, without a home path."""
         with pxt_raises(
             excs.ErrorCode.MISSING_CREDENTIALS,
-            match=r'API key or sign-in is required to reach the home bucket\. Run `pxt login`, or set an API key',
-        ):
+            match=r'API key or sign-in is required to reach the home bucket\. Run `pxt login`, or set an API key .*'
+            r'in the `\[pixeltable\]` section of the Pixeltable config file\.',
+        ) as info:
             management_client.resolve('reach the home bucket')
+        assert str(Config.get().home) not in info.value.message

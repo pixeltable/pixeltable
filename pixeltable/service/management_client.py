@@ -60,9 +60,7 @@ class Credential:
 
 def _api_key_source() -> str:
     env_var = 'PIXELTABLE_API_KEY'
-    return (
-        f'the {env_var} environment variable' if os.environ.get(env_var) else f'api_key in {Config.get().config_file}'
-    )
+    return f'the {env_var} environment variable' if os.environ.get(env_var) else 'api_key in the Pixeltable config file'
 
 
 def configured_credential() -> Credential | None:
@@ -82,7 +80,7 @@ def _no_credential(purpose: str) -> excs.Error:
         excs.ErrorCode.MISSING_CREDENTIALS,
         f'A Pixeltable API key or sign-in is required to {purpose}. Run `pxt login`, or set an '
         'API key with `os.environ["PIXELTABLE_API_KEY"] = "your-key"` or `api_key = "your-key"` '
-        f'in the `[pixeltable]` section of {Config.get().config_file}.\n'
+        'in the `[pixeltable]` section of the Pixeltable config file.\n'
         'For details, see https://docs.pixeltable.com/platform/configuration',
     )
 
