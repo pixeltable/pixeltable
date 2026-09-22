@@ -476,6 +476,8 @@ class KeyRecord(BaseModel):
     key_type: Literal['user', 'runtime']  # the Principal.type the control plane records for it
     grants: list[str] = Field(default_factory=list)  # empty for a key that acts as its creator
     created_at: datetime
+    # Who created it: an email when the control plane knows one, else a user id; empty when unknown.
+    created_by: str = ''
     # Set only in a create response: the secret is shown once and never stored in retrievable form.
     api_key: str | None = None
 
