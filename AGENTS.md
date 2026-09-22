@@ -378,7 +378,7 @@ Documentation notebooks are in `docs/release/`. Follow `docs/_guidelines/GUIDELI
 - Use one title source: a leading markdown H1, or a first **Raw cell** with YAML `title`
 - Do not include an H1 when using a raw frontmatter title
 - Use `##` for main sections, `###` for subsections
-- Clear outputs before committing unless output is instructive
+- Keep cell outputs: `tool/check_notebooks.py` requires them on at least 50% of code cells. Clear only outputs that are noise, such as progress bars or warnings
 - Use `raw.githubusercontent.com` for GitHub raw links
 
 ### Docstrings

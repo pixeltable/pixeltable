@@ -97,7 +97,8 @@ from pixeltable.functions import openai
 ```
 
 ### Output Display
-- Clear output before committing notebooks (when appropriate)
+- Keep outputs: `tool/check_notebooks.py` requires them on at least 50% of code cells
+- Clear only outputs that are noise, such as progress bars or warnings
 - Keep meaningful outputs that help explain concepts
 - For long outputs, consider using `head()` or limiting results
 
