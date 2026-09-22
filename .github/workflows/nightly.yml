@@ -47,6 +47,7 @@ jobs:
         python-version: ["3.11", "3.13"]
         package-configs:
           - ""
+          # TODO(PXT-1452): drop the mcp<2 cap once pixeltable/func/mcp.py targets the MCP 2.x client API
           - "lancedb pylance 'mcp>=1.27.2,<2' opencv-python scenedetect"
           - "anthropic fireworks-ai 'google-genai<1.72.0' groq jina mistralai openai replicate together"
           - "fal-client runwayml twelvelabs voyageai"

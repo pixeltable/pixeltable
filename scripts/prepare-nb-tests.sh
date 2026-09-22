@@ -107,7 +107,8 @@ TARGET_DIR="$1"
 shift
 
 if [[ $DO_PIP_INSTALL == true ]]; then
-    # The instrumentation package is available in the source checkout, but is not yet published on PyPI.
+    # TODO(PXT-1427): the instrumentation package is available in the source checkout, but is not yet published
+    # on PyPI.
     SKIP_NOTEBOOKS+=(observability)
 fi
 
