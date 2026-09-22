@@ -54,6 +54,17 @@ class Session:
         return bool(self.refresh_token and self.client_id)
 
 
+# The JSON types a cache record may give each Session field.
+_FIELD_TYPES: dict[str, tuple[type, ...]] = {
+    'access_token': (str,),
+    'expires_at': (int, float),
+    'refresh_token': (str, type(None)),
+    'client_id': (str,),
+    'email': (str,),
+    'organization_id': (str,),
+}
+
+
 def _path() -> Path:
     return Config.get().home / 'auth' / 'sessions.json'
 
@@ -120,17 +131,27 @@ def _write_sessions(cache: dict[str, Any]) -> None:
 
 
 def _from_record(record: Any) -> Session | None:
-    if not isinstance(record, dict):
+    """The session in one control plane's cache record; None when there is no record.
+
+    Raises for a record that is not an object with each field at its type in _FIELD_TYPES: a dataclass does
+    not check the types of its fields, and a string in expires_at would fail the next renewal, not this read.
+    """
+    if record is None:
         return None
-    fields = {f.name for f in dataclasses.fields(Session)}
-    try:
-        return Session(**{k: v for k, v in record.items() if k in fields})
-    except TypeError:  # the record lacks a field this version requires
-        return None
+    if isinstance(record, dict):
+        values = {f.name: record[f.name] for f in dataclasses.fields(Session) if f.name in record}
+        # isinstance() accepts a bool as an int
+        if all(isinstance(v, _FIELD_TYPES[k]) and not isinstance(v, bool) for k, v in values.items()):
+            with contextlib.suppress(TypeError):  # the record lacks a field this version requires
+                return Session(**values)
+    raise _unusable('is unreadable')
 
 
 def load(api_url: str) -> Session | None:
-    """The cached session for this control plane, expired or not. None when never signed in."""
+    """The cached session for this control plane, expired or not. None when never signed in.
+
+    Raises when the file or this control plane's record in it is unreadable.
+    """
     return _from_record(_read_sessions(check_private=True).get(api_url))
 
 

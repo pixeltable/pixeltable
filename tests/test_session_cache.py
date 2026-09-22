@@ -148,12 +148,35 @@ class TestFileSafety:
         assert not _cache_file().exists()
         assert session_cache.load(_PROD) is None
 
-    def test_non_object_record(self) -> None:
-        """A record that is not an object is no session, and leaves the others readable."""
-        _write_cache_file(json.dumps({_PROD: 'not a record', _DEV: {'access_token': 'dev', 'expires_at': 0}}).encode())
+    @pytest.mark.parametrize(
+        'record',
+        [
+            'not a record',
+            {'access_token': 'at'},
+            {'access_token': 'at', 'expires_at': 'tomorrow'},
+            {'access_token': 'at', 'expires_at': True},
+            {'access_token': 7, 'expires_at': 0},
+            {'access_token': 'at', 'expires_at': 0, 'refresh_token': 7},
+            {'access_token': 'at', 'expires_at': 0, 'email': ['a@b.c']},
+        ],
+    )
+    def test_invalid_record(self, record: Any) -> None:
+        """A record that is not a session is reported like an unreadable file, and leaves the others readable.
 
-        assert session_cache.load(_PROD) is None
+        Signing out removes it, and a new sign-in replaces it.
+        """
+        _write_cache_file(json.dumps({_PROD: record, _DEV: {'access_token': 'dev', 'expires_at': 0}}).encode())
+
+        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='is unreadable'):
+            session_cache.load(_PROD)
         assert session_cache.load(_DEV).access_token == 'dev'
+
+        assert session_cache.clear(_PROD) is True
+        assert session_cache.load(_PROD) is None
+
+        _write_cache_file(json.dumps({_PROD: record}).encode())
+        session_cache.save(_PROD, _session(access_token='new'))
+        assert session_cache.load(_PROD).access_token == 'new'
 
     def test_windows_mode_semantics(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Windows reports a writable file as 0o666, and before Python 3.13 has no os.fchmod()."""
@@ -203,6 +226,16 @@ class TestCredentialChoice:
 
         assert cred is not None
         assert (cred.kind, cred.value) == ('session', 'session-token')
+
+    def test_session_with_wrong_types(self) -> None:
+        """A string in expires_at is reported as an unreadable sign-in, with the way out, and not as a TypeError."""
+        record = {'access_token': 'at', 'expires_at': 'tomorrow', 'refresh_token': 'rt', 'client_id': 'client_01TEST'}
+        _write_cache_file(json.dumps({management_client.api_url(): record}).encode())
+
+        with pxt_raises(
+            excs.ErrorCode.MISSING_CREDENTIALS, match=r'is unreadable, so it was not used\. Run `pxt logout`, then'
+        ):
+            management_client.resolve('reach Pixeltable Cloud')
 
     def test_neither(self) -> None:
         assert management_client.configured_credential() is None
