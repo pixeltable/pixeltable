@@ -49,7 +49,7 @@ These flags work the same way across the catalog commands that support them and 
 | Flag | Available on | Description |
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
-| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs, plus `db`, `secret`, `org`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), or the lifecycle subcommands that print plain status lines (`daemon start`/`stop`). |
+| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs, plus `login`, `whoami`, `db`, `secret`, `org`, `key`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), or the commands that print plain status lines (`logout`, `daemon start`/`stop`). |
 | `--json-schema` | `schema diff`, `service diff`, `db diff`, `db status`, `service list` | Print the JSON Schema of that command's `--json` output, with descriptions of every field and enum value, and exit. |
 | `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), plus `schema update`, `schema prune`, `service update` and `service prune` | Print the intended action; don't execute. |
 | `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
@@ -923,7 +923,7 @@ callers may be using, so it needs `--allow-destructive`.
 
 `pxt db` and `pxt org` manage cloud-hosted databases and organizations. Cloud commands need a credential: a `pxt login` session or an API key ([Signing in](#signing-in)). To use an API key, create it in the Cloud dashboard ([Get an API key](/howto/deployment/cloud#get-an-api-key)) or with `pxt key create`, then export it as `PIXELTABLE_API_KEY`. The CLI reads the process environment and does not load `.env` on its own ([Configuration](/platform/configuration)).
 
-All cloud commands accept `--json` for machine-readable output.
+Every cloud command except `pxt logout` accepts `--json` for machine-readable output.
 
 ### Cloud configuration reference
 
