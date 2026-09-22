@@ -1190,7 +1190,7 @@ class TestPathValidator:
         [('db', 'diff', 'pxt://acme:main/'), ('org', 'status', 'pxt://acme/'), ('secret', 'list', 'pxt://acme:main/')],
     )
     def test_hosted_uri_rejects_trailing_slash(self, cli: PxtRunner, argv: tuple[str, ...]) -> None:
-        """A database or organization URI names no path, so a trailing '/' is refused before any request."""
+        """A database or organization URI has no path, so a trailing '/' is refused before any request."""
         r = cli(*argv, check=False)
         assert r.returncode == 2
         assert 'URI must be' in r.stderr

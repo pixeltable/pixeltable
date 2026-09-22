@@ -30,7 +30,7 @@ class TestKeyRecord:
         assert KeyRecord.model_validate_json(record.model_dump_json()).created_at == record.created_at
 
     def test_created_by(self) -> None:
-        """A control plane that predates created_by leaves it out, and then nobody is named."""
+        """A control plane that predates created_by leaves it out, which reads as no known creator."""
         keys = ListKeysResponse.model_validate(
             {
                 'keys': [

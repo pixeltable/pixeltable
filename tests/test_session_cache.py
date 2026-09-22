@@ -156,7 +156,7 @@ class TestFileSafety:
         assert session_cache.load(_DEV).access_token == 'dev'
 
     def test_windows_mode_semantics(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Windows reports every file as 0o666, and before Python 3.13 has no os.fchmod()."""
+        """Windows reports a writable file as 0o666, and before Python 3.13 has no os.fchmod()."""
         monkeypatch.setattr(session_cache, '_POSIX', False)
         monkeypatch.delattr(os, 'fchmod', raising=False)
 

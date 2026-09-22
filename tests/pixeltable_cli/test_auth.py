@@ -1,12 +1,14 @@
-"""Tests for `pxt login`, `pxt logout`, `pxt whoami`, `pxt org create`, and what `pxt key` refuses.
+"""Tests for `pxt login`, `pxt logout`, `pxt whoami`, `pxt org create`, `pxt key`, and session renewal.
 
 The session commands read and write the daemon's own cache, so a prepared file in it stands in for a
 sign-in. The commands that reach the control plane talk to a stub of it, served by a daemon this
-module starts with `PIXELTABLE_API_URL` set to it. The stub also plays the sign-in service, which is
-what lets a test script an approval, a rotation or a refusal that real WorkOS will not perform.
+module starts with `PIXELTABLE_API_URL` set to it. The stub also plays the sign-in service, so a test
+can script an approval, a rotation or a refusal that real WorkOS will not perform. Tests that need a
+cold discovery cache or several renewing processes run in this process instead, against a stub on a
+port of its own.
 
 What a stub cannot check is whether the control plane stores what it reports, so `pxt key` is
-exercised against a real one in test_key.py, and only its client-side refusals remain here.
+exercised against a real one in test_key.py, and only what the client refuses or prints remains here.
 """
 
 import json
@@ -352,7 +354,7 @@ class TestWhoami:
         assert 'not accepted' not in r.stderr
 
     def test_whoami_scoped_credential(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        """A 403 refuses the operation, not the credential, as it does for a key that its grants limit."""
+        """A 403 refuses the operation, not the credential, as for a key limited by its grants."""
         control_plane.status = 403
         try:
             r = cloud_cli('whoami')
@@ -906,7 +908,7 @@ class TestRenewal:
 
 
 class TestHomeBucket:
-    """The home bucket's calls to the control plane send the credential a management call sends."""
+    """The home bucket's calls to the control plane send the same credential as a management call."""
 
     @pytest.mark.parametrize(
         ('status', 'code', 'message'),

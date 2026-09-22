@@ -339,7 +339,8 @@ class WhoamiResponse(BaseModel):
     credential_source: str
     accepted: bool
     rejection: str = ''
-    # why the control plane refused the check's operation to an accepted credential, such as a key's grants
+    # the control plane's reason for refusing the check's operation to an accepted credential, such as a
+    # key limited by its grants
     note: str = ''
 
 

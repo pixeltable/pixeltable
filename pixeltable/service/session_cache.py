@@ -24,7 +24,7 @@ EXPIRY_SKEW_S = 60.0
 
 _DIR_MODE = 0o700
 
-# Windows has no POSIX permissions to set or check: it reports every file as 0o666, even after chmod().
+# Windows has no POSIX permissions to set or check: it reports a writable file as 0o666, even after chmod().
 _POSIX = os.name == 'posix'
 
 
@@ -90,7 +90,7 @@ def _read_sessions(*, check_private: bool) -> dict[str, Any]:
 
 
 def _rewritable_sessions() -> dict[str, Any]:
-    """The sessions to carry into a rewrite of the file, which replaces an unreadable one."""
+    """The sessions to carry over when the file is rewritten; none from an unreadable file, which is replaced."""
     try:
         return _read_sessions(check_private=False)
     except excs.AuthorizationError:
@@ -156,8 +156,8 @@ def _exclusive() -> Iterator[None]:
 class RejectedRefreshError(Exception):
     """Raised by the refresh() passed to renew() when the sign-in service refuses the refresh token.
 
-    renew() discards the session, as WorkOS asks of a client whose refresh token was refused, and then
-    raises `error`.
+    renew() discards the session, since a refused refresh token cannot renew it again, and then raises
+    `error`.
     """
 
     error: excs.Error
