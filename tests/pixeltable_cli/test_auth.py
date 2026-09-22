@@ -661,6 +661,36 @@ class TestLogin:
         assert 'expired' in r.stderr
         assert len(control_plane.token_seen) == 0
 
+    def test_login_deadline_inside_interval(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """A code that expires before the next poll is due is reported as expired, without that poll."""
+        control_plane.device = {**_DEVICE, 'interval': 2, 'expires_in': 1}
+
+        r = cloud_cli('login', check=False)
+
+        assert r.returncode == 1
+        assert 'expired before it was confirmed' in r.stderr
+        assert len(control_plane.token_seen) == 0
+
+    @pytest.mark.parametrize(
+        ('answer', 'reason'),
+        [
+            ({'error': 'expired_token', 'error_description': 'too late'}, 'the code expired before it was confirmed'),
+            (
+                {'error': 'invalid_client', 'error_description': 'unknown client'},
+                'the sign-in failed (invalid_client: unknown client)',
+            ),
+        ],
+    )
+    def test_login_failure_reason(
+        self, cloud_cli: PxtRunner, control_plane: ControlPlane, answer: dict[str, str], reason: str
+    ) -> None:
+        control_plane.tokens[:] = [(400, answer)]
+
+        r = cloud_cli('login', check=False)
+
+        assert r.returncode == 1
+        assert reason in r.stderr
+
     def test_login_refused(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         control_plane.tokens[:] = [_DENIED]
 

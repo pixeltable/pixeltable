@@ -66,8 +66,11 @@ def _await_approval(start: dict[str, Any]) -> dict[str, Any]:
     interval = float(start['interval'])
     deadline = time.time() + min(float(start['expires_in']), _LOGIN_TIMEOUT_S)
     poll = {'client_id': start['client_id'], 'device_code': start['device_code']}
-    while time.time() < deadline:
+    while True:
         time.sleep(min(interval, max(deadline - time.time(), 0.0)))
+        # after the sleep, which can end at the deadline: a poll with an expired code gets the service's error
+        if time.time() >= deadline:
+            _fail(_EXPIRED)
         answer = post_request('/api/login/poll', poll)
         status = answer['status']
         if status == 'granted':
@@ -79,8 +82,13 @@ def _await_approval(start: dict[str, Any]) -> dict[str, Any]:
             continue
         if status == 'access_denied':
             _fail('the sign-in was refused in the browser')
-        _fail(f'the sign-in failed ({status})')
-    _fail('the code expired before it was confirmed')
+        if status == 'expired_token':
+            _fail(_EXPIRED)
+        detail = f': {answer["detail"]}' if answer['detail'] != '' else ''
+        _fail(f'the sign-in failed ({status}{detail})')
+
+
+_EXPIRED = 'the code expired before it was confirmed'
 
 
 def _fail(reason: str) -> NoReturn:

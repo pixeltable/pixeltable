@@ -253,16 +253,16 @@ def device_login_start(api_url: str) -> LoginStartResponse:
     )
 
 
-def device_login_poll(api_url: str, client_id: str, device_code: str) -> Session | str:
+def device_login_poll(api_url: str, client_id: str, device_code: str) -> Session | TokenErrorResponse:
     """Ask once whether the code has been approved.
 
-    The cached Session on approval, otherwise the OAuth error code: 'authorization_pending' while
-    the browser is still open, 'slow_down' to poll less often, and 'access_denied' or
-    'expired_token' when no further poll can succeed.
+    The cached Session on approval, otherwise the OAuth error: 'authorization_pending' while the
+    browser is still open, 'slow_down' to poll less often, and 'access_denied' or 'expired_token'
+    when no further poll can succeed.
     """
     answer = _token_request(api_url, {'grant_type': _DEVICE_GRANT, 'device_code': device_code, 'client_id': client_id})
     if isinstance(answer, TokenErrorResponse):
-        return answer.code
+        return answer
     session = _create_session(answer, client_id)
     session_cache.save(api_url, session)
     return session

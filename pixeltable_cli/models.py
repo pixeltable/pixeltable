@@ -328,7 +328,7 @@ class LoginPollResponse(BaseModel):
     status: str
     email: str = ''
     organization_id: str = ''
-    detail: str = ''
+    detail: str = ''  # the error_description of that answer
 
 
 class WhoamiResponse(BaseModel):

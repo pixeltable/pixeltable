@@ -810,11 +810,11 @@ def login_poll(req: Request) -> models.LoginPollResponse:
             'This sign-in code was not issued by this daemon, or it has expired. Run `pxt login` again.',
         )
     answer = auth.device_login_poll(management_client.api_url(), body.client_id, body.device_code)
-    if not isinstance(answer, str) or answer not in _PENDING_LOGIN:
+    if not isinstance(answer, auth.TokenErrorResponse) or answer.code not in _PENDING_LOGIN:
         with _issued_device_codes_lock:
             _issued_device_codes.pop(body.device_code, None)
-    if isinstance(answer, str):
-        return models.LoginPollResponse(status=answer)
+    if isinstance(answer, auth.TokenErrorResponse):
+        return models.LoginPollResponse(status=answer.code, detail=answer.description)
     return models.LoginPollResponse(status='granted', email=answer.email, organization_id=answer.organization_id)
 
 
