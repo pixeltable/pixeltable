@@ -14,6 +14,7 @@ exercised against a real one in test_key.py, and only what the client refuses or
 import json
 import os
 import pathlib
+import re
 import socket
 import subprocess
 import sys
@@ -32,6 +33,7 @@ import pytest
 
 from pixeltable import exceptions as excs
 from pixeltable.service import auth, management_client, session_cache
+from pixeltable.service.management_protocol import CreateKeyRequest, ListOrgsRequest
 from pixeltable.utils import cloud_utils
 from pixeltable_cli.client.commands import login
 from pixeltable_cli.server import routes
@@ -520,6 +522,19 @@ class TestKey:
         assert 'ci  (acts as you@example.com:' in r.stdout
         assert 'sk-pxt-created' in r.stdout
 
+    def test_key_create_refused(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """A 4xx is Pixeltable Cloud refusing the request, reported in its own words and not as an outage."""
+        control_plane.answers['create_key'] = b'Bad Request : Keys with grants are not available yet'
+        control_plane.status = 400
+        try:
+            r = cloud_cli('key', 'create', 'scoped-1', '--grant', 'access:pxt://acme:main/services', check=False)
+        finally:
+            control_plane.status = 200
+
+        assert r.returncode == 1
+        assert 'pxt: 400 Pixeltable Cloud refused this request: Keys with grants are not available yet.' in r.stderr
+        assert 'Bad Request' not in r.stderr
+
     def test_key_update_no_args(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         before = len(control_plane.seen)
 
@@ -977,6 +992,68 @@ class TestHomeBucket:
 
         with pxt_raises(code, match=message):
             cloud_utils.get_bucket_credentials('acme', 'main', 'home')
+
+
+class TestControlPlaneErrors:
+    """What a management call raises for an error status from the control plane."""
+
+    @pytest.mark.parametrize(
+        ('status', 'body', 'code', 'message'),
+        [
+            (
+                400,
+                b'Bad Request : Keys with grants are not available yet',
+                excs.ErrorCode.PROVIDER_BAD_REQUEST,
+                'Pixeltable Cloud refused this request: Keys with grants are not available yet.',
+            ),
+            (
+                404,
+                b'Not Found',
+                excs.ErrorCode.PROVIDER_BAD_REQUEST,
+                'Pixeltable Cloud refused this request: Not Found.',
+            ),
+            (429, b'Too Many Requests', excs.ErrorCode.PROVIDER_ERROR, 'Management API error 429: Too Many Requests'),
+            (503, b'Service Unavailable : down', excs.ErrorCode.PROVIDER_ERROR, 'Management API error 503'),
+        ],
+    )
+    def test_error_status(
+        self,
+        fresh_plane: ControlPlane,
+        private_home: pathlib.Path,
+        monkeypatch: pytest.MonkeyPatch,
+        status: int,
+        body: bytes,
+        code: excs.ErrorCode,
+        message: str,
+    ) -> None:
+        """A retry cannot change a refused request, but a 429 or a 5xx can pass on a retry."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
+        fresh_plane.status = status
+        fresh_plane.answers['create_key'] = body
+
+        with pxt_raises(code, match=re.escape(message)) as info:
+            management_client.api_call(CreateKeyRequest(name='scoped-1', grants=['access:pxt://acme:main/services']))
+
+        assert isinstance(info.value, excs.ExternalServiceError)
+        assert info.value.provider_http_status_code == status
+        assert info.value.is_retryable == (status in (429, 503))
+
+    def test_rejected_api_key(
+        self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A deleted key's rejection is one sentence that states the key's source."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
+        fresh_plane.status = 401
+        fresh_plane.answers['list_orgs'] = b'Unauthorized : Pixeltable API key is invalid or expired.'
+
+        with pxt_raises(
+            excs.ErrorCode.PROVIDER_AUTH_ERROR,
+            match=r'^The API key from the PIXELTABLE_API_KEY environment variable was rejected: '
+            r'Pixeltable API key is invalid or expired\.$',
+        ):
+            management_client.api_call(ListOrgsRequest())
 
 
 class TestDiscovery:

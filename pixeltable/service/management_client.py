@@ -6,6 +6,7 @@ Callers pass a request model from management_protocol and get back the raw respo
 from __future__ import annotations
 
 import dataclasses
+import http.client
 import os
 from typing import Any, Literal
 
@@ -130,6 +131,14 @@ def resolve(purpose: str) -> Credential:
     return dataclasses.replace(configured, value=token)
 
 
+def _reason(resp: requests.Response) -> str:
+    """The control plane's reason for an error status, as a sentence without its final period."""
+    phrase = http.client.responses.get(resp.status_code, '')
+    # the control plane's error body is '<status phrase> : <details>', or the phrase alone
+    reason = resp.text.strip().removeprefix(f'{phrase} :').strip().rstrip('.')
+    return reason or phrase or f'HTTP {resp.status_code}'
+
+
 def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) -> None:
     """Raise for a 401 or a 403, saying which credential the request sent.
 
@@ -137,17 +146,17 @@ def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) ->
     """
     if resp.status_code not in (401, 403):
         return
-    detail = resp.text.strip()
+    reason = _reason(resp)
     if resp.status_code == 403:
         # the control plane accepted the credential and refused the operation, so signing in again cannot help
         holder = f'The API key from {sent.source}' if sent.kind == 'api_key' else 'Your Pixeltable session'
         raise excs.AuthorizationError(
-            excs.ErrorCode.INSUFFICIENT_PRIVILEGES, f'{holder} is valid but is not permitted to {purpose} ({detail}).'
+            excs.ErrorCode.INSUFFICIENT_PRIVILEGES, f'{holder} is valid but is not permitted to {purpose}: {reason}.'
         )
     message = (
-        f'The API key from {sent.source} was rejected ({detail}).'
+        f'The API key from {sent.source} was rejected: {reason}.'
         if sent.kind == 'api_key'
-        else f'Your Pixeltable session was rejected ({detail}). {auth.SIGN_IN_AGAIN}'
+        else f'Your Pixeltable session was rejected: {reason}. {auth.SIGN_IN_AGAIN}'
     )
     # PROVIDER_AUTH_ERROR, not PROVIDER_ERROR: a refused credential is not retryable, and retrying
     # one only delays the error. A 401 is always the control plane's own decision -- it answers 503,
@@ -176,6 +185,14 @@ def api_call(request: Any) -> dict[str, Any]:
             raise
         resp = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
     raise_if_refused(resp, sent, _PURPOSES.get(op_str, 'do this'))
+    # a 429 throttles the request rather than refusing it, so a retry can succeed
+    if 400 <= resp.status_code < 500 and resp.status_code != 429:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_BAD_REQUEST,
+            f'Pixeltable Cloud refused this request: {_reason(resp)}.',
+            provider='pixeltable_cloud',
+            status_code=resp.status_code,
+        )
     if resp.status_code not in (200, 201):
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
