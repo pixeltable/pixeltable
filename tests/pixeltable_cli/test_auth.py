@@ -30,6 +30,7 @@ import pytest
 
 from pixeltable import exceptions as excs
 from pixeltable.service import auth, session_cache
+from pixeltable.utils import cloud_utils
 from pixeltable_cli.client.commands import login
 from pixeltable_cli.server import routes
 from pixeltable_cli.server.router import Request
@@ -890,6 +891,38 @@ class TestRenewal:
         assert len(fresh_plane.token_seen) == 1
         assert tokens == [renewed['access_token']] * self._CALLERS
         assert session_cache.load(fresh_plane.url).refresh_token == 'refresh-2'
+
+
+class TestHomeBucket:
+    """The home bucket's calls to the control plane send the credential a management call sends."""
+
+    @pytest.mark.parametrize(
+        ('status', 'code', 'message'),
+        [
+            (
+                401,
+                excs.ErrorCode.PROVIDER_AUTH_ERROR,
+                'API key from the PIXELTABLE_API_KEY environment variable was rejected',
+            ),
+            (403, excs.ErrorCode.INSUFFICIENT_PRIVILEGES, 'is valid but is not permitted to get_bucket_credentials'),
+        ],
+    )
+    def test_refused_credential(
+        self,
+        fresh_plane: ControlPlane,
+        private_home: pathlib.Path,
+        monkeypatch: pytest.MonkeyPatch,
+        status: int,
+        code: excs.ErrorCode,
+        message: str,
+    ) -> None:
+        """A refused credential is reported as such, and is not retried as an unreachable control plane is."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
+        fresh_plane.status = status
+
+        with pxt_raises(code, match=message):
+            cloud_utils.get_bucket_credentials('acme', 'main', 'home')
 
 
 class TestDiscovery:

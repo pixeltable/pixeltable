@@ -238,6 +238,8 @@ class TunnelTransport(Transport):
 
     def _connect_tunnel(self) -> http.client.HTTPConnection:
         """Open one tunnel connection: TCP + TLS + PXT/1.0 CONNECT handshake."""
+        # before connecting: renewing a session is a round trip of its own, and a refused credential needs no socket
+        credential = self._credential_cb()
         ctx = ssl.create_default_context()
         raw_sock = socket.create_connection((self._host, self._port), timeout=_CONNECT_TIMEOUT)
         ssl_sock: ssl.SSLSocket | None = None
@@ -254,9 +256,9 @@ class TunnelTransport(Transport):
                 raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
             ssl_sock = ctx.wrap_socket(raw_sock, server_hostname=self._host)
 
-            # the sidecar authenticates via the API key and routes the tunnel to org/db, then relays to the
+            # the sidecar authenticates the credential and routes the tunnel to org/db, then relays to the
             # proxy daemon's HTTP server; it answers 'PXT/1.0 200' on success (checked below)
-            frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {self._credential_cb()}\r\n\r\n'
+            frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {credential}\r\n\r\n'
             ssl_sock.sendall(frame.encode())
 
             buf = b''

@@ -12,7 +12,7 @@ from typing import Literal
 import requests
 
 from pixeltable import exceptions as excs
-from pixeltable.service.management_client import api_url, resolve
+from pixeltable.service.management_client import api_url, raise_if_refused, resolve
 from pixeltable.service.pxtfs_protocol import (
     GetBucketCredentialsRequest,
     GetBucketCredentialsResponse,
@@ -21,9 +21,16 @@ from pixeltable.service.pxtfs_protocol import (
 )
 
 
-def _api_headers() -> dict[str, str]:
-    """Credentials for a home-bucket call: an API key if set, otherwise the `pxt login` session."""
-    return {'Content-Type': 'application/json', **resolve('reach the home bucket').header()}
+def _post(request: GetBucketCredentialsRequest | GetPresignedUrlRequest, timeout: float) -> requests.Response:
+    """Send a home-bucket request with an API key if one is set, otherwise the `pxt login` session.
+
+    A refused credential raises as it does for a management call, since retrying cannot help.
+    """
+    sent = resolve('reach the home bucket')
+    headers = {'Content-Type': 'application/json', **sent.header()}
+    response = requests.post(api_url(), data=request.model_dump_json(), headers=headers, timeout=timeout)
+    raise_if_refused(response, sent, request.operation_type.value)
+    return response
 
 
 def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str | None = None) -> GetBucketCredentialsResponse:
@@ -41,7 +48,7 @@ def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str | None = 
     """
     request = GetBucketCredentialsRequest(org=org, db=db, bucket_name=bucket, prefix=prefix)
     try:
-        response = requests.post(api_url(), data=request.model_dump_json(), headers=_api_headers(), timeout=15)
+        response = _post(request, timeout=15)
         if response.status_code != 200:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,
@@ -68,7 +75,7 @@ def get_presigned_url_from_cloud(
     """
     request = GetPresignedUrlRequest(org=org, db=db, bucket_name=bucket, key=key, method=method, expiration=expiration)
     try:
-        response = requests.post(api_url(), data=request.model_dump_json(), headers=_api_headers(), timeout=30)
+        response = _post(request, timeout=30)
         if response.status_code != 200:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,

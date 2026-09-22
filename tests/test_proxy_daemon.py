@@ -490,6 +490,21 @@ class TestTunnelRetries:
         assert transport.post(b'body') == b'second'
         assert len(opened) == 2
 
+    def test_a_refused_credential_opens_no_connection(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Renewing a session is a round trip of its own, so the credential is resolved before connecting."""
+
+        def refuse() -> str:
+            raise excs.AuthorizationError(excs.ErrorCode.MISSING_CREDENTIALS, 'no credential in this test')
+
+        def connect(*_args: Any, **_kwargs: Any) -> socket.socket:
+            raise AssertionError('connected before resolving the credential')
+
+        monkeypatch.setattr(socket, 'create_connection', connect)
+        transport = TunnelTransport('org1', 'db1', refuse, host='h', port=443)
+
+        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='no credential in this test'):
+            transport.post(b'body')
+
     def test_a_client_error_is_not_retried(self) -> None:
         transport, opened = self._transport([_ScriptedConn(on_read=(404, b'nope')) for _ in range(2)])
         with pytest.raises(RuntimeError, match='error 404'):
