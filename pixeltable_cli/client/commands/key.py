@@ -35,8 +35,9 @@ Examples:
   pxt key delete myci
 
 A grant is a verb on a pxt:// resource: `access` to use it, `manage` to change it. The resource is
-a database, its services, or one named service. `pxt key --help` lists the forms; the full table is
-in the CLI reference under `pxt key`.
+a database, its services, or one service, addressed by its base path and name. `manage` applies to
+services only. `pxt key --help` lists the forms; the full table is in the CLI reference under
+`pxt key`.
 
 access and manage are independent: neither implies the other. A key that can call a service cannot
 reconfigure it, and one that can stop it cannot read what flows through it.
@@ -88,34 +89,50 @@ def run(argv: list[str]) -> None:
     {'list': _list, 'create': _create, 'update': _update, 'delete': _delete}[args.action](args)
 
 
-def _bad(flag: str, token: str) -> NoReturn:
-    print(f'pxt key: error: {flag} takes {_GRANT}, got {token!r}', file=sys.stderr)
+def _bad(flag: str, token: str, reason: str = '') -> NoReturn:
+    detail = f': {reason}' if reason != '' else ''
+    print(f'pxt key: error: {flag} takes {_GRANT}, got {token!r}{detail}', file=sys.stderr)
     sys.exit(2)
+
+
+def _grant_scope(uri: str) -> tuple[str, str | None] | None:
+    """The database a grant's URI is in, and the service path within it; None for any other URI.
+
+    The service path is None for the database itself, '' for all of its services, and base_path/name for
+    one service, so it may have more than one component.
+    """
+    parts = split_pxt_uri(uri)
+    if parts is None or parts.db is None:
+        return None
+    if parts.path is None:
+        return parts.db, None
+    if parts.path == 'services':
+        return parts.db, ''
+    head, sep, service = parts.path.partition('/')
+    if head != 'services' or sep == '':
+        return None
+    if any(s in ('', '.', '..') or ':' in s for s in service.split('/')):
+        return None
+    return parts.db, service
 
 
 def _grants(values: list[str] | None, flag: str) -> list[str]:
     """Flatten repeated and comma-joined grants, matching --cols elsewhere in the CLI.
 
-    Only the shape is checked here, so a typo is answered next to the flag that caused it. Which
-    verbs a resource actually admits, and whether the organization is yours, are the control plane's
-    to decide: the credential settles which organization you are in.
+    Each one is checked against the forms the control plane accepts, so a typo is answered next to the
+    flag that caused it. Whether the organization is yours is the control plane's to decide: the
+    credential settles which organization you are in.
     """
     out: list[str] = []
     for value in values or []:
         for part in value.split(','):
             spec = part.strip()
             verb, sep, uri = spec.partition(':')
-            if not sep or verb not in _VERBS or not uri.startswith('pxt://'):
+            scope = _grant_scope(uri) if sep != '' and verb in _VERBS else None
+            if scope is None:
                 _bad(flag, spec)
-            parts = split_pxt_uri(uri)
-            if parts is None or parts.db is None:
-                _bad(flag, spec)
-            # the database, its services, or one of them. A service is addressed by
-            # base_path/service_name, so its path may hold more than one component.
-            is_db_scope = parts.namespace is None and parts.path is None
-            is_service_scope = parts.namespace == 'services'
-            if not is_db_scope and not is_service_scope:
-                _bad(flag, spec)
+            if verb == 'manage' and scope[1] is None:
+                _bad(flag, spec, 'manage applies to services, not to a database')
             if spec not in out:
                 out.append(spec)
     return out
@@ -126,20 +143,15 @@ def _group(grants: list[str]) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for spec in grants:
         verb, _sep, uri = spec.partition(':')
-        parts = split_pxt_uri(uri)
-        if parts is None or parts.db is None:
+        scope = _grant_scope(uri)
+        if scope is None:
             # unparseable here means the server granted something this version cannot read; saying
             # so beats leaving it out of what the key can do
             out.setdefault('?', []).append(spec)
             continue
-        if parts.namespace is None and parts.path is None:
-            what = 'all services and storage'
-        elif parts.namespace == 'services':
-            what = parts.path or 'all services'
-        else:
-            # a resource this version does not know: show it whole rather than trim it to nothing
-            what = '/'.join(p for p in (parts.namespace, parts.path) if p)
-        out.setdefault(parts.db, []).append(f'{verb} {what}')
+        db, service = scope
+        what = 'all services and storage' if service is None else service or 'all services'
+        out.setdefault(db, []).append(f'{verb} {what}')
     return {db: sorted(items) for db, items in sorted(out.items())}
 
 

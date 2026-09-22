@@ -1176,10 +1176,24 @@ class TestPathValidator:
         r = cli('describe', 'x/', check=False)
         assert r.returncode != 0
         assert "must not end with '/'" in r.stderr
+        # in a hosted path too, whatever its first component is called
+        r = cli('describe', 'pxt://acme:main/catalog/', check=False)
+        assert r.returncode != 0
+        assert "must not end with '/'" in r.stderr
         # '//' produces an empty internal component
         r = cli('describe', 'a//b', check=False)
         assert r.returncode != 0
         assert 'empty components' in r.stderr
+
+    @pytest.mark.parametrize(
+        'argv',
+        [('db', 'diff', 'pxt://acme:main/'), ('org', 'status', 'pxt://acme/'), ('secret', 'list', 'pxt://acme:main/')],
+    )
+    def test_hosted_uri_rejects_trailing_slash(self, cli: PxtRunner, argv: tuple[str, ...]) -> None:
+        """A database or organization URI names no path, so a trailing '/' is refused before any request."""
+        r = cli(*argv, check=False)
+        assert r.returncode == 2
+        assert 'URI must be' in r.stderr
 
     def test_path_commands_reject_bad_shape(self, cli: PxtRunner) -> None:
         """Every command taking a path runs the validator over each of its path arguments."""

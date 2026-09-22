@@ -396,12 +396,33 @@ class TestKey:
         assert 'nothing to do' in r.stderr
         assert len(control_plane.seen) == before
 
+    def test_key_create_nested_service_grant(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """A service is addressed by base_path/name, so its path may have several components."""
+        control_plane.answers['create_key'] = {'key': _key('app')}
+
+        cloud_cli('key', 'create', 'app', '--grant', 'access:pxt://acme:main/services/a/b/ingest')
+
+        assert control_plane.last('create_key')['grants'] == ['access:pxt://acme:main/services/a/b/ingest']
+
     @pytest.mark.parametrize(
         'grant',
-        ['nonsense', 'read:pxt://acme:main', 'access:acme:main', 'access:pxt://acme', 'access:pxt://acme:main/tables'],
+        [
+            'nonsense',
+            'read:pxt://acme:main',
+            'access:acme:main',
+            'access:pxt://acme',
+            'access:pxt://acme:main/tables',
+            'access:pxt://acme:main/',
+            'access:pxt://acme:main/services/',
+            'access:pxt://acme:main/services//ingest',
+            'access:pxt://acme:main/services/a/../ingest',
+            'access:pxt://acme:main/catalog',
+            'manage:pxt://acme:main',
+            'access:pxt://acme:main/services/ingest:v1',
+        ],
     )
     def test_key_malformed_grant(self, cloud_cli: PxtRunner, control_plane: ControlPlane, grant: str) -> None:
-        """Only the shape is checked here, so a typo is answered next to the flag that caused it."""
+        """A grant the control plane would refuse is answered next to the flag that caused it."""
         before = len(control_plane.seen)
 
         r = cloud_cli('key', 'create', 'app', '--grant', grant, check=False)

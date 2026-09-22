@@ -9,7 +9,7 @@ import re
 import sys
 import tomllib
 from pathlib import Path
-from typing import Any, Literal, NamedTuple, NewType, cast, get_args
+from typing import Any, NamedTuple, NewType
 
 DEFAULT_PORT = 22089
 
@@ -20,10 +20,6 @@ PxtPath = NewType('PxtPath', str)
 # Mirrors pixeltable.catalog.path._URI_RE (duplicated so this module stays stdlib-only): a hosted path is
 # pxt://<org>:<db>/<in-catalog path>.
 _PXT_URI_RE = re.compile(r'^pxt://(?P<org>[^:/]+)(?::(?P<db>[^/]+))?(?:/(?P<rest>.*))?$')
-
-# A reserved first component of a URI path: it says what kind of resource the rest identifies.
-Namespace = Literal['services', 'catalog']
-_NAMESPACES: frozenset[str] = frozenset(get_args(Namespace))
 
 
 def _resolve_pixeltable_home() -> str:
@@ -61,16 +57,14 @@ def pidfile_path(port: int | None = None) -> str:
 
 
 class PxtUriParts(NamedTuple):
-    """The components of a pxt://<org>[:<db>][/[<namespace>/]<path>] URI.
+    """The components of a pxt://<org>[:<db>][/<path>] URI.
 
-    namespace is the first component when it is a reserved one, and None otherwise, so a URI with no namespace
-    keeps its first component in path. path is whatever follows, and None when nothing does; a trailing '/'
-    leaves nothing.
+    path is returned as written: None when the URI has nothing past the org and db, and '' for a trailing '/'
+    with nothing after it.
     """
 
     org: str
     db: str | None
-    namespace: Namespace | None
     path: str | None
 
 
@@ -79,14 +73,7 @@ def split_pxt_uri(uri: str) -> PxtUriParts | None:
     m = _PXT_URI_RE.match(uri)
     if m is None:
         return None
-    rest: str | None = m.group('rest')
-    namespace: Namespace | None = None
-    if rest is not None:
-        head, _sep, tail = rest.partition('/')
-        if head in _NAMESPACES:
-            namespace = cast(Namespace, head)
-            rest = tail
-    return PxtUriParts(m.group('org'), m.group('db'), namespace, rest or None)
+    return PxtUriParts(m.group('org'), m.group('db'), m.group('rest'))
 
 
 def validate_path_shape(path: str) -> str | None:
@@ -133,8 +120,6 @@ def resolve_dot_segments(path: str) -> str:
         if parts is None:
             return path  # malformed URI; validate_path_shape() reports it
         prefix = f'pxt://{parts.org}' + ('' if parts.db is None else f':{parts.db}')
-        # the namespace is part of the URI rather than of the path, so '..' never walks out of it
-        prefix += '' if parts.namespace is None else f'/{parts.namespace}'
         in_catalog = parts.path or ''
     if '.' not in in_catalog:
         return path

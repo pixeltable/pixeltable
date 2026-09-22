@@ -19,7 +19,7 @@ PxtPath = Annotated[utils.PxtPath, AfterValidator(_validate_pxt_path)]
 
 def _validate_db_uri(v: str) -> str:
     parts = utils.split_pxt_uri(v)
-    if parts is None or parts.db is None or parts.namespace is not None or parts.path is not None:
+    if parts is None or parts.db is None or parts.path is not None:
         raise ValueError(f'{v!r} does not name a hosted database; write pxt://org:db')
     return v
 
