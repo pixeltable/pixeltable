@@ -1,13 +1,19 @@
 """The on-disk session cache: what it keeps apart, what it refuses to leak, what it survives."""
 
+import json
+import os
 import pathlib
+import stat
 import time
 from typing import Any
 
 import pytest
 
+from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.service import session_cache
+
+from .utils import pxt_raises
 
 _PROD = 'https://api.pixeltable.com'
 _DEV = 'https://api.dev.pxt.run'
@@ -23,6 +29,18 @@ def _home(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
 def _session(**kw: Any) -> session_cache.Session:
     base = {'access_token': 'at', 'expires_at': time.time() + 3600, 'refresh_token': 'rt', 'client_id': 'client_01TEST'}
     return session_cache.Session(**{**base, **kw})
+
+
+def _cache_file() -> pathlib.Path:
+    return Config.get().home / 'auth' / 'sessions.json'
+
+
+def _write_cache_file(content: bytes) -> None:
+    """Replace the cache file with content, private to this user so that only the content is at fault."""
+    path = _cache_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    path.chmod(0o600)
 
 
 class TestRoundTrip:
@@ -91,3 +109,65 @@ class TestClear:
 
     def test_clear_absent(self) -> None:
         assert session_cache.clear(_PROD) is False
+
+
+class TestFileSafety:
+    @pytest.mark.skipif(os.name != 'posix', reason='Windows has no POSIX permissions')
+    def test_private_on_posix(self) -> None:
+        session_cache.save(_PROD, _session())
+
+        assert stat.S_IMODE(_cache_file().stat().st_mode) == 0o600
+        assert stat.S_IMODE(_cache_file().parent.stat().st_mode) == 0o700
+
+    @pytest.mark.skipif(os.name != 'posix', reason='Windows has no POSIX permissions')
+    def test_refuses_readable_by_others(self) -> None:
+        """A token another user could have copied is not sent, and signing out and in again replaces it."""
+        session_cache.save(_PROD, _session())
+        _cache_file().chmod(0o644)
+
+        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='other users'):
+            session_cache.load(_PROD)
+        assert session_cache.clear() is True
+
+        session_cache.save(_PROD, _session())
+        assert stat.S_IMODE(_cache_file().stat().st_mode) == 0o600
+        assert session_cache.load(_PROD) is not None
+
+    @pytest.mark.parametrize('content', [b'{not json', b'["a list"]', b'', b'\xff\xfe\x00'])
+    def test_corrupt_file(self, content: bytes) -> None:
+        """An unreadable file is reported, a new sign-in replaces it, and signing out deletes it."""
+        _write_cache_file(content)
+
+        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='is unreadable'):
+            session_cache.load(_PROD)
+
+        session_cache.save(_PROD, _session(access_token='new'))
+        assert session_cache.load(_PROD).access_token == 'new'
+
+        _write_cache_file(content)
+        assert session_cache.clear(_PROD) is True
+        assert not _cache_file().exists()
+        assert session_cache.load(_PROD) is None
+
+    def test_non_object_record(self) -> None:
+        """A record that is not an object is no session, and leaves the others readable."""
+        _write_cache_file(json.dumps({_PROD: 'not a record', _DEV: {'access_token': 'dev', 'expires_at': 0}}).encode())
+
+        assert session_cache.load(_PROD) is None
+        assert session_cache.load(_DEV).access_token == 'dev'
+
+    def test_windows_mode_semantics(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Windows reports every file as 0o666, and before Python 3.13 has no os.fchmod()."""
+        monkeypatch.setattr(session_cache, '_POSIX', False)
+        monkeypatch.delattr(os, 'fchmod', raising=False)
+
+        session_cache.save(_PROD, _session(access_token='first'))
+        _cache_file().chmod(0o666)
+        assert session_cache.load(_PROD).access_token == 'first'
+
+        session_cache.save(_PROD, _session(access_token='second'))
+        _cache_file().chmod(0o666)
+        assert session_cache.load(_PROD).access_token == 'second'
+
+        assert session_cache.clear(_PROD) is True
+        assert session_cache.load(_PROD) is None

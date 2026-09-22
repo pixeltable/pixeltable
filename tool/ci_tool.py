@@ -45,6 +45,7 @@ SLIM_TESTS = (
     'tests/test_primary_key_index.py',
     'tests/test_query.py',
     'tests/test_sample.py',
+    'tests/test_session_cache.py',
     'tests/test_snapshot.py',
     'tests/test_table.py',
     'tests/test_table_model.py',
