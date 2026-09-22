@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
@@ -13,6 +12,7 @@ from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.service.service_md import ServiceInstanceRecord
 from pixeltable.utils.project import ProjectFingerprint
 from pixeltable_cli.types import DbArtifact, DbPlan, ServiceSpec
+from pixeltable_cli.utils import hosted_name_error
 
 
 class ManagementOperationType(str, Enum):
@@ -52,22 +52,11 @@ class ManagementOperationType(str, Enum):
 
 # Db operations
 
-# A hosted database name: lowercase letters, digits, and hyphens, starting and ending with a letter
-# or digit, at most 29 characters. This is the `db` identifier that appears in pxt://org:db URIs.
-_HOSTED_NAME_RE = re.compile(r'[a-z0-9]([a-z0-9-]*[a-z0-9])?')
-_HOSTED_NAME_MAX_LEN = 29
-
 
 def _validate_hosted_name(value: str, kind: str) -> str:
-    if len(value) > _HOSTED_NAME_MAX_LEN:
-        raise ValueError(f'{kind} must be at most {_HOSTED_NAME_MAX_LEN} characters (got {len(value)})')
-    # fullmatch anchors both ends; match() + `$` would let a trailing newline
-    # through ('main\n'), which corrupts the URI we build from this downstream.
-    if not _HOSTED_NAME_RE.fullmatch(value):
-        raise ValueError(
-            f'{kind} {value!r} is invalid: use only lowercase letters, digits, and hyphens, '
-            'starting and ending with a letter or digit.'
-        )
+    error = hosted_name_error(value, kind)
+    if error is not None:
+        raise ValueError(error)
     return value
 
 

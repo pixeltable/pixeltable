@@ -17,7 +17,7 @@ import json
 import sys
 from typing import NoReturn
 
-from pixeltable_cli.utils import split_pxt_uri
+from pixeltable_cli.utils import hosted_name_error, split_pxt_uri
 
 from ..parser import Parser
 from ..utils import get_request, post_request
@@ -99,8 +99,8 @@ def _bad(flag: str, token: str, reason: str = '') -> NoReturn:
     sys.exit(2)
 
 
-def _grant_scope(uri: str) -> tuple[str, str | None] | None:
-    """The database a grant's URI is in, and the service path within it; None for any other URI.
+def _grant_scope(uri: str) -> tuple[str, str, str | None] | None:
+    """The organization and database of a grant's URI, and the service path in the database; None for other URIs.
 
     The service path is None for the database itself, '' for all of its services, and base_path/name for
     one service, so it may have more than one component.
@@ -109,15 +109,15 @@ def _grant_scope(uri: str) -> tuple[str, str | None] | None:
     if parts is None or parts.db is None:
         return None
     if parts.path is None:
-        return parts.db, None
+        return parts.org, parts.db, None
     if parts.path == 'services':
-        return parts.db, ''
+        return parts.org, parts.db, ''
     head, sep, service = parts.path.partition('/')
     if head != 'services' or sep == '':
         return None
     if any(s in ('', '.', '..') or ':' in s for s in service.split('/')):
         return None
-    return parts.db, service
+    return parts.org, parts.db, service
 
 
 def _grants(values: list[str] | None, flag: str) -> list[str]:
@@ -135,7 +135,11 @@ def _grants(values: list[str] | None, flag: str) -> list[str]:
             scope = _grant_scope(uri) if sep != '' and verb in _VERBS else None
             if scope is None:
                 _bad(flag, spec)
-            if verb == 'manage' and scope[1] is None:
+            org, db, service = scope
+            name_error = hosted_name_error(org, 'organization name') or hosted_name_error(db, 'database name')
+            if name_error is not None:
+                _bad(flag, spec, name_error)
+            if verb == 'manage' and service is None:
                 _bad(flag, spec, 'manage applies to services, not to a database')
             if spec not in out:
                 out.append(spec)
@@ -153,7 +157,7 @@ def _group(grants: list[str]) -> dict[str, list[str]]:
             # so beats leaving it out of what the key can do
             out.setdefault('?', []).append(spec)
             continue
-        db, service = scope
+        _org, db, service = scope
         what = 'all services and storage' if service is None else service or 'all services'
         out.setdefault(db, []).append(f'{verb} {what}')
     return {db: sorted(items) for db, items in sorted(out.items())}

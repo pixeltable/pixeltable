@@ -509,30 +509,37 @@ class TestKey:
         assert control_plane.last('create_key')['grants'] == ['access:pxt://acme:main/services/a/b/ingest']
 
     @pytest.mark.parametrize(
-        'grant',
+        ('grant', 'reason'),
         [
-            'nonsense',
-            'read:pxt://acme:main',
-            'access:acme:main',
-            'access:pxt://acme',
-            'access:pxt://acme:main/tables',
-            'access:pxt://acme:main/',
-            'access:pxt://acme:main/services/',
-            'access:pxt://acme:main/services//ingest',
-            'access:pxt://acme:main/services/a/../ingest',
-            'access:pxt://acme:main/catalog',
-            'manage:pxt://acme:main',
-            'access:pxt://acme:main/services/ingest:v1',
+            ('nonsense', ''),
+            ('read:pxt://acme:main', ''),
+            ('access:acme:main', ''),
+            ('access:pxt://acme', ''),
+            ('access:pxt://acme:main/tables', ''),
+            ('access:pxt://acme:main/', ''),
+            ('access:pxt://acme:main/services/', ''),
+            ('access:pxt://acme:main/services//ingest', ''),
+            ('access:pxt://acme:main/services/a/../ingest', ''),
+            ('access:pxt://acme:main/catalog', ''),
+            ('manage:pxt://acme:main', 'manage applies to services'),
+            ('access:pxt://acme:main/services/ingest:v1', ''),
+            ('access:pxt://ACME:main', "organization name 'ACME' is invalid"),
+            ('access:pxt://acme:main:extra', "database name 'main:extra' is invalid"),
+            ('access:pxt://acme:my_db/services', "database name 'my_db' is invalid"),
+            (f'access:pxt://{"a" * 30}:main', 'organization name must be at most 29 characters'),
         ],
     )
-    def test_key_malformed_grant(self, cloud_cli: PxtRunner, control_plane: ControlPlane, grant: str) -> None:
+    def test_key_malformed_grant(
+        self, cloud_cli: PxtRunner, control_plane: ControlPlane, grant: str, reason: str
+    ) -> None:
         """A grant the control plane would refuse is answered next to the flag that caused it."""
         before = len(control_plane.seen)
 
         r = cloud_cli('key', 'create', 'app', '--grant', grant, check=False)
 
         assert r.returncode == 2
-        assert '--grant takes' in r.stderr
+        assert f'--grant takes access|manage:pxt://org:db[/services[/path]], got {grant!r}' in r.stderr
+        assert reason in r.stderr
         assert len(control_plane.seen) == before
 
 
