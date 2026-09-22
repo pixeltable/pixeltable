@@ -103,7 +103,10 @@ class ModelQuery(QueryBase):
 
     def bind(self, catalog_dir: str) -> pxt.Query:
         """The equivalent query over the table this query's model resolves to under catalog_dir."""
-        tbl = self.model_cls._bind(catalog_dir)
+        # _resolve_tbl() rather than _bind(): binding the model here would fix its columns to the schema the
+        # table has now, and update_all() may still be about to migrate it.
+        tbl = self.model_cls._resolve_tbl(catalog.Path.dir_prefix(catalog_dir), if_not_exists='error')
+        assert tbl is not None
         subst: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
         for col_name in tbl.columns():
             subst[ColumnRefByName(col_name)] = getattr(tbl, col_name)

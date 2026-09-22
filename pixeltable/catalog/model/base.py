@@ -200,13 +200,15 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     continue
                 prerequisites.add(queried_model)
                 queried |= _referenced_models(queried_model)
-            # _creation_order() puts each model after the ones it references, so a prerequisite that is
-            # itself new is created before the model that queries it. A name left in pending_creates is one
-            # the table already existed for, which the pass below reports as a concurrent creation.
+            # Only the prerequisites that don't exist yet: an existing one is already usable, and creating it
+            # here would bind its model to the schema it has before the migrations below.
+            # _creation_order() puts each model after the ones it references.
             for create_name, create_model in _creation_order(registered_models):
-                if create_model in prerequisites:
+                if create_model in prerequisites and create_name in pending_creates:
                     _, was_created = create_model._create(catalog_dir)
                     if was_created:
+                        # another writer got there first if not; leaving the name in place lets the creation
+                        # pass at the end report that
                         pending_creates.discard(create_name)
 
             change_sets: list[TableSchemaChangeSet] = []
