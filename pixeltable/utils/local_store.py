@@ -158,7 +158,6 @@ class LocalStore(ObjectStoreBase):
         except OSError as e:
             if e.errno != errno.EXDEV:
                 raise
-            # report the move as unsupported, so that the caller falls back to copy-then-delete
             return None
         _logger.debug(f'Media Storage: moved {src_path} to {dest.url}')
         return dest.url
