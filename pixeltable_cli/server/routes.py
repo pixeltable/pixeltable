@@ -888,8 +888,9 @@ def create_org(req: Request) -> models.OrgCreateResponse:
     if cred is not None and cred.kind == 'api_key':
         return models.OrgCreateResponse(
             org=created,
-            warning=f'Your API key stays bound to its own organization. To work in {name}, run `pxt login`, '
-            f'or use a key created in {name}.',
+            warning=f'Your API key stays bound to its own organization, and outranks a `pxt login` session. '
+            f'To work in {name}, use a key created in {name}, or remove the API key ({cred.source}) and run '
+            '`pxt login`.',
         )
 
     # The control plane takes the organization from the token, so the session is renewed for the new one.

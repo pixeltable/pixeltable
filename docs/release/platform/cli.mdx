@@ -757,9 +757,9 @@ and cannot create another.
 
 Creating one also switches your `pxt login` session to it: Pixeltable Cloud takes the organization
 from your session, not from the URI. If the switch fails, the organization exists anyway, and
-`pxt org create` warns and says to run `pxt login`. An API key stays bound to its own organization,
-so to work in the new one, run `pxt login` or use a key created there. `pxt org list` shows the ones
-you can reach.
+`pxt org create` warns and says to run `pxt login`. An API key stays bound to its own organization
+and outranks a `pxt login` session, so to work in the new one, use a key created there, or remove
+the API key and then run `pxt login`. `pxt org list` shows the ones you can reach.
 
 ### Keys
 

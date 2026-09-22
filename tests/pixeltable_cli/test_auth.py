@@ -623,7 +623,10 @@ class TestOrgCreate:
     def test_org_create_with_api_key(
         self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """An API key belongs to one organization, so creating another one leaves the key where it was."""
+        """An API key belongs to one organization, so creating another one leaves the key where it was.
+
+        The key outranks a session, so `pxt login` alone would not switch to the new organization.
+        """
         monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
         monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
         fresh_plane.answers['create_org'] = dict(_CREATED_ORG)
@@ -631,6 +634,7 @@ class TestOrgCreate:
         answer = routes.create_org(Request(query={}, body_bytes=json.dumps({'org': _ORG}).encode()))
 
         assert 'stays bound to its own organization' in answer.warning
+        assert 'remove the API key (the PIXELTABLE_API_KEY environment variable) and run `pxt login`' in answer.warning
         assert answer.session_organization_id == ''
         assert fresh_plane.token_seen == []
 
