@@ -95,6 +95,8 @@ class ControlPlane:
     tokens: list[tuple[int, dict[str, Any]]] = field(default_factory=list)
     token_seen: list[dict[str, str]] = field(default_factory=list)
     token_delay_s: float = 0.0  # how long the token endpoint takes to answer
+    # how many management requests to close unanswered, as a peer closes a pooled connection that sat idle
+    drop: int = 0
 
     @property
     def url(self) -> str:
@@ -130,6 +132,8 @@ def _serve(plane: ControlPlane) -> HTTPServer:
             self.send_response(status)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(payload)))
+            if status in (429, 503):
+                self.send_header('Retry-After', '1')  # as throttled and unavailable services send it
             self.end_headers()
             self.wfile.write(payload)
 
@@ -153,6 +157,10 @@ def _serve(plane: ControlPlane) -> HTTPServer:
             plane.credentials_seen.append(
                 {k.lower(): v for k, v in self.headers.items() if k.lower() in ('authorization', 'x-api-key')}
             )
+            if plane.drop > 0:
+                plane.drop -= 1
+                self.close_connection = True
+                return
             self._reply(plane.status, plane.answers.get(request.get('operation_type'), {}))
 
         def log_message(self, *_args: Any) -> None:
@@ -1123,6 +1131,28 @@ class TestHomeBucket:
 
         assert credentials.resolved_bucket_name == 'home-acme-main'
         assert fresh_plane.credentials_seen == [{'authorization': f'Bearer {token}'}]
+
+    def test_a_connection_closed_while_idle_is_asked_again(
+        self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A pooled connection the peer closed fails the request that next uses it; asking again is safe."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        expires_at = time.time() + 3600
+        session_cache.save(
+            fresh_plane.url,
+            session_cache.Session(access_token=_claims(sid='session_01TEST', exp=expires_at), expires_at=expires_at),
+        )
+        fresh_plane.answers['get_presigned_url'] = {
+            'url': 'https://r2.example.com/home/a.jpg?signed',
+            'key': 'a.jpg',
+            'expiration': 3600,
+        }
+        fresh_plane.drop = 1
+
+        url = cloud_utils.get_presigned_url_from_cloud('acme', 'main', 'home', 'a.jpg')
+
+        assert url == 'https://r2.example.com/home/a.jpg?signed'
+        assert [r['operation_type'] for r in fresh_plane.seen] == ['get_presigned_url', 'get_presigned_url']
 
     @pytest.mark.parametrize(
         ('status', 'code', 'message'),

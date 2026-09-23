@@ -19,6 +19,7 @@ from pixeltable.service.pxtfs_protocol import (
     GetPresignedUrlRequest,
     GetPresignedUrlResponse,
 )
+from pixeltable.utils.http import SESSION
 
 
 def _post(request: GetBucketCredentialsRequest | GetPresignedUrlRequest, timeout: float) -> requests.Response:
@@ -29,7 +30,13 @@ def _post(request: GetBucketCredentialsRequest | GetPresignedUrlRequest, timeout
     purpose = 'reach the home bucket'
     sent = resolve(purpose)
     headers = {'Content-Type': 'application/json', **sent.header()}
-    response = requests.post(api_url(), data=request.model_dump_json(), headers=headers, timeout=timeout)
+    body = request.model_dump_json()
+    try:
+        response = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
+    except requests.exceptions.ConnectionError:
+        # a pooled connection closed by the peer while idle fails the call that next picks it up; both
+        # requests only read, so sending one again on a new connection is safe
+        response = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
     raise_if_refused(response, sent, purpose)
     return response
 
