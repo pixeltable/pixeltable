@@ -3,6 +3,9 @@ import json
 import math
 import pathlib
 import socket
+import socketserver
+import ssl
+import threading
 import uuid
 from typing import Any
 
@@ -443,6 +446,56 @@ class _ScriptedConn:
         self._peer.close()
 
 
+class _PlainTLS:
+    """An SSL context that leaves the socket as it is, for a sidecar that speaks no TLS."""
+
+    def wrap_socket(self, sock: socket.socket, server_hostname: str | None = None) -> socket.socket:
+        return sock
+
+
+def _header_fields(stream: io.BufferedIOBase) -> dict[str, str]:
+    """The header fields of the next message on the stream, after its first line."""
+    stream.readline()
+    fields: dict[str, str] = {}
+    while (line := stream.readline().decode().strip()) != '':
+        name, _, value = line.partition(':')
+        fields[name] = value.strip()
+    return fields
+
+
+class _PlainSidecar(socketserver.TCPServer):
+    """A sidecar on loopback TCP that records the token in each tunnel handshake.
+
+    It answers one request per tunnel and then closes it, so the client's next request needs a new
+    handshake.
+    """
+
+    def __init__(self) -> None:
+        self.tokens: list[str] = []
+        self._create_connection = socket.create_connection
+        super().__init__(('127.0.0.1', 0), _SidecarHandler)
+        self._thread = threading.Thread(target=self.serve_forever, daemon=True)
+        self._thread.start()
+
+    def connect(self, _address: Any, timeout: float | None = None) -> socket.socket:
+        return self._create_connection(('127.0.0.1', self.server_address[1]), timeout=timeout)
+
+    def close(self) -> None:
+        self.shutdown()
+        self.server_close()
+        self._thread.join()
+
+
+class _SidecarHandler(socketserver.StreamRequestHandler):
+    server: _PlainSidecar
+
+    def handle(self) -> None:
+        self.server.tokens.append(_header_fields(self.rfile)['Authorization'].removeprefix('Bearer '))
+        self.wfile.write(b'PXT/1.0 200 OK\r\n\r\n')
+        self.rfile.read(int(_header_fields(self.rfile).get('Content-Length', '0')))
+        self.wfile.write(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok')
+
+
 class TestTunnelRetries:
     """What the client reissues, and what it refuses to reissue."""
 
@@ -504,6 +557,22 @@ class TestTunnelRetries:
 
         with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='no credential in this test'):
             transport.post(b'body')
+
+    def test_each_new_tunnel_sends_the_current_credential(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A session renewed between two tunnels reaches the second: the credential is resolved per handshake."""
+        sidecar = _PlainSidecar()
+        monkeypatch.setattr(socket, 'create_connection', sidecar.connect)
+        monkeypatch.setattr(ssl, 'create_default_context', _PlainTLS)
+        credentials = iter(['first-token', 'renewed-token'])
+        transport = TunnelTransport('org1', 'db1', lambda: next(credentials), host='h', port=443)
+        try:
+            assert transport.post(b'one') == b'ok'
+            assert transport.post(b'two') == b'ok'
+        finally:
+            transport.close()
+            sidecar.close()
+
+        assert sidecar.tokens == ['first-token', 'renewed-token']
 
     def test_a_client_error_is_not_retried(self) -> None:
         transport, opened = self._transport([_ScriptedConn(on_read=(404, b'nope')) for _ in range(2)])
