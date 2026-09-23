@@ -97,6 +97,12 @@ def hosted_name_error(value: str, kind: str) -> str | None:
     return None
 
 
+def is_valid_identifier(name: str, *, allow_hyphens: bool = False) -> bool:
+    """Mirrors pixeltable.catalog.globals.is_valid_identifier(), which cannot be imported here."""
+    adj_name = name.replace('-', '_') if allow_hyphens else name
+    return adj_name.isidentifier() and name.isascii() and not name.startswith('-') and not name.startswith('_')
+
+
 def validate_path_shape(path: str) -> str | None:
     """Return an error message if path violates pxt path shape rules, else None. Empty is allowed.
 

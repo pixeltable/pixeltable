@@ -17,7 +17,7 @@ import json
 import sys
 from typing import NoReturn
 
-from pixeltable_cli.utils import hosted_name_error, split_pxt_uri
+from pixeltable_cli.utils import hosted_name_error, is_valid_identifier, split_pxt_uri
 
 from ..parser import Parser
 from ..utils import get_request, post_request
@@ -115,7 +115,7 @@ def _grant_scope(uri: str) -> tuple[str, str, str | None] | None:
     head, sep, service = parts.path.partition('/')
     if head != 'services' or sep == '':
         return None
-    if any(s in ('', '.', '..') or ':' in s for s in service.split('/')):
+    if not all(is_valid_identifier(s, allow_hyphens=True) for s in service.split('/')):
         return None
     return parts.org, parts.db, service
 
