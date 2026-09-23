@@ -147,9 +147,9 @@ class TableVersion:
     # target for data operation propagation (only set for non-snapshots, and only records non-snapshot views)
     mutable_views: frozenset[TableVersionHandle]
 
-    # User and system columns that are live in this schema version, ordered by column id (asc)
+    # User and system columns that are live in this schema version, guaranteed to be ordered by column id (asc)
     cols_by_id: dict[int, Column]
-    # Only the user-facing (named) columns visible in this version, ordered by column id (asc)
+    # Only the user-facing (named) columns visible in this version, guaranteed to be ordered by column id (asc)
     cols_by_name: dict[str, Column]
 
     # True if this TableVersion instance can have indices:
