@@ -503,9 +503,7 @@ class RowBuilder:
         """Record an exception in data_row and propagate it to dependents"""
         data_row.set_exc(slot_idx, exc)
         for idx in self._exc_dependents[slot_idx]:
-            # DataRow.set_exc() asserts the slot is unset, and several failing dependencies can share a dependent
-            if not data_row.has_exc(idx):
-                data_row.set_exc(idx, exc)
+            data_row.set_exc(idx, exc)
 
     def eval(
         self,

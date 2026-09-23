@@ -4,6 +4,7 @@ import errno
 import io
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -19,8 +20,8 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.net import presigned_url
 from pixeltable.functions.video import extract_frame
-from pixeltable.utils.local_store import TempStore
-from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
+from pixeltable.utils.local_store import LocalStore, TempStore
+from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectPath, StorageTarget
 
 from .utils import (
     DatabaseRoot,
@@ -384,17 +385,23 @@ class TestDestination:
         # Ensure that local file is copied to a specified destination
         assert ObjectOps.count(t._id, dest=dest1_uri) == len(r)
 
-    @pytest.mark.db_roots('local', reason='media destination/object-store internals')
+    @staticmethod
+    def _fail_local_puts(monkeypatch: pytest.MonkeyPatch, delayed_dest: str | None = None) -> None:
+        def fail_put(self: LocalStore, src_path: Path, dest: FileDestination) -> str:
+            if delayed_dest is not None and dest.url.startswith(delayed_dest):
+                time.sleep(0.3)
+            raise OSError('injected put failure')
+
+        monkeypatch.setattr(LocalStore, 'move_local_file', fail_put)
+        monkeypatch.setattr(LocalStore, 'copy_local_file', fail_put)
+
+    @pytest.mark.db_roots('local', reason='monkeypatches LocalStore in-process')
     def test_dest_put_failure(self, monkeypatch: pytest.MonkeyPatch, uses_db: None) -> None:
         """A failed persist aborts under on_error='abort' and becomes a cell error under on_error='ignore'."""
         dest_uri = f'{self.resolve_destination_uri(StorageTarget.LOCAL_STORE)}/bucket1'
         t = pxt.create_table('test_dest_put_failure', schema={'img': pxt.Image | None})
         t.add_computed_column(img_rot=t.img.rotate(90), destination=dest_uri)
-
-        def fail_put(*args: object, **kwargs: object) -> str:
-            raise OSError('injected put failure')
-
-        monkeypatch.setattr(ObjectOps, 'put_file_resolved', fail_put)
+        self._fail_local_puts(monkeypatch)
 
         rows = [{'img': get_image_files()[0]}]
         with pytest.raises(OSError, match='injected put failure'):
@@ -410,8 +417,9 @@ class TestDestination:
         assert 'injected put failure' in res[0]['msg']
         assert res[0]['url'] is None
         assert ObjectOps.count(t._id, dest=dest_uri) == 0
+        assert TempStore.count(t._id) == 0
 
-    @pytest.mark.db_roots('local', reason='media destination/object-store internals')
+    @pytest.mark.db_roots('local', reason='monkeypatches LocalStore in-process')
     def test_dest_put_failure_shared_dependent(self, monkeypatch: pytest.MonkeyPatch, uses_db: None) -> None:
         """Two persists failing in one row propagate to their common dependent without colliding."""
         dest_uri = f'{self.resolve_destination_uri(StorageTarget.LOCAL_STORE)}/bucket1'
@@ -419,11 +427,7 @@ class TestDestination:
         t.add_computed_column(rot90=t.img.rotate(90), destination=dest_uri)
         t.add_computed_column(rot180=t.img.rotate(180), destination=dest_uri)
         t.add_computed_column(widths=t.rot90.width + t.rot180.width)
-
-        def fail_put(*args: object, **kwargs: object) -> str:
-            raise OSError('injected put failure')
-
-        monkeypatch.setattr(ObjectOps, 'put_file_resolved', fail_put)
+        self._fail_local_puts(monkeypatch)
 
         status = t.insert([{'img': get_image_files()[0]}], on_error='ignore')
         assert status.num_rows == 1
@@ -434,6 +438,25 @@ class TestDestination:
         }
         assert t.where(t.widths.errortype != None).count() == 1
 
+    @pytest.mark.db_roots('local', reason='monkeypatches LocalStore in-process')
+    def test_dest_put_failure_chained(self, monkeypatch: pytest.MonkeyPatch, uses_db: None) -> None:
+        """A column that already has an exception from its dependency can still fail its own persist."""
+        base_uri = self.resolve_destination_uri(StorageTarget.LOCAL_STORE)
+        t = pxt.create_table('test_dest_put_failure_chained', schema={'img': pxt.Image | None})
+        t.add_computed_column(rot1=t.img.rotate(90), destination=f'{base_uri}/bucket1')
+        t.add_computed_column(rot2=t.rot1.rotate(90), destination=f'{base_uri}/bucket2')
+        # delaying the put for rot2 lets the exception from rot1 reach rot2 first
+        self._fail_local_puts(monkeypatch, delayed_dest=f'{base_uri}/bucket2')
+
+        status = t.insert([{'img': get_image_files()[0]}], on_error='ignore')
+        assert status.num_rows == 1
+        assert set(status.cols_with_excs) == {
+            'test_dest_put_failure_chained.rot1',
+            'test_dest_put_failure_chained.rot2',
+        }
+        assert t.where(t.rot2.errortype != None).count() == 1
+
+    @pytest.mark.db_roots('local', reason='media destination/object-store internals')
     def test_dest_cross_device_move(self, monkeypatch: pytest.MonkeyPatch, uses_db: None) -> None:
         """A destination on another filesystem than the TempStore falls back from rename to copy."""
         dest_uri = self.resolve_destination_uri(StorageTarget.LOCAL_STORE)
