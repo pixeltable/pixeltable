@@ -215,8 +215,8 @@ def _alter_column_change(
     col_md: ColumnMetadata,
     altered: list[str],
 ) -> SchemaChangeOp:
-    """The op for a column whose properties differ; a new value expression for a computed column is the only one
-    update_all() can apply."""
+    """The op for a column whose properties differ. At this point, the only supported change is a new value expression
+    for a computed column."""
     # a computed column becoming a data column, or vice versa, changes more than the value expression
     is_new_value_expr = altered == ['value'] and 'value' in spec and col_md['is_computed']
     if not is_new_value_expr:
@@ -380,7 +380,8 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         )
                     )
 
-            # Columns present in both, whose properties differ. Some kinds of changes are supported, others are not.
+            # Columns that are present in both, but whose properties differ. Some kinds of changes are supported,
+            # others are not.
             default_media_validation = model.__table_spec__['media_validation'].name.lower()
             for col_name in sorted(model_cols & existing_cols):
                 spec = user_cols[col_name]

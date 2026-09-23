@@ -425,7 +425,7 @@ class TableVersion:
 
     def _column_md_in_resolution_order(self) -> list[schema.ColumnMd]:
         """The md of the columns visible in this schema version, ordered so that a column's value expression only
-        references columns that precede.
+        references columns that precede it.
         """
         visible: dict[int, schema.ColumnMd] = {
             md.id: md for md in self.tbl_md.column_md.values() if md.is_visible_in_version(self.schema_version)
@@ -739,7 +739,7 @@ class TableVersion:
             if col.is_stored:
                 self.store_tbl.add_column(col, if_not_exists=False)
 
-            # cols_by_id was just mutated in-place; invalidate the TVP's cached CVMD so the next
+            # cols_by_id was just mutated in-place; invalidate the TVP's cached ColumnVersionMd so the next
             # create_add_column_plan() call (e.g. for a btree index column) sees the new column.
             self.path.clear_cached_md()
 
@@ -1168,7 +1168,7 @@ class TableVersion:
             )
 
         def dependent_str(col: Column) -> str:
-            """Name a column that references something else, which for a system column is the index it belongs to."""
+            """User-friendly description of the column"""
             if col.name is not None:
                 return f'Column {col.name!r} in {self.name!r}'
             idx_info = next((i for i in self.idxs.values() if col in i.columns), None)
