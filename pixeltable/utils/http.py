@@ -18,6 +18,9 @@ _logger = logging.getLogger(__name__)
 
 # maximum number of connections kept open per host, sized for concurrent calls from multiple threads
 _POOL_MAXSIZE = 16
+# hosts whose pools are kept: the control plane and the sign-in service. With fewer, a call to one
+# evicts the other's pool, and the next call there opens a new connection.
+_POOL_HOSTS = 2
 
 
 def new_session() -> requests.Session:
@@ -30,7 +33,7 @@ def new_session() -> requests.Session:
     # gates read and status retries alone, so an empty set still leaves connect retries on, while
     # keeping a POST from being replayed after the server may have already processed it.
     retries = Retry(total=2, connect=2, read=0, status=0, other=0, allowed_methods=frozenset(), backoff_factor=0.2)
-    adapter = HTTPAdapter(pool_connections=1, pool_maxsize=_POOL_MAXSIZE, max_retries=retries)
+    adapter = HTTPAdapter(pool_connections=_POOL_HOSTS, pool_maxsize=_POOL_MAXSIZE, max_retries=retries)
     session.mount('https://', adapter)
     session.mount('http://', adapter)
     return session
