@@ -845,13 +845,12 @@ class Config:
             return f'{section}.{key}, no longer set'
         ck = next((ck for ck in self.config_keys() if (ck.section, ck.key) == (section, key)), None)
         # a pyproject.toml holds Pixeltable's settings under [tool], and an array of tables is written [[ ]]
-        prefix = 'tool.' if source.name == PYPROJECT_FILE else ''
+        name = f'tool.{section}.{key}' if source.name == 'pyproject.toml' else f'{section}.{key}'
+        if ck is not None and typing.get_origin(ck.expected_type) is list:
+            name = f'[[{name}]]'
         if self.__database_setting(section, key) is not None:
-            name = f'[[{prefix}pixeltable.database]].db_{key}'
-        elif ck is not None and typing.get_origin(ck.expected_type) is list:
-            name = f'[[{prefix}{section}.{key}]]'
-        else:
-            name = f'{prefix}{section}.{key}'
+            tool = 'tool.' if source.name == 'pyproject.toml' else ''
+            name = f'[[{tool}pixeltable.database]].db_{key}'
         return f'{name} in {source}'
 
 
