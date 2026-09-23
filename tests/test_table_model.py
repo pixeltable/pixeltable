@@ -3077,7 +3077,7 @@ class TestTableModel:
             id: pxt.Int
             other: pxt.Int
             derived = id * 2
-            derived2 = id * 3
+            derived2 = id > 0
 
         class UnrelatedTable(TableModel, name='unrelated_table'):
             v: pxt.Int
@@ -3092,20 +3092,20 @@ class TestTableModel:
             id: pxt.Int
             other: pxt.Int
             derived = id / 2
-            derived2 = id * 3
+            derived2 = id > 0
 
         diff = NewTypeModel.get_model_diff(root)['test_table']
         assert diff.resolution == 'unsupported'
         assert sorted(diff.ops[0].model.keys()) == ['type', 'value']
 
-        # referencing a cell metadata property: derived2 adds derived.errortype
+        # derived2 is altered to reference a cell metadata property
         CellMdModel = pxt.model_base()
 
         class CellMdTable(CellMdModel, name='test_table'):
             id: pxt.Int
             other: pxt.Int
             derived = id * 2
-            derived2 = (id * 3 + (derived.errortype != None).astype(pxt.Int)).astype(pxt.Int)  # type: ignore[attr-defined]
+            derived2 = derived.errortype != None  # type: ignore[attr-defined]
 
         with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape("'errortype' property")):
             CellMdModel.update_all(root)
@@ -3117,7 +3117,7 @@ class TestTableModel:
             id: pxt.Int
             other: pxt.Int
             derived = id * 2
-            derived2 = id * 3
+            derived2 = id > 0
             derived3 = derived.errortype != None  # type: ignore[attr-defined]
 
         with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape("'errortype' property")):
@@ -3131,7 +3131,7 @@ class TestTableModel:
             id: pxt.Int
             other: pxt.Int
             derived = snap.id * 3
-            derived2 = id * 3
+            derived2 = id > 0
 
         with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='snapshot, which it cannot reference'):
             SnapshotModel.update_all(root)
@@ -3143,7 +3143,7 @@ class TestTableModel:
             id: pxt.Int
             other: pxt.Int
             derived = UnrelatedTable.v + 1
-            derived2 = id * 3
+            derived2 = id > 0
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -3153,7 +3153,7 @@ class TestTableModel:
 
         # none of the rejected attempts changed the catalog
         t = pxt.get_table(p('test_table'))
-        assert t.select(t.derived, t.derived2).collect()[0] == {'derived': 2, 'derived2': 3}
+        assert t.select(t.derived, t.derived2).collect()[0] == {'derived': 2, 'derived2': True}
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(root).values())
 
     def test_update_all_altered_columns_reversed_dependency(self, db_root: DatabaseRoot) -> None:
