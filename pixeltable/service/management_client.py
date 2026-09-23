@@ -8,6 +8,7 @@ from __future__ import annotations
 import dataclasses
 import http.client
 import os
+from pathlib import Path
 from typing import Any, Literal
 
 import requests
@@ -90,9 +91,13 @@ class Credential:
         return {'Authorization': f'Bearer {self.value}'} if self.kind == 'session' else {'X-api-key': self.value}
 
 
-def _api_key_source() -> str:
+def _api_key_source(api_key: str) -> str:
+    """Where Config found this API key: a pxt.init() override, the environment, or a config file."""
+    if isinstance(Config.get().get_value_source('api_key'), Path):
+        return 'api_key in the Pixeltable config file'
     env_var = 'PIXELTABLE_API_KEY'
-    return f'the {env_var} environment variable' if os.environ.get(env_var) else 'api_key in the Pixeltable config file'
+    # get_value_source() answers 'env' for a pxt.init() override too, which outranks the variable
+    return f'the {env_var} environment variable' if os.environ.get(env_var) == api_key else 'pxt.init()'
 
 
 def configured_credential() -> Credential | None:
@@ -100,7 +105,7 @@ def configured_credential() -> Credential | None:
     # an API key outranks a session
     api_key = Config.get().get_string_value('api_key')
     if api_key is not None:
-        return Credential('api_key', api_key, _api_key_source())
+        return Credential('api_key', api_key, _api_key_source(api_key))
     session = session_cache.load(api_url())
     if session is None:
         return None
