@@ -1060,6 +1060,53 @@ class TestHomeBucket:
         with pxt_raises(code, match=message):
             cloud_utils.get_bucket_credentials('acme', 'main', 'home')
 
+    @pytest.mark.parametrize(
+        ('status', 'body', 'code', 'message'),
+        [
+            (
+                400,
+                b'Bad Request : Only home buckets are supported',
+                excs.ErrorCode.PROVIDER_BAD_REQUEST,
+                'Pixeltable Cloud refused this request: Only home buckets are supported.',
+            ),
+            (
+                404,
+                b'Not Found : Database main does not exist in organization acme',
+                excs.ErrorCode.PROVIDER_BAD_REQUEST,
+                'Pixeltable Cloud refused this request: Database main does not exist in organization acme.',
+            ),
+            (
+                429,
+                b'Too Many Requests',
+                excs.ErrorCode.PROVIDER_ERROR,
+                'Failed to get bucket credentials: Too Many Requests',
+            ),
+            (503, b'Service Unavailable : down', excs.ErrorCode.PROVIDER_ERROR, 'Failed to get bucket credentials'),
+        ],
+    )
+    def test_error_status(
+        self,
+        fresh_plane: ControlPlane,
+        private_home: pathlib.Path,
+        monkeypatch: pytest.MonkeyPatch,
+        status: int,
+        body: bytes,
+        code: excs.ErrorCode,
+        message: str,
+    ) -> None:
+        """A 4xx other than 429 is a refused request, as for a management call, and a 429 or a 5xx stays retryable."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
+        fresh_plane.status = status
+        fresh_plane.answers['get_bucket_credentials'] = body
+
+        with pxt_raises(code, match=re.escape(message)) as info:
+            cloud_utils.get_bucket_credentials('acme', 'main', 'home')
+
+        assert isinstance(info.value, excs.ExternalServiceError)
+        assert info.value.provider_http_status_code == status
+        assert info.value.is_retryable == (status in (429, 503))
+
 
 class TestControlPlaneErrors:
     """What a management call raises for an error status from the control plane."""

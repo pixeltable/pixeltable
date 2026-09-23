@@ -140,13 +140,21 @@ def _reason(resp: requests.Response) -> str:
 
 
 def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) -> None:
-    """Raise for a 401 or a 403, saying which credential the request sent.
+    """Raise for a 4xx other than 429; for a 401 or a 403, the error says which credential the request sent.
 
     purpose is the verb phrase that completes "is not permitted to", such as 'list organizations'.
     """
-    if resp.status_code not in (401, 403):
+    # a 429 throttles the request rather than refusing it, so a retry can succeed
+    if not 400 <= resp.status_code < 500 or resp.status_code == 429:
         return
     reason = _reason(resp)
+    if resp.status_code not in (401, 403):
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_BAD_REQUEST,
+            f'Pixeltable Cloud refused this request: {reason}.',
+            provider='pixeltable_cloud',
+            status_code=resp.status_code,
+        )
     if resp.status_code == 403:
         # the control plane accepted the credential and refused the operation, so signing in again cannot help
         holder = f'The API key from {sent.source}' if sent.kind == 'api_key' else 'Your Pixeltable session'
@@ -185,14 +193,6 @@ def api_call(request: Any) -> dict[str, Any]:
             raise
         resp = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
     raise_if_refused(resp, sent, _PURPOSES.get(op_str, 'do this'))
-    # a 429 throttles the request rather than refusing it, so a retry can succeed
-    if 400 <= resp.status_code < 500 and resp.status_code != 429:
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_BAD_REQUEST,
-            f'Pixeltable Cloud refused this request: {_reason(resp)}.',
-            provider='pixeltable_cloud',
-            status_code=resp.status_code,
-        )
     if resp.status_code not in (200, 201):
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,

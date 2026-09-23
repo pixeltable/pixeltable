@@ -24,7 +24,7 @@ from pixeltable.service.pxtfs_protocol import (
 def _post(request: GetBucketCredentialsRequest | GetPresignedUrlRequest, timeout: float) -> requests.Response:
     """Send a home-bucket request with an API key if one is set, otherwise the `pxt login` session.
 
-    A refused credential raises as it does for a management call, since retrying cannot help.
+    A refused credential or request raises as it does for a management call, since retrying cannot help.
     """
     purpose = 'reach the home bucket'
     sent = resolve(purpose)
