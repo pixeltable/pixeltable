@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import enum
 import json
 import logging
 import os
@@ -31,15 +30,6 @@ ConfVarT = TypeVar('ConfVarT', bound=str)
 # Pydantic models for deployment configuration.
 
 
-class DatabaseSetting(enum.StrEnum):
-    """The shared settings a [[pixeltable.database]] entry overrides for its database, as db_<key>."""
-
-    INPUT_MEDIA_DEST = 'db_input_media_dest'
-    OUTPUT_MEDIA_DEST = 'db_output_media_dest'
-    EXPORTER_OTLP_ENDPOINT = 'db_exporter_otlp_endpoint'
-    EXPORTER_OTLP_PROTOCOL = 'db_exporter_otlp_protocol'
-
-
 class DatabaseConfig(pydantic.BaseModel):
     """The contents of a [[pixeltable.database]] entry from the project config."""
 
@@ -52,7 +42,7 @@ class DatabaseConfig(pydantic.BaseModel):
     vars: dict[str, str] | None = None
 
     # settings this database uses in place of the shared [pixeltable] / [otel] values
-    settings: dict[DatabaseSetting, str] | None = None
+    settings: dict[str, str] | None = None
 
     # the rest applies to a hosted database, whose runtime image is built from the project
     exclude: list[str] | None = None  # glob patterns to exclude from the image
@@ -72,9 +62,8 @@ class DatabaseConfig(pydantic.BaseModel):
     @pydantic.model_validator(mode='before')
     @classmethod
     def _collect_settings(cls, data: dict[str, Any]) -> dict[str, Any]:
-        # moves the db_<key> keys of a parsed entry into `settings`, so they validate against DatabaseSetting
-        values = {setting.value for setting in DatabaseSetting}
-        settings = {key: data.pop(key) for key in list(data) if key in values}
+        # move the overrides into `settings` so that pydantic does not reject them as unknown fields
+        settings = {key: data.pop(key) for key in list(data) if key in _DATABASE_OVERRIDE_KEYS}
         if len(settings) > 0:
             data['settings'] = {**data.get('settings', {}), **settings}
         return data
@@ -719,15 +708,14 @@ class Config:
         """Return the value the database we are connected to sets for `key` (as db_<key>), with its source file."""
         if section == VAR_SECTION:
             return None  # a var named like a setting is not that setting
-        try:
-            setting = DatabaseSetting(f'db_{key}')
-        except ValueError:
+        name = f'db_{key}'
+        if name not in _DATABASE_OVERRIDE_KEYS:
             return None
         own = self.__own_database()
-        if own is None or own[0].settings is None or setting not in own[0].settings:
+        if own is None or own[0].settings is None or name not in own[0].settings:
             return None
         entry, sources = own
-        return entry.settings[setting], sources[f'settings.{setting}']
+        return entry.settings[name], sources[f'settings.{name}']
 
     def __lookup_config_entry(self, section: str, key: str) -> tuple[Any, Path | None] | None:
         """Find key under section in __config_dict. Returns (value, source_path) or None."""
@@ -884,7 +872,7 @@ class Config:
         # a pyproject.toml holds Pixeltable's settings under [tool], and an array of tables is written [[ ]]
         prefix = 'tool.' if source.name == PYPROJECT_FILE else ''
         if self.__database_setting(section, key) is not None:
-            name = f'[[{prefix}pixeltable.database]].{DatabaseSetting(f"db_{key}")}'
+            name = f'[[{prefix}pixeltable.database]].db_{key}'
         elif ck is not None and typing.get_origin(ck.expected_type) is list:
             name = f'[[{prefix}{section}.{key}]]'
         else:
@@ -1010,6 +998,12 @@ _INSTALLATION_KEYS = frozenset(
         'db_pool_size',
         'db_pool_max_overflow',
     }
+)
+
+# whitelist of allowed setting overrides for individual dbs; the db_ prefix keeps them apart from the db
+# section's own fields such as name and cpu
+_DATABASE_OVERRIDE_KEYS = frozenset(
+    {'db_input_media_dest', 'db_output_media_dest', 'db_exporter_otlp_endpoint', 'db_exporter_otlp_protocol'}
 )
 
 # the settings pxt.init() accepts, ie. the ones a single process may set
