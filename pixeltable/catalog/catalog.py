@@ -1927,9 +1927,9 @@ class Catalog(CatalogBase):
             for tv in sorted(validation_tvs.values(), key=lambda tv: (tv.name, tv.id)):
                 tv.validate_column_dependencies()
 
-            # Finally complete schema changes, which includes new column population and may be expensive.
+            # Finally materialize the schema changes, which include new column population and may be expensive.
             for _, tv, _ in tbl_info:
-                tv.complete_schema_change()
+                tv.materialize_schema_change()
 
         try:
             update_fn()

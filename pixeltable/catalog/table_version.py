@@ -902,8 +902,8 @@ class TableVersion:
     ) -> None:
         """Record multiple column and index add/drop operations as a single new schema version.
 
-        Only the metadata is updated here; complete_schema_change() must be called to populate the new columns and
-        creates the indexes.
+        The new version is built in memory; materialize_schema_change() must be called to make the store changes and
+        write its metadata.
 
         - added_cols are in declaration order; their value expressions may still contain exprs.ColumnRefByName
           referencing other columns in added_cols, which are resolved here once ids are assigned
@@ -945,8 +945,9 @@ class TableVersion:
         get_runtime().catalog.record_column_dependencies(self)
         self.path.clear_cached_md()
 
-    def complete_schema_change(self) -> UpdateStatus:
-        """Make the store changes for a schema change whose metadata was put in place by apply_schema_change_md()."""
+    def materialize_schema_change(self) -> UpdateStatus:
+        """Make the store changes of a schema change prepared by apply_schema_change_md(), and write the new version's
+        metadata."""
         assert self.is_mutable
         status = self._materialize_new_columns(print_stats=False, on_error='abort')
         self.set_version_update_status(status)
