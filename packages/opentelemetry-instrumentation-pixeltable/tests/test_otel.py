@@ -204,7 +204,7 @@ def check_endpoint_from_database_entry() -> None:
 
 
 def test_endpoint_from_database_entry(tmp_path: Path) -> None:
-    # the entry for the process's database names the endpoint, in place of the [otel] section or the env var
+    # the entry for the process's database sets the endpoint, in place of the [otel] section or the env var
     _run_isolated(
         check_endpoint_from_database_entry,
         {'PIXELTABLE_CONFIG': str(tmp_path / 'config.toml'), 'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
