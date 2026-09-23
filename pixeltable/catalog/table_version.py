@@ -1131,10 +1131,8 @@ class TableVersion:
             )
 
     def validate_column_dependencies(self) -> None:
-        """Verify that this version's value expressions and predicate reference columns that exist.
-
-        This is a complete check of the table's metadata and its dependencies on other tables. It guarantees that
-        the table can be loaded and its columns can be properly evaluated.
+        """Verify that this version's value expressions and predicates reference columns that exist. It also checks for
+        reference cycles between columns.
 
         This check is intended to run during a schema change, so the error messages use the conditional tense."""
         assert self.is_mutable
@@ -1149,7 +1147,6 @@ class TableVersion:
             while tbl is not None and tbl.id != qid.tbl_id:
                 tbl = tbl.base.get() if tbl.base is not None else None
             if tbl is None:
-                # the reference names a table that is neither this one nor one of its ancestors
                 return excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'{dependent} a column of a table that {self.name!r} cannot reference.',
