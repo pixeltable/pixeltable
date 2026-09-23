@@ -64,11 +64,11 @@ def _await_approval(start: dict[str, Any]) -> dict[str, Any]:
     seconds more, per RFC 8628.
     """
     interval = float(start['interval'])
-    deadline = time.time() + min(float(start['expires_in']), _LOGIN_TIMEOUT_S)
+    deadline = time.monotonic() + min(float(start['expires_in']), _LOGIN_TIMEOUT_S)
     poll = {'client_id': start['client_id'], 'device_code': start['device_code']}
     while True:
-        time.sleep(min(interval, max(deadline - time.time(), 0.0)))
-        if time.time() >= deadline:
+        time.sleep(min(interval, max(deadline - time.monotonic(), 0.0)))
+        if time.monotonic() >= deadline:
             _fail(_EXPIRED)
         answer = post_request('/api/login/poll', poll)
         status = answer['status']
@@ -104,8 +104,8 @@ def run_logout(argv: list[str]) -> None:
     if answer['warning'] != '':
         print(f'pxt logout: warning: {answer["warning"]}', file=sys.stderr)
 
-    # A browser still signed in confirms the next code without saying which account it is for, so
-    # signing out of one and not the other leaves you as someone you did not choose.
+    # A browser still signed in confirms the next code without naming the account, so signing out of
+    # only one leaves you signed in as someone you did not choose.
     url = answer['browser_logout_url']
     if url != '':
         print('Signing out of the browser.')

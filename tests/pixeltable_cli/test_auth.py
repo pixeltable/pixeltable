@@ -20,6 +20,7 @@ import subprocess
 import sys
 import threading
 import time
+import types
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -176,6 +177,7 @@ def control_plane() -> Iterator[ControlPlane]:
         yield plane
     finally:
         server.shutdown()
+        server.server_close()
 
 
 @pytest.fixture
@@ -187,6 +189,7 @@ def fresh_plane() -> Iterator[ControlPlane]:
         yield plane
     finally:
         server.shutdown()
+        server.server_close()
 
 
 @pytest.fixture(scope='module')
@@ -254,16 +257,27 @@ def cloud_cli(
         assert not check or r.returncode == 0, f'pxt {" ".join(args)} failed ({r.returncode}): {r.stderr}'
         return result
 
-    deadline = time.time() + 90
-    while time.time() < deadline:
-        if proc.poll() is not None:
-            raise RuntimeError(f'auth daemon exited early: {log_path.read_text(errors="replace")[-800:]}')
-        if run('health', check=False).returncode == 0:
-            break
-        time.sleep(0.2)
-    else:
-        raise RuntimeError(f'auth daemon did not come up: {log_path.read_text(errors="replace")[-800:]}')
+    def healthy() -> bool:
+        try:
+            with urllib.request.urlopen(f'http://127.0.0.1:{port}/api/health', timeout=2) as r:
+                return r.status == 200
+        except OSError:
+            return False
+
     try:
+        # Asked directly rather than through `pxt`, which would replace a daemon it does not recognize
+        # (below) once per attempt while this one is still starting, leaving the extras behind.
+        deadline = time.time() + 90
+        while not healthy():
+            if proc.poll() is not None:
+                raise RuntimeError(f'auth daemon exited early: {log_path.read_text(errors="replace")[-800:]}')
+            if time.time() >= deadline:
+                raise RuntimeError(f'auth daemon did not come up: {log_path.read_text(errors="replace")[-800:]}')
+            time.sleep(0.2)
+        # The pxt script's interpreter need not be spelled as sys.executable is, and ensure_running()
+        # replaces a daemon whose identity differs from the caller's. Provoke that once, here, with this
+        # fixture's environment and project, as the session's pxt_daemon fixture does.
+        run('health')
         yield run
     finally:
         run('daemon', 'stop', '-f', check=False)
@@ -272,6 +286,7 @@ def cloud_cli(
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.wait()
 
 
 @pytest.fixture(autouse=True)
@@ -838,6 +853,23 @@ class TestLogin:
         assert 'expired before it was confirmed' in r.stderr
         assert len(control_plane.token_seen) == 0
 
+    def test_login_deadline_ignores_the_wall_clock(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A clock set forward while the browser is open does not expire a code that is still valid."""
+        answers = iter([{'status': 'authorization_pending'}, {'status': 'granted', 'email': 'you@example.com'}])
+        monkeypatch.setattr(login, 'post_request', lambda _path, _body: next(answers))
+        wall = [time.time()]
+
+        def jump_a_day() -> float:
+            wall[0] += 86_400
+            return wall[0]
+
+        # login's clock alone: patching time.time itself would move it for the whole process
+        clock = types.SimpleNamespace(monotonic=time.monotonic, sleep=time.sleep, time=jump_a_day)
+        monkeypatch.setattr(login, 'time', clock)
+        start = {'interval': 0, 'expires_in': 300, 'client_id': 'client_01TEST', 'device_code': 'dev-code'}
+
+        assert login._await_approval(start)['status'] == 'granted'
+
     @pytest.mark.parametrize(
         ('answer', 'reason'),
         [
@@ -1024,7 +1056,9 @@ class TestRenewal:
             outputs = [p.communicate(timeout=60) for p in procs]
         finally:
             for p in procs:
-                p.kill()
+                if p.poll() is None:
+                    p.kill()
+                    p.communicate()
         assert all(p.returncode == 0 for p in procs), [stderr for _stdout, stderr in outputs]
         return [stdout.strip().splitlines()[-1] for stdout, _stderr in outputs]
 
