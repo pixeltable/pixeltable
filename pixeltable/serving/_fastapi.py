@@ -2063,9 +2063,7 @@ class FastAPIRouter(fastapi.APIRouter):
             api_kwargs['response_model'] = endpoint_model
         if return_fileresponse:
             api_kwargs['response_class'] = FileResponse
-            api_kwargs['responses'] = {
-                200: {'content': {'application/octet-stream': {'schema': {'type': 'string', 'format': 'binary'}}}}
-            }
+            api_kwargs['responses'] = {200: {'content': {'*/*': {'schema': {'type': 'string', 'format': 'binary'}}}}}
         self.add_api_route(path, endpoint, **api_kwargs)
 
     def _make_schema_sql_exporter(
@@ -2189,9 +2187,7 @@ class FastAPIRouter(fastapi.APIRouter):
             api_kwargs['response_model'] = response_model
         if return_fileresponse:
             api_kwargs['response_class'] = FileResponse
-            api_kwargs['responses'] = {
-                200: {'content': {'application/octet-stream': {'schema': {'type': 'string', 'format': 'binary'}}}}
-            }
+            api_kwargs['responses'] = {200: {'content': {'*/*': {'schema': {'type': 'string', 'format': 'binary'}}}}}
 
         self.add_api_route(path, endpoint, **api_kwargs)
 

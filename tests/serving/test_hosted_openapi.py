@@ -1,11 +1,13 @@
-import fastapi
-from fastapi.security import HTTPBasic
-from fastapi.testclient import TestClient
-
 from pixeltable.serving.pod_runner import _add_gateway_openapi_security
+from tests.utils import skip_test_if_not_installed
 
 
 def test_gateway_security_only_on_hosted_schema() -> None:
+    skip_test_if_not_installed('fastapi')
+    import fastapi
+    from fastapi.security import HTTPBasic
+    from fastapi.testclient import TestClient
+
     app = fastapi.FastAPI()
     basic = HTTPBasic()
 
