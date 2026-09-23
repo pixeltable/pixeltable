@@ -493,7 +493,7 @@ class TableVersion:
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
         self._add_index_md(col, idx_name, idx)
-        status = self._populate_new_columns(print_stats=False, on_error='abort')
+        status = self._materialize_new_columns(print_stats=False, on_error='abort')
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added index {idx_name} on column {col.name} to table {self.name}')
         return status
@@ -554,7 +554,7 @@ class TableVersion:
         )
 
     def _add_index_md(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> None:
-        """Record an index's columns and md; _populate_new_columns() computes the values and builds the store index."""
+        """Record an index's columns and md; call _materialize_new_columns() afterwards to make the store changes."""
         val_col, undo_col = self._create_index_columns(col, idx)
         new_cols = [c for c in (val_col, undo_col) if c is not None]
         if len(new_cols) > 0:
@@ -691,7 +691,7 @@ class TableVersion:
         start_ts = time.perf_counter()
         self.bump_version(bump_schema_version=True)
         self._apply_column_changes_md(cols, ())
-        status = self._populate_new_columns(print_stats=print_stats, on_error=on_error)
+        status = self._materialize_new_columns(print_stats=print_stats, on_error=on_error)
         self.set_version_update_status(status)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
@@ -708,7 +708,8 @@ class TableVersion:
         return status
 
     def _record_new_columns(self, cols: Iterable[Column]) -> None:
-        """Record columns in this version's metadata and create their store columns, leaving them unpopulated."""
+        """Record columns in this version's metadata; call _materialize_new_columns() afterwards to make the store
+        changes."""
         cols_to_add = list(cols)
 
         row_count = self.store_tbl.count()
@@ -724,8 +725,6 @@ class TableVersion:
         for col in cols_to_add:
             assert col.id is not None
             col.schema_version_add = self.schema_version
-            # add the column to the lookup structures now, rather than after the store changes executed successfully,
-            # because it might be referenced by the next column's value_expr
             self.cols_by_id[col.id] = col
             if not col.is_system_col:
                 self.cols_by_name[col.name] = col
@@ -735,9 +734,6 @@ class TableVersion:
             self._tbl_md.column_md[col.id] = col_md
             assert col.id not in self._schema_version_md.columns
             self._schema_version_md.columns[col.id] = col_schema_md
-
-            if col.is_stored:
-                self.store_tbl.add_column(col, if_not_exists=False)
 
             # cols_by_id was just mutated in-place; invalidate the TVP's cached ColumnVersionMd so the next
             # create_add_column_plan() call (e.g. for a btree index column) sees the new column.
@@ -950,9 +946,9 @@ class TableVersion:
         self.path.clear_cached_md()
 
     def complete_schema_change(self) -> UpdateStatus:
-        """Populate the columns and create the indices of a schema change whose metadata is already in place."""
+        """Make the store changes for a schema change whose metadata was put in place by apply_schema_change_md()."""
         assert self.is_mutable
-        status = self._populate_new_columns(print_stats=False, on_error='abort')
+        status = self._materialize_new_columns(print_stats=False, on_error='abort')
         self.set_version_update_status(status)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Applied model updates to table {self.name}, new version: {self.version}')
@@ -1020,10 +1016,10 @@ class TableVersion:
             # the altered value expressions are part of the CVMD that create_add_column_plan() reads
             self.path.clear_cached_md()
 
-    def _populate_new_columns(self, print_stats: bool, on_error: Literal['abort', 'ignore']) -> UpdateStatus:
-        """Compute the values of the columns added by the current schema version and build their store indices.
+    def _materialize_new_columns(self, print_stats: bool, on_error: Literal['abort', 'ignore']) -> UpdateStatus:
+        """Materialize the columns and indexes added by the current schema version in the store.
 
-        Does not recompute altered computed columns."""
+        Do not recompute altered computed columns."""
         new_cols: list[Column] = [
             col for col in self.cols_by_id.values() if col.schema_version_add == self.schema_version
         ]
@@ -1035,6 +1031,9 @@ class TableVersion:
         if len(new_cols) == 0 and len(new_idx_ids) == 0:
             return UpdateStatus()
 
+        for col in new_cols:
+            if col.is_stored:
+                self.store_tbl.add_column(col, if_not_exists=False)
         status = self._populate_columns(self._population_order(new_cols), print_stats=print_stats, on_error=on_error)
         for idx_id in new_idx_ids:
             self.store_tbl.create_index(idx_id)
