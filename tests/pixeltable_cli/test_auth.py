@@ -480,7 +480,7 @@ class TestLogout:
         assert answer.browser_logout_url == ''
         assert 'browser could not be signed out' in answer.warning
 
-    @pytest.mark.parametrize('cache', ['mode_0644', 'not_json'])
+    @pytest.mark.parametrize('cache', ['mode_0644', 'mode_0000', 'not_json'])
     def test_logout_unusable_cache(
         self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch, cache: str
     ) -> None:
@@ -488,8 +488,10 @@ class TestLogout:
 
         A file that other users can read still has the session id that signs the browser out.
         """
-        if cache == 'mode_0644' and os.name != 'posix':
+        if cache.startswith('mode_') and os.name != 'posix':
             pytest.skip('Windows has no POSIX permissions')
+        if cache == 'mode_0000' and os.geteuid() == 0:
+            pytest.skip('root can read a file whatever its mode')
         monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
         expires_at = time.time() + 3600
         token = _claims(sid='session_01TEST', exp=expires_at)
@@ -497,6 +499,8 @@ class TestLogout:
         cache_file = private_home / 'auth' / 'sessions.json'
         if cache == 'mode_0644':
             cache_file.chmod(0o644)
+        elif cache == 'mode_0000':
+            cache_file.chmod(0o000)
         else:
             cache_file.write_bytes(b'{not json')
         with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match=r'Run `pxt logout`, then `pxt login`\.'):

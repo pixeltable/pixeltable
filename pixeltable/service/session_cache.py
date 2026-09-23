@@ -79,8 +79,8 @@ def _unusable(reason: str) -> excs.Error:
 def _read_sessions(*, check_private: bool) -> dict[str, Any]:
     """Every cached session, keyed by control plane. Empty before the first sign-in.
 
-    Raises for a file that is not a JSON object, and with check_private for one that another user owns
-    or can read.
+    Raises for a file that this user cannot read or that is not a JSON object, and with check_private for
+    one that another user owns or can read.
     """
     try:
         with open(_path(), 'rb') as f:
@@ -91,6 +91,8 @@ def _read_sessions(*, check_private: bool) -> dict[str, Any]:
             raw = f.read()
     except FileNotFoundError:
         return {}
+    except PermissionError:
+        raise _unusable('is unreadable') from None
     try:
         data = json.loads(raw)
     except ValueError:

@@ -153,6 +153,27 @@ class TestFileSafety:
         assert not _cache_file().exists()
         assert session_cache.load(_PROD) is None
 
+    @pytest.mark.skipif(os.name != 'posix', reason='Windows has no POSIX permissions')
+    @pytest.mark.skipif(os.name == 'posix' and os.geteuid() == 0, reason='root can read a file whatever its mode')
+    def test_unreadable_file(self) -> None:
+        """A file its owner cannot read is reported like a corrupt one.
+
+        A new sign-in replaces it, and signing out deletes it.
+        """
+        session_cache.save(_PROD, _session())
+        _cache_file().chmod(0o000)
+
+        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='is unreadable'):
+            session_cache.load(_PROD)
+        assert session_cache.load_for_sign_out(_PROD) is None
+
+        session_cache.save(_PROD, _session(access_token='new'))
+        assert session_cache.load(_PROD).access_token == 'new'
+
+        _cache_file().chmod(0o000)
+        assert session_cache.clear(_PROD) is True
+        assert not _cache_file().exists()
+
     @pytest.mark.parametrize(
         'record',
         [
