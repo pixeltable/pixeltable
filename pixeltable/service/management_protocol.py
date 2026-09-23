@@ -441,7 +441,8 @@ class ListOrgsResponse(BaseModel):
 
 # API keys
 #
-# The caller's credential decides the organization: no request here names one, and a grant naming another is refused.
+# The caller's credential decides the organization: no request here has an organization field, and a grant in
+# another organization is refused.
 
 
 class KeyRecord(BaseModel):

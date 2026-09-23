@@ -729,9 +729,10 @@ pxt logout
 session id, `pxt logout` also opens that service's sign-out page for the session in your browser,
 and prints the link when no browser opens. It signs out of both because a browser that is still
 signed in confirms the next code without naming the account, so signing out of only one leaves you
-signed in as someone you did not choose. Forgetting the session needs no network: when the sign-in
-service cannot be reached, `pxt logout` still signs this machine out, and warns that the browser is
-still signed in.
+signed in as someone you did not choose. Forgetting the session needs no network. When `pxt logout`
+cannot work out the sign-out link, for example because the control plane cannot be reached, it
+still signs this machine out and warns that the browser was not signed out. Whether the sign-out
+page itself loads is something only the browser shows.
 
 <Note>
 An **API key** takes precedence over a sign-in whenever both are present: it is the explicit
@@ -741,8 +742,8 @@ set. Unlike a sign-in, it does not expire. `pxt whoami` says which one your comm
 send.
 </Note>
 
-Signing in proves who you are; it does not give you an organization. A brand-new account has none,
-and every hosted command needs one, so `pxt login` and `pxt whoami` print "No organization yet" with
+Signing in proves who you are; it does not give you an organization. A brand-new account belongs
+to no organization, and every hosted command needs one, so `pxt login` and `pxt whoami` print "No organization yet" with
 the command that creates one, `pxt org create NAME`, rather than letting the next command fail as an
 authorization error.
 
