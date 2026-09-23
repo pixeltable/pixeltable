@@ -985,7 +985,7 @@ class TableVersion:
             col.tbl_handle = self.handle
             col.id = self.next_col_id()
 
-        # the ids exist now, so a placeholder can be resolved to the column it names
+        # the ids exist now, so a placeholder can be resolved to the actual column
         subst = self._col_ref_substitutions(new_cols)
         for col in new_cols:
             value_expr = col.value_expr
@@ -1008,9 +1008,9 @@ class TableVersion:
         for col, idx, val_col, undo_col in default_idxs:
             self._record_new_index(col, val_col, undo_col, idx_name=None, idx=idx)
 
-        # altered_cols are applied after cols are recorded, so that a new value expression can reference a column that
-        # this change set adds, and before anything is populated, so that a new column is computed from the value
-        # expressions the change set ends up with
+        # altered_cols are applied after new_cols are recorded, so that an updated value expression can reference
+        # a column added in the same change set. Just as importantly, this is done before the new columns are populated,
+        # so that new column values are computed using the updated value expressions of altered columns they depend on.
         resolved_alters: list[tuple[Column, exprs.Expr]] = [
             (col, expr.substitute(self._col_ref_substitutions(new_cols))) for col, expr in altered_cols
         ]
@@ -1023,7 +1023,7 @@ class TableVersion:
     def _populate_new_columns(self, print_stats: bool, on_error: Literal['abort', 'ignore']) -> UpdateStatus:
         """Compute the values of the columns added by the current schema version and build their store indices.
 
-        This does not recompute the columns whose expressions changed in the current schema version."""
+        Does not recompute altered computed columns."""
         new_cols: list[Column] = [
             col for col in self.cols_by_id.values() if col.schema_version_add == self.schema_version
         ]
