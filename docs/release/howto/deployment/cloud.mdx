@@ -135,7 +135,7 @@ Every Cloud database includes a managed Media Store at `pxtfs://org:mydb/home`. 
 
 Set dest only for two cases:
 
-- **Local Pixeltable** writing into that same bucket: `PIXELTABLE_API_KEY` plus `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST` (see [Cloud storage](/integrations/cloud-storage#pixeltable-cloud-home-bucket)).
+- **Local Pixeltable** writing into that same bucket: `pxt login` or `PIXELTABLE_API_KEY`, plus `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST` (see [Cloud storage](/integrations/cloud-storage#pixeltable-cloud-home-bucket)).
 - **Your own bucket**: store `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (or GCS / Azure names) under **Secrets** or `pxt secret`, then point those dest env vars at `s3://`, `gs://`, or `wasbs://`. A single computed column can also set `destination=`:
 
 ```python
