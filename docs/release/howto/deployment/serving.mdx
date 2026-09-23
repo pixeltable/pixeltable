@@ -17,16 +17,18 @@ npx openapi-typescript http://localhost:8000/openapi.json -o src/pixeltable.d.ts
 ```
 
 Each column named in a route's `outputs` becomes a typed field, computed columns included.
-Regenerate types after changing the Python routes. Routes with `return_fileresponse=True` advertise a binary response; read its bytes with `response.blob()` or `response.arrayBuffer()`. The actual response `Content-Type` identifies the returned image, video, audio, or document.
+Regenerate types after changing the Python routes.
 
 For a hosted service, copy its full endpoint URL from the Cloud dashboard. The gateway requires a credential to download the schema:
 
 ```bash
-curl -fsS -H "Authorization: Bearer $PIXELTABLE_API_KEY" "$SERVICE_URL/openapi.json" -o openapi.json
+curl -fsS -H "X-api-key: $PIXELTABLE_API_KEY" "$SERVICE_URL/openapi.json" -o openapi.json
 npx openapi-typescript openapi.json -o src/pixeltable.d.ts
 ```
 
 The hosted schema declares the gateway's Bearer and `X-api-key` options; local service schemas do not require them. In the Cloud dashboard, the service's **API docs** link opens an authenticated viewer where you can inspect and try routes without pasting an API key. Trying an insert, update, or delete route can change data.
+
+Routes with `return_fileresponse=True` advertise a binary response for any media type. Check the response's `Content-Type` when handling the returned image, video, audio, or document; a fetch caller can consume its bytes with `response.blob()` or `response.arrayBuffer()`.
 
 ## Mount on your own FastAPI app
 

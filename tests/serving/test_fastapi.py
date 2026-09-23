@@ -1085,9 +1085,8 @@ class TestFastAPI:
         assert upload_body['properties']['id']['description'] == 'unique row identifier'
         assert upload_body['properties']['prompt']['description'] == 'input text prompt'
 
-        # /file: FileResponse route advertises binary data without changing its runtime media type.
         file_resp = paths['/file']['post']['responses']['200']
-        assert file_resp['content'] == {'application/octet-stream': {'schema': {'type': 'string', 'format': 'binary'}}}
+        assert file_resp['content'] == {'*/*': {'schema': {'type': 'string', 'format': 'binary'}}}
 
         # /bg: background route returns BackgroundJobResponse
         bg_resp = paths['/bg']['post']['responses']['200']['content']['application/json']['schema']
