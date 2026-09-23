@@ -1035,12 +1035,12 @@ class TableVersion:
         for col in new_cols:
             if col.is_stored:
                 self.store_tbl.add_column(col, if_not_exists=False)
-        status = self._populate_columns(self._population_order(new_cols), print_stats=print_stats, on_error=on_error)
+        status = self._populate_columns(self._topological_order(new_cols), print_stats=print_stats, on_error=on_error)
         for idx_id in new_idx_ids:
             self.store_tbl.create_index(idx_id)
         return status
 
-    def _population_order(self, cols: list[Column]) -> list[Column]:
+    def _topological_order(self, cols: list[Column]) -> list[Column]:
         """Returns cols, reordered so that a column follows its dependencies. That includes its transitive dependencies
         in this table regardless of whether they are in the provided list."""
         assert all(col.id in self.cols_by_id for col in cols)
