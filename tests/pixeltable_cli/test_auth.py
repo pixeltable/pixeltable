@@ -76,13 +76,15 @@ class ControlPlane:
     """A stub of Pixeltable Cloud: the management API, and the sign-in service behind it.
 
     One server for both: it advertises itself as its own sign-in issuer, so PIXELTABLE_API_URL is
-    the only address a test sets. It replies from `answers` and `tokens`, and records requests in
-    `seen` and `token_seen`.
+    the only address a test sets. It replies from `answers` and `tokens`, records requests in `seen`
+    and `token_seen`, and records the credential headers of each request in `seen`, by lowercase
+    name, in `credentials_seen`.
     """
 
     port: int
     answers: dict[str, Any] = field(default_factory=dict)
     seen: list[dict[str, Any]] = field(default_factory=list)
+    credentials_seen: list[dict[str, str]] = field(default_factory=list)
     status: int = 200
     client_id: str = 'client_01TEST'
     # the status and body of the discovery document; None answers with client_id and this stub's address,
@@ -147,6 +149,9 @@ def _serve(plane: ControlPlane) -> HTTPServer:
                 return
             request = json.loads(body or b'{}')
             plane.seen.append(request)
+            plane.credentials_seen.append(
+                {k.lower(): v for k, v in self.headers.items() if k.lower() in ('authorization', 'x-api-key')}
+            )
             self._reply(plane.status, plane.answers.get(request.get('operation_type'), {}))
 
         def log_message(self, *_args: Any) -> None:
@@ -1056,6 +1061,28 @@ class TestRenewal:
 
 class TestHomeBucket:
     """The home bucket's calls to the control plane send the same credential as a management call."""
+
+    def test_session_credential(
+        self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without an API key, a `pxt login` session is enough: its token is the credential sent."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        expires_at = time.time() + 3600
+        token = _claims(sid='session_01TEST', exp=expires_at)
+        session_cache.save(fresh_plane.url, session_cache.Session(access_token=token, expires_at=expires_at))
+        fresh_plane.answers['get_bucket_credentials'] = {
+            'access_key_id': 'AKIATEST',
+            'secret_access_key': 'secret',
+            'session_token': 'session-token',
+            'endpoint_url': 'https://r2.example.com',
+            'resolved_bucket_name': 'home-acme-main',
+            'ttl_seconds': 900,
+        }
+
+        credentials = cloud_utils.get_bucket_credentials('acme', 'main', 'home')
+
+        assert credentials.resolved_bucket_name == 'home-acme-main'
+        assert fresh_plane.credentials_seen == [{'authorization': f'Bearer {token}'}]
 
     @pytest.mark.parametrize(
         ('status', 'code', 'message'),
