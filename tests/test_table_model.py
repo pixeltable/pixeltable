@@ -2634,6 +2634,7 @@ class TestTableModel:
         pxt.get_table(f'{target}/probe').insert([{'cutoff': 0}, {'cutoff': 1}])
 
         reload_catalog()
+        # Table docs is unchanged; probe.matches is altered and a new column from_zero is added
         TableModelV2 = pxt.model_base()
 
         class DocsV2(TableModelV2, name='docs'):
@@ -2970,6 +2971,7 @@ class TestTableModel:
         t.insert([{'id': 1, 'extra': 0}, {'id': 2, 'extra': 0}])
         assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [2, 4]
 
+        # test_table.doubled expression changes, but with the same dependencies
         AlteredModel = pxt.model_base()
 
         class AlteredTable(AlteredModel, name='test_table'):
@@ -3000,8 +3002,10 @@ class TestTableModel:
         v = pxt.get_table(p('test_view'))
         assert v.select(v.vc1).order_by(v.id).collect()['vc1'] == [101, 201]
 
-        # one change set that adds a column an altered one depends on (bonus), and one that depends on an altered
-        # one (s), which reads bonus through unstored u
+        # one change set that
+        # 1. adds bonus = id * 1000
+        # 2. alters doubled and unstored u to depend on bonus
+        # 3. adds s = u + 1, which has to be populated from u's new expression
         WidenedModel = pxt.model_base()
 
         class WidenedTable(WidenedModel, name='test_table'):
@@ -3032,7 +3036,10 @@ class TestTableModel:
         t.recompute_columns('doubled')
         assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [1100, 2200]
 
-        # a single update that both narrows an expression and drops the column it no longer references
+        # one change set that
+        # 1. alters doubled to no longer depend on extra and bonus
+        # 2. drops extra and bonus
+        # 3. drops u and s
         NarrowedModel = pxt.model_base()
 
         class NarrowedTable(NarrowedModel, name='test_table'):
@@ -3078,7 +3085,7 @@ class TestTableModel:
         TableModel.create_all(root)
         pxt.get_table(p('test_table')).insert([{'id': 1, 'other': 5}])
 
-        # a different output type
+        # derived changes from id * 2 to id / 2, which is a different column type
         NewTypeModel = pxt.model_base()
 
         class NewTypeTable(NewTypeModel, name='test_table'):
@@ -3091,7 +3098,7 @@ class TestTableModel:
         assert diff.resolution == 'unsupported'
         assert sorted(diff.ops[0].model.keys()) == ['type', 'value']
 
-        # referencing a cell metadata property
+        # referencing a cell metadata property: derived2 adds derived.errortype
         CellMdModel = pxt.model_base()
 
         class CellMdTable(CellMdModel, name='test_table'):
@@ -3103,7 +3110,7 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape("'errortype' property")):
             CellMdModel.update_all(root)
 
-        # the same reference in a newly added column, which reaches the catalog by a different route
+        # the same prohibited reference in a newly added column
         AddCellMdModel = pxt.model_base()
 
         class AddCellMdTable(AddCellMdModel, name='test_table'):
@@ -3129,7 +3136,7 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='snapshot, which it cannot reference'):
             SnapshotModel.update_all(root)
 
-        # referencing a column from outside of the table's ancestry
+        # derived changes to be referencing a column from outside of the table's ancestry
         OutOfScopeModel = pxt.model_base()
 
         class OutOfScopeTable(OutOfScopeModel, name='test_table'):
@@ -3164,7 +3171,10 @@ class TestTableModel:
         TableModel.create_all(root)
         pxt.get_table(p('test_table')).insert([{'x': 1}])
 
-        # c1 gets a dependency on c2, but c2 gives up its dependency on c1, so there is no cycle after both changes.
+        # one change set that
+        # 1. alters c2 from c1 + 1 to x * 5
+        # 2. alters c1 from x * 2 to c2 + 1
+        # (2) without (1) would create a cycle, but together they should work
         SwapModel = pxt.model_base()
 
         class SwapTable(SwapModel, name='test_table'):
