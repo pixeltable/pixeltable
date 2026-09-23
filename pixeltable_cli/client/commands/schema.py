@@ -517,19 +517,21 @@ def _update_output(plan: SchemaPlan, *, as_json: bool) -> None:
 
 
 def _print_recompute_notice(plan: SchemaPlan) -> None:
-    altered_computed_cols: list[str] = [
-        f'  {tbl.path}.{op.name}'
-        for tbl in plan.tables
-        for op in tbl.ops
-        if op.op == 'alter' and op.details.previous_value is not None and op.status == 'applied'
-    ]
-    if len(altered_computed_cols) == 0:
+    altered_cols_by_tbl: dict[str, list[str]] = {}
+    for tbl in plan.tables:
+        for op in tbl.ops:
+            if op.op == 'alter' and op.details.previous_value is not None and op.status == 'applied':
+                altered_cols_by_tbl.setdefault(tbl.path, []).append(op.name)
+    if len(altered_cols_by_tbl) == 0:
         return
     print()
     print('the value expressions of these columns changed, but their stored values were not recomputed:')
-    for line in altered_computed_cols:
-        print(line)
-    print('run `pxt recompute` if you wish to recompute them.')
+    for path, col_names in altered_cols_by_tbl.items():
+        for col_name in col_names:
+            print(f'  {path}.{col_name}')
+    print('run the following if you wish to recompute them:')
+    for path, col_names in altered_cols_by_tbl.items():
+        print(f'  pxt recompute {path} {" ".join(col_names)}')
 
 
 def _set_statuses(plan: SchemaPlan, *, destructive: OpStatus, other: OpStatus) -> None:

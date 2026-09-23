@@ -263,6 +263,9 @@ class TestSchema:
 
         # Apply the original schema
         cli('schema', 'update', str(schema_file), target)
+        docs = pxt.get_table(f'{target}/docs')
+        titled_docs = pxt.get_table(f'{target}/titled_docs')
+        docs.insert([{'title': 'Alpha', 'body': None}])
 
         # Diff with the altered schema file
         r = cli('schema', 'diff', str(altered_file), target, *json_flag, check=False)
@@ -297,7 +300,14 @@ class TestSchema:
             assert op['description'] == description
         else:
             assert f'{target}/docs.title_upper' in r.stdout
-            assert 'run `pxt recompute` if you wish to recompute them.' in r.stdout
+            assert f'pxt recompute {target}/docs title_upper\n' in r.stdout
+        assert docs.select(docs.title_upper).collect()['title_upper'] == ['ALPHA']
+
+        if not json_flag:
+            # Actually try the pxt recompute command that update prints and check that it works
+            cli('recompute', f'{target}/docs', 'title_upper', '-f')
+            assert docs.select(docs.title_upper).collect()['title_upper'] == ['alpha']
+            assert titled_docs.select(titled_docs.headline).collect()['headline'] == ['alpha!']
 
         r = cli('schema', 'diff', str(altered_file), target, *json_flag, check=False)
         assert r.returncode == 0, r.stdout
