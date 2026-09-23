@@ -182,3 +182,43 @@ class TestBrowserRequests:
 
         assert code == 415
         assert 'application/json' in answer['detail']
+
+    @pytest.mark.parametrize('spelling', ['LOCALHOST', 'LocalHost'])
+    def test_bind_loopback_hostname_spellings(self, spelling: str) -> None:
+        """A daemon bound to loopback by any spelling of localhost refuses what a web page could forge."""
+        server = http_server.bind(spelling, 0)
+        port = server.server_address[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            own_code, _ = _request_daemon(port, '/api/health', host=f'{spelling}:{port}')
+            foreign_code, answer = _request_daemon(port, '/api/health', host=f'attacker.example:{port}')
+            form_code, _ = _request_daemon(
+                port,
+                '/api/cwd',
+                host=f'localhost:{port}',
+                body=b'uri=elsewhere',
+                content_type='application/x-www-form-urlencoded',
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        assert own_code == 200
+        assert foreign_code == 403
+        assert (
+            answer['detail'] == f'this daemon only answers requests addressed to 127.0.0.1:{port} or localhost:{port}'
+        )
+        assert form_code == 415
+
+    def test_bind_beyond_loopback(self) -> None:
+        """A daemon bound beyond loopback, as on a hosted pod behind the gateway, answers any Host."""
+        server = http_server.bind('0.0.0.0', 0)
+        port = server.server_address[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            code, _ = _request_daemon(port, '/api/health', host=f'attacker.example:{port}')
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        assert code == 200

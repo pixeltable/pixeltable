@@ -349,21 +349,12 @@ class _QuietServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def _is_loopback(host: str) -> bool:
-    if host == 'localhost':
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
-
-
 def bind(host: str, port: int) -> _QuietServer:
     """Bind the listen socket. Raises OSError if the address is already taken."""
     server = _QuietServer((host, port), _DaemonHandler)
-    if _is_loopback(host):
-        bound_host, bound_port = str(server.server_address[0]), server.server_address[1]
-        names = {host, bound_host}
+    bound_host, bound_port = str(server.server_address[0]), server.server_address[1]
+    if ipaddress.ip_address(bound_host).is_loopback:
+        names = {host.lower(), bound_host}
         # localhost reaches 127.0.0.1 and no other loopback address
         if bound_host == '127.0.0.1':
             names.add('localhost')
