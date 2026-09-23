@@ -84,6 +84,9 @@ class TestFastAPIModels:
         # the routes are fully described before the table exists
         schema = client.get('/openapi.json').json()
         assert sorted(schema['paths']) == ['/comp', '/del', '/ins', '/thumb-file', '/thumb-json', '/upd']
+        assert schema['paths']['/thumb-file']['post']['responses']['200']['content'] == {
+            'application/octet-stream': {'schema': {'type': 'string', 'format': 'binary'}}
+        }
 
         TableModel.create_all(p(''))
         router.bind(p(''))

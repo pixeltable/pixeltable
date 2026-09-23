@@ -1085,10 +1085,9 @@ class TestFastAPI:
         assert upload_body['properties']['id']['description'] == 'unique row identifier'
         assert upload_body['properties']['prompt']['description'] == 'input text prompt'
 
-        # /file: FileResponse route - response_class=FileResponse, no JSON model
+        # /file: FileResponse route advertises binary data without changing its runtime media type.
         file_resp = paths['/file']['post']['responses']['200']
-        # FastAPI renders a FileResponse route with no application/json schema on 200
-        assert 'application/json' not in file_resp.get('content', {}), file_resp
+        assert file_resp['content'] == {'application/octet-stream': {'schema': {'type': 'string', 'format': 'binary'}}}
 
         # /bg: background route returns BackgroundJobResponse
         bg_resp = paths['/bg']['post']['responses']['200']['content']['application/json']['schema']
