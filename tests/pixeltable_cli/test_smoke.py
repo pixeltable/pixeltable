@@ -36,6 +36,23 @@ class TestHealth:
         assert out['pxt_version'] == importlib.metadata.version('pixeltable')
 
 
+@pytest.mark.db_roots('local', reason='no cloud equivalent')
+class TestDbJsonSchema:
+    def test_json_schema(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        plan = json.loads(cli('db', 'diff', '--json-schema').stdout)
+        assert plan['title'] == 'DbPlan'
+        # computed fields reach the output, so they have to reach the schema too
+        assert 'in_agreement' in plan['properties']
+        assert 'summary' in plan['properties']
+        assert 'takes minutes' in plan['$defs']['DbPlanSummary']['properties']['rebuild']['description']
+
+        # status prints the report alone, so the response wrapper stays out of its schema
+        report = json.loads(cli('db', 'status', '--json-schema').stdout)
+        assert report['title'] == 'DatabaseReport'
+        assert 'worker_status' not in report['properties']
+        assert 'current' in report['properties']
+
+
 class TestLs:
     def test_lists(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """Bare ls (text + json) lists what's in the catalog and reflects mutations."""
@@ -1207,7 +1224,7 @@ class TestDotSegments:
         assert listing(p('cli_dots/sub/..')) == listing(p('cli_dots'))
         assert listing(p('cli_dots/./sub')) == listing(p('cli_dots/sub'))
         assert listing(p('cli_dots/sub/../sub')) == listing(p('cli_dots/sub'))
-        if db_root.id != 'cloud':
+        if not db_root.is_cloud:
             # '..' at the root keeps the root, as it does in a shell. A hosted target is a directory of
             # its database rather than the catalog root, so '..' there names the database.
             assert listing(p('..')) == listing(p(''))

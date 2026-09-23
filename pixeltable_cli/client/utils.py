@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import psutil
+import pydantic
 
 from pixeltable_cli import types
 from pixeltable_cli.utils import (
@@ -512,3 +513,8 @@ def confirm_or_exit(
     if ans not in ('y', 'yes'):
         print('aborted', file=sys.stderr)
         sys.exit(refused_exit_code)
+
+
+def print_json_schema(adapter: pydantic.TypeAdapter) -> None:
+    # mode='serialization' for computed fields
+    print(json.dumps(adapter.json_schema(mode='serialization'), indent=2))

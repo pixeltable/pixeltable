@@ -159,12 +159,12 @@ pytest: install
 .PHONY: fullpytest
 fullpytest: install
 	@echo 'Running `pytest`, including expensive tests ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) -m 'not cloud_e2e' tests
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) -m '' tests
 
 .PHONY: slimpytest
 slimpytest: install
 	@echo 'Running `pytest` on a slim configuration ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) \
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) -k 'not cloud' \
 	    tests/test_{alter_column,array_type,catalog,component_view,concurrent,concurrent_model}.py \
 	    tests/test_{config,conftest,dirs,env}.py \
 	    tests/test_{exceptions,exprs,fault_injection,file_cache,function,history,index,iterator,mcp,path}.py \

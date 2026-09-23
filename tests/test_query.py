@@ -161,7 +161,7 @@ class TestQuery:
 
     def test_join(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
-        num_rows = 100 if db_root.id == 'cloud' else 1000
+        num_rows = 100 if db_root.is_cloud else 1000
         t1, t2, t3 = self.create_join_tbls(num_rows, p)
         # inner join
         query = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f, out=t1.i + t2.f).order_by(t2.f)
