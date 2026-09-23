@@ -2,12 +2,13 @@
 
 Two shapes share the command because they are the same thing to a user asking for a key:
 
-  * a user key acts as you, reaching whatever you can reach. It is yours, it has no grants, and
-    there is nothing to edit.
+  * a user key acts as you, reaching whatever you can reach. It has no grants, and there is nothing
+    to edit.
   * a runtime key acts as nobody. It belongs to the organization, reaches only what it is granted,
     and is the one an agent or a job should use instead of a copy of yours.
 
-Passing --grant asks for the second.
+Every member of the organization can list and delete keys of both kinds, and change a runtime key's
+grants. Passing --grant asks for the second.
 """
 
 from __future__ import annotations
@@ -44,7 +45,7 @@ reconfigure it, and one that can stop it cannot read what flows through it.
 
 The organization must be your own - the one your credential belongs to. Keys are named uniquely
 across both kinds, so a name always identifies one key. Every member of the organization sees every
-key, and can delete any of them.
+key, can change any runtime key's grants, and can delete any key.
 
 Keys with grants are a preview: Pixeltable Cloud refuses them until they are enabled for your
 organization.

@@ -440,24 +440,8 @@ class ListOrgsResponse(BaseModel):
 
 
 # API keys
-
-# Keys
 #
-# One thing with two shapes. A key with no grants acts as whoever created it and reaches whatever
-# they can reach. A key with grants acts as nobody: it belongs to the organization, as the WorkOS
-# key behind it does, and reaches only what it was granted. There is no third kind and no unscoped
-# grant: asking for grants asks for the second shape.
-#
-# A grant is a verb on a pxt:// resource, never a bare resource: a service on its own does not say
-# whether the holder may call it or reconfigure it, and those are not the same permission. The forms
-# and what each allows are documented once, in docs/release/platform/cli.mdx under `pxt key`.
-#
-# The org segment must be the organization the caller's own key belongs to. It is not how the control
-# plane decides whose keys these are -- the credential settles that -- so a grant for another
-# organization is refused rather than quietly reinterpreted.
-#
-# No request here takes an organization of its own, for the same reason: a field for it would
-# suggest a caller could act on another one, which no credential permits.
+# The caller's credential decides the organization: no request here names one, and a grant naming another is refused.
 
 
 class KeyRecord(BaseModel):
@@ -474,7 +458,8 @@ class KeyRecord(BaseModel):
 class CreateKeyRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.CREATE_KEY] = ManagementOperationType.CREATE_KEY
     name: str
-    # Empty asks for a key that acts as you; any grant asks for one that acts as nobody.
+    # Each a verb on a pxt:// resource, such as 'access:pxt://acme:main/services/ingest'. Empty asks for
+    # a key that acts as you; any grant asks for one that acts as nobody.
     grants: list[str] = Field(default_factory=list)
 
 
@@ -499,6 +484,7 @@ class UpdateKeyRequest(BaseModel):
 
     operation_type: Literal[ManagementOperationType.UPDATE_KEY] = ManagementOperationType.UPDATE_KEY
     name: str
+    # grants in the form CreateKeyRequest.grants takes
     allow: list[str] = Field(default_factory=list)
     revoke: list[str] = Field(default_factory=list)
 
