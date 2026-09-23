@@ -136,6 +136,26 @@ class TestFileSafety:
         assert stat.S_IMODE(_cache_file().stat().st_mode) == 0o600
         assert session_cache.load(_PROD) is not None
 
+    @pytest.mark.skipif(os.name != 'posix', reason='Windows has no POSIX permissions')
+    def test_readable_by_others_keeps_no_session(self) -> None:
+        """Signing in or out of one control plane carries no other session out of a file other users can read.
+
+        Another user could have copied those tokens; rewritten into a private file, they would be usable again.
+        """
+        session_cache.save(_PROD, _session())
+        session_cache.save(_DEV, _session(access_token='dev'))
+        _cache_file().chmod(0o644)
+
+        session_cache.save(_PROD, _session(access_token='new'))
+        assert stat.S_IMODE(_cache_file().stat().st_mode) == 0o600
+        assert session_cache.load(_PROD).access_token == 'new'
+        assert session_cache.load(_DEV) is None
+
+        session_cache.save(_DEV, _session(access_token='dev'))
+        _cache_file().chmod(0o644)
+        assert session_cache.clear(_PROD) is True
+        assert not _cache_file().exists()
+
     @pytest.mark.parametrize('content', [b'{not json', b'["a list"]', b'', b'\xff\xfe\x00'])
     def test_corrupt_file(self, content: bytes) -> None:
         """An unreadable file is reported, a new sign-in replaces it, and signing out deletes it."""

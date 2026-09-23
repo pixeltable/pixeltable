@@ -103,9 +103,13 @@ def _read_sessions(*, check_private: bool) -> dict[str, Any]:
 
 
 def _rewritable_sessions() -> dict[str, Any]:
-    """The sessions to carry over when the file is rewritten; none from an unreadable file, which is replaced."""
+    """The sessions to carry over when the file is rewritten.
+
+    Empty for a file that is unreadable, or that another user owns or can read: another user may have
+    planted or copied its tokens, which must not become usable by being rewritten into a private file.
+    """
     try:
-        return _read_sessions(check_private=False)
+        return _read_sessions(check_private=True)
     except excs.AuthorizationError:
         return {}
 
@@ -236,11 +240,12 @@ def save(api_url: str, session: Session) -> None:
 def clear(api_url: str | None = None) -> bool:
     """Forget one control plane's session, or every one. True when something was removed.
 
-    An unreadable file is deleted outright, since no single session in it can be removed.
+    A file that is unreadable is deleted outright, as no single session can be removed from it. So is one
+    that another user owns or can read, whose sessions must not be rewritten (see _rewritable_sessions()).
     """
     with _exclusive():
         try:
-            cache = _read_sessions(check_private=False)
+            cache = _read_sessions(check_private=True)
         except excs.AuthorizationError:
             _path().unlink(missing_ok=True)
             return True
