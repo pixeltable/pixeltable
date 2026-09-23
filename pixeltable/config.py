@@ -613,14 +613,6 @@ class Config:
         subscript = typing.get_args(expected_type)
         assert subscript is not None and len(subscript) == 1 and issubclass(subscript[0], pydantic.BaseModel)
         model_type = subscript[0]
-        # a list element that is not a table (eg, database = ['local']) would fail inside the model's
-        # before-validator, this gives a clearer error message to the user
-        for entry in value:
-            if not isinstance(entry, dict):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION,
-                    f"'{section}.{key}' must be an array of tables in config file: {source}",
-                )
         try:
             validated_config = [model_type.model_validate(entry) for entry in value]
         except pydantic.ValidationError as e:
