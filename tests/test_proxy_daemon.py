@@ -3,6 +3,7 @@ import json
 import math
 import pathlib
 import socket
+import tarfile
 import uuid
 from typing import Any
 
@@ -13,7 +14,8 @@ import pytest
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.service import proxy_client, proxy_daemon, proxy_dispatch, proxy_protocol
-from pixeltable.service.proxy_client import HttpTransport, ProxyClient, PxtStorePartSink, TunnelTransport
+from pixeltable.service.proxy_client import HttpTransport, ProxyClient, TunnelTransport
+from pixeltable.service.proxy_protocol import PxtArchivePartSink, PxtStorePartSink
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps
 
@@ -41,6 +43,26 @@ class _RemotePartSink(proxy_protocol.PartSink[int | str]):
         if len(data) < proxy_protocol.PxtStorePartSink._MIN_OUT_OF_BAND_SIZE:
             return self.add_inline(data)
         return self.add_media_bytes(data, extension)
+
+
+def _tar_bytes(members: dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode='w') as tf:
+        for name, data in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+def _tar_members(data: bytes) -> dict[str, bytes]:
+    with tarfile.open(fileobj=io.BytesIO(data), mode='r:') as tf:
+        members: dict[str, bytes] = {}
+        for info in tf.getmembers():
+            f = tf.extractfile(info)
+            assert f is not None
+            members[info.name] = f.read()
+        return members
 
 
 class TestProxyDaemon:
@@ -189,6 +211,8 @@ class TestProxyDaemon:
             # scalars that outgrew the inline threshold carry keys of their own
             'blob': {'$pxt': 'bytes', 'v': 'uploads/r/4.bin'},
             'arr': {'$pxt': 'ndarray', 'v': 'uploads/r/5.npy'},
+            # an archived part's reference is returned whole
+            'archived': {'$pxt': 'image', 'format': 'PNG', 'v': 'uploads/r/tar0.tar!6.png'},
             # int-indexed (inline) parts and str tags that are not parts at all are not remote keys
             'inline': {'$pxt': 'file', 'name': 'd', 'v': 0},
             'inline_blob': {'$pxt': 'bytes', 'v': 1},
@@ -201,6 +225,7 @@ class TestProxyDaemon:
             'uploads/r/3',
             'uploads/r/4.bin',
             'uploads/r/5.npy',
+            'uploads/r/tar0.tar!6.png',
         ]
         assert proxy_protocol.collect_remote_keys(args) == expected
 
@@ -237,15 +262,17 @@ class TestProxyDaemon:
         tunnel = TunnelTransport('org1', 'db1', 'key', host='h', port=443)
         remote_sink = tunnel.new_part_sink()
         next_sink = tunnel.new_part_sink()
-        assert isinstance(remote_sink, PxtStorePartSink)
-        assert isinstance(next_sink, PxtStorePartSink)
+        assert type(remote_sink) is PxtArchivePartSink
+        assert type(next_sink) is PxtArchivePartSink
         # each request gets its own uploads/ prefix
         assert next_sink._key_prefix != remote_sink._key_prefix
 
     def test_pxt_store_sink_defers_uploads(
         self, init_env: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """PxtStorePartSink mints keys while serializing and performs every upload in flush()."""
+        """PxtStorePartSink mints keys while serializing and performs every upload in flush().
+
+        This is the per-object sink that _ResponseMedia uses, since it presigns a url for each key."""
         uploaded: dict[str, tuple[pathlib.Path, bytes]] = {}
         store_uris: list[str] = []
 
@@ -295,14 +322,25 @@ class TestProxyDaemon:
 
     @staticmethod
     def _install_fake_upload_store(
-        monkeypatch: pytest.MonkeyPatch, objects: dict[str, bytes], store_uris: list[str]
+        monkeypatch: pytest.MonkeyPatch,
+        objects: dict[str, bytes],
+        store_uris: list[str],
+        downloads: list[str] | None = None,
     ) -> None:
         """Route ObjectOps.get_store to a fake store serving objects (keyed store-relative, i.e. without the
-        'uploads/' prefix) and put the daemon's org/db identity in the environment."""
+        'uploads/' prefix) and put the daemon's org/db identity in the environment. Uploads land in objects,
+        and each download's key is appended to downloads."""
         from pixeltable.utils.object_stores import ObjectOps
 
         class FakeStore:
+            def copy_local_file(self, src_path: pathlib.Path, dest: FileDestination) -> str:
+                assert dest.remote_key is not None and dest.remote_key.startswith('uploads/')
+                objects[dest.remote_key.removeprefix('uploads/')] = src_path.read_bytes()
+                return dest.url
+
             def copy_object_to_local_file(self, src_path: str, dest_path: pathlib.Path) -> None:
+                if downloads is not None:
+                    downloads.append(src_path)
                 if src_path not in objects:
                     # what a real store raises for a 404 (message blames the bucket)
                     raise excs.NotFoundError(excs.ErrorCode.STORAGE_NOT_FOUND, "Bucket 'b' not found")
@@ -366,20 +404,21 @@ class TestProxyDaemon:
         ):
             proxy_dispatch._prefetch_remote_parts(self._remote_file_request('uploads/req/0.png'))
 
-    def test_handle_cleans_remote_parts(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        objects = {'req/0.png': b'png-bytes'}
+    @pytest.mark.parametrize('ref', ['uploads/req/0.png', 'uploads/req/tar0.tar!0.png'])
+    def test_handle_cleans_remote_parts(self, init_env: None, monkeypatch: pytest.MonkeyPatch, ref: str) -> None:
+        objects = {'req/0.png': b'png-bytes', 'req/tar0.tar': _tar_bytes({'0.png': b'png-bytes'})}
         self._install_fake_upload_store(monkeypatch, objects, [])
         localized: list[str] = []
 
         def echo_handler(request: proxy_protocol.ProxyRequest) -> None:
             args = proxy_protocol.deserialize_request(request)
             localized.append(args['rows'][0]['f'])
-            assert pathlib.Path(localized[-1]).exists()
+            assert pathlib.Path(localized[-1]).read_bytes() == b'png-bytes'
 
         monkeypatch.setitem(proxy_dispatch._HANDLERS, ('CatalogBase', 'echo_test'), echo_handler)
 
         # success: the handler saw the localized file; handle() unlinked it afterwards
-        request = self._remote_file_request('uploads/req/0.png')
+        request = self._remote_file_request(ref)
         head, _ = proxy_protocol.decode_body(proxy_dispatch.handle(request.model_dump_json(), []))
         assert json.loads(head).get('error') is None
         assert len(localized) == 1
@@ -391,12 +430,170 @@ class TestProxyDaemon:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'boom')
 
         monkeypatch.setitem(proxy_dispatch._HANDLERS, ('CatalogBase', 'echo_test'), failing_handler)
-        request = self._remote_file_request('uploads/req/0.png')
+        request = self._remote_file_request(ref)
         head, _ = proxy_protocol.decode_body(proxy_dispatch.handle(request.model_dump_json(), []))
         error = json.loads(head)['error']
         assert 'boom' in error['message']
         assert len(localized) == 2
         assert not pathlib.Path(localized[1]).exists()
+
+    def test_archive_sink_packs_parts(
+        self, init_env: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PxtArchivePartSink packs parts into archives that roll over at the target size; a large part is
+        uploaded as an object of its own."""
+        objects: dict[str, bytes] = {}
+        store_uris: list[str] = []
+        self._install_fake_upload_store(monkeypatch, objects, store_uris)
+        monkeypatch.setattr(PxtArchivePartSink, '_ARCHIVE_TARGET_SIZE', 4096)
+        monkeypatch.setattr(PxtArchivePartSink, '_MAX_ARCHIVE_MEMBER_SIZE', 2048)
+        small = tmp_path / 'small.png'
+        small.write_bytes(b's' * 1000)
+        large = tmp_path / 'large.mp4'
+        large.write_bytes(b'L' * 3000)
+        tmp_count = TempStore.count()
+
+        sink = PxtArchivePartSink('org1', 'db1')
+        prefix = sink._key_prefix
+        refs: list[int | str] = [sink.add_media_file(str(small)), sink.add_media_file(str(small))]
+        # the open archive is below its target size, so nothing is uploaded and no credentials are fetched
+        assert objects == {}
+        assert store_uris == []
+        # this member takes the archive past 4096 bytes, which closes it
+        refs.append(sink.add_media_bytes(b'b' * 1500, '.jpg'))
+        refs.append(sink.add_media_file(str(large)))
+        refs.append(sink.add_scalar_bytes(b'x' * 600, '.bin'))
+        refs.append(sink.add_scalar_bytes(b'tiny', '.bin'))
+        sink.flush()
+
+        assert refs == [
+            f'{prefix}tar0.tar!0.png',
+            # repeated references to one path get members of their own (the daemon consumes each localized file)
+            f'{prefix}tar0.tar!1.png',
+            f'{prefix}tar0.tar!2.jpg',
+            f'{prefix}3.mp4',
+            f'{prefix}tar1.tar!4.bin',
+            0,
+        ]
+        assert store_uris == [f'pxtfs://org1:db1/home/{prefix}']
+        rel_prefix = prefix.removeprefix('uploads/')
+        assert set(objects) == {f'{rel_prefix}tar0.tar', f'{rel_prefix}tar1.tar', f'{rel_prefix}3.mp4'}
+        assert _tar_members(objects[f'{rel_prefix}tar0.tar']) == {
+            '0.png': small.read_bytes(),
+            '1.png': small.read_bytes(),
+            '2.jpg': b'b' * 1500,
+        }
+        assert _tar_members(objects[f'{rel_prefix}tar1.tar']) == {'4.bin': b'x' * 600}
+        assert objects[f'{rel_prefix}3.mp4'] == large.read_bytes()
+        assert sink.binary_parts == [b'tiny']
+
+        # the caller's files are untouched, and every archive was removed from TempStore
+        assert small.exists() and large.exists()
+        assert TempStore.count() == tmp_count
+
+    def test_archive_sink_abort(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A serialization failure uploads nothing and leaves nothing in TempStore."""
+        objects: dict[str, bytes] = {}
+        self._install_fake_upload_store(monkeypatch, objects, [])
+        monkeypatch.setattr(PxtArchivePartSink, '_MAX_ARCHIVE_MEMBER_SIZE', 2048)
+        tmp_count = TempStore.count()
+
+        sink = PxtArchivePartSink('org1', 'db1')
+        # a value staged for a per-object upload and an open archive, then a value that cannot be serialized
+        args = {'large': b'x' * 3000, 'small': b'y' * 1000, 'bad': object()}
+        with pytest.raises(AssertionError, match='cannot serialize object'):
+            proxy_protocol.serialize_args(args, sink)
+        assert objects == {}
+        assert TempStore.count() == tmp_count
+
+    def test_prefetch_archive_parts(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        objects = {
+            'req/tar0.tar': _tar_bytes({'0.png': b'a', '1.png': b'b'}),
+            'req/tar1.tar': _tar_bytes({'2.jpg': b'c'}),
+            'req/3.bin': b'd',
+            'req/bad.tar': b'not a tar file',
+        }
+        store_uris: list[str] = []
+        downloads: list[str] = []
+        self._install_fake_upload_store(monkeypatch, objects, store_uris, downloads)
+        tmp_count = TempStore.count()
+
+        request = self._remote_file_request(
+            'uploads/req/tar0.tar!0.png',
+            'uploads/req/tar0.tar!1.png',
+            'uploads/req/tar1.tar!2.jpg',
+            'uploads/req/3.bin',
+            'uploads/req/tar0.tar!0.png',
+        )
+        proxy_dispatch._prefetch_remote_parts(request)
+        # one download per archive, however many of its members the request references
+        assert sorted(downloads) == ['req/3.bin', 'req/tar0.tar', 'req/tar1.tar']
+        assert store_uris == ['pxtfs://org1:db1/home/uploads/']
+        expected = {
+            'uploads/req/tar0.tar!0.png': b'a',
+            'uploads/req/tar0.tar!1.png': b'b',
+            'uploads/req/tar1.tar!2.jpg': b'c',
+            'uploads/req/3.bin': b'd',
+        }
+        assert set(request._remote_parts) == set(expected)
+        for ref, path_str in request._remote_parts.items():
+            path = pathlib.Path(path_str)
+            assert TempStore.contains_path(path)
+            assert path.suffix == pathlib.PurePosixPath(ref).suffix
+            assert path.read_bytes() == expected[ref]
+            path.unlink()
+        # the downloaded archives were removed after extraction
+        assert TempStore.count() == tmp_count
+
+        # an archive key outside uploads/ is rejected before any download
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r"Invalid uploaded object key: 'pixeltable/data/x\.tar'"):
+            proxy_dispatch._prefetch_remote_parts(self._remote_file_request('pixeltable/data/x.tar!0.png'))
+
+        # a missing archive is reported as an expired/incomplete upload
+        with pxt_raises(pxt.ErrorCode.STORAGE_NOT_FOUND, match=r'uploads/req/tar9\.tar.*expired'):
+            proxy_dispatch._prefetch_remote_parts(self._remote_file_request('uploads/req/tar9.tar!0.png'))
+
+        # a member absent from its archive
+        with pxt_raises(pxt.ErrorCode.STORAGE_NOT_FOUND, match=r'tar0\.tar!7\.png.*missing from its archive'):
+            proxy_dispatch._prefetch_remote_parts(self._remote_file_request('uploads/req/tar0.tar!7.png'))
+
+        # an object that is not a tar file
+        with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=r'bad\.tar.*not a valid tar file'):
+            proxy_dispatch._prefetch_remote_parts(self._remote_file_request('uploads/req/bad.tar!0.png'))
+
+    def test_archive_round_trip_through_prefetch(
+        self, init_env: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Serialize with PxtArchivePartSink, localize on the daemon side, and decode."""
+        objects: dict[str, bytes] = {}
+        self._install_fake_upload_store(monkeypatch, objects, [])
+        # every member closes its archive, so the request spans several archives
+        monkeypatch.setattr(PxtArchivePartSink, '_ARCHIVE_TARGET_SIZE', 1)
+        args = self._media_args(tmp_path)
+        big_arr = np.arange(256, dtype=np.float64)
+        args['rows'][0] |= {'blob': b'z' * 1024, 'big_arr': big_arr}
+
+        sink = PxtArchivePartSink('org1', 'db1')
+        wire = proxy_protocol.serialize_args(args, sink)
+        refs = proxy_protocol.collect_remote_keys(wire)
+        assert len(refs) == 4
+        assert all(proxy_protocol.split_remote_ref(ref)[1] is not None for ref in refs)
+        assert len(objects) == 4
+
+        request = proxy_protocol.ProxyRequest(class_name='CatalogBase', method='echo_test', args=wire)
+        request._binary_parts = sink.binary_parts
+        proxy_dispatch._prefetch_remote_parts(request)
+        row = proxy_protocol.deserialize_request(request)['rows'][0]
+        assert pathlib.Path(row['img_file']).read_bytes() == (tmp_path / 'cat.png').read_bytes()
+        assert request._uploaded_names[row['img_file']] == 'cat.png'
+        assert isinstance(row['img'], PIL.Image.Image)
+        assert row['img'].size == (4, 4)
+        assert row['data'] == b'abc'
+        assert np.array_equal(row['arr'], np.arange(3))
+        assert row['blob'] == b'z' * 1024
+        assert np.array_equal(row['big_arr'], big_arr)
+        for path_str in request._remote_parts.values():
+            pathlib.Path(path_str).unlink()
 
 
 class _ScriptedResponse:
