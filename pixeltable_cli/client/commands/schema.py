@@ -520,7 +520,7 @@ def _print_recompute_notice(plan: SchemaPlan) -> None:
     altered_cols_by_tbl: dict[str, list[str]] = {}
     for tbl in plan.tables:
         for op in tbl.ops:
-            if op.op == 'alter' and op.details.previous_value is not None and op.status == 'applied':
+            if op.op == 'alter' and op.details.stored and op.status == 'applied':
                 altered_cols_by_tbl.setdefault(tbl.path, []).append(op.name)
     if len(altered_cols_by_tbl) == 0:
         return

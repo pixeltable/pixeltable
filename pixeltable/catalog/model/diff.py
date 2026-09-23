@@ -240,9 +240,14 @@ def _alter_column_change(
         description=(
             f'the value expression of computed column {col_name!r} will be updated; '
             f'existing values will not be recomputed'
+            if col_md['is_stored']
+            else f'the value expression of computed column {col_name!r} will be updated'
         ),
         details=SchemaChangeOpDetails(
-            type=model_props.type, value=model_props.value, previous_value=existing_props.value
+            type=model_props.type,
+            value=model_props.value,
+            previous_value=existing_props.value,
+            stored=col_md['is_stored'],
         ),
     )
 
@@ -568,7 +573,7 @@ def format_diff(name: str, diff: TableDiff) -> list[str]:
         for c in supported_alters:
             detail.append(f'    {c.name!r}: {c.existing["value"]} -> {c.model["value"]}')
         # If any computed column's expression changed, include the recompute notice
-        if any(c.details.previous_value is not None for c in supported_alters):
+        if any(c.details.stored for c in supported_alters):
             detail.append('  existing values will not be recomputed; use `pxt recompute` to do so.')
 
     new_cols = by('column', op='add')
