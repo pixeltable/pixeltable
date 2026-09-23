@@ -178,6 +178,7 @@ class TestAlterColumn:
         version = t.get_versions()[0]
         assert version['change_type'] == 'schema'
         assert version['schema_change'] == 'Altered: c (value expression changed)'
+        assert (version['inserts'], version['updates']) == (0, 0)
 
         # no recompute -- the stored values didn't change
         assert t.select(t.c).order_by(t.n).collect()['c'] == [2, 4]

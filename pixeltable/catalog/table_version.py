@@ -494,6 +494,7 @@ class TableVersion:
         self.bump_version(bump_schema_version=True)
         self._add_index_md(col, idx_name, idx)
         status = self._materialize_new_columns(print_stats=False, on_error='abort')
+        self.set_version_update_status(status)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added index {idx_name} on column {col.name} to table {self.name}')
         return status
@@ -1962,6 +1963,7 @@ class TableVersion:
         self._tbl_md.current_version = new_version
         self._version_md.version = new_version
         self._version_md.created_at = timestamp
+        self._version_md.update_status = None
 
         if bump_schema_version:
             old_schema_version = self._tbl_md.current_schema_version
