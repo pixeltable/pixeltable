@@ -684,10 +684,9 @@ class Config:
 
         On a hosted pod that is the entry named pxt://org:db; anywhere else it is the local entry.
         """
-        from pixeltable.env import Env  # env imports this module
-
-        hosted = Env.hosted_db()
-        name = LOCAL_DATABASE if hosted is None else f'pxt://{hosted[0]}:{hosted[1]}'
+        org = self.get_string_value('org', section='pxtcloud')
+        db = self.get_string_value('db', section='pxtcloud')
+        name = f'pxt://{org}:{db}' if org and db else LOCAL_DATABASE
         entry = self.__config_dict.get('pixeltable', {}).get('database')
         if entry is None:
             return None
