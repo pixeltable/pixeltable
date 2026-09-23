@@ -266,9 +266,11 @@ class TestCredentialChoice:
         assert cred is not None
         assert (cred.kind, cred.value, cred.source) == ('api_key', 'sk-file', 'api_key in the Pixeltable config file')
 
-    def test_api_key_from_pxt_init(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A pxt.init() override outranks the environment variable, so the source names it, not the variable."""
-        monkeypatch.setenv('PIXELTABLE_API_KEY', 'sk-env')
+    @pytest.mark.parametrize('env_key', ['sk-env', 'sk-init'])
+    def test_api_key_from_pxt_init(self, monkeypatch: pytest.MonkeyPatch, env_key: str) -> None:
+        """A pxt.init() override outranks the environment variable, so the source names it, not the variable,
+        even when both hold the same key: removing the variable would change nothing."""
+        monkeypatch.setenv('PIXELTABLE_API_KEY', env_key)
         Config.init({'pixeltable.api_key': 'sk-init'}, reinit=True, project_root=Config.get().project_root)
 
         cred = management_client.configured_credential()
