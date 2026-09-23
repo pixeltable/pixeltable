@@ -245,8 +245,9 @@ class TestSchema:
         assert r.returncode == 0
         assert 'catalog is up to date' in r.stdout
 
-    def test_altered_computed_column_recompute_notice(
-        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
+    @pytest.mark.parametrize('json_flag', [(), ('--json',)], ids=['text-output', 'json-output'])
+    def test_alter_column(
+        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path, json_flag: tuple[str, ...]
     ) -> None:
         """Changing a computed column's expression reports that the stored values need recomputing."""
         p = db_root.make_catalog_path
@@ -254,12 +255,57 @@ class TestSchema:
         schema_file.write_text(SCHEMA_SRC)
         altered_file = project_dir / 'app_schema_altered.py'
         altered_file.write_text(SCHEMA_SRC.replace('pxtf.string.upper(title)', 'pxtf.string.lower(title)'))
-
         target = p('altered')
+        description = (
+            "the value expression of computed column 'title_upper' will be updated; "
+            'existing values will not be recomputed'
+        )
+
+        # Apply the original schema
         cli('schema', 'update', str(schema_file), target)
-        r = cli('schema', 'update', str(altered_file), target)
+
+        # Diff with the altered schema file
+        r = cli('schema', 'diff', str(altered_file), target, *json_flag, check=False)
+        assert r.returncode == 2
+        if json_flag:
+            assert not r.json['in_agreement']
+            assert [(t['path'], t['resolution']) for t in r.json['tables']] == [
+                (f'{target}/docs', 'update_additive'),
+                (f'{target}/titled_docs', 'up_to_date'),
+            ]
+            [op] = r.json['tables'][0]['ops']
+            assert (op['target'], op['name'], op['op'], op['severity']) == (
+                'column',
+                'title_upper',
+                'alter',
+                'additive',
+            )
+            assert op['description'] == description
+            assert 'lower' in op['details']['value'] and 'upper' in op['details']['previous_value']
+            assert op['status'] is None
+        else:
+            assert description in r.stdout
+            assert 'Plan: 0 create, 1 update, 1 unchanged, 0 extra  |  0 destructive' in r.stdout
+
+        r = cli('schema', 'update', str(altered_file), target, *json_flag)
         assert r.returncode == 0
-        assert 'run `pxt recompute`' in r.stdout
+        if json_flag:
+            docs_plan = next(t for t in r.json['tables'] if t['path'] == f'{target}/docs')
+            assert docs_plan['status'] == 'applied'
+            [op] = docs_plan['ops']
+            assert (op['name'], op['op'], op['status']) == ('title_upper', 'alter', 'applied')
+            assert op['description'] == description
+        else:
+            assert f'{target}/docs.title_upper' in r.stdout
+            assert 'run `pxt recompute` if you wish to recompute them.' in r.stdout
+
+        r = cli('schema', 'diff', str(altered_file), target, *json_flag, check=False)
+        assert r.returncode == 0, r.stdout
+        if json_flag:
+            assert r.json['in_agreement']
+            assert [t['resolution'] for t in r.json['tables']] == ['up_to_date', 'up_to_date']
+        else:
+            assert 'Plan: 0 create, 0 update, 2 unchanged, 0 extra  |  0 destructive' in r.stdout
 
     def test_diff(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         p = db_root.make_catalog_path
