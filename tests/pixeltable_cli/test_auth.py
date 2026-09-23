@@ -32,9 +32,11 @@ from typing import Any, Callable, Iterator
 import pytest
 
 from pixeltable import exceptions as excs
+from pixeltable.catalog import globals as catalog_globals
 from pixeltable.service import auth, management_client, session_cache
 from pixeltable.service.management_protocol import CreateKeyRequest, ListOrgsRequest
 from pixeltable.utils import cloud_utils
+from pixeltable_cli import utils as cli_utils
 from pixeltable_cli.client.commands import login
 from pixeltable_cli.server import routes
 from pixeltable_cli.server.router import Request
@@ -652,6 +654,29 @@ class TestKey:
         assert f'--grant takes access|manage:pxt://org:db[/services[/path]], got {grant!r}' in r.stderr
         assert reason in r.stderr
         assert len(control_plane.seen) == before
+
+
+@pytest.mark.parametrize('allow_hyphens', [False, True])
+def test_client_identifier_rule_matches_pixeltable(allow_hyphens: bool) -> None:
+    """The client keeps a copy of pixeltable's identifier rule, since it cannot import pixeltable."""
+    names = [
+        'ingest',
+        'my-app',
+        'my_app',
+        'A1',
+        'x-',
+        '_ingest',
+        '-ingest',
+        '1x',
+        'foo bar',
+        'foo.bar',
+        '%2e%2e',
+        '',
+        'é',
+    ]
+    for name in names:
+        expected = catalog_globals.is_valid_identifier(name, allow_hyphens=allow_hyphens)
+        assert cli_utils.is_valid_identifier(name, allow_hyphens=allow_hyphens) == expected, name
 
 
 _CREATED_ORG = {'org_id': 'org_01NEW', 'org': _ORG, 'default_db': 'main'}
