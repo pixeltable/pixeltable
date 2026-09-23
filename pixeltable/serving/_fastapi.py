@@ -335,7 +335,7 @@ class _ResponseMedia:
     _home_dir: Path
     _sink: PxtStorePartSink | None  # one per request, so its uploads share one store client
     _media_url_base: str  # local service: the /media route's url prefix
-    _home_uri_prefix: str  # hosted service: 'pxtfs://<org>:<db>/home/'
+    _home_uri_prefix: str  # hosted service: 'pxt://<org>:<db>/buckets/home/'
 
     def __init__(self, request: Request, home_dir: Path) -> None:
         self._home_dir = home_dir
@@ -348,7 +348,7 @@ class _ResponseMedia:
             org, db = hosted
             # its keys fall under uploads/, which the bucket expires
             self._sink = PxtStorePartSink(org, db)
-            self._home_uri_prefix = f'pxtfs://{org}:{db}/home/'
+            self._home_uri_prefix = f'pxt://{org}:{db}/buckets/home/'
 
     def url_for(self, rel_path: str) -> str:
         if self._sink is None:
@@ -2680,7 +2680,7 @@ class FastAPIRouter(fastapi.APIRouter):
     def _convert_media_val(self, val: Any, url_for_media: Callable[[str], str]) -> Any:
         """
         If val is a local media file (a file:// uri or a bare absolute path) under an allowed media directory,
-        converts it to a fetchable url of the /media endpoint. An object-store uri (pxtfs://, s3://, ...) is
+        converts it to a fetchable url of the /media endpoint. An object-store uri (pxt://, s3://, ...) is
         converted to a presigned HTTP url. Otherwise returns val unchanged.
 
         Media values reach here in either form: a file:// uri (e.g. a column's fileurl) or a bare local path

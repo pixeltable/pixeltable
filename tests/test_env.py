@@ -204,13 +204,13 @@ class TestHostedMediaDefault:
         monkeypatch.setenv('PXTCLOUD_DB', 'db1')
         _reset_env(reinit=False, db_name=None)
         assert Env.get().hosted_db() == ('org1', 'db1')
-        assert Env.get().default_input_media_dest == 'pxtfs://org1:db1/home'
-        assert Env.get().default_output_media_dest == 'pxtfs://org1:db1/home'
+        assert Env.get().default_input_media_dest == 'pxt://org1:db1/buckets/home'
+        assert Env.get().default_output_media_dest == 'pxt://org1:db1/buckets/home'
 
         # a user-configured default wins over the home bucket, per setting
         monkeypatch.setenv('PIXELTABLE_OUTPUT_MEDIA_DEST', 's3://user-bucket/prefix')
         _reset_env(reinit=False, db_name=None)
-        assert Env.get().default_input_media_dest == 'pxtfs://org1:db1/home'
+        assert Env.get().default_input_media_dest == 'pxt://org1:db1/buckets/home'
         assert Env.get().default_output_media_dest == 's3://user-bucket/prefix'
         monkeypatch.delenv('PIXELTABLE_OUTPUT_MEDIA_DEST')
         _reset_env(reinit=False, db_name=None)

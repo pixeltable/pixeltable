@@ -394,7 +394,7 @@ class Env:
         hosted_db = self.hosted_db()
         if hosted_db is not None:
             org, db = hosted_db
-            home_bucket = f'pxtfs://{org}:{db}/home'
+            home_bucket = f'pxt://{org}:{db}/buckets/home'
             if self._default_input_media_dest is None:
                 self._default_input_media_dest = home_bucket
             if self._default_output_media_dest is None:

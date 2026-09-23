@@ -276,7 +276,7 @@ class TestProxyDaemon:
 
         sink.flush()
         # one store (one credential fetch) for the whole request, scoped to its own prefix
-        assert store_uris == [f'pxtfs://org1:db1/home/{sink._key_prefix}']
+        assert store_uris == [f'pxt://org1:db1/buckets/home/{sink._key_prefix}']
         assert set(uploaded) == set(keys)
         assert uploaded[keys[0]][1] == uploaded[keys[1]][1] == src.read_bytes()
         assert uploaded[keys[2]][1] == b'raw'
@@ -332,7 +332,7 @@ class TestProxyDaemon:
         # happy path: keys download into TempStore, preserving each key's extension
         request = self._remote_file_request('uploads/req/0.png', 'uploads/req/1.jpg')
         proxy_dispatch._prefetch_remote_parts(request)
-        assert store_uris == ['pxtfs://org1:db1/home/uploads/']
+        assert store_uris == ['pxt://org1:db1/buckets/home/uploads/']
         assert set(request._remote_parts) == {'uploads/req/0.png', 'uploads/req/1.jpg'}
         for key, path_str in request._remote_parts.items():
             path = pathlib.Path(path_str)

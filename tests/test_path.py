@@ -129,6 +129,22 @@ class TestPath:
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
             Path.parse('pxt://customer:main:extra/tbl')
 
+    def test_storage_paths_are_not_catalog_paths(self) -> None:
+        """'buckets' at the root addresses object storage, so Path.parse must refuse it."""
+        for bad in (
+            'pxt://org:db/buckets',
+            'pxt://org:db/buckets/home',
+            'pxt://org:db/buckets/home/9f3a/2026-09-01T10:30:00Z.mp4',
+            'buckets',
+            'buckets/home/x.mp4',
+        ):
+            with pxt_raises(excs.ErrorCode.INVALID_PATH):
+                Path.parse(bad)
+
+        # Reserved at depth 1 only.
+        assert Path.parse('pxt://org:db/mydir/buckets').components == ('mydir', 'buckets')
+        assert Path.parse('mydir.buckets').components == ('mydir', 'buckets')
+
     def test_path_construction_invariants(self) -> None:
         # Invariants enforced at construction, so they hold for from_components() (and direct
         # construction), not only for parse().

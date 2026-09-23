@@ -143,7 +143,7 @@ class PxtStorePartSink(PartSink[int | str]):
     def _get_store(self) -> ObjectStoreBase:
         if self._store is None:
             # the prefix in the URI scopes the store's temp credentials to this request's uploads
-            self._store = ObjectOps.get_store(f'pxtfs://{self._org}:{self._db}/home/{self._key_prefix}', False)
+            self._store = ObjectOps.get_store(f'pxt://{self._org}:{self._db}/buckets/home/{self._key_prefix}', False)
         return self._store
 
     def add_media_bytes(self, data: bytes, extension: str) -> str:
@@ -184,7 +184,7 @@ class PxtStorePartSink(PartSink[int | str]):
         def upload(item: tuple[pathlib.Path, str, bool]) -> None:
             path, key, remove_after_upload = item
             try:
-                url = f'pxtfs://{self._org}:{self._db}/home/{key}'
+                url = f'pxt://{self._org}:{self._db}/buckets/home/{key}'
                 store.copy_local_file(path, FileDestination(url=url, remote_key=key))
             finally:
                 if remove_after_upload:

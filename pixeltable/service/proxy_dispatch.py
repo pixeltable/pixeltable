@@ -153,7 +153,7 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
         if not remote_key.startswith('uploads/'):
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'Invalid uploaded object key: {remote_key!r}')
     org, db = Env.get().hosted_db(required=True)
-    store = ObjectOps.get_store(f'pxtfs://{org}:{db}/home/uploads/', False)
+    store = ObjectOps.get_store(f'pxt://{org}:{db}/buckets/home/uploads/', False)
 
     def download(remote_key: str) -> None:
         dest = TempStore.create_path(extension=pathlib.Path(remote_key).suffix)

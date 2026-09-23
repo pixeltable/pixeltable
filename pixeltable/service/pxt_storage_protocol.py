@@ -1,4 +1,4 @@
-"""Wire protocol for the pxtfs:// storage service: Pixeltable Cloud home-bucket operations.
+"""Wire protocol for the pxt:// storage service: Pixeltable Cloud home-bucket operations.
 
 Request/response models for obtaining home-bucket credentials and presigned URLs from the Pixeltable Cloud control
 plane; see pixeltable.utils.cloud_utils for the client that sends them.

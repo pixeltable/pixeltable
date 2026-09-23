@@ -15,7 +15,7 @@ from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.service.management_client import api_url
-from pixeltable.service.pxtfs_protocol import (
+from pixeltable.service.pxt_storage_protocol import (
     GetBucketCredentialsRequest,
     GetBucketCredentialsResponse,
     GetPresignedUrlRequest,
