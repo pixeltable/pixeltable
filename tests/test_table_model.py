@@ -1120,6 +1120,74 @@ class TestTableModel:
             view_from_query2.order_by(view_from_query2.id, view_from_query2.pos).collect(),
         )
 
+    def test_update_all_creates_queried_table(self, db_root: DatabaseRoot) -> None:
+        """The table a @pxt.query reads is created by the same update_all() that adds the column calling it."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Asks(TableModel, name='asks'):
+            question: pxt.String
+
+        TableModel.update_all(p(''))
+
+        TableModel2 = pxt.model_base()
+
+        class Docs(TableModel2, name='docs'):
+            body: pxt.String
+
+        @pxt.query
+        def find(q: str) -> pxt.Query:
+            return Docs.where(Docs.body.startswith(q)).select(body=Docs.body).limit(3)  # type: ignore[arg-type]
+
+        class Asks2(TableModel2, name='asks'):
+            question: pxt.String
+            hits = find(question)
+
+        TableModel2.update_all(p(''))
+
+        Docs.insert(body='A sample doc body that has a bunch of text')
+        Asks2.insert(question='A sample doc body')
+        res = Asks2.table.order_by(Asks2.question).collect()  # type: ignore[arg-type]
+        assert res[0] == {
+            'question': 'A sample doc body',
+            'hits': [{'body': 'A sample doc body that has a bunch of text'}],
+        }
+
+    def test_update_all_migrates_queried_model(self, db_root: DatabaseRoot) -> None:
+        """A @pxt.query reads a model that the same update_all() also migrates."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            body: pxt.String
+
+        class Asks(TableModel, name='asks'):
+            question: pxt.String
+
+        TableModel.update_all(p(''))
+
+        TableModel2 = pxt.model_base()
+
+        class Docs2(TableModel2, name='docs'):
+            body: pxt.String
+            title: pxt.String | None  # added to the table that find() reads
+
+        @pxt.query
+        def find(q: str) -> pxt.Query:
+            return Docs2.where(Docs2.body == q).select(body=Docs2.body).limit(3)  # type: ignore[arg-type]
+
+        class Asks2(TableModel2, name='asks'):
+            question: pxt.String
+            hits = find(question)
+
+        TableModel2.update_all(p(''))
+
+        # binding find() must not leave Docs2 bound to the schema it had before its own column was added
+        Docs2.insert(body='alpha', title='A')
+        assert Docs2.table.select(Docs2.title).collect()['title'] == ['A']
+        Asks2.insert(question='alpha')
+        assert Asks2.table.select(Asks2.hits).collect()['hits'] == [[{'body': 'alpha'}]]
+
     def test_diff_all(self, db_root: DatabaseRoot) -> None:
         """diff_all() reports added/dropped columns and an iterator mismatch against already-created tables."""
         skip_test_if_not_installed('imagehash')
