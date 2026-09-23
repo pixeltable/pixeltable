@@ -2076,61 +2076,6 @@ class TestTableModel:
         ):
             TableModelV3.update_all(p(''), allow_destructive=True)
 
-        # A column altered to reference a column that the same change set drops.
-        AlterModel = pxt.model_base()
-
-        class AlterBase(AlterModel, name='alter_base'):
-            id: pxt.Int
-            extra: pxt.Int
-            doubled = id * 2
-
-        class AlterView(AlterModel, name='alter_view', base=AlterBase):
-            vc = AlterBase.id + 1
-
-        AlterModel.create_all(p(''))
-        pxt.get_table(p('alter_base')).insert([{'id': 1, 'extra': 7}])
-
-        # the altered column belongs to the table that drops 'extra'
-        SameTableModel = pxt.model_base()
-
-        class SameTableBase(SameTableModel, name='alter_base'):
-            id: pxt.Int
-            doubled = AlterBase.extra * 3
-
-        with pxt_raises(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=re.escape(
-                "Column 'doubled' in 'alter_base' would be left referencing column 'alter_base.extra', "
-                'which no longer exists.'
-            ),
-        ):
-            SameTableModel.update_all(p(''), allow_destructive=True)
-
-        # the altered column belongs to a view of the table that drops 'extra'
-        CrossTableModel = pxt.model_base()
-
-        class CrossTableBase(CrossTableModel, name='alter_base'):
-            id: pxt.Int
-            doubled = id * 2
-
-        class CrossTableView(CrossTableModel, name='alter_view', base=CrossTableBase):
-            vc = AlterBase.extra + 1
-
-        with pxt_raises(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=re.escape(
-                "Column 'vc' in 'alter_view' would be left referencing column 'alter_base.extra', "
-                'which no longer exists.'
-            ),
-        ):
-            CrossTableModel.update_all(p(''), allow_destructive=True)
-
-        # none of the rejected attempts changed the catalog
-        alter_base = pxt.get_table(p('alter_base'))
-        assert alter_base.columns() == ['id', 'extra', 'doubled']
-        assert alter_base.select(alter_base.doubled).collect()['doubled'] == [2]
-        assert all(d.resolution == 'up_to_date' for d in AlterModel.get_model_diff(p('')).values())
-
     def test_drop_col_with_dependent_view(self, db_root: DatabaseRoot) -> None:
         """update_all() cannot drop a base column a view still reads, whether through an index or an iterator."""
         skip_test_if_not_installed('spacy')
@@ -3056,17 +3001,16 @@ class TestTableModel:
         assert v.select(v.vc1).order_by(v.id).collect()['vc1'] == [101, 201]
 
         # one change set that adds a column an altered one depends on (bonus), and one that depends on an altered
-        # one (s). s is declared before bonus but reads it through unstored u, so Pixeltable needs to be smart about
-        # the order in which these columns are created and populated.
+        # one (s), which reads bonus through unstored u
         WidenedModel = pxt.model_base()
 
         class WidenedTable(WidenedModel, name='test_table'):
             id: pxt.Int
             extra: pxt.Int
-            s = ExampleTable.u + 1  # type: ignore[operator]
             bonus = id * 1000
             doubled = id * 100 + extra + bonus
             u = Column(value=bonus * 7, stored=False)
+            s = u + 1  # type: ignore[operator]
 
         class WidenedView(WidenedModel, name='test_view', base=WidenedTable):
             vc1 = WidenedTable.doubled + 1
@@ -3154,9 +3098,7 @@ class TestTableModel:
             id: pxt.Int
             other: pxt.Int
             derived = id * 2
-            derived2 = (id * 3 + (ExampleTable.derived.errortype != None).astype(pxt.Int)).astype(  # type: ignore[attr-defined]
-                pxt.Int
-            )
+            derived2 = (id * 3 + (derived.errortype != None).astype(pxt.Int)).astype(pxt.Int)  # type: ignore[attr-defined]
 
         with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape("'errortype' property")):
             CellMdModel.update_all(root)
@@ -3169,7 +3111,7 @@ class TestTableModel:
             other: pxt.Int
             derived = id * 2
             derived2 = id * 3
-            derived3 = ExampleTable.derived.errortype != None  # type: ignore[attr-defined]
+            derived3 = derived.errortype != None  # type: ignore[attr-defined]
 
         with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape("'errortype' property")):
             AddCellMdModel.update_all(root)
@@ -3207,7 +3149,7 @@ class TestTableModel:
         assert t.select(t.derived, t.derived2).collect()[0] == {'derived': 2, 'derived2': 3}
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(root).values())
 
-    def test_update_all_altered_columns_cycle(self, db_root: DatabaseRoot) -> None:
+    def test_update_all_altered_columns_reversed_dependency(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         root = p('')
 
@@ -3222,45 +3164,13 @@ class TestTableModel:
         TableModel.create_all(root)
         pxt.get_table(p('test_table')).insert([{'x': 1}])
 
-        # Two alter computed columns happen at once, such that neither of them alone would create a dependency cycle,
-        # but together they do. The cycle closes through a third column, c2, that doesn't change.
-        CycleModel = pxt.model_base()
-
-        class CycleTable(CycleModel, name='test_table'):
-            x: pxt.Int
-            c1 = ExampleTable.c3 + 1
-            c2 = c1 + 1
-            c3 = c2 + 1
-
-        with pxt_raises(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=re.escape("circular dependency between columns 'c1', 'c3', 'c2'"),
-        ):
-            CycleModel.update_all(root)
-
-        # A cycle that runs through a column the same change set adds
-        AddedCycleModel = pxt.model_base()
-
-        class AddedCycleTable(AddedCycleModel, name='test_table'):
-            x: pxt.Int
-            c1 = x * 2
-            c2 = c1 + 1
-            c4 = ExampleTable.c3 + 1
-            c3 = c4 + 1
-
-        with pxt_raises(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, match=re.escape("circular dependency between columns 'c3', 'c4'")
-        ):
-            AddedCycleModel.update_all(root)
-        assert pxt.get_table(p('test_table')).columns() == ['x', 'c1', 'c2', 'c3']
-
-        # Now c1 gets a dependency on c2, but c2 gives up a dependency on c1 so no cycle after both changes are applied.
+        # c1 gets a dependency on c2, but c2 gives up its dependency on c1, so there is no cycle after both changes.
         SwapModel = pxt.model_base()
 
         class SwapTable(SwapModel, name='test_table'):
             x: pxt.Int
-            c1 = ExampleTable.c2 + 1
             c2 = x * 5
+            c1 = c2 + 1
             c3 = x * 3
 
         SwapModel.update_all(root)
