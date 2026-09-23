@@ -2,14 +2,50 @@
 # handlers carry annotations that FastAPI resolves at import time.
 
 import argparse
+import copy
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.service.db import report_instance_fingerprint
 from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
 from pixeltable.utils.project import ProjectFingerprint
+
+if TYPE_CHECKING:
+    import fastapi
+
+
+def _add_gateway_openapi_security(app: 'fastapi.FastAPI') -> None:
+    """Describe the authentication enforced by the hosted HTTP gateway."""
+    original_openapi = app.openapi
+    hosted_schema: dict[str, Any] | None = None
+
+    def hosted_openapi() -> dict[str, Any]:
+        nonlocal hosted_schema
+        if hosted_schema is not None:
+            return hosted_schema
+        schema = copy.deepcopy(original_openapi())
+        schemes = schema.setdefault('components', {}).setdefault('securitySchemes', {})
+        schemes['PixeltableGatewayBearer'] = {'type': 'http', 'scheme': 'bearer'}
+        schemes['PixeltableGatewayApiKey'] = {'type': 'apiKey', 'in': 'header', 'name': 'X-api-key'}
+        for path, path_item in schema.get('paths', {}).items():
+            if path == '/health':
+                continue
+            for method, operation in path_item.items():
+                if method.lower() not in {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'}:
+                    continue
+                app_security = operation.get('security', schema.get('security', [])) or [{}]
+                operation['security'] = [
+                    {gateway: [], **requirement}
+                    for requirement in app_security
+                    for gateway in ('PixeltableGatewayBearer', 'PixeltableGatewayApiKey')
+                ]
+        hosted_schema = schema
+        return schema
+
+    app.openapi = hosted_openapi  # type: ignore[method-assign]
 
 
 def _serve(
@@ -38,6 +74,7 @@ def _serve(
         # before the first Pixeltable operation, so that loading the file is traced too
         init_instrumentation()
     app, _ = create_app(str(project_dir / app_file), service_name, base_path)
+    _add_gateway_openapi_security(app)
     if otel:
         instrument_app(app)
     report_instance_fingerprint(db_uri, service_name, fingerprint, base_path)
