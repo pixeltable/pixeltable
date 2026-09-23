@@ -727,11 +727,11 @@ pxt logout
 
 `pxt logout` forgets this machine's cached session. When the session has the sign-in service's
 session id, `pxt logout` also opens that service's sign-out page for the session in your browser,
-and prints the link when no browser opens. Both, because a browser that is still signed in
-confirms the next code without saying which account it is for, so signing out of one and not the
-other leaves you signed in as someone you did not choose. Forgetting the session needs no network:
-when the sign-in service cannot be reached, `pxt logout` still signs this machine out, and warns
-that the browser is still signed in.
+and prints the link when no browser opens. It signs out of both because a browser that is still
+signed in confirms the next code without naming the account, so signing out of only one leaves you
+signed in as someone you did not choose. Forgetting the session needs no network: when the sign-in
+service cannot be reached, `pxt logout` still signs this machine out, and warns that the browser is
+still signed in.
 
 <Note>
 An **API key** takes precedence over a sign-in whenever both are present: it is the explicit

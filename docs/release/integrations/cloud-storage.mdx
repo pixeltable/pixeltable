@@ -63,7 +63,7 @@ export PIXELTABLE_INPUT_MEDIA_DEST="s3://my-bucket/input/"
 export PIXELTABLE_OUTPUT_MEDIA_DEST="s3://my-bucket/output/"
 ```
 
-Or the same dest keys in `~/.pixeltable/config.toml`:
+Or the same dest keys in the Pixeltable config file:
 
 ```toml
 [pixeltable]
@@ -122,7 +122,7 @@ export PIXELTABLE_INPUT_MEDIA_DEST='pxtfs://org:db/home'
 export PIXELTABLE_OUTPUT_MEDIA_DEST='pxtfs://org:db/home'
 ```
 
-For a key instead of `pxt login`, create it under **API Keys** in the dashboard and export it. Pixeltable reads the process environment only, so a `.env` file has to be sourced first. Provider keys (`AWS_ACCESS_KEY_ID`, `OPENAI_API_KEY`, …) go under **Secrets** or `pxt secret set`.
+For a key instead of `pxt login`, create it under **API Keys** in the dashboard and export it. Pixeltable reads the process environment only, so a `.env` file has to be sourced first. Provider keys (`AWS_ACCESS_KEY_ID`, `OPENAI_API_KEY`, ...) go under **Secrets** or `pxt secret set`.
 
 <Tabs>
   <Tab title="URI Format">
