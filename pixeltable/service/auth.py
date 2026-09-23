@@ -112,8 +112,8 @@ def _json_request(url: str, what: str, fields: dict[str, str] | None = None) -> 
 def _token_request(api_url: str, fields: dict[str, str]) -> dict[str, Any] | TokenErrorResponse:
     """The token fields, or the OAuth error code and description.
 
-    A 4xx with an OAuth error body is returned rather than raised: under the device grant it reports
-    a pending approval or too fast a poll, neither of which is a failure.
+    A 4xx other than 429 with an OAuth error body is returned rather than raised: under the device
+    grant it reports a pending approval or too fast a poll, neither of which is a failure.
     """
     try:
         resp = SESSION.post(sign_in_config(api_url).url(_TOKEN_PATH), data=fields, timeout=_TIMEOUT_S)
@@ -121,8 +121,8 @@ def _token_request(api_url: str, fields: dict[str, str]) -> dict[str, Any] | Tok
         raise _unreachable(_SIGN_IN_SERVICE, e) from e
     if resp.status_code in (200, 201):
         return _payload(_SIGN_IN_SERVICE, resp)
-    # a 5xx means the service broke, not that it decided something about this request
-    if resp.status_code >= 500:
+    # a 5xx means the service broke and a 429 that it is busy; neither decides anything about this request
+    if resp.status_code >= 500 or resp.status_code == 429:
         raise _bad_status(_SIGN_IN_SERVICE, resp)
     try:
         body = resp.json()
@@ -257,10 +257,17 @@ def device_login_poll(api_url: str, client_id: str, device_code: str) -> Session
     """Ask once whether the code has been approved.
 
     The cached Session on approval, otherwise the OAuth error: 'authorization_pending' while the
-    browser is still open, 'slow_down' to poll less often, and 'access_denied' or 'expired_token'
-    when no further poll can succeed.
+    browser is still open, 'slow_down' to poll less often (also when the service throttles a poll),
+    and 'access_denied' or 'expired_token' when no further poll can succeed.
     """
-    answer = _token_request(api_url, {'grant_type': _DEVICE_GRANT, 'device_code': device_code, 'client_id': client_id})
+    try:
+        answer = _token_request(
+            api_url, {'grant_type': _DEVICE_GRANT, 'device_code': device_code, 'client_id': client_id}
+        )
+    except excs.ExternalServiceError as e:
+        if e.provider_http_status_code == 429:
+            return TokenErrorResponse('slow_down', 'the sign-in service asked for fewer requests')
+        raise
     if isinstance(answer, TokenErrorResponse):
         return answer
     session = _create_session(answer, client_id)

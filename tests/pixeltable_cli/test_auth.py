@@ -824,9 +824,14 @@ class TestLogin:
         assert sent['grant_type'] == 'urn:ietf:params:oauth:grant-type:device_code'
         assert sent['device_code'] == 'dev-code'
 
-    def test_login_slow_down(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        """Backing off is not failing: the next poll still gets the token."""
-        control_plane.tokens[:] = [_SLOW_DOWN, (200, control_plane.grant())]
+    @pytest.mark.parametrize(
+        'throttled', [_SLOW_DOWN, (429, {'error': 'rate_limit_exceeded', 'error_description': 'too many'})]
+    )
+    def test_login_slow_down(
+        self, cloud_cli: PxtRunner, control_plane: ControlPlane, throttled: tuple[int, dict[str, str]]
+    ) -> None:
+        """Backing off is not failing, whether the service asks for it or throttles: the next poll gets the token."""
+        control_plane.tokens[:] = [throttled, (200, control_plane.grant())]
 
         r = cloud_cli('login')
 
@@ -968,19 +973,20 @@ class TestLogin:
         assert second['refresh_token'] == 'refresh-2'
         assert second['organization_id'] == 'org_01TEST'
 
-    def test_renewal_outage(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        """A failing sign-in service decides nothing about the session, which renews once the service is back.
+    @pytest.mark.parametrize('status', [503, 429])
+    def test_renewal_outage(self, cloud_cli: PxtRunner, control_plane: ControlPlane, status: int) -> None:
+        """A failing or throttling sign-in service decides nothing about the session, which renews once it answers.
 
         Its answer is not read as an OAuth error, even one that looks like a refusal.
         """
         control_plane.tokens[:] = [(200, control_plane.grant(access_token=_claims(exp=time.time() - 1)))]
         cloud_cli('login')
-        control_plane.tokens[:] = [(503, {'error': 'invalid_grant', 'error_description': 'upstream is down'})]
+        control_plane.tokens[:] = [(status, {'error': 'invalid_grant', 'error_description': 'upstream is down'})]
 
         r = cloud_cli('whoami', check=False)
 
         assert r.returncode == 1
-        assert 'HTTP 503' in r.stderr
+        assert f'HTTP {status}' in r.stderr
         assert 'pxt login' not in r.stderr
 
         control_plane.tokens[:] = [(200, control_plane.grant())]
