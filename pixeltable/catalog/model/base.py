@@ -215,6 +215,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             for name, d in update_diffs:
                 model = registered_models[name]
                 dropped_col_names = [c.name for c in d.ops if c.target == 'column' and c.op == 'drop']
+                altered_col_names: set[str] = {c.name for c in d.ops if c.target == 'column' and c.op == 'alter'}
                 new_idx_refs = [c.details.index_ref for c in d.ops if c.target == 'index' and c.op == 'add']
                 dropped_idx_names = [c.name for c in d.ops if c.target == 'index' and c.op == 'drop']
                 # Resolve type annotations to ColumnTypes, mirroring _create(), and tag each column's origin.
@@ -223,8 +224,9 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 user_cols = user_columns(model)
                 base_query_cols = base_query_columns(model)
                 new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]] = {}
+                altered_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]] = {}
                 for col_name, col_spec in user_cols.items():
-                    if col_name not in added_cols[name]:
+                    if col_name not in added_cols[name] and col_name not in altered_col_names:
                         continue
                     spec = col_spec.copy()
                     if 'type' in spec:
@@ -236,7 +238,11 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     origin: Literal['base_query', 'model_body'] = (
                         'base_query' if col_name in base_query_cols else 'model_body'
                     )
-                    new_columns[col_name] = (spec, origin)
+                    if col_name in added_cols[name]:
+                        new_columns[col_name] = (spec, origin)
+                    else:
+                        assert col_name in altered_col_names
+                        altered_columns[col_name] = (spec, origin)
 
                 # resolve idx_refs to IndexDefinitions. (We can't simply go by index name, since there may be unnamed
                 # indexes.) Instead we compare the (index_type, name, columns) tuple; if there are two unnamed indexes
@@ -260,6 +266,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     TableSchemaChangeSet(
                         path=catalog.Path.parse(f'{catalog_dir}{name}'),
                         new_columns=new_columns,
+                        altered_columns=altered_columns,
                         dropped_columns=dropped_col_names,
                         new_idxs=new_idxs,
                         dropped_idxs=dropped_idx_names,

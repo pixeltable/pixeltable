@@ -47,6 +47,7 @@
             <outline text="method|pixeltable.Table.add_column" />
             <outline text="method|pixeltable.Table.add_columns" />
             <outline text="method|pixeltable.Table.add_computed_column" />
+            <outline text="method|pixeltable.Table.alter_computed_column" />
             <outline text="method|pixeltable.Table.drop_column" />
             <outline text="method|pixeltable.Table.rename_column" />
             <outline text="method|pixeltable.Table.recompute_columns" />
