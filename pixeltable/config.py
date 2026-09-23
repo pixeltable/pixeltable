@@ -315,9 +315,6 @@ class Config:
     # the directory holding the project config file, or None when there is no project
     __project_root: Path | None
 
-    # database name -> field or 'vars.<name>' binding -> the file that supplied it
-    __database_sources: dict[str, dict[str, Path | None]]
-
     def __init__(
         self, config_overrides: dict[str, Any], project_root: Path | _Unspecified | None = _UNSPECIFIED
     ) -> None:
@@ -347,7 +344,6 @@ class Config:
         self.__reported_env_vars = set()
         self.__config_file = Path(self.lookup_env('pixeltable', 'config', str(self.__home / 'config.toml')))
         self.__project_config_file = self.__resolve_project_config_file()
-        self.__database_sources = {}
         self.__config_dict = self.__load_user_config()
         self.__stamp = self.__file_stamp()
         self.__warn_about_miscased_env_vars()
@@ -515,41 +511,33 @@ class Config:
         self.__project_config = self.__load_project_config()
         merged = {section: dict(options) for section, options in self.__home_config.items()}
         for section, options in self.__project_config.items():
-            merged.setdefault(section, {}).update(options)
-        databases = self.__merge_databases()
-        if databases is not None:
-            merged['pixeltable']['database'] = databases
+            for key, (supplied, source) in options.items():
+                combines = section == 'pixeltable' and key == 'database' and key in merged.get(section, {})
+                value = self.__merged_databases(merged[section][key][0], supplied) if combines else supplied
+                merged.setdefault(section, {})[key] = (value, source)
         return merged
 
-    def __merge_databases(self) -> tuple[list[DatabaseConfig], Path | None] | None:
-        """Merge the database entries of the home config and the project config.
+    @classmethod
+    def __merged_databases(cls, home: list[DatabaseConfig], project: list[DatabaseConfig]) -> list[DatabaseConfig]:
+        """Combine the database entries of the home config with the project's, entry by entry.
 
-        Returns the merged entries and the last config file that has any, or None if neither file has one.
+        Entries are matched by name, and a field the project sets wins, so a project adding one var keeps
+        the other vars the home config binds for the same database.
         """
-        fields_by_name: dict[str, dict[str, Any]] = {}
-        last_source: Path | None = None
-        # the project config comes last, so its fields overwrite the home config's
-        for config, source in (
-            (self.__home_config, self.__config_file),
-            (self.__project_config, self.__project_config_file),
-        ):
-            if 'database' not in config.get('pixeltable', {}):
+        by_name = {db.name: db for db in home}
+        for entry in project:
+            existing = by_name.get(entry.name)
+            if existing is None:
+                by_name[entry.name] = entry
                 continue
-            last_source = source
-            for entry in config['pixeltable']['database'][0]:
-                fields = fields_by_name.setdefault(entry.name, {})
-                # __database_sources records the file that set each field
-                sources = self.__database_sources.setdefault(entry.name, {})
-                for field, value in entry.model_dump(exclude_none=True).items():
-                    if isinstance(value, dict):
-                        fields[field] = {**fields.get(field, {}), **value}
-                        sources.update({f'{field}.{binding}': source for binding in value})
-                    else:
-                        fields[field] = value
-                        sources[field] = source
-        if len(fields_by_name) == 0:
-            return None
-        return [DatabaseConfig.model_validate(fields) for fields in fields_by_name.values()], last_source
+            fields = existing.model_dump()
+            for name, value in entry.model_dump(exclude_none=True).items():
+                if isinstance(value, dict) and isinstance(fields.get(name), dict):
+                    fields[name] = {**fields[name], **value}  # vars combine per name
+                else:
+                    fields[name] = value
+            by_name[entry.name] = DatabaseConfig.model_validate(fields)
+        return list(by_name.values())
 
     def __load_home_config(self) -> dict[str, dict[str, tuple[Any, Path]]]:
         """Load the installation's config file, creating a default one if it does not exist."""
@@ -678,30 +666,30 @@ class Config:
             return None
         return next((db for db in databases if db.name == db_name), None)
 
-    def __own_database(self) -> tuple[DatabaseConfig, dict[str, Path | None]] | None:
-        """Return the [[pixeltable.database]] entry of the database we are connected to, and the source file of
-        each of its fields.
+    def __own_database_values(self, field: Literal['vars', 'settings']) -> dict[str, tuple[str, Path | None]]:
+        """Return the `vars` or `settings` of the database we are connected to, each with the file that supplied it.
 
-        On a hosted pod that is the entry named pxt://org:db; anywhere else it is the local entry.
+        On a hosted pod that is the entry named pxt://org:db. Anywhere else it is the local entry. Each file is read
+        separately to know the source of each value, and a value the project supplies wins over one of the same name
+        in the home config.
         """
         org = self.get_string_value('org', section='pxtcloud')
         db = self.get_string_value('db', section='pxtcloud')
         name = f'pxt://{org}:{db}' if org and db else LOCAL_DATABASE
-        entry = self.__config_dict.get('pixeltable', {}).get('database')
-        if entry is None:
-            return None
-        own = next((db for db in entry[0] if db.name == name), None)
-        if own is None:
-            return None
-        return own, self.__database_sources[name]
-
-    def __database_bindings(self) -> dict[str, tuple[str, Path | None]]:
-        """Return the var bindings of the database we are connected to, each with its source file."""
-        own = self.__own_database()
-        if own is None:
-            return {}
-        entry, sources = own
-        return {name: (value, sources[f'vars.{name}']) for name, value in (entry.vars or {}).items()}
+        result: dict[str, tuple[str, Path | None]] = {}
+        for config, source in (
+            (self.__home_config, self.__config_file),
+            (self.__project_config, self.__project_config_file),
+        ):
+            entry = config.get('pixeltable', {}).get('database')
+            if entry is None or not isinstance(entry[0], list):
+                continue
+            own = next((db for db in entry[0] if db.name == name), None)
+            if own is None:
+                continue
+            values = own.vars if field == 'vars' else own.settings
+            result.update({key: (value, source) for key, value in (values or {}).items()})
+        return result
 
     def __database_setting(self, section: str, key: str) -> tuple[Any, Path | None] | None:
         """Return the value the database we are connected to sets for `key` (as db_<key>), with its source file."""
@@ -710,16 +698,12 @@ class Config:
         name = f'db_{key}'
         if name not in _DATABASE_OVERRIDE_KEYS:
             return None
-        own = self.__own_database()
-        if own is None or own[0].settings is None or name not in own[0].settings:
-            return None
-        entry, sources = own
-        return entry.settings[name], sources[f'settings.{name}']
+        return self.__own_database_values('settings').get(name)
 
     def __lookup_config_entry(self, section: str, key: str) -> tuple[Any, Path | None] | None:
         """Find key under section in __config_dict. Returns (value, source_path) or None."""
         if section == VAR_SECTION:
-            return self.__database_bindings().get(key)
+            return self.__own_database_values('vars').get(key)
         parts = section.split('.')
         # explicit type decl for readability
         top_section: dict[str, tuple[Any, Path | None]] | None = self.__config_dict.get(parts[0])
@@ -850,7 +834,7 @@ class Config:
     def __section_keys(self, section: str) -> list[str]:
         """The keys defined in section."""
         if section == VAR_SECTION:
-            return list(self.__database_bindings())
+            return list(self.__own_database_values('vars'))
         parts = section.split('.')
         node: Any = self.__config_dict.get(parts[0])
         for p in parts[1:]:
