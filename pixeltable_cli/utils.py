@@ -143,6 +143,15 @@ PROJECT_CONFIG_FILE = 'pixeltable.toml'
 PYPROJECT_FILE = 'pyproject.toml'
 
 
+def parse_toml(path: Path) -> dict[str, Any]:
+    """Duplicates config.py:_load_toml(), which cannot be imported here."""
+    try:
+        with open(path, 'rb') as fp:
+            return tomllib.load(fp)
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        raise RuntimeError(f'{path} cannot be parsed: {e}') from e
+
+
 def find_project_root(start: Path) -> Path | None:
     """Find the nearest directory holding one of the recognized project config files.
 
@@ -150,16 +159,14 @@ def find_project_root(start: Path) -> Path | None:
     """
     start = start.resolve()
     for dir in (start, *start.parents):
-        if (dir / PROJECT_CONFIG_FILE).is_file():
+        pixeltable_toml = dir / PROJECT_CONFIG_FILE
+        if pixeltable_toml.is_file():
+            # parsed for its error alone: a daemon spawned with an unparseable file never serves health
+            parse_toml(pixeltable_toml)
             return dir
         pyproject = dir / PYPROJECT_FILE
         if pyproject.is_file():
-            try:
-                with open(pyproject, 'rb') as fp:
-                    parsed = tomllib.load(fp)
-            except (OSError, tomllib.TOMLDecodeError) as e:
-                # fail early
-                raise RuntimeError(f'{pyproject} cannot be parsed: {e}') from e
+            parsed = parse_toml(pyproject)
             tool = parsed.get('tool')
             if isinstance(tool, dict) and 'pixeltable' in tool:
                 return dir

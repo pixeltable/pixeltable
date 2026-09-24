@@ -47,9 +47,7 @@ class TestConfig:
         with open(tmp, 'w', encoding='utf-8') as fp:
             fp.write('This is neither a directory nor a valid TOML file.')
         spawn_cmd({'PIXELTABLE_HOME': str(tmp)}, f'pixeltable.exceptions.RequestError: Not a directory: {tmp}')
-        spawn_cmd(
-            {'PIXELTABLE_CONFIG': str(tmp)}, f'pixeltable.exceptions.RequestError: Could not read config file: {tmp}'
-        )
+        spawn_cmd({'PIXELTABLE_CONFIG': str(tmp)}, f'pixeltable.exceptions.RequestError: {tmp} cannot be parsed:')
 
         with open(tmp, 'w', encoding='utf-8') as fp:
             fp.write('[pixeltable]\nunknown_key = "value"')

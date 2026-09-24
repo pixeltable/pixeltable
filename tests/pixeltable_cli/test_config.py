@@ -14,6 +14,7 @@ from typing import Any, Iterator
 import pytest
 
 import pixeltable as pxt
+from pixeltable_cli.utils import PROJECT_CONFIG_FILE
 
 from ..utils import DatabaseRoot, skip_test_if_not_installed
 from .conftest import PxtRunner
@@ -344,6 +345,24 @@ class TestConfig:
         assert r.returncode != 0
         assert str(config_file) in r.stderr
         assert 'RemoteDisconnected' not in r.stderr
+
+    def test_unparseable_project_config(self, cli: PxtRunner, served_project: pathlib.Path) -> None:
+        """An unquoted string in pixeltable.toml is reported by the client, before any daemon reads it."""
+        project_config = served_project / PROJECT_CONFIG_FILE
+        original = project_config.read_text(encoding='utf-8')
+        # leave a daemon running and this passes either way: it answers before the client reads the file
+        cli('daemon', 'stop', '-f')
+        project_config.write_text('[[pixeltable.database]]\nname = pxt://my-org:my-db\n', encoding='utf-8')
+        try:
+            r = cli('ls', '/', check=False)
+            assert r.returncode != 0
+            assert str(project_config) in r.stderr
+            assert 'line 2, column 8' in r.stderr, r.stderr
+            assert 'did not come up' not in r.stderr, r.stderr
+            assert 'Traceback' not in r.stderr, r.stderr
+        finally:
+            project_config.write_text(original, encoding='utf-8')
+            cli('daemon', 'restart')
 
     def test_restart_while_serving(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """A restart that would abandon work in progress is refused; once the work is done it goes through."""
