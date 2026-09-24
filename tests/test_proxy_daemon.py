@@ -4,6 +4,7 @@ import math
 import pathlib
 import socket
 import uuid
+from collections.abc import Iterator
 from typing import Any
 
 import numpy as np
@@ -18,6 +19,18 @@ from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps
 
 from .utils import pxt_raises, reload_env
+
+
+@pytest.fixture
+def hosted_identity(init_env: None, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Give the Env the daemon's org/db identity for the test, and take it back afterwards."""
+    monkeypatch.setenv('PXTCLOUD_ORG', 'org1')
+    monkeypatch.setenv('PXTCLOUD_DB', 'db1')
+    reload_env()
+    yield
+    monkeypatch.delenv('PXTCLOUD_ORG', raising=False)
+    monkeypatch.delenv('PXTCLOUD_DB', raising=False)
+    reload_env()
 
 
 class _RemotePartSink(proxy_protocol.PartSink[int | str]):
@@ -105,7 +118,7 @@ class TestProxyDaemon:
         assert proxy_protocol.collect_remote_keys(wire) == []
 
     def test_scalars_reach_a_handler_from_the_object_store(
-        self, init_env: None, monkeypatch: pytest.MonkeyPatch
+        self, hosted_identity: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """End to end on the daemon side: prefetch localizes an uploaded scalar, dispatch decodes it."""
         arr = np.arange(64, dtype=np.float32)
@@ -298,7 +311,7 @@ class TestProxyDaemon:
         monkeypatch: pytest.MonkeyPatch, objects: dict[str, bytes], store_uris: list[str]
     ) -> None:
         """Route ObjectOps.get_store to a fake store serving objects (keyed store-relative, i.e. without the
-        'uploads/' prefix) and put the daemon's org/db identity in the environment."""
+        'uploads/' prefix)."""
         from pixeltable.utils.object_stores import ObjectOps
 
         class FakeStore:
@@ -313,9 +326,6 @@ class TestProxyDaemon:
             return FakeStore()
 
         monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(fake_get_store))
-        monkeypatch.setenv('PXTCLOUD_ORG', 'org1')
-        monkeypatch.setenv('PXTCLOUD_DB', 'db1')
-        reload_env()
 
     @staticmethod
     def _remote_file_request(*keys: str) -> proxy_protocol.ProxyRequest:
@@ -325,7 +335,7 @@ class TestProxyDaemon:
             args={'rows': [{'f': {'$pxt': 'file', 'name': f'x{i}', 'v': k}} for i, k in enumerate(keys)]},
         )
 
-    def test_prefetch_remote_parts(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_prefetch_remote_parts(self, hosted_identity: None, monkeypatch: pytest.MonkeyPatch) -> None:
         objects = {'req/0.png': b'png-bytes', 'req/1.jpg': b'jpg-bytes'}
         store_uris: list[str] = []
         self._install_fake_upload_store(monkeypatch, objects, store_uris)
@@ -368,7 +378,7 @@ class TestProxyDaemon:
         ):
             proxy_dispatch._prefetch_remote_parts(self._remote_file_request('uploads/req/0.png'))
 
-    def test_handle_cleans_remote_parts(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_handle_cleans_remote_parts(self, hosted_identity: None, monkeypatch: pytest.MonkeyPatch) -> None:
         objects = {'req/0.png': b'png-bytes'}
         self._install_fake_upload_store(monkeypatch, objects, [])
         localized: list[str] = []
