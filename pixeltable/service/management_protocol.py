@@ -1,4 +1,10 @@
-"""Management API protocol: request/response models shared between the pxt SDK and the Pixeltable cloud server."""
+"""Management API protocol: request/response models shared between the Pixeltable SDK and the Pixeltable cloud server.
+
+Each request is org-scoped and requires an API key for authorization. Some requests include an optional org parameter.
+If an org is set, the server will verify that the API key belongs to that org. This is to avoid scenarios in which
+the client thinks that it acts on one org whereas its API key actually points to the other.
+
+The pixeltable-cloud repo imports this module, so care must be taken when making backwards-incompatible changes."""
 
 from __future__ import annotations
 
@@ -255,10 +261,9 @@ class ListSecretsResponse(BaseModel):
 
 class ListAllSecretsRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.LIST_ALL_SECRETS] = ManagementOperationType.LIST_ALL_SECRETS
-    # If org is set, the server validates that it matches the API key's org
     org: str | None = None
-    # The server always returns the org-level secrets because each database inherits them. In addition to that, if db is
-    # set, the server returns that database's secrets. Otherwise it returns all secrets in all databases in the org.
+    # If db is set, the server returns that database's secrets and org-wide secrets. Otherwise it returns all secrets in
+    # the org.
     db: str | None = None
 
 
