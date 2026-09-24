@@ -99,6 +99,67 @@ curl -X POST "$SERVICE_URL/docs" \
 
 For CLI automation or Python clients, `PIXELTABLE_API_KEY` also works as a credential. You can set `api_key` in `~/.pixeltable/config.toml` instead. A configured key takes precedence over a `pxt login` session; the environment value takes precedence over the config file. [Configuration](/platform/configuration).
 
+### Call from Next.js on Vercel
+
+Set `PIXELTABLE_SERVICE_URL` to the full URL from `pxt service list` and `PIXELTABLE_API_KEY` to your key in your Next.js server environment. Set both in Vercel's project environment variables when you deploy. Do not prefix the key with `NEXT_PUBLIC_`.
+
+Follow [Call from a TypeScript app server](/howto/deployment/serving#call-from-a-typescript-app-server) to generate `src/pixeltable.d.ts` from the hosted service and create `src/lib/pixeltable-client.ts`. That client sends the key and exports `computeTitle()` for the generated app's `/titles` route. Then add a Route Handler at `src/app/api/title/route.ts`:
+
+```typescript
+import { computeTitle } from '@/lib/pixeltable-client';
+
+export async function POST(request: Request) {
+  const { title } = await request.json();
+  if (typeof title !== 'string' || !title.trim()) {
+    return Response.json({ error: 'Enter a title' }, { status: 400 });
+  }
+
+  const result = await computeTitle(title);
+  if (!result) {
+    return Response.json({ error: 'Empty service response' }, { status: 502 });
+  }
+  return Response.json({ title_upper: result.title_upper });
+}
+```
+
+Call that handler from a client component, such as `src/app/page.tsx`:
+
+```tsx
+'use client';
+
+import { useState, type FormEvent } from 'react';
+
+export default function Page() {
+  const [title, setTitle] = useState('');
+  const [result, setResult] = useState('');
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const response = await fetch('/api/title', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    });
+    if (!response.ok) {
+      setResult('Request failed');
+      return;
+    }
+    const body: { title_upper: string } = await response.json();
+    setResult(body.title_upper);
+  }
+
+  return (
+    <form onSubmit={submit}>
+      <input value={title} onChange={(event) => setTitle(event.target.value)} />
+      <button type="submit">Uppercase title</button>
+      <p>{result}</p>
+    </form>
+  );
+}
+```
+
+The browser calls `/api/title`; the Route Handler calls Pixeltable. Add your application's authorization checks to the handler before exposing costly or data-changing routes to users. Regenerate the types when you change routes in `app.py`.
+
 ## Add provider secrets
 
 `PIXELTABLE_API_KEY` authenticates to Pixeltable Cloud. Provider keys, such as `OPENAI_API_KEY`, belong in Cloud **Secrets**. For a database that uses OpenAI:
