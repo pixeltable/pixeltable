@@ -7,7 +7,7 @@ import urllib.request
 from pathlib import Path
 
 from pixeltable import catalog, exceptions as excs, metadata
-from pixeltable.config import Config, DatabaseConfig
+from pixeltable.config import LOCAL_DATABASE, Config, DatabaseConfig
 from pixeltable.service import management_client
 from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.service.management_protocol import (
@@ -354,7 +354,7 @@ def _get_db_config(db_uri: catalog.Path) -> DatabaseConfig:
         where = Config.get().project_config_file or 'the project configuration'
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            f'no [[pixeltable.database]] entry names {db_uri.uri_str!r}; add one to {where}:\n'
+            f'no [[pixeltable.database]] entry for {db_uri.uri_str!r}; add one to {where}:\n'
             f'  [[pixeltable.database]]\n  name = {db_uri.uri_str!r}',
         )
     return config

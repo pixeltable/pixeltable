@@ -56,6 +56,12 @@ class DatabaseConfig(pydantic.BaseModel):
     disk_gb: int | None = None
     workers: int | None = None
 
+    @pydantic.field_validator('name')
+    @classmethod
+    def _fold_name(cls, v: str) -> str:
+        # every Pixeltable identifier folds to lower case, and the lookup compares this to a parsed pxt:// URI
+        return v.lower()
+
     @pydantic.field_validator('system_dependencies')
     @classmethod
     def _check_system_dependencies(cls, v: list[str] | None) -> list[str] | None:
