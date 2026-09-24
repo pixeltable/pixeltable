@@ -39,7 +39,7 @@ Use `pxt <command> --help` for per-subcommand flags and examples.
 | **Schema** | `schema diff`, `schema update`, `schema prune` |
 | **Interactive** | `shell` |
 | **Serving** | `service` |
-| **Cloud** | `db`, `secret`, `org` |
+| **Cloud** | `login`, `logout`, `whoami`, `db`, `secret`, `org`, `key` |
 | **Lifecycle** | `daemon`, `dashboard`, `health` |
 
 ### Universal flags
@@ -49,7 +49,7 @@ These flags work the same way across the catalog commands that support them and 
 | Flag | Available on | Description |
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
-| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs, plus `db`, `secret`, `org`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), or the lifecycle subcommands that print plain status lines (`daemon start`/`stop`). |
+| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs other than `example`, plus `init`, `login`, `whoami`, `db`, `secret`, `org`, `key`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), `schema example` and `service example` (which print an example file), or the commands that print plain status lines (`logout`, `daemon start`/`stop`/`restart`). |
 | `--json-schema` | `schema diff`, `service diff`, `db diff`, `db status`, `service list` | Print the JSON Schema of that command's `--json` output, with descriptions of every field and enum value, and exit. |
 | `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), plus `schema update`, `schema prune`, `service update` and `service prune` | Print the intended action; don't execute. |
 | `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
@@ -117,6 +117,11 @@ pxt service update app.py my_app     # start them, restarting what changed
 pxt service list                     # what is running, and where
 pxt service logs my_app/ingest       # what a service logged; pxt://myorg:mydb/my_app/ingest for a hosted one
 
+# cloud -- signing in
+pxt login                        # approve a code in a browser; no API key needed
+pxt whoami                       # who this machine is signed in as, and which credential it sends
+pxt logout                       # forget this device's cached session
+
 # cloud -- databases
 pxt db update pxt://myorg:mydb   # create the database, or bring it up to what the project declares
 pxt db diff   pxt://myorg:mydb   # what 'update' would change
@@ -126,7 +131,12 @@ pxt db logs   pxt://myorg:mydb   # what the database's pod logged
 
 # cloud -- secrets
 pxt secret set  pxt://myorg OPENAI_API_KEY=sk-...
-pxt secret list                  # the org your key reaches
+pxt secret list                  # the org your credential reaches
+
+# cloud -- keys
+pxt key create ci                # a key that acts as you
+pxt key create app --grant access:pxt://myorg:mydb/services/ingest
+pxt key list                     # every key in the org, and who created it
 ```
 
 ## Inspection commands
@@ -607,7 +617,7 @@ Inside the shell, every `pxt` command is available unmodified. Errors from one c
 
 ## Output and scripting
 
-Most catalog commands accept `--json` for stable, machine-readable output (exceptions: `shell` is interactive, `health` is already JSON):
+Most catalog commands accept `--json` for stable, machine-readable output; [Universal flags](#universal-flags) lists the commands that do not:
 
 ```bash
 pxt ls --json | jq '.entries[] | select(.kind == "table")'
@@ -685,6 +695,115 @@ A router not included in `app` would never be served, and in that situation `pxt
 The routes of an included `FastAPIRouter` are diffed by their declarations (i.e., they take the data types of path
 parameters into account); the paths served by the application itself are diffed as path strings.
 
+### Signing in
+
+Hosted commands need a credential. There are two, and you need one of them.
+
+```bash
+pxt login
+```
+
+`pxt login` prints a code and opens a browser. Approve it there, signing in or signing up, and the
+session lands on this machine. It uses the OAuth device grant, so nothing
+listens on a port and the browser need not be on this machine: this works over SSH.
+
+```bash
+pxt whoami
+you@example.com on https://internal-api.pixeltable.com
+Organization: org_01H8XYZ
+```
+
+A sign-in lasts as long as Pixeltable Cloud honors it: when its token expires, the next command that
+needs a token renews the session, and nothing on this machine expires it on a timer. `pxt whoami`
+reports whether Pixeltable Cloud recognizes the credential, and exits nonzero when it does not; it
+does not report whether the next command will succeed. A credential that is recognized but not
+permitted to list organizations, such as a key whose grants do not cover that, still counts as
+accepted: `pxt whoami` prints the refusal as a note and exits 0. `pxt whoami --offline` reports the
+cached session without asking.
+
+```bash
+pxt logout
+```
+
+`pxt logout` forgets this machine's cached session. When the session has the sign-in service's
+session id, `pxt logout` also opens that service's sign-out page for the session in your browser,
+and prints the link when no browser opens. It signs out of both because a browser that is still
+signed in confirms the next code without naming the account, so signing out of only one leaves you
+signed in as someone you did not choose. Forgetting the session needs no network. When `pxt logout`
+cannot work out the sign-out link, for example because the control plane cannot be reached, it
+still signs this machine out and warns that the browser was not signed out. Whether the sign-out
+page itself loads is something only the browser shows.
+
+<Note>
+An **API key** takes precedence over a sign-in whenever both are present: it is the explicit
+choice, and what CI runs on. Set one with `PIXELTABLE_API_KEY`, or with `api_key` in the
+`[pixeltable]` section of your Pixeltable config file; the environment variable wins when both are
+set. Unlike a sign-in, it does not expire. `pxt whoami` says which one your commands will actually
+send.
+</Note>
+
+Signing in proves who you are; it does not give you an organization. A brand-new account belongs
+to no organization, and every hosted command needs one, so `pxt login` and `pxt whoami` print "No organization yet" with
+the command that creates one, `pxt org create NAME`, rather than letting the next command fail as an
+authorization error.
+
+### Organizations
+
+```bash
+pxt org create acme --name "Acme Inc"
+```
+
+Creates the organization, its first database and its storage in one call. The name is the namespace
+in `pxt://acme:main`, and it must be unique across Pixeltable. It works with a `pxt login` session or
+with a personal API key, one created without grants; a key with grants belongs to its organization
+and cannot create another.
+
+Creating one also switches your `pxt login` session to it: Pixeltable Cloud takes the organization
+from your session, not from the URI. If the switch fails, the organization exists anyway, and
+`pxt org create` warns and says to run `pxt login`. An API key stays bound to its own organization
+and outranks a `pxt login` session, so to work in the new one, use a key created there, or remove
+the API key and then run `pxt login`. `pxt org list` shows the ones you can reach.
+
+### Keys
+
+A key is the credential that does not expire, for the places a browser sign-in cannot reach: CI, a
+cron job, a deployed service. There is one command and two shapes, and the grants decide which.
+
+```bash
+pxt key create ci                                                 # acts as you
+pxt key create app --grant access:pxt://acme:main/services/ingest # acts as nobody
+```
+
+Without grants, the key acts as whoever created it and reaches whatever they reach: the API key you
+already know. With grants it belongs to the organization instead, and reaches only what it was
+granted, so a service you deploy has no more authority than its job needs.
+
+<Note>
+Keys with grants are a preview. Until they are enabled for your organization, Pixeltable Cloud
+refuses `pxt key create --grant` with "Keys with grants are not available yet".
+</Note>
+
+A grant is a verb on a resource, never a bare resource: a service on its own does not say whether
+the holder may call it or reconfigure it, and those are not the same permission.
+
+| Grant | What it allows |
+| --- | --- |
+| `access:pxt://org:db` | every service in the database, and its storage |
+| `access:pxt://org:db/services` | call any service in the database |
+| `access:pxt://org:db/services/name` | call that service, every route under it |
+| `manage:pxt://org:db/services` | create, list and manage any service in the database |
+| `manage:pxt://org:db/services/name` | start, stop, update, delete that service |
+
+A service is addressed by its base path and name, as in `access:pxt://acme:main/services/my_dir/ingest`.
+`manage` applies to services only, so `manage:pxt://org:db` is refused.
+
+`access` and `manage` are independent: a key that can call a service cannot reconfigure it, and one
+that can stop it cannot read what flows through it.
+
+The secret is shown once, when the key is created, and is never retrievable afterwards. Deleting a
+key revokes it. Every member of the organization sees every key, can change any runtime key's
+grants, and can delete any key, and `pxt key list` shows who created each one.
+
 ### Hosted targets
 
 `TARGET` may be a `pxt://org:db` URI, and the services then run in that database rather than on this
@@ -747,7 +866,7 @@ Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreeme
 
 | Flag | Verbs | Description |
 |---|---|---|
-| `--json` | all | Emit machine-readable JSON |
+| `--json` | every verb except `example` | Emit machine-readable JSON |
 | `--since`, `--tail`, `--include-health` | `logs` | How far back, how many lines, whether to keep health probes |
 | `-f`, `--force` | `update`, `prune` | Skip the `[y/N]` prompt |
 | `-n`, `--dry-run` | `update`, `prune` | Print the intended change; do not run `update` or `prune` |
@@ -805,9 +924,9 @@ callers may be using, so it needs `--allow-destructive`.
 
 ## Cloud
 
-`pxt db` and `pxt org` manage cloud-hosted databases and organizations. All cloud commands require `PIXELTABLE_API_KEY`. Create the key in the Cloud dashboard: [Get an API key](/howto/deployment/cloud#get-an-api-key). Then export it. The CLI reads the process environment and does not load `.env` on its own ([Configuration](/platform/configuration)).
+`pxt db` and `pxt org` manage cloud-hosted databases and organizations. Cloud commands need a credential: a `pxt login` session or an API key ([Signing in](#signing-in)). To use an API key, create it in the Cloud dashboard ([Get an API key](/howto/deployment/cloud#get-an-api-key)) or with `pxt key create`, then export it as `PIXELTABLE_API_KEY`. The CLI reads the process environment and does not load `.env` on its own ([Configuration](/platform/configuration)).
 
-All cloud commands accept `--json` for machine-readable output.
+Every cloud command except `pxt logout` accepts `--json` for machine-readable output.
 
 ### Cloud configuration reference
 
@@ -983,21 +1102,42 @@ pxt org list
 pxt org list --json
 ```
 
-List all organizations accessible to the current API key.
+List all organizations accessible to the current credential.
 
 #### `pxt org status`
 
 ```bash
-pxt org status                   # only when your key reaches exactly one org
-pxt org status pxt://myorg       # name it when your key reaches several
+pxt org status                   # only when your credential reaches exactly one org
+pxt org status pxt://myorg       # name it when your credential reaches several
 ```
 
 Show the organization's name, ID, and default database.
 
+### `pxt key`
+
+```bash
+pxt key create NAME                       # a key that acts as you
+pxt key create NAME --grant VERB:URI      # a scoped key that belongs to the org (preview); repeatable
+pxt key list                              # every key in the org, and who created it
+pxt key update NAME --grant VERB:URI      # add a grant
+pxt key update NAME --revoke VERB:URI     # remove one
+pxt key delete NAME                       # revoke the secret
+```
+
+`create` prints the secret once. `list` never does.
+
+`update` is a delta, not a replacement, so widening a key does not depend on resending everything it
+already had. Revoking a grant the key never had is an error rather than a no-op, since a typo would otherwise
+read as a completed revocation. It applies only to a key that has grants: one that acts as
+you has nothing to change.
+
+Names are unique per organization across both shapes, so `pxt key delete NAME` never has to choose
+between two keys. Any member of the organization can delete any key.
+
 ### `pxt secret`
 
 ```bash
-pxt secret list                    # the org your key reaches
+pxt secret list                    # the org your credential reaches
 pxt secret list   pxt://myorg
 pxt secret list   pxt://myorg:mydb
 pxt secret set    pxt://myorg OPENAI_API_KEY=sk-...

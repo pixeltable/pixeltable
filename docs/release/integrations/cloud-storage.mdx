@@ -45,10 +45,10 @@ When you configure a storage destination, Pixeltable automatically:
 | Where the tables run | What to set |
 |---|---|
 | Hosted Cloud tables and services | Nothing. The database already writes to `pxtfs://org:db/home`. |
-| Local Pixeltable against that Cloud home bucket | `PIXELTABLE_API_KEY` (API Keys, then export) plus `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST` pointing at the `pxtfs://` URI. |
+| Local Pixeltable against that Cloud home bucket | `pxt login` or `PIXELTABLE_API_KEY` (API Keys, then export), plus `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST` pointing at the `pxtfs://` URI. |
 | Your own S3 / GCS / Azure bucket | Provider keys in [Secrets](https://www.pixeltable.com/dashboard) or `pxt secret`, and those dest env vars pointing at `s3://`, `gs://`, or `wasbs://`. |
 
-Do not put `PIXELTABLE_API_KEY` in `config.toml` as `api_key`. Use the env name. Hosted pods get their own worker key from the platform; you do not set it.
+Pixeltable reaches the home bucket with either credential: a `pxt login` session or an API key ([Signing in](/platform/cli#signing-in)). The key can also be `api_key` in the `[pixeltable]` section of the Pixeltable config file; `PIXELTABLE_API_KEY` wins when both are set, and either one outranks a `pxt login` session. Hosted pods get their own worker key from the platform; you do not set it.
 
 ## Configuration
 
@@ -76,7 +76,7 @@ export PIXELTABLE_INPUT_MEDIA_DEST="s3://my-bucket/input/"
 export PIXELTABLE_OUTPUT_MEDIA_DEST="s3://my-bucket/output/"
 ```
 
-The global config in `~/.pixeltable/config.toml`, for every database on the installation (not the API key):
+The `[pixeltable]` section of the Pixeltable config file, for every database on the installation:
 
 ```toml
 [pixeltable]
@@ -128,15 +128,15 @@ Destinations are resolved in this order:
 
 A Pixeltable Cloud database comes with a managed Media Store at `pxtfs://org:db/home`. Hosted tables and services write there automatically. No destination, no provider account, no credentials file. Cloud is in Limited Beta: email [contact@pixeltable.com](mailto:contact@pixeltable.com) to get an account.
 
-Use dest + `PIXELTABLE_API_KEY` only when a **local** Pixeltable process should write into that same bucket:
+Use dest plus a credential only when a **local** Pixeltable process should write into that same bucket:
 
 ```bash
-export PIXELTABLE_API_KEY='your-key'
+pxt login  # or: export PIXELTABLE_API_KEY='your-key'
 export PIXELTABLE_INPUT_MEDIA_DEST='pxtfs://org:db/home'
 export PIXELTABLE_OUTPUT_MEDIA_DEST='pxtfs://org:db/home'
 ```
 
-Create the key under **API Keys** in the dashboard and export it. Pixeltable reads the process environment only, so a `.env` file has to be sourced first. Provider keys (`AWS_ACCESS_KEY_ID`, `OPENAI_API_KEY`, …) go under **Secrets** or `pxt secret set`.
+For a key instead of `pxt login`, create it under **API Keys** in the dashboard and export it. Pixeltable reads the process environment only, so a `.env` file has to be sourced first. Provider keys (`AWS_ACCESS_KEY_ID`, `OPENAI_API_KEY`, ...) go under **Secrets** or `pxt secret set`.
 
 <Tabs>
   <Tab title="URI Format">
@@ -147,10 +147,10 @@ Create the key under **API Keys** in the dashboard and export it. Pixeltable rea
   </Tab>
   <Tab title="Local auth">
     ```bash
-    export PIXELTABLE_API_KEY='your-key'
+    pxt login
     ```
 
-    Pixeltable fetches temporary home-bucket credentials from the Cloud API. Hosted pods already have a worker key; do not copy that into your laptop `config.toml`.
+    Or `export PIXELTABLE_API_KEY='your-key'`. Pixeltable fetches temporary home-bucket credentials from the Cloud API with the key when one is set, and with the `pxt login` session otherwise. Hosted pods already have a worker key; do not copy that into your laptop `config.toml`.
   </Tab>
 </Tabs>
 

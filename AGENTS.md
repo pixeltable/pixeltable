@@ -111,6 +111,11 @@ make formatcheck  # ruff format --check
 
 ### Testing
 
+Exercise behavior through public SDK, CLI, or HTTP APIs and assert on public results, metadata, or errors:
+use `Table.get_metadata()`, `t.describe()`, or queries rather than `col.stored`, `ColumnRef`, or
+`TableVersion` internals. Avoid using the internal API as much as possible. Only use it to test behaviors that
+are very difficult or impossible to reproduce using only the public API.
+
 ```bash
 # Run pytest (excludes expensive/remote_api tests)
 make pytest
@@ -378,7 +383,7 @@ Documentation notebooks are in `docs/release/`. Follow `docs/_guidelines/GUIDELI
 - Use one title source: a leading markdown H1, or a first **Raw cell** with YAML `title`
 - Do not include an H1 when using a raw frontmatter title
 - Use `##` for main sections, `###` for subsections
-- Clear outputs before committing unless output is instructive
+- Keep cell outputs: `tool/check_notebooks.py` requires them on at least 50% of code cells. Clear only outputs that are noise, such as progress bars or warnings
 - Use `raw.githubusercontent.com` for GitHub raw links
 
 ### Docstrings

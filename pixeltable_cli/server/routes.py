@@ -1,5 +1,7 @@
 import datetime
 import os
+import threading
+import time
 import typing
 import urllib.parse
 import uuid
@@ -15,20 +17,25 @@ from pixeltable.catalog import Path, fold_identifier
 from pixeltable.catalog.model import schema
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.service import db, management_client, proxy_daemon
+from pixeltable.service import auth, db, management_client, proxy_daemon, session_cache
 from pixeltable.service.management_protocol import (
+    CreateKeyRequest,
+    CreateOrgRequest,
     DeleteDbRequest,
+    DeleteKeyRequest,
     DeleteSecretRequest,
     GetDbRequest,
     GetLogsRequest,
     GetLogsResponse,
     ListDbRequest,
+    ListKeysRequest,
     ListOrgsRequest,
     ListSecretsRequest,
     RestartDbRequest,
     SetSecretRequest,
     StartDbRequest,
     StopDbRequest,
+    UpdateKeyRequest,
 )
 from pixeltable.serving import service
 from pixeltable.types import TreeNode
@@ -771,9 +778,137 @@ def _dir_size(path: str | None) -> int | None:
 # Cloud management API proxy routes
 
 
+# Each device code from /api/login/start that a poll may still redeem, and its deadline on the
+# time.monotonic() clock. Redeeming another code would sign this machine in as whoever approved it.
+_issued_device_codes: dict[str, float] = {}
+_issued_device_codes_lock = threading.Lock()
+
+# the poll answers after which a device code can still be approved (RFC 8628 section 3.5)
+_PENDING_LOGIN = ('authorization_pending', 'slow_down')
+
+
+@router.post('/api/login/start')
+def login_start(_req: Request) -> models.LoginStartResponse:
+    start = auth.device_login_start(management_client.api_url())
+    now = time.monotonic()
+    with _issued_device_codes_lock:
+        for code, deadline in list(_issued_device_codes.items()):
+            if deadline <= now:
+                del _issued_device_codes[code]
+        _issued_device_codes[start.device_code] = now + start.expires_in
+    return start
+
+
+@router.post('/api/login/poll')
+def login_poll(req: Request) -> models.LoginPollResponse:
+    body = req.body(models.LoginPollBody)
+    with _issued_device_codes_lock:
+        deadline = _issued_device_codes.get(body.device_code)
+    if deadline is None or deadline <= time.monotonic():
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            'This sign-in code was not issued by this daemon, or it has expired. Run `pxt login` again.',
+        )
+    answer = auth.device_login_poll(management_client.api_url(), body.client_id, body.device_code)
+    if not isinstance(answer, auth.TokenErrorResponse) or answer.code not in _PENDING_LOGIN:
+        with _issued_device_codes_lock:
+            _issued_device_codes.pop(body.device_code, None)
+    if isinstance(answer, auth.TokenErrorResponse):
+        return models.LoginPollResponse(status=answer.code, detail=answer.description)
+    return models.LoginPollResponse(status='granted', email=answer.email, organization_id=answer.organization_id)
+
+
+@router.get('/api/whoami')
+def whoami(req: Request) -> models.WhoamiResponse:
+    url = management_client.api_url()
+    cred = management_client.configured_credential()
+    # An API key takes precedence, and may belong to a different account than a cached session.
+    session = session_cache.load(url) if cred is not None and cred.kind == 'session' else None
+
+    # A cached session says nothing about whether it still works: it can be revoked, and another
+    # device can rotate its refresh token away.
+    rejection = ''
+    note = ''
+    if not req.query_bool('offline') and cred is not None:
+        try:
+            management_client.api_call(ListOrgsRequest())
+        except excs.Error as e:
+            # A 401 arrives as ExternalServiceError, so the code separates a refused credential
+            # from an outage where the class does not. A 403 refuses the operation, not the credential.
+            if e.error_code == excs.ErrorCode.INSUFFICIENT_PRIVILEGES:
+                note = e.message
+            elif e.error_code in (excs.ErrorCode.PROVIDER_AUTH_ERROR, excs.ErrorCode.MISSING_CREDENTIALS):
+                rejection = e.message
+            else:
+                raise
+
+    return models.WhoamiResponse(
+        api_url=url,
+        email=session.email if session is not None else '',
+        organization_id=session.organization_id if session is not None else '',
+        using=cred.kind if cred is not None else 'none',
+        credential_source=cred.source if cred is not None else 'nothing',
+        accepted=cred is not None and rejection == '',
+        rejection=rejection,
+        note=note,
+    )
+
+
+@router.post('/api/logout')
+def logout(_req: Request) -> models.LogoutResponse:
+    url = management_client.api_url()
+    # the browser's sign-out needs the session id, so read it before clearing; clearing needs no network
+    session = session_cache.load_for_sign_out(url)
+    signed_out = session_cache.clear(url)
+    browser_url = ''
+    warning = ''
+    if session is not None:
+        try:
+            browser_url = auth.browser_logout_url(url, session)
+        except excs.Error as e:
+            warning = f'This machine is signed out, but the browser could not be signed out: {e.message}'
+    return models.LogoutResponse(signed_out=signed_out, browser_logout_url=browser_url, warning=warning)
+
+
 @router.get('/api/orgs')
 def list_orgs(_req: Request) -> dict[str, Any]:
     return management_client.api_call(ListOrgsRequest())
+
+
+@router.post('/api/org/create')
+def create_org(req: Request) -> models.OrgCreateResponse:
+    body = req.body(CreateOrgRequest)
+    # read before the call, since the reply depends on which credential created the organization
+    cred = management_client.configured_credential()
+    created = management_client.api_call(body)
+    name = str(created.get('org') or body.org)
+    if cred is not None and cred.kind == 'api_key':
+        return models.OrgCreateResponse(
+            org=created,
+            warning=f'Your API key stays bound to its own organization, and outranks a `pxt login` session. '
+            f'To work in {name}, use a key created in {name}, or remove the API key ({cred.source}) and run '
+            '`pxt login`.',
+        )
+
+    # The control plane takes the organization from the token, so the session is renewed for the new one.
+    # The organization exists by now and create_org must not be repeated, so a failed switch is a warning.
+    org_id = str(created.get('org_id') or '')
+    if org_id == '':
+        return models.OrgCreateResponse(
+            org=created,
+            warning=f'Pixeltable Cloud did not return the id of {name}, so your `pxt login` session was not '
+            f'switched to it. Run `pxt login` to use {name}.',
+        )
+    try:
+        session = auth.rescope(management_client.api_url(), org_id)
+    except (excs.Error, OSError) as e:
+        reason = e.message if isinstance(e, excs.Error) else e.strerror or type(e).__name__
+        # an AuthorizationError already says how to sign in again
+        hint = '' if isinstance(e, excs.AuthorizationError) else f' Run `pxt login` to use {name}.'
+        return models.OrgCreateResponse(
+            org=created, warning=f'Your `pxt login` session could not switch to {name}: {reason}{hint}'
+        )
+    return models.OrgCreateResponse(org=created, session_organization_id=session.organization_id)
 
 
 @router.get('/api/org')
@@ -812,6 +947,26 @@ def set_secret(req: Request) -> dict[str, Any]:
 @router.post('/api/secrets/delete')
 def delete_secret(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(DeleteSecretRequest))
+
+
+@router.get('/api/keys')
+def list_keys(_req: Request) -> dict[str, Any]:
+    return management_client.api_call(ListKeysRequest())
+
+
+@router.post('/api/key/create')
+def create_key(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(CreateKeyRequest))
+
+
+@router.post('/api/key/update')
+def update_key(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(UpdateKeyRequest))
+
+
+@router.post('/api/key/delete')
+def delete_key(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(DeleteKeyRequest))
 
 
 @router.get('/api/db')

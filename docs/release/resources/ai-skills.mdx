@@ -8,13 +8,11 @@ One skill file teaches the coding agent to declare tables as `TableModel` classe
 The skill's workflow is: create tables from the file, start the endpoints with `pxt service update`, then try the app by inserting rows or opening the dashboard.
 Install details: [AI coding agents](/overview/building-pixeltable-with-llms).
 
-The hosted capability file is [skill.md](https://docs.pixeltable.com/skill.md). Install is still `npx skills add pixeltable/pixeltable-skill`.
+The skill is [pixeltable/pixeltable-skill](https://github.com/pixeltable/pixeltable-skill), and [docs.pixeltable.com/skill.md](https://docs.pixeltable.com/skill.md) points there. Install it:
 
 ```bash
 npx skills add pixeltable/pixeltable-skill
 ```
-
-Source: [pixeltable/pixeltable-skill](https://github.com/pixeltable/pixeltable-skill).
 
 <Note>
 If the agent writes `create_table` in app code, names the file `schema.py`, or writes the removed command `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`.

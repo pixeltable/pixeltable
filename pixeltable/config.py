@@ -788,6 +788,13 @@ class Config:
             return 'unset'
         return resolved[1]
 
+    def is_overridden(self, key: str, section: str = 'pixeltable') -> bool:
+        """Whether pxt.init() supplied this setting, which outranks the environment and every config file.
+
+        get_value_source() answers 'env' for such a setting too.
+        """
+        return f'{section}.{key}' in self.__config_overrides
+
     def env_keys(self) -> list[ConfigKey]:
         """The config settings that can be set via an environment variable."""
         return [ck for ck in self.config_keys() if is_env_key(ck)]

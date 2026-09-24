@@ -164,11 +164,11 @@ fullpytest: install
 .PHONY: slimpytest
 slimpytest: install
 	@echo 'Running `pytest` on a slim configuration ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) \
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) -k 'not cloud' \
 	    tests/test_{alter_column,array_type,catalog,component_view,concurrent,concurrent_model}.py \
 	    tests/test_{config,conftest,dirs,env}.py \
 	    tests/test_{exceptions,exprs,fault_injection,file_cache,function,history,index,iterator,mcp,path}.py \
-	    tests/test_{primary_key_index,query,sample,snapshot,table,table_model,table_model_2,types,view}.py \
+	    tests/test_{primary_key_index,query,sample,session_cache,snapshot,table,table_model,table_model_2,types,view}.py \
 	    tests/serving/test_fastapi.py tests/serving/test_fastapi_models.py \
 	    tests/pixeltable_cli/test_{bridge,daemon,schema,service,smoke}.py
 
