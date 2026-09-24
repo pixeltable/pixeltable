@@ -12,6 +12,7 @@ level `router` singleton.
 from __future__ import annotations
 
 import http
+import ipaddress
 import json
 import logging
 import mimetypes
@@ -19,15 +20,15 @@ import sys
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, unquote, urlparse
 
 import pydantic
 
 from pixeltable import exceptions as excs
-from pixeltable.config import Config
+from pixeltable.config import Config, env_var_name
 
-from .daemon_state import state as daemon_state
+from .daemon_state import compare_env_values, config_fingerprint, state as daemon_state
 from .router import Method, RawResponse, Request
 from .routes import router
 
@@ -46,6 +47,19 @@ _HAS_STATIC_BUNDLE = _STATIC_DIR.exists()
 
 # Header carrying the caller's env fingerprint: {env var name: hash of its value}, no values.
 _ENV_HEADER = 'x-pxt-env-fingerprint'
+
+
+def _changed_settings(names: list[str]) -> str:
+    """One line per changed setting: how the file or the environment holding it spells it, and where it is."""
+    config = Config.get()
+    keys = {env_var_name(ck.section, ck.key): ck for ck in config.env_keys()}
+    lines: list[str] = []
+    for name in names:
+        ck = keys.get(name)
+        lines.append(
+            f'  {config.describe_setting(ck.section, ck.key)}' if ck is not None else f'  {name}, no longer set'
+        )
+    return '\n'.join(lines)
 
 
 class _DaemonHandler(BaseHTTPRequestHandler):
@@ -76,6 +90,11 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         self._dispatch('POST')
 
     def _dispatch(self, method: Method) -> None:
+        refusal = self._refusal(method)
+        if refusal is not None:
+            self._send_json({'detail': refusal[1]}, refusal[0])
+            return
+
         # Users edit the config file directly, so pick up an edit here rather than at the next daemon
         # restart. Doing it once per request means a request sees one consistent set of values.
         parsed = urlparse(self.path)
@@ -149,17 +168,34 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         else:
             self._send_json(_to_jsonable(result))
 
+    def _refusal(self, method: Method) -> tuple[http.HTTPStatus, str] | None:
+        """The status and reason for refusing a request that a web page may have forged, or None to serve it.
+
+        Any page in a browser on this machine can send requests to a loopback port. One that rebinds its own
+        host name to 127.0.0.1 sends that name as Host, and one on another origin cannot send a JSON body
+        without a CORS preflight, which only _DEV_ORIGINS pass.
+        """
+        allowed = cast('_QuietServer', self.server).allowed_hosts
+        if allowed is None:
+            return None
+        if (self.headers.get('Host') or '').lower() not in allowed:
+            return http.HTTPStatus.FORBIDDEN, f'this daemon only answers requests addressed to {" or ".join(allowed)}'
+        if method == 'POST' and self.headers.get_content_type() != 'application/json':
+            return http.HTTPStatus.UNSUPPORTED_MEDIA_TYPE, 'a request body must be sent as application/json'
+        return None
+
     def _env_values_agree(self, req: Request) -> bool:
         """Whether this daemon's config values are the ones it recorded and the caller expects."""
-        current = Config.get().env_fingerprint()
+        current = config_fingerprint()
         changed = daemon_state.changed_env_vars(current)
         if len(changed) > 0:
             # api clients are built from these values and cached per worker thread, so serving with the new
             # ones takes a new process
             self._send_json(
                 {
-                    'detail': f'{Config.get().config_file} now has different values for: {", ".join(changed)}.\n'
-                    'Run `pxt daemon restart` to serve with them.',
+                    'detail': f'configuration has changed since the daemon started:\n{_changed_settings(changed)}\n\n'
+                    'The daemon reads configuration once at startup. '
+                    'Run `pxt daemon restart` to pick up the new configuration.',
                     'error_code': 'STALE_CONFIG',
                 },
                 http.HTTPStatus.CONFLICT,
@@ -176,18 +212,21 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             caller: dict[str, str] = json.loads(header)
         except json.JSONDecodeError:
             return True  # an unparseable fingerprint is no evidence of disagreement
-        missing, differing = Config.get().compare_env_values(caller, current)
+        missing, differing = compare_env_values(caller, current)
         if len(missing) == 0 and len(differing) == 0:
             return True
 
         detail: list[str] = []
         if len(missing) > 0:
-            detail.append(f"set in your environment but not in this daemon's: {', '.join(missing)}")
+            detail.append(f'  set here but not in the daemon: {", ".join(missing)}')
         if len(differing) > 0:
-            detail.append(f'bound to a different value here: {", ".join(differing)}')
+            detail.append(f'  set to a different value in the daemon: {", ".join(differing)}')
         self._send_json(
             {
-                'detail': '; '.join(detail) + '.\nRun `pxt daemon restart` to serve with your environment.',
+                'detail': 'the daemon started with a different environment:\n'
+                + '\n'.join(detail)
+                + '\n\nThe daemon reads the environment once at startup. '
+                'Run `pxt daemon restart` to pick up your environment.',
                 'error_code': 'STALE_CONFIG',
             },
             http.HTTPStatus.CONFLICT,
@@ -289,6 +328,8 @@ class _DaemonHandler(BaseHTTPRequestHandler):
 def _to_jsonable(result: Any) -> Any:
     if isinstance(result, pydantic.BaseModel):
         return result.model_dump(mode='json')
+    if isinstance(result, list):
+        return [_to_jsonable(item) for item in result]
     return result
 
 
@@ -297,6 +338,10 @@ class _QuietServer(ThreadingHTTPServer):
 
     daemon_threads = True
 
+    # the accepted values of a request's Host header, in lowercase; None accepts any, for a daemon bound
+    # beyond loopback, which only a proxy that authenticates its callers may front
+    allowed_hosts: tuple[str, ...] | None = None
+
     def handle_error(self, request: Any, client_address: Any) -> None:
         exc = sys.exc_info()[1]
         if isinstance(exc, (BrokenPipeError, ConnectionResetError)):
@@ -304,9 +349,17 @@ class _QuietServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def bind(port: int) -> _QuietServer:
-    """Bind the listen socket. Raises OSError if the port is already taken."""
-    return _QuietServer(('127.0.0.1', port), _DaemonHandler)
+def bind(host: str, port: int) -> _QuietServer:
+    """Bind the listen socket. Raises OSError if the address is already taken."""
+    server = _QuietServer((host, port), _DaemonHandler)
+    bound_host, bound_port = str(server.server_address[0]), server.server_address[1]
+    if ipaddress.ip_address(bound_host).is_loopback:
+        names = {host.lower(), bound_host}
+        # localhost reaches 127.0.0.1 and no other loopback address
+        if bound_host == '127.0.0.1':
+            names.add('localhost')
+        server.allowed_hosts = tuple(sorted(f'{name}:{bound_port}' for name in names))
+    return server
 
 
 def run(server: _QuietServer) -> None:

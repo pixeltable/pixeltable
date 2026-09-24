@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import abc
 import http.client
+import json
 import logging
+import selectors
 import socket
 import ssl
 import threading
@@ -133,7 +135,7 @@ _CONNECT_TIMEOUT = 30.0
 _RPC_TIMEOUT = 1800.0
 _MAX_POOL_SIZE = 16  # matches the fetch_media download threadpool
 
-# The server can restart and drop the connection mid-call; retry transient transport failures with backoff.
+# Failures that leave the request undelivered (connect, handshake, writing it); retried with backoff.
 _TUNNEL_TRANSIENT_EXC = (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError)
 _TUNNEL_RETRY_MAX_DELAY = 90.0  # seconds; > _CONNECT_TIMEOUT so a hung handshake still leaves retry budget
 
@@ -149,6 +151,23 @@ class _TunnelHTTPConnection(http.client.HTTPConnection):
         pass  # socket already set in __init__
 
 
+def _is_server_closed(conn: http.client.HTTPConnection) -> bool:
+    """Return `True` if the remote end of an idle connection has already closed it.
+
+    A socket that is readable before any request has been written to it is unusable: it holds either the
+    server's FIN or data no request asked for.
+    """
+    sock = conn.sock
+    if sock is None:
+        return True
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(sock, selectors.EVENT_READ)
+            return len(selector.select(0)) > 0
+    except (OSError, ValueError):
+        return True
+
+
 class _TunnelPool:
     """Thread-safe pool of TLS + PXT/1.0 tunnel connections."""
 
@@ -160,9 +179,17 @@ class _TunnelPool:
 
     @contextmanager
     def borrow(self) -> Iterator[http.client.HTTPConnection]:
-        with self._lock:
-            conn = self._idle.pop() if self._idle else None
-        conn = conn or self._connect()
+        conn: http.client.HTTPConnection | None = None
+        while conn is None:
+            with self._lock:
+                conn = self._idle.pop() if self._idle else None
+            if conn is None:
+                conn = self._connect()
+            elif _is_server_closed(conn):
+                # an idle connection the server has closed says nothing about the next request; dropping it
+                # here lets a broken response mean the server died on the request it was given
+                conn.close()
+                conn = None
         try:
             yield conn
         except BaseException:
@@ -190,16 +217,19 @@ class TunnelTransport(Transport):
 
     _org: str
     _db: str
-    _api_key: str
+
+    # needed per handshake; not static
+    _credential_cb: Callable[[], str]
+
     _host: str
     _port: int
     _endpoint: str
     _pool: _TunnelPool
 
-    def __init__(self, org: str, db: str, api_key: str, host: str, port: int):
+    def __init__(self, org: str, db: str, credential_cb: Callable[[], str], host: str, port: int):
         self._org = org
         self._db = db
-        self._api_key = api_key
+        self._credential_cb = credential_cb
         self._host = host
         self._port = port
         self._pool = _TunnelPool(self._connect_tunnel)
@@ -208,6 +238,8 @@ class TunnelTransport(Transport):
 
     def _connect_tunnel(self) -> http.client.HTTPConnection:
         """Open one tunnel connection: TCP + TLS + PXT/1.0 CONNECT handshake."""
+        # before connecting: renewing a session is a round trip of its own, and a refused credential needs no socket
+        credential = self._credential_cb()
         ctx = ssl.create_default_context()
         raw_sock = socket.create_connection((self._host, self._port), timeout=_CONNECT_TIMEOUT)
         ssl_sock: ssl.SSLSocket | None = None
@@ -224,9 +256,9 @@ class TunnelTransport(Transport):
                 raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
             ssl_sock = ctx.wrap_socket(raw_sock, server_hostname=self._host)
 
-            # the sidecar authenticates via the API key and routes the tunnel to org/db, then relays to the
+            # the sidecar authenticates the credential and routes the tunnel to org/db, then relays to the
             # proxy daemon's HTTP server; it answers 'PXT/1.0 200' on success (checked below)
-            frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {self._api_key}\r\n\r\n'
+            frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {credential}\r\n\r\n'
             ssl_sock.sendall(frame.encode())
 
             buf = b''
@@ -251,8 +283,12 @@ class TunnelTransport(Transport):
     def _request(self, method: str, path: str, body: bytes | None = None, content_type: str | None = None) -> bytes:
         """Borrow a tunnel connection, issue one request, return the raw body.
 
-        Transient transport failures (the server can restart and drop the connection) are retried with backoff
-        on a fresh connection; auth rejection (PermissionError) and non-5xx HTTP errors are not.
+        A failure that leaves the request undelivered (connect, handshake, writing it) is retried with
+        backoff on a fresh connection, as is a 5xx; auth rejection (PermissionError) and non-5xx HTTP errors
+        are not.
+
+        A connection that fails *after* the daemon has received the request is treated as a server crash and is
+        not retried; retries in this scenario can inadvertently DOS the pod.
         """
         headers = {'Content-Type': content_type} if content_type else {}
 
@@ -265,9 +301,21 @@ class TunnelTransport(Transport):
         )
         def _attempt() -> bytes:
             with self._pool.borrow() as conn:
+                # If `conn.request()` raises a _TUNNEL_TRANSIENT_EXC, it will trigger a retry.
                 conn.request(method, path, body=body, headers=headers)
-                response = conn.getresponse()
-                content = response.read()
+                try:
+                    # But if the response raises, it indicates that the request was successfully posted, but
+                    # the server failed to respond, which may indicate a pod crash. In this case, retrying could result
+                    # in inadvertently DOS'ing the pod, so we promote to an INTERNAL_ERROR, which will not be retried.
+                    response = conn.getresponse()
+                    content = response.read()
+                except _TUNNEL_TRANSIENT_EXC as exc:
+                    raise excs.InternalError(
+                        excs.ErrorCode.INTERNAL_ERROR,
+                        f'The database became unresponsive while handling this request: pxt://{self._org}:{self._db}\n'
+                        'This may be caused by a query that was too large for the database to serve.\n'
+                        'If this happens repeatedly, try splitting large queries or inserts into smaller batches.',
+                    ) from exc
                 if response.status == 200:
                     return content
                 msg = f'proxy {method} {path} error {response.status}: {content.decode(errors="replace")}'
@@ -316,15 +364,9 @@ class ProxyClient:
         return cls(HttpTransport(endpoint))
 
     @classmethod
-    def remote(cls, org: str, db: str, api_key: str, host: str, port: int) -> ProxyClient:
+    def remote(cls, org: str, db: str, credential_cb: Callable[[], str], host: str, port: int) -> ProxyClient:
         """Connect to the Pixeltable cloud service's proxy daemon over an authenticated TLS tunnel."""
-        return cls(TunnelTransport(org, db, api_key, host=host, port=port))
-
-    def _send(self, request_json: str, parts: list[bytes]) -> tuple[str, list[bytes]]:
-        """Encode the request (json head + binary parts), POST it to /rpc, and decode the response."""
-        body = encode_body(request_json.encode(), parts)
-        head, response_parts = decode_body(self._transport.post(body))
-        return head.decode(), response_parts
+        return cls(TunnelTransport(org, db, credential_cb, host=host, port=port))
 
     def _prepare(self, args: dict[str, Any]) -> tuple[dict[str, Any], list[bytes]]:
         """Serialize args for the wire, exactly once per logical request (media files are read, and for a
@@ -341,8 +383,8 @@ class ProxyClient:
         *,
         path_key: TablePathKey | None = None,
         snapshot_key: TablePathKey | None = None,
-    ) -> ProxyResponse:
-        """POST one attempt of a prepared request and return the raw response."""
+    ) -> tuple[ProxyResponse, list[bytes]]:
+        """POST one attempt of a prepared request and return the response head with its binary parts."""
         request = ProxyRequest(
             class_name=class_name,
             method=method,
@@ -350,10 +392,9 @@ class ProxyClient:
             path_key=None if path_key is None else path_key.as_dict(),
             snapshot_path_key=None if snapshot_key is None else snapshot_key.as_dict(),
         )
-        response_json, response_parts = self._send(request.model_dump_json(), parts)
-        response = ProxyResponse.model_validate_json(response_json)
-        response._binary_parts = response_parts
-        return response
+        body = encode_body(request.model_dump_json().encode(), parts)
+        response_head, response_parts = decode_body(self._transport.post(body))
+        return json.loads(response_head), response_parts
 
     def send(
         self,
@@ -363,17 +404,18 @@ class ProxyClient:
         *,
         path_key: TablePathKey | None = None,
         snapshot_key: TablePathKey | None = None,
-    ) -> ProxyResponse:
-        """Run class_name.method(**args) on the server and return the raw response."""
+    ) -> tuple[ProxyResponse, list[bytes]]:
+        """Run class_name.method(**args) on the server and return its head with its binary parts."""
         wire_args, parts = self._prepare(args)
         return self._post(class_name, method, wire_args, parts, path_key=path_key, snapshot_key=snapshot_key)
 
     def send_request(self, class_name: str, method: str, args: dict[str, Any]) -> Any:
         """Run a (path-less) catalog method and return its (deserialized) result."""
-        response = self.send(class_name, method, args)
-        if response.error is not None:
-            raise excs.Error.from_dict(response.error)
-        return self._localize_media(proxy_protocol.deserialize_response(response, response.result))
+        response, parts = self.send(class_name, method, args)
+        error = response.get('error')
+        if error is not None:
+            raise excs.Error.from_dict(error)
+        return self._localize_media(proxy_protocol.deserialize_value(response.get('result'), parts))
 
     def dispatch_table_method(
         self,
@@ -388,18 +430,22 @@ class ProxyClient:
         wire_args, parts = self._prepare(args)
         while True:
             snapshot_key = get_snapshot_key()
-            response = self._post('Table', method, wire_args, parts, path_key=path_key, snapshot_key=snapshot_key)
-            if response.current_md is not None:
-                refresh(proxy_protocol.deserialize_response(response, response.current_md))
-            if response.error is not None:
-                raise excs.Error.from_dict(response.error)
-            if response.is_stale_md:
+            response, resp_parts = self._post(
+                'Table', method, wire_args, parts, path_key=path_key, snapshot_key=snapshot_key
+            )
+            current_md = response.get('current_md')
+            if current_md is not None:
+                refresh(proxy_protocol.deserialize_value(current_md, resp_parts))
+            error = response.get('error')
+            if error is not None:
+                raise excs.Error.from_dict(error)
+            if response.get('is_stale_md', False):
                 continue  # server withheld a stale mutation; retry against the refreshed schema
-            return self._localize_media(proxy_protocol.deserialize_response(response, response.result))
+            return self._localize_media(proxy_protocol.deserialize_value(response.get('result'), resp_parts))
 
-    def run_query(self, method: str, query_dict: dict, **extra: Any) -> Any:
-        """Execute a Query method against the hosted catalog."""
-        return self.send_request('Query', method, {'query': query_dict, **extra})
+    def run_query(self, query_dict: dict, **extra: Any) -> Any:
+        """Collect the rows of a query against the hosted catalog."""
+        return self.send_request('Query', 'collect', {'query': query_dict, **extra})
 
     def _localize_media(self, result: Any) -> Any:
         """Resolve any MediaPath in the result to a fetchable daemon URL."""

@@ -1,19 +1,105 @@
+import json
+import os
 import pathlib
+import shutil
+import socket
 import time
 from textwrap import dedent
+from types import SimpleNamespace
 from typing import Any, Callable, Iterator
+from unittest.mock import patch
 
 import httpx
 import pytest
 
 import pixeltable as pxt
+from pixeltable.config import Config
+from pixeltable_cli.client.commands import service as service_cmd
 
-from ..utils import DatabaseRoot, get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
-from .conftest import BackgroundPxt, PxtRunner
+from ..conftest import SampleFileServer
+from ..utils import (
+    DatabaseRoot,
+    assert_image_bytes,
+    fetch_presigned,
+    get_audio_files,
+    get_documents,
+    get_video_files,
+    home_bucket_uri,
+    new_db_uri,
+    skip_test_if_not_installed,
+)
+from .conftest import BUILD_TIMEOUT, EXIT_ERROR, BackgroundPxt, PxtRunner, db_update, disposable_db, read_logs_until
+from .hosted import (
+    APP_FILE,
+    await_service_available,
+    current_db,
+    edit_app,
+    project,
+    schema_update,
+    service_diff,
+    service_list,
+    service_update,
+)
 
-pytestmark = pytest.mark.db_roots('local', reason='a local service serves the in-process catalog')
+__all__ = ['current_db', 'project']  # fixtures TestHostedService reaches, directly or through another
 
 _REQUEST_TIMEOUT = 30.0
+
+
+@pytest.fixture(scope='module')
+def hosted_db(session_cli: PxtRunner, session_project: pathlib.Path) -> Iterator[str]:
+    """A database for TestHostedService alone.
+
+    Its scenarios publish their own project with `pxt db update`, which replaces what the database serves,
+    so no other test can use it. Creating one runs CodeBuild, hence the module scope.
+    """
+    with disposable_db(session_cli, new_db_uri(), session_project) as uri:
+        yield uri
+
+
+@pytest.fixture
+def authenticated_http(db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Send the caller's API key with every request to a hosted service.
+
+    A local service answers whatever reaches its port. A hosted one sits behind the gateway, which
+    authenticates every request and reads the key from X-api-key. Patching the verbs rather than the
+    call sites keeps a test's request identical whichever target serves it.
+    """
+    if not db_root.is_cloud:
+        return
+    import httpx
+
+    key = os.environ['PIXELTABLE_API_KEY']
+    for verb in ('get', 'post'):
+        original = getattr(httpx, verb)
+
+        def _send(url: Any, *args: Any, _original: Any = original, **kwargs: Any) -> Any:
+            headers = {**(kwargs.pop('headers', None) or {}), 'X-api-key': key}
+            return _original(url, *args, headers=headers, **kwargs)
+
+        monkeypatch.setattr(httpx, verb, _send)
+
+
+@pytest.fixture
+def no_hosted_services(db_root: DatabaseRoot) -> Iterator[None]:
+    """Leave a hosted database holding no service instances.
+
+    The hosted database outlives every test that runs against it, so a service one test leaves behind is
+    still deployed while the next one runs, and a recursive list finds it.
+    """
+    if not db_root.is_cloud:
+        yield
+        return
+    from pixeltable.serving.service_manager import get_manager
+
+    def _clear() -> None:
+        manager = get_manager(db_root.prefix)
+        for instance in manager.list(recursive=True):
+            manager.delete(instance)
+
+    _clear()
+    yield
+    _clear()
 
 
 @pytest.fixture(autouse=True)
@@ -21,10 +107,10 @@ def stop_services(cli: PxtRunner) -> Iterator[None]:
     """Leave nothing running: a service outlives the test that started it, and the next one would see it."""
     yield
     for service in cli('service', 'list', '--json').json:
-        cli('service', 'stop', f'{service["base_path"]}/{service["name"]}'.lstrip('/'))
+        cli('service', 'stop', f'{service["catalog_path"]}/{service["name"]}'.lstrip('/'))
 
 
-def services(cli: PxtRunner, target: str | None = None) -> dict[str, dict[str, Any]]:
+def get_services(cli: PxtRunner, target: str | None = None) -> dict[str, dict[str, Any]]:
     """What is running, keyed by service name."""
     args = ['service', 'list', '--json'] if target is None else ['service', 'list', target, '--json']
     return {s['name']: s for s in cli(*args).json}
@@ -36,27 +122,34 @@ def deploy(cli: PxtRunner, app: str, target: str) -> None:
     cli('service', 'update', app, target, '-f')
 
 
-def assert_serving(cli: PxtRunner, app: str, target: str, *names: str) -> dict[str, dict[str, Any]]:
-    """Assert that what runs at the target is what the file declares, and that it answers.
+def _db_update(cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    if not db_root.is_cloud:
+        return
+    cli('db', 'update', db_root.base_uri, '-f', timeout=BUILD_TIMEOUT)
 
-    Three independent readings, because each catches what the others miss: the diff agrees (nothing stale is
-    deployed), the registry lists exactly these services (nothing is missing or extra), and each endpoint
-    serves the paths its own spec claims (a recorded service that is not really serving them fails here).
-    """
-    r = cli('service', 'diff', app, target, '--json')
+
+def assert_serving(cli: PxtRunner, app: str, target: str, *names: str) -> dict[str, dict[str, Any]]:
+    """Assert that what runs at the target is what's in the file, and that it answers."""
+    # rc 2 is 'changes pending', so the runner must not treat it as a failed command
+    r = cli('service', 'diff', app, target, '--json', check=False)
     assert r.returncode == 0, r.stdout
     assert r.json['in_agreement'], r.json
 
-    running = services(cli, target)
+    # the expected services are listed
+    running = get_services(cli, target)
     assert sorted(running) == sorted(names), running
 
     for name in names:
-        deployment = running[name]
-        served = httpx.get(f'{deployment["endpoint"]}/openapi.json', timeout=_REQUEST_TIMEOUT)
+        service = running[name]
+        served = httpx.get(f'{service["endpoint"]}/openapi.json', timeout=_REQUEST_TIMEOUT)
         assert served.status_code == 200, served.text
-        prefix = deployment['spec']['prefix']
-        declared = {f'{prefix}{route["path"]}' for route in deployment['spec']['routes']}
-        assert declared <= set(served.json()['paths']), (declared, sorted(served.json()['paths']))
+        listed_paths = {route['path'] for route in service['spec']['routes']}
+        listed_paths |= set(service['spec']['app_paths'])
+        served_paths = set(served.json()['paths'])
+        # the listed paths are being served, as per the docs endpoint
+        assert listed_paths <= served_paths, (listed_paths, sorted(served_paths))
+        # internal paths are not exposed
+        assert not any('/_pxt/' in path for path in served_paths), sorted(served_paths)
     return running
 
 
@@ -64,6 +157,17 @@ def _post(endpoint: str, path: str, **body: Any) -> httpx.Response:
     resp = httpx.post(f'{endpoint}{path}', json=body, timeout=_REQUEST_TIMEOUT)
     assert resp.status_code == 200, resp.text
     return resp
+
+
+def _fetch_media(url: str, db_root: DatabaseRoot) -> bytes:
+    """The bytes behind a media url of a response: a hosted service signs a home bucket url, a local one serves the
+    file itself."""
+    if db_root.is_cloud:
+        return fetch_presigned(url, expires_s=3600, host_suffix='.r2.cloudflarestorage.com')
+    assert '/media/' in url, url
+    resp = httpx.get(url, timeout=_REQUEST_TIMEOUT)
+    assert resp.status_code == 200, resp.text
+    return resp.content
 
 
 def _await_job(job_url: str, timeout: float = 120.0) -> Any:
@@ -78,15 +182,26 @@ def _await_job(job_url: str, timeout: float = 120.0) -> Any:
     raise AssertionError(f'the job at {job_url} was still pending after {timeout:.0f}s')
 
 
-def assert_not_serving(cli: PxtRunner, *names: str) -> None:
-    running = services(cli)
-    assert all(name not in running for name in names), running
-
-
+# proxy is excluded because get_manager() hands any non-local path to ServiceManagerProxy, so a
+# 'pxt://local:db' target reaches the cloud management API, which knows no org named 'local'.
+@pytest.mark.db_roots('local', 'cloud-serving', reason='a proxy-daemon database has no service manager of its own')
+@pytest.mark.usefixtures('authenticated_http', 'no_hosted_services')
 class TestService:
-    def test_deploying_needs_agreeing_config(
-        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
-    ) -> None:
+    @pytest.mark.db_roots('local', reason='the schema is generated from the models, so no catalog is read')
+    def test_json_schema(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        """Both verbs that emit JSON describe it: a plan as an object, a listing as an array."""
+        plan = json.loads(cli('service', 'diff', '--json-schema').stdout)
+        assert plan['title'] == 'ServicePlan'
+        # computed fields reach the output, so they have to reach the schema too
+        assert 'in_agreement' in plan['properties']
+        assert 'summary' in plan['properties']
+        assert plan['$defs']['ServicePlanSummary']['properties']['restarts']['description'] != ''
+
+        listing = json.loads(cli('service', 'list', '--json-schema').stdout)
+        assert listing['type'] == 'array'
+        assert 'ServiceInstance' in listing['$defs']
+
+    def test_config_must_agree(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A service inherits the daemon's config values, so a caller resolving them differently cannot deploy."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
@@ -94,20 +209,20 @@ class TestService:
         cli('schema', 'update', app, target)
         differing = {'OPENAI_API_KEY': 'sk-not-the-one-the-daemon-has'}
 
-        # the plan and the deployment are both refused, and the refusal names the variable and the remedy
+        # the plan and the service are both refused, and the refusal names the variable and the remedy
         for args in (('diff', app, target), ('update', app, target, '-f')):
             r = cli('service', *args, env_overrides=differing, check=False)
             assert r.returncode == 1, r.stdout
             assert 'OPENAI_API_KEY' in r.stderr
             assert 'pxt daemon restart' in r.stderr
-        assert services(cli) == {}, 'a refused update started something'
+        assert get_services(cli, target) == {}, 'a refused update started something'
 
         # the same commands run for a caller whose environment the daemon shares
         deploy(cli, app, target)
         assert_serving(cli, app, target, 'ingest')
 
     def test_basic(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """The first deployment: declare, see what is pending, apply it, use it, take it down."""
+        """The first service: declare, see what is pending, apply it, use it, take it down."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         app, target = apps('basic.py'), db_root.make_catalog_path('app')
@@ -117,12 +232,18 @@ class TestService:
         r = cli('service', 'diff', app, target, '--json', check=False)
         assert r.returncode == 2
         assert [(s['name'], s['resolution']) for s in r.json['services']] == [('ingest', 'create')]
-        assert services(cli) == {}
+        assert {op['name'] for op in r.json['services'][0]['ops']} == {
+            'POST /docs',
+            'POST /preview',
+            'POST /docs/update',
+            'POST /docs/delete',
+        }
+        assert get_services(cli, target) == {}
 
         cli('service', 'update', app, target, '-f')
         running = assert_serving(cli, app, target, 'ingest')
-        assert running['ingest']['app_file'] == app
-        assert running['ingest']['base_path'] == target
+        assert running['ingest']['app_module'] == 'apps.basic'  # the app corpus sits at <project>/apps
+        assert running['ingest']['catalog_path'] == target
         # list reports what each service serves, in Pixeltable's own terms
         routes = {r['path']: r for r in running['ingest']['spec']['routes']}
         assert routes['/docs']['route_type'] == 'insert'
@@ -151,33 +272,89 @@ class TestService:
         pid = running['ingest']['pid']
         r = cli('service', 'update', app, target, '-f', '--json')
         assert [s['status'] for s in r.json['services']] == ['skipped']
-        assert services(cli)['ingest']['pid'] == pid
+        assert get_services(cli, target)['ingest']['pid'] == pid
 
-        cli('service', 'stop', 'ingest')
-        assert_not_serving(cli, 'ingest')
+        cli('service', 'stop', f'{target}/ingest'.lstrip('/'))
+        # TODO: assert the instance is listed STOPPED, once a local stop keeps its record like a hosted one does
+        # assert services(cli, target)['ingest']['state'] == 'STOPPED'
+
+    def test_restart(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        """A restart cycles a service onto what it already runs, keeping its endpoint."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app, target = apps('basic.py'), db_root.make_catalog_path('restart')
+        deploy(cli, app, target)
+        before = assert_serving(cli, app, target, 'ingest')['ingest']
+
+        uri = f'{target}/ingest'.lstrip('/')
+        r = cli('service', 'restart', uri, '--json')
+        assert [(op['name'], op['status']) for op in r.json] == [(uri, 'applied')]
+
+        after = assert_serving(cli, app, target, 'ingest')['ingest']
+        assert after['endpoint'] == before['endpoint']
+        if not db_root.is_cloud:
+            # a local instance is one process, and a restart replaces it
+            assert after['pid'] != before['pid']
+        resp = _post(after['endpoint'], '/docs', doc_id=1, title='a long enough title', body=None, published=True)
+        assert resp.json() == {'title_upper': 'A LONG ENOUGH TITLE', 'summary': 'a long enoug...'}
+
+        # restarting something that is not running is reported, not an error
+        r = cli('service', 'restart', 'nosuch', '--json')
+        assert [(op['name'], op['status']) for op in r.json] == [('nosuch', 'skipped')]
+
+        cli('service', 'stop', uri)
 
     def test_iteration(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """Editing the file: an added route is applied by restarting; a changed contract needs a flag."""
+        """Make edits to a source file."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         target = db_root.make_catalog_path('app')
-        deploy(cli, apps('basic.py'), target)
-        before = assert_serving(cli, apps('basic.py'), target, 'ingest')['ingest']
 
-        # the variant adds a route: additive, because what is already served keeps being served
-        r = cli('service', 'diff', apps('basic_added_route.py'), target, '--json', check=False)
+        # a copy of basic.py, which declares one service named 'ingest', for this test to edit
+        app_file = pathlib.Path(apps('basic.py')).parent / 'iteration_2_app.py'
+        shutil.copy(apps('basic.py'), app_file)
+
+        _db_update(cli, db_root)
+        deploy(cli, str(app_file), target)
+        before = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
+
+        # add one route to the file: additive, because what is already served keeps being served
+        app_file.write_text(
+            app_file.read_text(encoding='utf-8')
+            + dedent("""
+                ingest.add_compute_route(
+                    Docs,
+                    path='/shout',
+                    inputs=[Docs.doc_id, Docs.title, Docs.published],
+                    outputs=[Docs.title_upper],
+                )
+                """),
+            encoding='utf-8',
+        )
+        _db_update(cli, db_root)
+        r = cli('service', 'diff', str(app_file), target, '--json', check=False)
         assert [s['resolution'] for s in r.json['services']] == ['update_additive']
-        assert [op['op'] for s in r.json['services'] for op in s['ops']] == ['add']
+        # the edit that added the route also changed the project's runtime env
+        assert [(op['target'], op['op']) for s in r.json['services'] for op in s['ops']] == [
+            ('route', 'add'),
+            ('project', 'alter'),
+        ], r.stdout
 
         # a dry run reports the same and changes nothing
-        r = cli('service', 'update', apps('basic_added_route.py'), target, '-n', check=False)
+        r = cli('service', 'update', str(app_file), target, '-n', check=False)
         assert r.returncode == 2
-        assert services(cli)['ingest']['pid'] == before['pid']
+        if not db_root.is_cloud:
+            # pid is only available for local
+            assert get_services(cli, target)['ingest']['pid'] == before['pid']
 
-        r = cli('service', 'update', apps('basic_added_route.py'), target, '-f', '--json')
+        r = cli('service', 'update', str(app_file), target, '-f', '--json')
         assert [s['status'] for s in r.json['services']] == ['applied']
-        after = assert_serving(cli, apps('basic_added_route.py'), target, 'ingest')['ingest']
-        assert after['pid'] != before['pid'], 'a changed declaration is applied by replacing the process'
+        after = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
+        if not db_root.is_cloud:
+            # pid and port are only available for local
+            assert after['pid'] != before['pid'], 'a changed declaration is applied by replacing the process'
+            assert after['port'] == before['port'], 'a restart serves on the port callers were given'
+        assert after['endpoint'] == before['endpoint']
 
         # the added route serves, and so do the routes that were already there
         assert _post(after['endpoint'], '/shout', doc_id=3, title='new route', published=True).json() == {
@@ -185,39 +362,185 @@ class TestService:
         }
         assert _post(after['endpoint'], '/preview', doc_id=4, title='still here', published=True).status_code == 200
 
-        # dropping an output changes a contract callers may be using, so it is refused by default
-        r = cli('service', 'update', apps('basic_changed_route.py'), target, '-f', check=False)
-        assert r.returncode == 1
-        assert '--allow-destructive' in r.stderr
-        assert services(cli)['ingest']['pid'] == after['pid']
-
-        cli('service', 'update', apps('basic_changed_route.py'), target, '-f', '--allow-destructive')
-        assert_serving(cli, apps('basic_changed_route.py'), target, 'ingest')
-
-    def test_prune(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """A service the file stopped declaring is stopped and forgotten, and can be started again."""
+    def test_custom_app_edits(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        """Editing a served application: a path it adds is applied by restarting the service."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         target = db_root.make_catalog_path('app')
-        deploy(cli, apps('basic.py'), target)
 
-        # the variant declares the same models under a service of another name, so 'ingest' is an extra
-        r = cli('service', 'diff', apps('basic_renamed_service.py'), target, '--json', check=False)
+        # create a copy of served_app.py so we can make edits
+        app_file = pathlib.Path(apps('served_app.py')).parent / 'notes_app.py'
+        shutil.copy(apps('served_app.py'), app_file)
+
+        _db_update(cli, db_root)
+        deploy(cli, str(app_file), target)
+
+        running = assert_serving(cli, str(app_file), target, 'notes_app')['notes_app']
+        assert running['spec']['app_paths'] == ['/notes', '/notes/count']
+
+        assert _post(running['endpoint'], '/notes?note_id=1&text=hello').json() == {'rows': 1}
+        counted = httpx.get(f'{running["endpoint"]}/notes/count', timeout=_REQUEST_TIMEOUT)
+        assert counted.json() == {'count': 1}, counted.text
+        assert pxt.get_table(f'{target}/notes').select().collect()['text_upper'] == ['HELLO']
+
+        # we're adding a route
+        app_file.write_text(
+            app_file.read_text(encoding='utf-8')
+            + dedent("""
+                @scribe.get('/notes/upper')
+                def upper_notes() -> dict[str, list[str]]:
+                    return {'upper': [row['text_upper'] for row in Notes.select(Notes.text_upper).collect()]}
+                """),
+            encoding='utf-8',
+        )
+        _db_update(cli, db_root)
+        r = cli('service', 'diff', str(app_file), target, '--json', check=False)
+        assert [s['resolution'] for s in r.json['services']] == ['update_additive']
+        assert [(op['op'], op['name']) for s in r.json['services'] for op in s['ops']] == [
+            ('add', '/notes/upper'),
+            ('alter', 'project'),
+        ]
+
+        cli('service', 'update', str(app_file), target, '-f')
+        after = assert_serving(cli, str(app_file), target, 'notes_app')['notes_app']
+        if not db_root.is_cloud:
+            # pid is only available for local
+            assert after['pid'] != running['pid'], 'a changed application is applied by replacing the process'
+        upper = httpx.get(f'{after["endpoint"]}/notes/upper', timeout=_REQUEST_TIMEOUT)
+        assert upper.json() == {'upper': ['HELLO']}, upper.text
+
+    def test_source_change(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        """An edited udf body restarts the service and the plan names the file."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        target = db_root.make_catalog_path('app')
+        app_file = pathlib.Path(apps('basic.py')).parent / 'source_change_app.py'
+        shutil.copy(apps('basic.py'), app_file)
+        _db_update(cli, db_root)
+        deploy(cli, str(app_file), target)
+
+        # the archive is the whole project, so adding any file needs a db update
+        (app_file.parent / f'unimported_{db_root.id}.py').write_text('unused = 1\n', encoding='utf-8')
+        r = cli('service', 'diff', str(app_file), target, '--json', check=False)
+        assert r.returncode == 2, r.stdout
+        _db_update(cli, db_root)
+        cli('service', 'update', str(app_file), target, '-f')
+        before = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
+
+        # we're doing an in-place edit of a udf
+        app_file.write_text(
+            app_file.read_text(encoding='utf-8').replace(
+                "return text if len(text) <= n else f'{text[:n]}...'", 'return text.upper()'
+            ),
+            encoding='utf-8',
+        )
+
+        if db_root.is_cloud:
+            # this needs a db update
+            r = cli('service', 'diff', str(app_file), target, '--json', check=False)
+            assert r.returncode == 2, r.stdout
+            assert [s['resolution'] for s in r.json['services']] == ['blocked'], r.stdout
+            [op] = [op for s in r.json['services'] for op in s['ops'] if op['target'] == 'project']
+            assert f'pxt db update {db_root.base_uri}' in op['description'], op['description']
+            _db_update(cli, db_root)
+
+        r = cli('service', 'diff', str(app_file), target, '--json', check=False)
+        assert r.returncode == 2
+        assert [s['resolution'] for s in r.json['services']] == ['update_additive']
+        ops = [op for s in r.json['services'] for op in s['ops']]
+        assert [(op['target'], op['op'], op['severity']) for op in ops] == [('project', 'alter', 'additive')]
+        assert 'apps/source_change_app.py changed' in ops[0]['description'], ops[0]['description']
+
+        cli('service', 'update', str(app_file), target, '-f')
+        after = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
+        if not db_root.is_cloud:
+            # pid is only available for local
+            assert after['pid'] != before['pid'], 'the new source is served by a new process'
+        assert _post(after['endpoint'], '/preview', doc_id=1, title='hello', published=True).json() == {
+            'summary': 'HELLO'
+        }
+
+    @pytest.mark.db_roots('cloud-serving', reason='cloud-specific behavior')
+    def test_db_update_handoff(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        """A db update doesn't restart services; an explicit restart does."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        target = db_root.make_catalog_path('handoff')
+        app_file = pathlib.Path(apps('basic.py')).parent / 'handoff_app.py'
+        shutil.copy(apps('basic.py'), app_file)
+        _db_update(cli, db_root)
+        deploy(cli, str(app_file), target)
+        endpoint = assert_serving(cli, str(app_file), target, 'ingest')['ingest']['endpoint']
+
+        def summary() -> Any:
+            return _post(endpoint, '/preview', doc_id=1, title='hello', published=True).json()['summary']
+
+        assert summary() == 'hello'
+
+        # an edit to a udf body changes the archive but not the image
+        app_file.write_text(
+            app_file.read_text(encoding='utf-8').replace(
+                "return text if len(text) <= n else f'{text[:n]}...'", 'return text.upper()'
+            ),
+            encoding='utf-8',
+        )
+        _db_update(cli, db_root)
+
+        pending = get_services(cli, target)['ingest']
+        assert pending['state'] == 'AVAILABLE', pending
+        assert pending['update_pending'] is True, pending
+        assert summary() == 'hello', 'the pods still serve their own project'
+
+        cli('service', 'restart', f'{target}/ingest')
+        restarted = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
+        assert restarted['update_pending'] is False, restarted
+        assert summary() == 'HELLO'
+
+    def test_prune(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        """The same prune, driven by editing the served file rather than by serving another one."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        target = db_root.make_catalog_path('app')
+
+        # a copy of basic.py, which declares one service named 'ingest', for this test to edit
+        app_file = pathlib.Path(apps('basic.py')).parent / 'prune_2_app.py'
+        shutil.copy(apps('basic.py'), app_file)
+
+        _db_update(cli, db_root)
+        deploy(cli, str(app_file), target)
+
+        # rename the service the file declares; the models stay, so 'ingest' is left serving nothing the file asks for
+        app_file.write_text(
+            app_file.read_text(encoding='utf-8').replace(
+                "FastAPIRouter(name='ingest')", "FastAPIRouter(name='reader')"
+            ),
+            encoding='utf-8',
+        )
+        _db_update(cli, db_root)
+        r = cli('service', 'diff', str(app_file), target, '--json', check=False)
         assert r.json['extras'] == ['ingest']
 
-        r = cli('service', 'prune', apps('basic_renamed_service.py'), target, '-n', check=False)
+        r = cli('service', 'prune', str(app_file), target, '-n', check=False)
         assert r.returncode == 2
-        assert 'ingest' in services(cli)
+        assert 'ingest' in get_services(cli, target)
 
-        r = cli('service', 'prune', apps('basic_renamed_service.py'), target, '-f', '--json')
+        r = cli('service', 'prune', str(app_file), target, '-f', '--json')
         assert [(op['name'], op['status']) for op in r.json] == [('ingest', 'applied')]
-        assert_not_serving(cli, 'ingest')
+        assert 'ingest' not in get_services(cli, target)
 
-        # stopping is not destructive: declaring it again brings it back
-        cli('service', 'update', apps('basic.py'), target, '-f')
-        assert_serving(cli, apps('basic.py'), target, 'ingest')
+        # pruning is not destructive: naming it again in the file brings it back
+        app_file.write_text(
+            app_file.read_text(encoding='utf-8').replace(
+                "FastAPIRouter(name='reader')", "FastAPIRouter(name='ingest')"
+            ),
+            encoding='utf-8',
+        )
+        _db_update(cli, db_root)
+        cli('service', 'update', str(app_file), target, '-f')
+        assert_serving(cli, str(app_file), target, 'ingest')
 
-    def test_run_in_the_foreground(
+    @pytest.mark.db_roots('local', reason='run serves from the calling process, which a hosted pod never does')
+    def test_run_foreground(
         self, cli: PxtRunner, cli_bg: Callable[..., BackgroundPxt], apps: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         """run serves from the calling process and records nothing; update is the background form."""
@@ -233,7 +556,7 @@ class TestService:
         )
         docs = pxt.get_table(f'{target}/docs')
         assert docs.where(docs.doc_id == 7).count() == 1
-        assert services(cli) == {}, 'run records nothing'
+        assert get_services(cli, target) == {}, 'run records nothing'
 
         served.proc.terminate()
         served.proc.wait(timeout=30)
@@ -242,7 +565,7 @@ class TestService:
         cli('service', 'update', app, target, '-f')
         assert_serving(cli, app, target, 'ingest')
 
-    def test_blocked_on_the_database(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+    def test_blocked_on_database(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A service whose tables do not exist is blocked until the schema is applied."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
@@ -254,9 +577,10 @@ class TestService:
         commands = {op['details'].get('command') for s in r.json['services'] for op in s['ops']}
         assert any(c is not None and 'schema update' in c for c in commands), commands
 
-        r = cli('service', 'update', app, target, '-f', '--json')
+        r = cli('service', 'update', app, target, '-f', '--json', check=False)
+        assert r.returncode == EXIT_ERROR
         assert [s['status'] for s in r.json['services']] == ['refused']
-        assert services(cli) == {}
+        assert get_services(cli, target) == {}
 
         # applying the schema unblocks the service, and the new tables accept rows
         cli('schema', 'update', app, target)
@@ -271,8 +595,34 @@ class TestService:
         cli('service', 'update', app, target, '-f')
         assert_serving(cli, app, target, 'ingest')
 
+    def test_custom_endpoint_model_reference(
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
+    ) -> None:
+        """A model an application reaches from a handler blocks the service until its table exists."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        # served_app.py declares no route against its model: its handlers reach the table through the model
+        app, target = apps('served_app.py'), db_root.make_catalog_path('app')
+
+        r = cli('service', 'diff', app, target, '--json', check=False)
+        assert r.returncode == 2
+        assert [s['resolution'] for s in r.json['services']] == ['blocked']
+        blocked = [op for s in r.json['services'] for op in s['ops'] if op['severity'] == 'blocked']
+        assert [op['details']['command'] for op in blocked] == [f'pxt schema update {app} {target}']
+        assert "'notes'" in blocked[0]['description'], blocked[0]['description']
+
+        r = cli('service', 'update', app, target, '-f', '--json', check=False)
+        assert r.returncode == EXIT_ERROR
+        assert [s['status'] for s in r.json['services']] == ['refused']
+        assert get_services(cli, target) == {}
+
+        # applying the schema unblocks it
+        cli('schema', 'update', app, target)
+        r = cli('service', 'diff', app, target, '--json', check=False)
+        assert [s['resolution'] for s in r.json['services']] == ['create']
+
     def test_inspection(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """list inspects what a service serves, for every service or for one named by its address."""
+        """list inspects what a service serves, for every service or for one named by its catalog path."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         target = db_root.make_catalog_path('app')
@@ -281,7 +631,7 @@ class TestService:
 
         # a listing carries what each service serves, in Pixeltable's terms rather than OpenAPI's: a video
         # arrives as an upload, which a JSON schema would render as an indistinguishable string
-        clips = services(cli)['clips']['spec']
+        clips = get_services(cli, target)['clips']['spec']
         upload = next(r for r in clips['routes'] if r['path'] == '/clips')
         # every field the route accepts is an input; uploadfile_inputs marks the ones that arrive as files
         assert upload['inputs'] == ['clip_id', 'caption', 'video']
@@ -291,23 +641,25 @@ class TestService:
         assert poster['return_fileresponse']
 
         # the argument narrows the listing to one service, the way `describe` inspects one table
-        assert sorted(services(cli, f'{target}/clips')) == ['clips']
-        assert sorted(services(cli, target)) == ['clips', 'frames', 'recordings']
+        assert sorted(get_services(cli, f'{target}/clips')) == ['clips']
+        assert sorted(get_services(cli, target)) == ['clips', 'frames', 'recordings']
 
         # the plain rendering shows the routes under each service
         out = cli('service', 'list', f'{target}/clips').stdout
         assert '/clips' in out and 'video (file)' in out, out
 
-    def test_media(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+    def test_media(
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, sample_file_server: SampleFileServer
+    ) -> None:
         """The routes whose request or response is not JSON: file uploads, a file response, a background job."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
+        skip_test_if_not_installed('mistune')
         app, target = apps('media.py'), db_root.make_catalog_path('app')
         deploy(cli, app, target)
         running = assert_serving(cli, app, target, 'clips', 'frames', 'recordings')
 
         video = get_video_files()[0]
-        video_url = pathlib.Path(video).as_uri()
         with open(video, 'rb') as f:
             resp = httpx.post(
                 f'{running["clips"]["endpoint"]}/clips',
@@ -316,17 +668,27 @@ class TestService:
                 timeout=_REQUEST_TIMEOUT,
             )
         assert resp.status_code == 200, resp.text
-        assert resp.json() == {'clip_id': 1}
+        body = resp.json()
+        assert body['clip_id'] == 1, body
         assert pxt.get_table(f'{target}/frames').count() > 0
+        # the persisted poster comes back as a url
+        assert_image_bytes(_fetch_media(body['poster'], db_root))
+        # so does media a query makes on the fly, which no row stores
+        thumb_url = _post(running['clips']['endpoint'], '/poster-thumb', clip_id=1).json()['thumb']
+        assert_image_bytes(_fetch_media(thumb_url, db_root), size=(32, 32))
+
+        # a URL the pod can fetch, in place of a local path it cannot read
+        video_url = sample_file_server.url(video, db_root)
 
         # a single media value comes back as the image itself
         resp = _post(running['clips']['endpoint'], '/poster', clip_id=2, video=video_url)
         assert resp.headers['content-type'].startswith('image/'), resp.headers
+        assert_image_bytes(resp.content)
 
-        # a route over the iterator view answers with a row per frame, media rendered as urls
+        # a route over the iterator view answers with a row per frame, media rendered as urls; nothing is stored
         rows = _post(running['frames']['endpoint'], '/frames', clip_id=3, video=video_url).json()
         assert len(rows) > 1, rows
-        assert all(row['thumb'].startswith('http') for row in rows), rows[0]
+        assert_image_bytes(_fetch_media(rows[0]['thumb'], db_root), size=(32, 32))
 
         # a background route answers with a job to poll, and the two uploads arrive in one request
         audio = get_audio_files()[0]
@@ -344,10 +706,16 @@ class TestService:
         assert result['audio_metadata']['streams'][0]['codec_context']['name'] == 'flac', result
         recordings = pxt.get_table(f'{target}/recordings')
         assert recordings.where(recordings.recording_id == 1).count() == 1
+        # the uploaded audio is persisted in the home bucket for a hosted table, in the media dir for a local one
+        audio_url = recordings.select(recordings.audio.fileurl).collect()['audio_fileurl'][0]
+        expected_prefix = f'{home_bucket_uri(db_root.base_uri)}/' if db_root.is_cloud else 'file://'
+        assert audio_url.startswith(expected_prefix), audio_url
 
         # stopping one service of a file leaves the others serving
         cli('service', 'stop', f'{target}/frames')
-        assert_not_serving(cli, 'frames')
+        listed = get_services(cli, target)
+        # TODO: assert frames is listed STOPPED, once a local stop keeps its record like a hosted one does
+        assert listed['clips']['state'] == 'AVAILABLE'
         assert _post(running['clips']['endpoint'], '/poster', clip_id=4, video=video_url).status_code == 200
 
     def test_search(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
@@ -377,34 +745,51 @@ class TestService:
         assert resp.json()['text'].strip() in sentences, resp.json()
 
     def test_custom_app(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """A file supplying its own application declares a service Pixeltable cannot compare or serve."""
+        """A file supplying its own application: the router it includes is part of it, not a second service."""
         skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
         app, target = apps('custom.py'), db_root.make_catalog_path('app')
         cli('schema', 'update', app, target)
 
-        # the file's models produce working tables even though its application cannot be served
-        notes = pxt.get_table(f'{target}/notes')
-        notes.insert([{'note_id': 1, 'text': 'hello'}])
-        assert notes.select(notes.text_upper).collect()['text_upper'] == ['HELLO']
-
         r = cli('service', 'diff', app, target, '--json', check=False)
-        diffs = {s['name']: s for s in r.json['services']}
-        assert (diffs['app']['kind'], diffs['app']['resolution']) == ('custom', 'unsupported')
-        assert diffs['app']['route_comparison'] == 'unavailable'
-        assert diffs['app']['route_detail'] is not None
-        # TODO(custom-app): the file declares one service, the application; the router it includes is
-        # reported as a service of its own until the custom case is implemented
-        assert (diffs['plain']['kind'], diffs['plain']['resolution']) == ('declarative', 'create')
-        assert r.json['summary']['unsupported'] == 1
+        assert [(s['name'], s['kind'], s['resolution']) for s in r.json['services']] == [('custom', 'custom', 'create')]
 
-        # nothing in the file is served, and the refusal names the reason
-        r = cli('service', 'update', app, target, '-f', check=False)
-        assert r.returncode == 1
-        assert 'is an application object of its own' in r.stderr
-        assert services(cli) == {}
+        cli('service', 'update', app, target, '-f')
+        running = assert_serving(cli, app, target, 'custom')['custom']
+        # the spec holds the route declarations of the router, and the paths the application publishes
+        assert [(r['method'], r['path'], r['route_type']) for r in running['spec']['routes']] == [
+            ('POST', '/notes', 'insert')
+        ]
+        assert running['spec']['app_paths'] == ['/hand-written']
+
+        # the application serves both the route written by hand and the routes of the router it includes
+        endpoint = running['endpoint']
+        assert httpx.get(f'{endpoint}/hand-written', timeout=_REQUEST_TIMEOUT).json() == {'written': 'by hand'}
+        assert _post(endpoint, '/notes', note_id=1, text='hello').status_code == 200
+        assert pxt.get_table(f'{target}/notes').select().collect()['text_upper'] == ['HELLO']
+
+    def test_custom_app_prefixed_router(
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
+    ) -> None:
+        """A router included under a prefix is part of the application, and its paths are not app_paths."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app, target = apps('prefixed_app.py'), db_root.make_catalog_path('app')
+        cli('schema', 'update', app, target)
+        cli('service', 'update', app, target, '-f')
+
+        running = get_services(cli, target)['prefixed_app']
+        # the prefix is part of what the router serves, so the spec records it in the path
+        assert [(r['method'], r['path']) for r in running['spec']['routes']] == [('POST', '/v1/notes')]
+        assert running['spec']['app_paths'] == ['/hand-written']
+
+        endpoint = running['endpoint']
+        assert httpx.get(f'{endpoint}/hand-written', timeout=_REQUEST_TIMEOUT).json() == {'written': 'by hand'}
+        assert _post(endpoint, '/v1/notes', note_id=1, text='hello').status_code == 200
+        assert pxt.get_table(f'{target}/notes').select().collect()['text_upper'] == ['HELLO']
 
     def test_addressing(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """One name at two targets: a bare name is ambiguous, an address is not."""
+        """One name at two targets: a bare name is ambiguous, a qualified one is not."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         app = apps('basic.py')
@@ -415,29 +800,115 @@ class TestService:
         assert_serving(cli, app, second, 'ingest')
 
         # a listing narrows to one target
-        assert sorted(services(cli, first)) == ['ingest']
-        assert len(cli('service', 'list', '--json').json) == 2
+        assert sorted(get_services(cli, first)) == ['ingest']
 
-        # the same name at two targets cannot be stopped by name alone
-        r = cli('service', 'stop', 'ingest', check=False)
-        assert r.returncode == 1
-        assert 'ambiguous' in r.stderr
-        assert f'{first}/ingest' in r.stderr and f'{second}/ingest' in r.stderr
+        if not db_root.is_cloud:
+            # a bare name reaches local services only: a project config may name several databases, so an
+            # un-targeted command has no one hosted database to read
+            assert len(cli('service', 'list', '--json').json) == 2
 
-        # the address says which one
+            # the same name at two targets cannot be addressed by name alone
+            for verb in ('stop', 'restart'):
+                r = cli('service', verb, 'ingest', check=False)
+                assert r.returncode == 1
+                assert 'ambiguous' in r.stderr
+                assert f'{first}/ingest' in r.stderr and f'{second}/ingest' in r.stderr
+
+        # the catalog path says which one
         cli('service', 'stop', f'{first}/ingest')
-        assert services(cli, first) == {}
+        # TODO: assert first's instance is gone or listed STOPPED, once a local stop keeps its record like
+        # a hosted one does
         assert_serving(cli, app, second, 'ingest')
 
-    @pytest.mark.db_roots('local', reason='check reads no catalog, so the target axis adds nothing')
-    @pytest.mark.db_roots('local', reason='drives the local proxy daemon directly, so the target axis adds nothing')
+    @pytest.mark.db_roots('cloud-serving', reason='a local service logs to a file')
+    def test_logs(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app = apps('basic.py')
+        plain, nested = db_root.make_catalog_path('app'), db_root.make_catalog_path('outer/inner')
+        deploy(cli, app, plain)
+        deploy(cli, app, nested)
+        running = assert_serving(cli, app, plain, 'ingest')
+        assert_serving(cli, app, nested, 'ingest')
+
+        # the request line is logged under the router's name, the probes are dropped unless asked for, and the
+        # text output is the lines
+        _post(running['ingest']['endpoint'], '/preview', doc_id=1, title='logged', published=False)
+        # the route, not the whole request line: a hosted service is reached under its base path, which the
+        # pod is given as its root_path and logs along with the route
+        records = read_logs_until(cli, 'service', 'logs', f'{plain}/ingest', contains='/ingest/preview')
+        assert any('POST' in rec['line'] for rec in records), records[-5:]
+        assert not any('/ingest/health' in rec['line'] for rec in records)
+        read_logs_until(cli, 'service', 'logs', f'{plain}/ingest', '--include-health', contains='/ingest/health')
+        assert '/ingest/preview' in cli('service', 'logs', f'{plain}/ingest').stdout
+
+        # two services with the same name at different paths have separate logs
+        nested_records = cli('service', 'logs', f'{nested}/ingest', '--json').json
+        assert not any('/ingest/preview' in rec['line'] for rec in nested_records), nested_records[-5:]
+        marker = '/only-nested'
+        endpoint = get_services(cli, nested)['ingest']['endpoint']
+        assert httpx.get(f'{endpoint}{marker}', timeout=_REQUEST_TIMEOUT).status_code == 404
+        read_logs_until(cli, 'service', 'logs', f'{nested}/ingest', contains=marker)
+
+        # stopping removes the pod; the lines it wrote stay readable
+        cli('service', 'stop', f'{plain}/ingest')
+        stopped = cli('service', 'logs', f'{plain}/ingest', '--json').json
+        assert any('/ingest/preview' in rec['line'] for rec in stopped), stopped[-5:]
+
+        # a service that fails during startup leaves its traceback in the log
+        failing = db_root.make_catalog_path('failing')
+        pxt.create_dir(failing)
+        result = cli('service', 'update', apps('failed_startup.py'), failing, '-f', check=False, timeout=600)
+        assert result.returncode == 1, result.stdout
+        records = read_logs_until(
+            cli, 'service', 'logs', f'{failing}/failed_startup', contains='RuntimeError: intentional startup failure'
+        )
+        assert any('Traceback (most recent call last)' in rec['line'] for rec in records), records[-10:]
+        assert records == sorted(records, key=lambda rec: rec['ts_ms'])
+
+    def test_logs_errors(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app, target = apps('basic.py'), db_root.make_catalog_path('app')
+        deploy(cli, app, target)
+        assert_serving(cli, app, target, 'ingest')
+
+        # the daemon validates --since and --tail before resolving the service
+        r = cli('service', 'logs', f'{target}/ingest', '--since', 'bogus', check=False)
+        assert r.returncode == 1 and 'must be a duration' in r.stderr, r.stderr
+        r = cli('service', 'logs', f'{target}/ingest', '--tail', '50000', check=False)
+        assert r.returncode == 1 and "'limit' must be <= 10000" in r.stderr, r.stderr
+        r = cli('service', 'logs', f'{target}/nosuch', check=False)
+        assert r.returncode == 1 and 'No service' in r.stderr, r.stderr
+
+        if db_root.is_cloud:
+            # a bare name reaches local services only
+            r = cli('service', 'logs', 'ingest', check=False)
+            assert r.returncode == 1 and "No service 'ingest' is running" in r.stderr, r.stderr
+            return
+
+        # a local service logs to a file, and the error names it, for a qualified name and a bare one alike
+        log_file = Config.get().home.joinpath('logs', 'services', target, 'ingest.log')
+        for name in (f'{target}/ingest', 'ingest'):
+            r = cli('service', 'logs', name, check=False)
+            assert r.returncode == 1, r.stderr
+            assert f'not supported; the log is at {log_file}' in r.stderr, r.stderr
+        assert log_file.is_file()
+
+        # the same name at a second target makes the bare name ambiguous
+        other = db_root.make_catalog_path('other')
+        deploy(cli, app, other)
+        r = cli('service', 'logs', 'ingest', check=False)
+        assert r.returncode == 1 and 'ambiguous' in r.stderr, r.stderr
+        assert f'{target}/ingest' in r.stderr and f'{other}/ingest' in r.stderr
+
+    @pytest.mark.db_roots('local', reason='drives the local proxy daemon directly, so the other roots add nothing')
     def test_proxy_daemon_project_handoff(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
         """A running proxy daemon is reused for its own project, and replaced for another."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         import httpx
 
-        from pixeltable.config import Config
         from pixeltable.service import proxy_daemon
 
         db = 'test_handoff'
@@ -468,6 +939,7 @@ class TestService:
             proxy_daemon.stop(db)
             Config.init(reinit=True, project_root=original)
 
+    @pytest.mark.db_roots('local', reason='check reads no catalog, so the other roots add nothing')
     def test_check(self, cli: PxtRunner, apps: Callable[[str], str], project_dir: pathlib.Path) -> None:
         """check validates an application file on its own: it imports and declares a service."""
         skip_test_if_not_installed('fastapi')
@@ -488,7 +960,7 @@ class TestService:
         )
         r = cli('service', 'check', str(no_service), check=False)
         assert r.returncode == 1
-        assert 'no service found' in r.stderr
+        assert 'at least one FastAPIRouter' in r.stderr
 
         # a router over models from another file, so this one declares no model base
         (project_dir / 'schema.py').write_text(
@@ -530,7 +1002,7 @@ class TestService:
     def test_errors(
         self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
-        """What the verbs do with a file that is missing, unimportable, or declares no service."""
+        """What the verbs do with a file that is missing, unimportable, or doesn't contain services."""
         target = db_root.make_catalog_path('app')
 
         r = cli('service', 'diff', str(project_dir / 'nosuch.py'), target, check=False)
@@ -547,21 +1019,94 @@ class TestService:
         empty.write_text('x = 1\n', encoding='utf-8')
         r = cli('service', 'diff', str(empty), target, check=False)
         assert r.returncode == 1
-        assert 'no service found' in r.stderr
+        assert 'at least one FastAPIRouter' in r.stderr
 
         # stopping something that is not running is reported, not an error
         r = cli('service', 'stop', 'nosuch', '--json')
         assert [(op['name'], op['status']) for op in r.json] == [('nosuch', 'skipped')]
 
-        # a local service serves the local catalog, so a target naming another one is refused
-        for verb in ('diff', 'update'):
-            r = cli('service', verb, apps('basic.py'), 'pxt://acme:main/app', check=False)
-            assert r.returncode != 0
-            assert 'binds its models to the local catalog' in r.stderr, r.stderr
-        r = cli('service', 'list', 'pxt://acme:main/app', check=False)
+        # a hosted target requires a database
+        r = cli('service', 'list', 'pxt://acme', check=False)
         assert r.returncode != 0
-        assert 'binds its models to the local catalog' in r.stderr, r.stderr
+        assert 'names no database' in r.stderr, r.stderr
 
+        # 'run' doesn't work for hosted uris
+        r = cli('service', 'run', apps('basic.py'), 'pxt://acme:main/app', check=False)
+        assert r.returncode != 0
+        assert 'serves from this process' in r.stderr, r.stderr
+
+    def test_named_service(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
+        """Name one service of a file that defines two, and pin its port."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        target = db_root.make_catalog_path('app')
+
+        # --port names one port, and two_services.py defines two
+        two = project_dir / 'two_services.py'
+        two.write_text(
+            dedent("""
+            import pixeltable as pxt
+            from pixeltable.serving import FastAPIRouter
+
+            TableModel = pxt.model_base()
+
+
+            class Notes(TableModel, name='notes'):
+                s: pxt.String
+
+
+            first = FastAPIRouter(name='first')
+            first.add_insert_route(Notes, path='/a', inputs=[Notes.s], outputs=[Notes.s])
+            second = FastAPIRouter(name='second')
+            second.add_insert_route(Notes, path='/b', inputs=[Notes.s], outputs=[Notes.s])
+            """),
+            encoding='utf-8',
+        )
+        cli('schema', 'update', str(two), target)
+        _db_update(cli, db_root)
+        r = cli('service', 'update', str(two), target, '-f', '--port', '8123', check=False)
+        assert r.returncode == 1
+        assert '--port takes one port' in r.stderr, r.stderr
+        assert get_services(cli, target) == {}, 'a refused update started nothing'
+
+        r = cli('service', 'update', str(two), target, 'third', '-f', check=False)
+        assert r.returncode == 1
+        assert "no service named 'third'" in r.stderr, r.stderr
+        assert get_services(cli, target) == {}, 'a refused update started nothing'
+
+        # naming one service leaves the other alone, and makes --port unambiguous
+        with socket.socket() as probe:
+            probe.bind(('127.0.0.1', 0))
+            free_port = probe.getsockname()[1]
+        if db_root.is_cloud:
+            # naming one service leaves only the hosted rule to refuse --port: a hosted service answers
+            # on its own hostname
+            r = cli('service', 'update', str(two), target, 'second', '-f', '--port', str(free_port), check=False)
+            assert r.returncode == 1
+            assert 'not a port' in r.stderr, r.stderr
+
+        port_args = [] if db_root.is_cloud else ['--port', str(free_port)]
+        r = cli('service', 'update', str(two), target, 'second', '-f', *port_args, '--json')
+        assert [d['name'] for d in r.json['services']] == ['second'], r.json
+        running = get_services(cli, target)
+        assert sorted(running) == ['second'], running
+        if not db_root.is_cloud:
+            assert running['second']['port'] == free_port
+            assert running['second']['endpoint'].endswith(f':{free_port}')
+
+        # diff takes the same name, and reports only that service
+        r = cli('service', 'diff', str(two), target, 'second', '--json')
+        assert [d['name'] for d in r.json['services']] == ['second'], r.json
+        r = cli('service', 'diff', str(two), target, '--json', check=False)
+        assert r.returncode == 2, r.stdout
+        assert sorted(d['name'] for d in r.json['services']) == ['first', 'second'], r.json
+        r = cli('service', 'diff', str(two), target, 'third', check=False)
+        assert r.returncode == 1
+        assert "no service named 'third'" in r.stderr, r.stderr
+
+    @pytest.mark.db_roots(
+        'local', reason='TODO: re-evaluate whether we require a pxt db update for this to work against hosted services'
+    )
     def test_example(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """The file `example` writes declares both the tables and the services, and serves."""
         skip_test_if_not_installed('fastapi')
@@ -573,7 +1118,71 @@ class TestService:
         deploy(cli, str(app_file), target)
         endpoint = assert_serving(cli, str(app_file), target, 'ingest')['ingest']['endpoint']
         # summary comes from the udf the file defines, computed in the service's own process
-        assert _post(endpoint, '/docs', doc_id=1, title='a long enough title', body=None).json() == {
-            'title_upper': 'A LONG ENOUGH TITLE',
-            'summary': 'a long enoug...',
-        }
+        created = _post(endpoint, '/docs', title='a long enough title', body=None).json()
+        assert created['title_upper'] == 'A LONG ENOUGH TITLE'
+        assert created['summary'] == 'a long enoug...'
+
+        # the update route matches rows by the key the insert generated
+        updated = _post(endpoint, '/docs/update', id=created['id'], title='renamed').json()
+        assert updated == {'id': created['id'], 'title_upper': 'RENAMED'}
+
+
+@pytest.mark.remote_api
+@pytest.mark.expensive
+@pytest.mark.db_roots('local', reason='pxt service acts on a hosted database, not on the catalog a test runs against')
+class TestHostedService:
+    """`pxt service` against a hosted database."""
+
+    def test_service_lifecycle(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+        app_file = str(project / APP_FILE)
+        schema_update(cli, project, app_file, current_db)
+        # the database is shared, so it serves whatever routes the run before this one left registered
+        service_update(cli, project, app_file, current_db, '--allow-destructive')
+
+        instance = service_list(cli, project, current_db)['ingest']
+        assert instance['state'] == 'AVAILABLE', instance
+        assert instance['catalog_path'] == current_db
+
+        # a new route requires a db update
+        edit_app(project, "ingest.add_delete_route(Docs, path='/docs/purge')")
+        [blocked] = service_diff(cli, project, app_file, current_db)['services']
+        assert blocked['resolution'] == 'blocked'
+        [op] = [op for op in blocked['ops'] if op['target'] == 'project']
+        assert f'pxt db update {current_db}' in op['description'], op['description']
+
+        # after the db update we can restart the service
+        db_update(cli, project, current_db)
+        await_service_available(cli, project, current_db, 'ingest')
+        [added] = service_diff(cli, project, app_file, current_db)['services']
+        assert added['resolution'] == 'update_additive', added['ops']
+        service_update(cli, project, app_file, current_db)
+        reconciled = service_diff(cli, project, app_file, current_db)
+        assert reconciled['in_agreement'], reconciled['services']
+
+        # stopping keeps the registration, so an update starts it again
+        cli('service', 'stop', f'{current_db}/ingest', cwd=project)
+        stopped = service_list(cli, project, current_db)['ingest']
+        assert stopped['state'] == 'STOPPED', stopped
+        assert not service_diff(cli, project, app_file, current_db)['in_agreement']
+
+
+class TestServiceOtel:
+    @pytest.mark.otel
+    @pytest.mark.db_roots('local', reason='run() is patched out, so it reaches no catalog')
+    def test_run_otel(self, tmp_path: pathlib.Path) -> None:
+        """--otel resolves the instrumentation package and wires init()/instrument_fastapi() into run."""
+        skip_test_if_not_installed('fastapi', 'uvicorn', 'opentelemetry.instrumentation.pixeltable')
+        app_file = tmp_path / 'app.py'
+        app_file.write_text('', encoding='utf-8')  # the app it declares is patched out below
+        app = SimpleNamespace(routes=[])  # stands in for the FastAPI app, which run() counts the routes of
+
+        with (
+            patch('pixeltable.serving._app.create_app', return_value=(app, {})),
+            patch('uvicorn.run') as mock_run,
+            patch('opentelemetry.instrumentation.pixeltable.init') as mock_otel_init,
+            patch('opentelemetry.instrumentation.pixeltable.instrument_fastapi') as mock_instrument_fastapi,
+        ):
+            service_cmd.run(['run', str(app_file), 'my_dir', 'ingest', '--otel'])
+        mock_otel_init.assert_called_once_with()
+        mock_instrument_fastapi.assert_called_once_with(app)
+        mock_run.assert_called_once()

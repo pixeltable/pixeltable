@@ -13,7 +13,7 @@ from ..utils import get_request, post_request
 
 EPILOG = """\
 Examples:
-  pxt secret list pxt://myorg
+  pxt secret list
   pxt secret list pxt://myorg:mydb
   pxt secret set  pxt://myorg OPENAI_API_KEY=sk-... ANTHROPIC_API_KEY=sk-...
   pxt secret delete pxt://myorg:mydb OLD_KEY STALE_KEY
@@ -21,20 +21,29 @@ Examples:
 An org secret applies to every database in the org; a database secret applies to that database and
 wins on a key collision.
 
-Changes do not reach a running database. Run `pxt db stop` then `pxt db start`, or
-`pxt db update-runtime`, to pick them up.
+After a `pxt secret set` or `pxt secret delete`, run `pxt db restart` to pick up the changes for a hosted database's
+tables and `pxt service restart` to do the same for its services.
+"""
+
+SET_EPILOG = """\
+Examples:
+  pxt secret set pxt://myorg OPENAI_API_KEY=sk-...
+  pxt secret set pxt://myorg:mydb OPENAI_API_KEY=sk-... ANTHROPIC_API_KEY=sk-...
+
+A process reads its secrets once, at startup, so a running one keeps the values it began with. Run
+`pxt db restart` for a hosted database's tables and `pxt service restart` for its services.
 """
 
 
 def run(argv: list[str]) -> None:
-    parser = Parser(prog='pxt secret', description='manage runtime secrets', epilog=EPILOG)
+    parser = Parser(prog='pxt secret', description="manage a database's secrets", epilog=EPILOG)
     sub = parser.add_subparsers(dest='action', required=True)
 
     p = sub.add_parser('list', help='list secret names in a scope (never their values)')
-    p.add_argument('uri', help='Scope URI: pxt://org or pxt://org:db')
+    p.add_argument('uri', nargs='?', help='Scope URI: pxt://org or pxt://org:db')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
-    p = sub.add_parser('set', help='add or replace secrets')
+    p = sub.add_parser('set', help='add or replace secrets (restart to pick them up)', epilog=SET_EPILOG)
     p.add_argument('uri', help='Scope URI: pxt://org or pxt://org:db')
     p.add_argument('assignments', nargs='+', metavar='KEY=VALUE')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
@@ -85,10 +94,12 @@ def _print_keys(keys: list[str], json_output: bool) -> None:
 
 
 def _list(args: argparse.Namespace) -> None:
-    org, db = _scope(args.uri, 'pxt secret list')
-    params = {'org': org}
-    if db is not None:
-        params['db'] = db
+    params = {}
+    if args.uri is not None:
+        org, db = _scope(args.uri, 'pxt secret list')
+        params['org'] = org
+        if db is not None:
+            params['db'] = db
     resp = get_request('/api/secrets', params)
     _print_keys(resp.get('keys', []) if isinstance(resp, dict) else [], args.json_output)
 

@@ -228,7 +228,7 @@ class Table(SchemaObject):
         columns, use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
 
         The format of the `schema` argument is a dict mapping column names to their types. A bare type such as
-        `pxt.Int` declares a non-nullable column; use `pxt.Int | None` to allow nulls. Note that a column added
+        `pxt.Int` defines a non-nullable column; use `pxt.Int | None` to allow nulls. Note that a column added
         to a table that already has rows must be nullable.
 
         Args:
@@ -457,6 +457,43 @@ class Table(SchemaObject):
 
             >>> tbl = pxt.create_table('my_table', {'col': pxt.String})
             ... tbl.alter_column('col', type_=pxt.String | None)
+        """
+
+    @abc.abstractmethod
+    def alter_computed_column(
+        self, *, recompute: bool = True, cascade: bool = True, **kwargs: 'exprs.Expr'
+    ) -> UpdateStatus:
+        """Change the value expression of a computed column.
+
+        The new expression must have the same column type as the current one. It can reference any column of this
+        table or of one of its ancestors, as long as there are no dependency cycles.
+
+        Args:
+            kwargs: Exactly one keyword argument of the form `col_name=expression`.
+            recompute: If `True`, the stored values of the column are recomputed. If `False`, they remain those
+                produced by the previous expression, and are stale until the column is recomputed with
+                [`recompute_columns()`][pixeltable.Table.recompute_columns].
+            cascade: If `True`, computed columns and views that transitively depend on this column are recomputed
+                as well; if `False`, they retain their current values. Only applies if `recompute` is `True`.
+
+        Returns:
+            An [`UpdateStatus`][pixeltable.UpdateStatus] describing the recompute; rows that raise during
+            evaluation are recorded as cell errors and counted in `num_excs`.
+
+        Raises:
+            Error: If the column does not exist, is not a computed column, belongs to a base table, or if the new
+            expression has a different column type or creates a dependency cycle.
+
+        Examples:
+            Change a computed column to use a different scaling factor:
+
+            >>> tbl = pxt.create_table('my_table', {'n': pxt.Int})
+            >>> tbl.add_computed_column(scaled=tbl.n * 2)
+            >>> tbl.alter_computed_column(scaled=tbl.n * 3)
+
+            Update the definition without recomputing the existing rows:
+
+            >>> tbl.alter_computed_column(scaled=tbl.n * 4, recompute=False)
         """
 
     @abc.abstractmethod
@@ -959,6 +996,7 @@ class Table(SchemaObject):
         from .column import Column
 
         for name, spec in schema.items():
+            Column.validate_name(name)
             if isinstance(spec, dict):
                 Column._validate_column_spec(name, spec)
 

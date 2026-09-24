@@ -18,7 +18,7 @@ _logger = logging.getLogger(__name__)
 _console_logger = ConsoleLogger(_logger)
 
 # current version of the metadata; this is incremented whenever the metadata schema changes
-VERSION = 55
+VERSION = 56
 
 
 def create_system_info(engine: sql.engine.Engine) -> None:
@@ -75,7 +75,9 @@ def upgrade_md(engine: sql.engine.Engine) -> None:
             if md_version == VERSION:
                 return
             if md_version not in converter_cbs:
-                raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No metadata converter for version {md_version}')
+                raise excs.InternalError(
+                    excs.ErrorCode.INTERNAL_ERROR, f'No metadata converter for version {md_version}'
+                )
             # We can't use the console logger in Env, because Env might not have been initialized yet.
             _console_logger.info(f'Converting metadata from version {md_version} to {md_version + 1}')
             # Run the converter and the version bump on the session's connection so they commit atomically.

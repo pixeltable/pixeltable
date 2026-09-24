@@ -1,21 +1,21 @@
-"""Resolution of a model's declarations into the catalog objects a table is created and altered from."""
+"""Resolution of a model's definitions into the catalog objects a table is created and altered from."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Mapping, TypedDict
+from typing import TYPE_CHECKING, Literal, Mapping, NamedTuple, TypedDict
 from uuid import UUID
 
 from pixeltable import catalog, exceptions as excs, exprs, func, index
 from pixeltable.types import ColumnSpec
 
-from ..globals import MediaValidation
+from ..globals import MediaValidation, fold_mapping_keys
 from ..table_version_handle import TableVersionHandle
 
 if TYPE_CHECKING:
     import pixeltable as pxt
 
 if TYPE_CHECKING:
-    from .declaration import IndexDeclaration
+    from .definition import IndexDefinition
 
 
 def prepare_model(
@@ -24,17 +24,19 @@ def prepare_model(
     display_name: str,
     iterator: func.GeneratingFunctionCall | None,
     base: 'pxt.Query | None',
-    idxs: list[IndexDeclaration],
+    idxs: list[IndexDefinition],
     is_data_versioned: bool,
 ) -> tuple[func.GeneratingFunctionCall | None, list[catalog.Column], list[catalog.IndexSpec]]:
     """
-    Given model declarations in the form of columns, base, iterator, and index specifications, along with
+    Given model definitions in the form of columns, base, iterator, and index specifications, along with
     the relevant metadata, assembles lists of additional columns and additional indices to be created in the table.
     The outputs will be fully resolved (ColumnRefByNames replaced with actual ColumnRefs and the index-spec
     dataclass instances replaced with actual instances of index.IndexBase).
 
     Returns: a tuple of (rebound iterator, additional columns, additional idxs).
     """
+    # This is where a model's definitions cross from the Python domain into the catalog's, and column names are folded.
+    columns = fold_mapping_keys(columns)
 
     # View columns always go in a specific order:
     # - iterator columns first
@@ -146,18 +148,18 @@ def prepare_model(
 
 
 def _resolve_model_idxs(
-    idxs: list[IndexDeclaration],
+    idxs: list[IndexDefinition],
     user_cols: Mapping[str, catalog.Column | catalog.ColumnVersionMd],
     display_name: str,
     is_data_versioned: bool,
 ) -> list[catalog.IndexSpec]:
-    """Resolve each declared index against the model's visible columns.
+    """Resolve each defined index against the model's visible columns.
 
     The returned specs record the indexed column by name. These column names need to be substituted with
     the corresponding catalog Columns.
     """
-    # imported here rather than at module scope: declaration imports this module
-    from .declaration import BtreeIndex, EmbeddingIndex
+    # imported here rather than at module scope: definition imports this module
+    from .definition import BtreeIndex, EmbeddingIndex
 
     resolved_idxs: list[catalog.IndexSpec] = []
     for idx_spec in idxs:
@@ -207,8 +209,10 @@ class TableSchemaChangeSet(TypedDict):
     # name -> (spec, origin). A 'base_query' column comes from the view's base query select() list and resolves
     # against the base table's columns; a 'model_body' column resolves against the view's own visible columns.
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
+    # name -> (spec, origin), for existing computed columns whose value expression is being replaced
+    altered_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
     dropped_columns: list[str]
-    new_idxs: list[IndexDeclaration]
+    new_idxs: list[IndexDefinition]
     dropped_idxs: list[str]
 
     # tbl_id of the table to update, and {tbl_id: schema_version} for its version path, captured when the diff was
@@ -217,19 +221,31 @@ class TableSchemaChangeSet(TypedDict):
     schema_versions: dict[UUID, int]
 
 
+class ModelUpdates(NamedTuple):
+    """A model's declared changes, resolved as catalog abstractions. References may contain ColumnRefByName."""
+
+    # the columns to add, in declaration order
+    added_cols: list[catalog.Column]
+    # the indices to add, with the index-spec dataclass instances replaced by instances of index.IndexBase
+    added_idxs: list[catalog.IndexSpec]
+    # the new value expression of each altered column, keyed by column name
+    altered_exprs: dict[str, exprs.Expr]
+
+
 def prepare_model_updates(
     tvp: catalog.TableVersionPath,
     display_name: str,
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]],
-    new_idxs: list[IndexDeclaration],
-) -> tuple[list[catalog.Column], list[catalog.IndexSpec]]:
+    altered_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]],
+    new_idxs: list[IndexDefinition],
+) -> ModelUpdates:
     """
-    Given `new_columns` and `new_idxs` as declared by a model, resolves them into proper catalog abstractions
-    in preparation for catalog changes. This is the analog of `prepare_model()` for `update_all()`.
+    Given `new_columns`, `altered_columns` and `new_idxs` as declared by a model, resolves them into proper catalog
+    abstractions in preparation for catalog changes.
 
-    Each column in `new_columns` is a (spec, origin) pair. A 'base_query' column comes from the view's base query
-    `select()` list and is resolved against the base table's columns; a 'model_body' column is resolved against the
-    view's own visible columns.
+    Each column in `new_columns` and `altered_columns` is a (spec, origin) pair. A 'base_query' column comes from
+    the view's base query `select()` list and is resolved against the base table's columns; a 'model_body' column is
+    resolved against the view's own visible columns.
     """
 
     user_cols: dict[str, catalog.Column] = {}
@@ -245,7 +261,9 @@ def prepare_model_updates(
 
     # Base-query columns are projections of the base query and resolve against the base table's columns (which,
     # for a select() view, are not among the view's own visible columns above).
-    has_base_query_cols = any(origin == 'base_query' for _, origin in new_columns.values())
+    has_base_query_cols = any(
+        origin == 'base_query' for _, origin in (*new_columns.values(), *altered_columns.values())
+    )
     base_subst_dict: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
     if has_base_query_cols:
         assert tvp.base is not None
@@ -298,10 +316,27 @@ def prepare_model_updates(
         preceding_names.add(name)
         user_cols[name] = catalog_col
 
-    # Resolve each declared index against the model's visible columns.
+    # Resolve each defined index against the model's visible columns.
     resolved_idxs: list[catalog.IndexSpec] = []
     for idx_spec in _resolve_model_idxs(new_idxs, user_cols, display_name, tvp.is_data_versioned()):
         assert isinstance(idx_spec.indexed_column, str)
         resolved_idxs.append(idx_spec._replace(indexed_column=user_cols[idx_spec.indexed_column]))
 
-    return resolved_cols, resolved_idxs
+    # Resolve altered columns. This may produce ColumnRefByName if the new expression references columns that this
+    # changeset adds.
+    altered_exprs: dict[str, exprs.Expr] = {}
+    for name, (spec, origin) in altered_columns.items():
+        resolve_against = base_subst_dict if origin == 'base_query' else subst_dict
+        resolved = spec['value'].substitute(resolve_against)
+        unresolved_names: list[str] = [
+            ref.name for ref in resolved.subexprs(exprs.ColumnRefByName) if ref.name not in new_columns
+        ]
+        if len(unresolved_names) > 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'Column {name!r} in {display_name} references columns that are not in '
+                f"the model's scope: {unresolved_names}",
+            )
+        altered_exprs[name] = resolved
+
+    return ModelUpdates(resolved_cols, resolved_idxs, altered_exprs)

@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     from .dir import Dir
     from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
-    from .model import IndexDeclaration
+    from .model import IndexDefinition
     from .path import Path
     from .table import Table
     from .table_path import TablePath
@@ -120,7 +120,7 @@ class CatalogProxy(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'Query | None',
-        idxs: list['IndexDeclaration'],
+        idxs: list['IndexDefinition'],
         is_data_versioned: bool,
     ) -> tuple[Table, bool]:
         args = {

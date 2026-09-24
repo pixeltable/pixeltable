@@ -1,4 +1,4 @@
-"""model_base(): the registry of declared models and the operations that reconcile them with the catalog."""
+"""model_base(): the registry of defined models and the operations that reconcile them with the catalog."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
-from .declaration import BtreeIndex, EmbeddingIndex, IndexDeclaration, TableModelMeta
+from .definition import BtreeIndex, EmbeddingIndex, IndexDefinition, TableModelMeta, bind_query_templates
 from .diff import (
     _PY_MISMATCH_HINT,
     PY_DESTRUCTIVE_HINT,
@@ -22,14 +22,29 @@ from .diff import (
 from .resolution import TableSchemaChangeSet
 
 
+def _queried_models(col_spec: ColumnSpec) -> set[TableModelMeta]:
+    """The models a column's value queries through a @pxt.query UDF."""
+    from pixeltable import exprs, func
+
+    from .query import ModelQuery
+
+    value = col_spec.get('value')
+    if not isinstance(value, exprs.Expr):
+        return set()
+    result: set[TableModelMeta] = set()
+    for fn_call in value.subexprs(exprs.FunctionCall):
+        fn = fn_call.fn
+        if isinstance(fn, func.QueryTemplateFunction) and isinstance(fn.template_query, ModelQuery):
+            result.add(fn.template_query.model_cls)
+    return result
+
+
 def _referenced_models(model: TableModelMeta) -> set[TableModelMeta]:
     """The models that have to be tables before `model` can be created.
 
     Its base, and every model a computed column queries through a @pxt.query UDF: both are recorded against
     the table the model resolves to, so that table has to exist first.
     """
-    from pixeltable import exprs, func
-
     from .query import ModelQuery
 
     result: set[TableModelMeta] = set()
@@ -37,13 +52,7 @@ def _referenced_models(model: TableModelMeta) -> set[TableModelMeta]:
     if isinstance(base, ModelQuery):
         result.add(base.model_cls)
     for col_spec in model.__columns__.values():
-        value = col_spec.get('value')
-        if not isinstance(value, exprs.Expr):
-            continue
-        for fn_call in value.subexprs(exprs.FunctionCall):
-            fn = fn_call.fn
-            if isinstance(fn, func.QueryTemplateFunction) and isinstance(fn.template_query, ModelQuery):
-                result.add(fn.template_query.model_cls)
+        result |= _queried_models(col_spec)
     return result
 
 
@@ -107,7 +116,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         # create_all() only creates tables; it never mutates an existing one. If any existing table differs from
         # its model, refuse.
         diffs = validate_models(registered_models, catalog_dir)
-        changed = [(name, d) for name, d in diffs.items() if d['exists'] and d['resolution'] != 'up_to_date']
+        changed = [(name, d) for name, d in diffs.items() if d.exists and d.resolution != 'up_to_date']
         if len(changed) > 0:
             detail = '\n'.join(line for name, d in changed for line in format_diff(name, d))
             raise excs.RequestError(
@@ -115,7 +124,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 f'One or more existing tables differ from their models.\n{detail}\n{_PY_MISMATCH_HINT}',
             )
 
-        _create_models(catalog_dir, {name for name, d in diffs.items() if not d['exists']})
+        _create_models(catalog_dir, {name for name, d in diffs.items() if not d.exists})
         return diffs
 
     def _get_model_diff(catalog_dir: str = '') -> dict[str, TableDiff]:
@@ -147,7 +156,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             Env.get().console_logger.info('Catalog is up to date.')
             return diffs
 
-        fatal = [(name, d) for name, d in diffs.items() if d['resolution'] == 'unsupported']
+        fatal = [(name, d) for name, d in diffs.items() if d.resolution == 'unsupported']
         if len(fatal) > 0:
             detail = '\n'.join(line for name, d in fatal for line in format_diff(name, d))
             raise excs.RequestError(
@@ -158,7 +167,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 'Adjust the existing table(s) manually, or adjust the models to be consistent with the catalog.',
             )
 
-        destructive = [(name, d) for name, d in diffs.items() if d['resolution'] == 'update_destructive']
+        destructive = [(name, d) for name, d in diffs.items() if d.resolution == 'update_destructive']
         if len(destructive) > 0 and not allow_destructive:
             detail = '\n'.join(line for name, d in destructive for line in format_diff(name, d))
             raise excs.RequestError(
@@ -168,66 +177,101 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
 
         # Apply column/index changes to existing tables. New tables are handled by _create_all() below.
         update_diffs = [
-            (name, d) for name, d in diffs.items() if d['resolution'] in ('update_additive', 'update_destructive')
+            (name, d) for name, d in diffs.items() if d.resolution in ('update_additive', 'update_destructive')
         ]
+
+        pending_creates = {name for name, d in diffs.items() if d.resolution == 'create'}
 
         if len(update_diffs) > 0:
             catalog_dir = catalog.Path.dir_prefix(catalog_dir)
+
+            added_cols = {
+                name: {c.name for c in d.ops if c.target == 'column' and c.op == 'add'} for name, d in update_diffs
+            }
+
+            # A new column may query a model this same call creates. Binding the column's query needs that
+            # table, so create it, and whatever it references in turn, ahead of the migrations below.
+            queried: set[TableModelMeta] = set()
+            for name, added in added_cols.items():
+                for col_name, col_spec in user_columns(registered_models[name]).items():
+                    if col_name in added:
+                        queried |= _queried_models(col_spec)
+            prerequisites: set[TableModelMeta] = set()
+            while len(queried) > 0:
+                queried_model = queried.pop()
+                if queried_model in prerequisites:
+                    continue
+                prerequisites.add(queried_model)
+                queried |= _referenced_models(queried_model)
+            # only the ones that don't exist yet: _create() also binds the model, and binding it before the
+            # migrations below would fix its columns to the pre-migration schema
+            for create_name, create_model in _creation_order(registered_models):
+                if create_model in prerequisites and create_name in pending_creates:
+                    _, was_created = create_model._create(catalog_dir)
+                    if was_created:
+                        pending_creates.discard(create_name)  # not a concurrent creation: this call made it
+
             change_sets: list[TableSchemaChangeSet] = []
             for name, d in update_diffs:
                 model = registered_models[name]
-                new_col_names = {c['name'] for c in d['ops'] if c['target'] == 'column' and c['op'] == 'add'}
-                dropped_col_names = [c['name'] for c in d['ops'] if c['target'] == 'column' and c['op'] == 'drop']
-                new_idx_refs = [
-                    c['details']['index_ref'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'add'
-                ]
-                dropped_idx_names = [c['name'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'drop']
+                dropped_col_names = [c.name for c in d.ops if c.target == 'column' and c.op == 'drop']
+                altered_col_names: set[str] = {c.name for c in d.ops if c.target == 'column' and c.op == 'alter'}
+                new_idx_refs = [c.details.index_ref for c in d.ops if c.target == 'index' and c.op == 'add']
+                dropped_idx_names = [c.name for c in d.ops if c.target == 'index' and c.op == 'drop']
                 # Resolve type annotations to ColumnTypes, mirroring _create(), and tag each column's origin.
                 # Iterate in declaration order (not the diff's sorted order), so a new column may depend on an
                 # earlier new column, as it can at create time.
                 user_cols = user_columns(model)
                 base_query_cols = base_query_columns(model)
                 new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]] = {}
+                altered_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]] = {}
                 for col_name, col_spec in user_cols.items():
-                    if col_name not in new_col_names:
+                    if col_name not in added_cols[name] and col_name not in altered_col_names:
                         continue
                     spec = col_spec.copy()
                     if 'type' in spec:
                         spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
                             spec['type'], allow_builtin_types=False
                         )
+                    if 'value' in spec:
+                        spec['value'] = bind_query_templates(spec['value'].copy(), catalog_dir)
                     origin: Literal['base_query', 'model_body'] = (
                         'base_query' if col_name in base_query_cols else 'model_body'
                     )
-                    new_columns[col_name] = (spec, origin)
+                    if col_name in added_cols[name]:
+                        new_columns[col_name] = (spec, origin)
+                    else:
+                        assert col_name in altered_col_names
+                        altered_columns[col_name] = (spec, origin)
 
-                # resolve idx_refs to IndexDeclarations. (We can't simply go by index name, since there may be unnamed
+                # resolve idx_refs to IndexDefinitions. (We can't simply go by index name, since there may be unnamed
                 # indexes.) Instead we compare the (index_type, name, columns) tuple; if there are two unnamed indexes
                 # with the same type, then they *must* have different columns, so the tuple uniquely identifies the
                 # index.
-                new_idxs: list[IndexDeclaration] = []
+                new_idxs: list[IndexDefinition] = []
                 for idx_ref in new_idx_refs:
                     matching_idxs = [
                         idx
                         for idx in model.__indexes__
-                        if (idx_ref['index_type'] == 'btree') == isinstance(idx, BtreeIndex)
-                        and idx_ref['name'] == (idx.name if isinstance(idx, EmbeddingIndex) else None)
-                        and [idx.column.name] == idx_ref['columns']
+                        if (idx_ref.index_type == 'btree') == isinstance(idx, BtreeIndex)
+                        and idx_ref.name == (idx.name if isinstance(idx, EmbeddingIndex) else None)
+                        and [idx.column.name] == idx_ref.columns
                     ]
                     assert len(matching_idxs) == 1
                     new_idxs.append(matching_idxs[0])
 
                 # only an existing table is updated, so the diff recorded what it was computed against
-                assert d['tbl_id'] is not None and d['schema_versions'] is not None
+                assert d.tbl_id is not None and d.schema_versions is not None
                 change_sets.append(
                     TableSchemaChangeSet(
                         path=catalog.Path.parse(f'{catalog_dir}{name}'),
                         new_columns=new_columns,
+                        altered_columns=altered_columns,
                         dropped_columns=dropped_col_names,
                         new_idxs=new_idxs,
                         dropped_idxs=dropped_idx_names,
-                        tbl_id=d['tbl_id'],
-                        schema_versions=d['schema_versions'],
+                        tbl_id=d.tbl_id,
+                        schema_versions=d.schema_versions,
                     )
                 )
 
@@ -238,13 +282,13 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         # Now create any new tables, and bind every model to its table. The diff computed above is the one being
         # applied, so the models it found up-to-date are not re-examined against the catalog.
         try:
-            _create_models(catalog_dir, {name for name, d in diffs.items() if d['resolution'] == 'create'})
+            _create_models(catalog_dir, pending_creates)
         except excs.Error as e:
             # the migrations above are already committed; name them, so that a failure here doesn't read as
             # though the catalog were untouched. Augmenting in place keeps the exception's type and fields.
             # e.message excludes e.detail, which is diagnostic text that must not become part of the message
             if len(update_diffs) > 0:
-                migrated = ', '.join(repr(d['path']) for _, d in update_diffs)
+                migrated = ', '.join(repr(d.path) for _, d in update_diffs)
                 e.args = (
                     f'{e.message}\n\nThe following table(s) were already migrated: {migrated}. '
                     'Re-run update_all() to finish reconciling.',

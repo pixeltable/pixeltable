@@ -10,7 +10,7 @@ import sys
 import threading
 import urllib.parse
 import uuid
-from typing import Callable, Iterator
+from typing import Callable, Iterator, get_args
 
 import pytest
 import requests
@@ -35,14 +35,18 @@ from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.sql import add_option_to_db_url
 
 from .utils import (
+    CLOUD_DB_ROOT_URIS,
     IN_CI,
     TESTS_DIR,
     DatabaseRoot,
+    DbRootId,
     ReloadTester,
+    cloud_env_configured,
     create_all_datatypes_tbl,
     create_img_tbl,
     create_test_tbl,
     local_embedding,
+    new_db_uri,
     reload_catalog,
     validate_async_teardown,
 )
@@ -152,6 +156,26 @@ def project_env(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> Iter
     Config.init(reinit=True, project_root=tmp_path)
     yield tmp_path
     Config.init(reinit=True, project_root=original)
+
+
+@pytest.fixture
+def private_home(tmp_path: pathlib.Path) -> Iterator[pathlib.Path]:
+    """A Pixeltable home and config file of the test's own, with no API key in the environment.
+
+    Config reads the home when it starts, so it is reinitialized here, and again afterwards with the
+    environment and project root it had before.
+    """
+    from pixeltable.config import Config
+
+    project_root = Config.get().project_root
+    home = tmp_path / 'pxt-home'
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv('PIXELTABLE_HOME', str(home))
+        mp.setenv('PIXELTABLE_CONFIG', str(home / 'config.toml'))
+        mp.delenv('PIXELTABLE_API_KEY', raising=False)
+        Config.init(reinit=True, project_root=project_root)
+        yield home
+    Config.init(reinit=True, project_root=project_root)
 
 
 @pytest.fixture(scope='session')
@@ -319,10 +343,15 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
         proxy_daemon.stop(db)
 
 
+_CLI_TESTS_DIR = pathlib.Path(__file__).parent / 'pixeltable_cli'
+
+
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Drive the catalog-backend and data-versioning axes.
 
-    db_root: any test that (transitively) reaches db_root runs against 'local', 'proxy', and 'cloud'.
+    db_root: any test that (transitively) reaches db_root runs against 'local', 'proxy', and its package's
+    hosted database; a db_roots marker overrides that list. The hosted roots are dropped unless the three
+    PIXELTABLE_ variables are set.
 
     is_data_versioned: any test that (transitively) reaches is_data_versioned runs against both a
     data-versioned and an operational table.
@@ -338,10 +367,9 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         db_roots_marker = metafunc.definition.get_closest_marker('db_roots')
         if db_roots_marker is not None:
             params = db_roots_marker.args
-            if not set(params) <= {'local', 'proxy', 'cloud'}:
+            if not set(params) <= set(get_args(DbRootId)):
                 raise pytest.UsageError(
-                    'Invalid db_roots marker args. Must be a nonempty subset of'
-                    f"('local', 'proxy', 'cloud'); got: {params!r}"
+                    f'Invalid db_roots marker args. Must be a nonempty subset of {get_args(DbRootId)}; got: {params!r}'
                 )
             if (
                 not isinstance(db_roots_marker.kwargs.get('reason'), str)
@@ -350,12 +378,14 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                 raise pytest.UsageError("db_roots marker must include a nonempty 'reason' kwarg")
 
         else:
-            params = ('local', 'proxy', 'cloud')  # Default is all three targets
+            # each package's udfs live in a different project, so an unmarked test gets its own
+            # package's database
+            in_cli_package = metafunc.definition.path.is_relative_to(_CLI_TESTS_DIR)
+            params = ('local', 'proxy', 'cloud-cli' if in_cli_package else 'cloud')
 
-        if os.environ.get('PXTTEST_CLOUD_DB_URI') is None:
-            # If the cloud db URI is not set, skip generating any cloud tests. We short-circuit them here rather
-            # than later via pytest.skip(), for performance reasons.
-            params = tuple(p for p in params if p != 'cloud')
+        if not cloud_env_configured():
+            # We short-circuit here rather than later via pytest.skip(), for performance reasons.
+            params = tuple(p for p in params if not p.startswith('cloud'))
 
         if params != ('local',):
             # If the only target is 'local', then don't parameterize at all; just leave the nodeid alone.
@@ -370,6 +400,12 @@ def served_project() -> pathlib.Path | None:
     return None
 
 
+@pytest.fixture(scope='session')
+def cloud_serving_db_uri() -> str:
+    """A disposable URI for the 'cloud-serving' tests in pixeltable_cli."""
+    return new_db_uri()
+
+
 @pytest.fixture(scope='function')
 def db_root(
     init_env: None, served_project: pathlib.Path | None, request: pytest.FixtureRequest
@@ -378,7 +414,7 @@ def db_root(
     Parameterized variant of uses_db: runs a test against any or all of:
     - the in-process catalog
     - a local proxy daemon instance
-    - a cloud-hosted database (if PXTTEST_CLOUD_DB_URI is set)
+    - a hosted database
 
     Yields a path-builder mapping a bare path to the active catalog: the identity for local, and the bare
     path prefixed with the daemon's pxt:// uri for proxy (with an empty path mapping to the catalog root).
@@ -389,7 +425,7 @@ def db_root(
 
     match db_root_id:
         case 'local':
-            yield DatabaseRoot('local', '')
+            yield DatabaseRoot('local', '', '')
 
         case 'proxy':
             # the daemon is handed the project Config holds when it starts, and never re-reads it
@@ -401,16 +437,23 @@ def db_root(
             # replaces one serving another, so a test never inherits the project of whichever test ran before it
             proxy_daemon.start(db, test_mode=True)
             proxy_daemon.reinitialize(db)
-            yield DatabaseRoot('proxy', f'pxt://local:{db}')
+            base_uri = f'pxt://local:{db}'
+            yield DatabaseRoot('proxy', base_uri, base_uri)
 
-        case 'cloud':
-            base_uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
-            assert base_uri, 'This should have been intercepted in pytest_generate_tests().'
+        case 'cloud' | 'cloud-cli' | 'cloud-serving':
+            base_uri = CLOUD_DB_ROOT_URIS.get(db_root_id)
+            if base_uri is None:
+                # fetched here rather than as a fixture parameter, so only a 'cloud-serving' test runs
+                # the CodeBuild that creates this database
+                base_uri = request.getfixturevalue('cloud_service_db')
             test_dir = uuid.uuid4().hex
             prefix = f'{base_uri}/test_{test_dir}'
             _logger.info('Creating test directory in cloud catalog: %s', prefix)
             pxt.create_dir(prefix)
-            yield DatabaseRoot('cloud', prefix)
+            try:
+                yield DatabaseRoot(db_root_id, base_uri, prefix)
+            finally:
+                pxt.drop_dir(prefix, force=True)
 
     _validate_catalog_state()
 
@@ -565,7 +608,7 @@ class SampleFileServer:
             assert rel_path.is_relative_to(_SERVED_DIR)
             rel_path = rel_path.relative_to(_SERVED_DIR)
 
-        if db_root is not None and db_root.id == 'cloud':
+        if db_root is not None and db_root.is_cloud:
             # For cloud tests, we need to send an actual URL; Pixeltable cloud obviously can't see 127.0.0.1
             base_url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/'
         else:
@@ -637,9 +680,10 @@ def all_datatypes_tbl(db_root: DatabaseRoot, request: pytest.FixtureRequest) -> 
 
 @pytest.fixture(scope='function')
 def img_tbl(db_root: DatabaseRoot, request: pytest.FixtureRequest) -> pxt.Table:
-    return create_img_tbl(
-        db_root.make_catalog_path('test_img_tbl'), is_data_versioned=_requested_is_data_versioned(request)
-    )
+    # on cloud/proxy, limit the number of rows so that we're not sending a massive image set on every test that uses
+    # img_tbl. For local, use the full image set.
+    num_rows = 0 if db_root.id == 'local' else 20
+    return create_img_tbl(db_root.make_catalog_path('test_img_tbl'), num_rows, _requested_is_data_versioned(request))
 
 
 @pytest.fixture(scope='function')

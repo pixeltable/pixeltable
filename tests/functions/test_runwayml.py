@@ -87,9 +87,9 @@ class TestRunwayML:
 
         t = pxt.create_table('test_tbl', {'video_url': pxt.String | None, 'prompt': pxt.String | None})
         # Required parameters only
-        t.add_computed_column(output_required=video_to_video(t.video_url, t.prompt, 'gen4_aleph', '1280:720'))
+        t.add_computed_column(output_required=video_to_video(t.video_url, t.prompt, 'aleph2', '1280:720'))
         # Required + optional parameters
-        t.add_computed_column(output_optional=video_to_video(t.video_url, t.prompt, 'gen4_aleph', '1280:720', seed=42))
+        t.add_computed_column(output_optional=video_to_video(t.video_url, t.prompt, 'aleph2', '1280:720', seed=42))
 
     @pytest.mark.remote_api
     @pytest.mark.very_expensive
@@ -148,7 +148,7 @@ class TestRunwayML:
             'https://multimedia-commons.s3.amazonaws.com/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         )
         t = pxt.create_table('test_tbl', {'video_url': pxt.String | None, 'prompt': pxt.String | None})
-        t.add_computed_column(output=video_to_video(t.video_url, t.prompt, 'gen4_aleph', '1280:720'))
+        t.add_computed_column(output=video_to_video(t.video_url, t.prompt, 'aleph2', '1280:720'))
         validate_update_status(t.insert(video_url=video_url, prompt='Transform to anime style'), 1)
         results = t.collect()
         assert results['output'][0] is not None

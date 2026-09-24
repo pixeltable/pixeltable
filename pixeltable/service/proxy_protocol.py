@@ -12,12 +12,13 @@ import abc
 import dataclasses
 import datetime
 import io
+import json
 import math
 import pathlib
 import shutil
 import struct
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Generic, TypedDict, TypeVar
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -32,16 +33,18 @@ from pixeltable.catalog.path import Path
 from pixeltable.catalog.table_path import TablePath, TablePathKey, TableVersionPath
 from pixeltable.catalog.types import TableVersionMd
 from pixeltable.catalog.update_status import RowCountStats, UpdateStatus
+from pixeltable.env import Env
 from pixeltable.metadata import VERSION as MD_SCHEMA_VERSION, schema
 from pixeltable.query_clauses import SampleClause
 from pixeltable.row import RowBatch
+from pixeltable.utils import parse_local_file_path
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectStoreBase
 
 if TYPE_CHECKING:
     from pixeltable._query import Query
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 4
 
 # Reserved key marking a type-tagged value: {_TAG: <type-name>, 'v': <payload>}.
 _TAG = '$pxt'
@@ -74,6 +77,14 @@ class PartSink(abc.ABC, Generic[T]):
     def add_media_file(self, path: str) -> T:
         """Add a file-backed media value; returns a part index (inline) or an object key (out of band)."""
 
+    @abc.abstractmethod
+    def add_scalar_bytes(self, data: bytes, extension: str) -> T:
+        """Add a non-media binary value (a Binary cell, an array); returns a reference to the value.
+
+        Sending a small value out of band costs more in round trips than it saves in request size, so a sink
+        may inline one even where it sends every media value out of band.
+        """
+
     def flush(self) -> None:
         """Complete any work the sink deferred while serializing."""
 
@@ -90,9 +101,12 @@ class InlinePartSink(PartSink[int]):
         with open(path, 'rb') as f:
             return self.add_inline(f.read())
 
+    def add_scalar_bytes(self, data: bytes, extension: str) -> int:
+        return self.add_inline(data)
+
 
 class PxtStorePartSink(PartSink[int | str]):
-    """PartSink that uploads media parts to the hosted db's home bucket. The parts will be deposited in the
+    """PartSink that uploads binary parts to the hosted db's home bucket. The parts will be deposited in the
     uploads/ folder of the db's home bucket, in a per-request subfolder uploads/<request-uuid>.
 
     The RPC then carries only the object keys; the daemon localizes the objects before dispatch; see
@@ -100,17 +114,20 @@ class PxtStorePartSink(PartSink[int | str]):
     they must never become stored cell values.
 
     Each part's key is minted during serialization, but the transfer itself is deferred to flush() so that a
-    request's uploads run concurrently rather than one per media value.
+    request's uploads run concurrently rather than one per part.
 
-    Scalars (tags 'bytes'/'ndarray') always stay inline.
+    Scalars (tags 'bytes'/'ndarray') take the same path if the exceed _MIN_OUT_OF_BAND_SIZE; otherwise they
+    are inlined.
     """
 
     _MAX_UPLOAD_THREADS = 16
+    # Below this, an upload plus a download costs more than the bytes do in the request itself.
+    _MIN_OUT_OF_BAND_SIZE = 512
 
     _org: str
     _db: str
     _key_prefix: str  # 'uploads/<request-uuid>/'
-    _num_media_parts: int
+    _num_parts: int
     _store: ObjectStoreBase | None  # built on the first flush, so scalar requests skip the overhead of construction
     _pending: list[tuple[pathlib.Path, str, bool]]  # (local path, object key, remove the path after uploading it)
 
@@ -119,7 +136,7 @@ class PxtStorePartSink(PartSink[int | str]):
         self._org = org
         self._db = db
         self._key_prefix = f'uploads/{uuid4().hex}/'
-        self._num_media_parts = 0
+        self._num_parts = 0
         self._store = None
         self._pending = []
 
@@ -139,15 +156,20 @@ class PxtStorePartSink(PartSink[int | str]):
     def add_media_file(self, path: str) -> str:
         return self._add_pending(pathlib.Path(path), remove_after_upload=False)
 
+    def add_scalar_bytes(self, data: bytes, extension: str) -> int | str:
+        if len(data) < self._MIN_OUT_OF_BAND_SIZE:
+            return self.add_inline(data)
+        return self.add_media_bytes(data, extension)
+
     def _add_pending(self, path: pathlib.Path, *, remove_after_upload: bool) -> str:
         """Mint this part's object key and queue its upload for flush()."""
-        key = f'{self._key_prefix}{self._num_media_parts}{path.suffix}'
-        self._num_media_parts += 1
+        key = f'{self._key_prefix}{self._num_parts}{path.suffix}'
+        self._num_parts += 1
         self._pending.append((path, key, remove_after_upload))
         return key
 
     def flush(self) -> None:
-        """Upload the queued media parts concurrently.
+        """Upload the queued parts concurrently.
 
         Repeated references to one path are not coalesced into a single object: the daemon moves each
         localized file into the media store (ObjectOps.put_file_resolved), which would consume a shared one.
@@ -201,7 +223,7 @@ class ProxyRequest(BaseModel):
     args: dict[str, Any]  # method kwargs
     request_id: str | None = None  # set for mutating methods (idempotency); unused for now
 
-    # raw binary parts referenced by 'blob' tags in args
+    # raw binary parts, referenced by index from the tagged values in args
     _binary_parts: list[bytes] = PrivateAttr(default_factory=list)
 
     # temp path -> the client's original filename; needed for informative error messages
@@ -212,18 +234,17 @@ class ProxyRequest(BaseModel):
     _remote_parts: dict[str, str] = PrivateAttr(default_factory=dict)
 
 
-class ProxyResponse(BaseModel):
-    result: Any = None  # return value
-    error: dict[str, Any] | None = None  # excs.Error.to_dict(), set instead of result on failure
+class ProxyResponse(TypedDict, total=False):
+    """The header fields of a proxy response."""
 
-    # serialized TableMdPath (list[TableVersionMd]); returned after a mutation so the client refreshes its md
-    current_md: Any = None
+    # only one of these is set
+    result: Any  # return value of the dispatched method
+    error: dict[str, Any]  # excs.Error.to_dict(), set instead of result on failure
 
-    # True if the request's snapshot_path_key was behind the current schema version
-    is_stale_md: bool = False
+    # only set after a mutation or when is_stale_md == True
+    current_md: list[TableVersionMd] | list[dict[str, Any]]
 
-    # raw binary parts referenced by 'blob' tags in result/current_md
-    _binary_parts: list[bytes] = PrivateAttr(default_factory=list)
+    is_stale_md: bool  # True if the request's snapshot_path_key was behind the current schema version
 
 
 def _serialize(obj: Any, sink: PartSink) -> Any:
@@ -315,15 +336,11 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
         return str(obj)  # filesystem paths travel as strings
     if isinstance(obj, bytes):
         # a Binary cell, or an array column's stored byte form as returned by compute()
-        # TODO: We should be coalescing these into out-of-band uploads via add_media_bytes(), not inlining them
-        #     in HTTP requests [PXT-1314]
-        return {_TAG: 'bytes', 'v': sink.add_inline(obj)}
+        return {_TAG: 'bytes', 'v': sink.add_scalar_bytes(obj, '.bin')}
     if isinstance(obj, np.ndarray):
-        # TODO: We should be coalescing these into out-of-band uploads via add_media_bytes(), not inlining them
-        #     in HTTP requests [PXT-1314]
         buf = io.BytesIO()
         np.save(buf, obj, allow_pickle=False)  # .npy carries dtype and shape
-        return {_TAG: 'ndarray', 'v': sink.add_inline(buf.getvalue())}
+        return {_TAG: 'ndarray', 'v': sink.add_scalar_bytes(buf.getvalue(), '.npy')}
     if isinstance(obj, PIL.Image.Image):
         # an in-memory image; file-backed media travels as a path
         buf = io.BytesIO()
@@ -394,13 +411,32 @@ def _deserialize(
 ) -> Any:
     """Inverse of _serialize(). When uploaded_names is provided, each 'file' arg maps its temp path to the
     original filename in it. remote_parts maps each out-of-band media part's object key to a pre-downloaded
-    local temp path."""
+    local temp path.
+
+    A container whose values all come back unchanged is returned as it was, so a large result that holds no
+    encoded value is walked rather than rebuilt."""
     if isinstance(obj, list):
-        return [_deserialize(x, binary_parts, uploaded_names, remote_parts) for x in obj]
+        deserialized_list: list[Any] | None = None
+        for i, elem in enumerate(obj):
+            deserialized_elem = _deserialize(elem, binary_parts, uploaded_names, remote_parts)
+            if deserialized_elem is not elem:
+                if deserialized_list is None:
+                    deserialized_list = list(obj)
+                deserialized_list[i] = deserialized_elem
+        return obj if deserialized_list is None else deserialized_list
+
     if isinstance(obj, dict):
         tag = obj.get(_TAG)
-        if tag is None:
-            return {k: _deserialize(v, binary_parts, uploaded_names, remote_parts) for k, v in obj.items()}
+        if not isinstance(tag, str) or 'v' not in obj:
+            decoded: dict[Any, Any] | None = None
+            for k, val in obj.items():
+                d = _deserialize(val, binary_parts, uploaded_names, remote_parts)
+                if d is not val:
+                    if decoded is None:
+                        decoded = dict(obj)
+                    decoded[k] = d
+            return obj if decoded is None else decoded
+
         v = obj['v']
         if tag == 'float':
             return float(v)  # nan/inf
@@ -414,9 +450,16 @@ def _deserialize(
         if tag == 'tuple':
             return tuple(_deserialize(x, binary_parts, uploaded_names, remote_parts) for x in v)
         if tag == 'bytes':
+            # a str v is an object key of an out-of-band part, resolved to a pre-downloaded local path
+            if isinstance(v, str):
+                with open(_remote_part_path(v, remote_parts), 'rb') as f:
+                    return f.read()
             return binary_parts[v]
         if tag == 'ndarray':
-            return np.load(io.BytesIO(binary_parts[v]), allow_pickle=False)
+            buf: str | io.BytesIO = (
+                _remote_part_path(v, remote_parts) if isinstance(v, str) else io.BytesIO(binary_parts[v])
+            )
+            return np.load(buf, allow_pickle=False)
         if tag == 'image':
             # a str v is an object key of an out-of-band media part, resolved to a pre-downloaded local path
             img = PIL.Image.open(
@@ -429,9 +472,8 @@ def _deserialize(
                 # an object key of an out-of-band media part; return its pre-downloaded local path
                 dest_str = _remote_part_path(v, remote_parts)
             else:
-                # write the sent bytes to an opaque temp path (extension preserved for media-type detection)
-                # TODO: We still need this because bytes/ndarrays are still inlined into HTTP requests; once that's
-                #     fixed, this code branch can be removed (v will always be a str) [PXT-1314]
+                # write the sent bytes to an opaque temp path (extension preserved for media-type detection);
+                # an inlining sink serves the local daemon and every response, so this branch stays
                 dest = TempStore.create_path(extension=pathlib.Path(obj['name']).suffix)
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 with open(dest, 'wb') as f:
@@ -509,28 +551,33 @@ def _deserialize(
             return datetime.datetime.fromisoformat(v)
         if tag == 'date':
             return datetime.date.fromisoformat(v)
-        raise AssertionError(f'unknown proxy serialization tag: {tag!r}')
+        # a json value of its own that happens to carry the reserved key
+        return {k: _deserialize(val, binary_parts, uploaded_names, remote_parts) for k, val in obj.items()}
     return obj
 
 
 def _remote_part_path(key: str, remote_parts: dict[str, str] | None) -> str:
-    """Resolve an out-of-band media part's object key to its pre-downloaded local path."""
+    """Resolve an out-of-band part's object key to its pre-downloaded local path."""
     if remote_parts is None:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            f'Cannot localize uploaded media object {key!r}: this receiver has no access to uploaded objects',
+            f'Cannot localize uploaded object {key!r}: this receiver has no access to uploaded objects',
         )
     if key not in remote_parts:
-        raise excs.RequestError(
+        raise excs.NotFoundError(
             excs.ErrorCode.STORAGE_NOT_FOUND,
-            f'Cannot localize uploaded media object {key!r}: object was not prefetched on this receiver',
+            f'Cannot localize uploaded object {key!r}: object was not prefetched on this receiver',
         )
     return remote_parts[key]
 
 
+# the tags whose 'v' is an object key when the value went out of band, and a part index when it did not
+_BINARY_TAGS = ('file', 'image', 'bytes', 'ndarray')
+
+
 def collect_remote_keys(args: Any) -> list[str]:
-    """Return the object keys of all out-of-band media parts ('file'/'image' tags whose 'v' is a str) in
-    serialized args, deduplicated in encounter order."""
+    """Return the object keys of all out-of-band binary parts in serialized args, deduplicated in encounter
+    order."""
     keys: dict[str, None] = {}
 
     def walk(obj: Any) -> None:
@@ -538,7 +585,7 @@ def collect_remote_keys(args: Any) -> list[str]:
             for item in obj:
                 walk(item)
         elif isinstance(obj, dict):
-            if obj.get(_TAG) in ('file', 'image') and isinstance(obj.get('v'), str):
+            if obj.get(_TAG) in _BINARY_TAGS and isinstance(obj.get('v'), str):
                 keys[obj['v']] = None
             else:
                 for value in obj.values():
@@ -561,17 +608,116 @@ def deserialize_request(request: ProxyRequest) -> dict[str, Any]:
     return _deserialize(request.args, request._binary_parts, request._uploaded_names, request._remote_parts or None)
 
 
-def serialize_response(response: ProxyResponse) -> None:
-    """Encode response.result and response.current_md in place, appending binary values to response._binary_parts."""
+def encode_local_path(value: Any) -> Any:
+    """Encode local file paths as LocalFile/MediaPath."""
+    if not isinstance(value, str):
+        return value
+    path = parse_local_file_path(value)
+    if path is None:
+        return value  # remote URL: the client fetches it directly
+    if TempStore.contains_path(path):
+        return LocalFile(str(path))
+    media_dir = Env.get().media_dir.resolve()
+    resolved = path.resolve()
+    if resolved == media_dir or media_dir in resolved.parents:
+        return MediaPath(resolved.relative_to(media_dir).as_posix())
+    cache_dir = Env.get().file_cache_dir.resolve()
+    if resolved == cache_dir or cache_dir in resolved.parents:
+        # a file-cache copy of remote media (e.g. from .localpath): send its bytes, since the daemon's local
+        # path can't be resolved by the client
+        # TODO: send the url and have the client fetch it directly?
+        return LocalFile(str(path))
+    return value
+
+
+def deserialize_value(value: Any, parts: list[bytes]) -> Any:
+    """Decode a value carried by a response, resolving its binary references from parts."""
+    return _deserialize(value, parts)
+
+
+_dumps = json.JSONEncoder(separators=(',', ':')).encode
+
+
+def value_encoder(sink: PartSink) -> Callable[[Any], str]:
+    """A json encoder that writes what json can and hands the rest to _serialize().
+
+    Faster than encoding a _serialize()ed copy, since json walks the value in C. A value json writes itself
+    reaches the receiver in json's form: nan and inf as NaN and Infinity, a tuple as an array, a dict key as
+    a string. json writes a dict as-is, tag key and all, and an inlined object inside it never reaches the
+    hook, so a caller runs serialize_value() over a value that can hold json of its own.
+    """
+    return json.JSONEncoder(separators=(',', ':'), default=lambda obj: _serialize(obj, sink)).encode
+
+
+def escape_json(value: Any) -> Any:
+    """Rewrite the dicts in a json value that json cannot write as data: the ones carrying the reserved tag
+    key, and the ones with a key json would coerce to a string. Returns value itself if there is nothing to
+    rewrite, so an ordinary value costs no allocation.
+
+    An inlined object needs no rewriting: json cannot write it either way, so it reaches _serialize() through
+    the encoder's hook.
+    """
+    if isinstance(value, dict):
+        if _TAG in value or not all(isinstance(k, str) for k in value):
+            return {_TAG: 'rawdict', 'v': [[k, escape_json(v)] for k, v in value.items()]}
+        escaped: dict[str, Any] | None = None
+        for k, v in value.items():
+            e = escape_json(v)
+            if e is not v:
+                if escaped is None:
+                    escaped = dict(value)
+                escaped[k] = e
+        return value if escaped is None else escaped
+    if isinstance(value, list):
+        escaped_list: list[Any] | None = None
+        for i, v in enumerate(value):
+            e = escape_json(v)
+            if e is not v:
+                if escaped_list is None:
+                    escaped_list = list(value)
+                escaped_list[i] = e
+        return value if escaped_list is None else escaped_list
+    return value
+
+
+def response_body(
+    result_json: bytes,
+    parts: list[bytes],
+    *,
+    error_json: bytes = b'null',
+    current_md_json: bytes = b'null',
+    is_stale_md: bool = False,
+) -> bytes:
+    """The wire body for a response whose fields are already encoded.
+
+    Both the generic path and a caller that encodes its own result (see Query._collect_content()) write their
+    body here, so the head has one layout.
+    """
+    head = bytearray(b'{"result":')
+    head += result_json
+    head += b',"error":'
+    head += error_json
+    head += b',"current_md":'
+    head += current_md_json
+    head += b',"is_stale_md":'
+    head += b'true' if is_stale_md else b'false'
+    head += b'}'
+    return encode_body(bytes(head), parts)
+
+
+def encode_response(response: ProxyResponse) -> bytes:
+    """The wire body for a response, moving any binary values in it out to the body's parts."""
     sink = InlinePartSink()
-    response.result = _serialize(response.result, sink)
-    response.current_md = _serialize(response.current_md, sink)
-    response._binary_parts = sink.binary_parts
-
-
-def deserialize_response(response: ProxyResponse, value: Any) -> Any:
-    """Decode a value carried by response (its result or current_md), resolving binary references from it."""
-    return _deserialize(value, response._binary_parts)
+    result_json = _dumps(_serialize(response.get('result'), sink)).encode()
+    current_md_json = _dumps(_serialize(response.get('current_md'), sink)).encode()
+    error = response.get('error')
+    return response_body(
+        result_json,
+        sink.binary_parts,
+        error_json=b'null' if error is None else _dumps(error).encode(),
+        current_md_json=current_md_json,
+        is_stale_md=response.get('is_stale_md', False),
+    )
 
 
 def encode_dir_tree(dir_path: pathlib.Path) -> list[dict[str, Any]]:

@@ -87,42 +87,9 @@ class EmbeddingIndex(IndexBase):
                 excs.ErrorCode.INVALID_ARGUMENT, f'Invalid metric {metric}, must be one of {metric_names}'
             )
 
-        self.embeddings = {}
-
-        # Resolve the specific embedding functions corresponding to the user-provided embedding functions.
-        # For string embeddings, for example, `string_embed` will be used if specified; otherwise, `embed` will
-        # be used as a fallback, if it has a matching signature.
-
-        for embed_type, embed_fn in (
-            (ts.ColumnType.Type.STRING, string_embed),
-            (ts.ColumnType.Type.IMAGE, image_embed),
-            (ts.ColumnType.Type.AUDIO, audio_embed),
-            (ts.ColumnType.Type.VIDEO, video_embed),
-            (ts.ColumnType.Type.DOCUMENT, document_embed),
-        ):
-            if embed_fn is not None:
-                # Embedding function for the requisite type is specified directly; it MUST be valid.
-                resolved_fn = self._resolve_embedding_fn(embed_fn, embed_type)
-                if resolved_fn is None:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_CONFIGURATION,
-                        f'The function `{embed_fn.name}` is not a valid {embed_type.name.lower()} '
-                        f'embedding: it must take a single {embed_type.name.lower()} parameter',
-                    )
-                self.embeddings[embed_type] = resolved_fn
-            elif embed is not None:
-                # General `embed` is specified; see if it has a matching signature.
-                resolved_fn = self._resolve_embedding_fn(embed, embed_type)
-                if resolved_fn is not None:
-                    self.embeddings[embed_type] = resolved_fn
-
-        if embed is not None and len(self.embeddings) == 0:
-            # `embed` was specified and contains no matching signatures.
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION,
-                f'The function `{embed.name}` is not a valid embedding: '
-                'it must take a single string, image, audio, video, or document parameter',
-            )
+        self.embeddings = self.resolve_embeddings(
+            embed, string_embed, image_embed, audio_embed, video_embed, document_embed
+        )
 
         # an embedding index is persisted, so its function must be storable
         for embed_type, resolved_fn in self.embeddings.items():
@@ -303,6 +270,54 @@ class EmbeddingIndex(IndexBase):
     @classmethod
     def display_name(cls) -> str:
         return 'embedding'
+
+    @classmethod
+    def resolve_embeddings(
+        cls,
+        embed: func.Function | None = None,
+        string_embed: func.Function | None = None,
+        image_embed: func.Function | None = None,
+        audio_embed: func.Function | None = None,
+        video_embed: func.Function | None = None,
+        document_embed: func.Function | None = None,
+    ) -> dict[ts.ColumnType.Type, func.Function]:
+        """The embedding function serving each column type.
+
+        A per-type function is used where one is given; otherwise `embed` serves every type whose signature it
+        matches.
+        """
+        embeddings: dict[ts.ColumnType.Type, func.Function] = {}
+        for embed_type, embed_fn in (
+            (ts.ColumnType.Type.STRING, string_embed),
+            (ts.ColumnType.Type.IMAGE, image_embed),
+            (ts.ColumnType.Type.AUDIO, audio_embed),
+            (ts.ColumnType.Type.VIDEO, video_embed),
+            (ts.ColumnType.Type.DOCUMENT, document_embed),
+        ):
+            if embed_fn is not None:
+                # Embedding function for the requisite type is specified directly; it MUST be valid.
+                resolved_fn = cls._resolve_embedding_fn(embed_fn, embed_type)
+                if resolved_fn is None:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_CONFIGURATION,
+                        f'The function `{embed_fn.name}` is not a valid {embed_type.name.lower()} '
+                        f'embedding: it must take a single {embed_type.name.lower()} parameter',
+                    )
+                embeddings[embed_type] = resolved_fn
+            elif embed is not None:
+                # General `embed` is specified; see if it has a matching signature.
+                resolved_fn = cls._resolve_embedding_fn(embed, embed_type)
+                if resolved_fn is not None:
+                    embeddings[embed_type] = resolved_fn
+
+        if embed is not None and len(embeddings) == 0:
+            # `embed` was specified and contains no matching signatures.
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'The function `{embed.name}` is not a valid embedding: '
+                'it must take a single string, image, audio, video, or document parameter',
+            )
+        return embeddings
 
     @classmethod
     def _resolve_embedding_fn(cls, embed_fn: func.Function, expected_type: ts.ColumnType.Type) -> func.Function | None:

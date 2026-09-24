@@ -1,0 +1,212 @@
+"""The project's file selection and its fingerprint."""
+
+import pathlib
+
+import pytest
+
+from pixeltable import exceptions as excs
+from pixeltable.config import DatabaseConfig
+from pixeltable.utils.project import (
+    ProjectPart,
+    _archive_files,
+    archive_object_name,
+    create_image_context,
+    image_object_name,
+    project_fingerprint,
+)
+
+from .utils import pxt_raises
+
+ARCHIVE, IMAGE, BINDINGS = ProjectPart.ARCHIVE, ProjectPart.IMAGE, ProjectPart.BINDINGS
+
+
+def _some(files: dict[str, str], *paths: str) -> dict[str, str]:
+    return {path: files[path] for path in paths}
+
+
+class TestProject:
+    @pytest.fixture
+    def project(self, tmp_path: pathlib.Path) -> pathlib.Path:
+        """A project holding a module, a lockfile, a gitignored artifact and an ignored cache."""
+        (tmp_path / 'app.py').write_text('x = 1\n')
+        (tmp_path / 'uv.lock').write_text('version = 1\n')
+        (tmp_path / '.gitignore').write_text('build/\n*.log\n')
+        (tmp_path / 'run.log').write_text('noise\n')
+        (tmp_path / 'build').mkdir()
+        (tmp_path / 'build' / 'out.bin').write_text('artifact\n')
+        return tmp_path
+
+    def _names(self, root: pathlib.Path, config: DatabaseConfig | None = None) -> list[str]:
+        return sorted(p.relative_to(root).as_posix() for p in _archive_files(root, config))
+
+    def test_gitignore(self, project: pathlib.Path) -> None:
+        assert self._names(project) == ['.gitignore', 'app.py', 'uv.lock']
+
+    def test_excluded(self, project: pathlib.Path) -> None:
+        """A virtual environment and a bytecode cache are dropped even when nothing ignores them."""
+        for name, marker in (('.venv', 'pyvenv.cfg'), ('env', 'conda-meta/history')):
+            venv = project / name
+            (venv / 'lib').mkdir(parents=True)
+            (venv / 'lib' / 'pkg.py').write_text('z = 1\n')
+            (venv / marker).parent.mkdir(parents=True, exist_ok=True)
+            (venv / marker).write_text('')
+        assert self._names(project) == ['.gitignore', 'app.py', 'uv.lock']
+
+        (project / 'pkg').mkdir()
+        (project / 'pkg' / 'mod.py').write_text('y = 2\n')
+        for parent in (project, project / 'pkg'):
+            cache = parent / '__pycache__'
+            cache.mkdir()
+            (cache / 'mod.cpython-311.pyc').write_bytes(b'\x00')
+        assert self._names(project) == ['.gitignore', 'app.py', 'pkg/mod.py', 'uv.lock']
+
+    def test_patterns(self, project: pathlib.Path) -> None:
+        assert self._names(project, DatabaseConfig(exclude=['*.py'])) == ['.gitignore', 'uv.lock']
+        assert self._names(project, DatabaseConfig(include=['run.log'])) == [
+            '.gitignore',
+            'app.py',
+            'run.log',
+            'uv.lock',
+        ]
+        # include_only replaces the selection, and the lockfile is selected whatever the patterns say
+        assert self._names(project, DatabaseConfig(include_only=['app.py'])) == ['app.py', 'uv.lock']
+
+    def test_project_config_always_selected(self, project: pathlib.Path) -> None:
+        """A pod reads its database entry out of the archive, so no pattern can drop the file holding it."""
+        (project / 'pixeltable.toml').write_text("[[pixeltable.database]]\nname = 'pxt://acme:main'\n")
+        assert 'pixeltable.toml' in self._names(project, DatabaseConfig(include_only=['app.py']))
+        assert 'pixeltable.toml' in self._names(project, DatabaseConfig(exclude=['*.toml']))
+
+    def test_include_only_with_include(self, project: pathlib.Path) -> None:
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='include_only'):
+            _archive_files(project, DatabaseConfig(include_only=['app.py'], exclude=['*.log']))
+
+    def test_file_contents(self, project: pathlib.Path) -> None:
+        before = project_fingerprint(project, None)
+        assert set(before.files) == {'.gitignore', 'app.py', 'uv.lock'}
+        assert before.compare(before) == set()
+
+        (project / 'app.py').write_text('x = 2\n')
+        after = project_fingerprint(project, None)
+        # a source edit is sent as an archive and does not touch the environment the image holds
+        assert after.compare(before) == {ARCHIVE}
+        assert after.changes(before) == ['app.py changed']
+
+    def test_added_and_removed_files(self, project: pathlib.Path) -> None:
+        before = project_fingerprint(project, None)
+        (project / 'helper.py').write_text('y = 1\n')
+        (project / 'app.py').unlink()
+        assert project_fingerprint(project, None).changes(before) == ['helper.py added', 'app.py removed']
+
+    def test_lockfile(self, project: pathlib.Path) -> None:
+        before = project_fingerprint(project, None)
+        (project / 'uv.lock').write_text('version = 2\n')
+        after = project_fingerprint(project, None)
+        # the lockfile is a project file and the declaration of the environment, so it moves both artifacts
+        assert after.compare(before) == {IMAGE, ARCHIVE}
+        assert after.changes(before) == ['uv.lock changed']
+        assert after.changes(before, {IMAGE}) == ['uv.lock changed']
+        assert after.changes(before, {ARCHIVE}) == ['uv.lock changed']
+
+    def test_pyproject(self, project: pathlib.Path) -> None:
+        (project / 'pyproject.toml').write_text('[project]\ndependencies = ["pixeltable"]\n')
+        before = project_fingerprint(project, None)
+        (project / 'pyproject.toml').write_text('[project]\ndependencies = ["pixeltable", "torch"]\n')
+        after = project_fingerprint(project, None)
+        # 'uv sync' reads pyproject.toml alongside the lockfile, so it declares the environment too
+        assert after.compare(before) == {IMAGE, ARCHIVE}
+        assert after.image_digest() != before.image_digest()
+
+    def test_local_requirement(self, project: pathlib.Path) -> None:
+        """Replacing a local wheel moves the image digest, though requirements.txt is unchanged."""
+        (project / 'wheels').mkdir()
+        (project / 'wheels' / 'dep-1.0-py3-none-any.whl').write_bytes(b'first build')
+        (project / 'requirements.txt').write_text('./wheels/dep-1.0-py3-none-any.whl\n')
+        before = project_fingerprint(project, None)
+
+        (project / 'wheels' / 'dep-1.0-py3-none-any.whl').write_bytes(b'second build')
+        after = project_fingerprint(project, None)
+
+        assert after.compare(before) == {IMAGE, ARCHIVE}
+        assert after.image_digest() != before.image_digest()
+
+        # an image build installs the wheel whatever the archive holds, so the digest tracks it under exclude
+        excluded = DatabaseConfig(exclude=['wheels/**'])
+        before = project_fingerprint(project, excluded)
+        assert 'wheels/dep-1.0-py3-none-any.whl' not in self._names(project, excluded)
+        (project / 'wheels' / 'dep-1.0-py3-none-any.whl').write_bytes(b'third build')
+        assert project_fingerprint(project, excluded).image_digest() != before.image_digest()
+
+    def test_unbuildable_requirements(self, project: pathlib.Path) -> None:
+        """A requirement naming a source tree is refused: an image build installs packages, it does not build them."""
+        (project / 'vendor').mkdir()
+        (project / 'vendor' / 'pkg.py').write_text('v = 1\n')
+        for line in ('-e ./vendor', '-e./vendor', '--editable=./vendor'):
+            (project / 'requirements.txt').write_text(f'{line}\n')
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='editable install'):
+                project_fingerprint(project, None)
+
+        for line in ('./vendor', 'pkg @ ./vendor'):
+            (project / 'requirements.txt').write_text(f'{line}\n')
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='source directory'):
+                project_fingerprint(project, None)
+
+        # a package sharing a name with a directory in the project is still read as a package
+        (project / 'requirements.txt').write_text('vendor\n--index-url https://example.invalid/simple\n')
+        assert project_fingerprint(project, None).installed_from_project == {}
+
+        # invalid references
+        for line in ('-r more.txt', '  --requirement more.txt', '-c pins.txt', '\t--constraint pins.txt'):
+            (project / 'requirements.txt').write_text(f'{line}\n')
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='reads another file'):
+                project_fingerprint(project, None)
+
+    def test_malformed_pyproject(self, project: pathlib.Path) -> None:
+        (project / 'pyproject.toml').write_text('[project\nname = "x"\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='not valid TOML'):
+            create_image_context(project)
+
+    def test_object_names(self, project: pathlib.Path) -> None:
+        before = project_fingerprint(project, None)
+        (project / 'app.py').write_text('x = 2\n')
+        edited = project_fingerprint(project, None)
+        assert archive_object_name('org_1', edited.archive_digest()) != archive_object_name(
+            'org_1', before.archive_digest()
+        )
+        # an edit that leaves the environment alone leaves the image context where it is
+        assert image_object_name('org_1', edited.image_digest()) == image_object_name('org_1', before.image_digest())
+        # one org's artifacts are never another's
+        assert image_object_name('org_2', before.image_digest()) != image_object_name('org_1', before.image_digest())
+
+    def test_environment(self, project: pathlib.Path) -> None:
+        before = project_fingerprint(project, DatabaseConfig(python_version='3.11'))
+        after = project_fingerprint(project, DatabaseConfig(python_version='3.12'))
+        # the files are untouched, so the archive the pods fetch stays as it is
+        assert after.compare(before) == {IMAGE}
+        assert after.changes(before) == ['python_version 3.11 -> 3.12']
+        assert after.changes(before, {ARCHIVE}) == []
+
+        with_deps = project_fingerprint(project, DatabaseConfig(python_version='3.11', system_dependencies=['ffmpeg']))
+        assert with_deps.compare(before) == {IMAGE}
+        assert with_deps.changes(before, {IMAGE}) == ['system_dependencies changed']
+
+    def test_digests(self, project: pathlib.Path) -> None:
+        before = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://one'}))
+        # a changed binding restarts a service without sending either artifact
+        rebound = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://two'}))
+        assert rebound.archive_digest() == before.archive_digest()
+        assert rebound.image_digest() == before.image_digest()
+
+        (project / 'app.py').write_text('x = 2\n')
+        edited = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://one'}))
+        assert edited.archive_digest() != before.archive_digest()
+        # one image serves every project declaring its environment, whatever their sources
+        assert edited.image_digest() == before.image_digest()
+
+        (project / 'app.py').write_text('x = 1\n')
+        reverted = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://one'}))
+        assert reverted.archive_digest() == before.archive_digest()
+
+        with_deps = project_fingerprint(project, DatabaseConfig(system_dependencies=['ffmpeg']))
+        assert with_deps.image_digest() != before.image_digest()
+        assert with_deps.archive_digest() == before.archive_digest()

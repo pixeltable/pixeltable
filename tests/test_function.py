@@ -1,5 +1,6 @@
 # ruff: noqa: RUF029
 import builtins
+import os
 import re
 import subprocess
 import typing
@@ -1897,7 +1898,15 @@ class TestFunction:
 
     @pytest.mark.db_roots('local', reason='runs a UDF-definition script in a subprocess')
     def test_udf_in_global_namespace(self, uses_db: None) -> None:
-        process = subprocess.run(('python', 'tests/script_with_udf.py'), check=False, capture_output=True, text=True)
+        # PYTHONSAFEPATH keeps the script's directory off sys.path; tests/pixeltable_cli sits there and
+        # shadows the real pixeltable_cli, which is imported by pixeltable
+        process = subprocess.run(
+            ('python', 'tests/script_with_udf.py'),
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**os.environ, 'PYTHONSAFEPATH': '1'},
+        )
         assert process.returncode != 0  # The script should fail with an appropriate error message
         assert "Defining the UDF 'inline_udf' directly in the global namespace of a Python script" in process.stderr
 

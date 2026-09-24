@@ -1,6 +1,6 @@
 # AI-based Day Trading Insights - Chrome Extension 📈
 
-[![Python Version](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/downloads/) [![Pixeltable](https://img.shields.io/badge/powered%20by-Pixeltable-purple)](https://github.com/pixeltable/pixeltable) [![Anthropic](https://img.shields.io/badge/AI-Claude%203%20Sonnet-blue)](https://www.anthropic.com/)
+[![Python Version](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/) [![Pixeltable](https://img.shields.io/badge/powered%20by-Pixeltable-purple)](https://github.com/pixeltable/pixeltable) [![Anthropic](https://img.shields.io/badge/AI-Claude%203%20Sonnet-blue)](https://www.anthropic.com/)
 
 A Chrome extension powered by Pixeltable and Claude Sonnet that provides real-time technical analysis and trading insights for stock market charts. It leverages advanced AI to analyze chart patterns, technical indicators, and market conditions to help traders make more informed decisions.
 

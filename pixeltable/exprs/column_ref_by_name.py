@@ -4,6 +4,7 @@ from typing import Any
 
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
+from pixeltable.catalog.globals import fold_identifier
 
 from .data_row import DataRow
 from .expr import Expr
@@ -18,7 +19,7 @@ class ColumnRefByName(Expr):
 
     name: str
 
-    # the model declaring this column, when this placeholder stands for one of its attributes; it identifies the
+    # the model defining this column, when this placeholder stands for one of its attributes; it identifies the
     # shape an expression method resolves against, and is deliberately not part of this expression's identity
     model_cls: Any
 
@@ -28,7 +29,7 @@ class ColumnRefByName(Expr):
 
     def __init__(self, name: str, col_type: ts.ColumnType | None = None) -> None:
         super().__init__(col_type if col_type is not None else ts.InvalidType())
-        self.name = name
+        self.name = fold_identifier(name)
         self.model_cls = None
         self.id = self._create_id()
 
@@ -55,7 +56,7 @@ class ColumnRefByName(Expr):
     def similarity(self, item: Any = None, **kwargs: Any) -> Expr:
         """The similarity score between this column's values and the given item.
 
-        Resolves the embedding index against the shape the declaring model describes, so no table is needed.
+        Resolves the embedding index against the shape the defining model describes, so no table is needed.
         """
         from .column_ref import ColumnRef
 

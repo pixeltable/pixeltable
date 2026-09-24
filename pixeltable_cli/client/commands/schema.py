@@ -1,14 +1,23 @@
-import json
 import sys
 import textwrap
 from pathlib import Path
 from typing import NamedTuple
 
-from ...schema_types import DiffResolution, OpStatus, SchemaChangeOp, SchemaPlan, drop_table_op
+import pydantic
+
+from ...types import OpStatus, Resolution, SchemaChangeOp, SchemaPlan
 from ...utils import PxtPath
-from ..confirm import confirm_or_exit
 from ..parser import Parser
-from ..utils import check_file, post_request
+from ..utils import (
+    EXIT_CHANGES_PENDING,
+    EXIT_ERROR,
+    EXIT_IN_AGREEMENT,
+    EXIT_REFUSED,
+    check_file,
+    confirm_or_exit,
+    post_request,
+    print_json_schema,
+)
 
 # a working schema file: written verbatim by 'pxt schema example', and shown indented in every verb's epilog,
 # because otherwise the shape of a model file has to be guessed
@@ -20,6 +29,7 @@ TableModel = pxt.model_base()
 
 
 class Docs(TableModel, name='docs'):
+    id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # a generated primary key
     title: pxt.String                         # a stored column
     body: pxt.String | None                   # a stored column that may be null
     title_upper = pxtf.string.upper(title)    # a computed column: an assignment, not an annotation
@@ -39,7 +49,7 @@ Every construct the schema DSL supports appears below; delete what you do not ne
 
 A udf defined here is referenced by this file's path, so moving or renaming the file leaves the columns that
 call it unable to compute.
-Building an application with Pixeltable? The agent skill carries the full API:
+Building an application with Pixeltable? The agent skill covers the full API:
     npx skills add pixeltable/pixeltable-skill
 """
 
@@ -58,8 +68,10 @@ def excerpt(text: str, n: int = 80) -> str:
 class Docs(TableModel, name='docs'):
     """One model becomes one table, named by name=."""
 
-    # an annotation declares a stored column
-    doc_id: pxt.Int
+    # a primary key, generated on insert
+    id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
+
+    # an annotation defines a stored column
     title: pxt.String
     body: pxt.String | None
     published: pxt.Timestamp | None
@@ -69,7 +81,7 @@ class Docs(TableModel, name='docs'):
     embedding: pxt.Array[(384,), pxt.Float] | None
     source: pxt.Document | None  # a media column takes a local path or a URL on insert
 
-    # an assignment declares a computed column, evaluated on insert and on update
+    # an assignment defines a computed column, evaluated on insert and on update
     title_upper = pxtf.string.upper(title)
     summary = pxtf.string.slice(body, 0, 80)
     title_excerpt = excerpt(title)  # a call to the udf this file defines
@@ -110,7 +122,7 @@ class Sentences(
 ):
     """A component view: one row per item the iterator produces from each base row."""
 
-    # 'text' is an output column of the iterator, not declared here
+    # 'text' is an output column of the iterator, not defined here
     length = pxtf.string.len(text)  # type: ignore[name-defined]  # noqa: F821
 '''
 
@@ -135,12 +147,13 @@ Examples:
   pxt schema diff schema.py my_app                 # what 'schema update' would change
   pxt schema diff schema.py my_app --json          # the same plan, machine-readable
   pxt schema diff schema.py pxt://org:db/prod      # against a hosted database
+  pxt schema diff --json-schema                    # the schema of the --json output, on its own
 
 Output:
   + <path>      table will be created        + <column>   will be added
   ~ <path>      table will be migrated       - <column>   will be dropped
   = <path>      already matches its model
-  ! <path>      cannot be migrated in place, or is not declared by the schema
+  ! <path>      cannot be migrated in place, or is not defined by the schema
   Each operation is marked safe, DESTRUCTIVE, or UNSUPPORTED.
 
 Exit codes:
@@ -149,8 +162,10 @@ Exit codes:
   1  error: bad arguments, the schema file failed to import, or the daemon is unreachable
 
 Notes:
+  --json-schema prints the JSON Schema of what --json emits, with every enum value spelled out,
+  and takes no SCHEMA or TARGET. It is generated from the models, so it always matches the output.
   Read-only: never creates TARGET, never touches a table.
-  Tables under TARGET that no model declares are reported as extras. 'schema update' never
+  Tables under TARGET that no model defines are reported as extras. 'schema update' never
   removes them, so they do not count as pending changes and do not affect the exit code.
 
 {_SCHEMA_FILE}"""
@@ -177,7 +192,7 @@ Notes:
   or the table by hand.
   Dropping a column or an index destroys its data and needs --allow-destructive. Applying is
   all-or-nothing: without that flag a destructive plan applies nothing at all.
-  Tables under TARGET that no model declares are left alone; 'schema prune' removes them.
+  Tables under TARGET that no model defines are left alone; 'schema prune' removes them.
   The daemon imports the schema file, so it must be readable there; the file's own directory is
   added to sys.path, so it can import modules sitting next to it.
 
@@ -196,9 +211,9 @@ Exit codes:
   1  error: bad arguments, the schema file failed to import, or a drop failed
 
 Notes:
-  Drops every table under TARGET that no model declares. This is irreversible.
+  Drops every table under TARGET that no model defines. This is irreversible.
   Only tables under TARGET are considered, so nothing elsewhere in the catalog is affected.
-  Declared tables are never dropped, and never modified: a full reconcile is 'update' then 'prune'.
+  Defined tables are never dropped, and never modified: a full reconcile is 'update' then 'prune'.
   A view is dropped before its base. Prune never force-drops, so a table that something outside the
   pruned set depends on is left in place and the drop fails, naming what depends on it.
   Without -f, confirmation is read from the terminal; non-interactive callers must pass -f.
@@ -215,11 +230,11 @@ Exit codes:
   1  error: bad arguments, the file failed to import, or a udf it records cannot be read back
 
 Notes:
-  Checks what the file says on its own: it imports without modifying the catalog, it declares a
-  model base, and every udf its columns call is named by a module path another process resolves.
-  Takes no TARGET and reads no catalog, so it says nothing about what a target already holds;
+  Checks what the file says on its own: it imports without modifying the catalog, it defines a
+  model base, and every udf its columns call has a module path another process resolves.
+  Takes no TARGET and reads no catalog, so it says nothing about what a target already contains;
   'pxt schema diff' answers that.
-  A warning names a project module whose name an installed distribution also answers to: the
+  A warning reports a project module whose name an installed distribution also answers to: the
   project root goes on sys.path after the installed packages, so an import reads the installed one.
 
 {_SCHEMA_FILE}"""
@@ -232,19 +247,13 @@ Examples:
   pxt schema example --out schema.py && pxt schema update schema.py my_app
 
 Notes:
-  The file is a working schema: applying it as-is creates the tables it declares.
+  The file is a working schema: applying it as-is creates the tables it defines.
   It covers every construct the DSL supports, so there is nothing to look up elsewhere; delete
   whatever the application does not need.
 
 {_SCHEMA_FILE}"""
 
 VERBS = ['diff', 'update', 'prune', 'check', 'example']
-
-# exit status: whether the target already matches the schema is reported here, not only in the output
-EXIT_IN_AGREEMENT = 0
-EXIT_ERROR = 1
-EXIT_CHANGES_PENDING = 2
-EXIT_REFUSED = 3
 
 
 class _Rendering(NamedTuple):
@@ -253,7 +262,7 @@ class _Rendering(NamedTuple):
     applied: str  # empty for a resolution that is never carried out
 
 
-_RESOLUTIONS: dict[DiffResolution, _Rendering] = {
+_RESOLUTIONS: dict[Resolution, _Rendering] = {
     'create': _Rendering('+', 'create', 'created'),
     'update_additive': _Rendering('~', 'update', 'updated'),
     'update_destructive': _Rendering('~', 'update', 'updated'),
@@ -273,8 +282,8 @@ def run(argv: list[str]) -> None:
         print(
             'usage: pxt schema <verb> SCHEMA TARGET [options]\n\nverbs:\n'
             '  diff     show the changes that update would make; exit 2 if any are pending\n'
-            '  update   create and migrate the tables the schema declares under TARGET\n'
-            '  prune    drop the tables under TARGET that the schema does not declare\n'
+            '  update   create and migrate the tables the schema defines under TARGET\n'
+            '  prune    drop the tables under TARGET that the schema does not define\n'
             '  check    validate the schema file on its own (takes no TARGET)\n'
             '  example  write a working schema file to start from (takes no SCHEMA/TARGET)\n\n'
             'SCHEMA is a Python file defining models on a pxt.model_base(); TARGET is a catalog\n'
@@ -299,7 +308,11 @@ def run(argv: list[str]) -> None:
         ap.add_argument('schema', help='path to a Python file defining a class-based schema')
         ap.add_argument('--json', action='store_true', dest='as_json')
         args = ap.parse_args(argv[1:])
-        check_file('/api/schema/check', 'schema_file', args.schema, verb='schema check', as_json=args.as_json)
+        check_file('/api/schema/check', 'app_file', args.schema, verb='schema check', as_json=args.as_json)
+        return
+
+    if verb == 'diff' and argv[1:] == ['--json-schema']:
+        print_json_schema(pydantic.TypeAdapter(SchemaPlan))
         return
 
     epilogs = {'diff': DIFF_EPILOG, 'update': UPDATE_EPILOG, 'prune': PRUNE_EPILOG}
@@ -328,15 +341,15 @@ def run(argv: list[str]) -> None:
             file=sys.stderr,
         )
         sys.exit(EXIT_ERROR)
-    schema_file = str(path.resolve())
+    app_file = str(path.resolve())
 
     if verb == 'diff':
-        _diff(schema_file, args.target, as_json=args.as_json)
+        _diff(app_file, args.target, as_json=args.as_json)
     elif verb == 'prune':
-        _prune(schema_file, args.target, as_json=args.as_json, force=args.force, dry_run=args.dry_run)
+        _prune(app_file, args.target, as_json=args.as_json, force=args.force, dry_run=args.dry_run)
     else:
         _update(
-            schema_file,
+            app_file,
             args.target,
             as_json=args.as_json,
             force=args.force,
@@ -354,118 +367,127 @@ def _example(out: str | None, *, brief: bool) -> None:
     print(f'wrote {out}')
 
 
-def _diff(schema_file: str, catalog_dir: PxtPath, *, as_json: bool) -> None:
-    plan = _plan_for(schema_file, catalog_dir)
+def _diff(app_file: str, catalog_dir: PxtPath, *, as_json: bool) -> None:
+    plan = _plan_for(app_file, catalog_dir)
     _diff_output(plan, as_json=as_json)
-    sys.exit(EXIT_IN_AGREEMENT if plan['in_agreement'] else EXIT_CHANGES_PENDING)
+    sys.exit(EXIT_IN_AGREEMENT if plan.in_agreement else EXIT_CHANGES_PENDING)
 
 
-def _plan_for(schema_file: str, catalog_dir: PxtPath) -> SchemaPlan:
-    plan: SchemaPlan = post_request('/api/schema/diff', {'schema_file': schema_file, 'catalog_dir': catalog_dir})
-    return plan
+def _plan_for(app_file: str, catalog_dir: PxtPath) -> SchemaPlan:
+    return SchemaPlan.model_validate(
+        post_request('/api/schema/diff', {'app_file': app_file, 'catalog_dir': catalog_dir})
+    )
 
 
 def _format_plan(plan: SchemaPlan) -> list[str]:
     lines: list[str] = []
-    for tbl in plan['tables']:
-        rendering = _RESOLUTIONS[tbl['resolution']]
-        lines.append(f'{rendering.marker} {tbl["path"]:<24s} {rendering.pending}')
-        for op in tbl['ops']:
-            lines.append(f'    {_OP_MARKERS.get(op["op"], "~")} {op["description"]}  {_severity_label(op)}')
-    for path in plan['extras']:
+    for op in plan.ops:
+        lines.append(f'! {op.description}  {_severity_label(op)}')
+    for tbl in plan.tables:
+        rendering = _RESOLUTIONS[tbl.resolution]
+        lines.append(f'{rendering.marker} {tbl.path:<24s} {rendering.pending}')
+        for op in tbl.ops:
+            lines.append(f'    {_OP_MARKERS.get(op.op, "~")} {op.description}  {_severity_label(op)}')
+    for path in plan.extras:
         lines.append(f'! {path:<24s} extra (not in schema)')
 
-    s = plan['summary']
-    updates = s['update_additive'] + s['update_destructive']
-    counts = f'{s["create"]} create, {updates} update, {s["up_to_date"]} unchanged, {s["extras"]} extra'
-    if s['unsupported'] > 0:
-        counts += f', {s["unsupported"]} unsupported'
+    s = plan.summary
+    updates = s.update_additive + s.update_destructive
+    counts = f'{s.create} create, {updates} update, {s.up_to_date} unchanged, {s.extras} extra'
+    if s.unsupported > 0:
+        counts += f', {s.unsupported} unsupported'
+    if s.blocked_ops > 0:
+        counts += f', {s.blocked_ops} blocked'
     lines.append('')
-    lines.append(f'Plan: {counts}  |  {s["destructive"]} destructive')
+    lines.append(f'Plan: {counts}  |  {s.destructive} destructive')
     return lines
 
 
 def _severity_label(op: SchemaChangeOp) -> str:
     # an unmapped severity prints as itself: a category added later must not read as harmless here
-    return _SEVERITY_LABELS.get(op['severity'], op['severity'].upper())
+    return _SEVERITY_LABELS.get(op.severity, op.severity.upper())
 
 
-def _prune(schema_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, dry_run: bool) -> None:
-    plan = _plan_for(schema_file, catalog_dir)
-    extras = plan['extras']
+def _prune(app_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, dry_run: bool) -> None:
+    plan = _plan_for(app_file, catalog_dir)
+    extras = plan.extras
     if len(extras) == 0:
         if as_json:
-            print(json.dumps({**plan, 'ops': []}, indent=2))
+            print(plan.model_copy(update={'ops': []}).model_dump_json(indent=2))
         else:
             print('nothing to prune')
         sys.exit(EXIT_IN_AGREEMENT)
 
+    def with_drops(status: OpStatus) -> SchemaPlan:
+        return plan.model_copy(update={'ops': [SchemaChangeOp.drop_table(p, status) for p in extras]})
+
     if dry_run:
-        _prune_output(
-            {**plan, 'ops': [drop_table_op(p, 'skipped') for p in extras]}, as_json=as_json, verb='would drop'
-        )
+        _prune_output(with_drops('skipped'), as_json=as_json, verb='would drop')
         sys.exit(EXIT_CHANGES_PENDING)
 
     def report_refusal() -> None:
-        _prune_output(
-            {**plan, 'ops': [drop_table_op(p, 'refused') for p in extras]}, as_json=as_json, verb='would drop'
-        )
+        _prune_output(with_drops('refused'), as_json=as_json, verb='would drop')
 
     confirm_or_exit(
-        f'drop {len(extras)} table(s) not declared by the schema?',
+        f'drop {len(extras)} table(s) not defined by the schema?',
         force,
         refused_exit_code=EXIT_REFUSED,
         on_refusal=report_refusal,
     )
 
-    resp = post_request('/api/schema/prune', {'schema_file': schema_file, 'catalog_dir': catalog_dir})
-    _prune_output(resp, as_json=as_json, verb='dropped')
+    pruned = SchemaPlan.model_validate(
+        post_request('/api/schema/prune', {'app_file': app_file, 'catalog_dir': catalog_dir})
+    )
+    _prune_output(pruned, as_json=as_json, verb='dropped')
 
 
 def _prune_output(plan: SchemaPlan, *, as_json: bool, verb: str) -> None:
     if as_json:
-        print(json.dumps(plan, indent=2))
+        print(plan.model_dump_json(indent=2))
         return
-    for op in plan['ops']:
-        print(f'{verb} {op["name"]}')
+    for op in plan.ops:
+        print(f'{verb} {op.name}')
 
 
 def _update(
-    schema_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, dry_run: bool, allow_destructive: bool
+    app_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, dry_run: bool, allow_destructive: bool
 ) -> None:
     if dry_run:
-        plan = _plan_for(schema_file, catalog_dir)
+        plan = _plan_for(app_file, catalog_dir)
         _set_statuses(plan, destructive='skipped', other='skipped')
         _diff_output(plan, as_json=as_json)
-        sys.exit(EXIT_IN_AGREEMENT if plan['in_agreement'] else EXIT_CHANGES_PENDING)
+        sys.exit(EXIT_IN_AGREEMENT if plan.in_agreement else EXIT_CHANGES_PENDING)
 
     # the plan is read up front only to decide whether to proceed: with destructive operations already permitted
     # and confirmation waived, there is nothing left to decide
     if not (allow_destructive and force):
-        _decide_update(schema_file, catalog_dir, as_json=as_json, force=force, allow_destructive=allow_destructive)
+        _decide_update(app_file, catalog_dir, as_json=as_json, force=force, allow_destructive=allow_destructive)
 
-    applied = post_request(
-        '/api/schema/update',
-        {'schema_file': schema_file, 'catalog_dir': catalog_dir, 'allow_destructive': allow_destructive},
+    applied = SchemaPlan.model_validate(
+        post_request(
+            '/api/schema/update',
+            {'app_file': app_file, 'catalog_dir': catalog_dir, 'allow_destructive': allow_destructive},
+        )
     )
     _update_output(applied, as_json=as_json)
+    if applied.summary.blocked_ops > 0:
+        # only pxt db update can clear a blocked op
+        sys.exit(EXIT_ERROR)
 
 
-def _decide_update(
-    schema_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, allow_destructive: bool
-) -> None:
+def _decide_update(app_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, allow_destructive: bool) -> None:
     """Reports the pending plan and exits, unless applying it is permitted.
 
     Exits 0 if there is nothing to apply, and 3 if the plan is destructive and that was neither permitted nor
     confirmed. Returning means the plan may be applied; it is advisory, being a separate read from the one the
     apply acts on.
     """
-    plan = _plan_for(schema_file, catalog_dir)
-    if plan['in_agreement']:
+    plan = _plan_for(app_file, catalog_dir)
+    if plan.in_agreement:
         _update_output(plan, as_json=as_json)
         sys.exit(EXIT_IN_AGREEMENT)
 
-    destructive = plan['summary']['destructive']
+    destructive = plan.summary.destructive
     if destructive == 0:
         return
     if not allow_destructive:
@@ -481,13 +503,35 @@ def _decide_update(
 
 def _update_output(plan: SchemaPlan, *, as_json: bool) -> None:
     if as_json:
-        print(json.dumps(plan, indent=2))
+        print(plan.model_dump_json(indent=2))
         return
-    if plan['in_agreement']:
+    if plan.in_agreement:
         print('catalog is up to date')
         return
-    for tbl in plan['tables']:
-        print(f'{_RESOLUTIONS[tbl["resolution"]].applied:9s} {tbl["path"]}')
+    for op in plan.ops:
+        print(f'! {op.description}  {_severity_label(op)}')
+    for tbl in plan.tables:
+        outcome = 'refused' if tbl.status == 'refused' else _RESOLUTIONS[tbl.resolution].applied
+        print(f'{outcome:9s} {tbl.path}')
+    _print_recompute_notice(plan)
+
+
+def _print_recompute_notice(plan: SchemaPlan) -> None:
+    altered_cols_by_tbl: dict[str, list[str]] = {}
+    for tbl in plan.tables:
+        for op in tbl.ops:
+            if op.op == 'alter' and op.details.stored and op.status == 'applied':
+                altered_cols_by_tbl.setdefault(tbl.path, []).append(op.name)
+    if len(altered_cols_by_tbl) == 0:
+        return
+    print()
+    print('the value expressions of these columns changed, but their stored values were not recomputed:')
+    for path, col_names in altered_cols_by_tbl.items():
+        for col_name in col_names:
+            print(f'  {path}.{col_name}')
+    print('run the following if you wish to recompute them:')
+    for path, col_names in altered_cols_by_tbl.items():
+        print(f'  pxt recompute {path} {" ".join(col_names)}')
 
 
 def _set_statuses(plan: SchemaPlan, *, destructive: OpStatus, other: OpStatus) -> None:
@@ -496,15 +540,15 @@ def _set_statuses(plan: SchemaPlan, *, destructive: OpStatus, other: OpStatus) -
     Destructive operations take the destructive status, the rest take the other one, and a table takes the
     destructive status if any of its operations does.
     """
-    for tbl in plan['tables']:
-        for op in tbl['ops']:
-            op['status'] = destructive if op['destructive'] else other
-        tbl['status'] = destructive if any(op['destructive'] for op in tbl['ops']) else other
+    for tbl in plan.tables:
+        for op in tbl.ops:
+            op.status = destructive if op.destructive else other
+        tbl.status = destructive if any(op.destructive for op in tbl.ops) else other
 
 
 def _diff_output(plan: SchemaPlan, *, as_json: bool) -> None:
     if as_json:
-        print(json.dumps(plan, indent=2))
+        print(plan.model_dump_json(indent=2))
         return
     for line in _format_plan(plan):
         print(line)

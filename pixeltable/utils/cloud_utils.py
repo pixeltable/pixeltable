@@ -12,30 +12,33 @@ from typing import Literal
 import requests
 
 from pixeltable import exceptions as excs
-from pixeltable.config import Config
-from pixeltable.env import Env
-from pixeltable.service.management_client import api_url
+from pixeltable.service.management_client import api_url, raise_if_refused, resolve
 from pixeltable.service.pxtfs_protocol import (
     GetBucketCredentialsRequest,
     GetBucketCredentialsResponse,
     GetPresignedUrlRequest,
     GetPresignedUrlResponse,
 )
+from pixeltable.utils.http import SESSION
 
 
-def _api_headers() -> dict[str, str]:
-    headers = {'Content-Type': 'application/json'}
-    api_key = Env.get().pxt_api_key
-    if api_key is None:
-        raise excs.AuthorizationError(
-            excs.ErrorCode.MISSING_CREDENTIALS,
-            'A Pixeltable API key is required for home bucket access. '
-            'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
-            f'or add `api_key = "your-key"` to the `[pixeltable]` section in {Config.get().config_file}.\n'
-            'For details, see https://docs.pixeltable.com/platform/configuration',
-        )
-    headers['X-api-key'] = api_key
-    return headers
+def _post(request: GetBucketCredentialsRequest | GetPresignedUrlRequest, timeout: float) -> requests.Response:
+    """Send a home-bucket request with an API key if one is set, otherwise the `pxt login` session.
+
+    A refused credential or request raises as it does for a management call, since retrying cannot help.
+    """
+    purpose = 'reach the home bucket'
+    sent = resolve(purpose)
+    headers = {'Content-Type': 'application/json', **sent.header()}
+    body = request.model_dump_json()
+    try:
+        response = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
+    except requests.exceptions.ConnectionError:
+        # a pooled connection closed by the peer while idle fails the call that next picks it up; both
+        # requests only read, so sending one again on a new connection is safe
+        response = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
+    raise_if_refused(response, sent, purpose)
+    return response
 
 
 def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str | None = None) -> GetBucketCredentialsResponse:
@@ -53,7 +56,7 @@ def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str | None = 
     """
     request = GetBucketCredentialsRequest(org=org, db=db, bucket_name=bucket, prefix=prefix)
     try:
-        response = requests.post(api_url(), data=request.model_dump_json(), headers=_api_headers(), timeout=15)
+        response = _post(request, timeout=15)
         if response.status_code != 200:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,
@@ -80,7 +83,7 @@ def get_presigned_url_from_cloud(
     """
     request = GetPresignedUrlRequest(org=org, db=db, bucket_name=bucket, key=key, method=method, expiration=expiration)
     try:
-        response = requests.post(api_url(), data=request.model_dump_json(), headers=_api_headers(), timeout=30)
+        response = _post(request, timeout=30)
         if response.status_code != 200:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,

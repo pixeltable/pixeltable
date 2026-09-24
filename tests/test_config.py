@@ -11,8 +11,8 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.config import SECRET_SECTION, VAR_SECTION, Config
-from pixeltable.serving._config import lookup_database_config
+from pixeltable.catalog import Path as PxtPath
+from pixeltable.config import VAR_SECTION, Config
 
 from .utils import get_image_files, pxt_raises
 
@@ -151,15 +151,15 @@ class TestConfig:
     def test_env_var_names(self, tmp_path: Path) -> None:
         """A setting is bound by its name uppercased, so only that spelling of a variable is read."""
         config_file = tmp_path / 'config.toml'
-        config_file.write_text('[pixeltable.database.secrets]\ndeclared_in_file = "from-the-file"\n')
+        config_file.write_text('[[pixeltable.database]]\nvars.declared_in_file = "from-the-file"\n')
 
         def config_var_keys(env_vars: dict[str, str]) -> list[str]:
-            """The secret names Config finds, resolved in a subprocess so the environment is exactly env_vars."""
+            """The var names Config finds, resolved in a subprocess so the environment is exactly env_vars."""
             code = (
                 'import json\n'
-                'from pixeltable.config import Config, SECRET_SECTION\n'
+                'from pixeltable.config import Config, VAR_SECTION\n'
                 'print(json.dumps(sorted(ck.key for ck in Config.get().config_keys() '
-                'if ck.section == SECRET_SECTION)))'
+                'if ck.section == VAR_SECTION)))'
             )
             result = subprocess.run(
                 (sys.executable, '-c', code),
@@ -172,23 +172,23 @@ class TestConfig:
         # a variable spelled as the name uppercased declares the var; any other spelling names nothing, and
         # neither does a variable with no name after the prefix
         assert config_var_keys({}) == ['declared_in_file']
-        assert config_var_keys({'PIXELTABLE_SECRET_FROM_ENV': 'x'}) == ['declared_in_file', 'from_env']
+        assert config_var_keys({'PIXELTABLE_VAR_FROM_ENV': 'x'}) == ['declared_in_file', 'from_env']
         if sys.platform != 'win32':
             # Windows environment variable names are case-insensitive, so there this is the uppercase variable
-            assert config_var_keys({'PIXELTABLE_SECRET_MiXeD': 'x'}) == ['declared_in_file']
-        assert config_var_keys({'PIXELTABLE_SECRET_': 'x'}) == ['declared_in_file']
+            assert config_var_keys({'PIXELTABLE_VAR_MiXeD': 'x'}) == ['declared_in_file']
+        assert config_var_keys({'PIXELTABLE_VAR_': 'x'}) == ['declared_in_file']
 
         # a declared name must be lowercase, so that it maps to exactly one env var name
         with pytest.raises(pxt.Error, match='Invalid config var name'):
-            pxt.ConfigVar('MiXeD', pxt.Secret)
-        assert pxt.ConfigVar('from_env', pxt.Secret).env_var == 'PIXELTABLE_SECRET_FROM_ENV'
+            pxt.ConfigVar('MiXeD', pxt.URI)
+        assert pxt.ConfigVar('from_env', pxt.URI).env_var == 'PIXELTABLE_VAR_FROM_ENV'
 
         # a declared type must be one the stored reference can name, so that the metadata reads back
-        class MySecret(pxt.Secret):
+        class MyUri(pxt.URI):
             pass
 
-        with pytest.raises(pxt.Error, match="Invalid config var type 'MySecret': must be one of str, URI, Secret"):
-            pxt.ConfigVar('custom', MySecret)
+        with pytest.raises(pxt.Error, match="Invalid config var type 'MyUri': must be one of str, URI"):
+            pxt.ConfigVar('custom', MyUri)
 
     @pytest.mark.skipif(sys.platform == 'win32', reason='environment variable names are case-insensitive on Windows')
     def test_miscased_env_var(self, tmp_path: Path) -> None:
@@ -285,6 +285,36 @@ class TestConfig:
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'`python_version` must be a version'):
             load("[[pixeltable.database]]\npython_version = '3'\n")
 
+    def test_typed_option_values(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An option declaring a scalar type is read from the config file and validated against that type."""
+        home = tmp_path / 'home.toml'
+        monkeypatch.setenv('PIXELTABLE_CONFIG', str(home))
+
+        def load(home_text: str) -> Config:
+            home.write_text(home_text)
+            Config.init(reinit=True)
+            return Config.get()
+
+        config = load('[pixeltable]\ndb_pool_size = 1\ndb_pool_max_overflow = 0\n')
+        assert config.get_int_value('db_pool_size') == 1
+        assert config.get_int_value('db_pool_max_overflow') == 0
+
+        # a bool is refused for an int option, though isinstance() accepts it
+        for value, type_name in (("'five'", 'str'), ('true', 'bool'), ('1.5', 'float')):
+            with pxt_raises(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                match=rf"(?s)Invalid type for option 'pixeltable\.db_pool_size'.*expected `int`, got `{type_name}`",
+            ):
+                load(f'[pixeltable]\ndb_pool_size = {value}\n')
+
+        # in a project file the option is refused as an installation setting, not as a type error
+        project = tmp_path / 'proj'
+        project.mkdir()
+        (project / 'pixeltable.toml').write_text('[pixeltable]\ndb_pool_size = 1\n')
+        home.write_text('')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r"Cannot set 'pixeltable\.db_pool_size'"):
+            Config.init(reinit=True, project_root=project)
+
     def test_project_root_after_reload(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The project root reaches Config through init(), and survives a reload."""
         project = tmp_path / 'proj'
@@ -343,7 +373,6 @@ class TestConfig:
                 [[pixeltable.database]]
                 vars.media_dest = 's3://home/bucket'
                 vars.other_dest = 's3://home/other'
-                secrets.shared_key = 'from-home'
                 """
             ),
             dedent(
@@ -357,7 +386,6 @@ class TestConfig:
         assert config.get_value_source('media_dest', section=VAR_SECTION) == project / 'pixeltable.toml'
         assert config.get_string_value('other_dest', section=VAR_SECTION) == 's3://home/other'
         assert config.get_value_source('other_dest', section=VAR_SECTION) == home
-        assert config.get_string_value('shared_key', section=SECRET_SECTION) == 'from-home'
 
         # an environment variable outranks both files
         monkeypatch.setenv('PIXELTABLE_VAR_MEDIA_DEST', 's3://from/env')
@@ -399,6 +427,14 @@ class TestConfig:
         assert Config.reload_if_changed()
         assert Config.get().get_string_value('media_dest', section=VAR_SECTION) == 's3://after/edits'
 
+    def test_secrets_in_database_entry_refused(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A secret is bound by its environment variable, so an entry naming one is a configuration error."""
+        config_file = tmp_path / 'config.toml'
+        config_file.write_text("[[pixeltable.database]]\nsecrets.openai_api_key = 'sk-x'\n")
+        monkeypatch.setenv('PIXELTABLE_CONFIG', str(config_file))
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='secrets'):
+            Config.init(reinit=True)
+
     def test_database_entries(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The bindings a process reads come from the [[pixeltable.database]] entry for the local database."""
 
@@ -409,13 +445,12 @@ class TestConfig:
             Config.init(reinit=True)
             return Config.get()
 
-        # one entry per database: the local one binds the vars and secrets, the hosted one carries its image
+        # one entry per database: the local one binds the vars, the hosted one carries its image
         config = load(
             dedent(
                 """
                 [[pixeltable.database]]
                 vars.media_dest = 's3://local/bucket'
-                secrets.openai_api_key = 'sk-local'
 
                 [[pixeltable.database]]
                 name = 'pxt://myorg:prod'
@@ -425,10 +460,13 @@ class TestConfig:
             )
         )
         assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://local/bucket'
-        assert config.get_string_value('openai_api_key', section=SECRET_SECTION) == 'sk-local'
-        assert lookup_database_config().vars == {'media_dest': 's3://local/bucket'}
-        assert lookup_database_config('pxt://myorg:prod').system_dependencies == ['ffmpeg']
-        assert lookup_database_config('pxt://myorg:staging') is None
+        local = config.get_database_config(PxtPath.parse('', allow_empty_path=True))
+        assert local is not None
+        assert local.vars == {'media_dest': 's3://local/bucket'}
+        prod = config.get_database_config(PxtPath.parse('pxt://myorg:prod', allow_empty_path=True))
+        assert prod is not None
+        assert prod.system_dependencies == ['ffmpeg']
+        assert config.get_database_config(PxtPath.parse('pxt://myorg:staging', allow_empty_path=True)) is None
 
         # a single table where the array goes is one entry, which is how a file written earlier reads
         config = load("[pixeltable.database]\nvars = { media_dest = 's3://single/bucket' }\n")

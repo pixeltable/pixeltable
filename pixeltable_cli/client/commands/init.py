@@ -8,6 +8,7 @@ import tomllib
 from pixeltable_cli.utils import PROJECT_CONFIG_FILE, find_project_root
 
 from ..parser import Parser
+from ..utils import EXIT_ERROR, EXIT_REFUSED
 
 EPILOG = """\
 Examples:
@@ -19,13 +20,12 @@ What it writes:
 
     [[pixeltable.database]]         # the local database
     vars.media_dest = 's3://bucket/prefix'
-    secrets.openai_api_key = '...'
 
-  vars and secrets bind the config vars a schema declares. A hosted database is a second entry,
-  named by its uri, which also carries what goes into its runtime image ('pxt db update-runtime').
-  In a directory that already holds a pyproject.toml, the same entry is appended there as
+  vars supply the values of the config vars a schema declares. A hosted database is a second
+  entry, identified by its uri, which also records what goes into its image ('pxt db update').
+  In a directory with a pyproject.toml, the same entry is appended there as
   [[tool.pixeltable.database]] rather than writing a second file.
-  A directory that already holds a project configuration is reported, and left as it is.
+  A directory that already has a project configuration is reported, and left as it is.
 
 The project root:
   The directory holding the project configuration. Every local module path is relative to it:
@@ -39,19 +39,17 @@ Exit codes:
   1  error: the project configuration could not be written
   3  refused: a project root already sits above this directory"""
 
+# the shared set has no name for this one: init reports whether the directory is a project root
 EXIT_OK = 0
-EXIT_ERROR = 1
-EXIT_REFUSED = 3
 
 _PYPROJECT = 'pyproject.toml'
 
 # what a fresh project configuration holds: the local database, and the bindings that go on it
 _DATABASE_ENTRY = """\
 {header}
-# The local database. vars and secrets bind the config vars a schema declares; a hosted database is
-# a second entry, named by its uri.
+# The local database. vars supply the values of the config vars a schema declares; a hosted
+# database is a second entry, named by its uri.
 # vars.media_dest = 's3://bucket/prefix'
-# secrets.openai_api_key = '...'
 """
 _PROJECT_CONFIG = f"""\
 # Pixeltable project configuration. This file makes its directory the project root, which every
@@ -74,7 +72,7 @@ def run(argv: list[str]) -> None:
         return
     if existing is not None:
         print(
-            f'pxt init: {existing.parent} already holds a project configuration ({existing.name}), and '
+            f'pxt init: {existing.parent} already has a project configuration ({existing.name}), and '
             f'{root} sits under it.\nA project has one root, which every module path under it is relative '
             f'to: work under {existing.parent}, or remove {existing.name} to make this directory a root.',
             file=sys.stderr,
@@ -145,7 +143,7 @@ def _report(root: pathlib.Path, config_file: pathlib.Path, *, created: bool, as_
         print(f'project root: {root}\nalready configured by {config_file.name}')
     for name in unusable:
         print(
-            f"pxt init: '{name}' holds Python files, but its name is not a Python identifier, so nothing "
+            f"pxt init: '{name}' contains Python files, but its name is not a Python identifier, so nothing "
             'under it can be imported; rename the directory to use it in this project.',
             file=sys.stderr,
         )

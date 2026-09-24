@@ -12,8 +12,8 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from typing import Callable
 
-import numpy as np
 import pytest
 
 import pixeltable as pxt
@@ -21,20 +21,6 @@ from pixeltable_cli.client.utils import display_path
 
 from ..utils import DatabaseRoot, get_image_files
 from .conftest import PxtRunner
-
-
-@pxt.udf
-def _fail_on_zero(x: int) -> int:
-    """Module-level UDF: raises for k=0 so we can populate a stored errortype column."""
-    if x == 0:
-        raise ValueError('fail')
-    return x
-
-
-@pxt.udf
-def _trivial_embed(s: str) -> pxt.Array[(8,), np.float32]:
-    """Module-level embedder for embedding-index tests: deterministic, no model download."""
-    return np.zeros(8, dtype=np.float32)
 
 
 @pytest.mark.db_roots('local', reason='reports daemon liveness/version; not catalog-specific')
@@ -48,6 +34,23 @@ class TestHealth:
         # pxt.__version__: with an editable install, _version.py tracks the checkout while dist-info is
         # stamped at install time, so equating the two would assert install freshness, not daemon behavior.
         assert out['pxt_version'] == importlib.metadata.version('pixeltable')
+
+
+@pytest.mark.db_roots('local', reason='no cloud equivalent')
+class TestDbJsonSchema:
+    def test_json_schema(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        plan = json.loads(cli('db', 'diff', '--json-schema').stdout)
+        assert plan['title'] == 'DbPlan'
+        # computed fields reach the output, so they have to reach the schema too
+        assert 'in_agreement' in plan['properties']
+        assert 'summary' in plan['properties']
+        assert 'takes minutes' in plan['$defs']['DbPlanSummary']['properties']['rebuild']['description']
+
+        # status prints the report alone, so the response wrapper stays out of its schema
+        report = json.loads(cli('db', 'status', '--json-schema').stdout)
+        assert report['title'] == 'DatabaseReport'
+        assert 'worker_status' not in report['properties']
+        assert 'current' in report['properties']
 
 
 class TestLs:
@@ -76,7 +79,7 @@ class TestLs:
         entries = cli('ls', p('cli_ls'), '--json').json['entries']
         assert p('cli_ls/t') not in {e['path'] for e in entries}
 
-    def test_long_and_metadata(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    def test_long_metadata(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """-l / -l --json populate num_cols and flags via get_metadata(). Bare --json is the
         cheap path: it skips the per-entry metadata fetch and returns num_cols=None."""
         p = db_root.make_catalog_path
@@ -102,7 +105,7 @@ class TestLs:
         assert row['num_cols'] is None
         assert row['flags'] == ''
 
-    def test_tree_and_counts(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    def test_tree_counts(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """--tree formats the nested catalog with ASCII prefixes. --counts populates
         num_rows in both text and JSON; a dirs-only target skips the count pool entirely."""
         p = db_root.make_catalog_path
@@ -241,7 +244,7 @@ class TestCwd:
             cli('cd')
 
     @pytest.mark.db_roots('local', reason="a leading '/' absolute path is a local-catalog notion")
-    def test_mv_destination_honors_absolute_path(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    def test_mv_absolute_destination(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_mv_wd'), if_exists='ignore')
         pxt.create_dir(p('cli_mv_wd/sub'), if_exists='ignore')
@@ -286,7 +289,7 @@ class TestCwd:
             cli('cd')
 
     @pytest.mark.db_roots('local', reason='prompt renders the working directory in the CLI absolute convention')
-    def test_shell_prompt_shows_working_directory(
+    def test_shell_prompt_wd(
         self, cli: PxtRunner, pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path
     ) -> None:
         p = db_root.make_catalog_path
@@ -321,7 +324,7 @@ class TestCwd:
             cli('cd')  # never leak the working directory into other tests sharing this session
 
     @pytest.mark.db_roots('local', reason='daemon session store; independent of the catalog backend')
-    def test_rejects_nonexistent_and_isolates_sessions(self, db_root: DatabaseRoot, pxt_daemon: int) -> None:
+    def test_rejects_nonexistent_wd(self, db_root: DatabaseRoot, pxt_daemon: int) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_cwd_iso'), if_exists='ignore')
         base = f'http://127.0.0.1:{pxt_daemon}'
@@ -444,14 +447,17 @@ class TestIdxs:
         else:
             assert p('cli_idx/t') in {e['table'] for e in cli('idxs', p(''), '--json').json}
 
-    def test_embedding_filter(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    def test_embedding_filter(self, cli: PxtRunner, db_root: DatabaseRoot, apps: Callable[[str], str]) -> None:
         """--embedding filters to embedding indexes only; a table with both a btree-style
         index and an embedding index reports one entry each, then only the embedding under
         --embedding."""
+        apps('udfs.py')  # the import below resolves only once the fixture has copied the corpus
+        from apps.udfs import trivial_embed
+
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_idx_emb'), if_exists='ignore')
         t = pxt.create_table(p('cli_idx_emb/t'), {'s': pxt.String | None}, if_exists='replace')
-        t.add_embedding_index('s', idx_name='emb_idx', string_embed=_trivial_embed)
+        t.add_embedding_index('s', idx_name='emb_idx', string_embed=trivial_embed)
 
         all_entries = cli('idxs', p('cli_idx_emb/t'), '--json').json
         emb_only = cli('idxs', p('cli_idx_emb/t'), '--embedding', '--json').json
@@ -522,6 +528,9 @@ class TestRows:
         t2.insert([{'a': 1, 's': None}])
         assert 'None' not in cli('rows', p('cli_rows/nulls')).stdout
 
+    @pytest.mark.db_roots(
+        'local', reason='TODO: run against a hosted database, once a pod carries an API key for home bucket access'
+    )
     def test_image_column(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """Image cells must render as `<Image WxH MODE>` in both text and JSON modes -
         not as raw bytes, base64, or a PIL repr."""
@@ -794,8 +803,11 @@ class TestConfig:
 class TestErrors:
     """The `cli errors` command itself."""
 
-    def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot, apps: Callable[[str], str]) -> None:
         """Populated + empty cases, JSON and text."""
+        apps('udfs.py')  # the import below resolves only once the fixture has copied the corpus
+        from apps.udfs import fail_on_zero
+
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_errs'), if_exists='ignore')
 
@@ -808,8 +820,8 @@ class TestErrors:
 
         # Computed column that raises for k=0: row 0 shows up in the errors listing
         t = pxt.create_table(p('cli_errs/bad'), {'k': pxt.Int}, primary_key='k', if_exists='replace')
-        t.add_computed_column(b=_fail_on_zero(t.k), on_error='ignore')
-        t.add_computed_column(c=_fail_on_zero(t.k), on_error='ignore')
+        t.add_computed_column(b=fail_on_zero(t.k), on_error='ignore')
+        t.add_computed_column(c=fail_on_zero(t.k), on_error='ignore')
         t.insert([{'k': 0}, {'k': 1}], on_error='ignore')
         text = cli('errors', p('cli_errs/bad')).stdout
         assert 'k: 0' in text
@@ -997,6 +1009,99 @@ class TestMv:
         assert r.returncode != 0
 
 
+@pytest.mark.db_roots(
+    'local', reason='TODO: run against a hosted database, once a pod can fetch a project it was not built with'
+)
+class TestRecompute:
+    @pxt.udf
+    @staticmethod
+    def _doubled(a: int) -> int:
+        if a < 0:
+            raise ValueError('negative')
+        return a * 2
+
+    def _table(self, path: str) -> pxt.Table:
+        """A table with a computed column that fails on one row, and a second column that depends on it."""
+        t = pxt.create_table(path, {'a': pxt.Int | None}, if_exists='replace')
+        t.add_computed_column(doubled=TestRecompute._doubled(t.a), on_error='ignore')
+        t.add_computed_column(quadrupled=t.doubled * 2)
+        t.insert([{'a': 1}, {'a': 2}, {'a': -1}], on_error='ignore')
+        return t
+
+    def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('cli_rc'), if_exists='ignore')
+        t = self._table(p('cli_rc/t'))
+
+        # dry-run reports the row count it would recompute over, and changes nothing
+        v_before = t.get_metadata()['version']
+        out = cli('recompute', p('cli_rc/t'), 'doubled', '-n').stdout
+        assert 'would recompute doubled' in out
+        assert '3 rows' in out
+        assert 'dependent columns' in out, 'the cascade is named, since its rows are not counted'
+        assert t.get_metadata()['version'] == v_before
+
+        # -n --json reports the same plan for a caller that parses it
+        plan = cli('recompute', p('cli_rc/t'), 'doubled', '-n', '--json').json
+        assert plan == {
+            'path': p('cli_rc/t'),
+            'columns': ['doubled'],
+            'errors_only': False,
+            'cascade': True,
+            'table_rows': 3,
+        }
+        assert t.get_metadata()['version'] == v_before
+
+        out = cli('recompute', p('cli_rc/t'), 'doubled', '-f', '--json').json
+        assert out['num_rows'] == 3
+        # the dependent column recomputes too, so both are reported, qualified by the table holding them
+        assert sorted(out['columns']) == ['t.doubled', 't.quadrupled']
+        # the failing row leaves an error in the column and in the dependent computed from it
+        assert out['num_excs'] == 2
+        assert sorted(out['cols_with_excs']) == ['t.doubled', 't.quadrupled']
+
+        text = cli('recompute', p('cli_rc/t'), 'doubled', 'quadrupled', '-f').stdout
+        assert 'recomputed' in text
+        assert '2 errors in t.doubled' in text
+
+    def test_cascade_and_errors_only(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('cli_rc2'), if_exists='ignore')
+        t = self._table(p('cli_rc2/t'))
+
+        # --no-cascade leaves the dependent column out of the operation
+        out = cli('recompute', p('cli_rc2/t'), 'doubled', '--no-cascade', '-f', '--json').json
+        assert out['columns'] == ['t.doubled']
+
+        # --errors-only recomputes only the row whose value is an error
+        out = cli('recompute', p('cli_rc2/t'), 'doubled', '--errors-only', '-f', '--json').json
+        assert out['num_rows'] == 1
+        assert t.where(t.a == 2).select(t.doubled).collect()[0]['doubled'] == 4
+
+    def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('cli_rc_err'), if_exists='ignore')
+        t = self._table(p('cli_rc_err/t'))
+
+        # client preflight: errors_only takes one column
+        r = cli('recompute', p('cli_rc_err/t'), 'doubled', 'quadrupled', '--errors-only', '-f', check=False)
+        assert r.returncode != 0
+        assert '--errors-only takes a single column' in r.stderr
+
+        r = cli('recompute', p('cli_rc_err/t'), 'nosuch', '-f', check=False)
+        assert r.returncode != 0
+        assert 'Unknown column' in r.stderr, r.stderr
+
+        # a stored, non-computed column has nothing to recompute
+        r = cli('recompute', p('cli_rc_err/t'), 'a', '-f', check=False)
+        assert r.returncode != 0
+
+        # a snapshot is not mutable
+        pxt.create_snapshot(p('cli_rc_err/snap'), t, if_exists='replace')
+        r = cli('recompute', p('cli_rc_err/snap'), 'doubled', '-f', check=False)
+        assert r.returncode != 0
+
+
 class TestRevert:
     def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
@@ -1054,7 +1159,7 @@ class TestRevert:
 
 @pytest.mark.db_roots('local', reason='client-side path-shape validator; the pxt:// prefix is validated elsewhere')
 class TestPathValidator:
-    """Client-side path validator (pixeltable_cli.client.utils.validate_path_arg). Catches every well-known
+    """Client-side path validator (pixeltable_cli.utils.validate_path_shape). Catches every well-known
     bad shape before the request reaches the server so the user gets a clear error message
     instead of a generic 'Invalid path' from pxt."""
 
@@ -1071,10 +1176,38 @@ class TestPathValidator:
         r = cli('describe', 'x/', check=False)
         assert r.returncode != 0
         assert "must not end with '/'" in r.stderr
+        # in a hosted path too, whatever its first component is called
+        r = cli('describe', 'pxt://acme:main/catalog/', check=False)
+        assert r.returncode != 0
+        assert "must not end with '/'" in r.stderr
         # '//' produces an empty internal component
         r = cli('describe', 'a//b', check=False)
         assert r.returncode != 0
         assert 'empty components' in r.stderr
+
+    @pytest.mark.parametrize(
+        'argv',
+        [('db', 'diff', 'pxt://acme:main/'), ('org', 'status', 'pxt://acme/'), ('secret', 'list', 'pxt://acme:main/')],
+    )
+    def test_hosted_uri_rejects_trailing_slash(self, cli: PxtRunner, argv: tuple[str, ...]) -> None:
+        """A database or organization URI has no path, so a trailing '/' is refused before any request."""
+        r = cli(*argv, check=False)
+        assert r.returncode == 2
+        assert 'URI must be' in r.stderr
+
+    def test_path_commands_reject_bad_shape(self, cli: PxtRunner) -> None:
+        """Every command taking a path runs the validator over each of its path arguments."""
+        argvs = [
+            ('columns', 'a.b'),
+            ('computed', 'a.b'),
+            ('idxs', 'a.b'),
+            ('rename', 'a.b', 'newname'),
+            ('mv', 'a.b', 'dst'),
+            ('mv', 'src/foo', 'has..dot'),
+        ]
+        results = [cli(*argv, check=False) for argv in argvs]
+        assert all(r.returncode == 2 for r in results), [r.stderr for r in results]
+        assert all('pxt paths' in r.stderr for r in results), [r.stderr for r in results]
 
     def test_server_rejects_control_chars(self, pxt_daemon: int) -> None:
         # A control character in a path would otherwise be interpolated into response headers (eg the
@@ -1087,6 +1220,28 @@ class TestPathValidator:
                 urllib.request.urlopen(req)
             assert ei.value.code == 422
             assert 'control characters' in json.loads(ei.value.read())['detail']
+
+
+class TestDotSegments:
+    """The client resolves '.' and '..' before a path reaches pxt, where a dot is still the legacy
+    separator."""
+
+    def test_resolves(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('cli_dots'), if_exists='ignore')
+        pxt.create_dir(p('cli_dots/sub'), if_exists='ignore')
+        pxt.create_table(p('cli_dots/t'), {'a': pxt.Int | None}, if_exists='replace')
+
+        def listing(path: str) -> set[str]:
+            return {e['path'] for e in cli('ls', path, '--json').json['entries']}
+
+        assert listing(p('cli_dots/sub/..')) == listing(p('cli_dots'))
+        assert listing(p('cli_dots/./sub')) == listing(p('cli_dots/sub'))
+        assert listing(p('cli_dots/sub/../sub')) == listing(p('cli_dots/sub'))
+        if not db_root.is_cloud:
+            # '..' at the root keeps the root, as it does in a shell. A hosted target is a directory of
+            # its database rather than the catalog root, so '..' there names the database.
+            assert listing(p('..')) == listing(p(''))
 
 
 @pytest.mark.db_roots(
@@ -1171,7 +1326,7 @@ class TestDashboard:
         assert csv_body.splitlines()[0] == 'x'
         assert 'cli_dash_t_t.csv' in disp
 
-    def test_dirs_and_status_contract(self, cli: PxtRunner, pxt_daemon: int) -> None:
+    def test_dirs_status_contract(self, cli: PxtRunner, pxt_daemon: int) -> None:
         """Pin the response shapes the dashboard SPA reads in dashboard/src/api/client.ts.
         getDirectoryTree reads the node list from tree.entries of /api/dirs?tree=true (the response
         is an object, not a top-level array), and getStatus reads the flat pxt_version / home /
@@ -1247,20 +1402,26 @@ class TestColdStartBudget:
     budget and defeating the daemon split. The `-X importtime` log is authoritative.
     """
 
-    def test_pixeltable_not_imported_by_pxt_ls(self, cli: PxtRunner, pxt_daemon: int) -> None:
+    @pytest.mark.parametrize('command', ['ls', 'login', 'logout', 'whoami', 'key', 'org', 'db', 'service'])
+    def test_pixeltable_not_imported_by_client(
+        self, cli: PxtRunner, pxt_daemon: int, session_project: pathlib.Path, command: str
+    ) -> None:
+        # `ls` runs in full; the others would reach the control plane, so only their parsers run
+        argv = [command] if command == 'ls' else [command, '--help']
         # Use sys.executable so the subprocess runs under the same interpreter as the test,
         # not whatever python resolves to on PATH.
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
-            [sys.executable, '-X', 'importtime', '-m', 'pixeltable_cli.client.main', 'ls'],
+            [sys.executable, '-X', 'importtime', '-m', 'pixeltable_cli.client.main', *argv],
             capture_output=True,
             text=True,
             env=env,
             check=False,
             stdin=subprocess.DEVNULL,
+            cwd=session_project,
         )
-        # We only inspect the import log; the underlying ls call may pass or fail
-        # depending on catalog state, which is irrelevant here.
+        # We only inspect the import log; the command itself may pass or fail depending on catalog
+        # state, which is irrelevant here.
         imported = [line for line in r.stderr.splitlines() if line.startswith('import time:')]
         # Each line of the form 'import time: ...' ends with the dotted module name; we want to catch
         # the top-level package alone, not e.g. a stdlib numbers module sharing a prefix.
@@ -1272,6 +1433,6 @@ class TestColdStartBudget:
             if top in forbidden and top not in offenders:
                 offenders[top] = line
         assert len(offenders) == 0, (
-            'cold-start budget broken; the following packages were imported during `pxt ls` startup:\n'
+            f'cold-start budget broken; these packages were imported during `pxt {command}` startup:\n'
             + '\n'.join(f'  {pkg}: {line}' for pkg, line in offenders.items())
         )

@@ -9,14 +9,26 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath
 
-from .utils import pxt_raises, skip_test_if_no_pxt_credentials, skip_test_if_not_installed, validate_update_status
+from .utils import (
+    CLOUD_DB_ROOT_URIS,
+    cloud_env_configured,
+    home_bucket_uri,
+    pxt_raises,
+    skip_test_if_no_pxt_credentials,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 pytestmark = pytest.mark.db_roots('local', reason='exercises ObjectOps/object-store internals')
 
-PXT_DEST_URI = 'pxtfs://pixeltable:main/home/pytest'
+
+def _pxt_dest_uri() -> str:
+    """The pytest prefix in the home bucket of the 'cloud' root's database."""
+    if not cloud_env_configured():
+        pytest.skip('the cloud environment is unconfigured')
+    return f'{home_bucket_uri(CLOUD_DB_ROOT_URIS["cloud"])}/pytest'
 
 
-@pytest.mark.skip('Skip tests until pxt store changes are in the cloud')
 class TestPxtStore:
     """Tests for Pixeltable-managed storage (pxtfs:// home buckets)."""
 
@@ -25,7 +37,7 @@ class TestPxtStore:
         skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
 
-        dest_uri = f'{PXT_DEST_URI}/bucket1'
+        dest_uri = f'{_pxt_dest_uri()}/bucket1'
 
         t = pxt.create_table('test_pxt_store', schema={'img': pxt.Image | None})
         t.add_computed_column(img_rot=t.img.rotate(90), destination=dest_uri)
@@ -44,7 +56,7 @@ class TestPxtStore:
         skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
 
-        dest_uri = f'{PXT_DEST_URI}/src'
+        dest_uri = f'{_pxt_dest_uri()}/src'
 
         src_table = pxt.create_table('pxt_src', schema={'img': pxt.Image | None})
         src_table.add_computed_column(img_stored=src_table.img.rotate(90), destination=dest_uri)
@@ -67,7 +79,7 @@ class TestPxtStore:
         skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
 
-        dest_uri = f'{PXT_DEST_URI}/drop_test'
+        dest_uri = f'{_pxt_dest_uri()}/drop_test'
 
         t = pxt.create_table('test_pxt_drop', schema={'img': pxt.Image | None})
         t.add_computed_column(img_rot=t.img.rotate(90), destination=dest_uri)
@@ -85,7 +97,7 @@ class TestPxtStore:
         skip_test_if_no_pxt_credentials()
         from pixeltable.utils import pxt_store
 
-        dest_uri = f'{PXT_DEST_URI}/quota_test'
+        dest_uri = f'{_pxt_dest_uri()}/quota_test'
         t = pxt.create_table('test_pxt_quota', schema={'img': pxt.Image | None})
         t.add_computed_column(img_rot=t.img.rotate(90), destination=dest_uri)
 
@@ -122,8 +134,8 @@ class TestPxtStore:
         from pixeltable.utils.pxt_store import PxtStore
         from pixeltable.utils.s3_store import S3Store
 
-        soa1 = ObjectPath.parse_object_storage_addr(f'{PXT_DEST_URI}/dir1', allow_obj_name=False)
-        soa2 = ObjectPath.parse_object_storage_addr(f'{PXT_DEST_URI}/dir2', allow_obj_name=False)
+        soa1 = ObjectPath.parse_object_storage_addr(f'{_pxt_dest_uri()}/dir1', allow_obj_name=False)
+        soa2 = ObjectPath.parse_object_storage_addr(f'{_pxt_dest_uri()}/dir2', allow_obj_name=False)
 
         store1 = PxtStore(soa1)
         store2 = PxtStore(soa2)
@@ -139,7 +151,7 @@ class TestPxtStore:
         from pixeltable.utils.pxt_store import PxtStore
         from pixeltable.utils.s3_store import S3Store
 
-        soa = ObjectPath.parse_object_storage_addr(f'{PXT_DEST_URI}/shared', allow_obj_name=False)
+        soa = ObjectPath.parse_object_storage_addr(f'{_pxt_dest_uri()}/shared', allow_obj_name=False)
 
         store1 = PxtStore(soa)
         store2 = PxtStore(soa)
@@ -154,7 +166,7 @@ class TestPxtStore:
         skip_test_if_no_pxt_credentials()
         from pixeltable.utils.pxt_store import PxtStore
 
-        soa = ObjectPath.parse_object_storage_addr(f'{PXT_DEST_URI}/refresh_test', allow_obj_name=False)
+        soa = ObjectPath.parse_object_storage_addr(f'{_pxt_dest_uri()}/refresh_test', allow_obj_name=False)
         store = PxtStore(soa)
         refreshable_creds = store._store.client()._get_credentials()  # type: ignore[attr-defined]
         initial_access_key = refreshable_creds.access_key

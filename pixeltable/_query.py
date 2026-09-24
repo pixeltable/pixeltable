@@ -15,7 +15,6 @@ from typing import (
     Hashable,
     Iterable,
     Iterator,
-    Literal,
     NoReturn,
     Self,
     TypeVar,
@@ -29,6 +28,7 @@ import sqlalchemy.exc as sql_exc
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, telemetry, telemetry_schemas
 from pixeltable._query_base import QueryBase
+from pixeltable.catalog import fold_identifier
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.env import Env
 from pixeltable.plan import Planner
@@ -132,17 +132,29 @@ class ResultSet:
         model_config = getattr(model, 'model_config', {})
         forbid_extra_fields = model_config.get('extra') == 'forbid'
 
-        # schema validation
-        required_fields = {name for name, field in model_fields.items() if field.is_required()}
+        # schema validation; model field names are Python attributes and case-sensitive, whereas result column names
+        # are always folded, so match the two on their folded forms.
+        folded_field_name_to_original: dict[str, str] = {}
+        for name in model_fields:
+            folded = fold_identifier(name)
+            if folded in folded_field_name_to_original:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Result column names are case-insensitive, but model {model.__name__} has fields '
+                    f'{folded_field_name_to_original[folded]!r} and {name!r} which are the same',
+                )
+            folded_field_name_to_original[folded] = name
+        required_fields = {fold_identifier(name) for name, field in model_fields.items() if field.is_required()}
         col_names = set(self._col_names)
-        missing_fields = required_fields - col_names
+        missing_fields = {folded_field_name_to_original[name] for name in required_fields - col_names}
         if len(missing_fields) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Required model fields {missing_fields} are missing from result set columns {self._col_names}',
+                f'Required model fields ({missing_fields}) are missing from '
+                f'result set columns ({", ".join(self._col_names)})',
             )
         if forbid_extra_fields:
-            extra_fields = col_names - set(model_fields.keys())
+            extra_fields = col_names - set(folded_field_name_to_original.keys())
             if len(extra_fields) > 0:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -150,8 +162,10 @@ class ResultSet:
                 )
 
         for row in self:
+            # remap to the model's original spelling
+            remapped_row = {folded_field_name_to_original.get(name, name): val for name, val in row.items()}
             try:
-                yield model(**row)
+                yield model(**remapped_row)
             except pydantic.ValidationError as e:
                 raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, str(e)) from e
 
@@ -160,9 +174,10 @@ class ResultSet:
 
     def __getitem__(self, index: Any) -> Any:
         if isinstance(index, str):
-            if index not in self._col_names:
+            col_name = fold_identifier(index)
+            if col_name not in self._col_names:
                 raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {index}')
-            return [row[index] for row in self._rows]
+            return [row[col_name] for row in self._rows]
         if isinstance(index, int):
             return self._row_to_dict(index)
         if isinstance(index, tuple) and len(index) == 2:
@@ -171,10 +186,13 @@ class ResultSet:
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Bad index, expected [<row idx>, <column name | column index>]: {index}',
                 )
-            if isinstance(index[1], str) and index[1] not in self._col_names:
-                raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {index[1]}')
-            col_idx = self._col_names[index[1]] if isinstance(index[1], int) else index[1]
-            return self._rows[index[0]][col_idx]
+            if isinstance(index[1], str):
+                col_name = fold_identifier(index[1])
+                if col_name not in self._col_names:
+                    raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {index[1]}')
+            else:
+                col_name = self._col_names[index[1]]
+            return self._rows[index[0]][col_name]
         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Bad index: {index}')
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
@@ -536,6 +554,26 @@ class Query(QueryBase):
         self._record_query_attrs(len(result))
         return result
 
+    def _rowid_order_by(self) -> list[exprs.RowidRef]:
+        """The rowid components of this query's first table, in order, as an insertion-order sort key."""
+        tbl = self._from_clause.tbls[0]
+        if self._from_clause.is_local:
+            tbl_version = self._first_tbl.tbl_version
+            return [exprs.RowidRef(tbl_version, idx) for idx in range(tbl_version.get().num_rowid_columns())]
+        rowid_refs: list[exprs.RowidRef] = []
+        for rowid_column_idx in range(tbl.num_rowid_columns()):
+            base = tbl.rowid_normalized_base(rowid_column_idx)
+            ref = exprs.RowidRef(
+                None,
+                rowid_column_idx,
+                tbl_id=tbl.tbl_id,
+                effective_version=tbl.effective_version(),
+                normalized_base_id=base.tbl_id,
+                normalized_base_effective_version=base.effective_version(),
+            )
+            rowid_refs.append(ref)
+        return rowid_refs
+
     def _head(self, n: int = 10, *, media_as_urls: bool = False) -> ResultSet:
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with order_by()')
@@ -545,12 +583,7 @@ class Query(QueryBase):
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with sample()')
         if self.group_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with group_by()')
-        if not self._from_clause.is_local:
-            # the rowid order_by needs the table's local store; run head() on the hosting catalog instead
-            return self._exec_proxy('head', n=n).as_result_set()
-        num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
-        order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
-        return self.order_by(*order_by_clause, asc=True).limit(n)._collect(media_as_urls=media_as_urls)
+        return self.order_by(*self._rowid_order_by(), asc=True).limit(n)._collect(media_as_urls=media_as_urls)
 
     @telemetry.spanned('pixeltable.tail', set_current=True)
     def tail(self, n: int = 10) -> ResultSet:
@@ -581,12 +614,7 @@ class Query(QueryBase):
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with sample()')
         if self.group_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with group_by()')
-        if not self._from_clause.is_local:
-            # the rowid order_by needs the table's local store; run tail() on the hosting catalog instead
-            return self._exec_proxy('tail', n=n).as_result_set()
-        num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
-        order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
-        result = self.order_by(*order_by_clause, asc=False).limit(n)._collect(media_as_urls=media_as_urls)
+        result = self.order_by(*self._rowid_order_by(), asc=False).limit(n)._collect(media_as_urls=media_as_urls)
         result._reverse()
         return result
 
@@ -638,19 +666,17 @@ class Query(QueryBase):
         self._record_query_attrs(len(result))
         return result
 
-    _ProxyMethodNames = Literal['collect', 'head', 'tail']
-
-    def _exec_proxy(self, method: _ProxyMethodNames, **extra: Any) -> ProxyResultCursor:
+    def _exec_proxy(self, **extra: Any) -> ProxyResultCursor:
         from pixeltable.catalog.catalog_proxy import CatalogProxy
 
         cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
         assert isinstance(cat, CatalogProxy)
-        result = cat.client.run_query(method, self.as_dict(), **extra)
+        result = cat.client.run_query(self.as_dict(), **extra)
         return ProxyResultCursor(self, cat.client, result['schema'], result['rows'])
 
     def _collect(self, args: dict[str, Any] | None = None, *, media_as_urls: bool = False) -> ResultSet:
         if not self._from_clause.is_local:
-            return self._exec_proxy('collect', args=args).as_result_set()
+            return self._exec_proxy(args=args).as_result_set()
         tvps = self._from_clause.tvps
         with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
             schema = self.schema
@@ -664,13 +690,50 @@ class Query(QueryBase):
             ]
             return ResultSet(rows, schema)
 
+    def _file_ref_idxs(self) -> list[int]:
+        """The select list positions whose value can name a file: a media value, or a property naming its file."""
+        prop = exprs.ColumnPropertyRef.Property
+        return [
+            i
+            for i, (e, _) in enumerate(self._effective_select_list)
+            if e.col_type.is_media_type()
+            or (isinstance(e, exprs.ColumnPropertyRef) and e.prop in (prop.FILEURL, prop.LOCALPATH))
+        ]
+
+    def _collect_content(self, args: dict[str, Any] | None = None) -> bytes:
+        """Encode this query's rows as a proxy response body, for the content arg of FastAPI.Response()."""
+        from pixeltable.service import proxy_protocol
+
+        assert self._from_clause.is_local
+        tvps = self._from_clause.tvps
+        sink = proxy_protocol.InlinePartSink()
+        encode = proxy_protocol.value_encoder(sink)
+        result = bytearray(b'{"schema":')
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
+            # look at the schema inside the transaction
+            schema = self.schema
+            file_ref_idxs = self._file_ref_idxs()
+            json_idxs = [i for i, col_type in enumerate(schema.values()) if col_type.is_json_type()]
+            result += encode(schema).encode()
+            result += b',"rows":['
+            for i, data in enumerate(self._output_row_iterator(args=args, media_as_urls=True)):
+                for idx in file_ref_idxs:
+                    data[idx] = proxy_protocol.encode_local_path(data[idx])
+                for idx in json_idxs:
+                    data[idx] = proxy_protocol.escape_json(data[idx])
+                if i > 0:
+                    result += b','
+                result += encode(data).encode()
+            result += b']}'
+        return proxy_protocol.response_body(bytes(result), sink.binary_parts)
+
     def cursor(self) -> ResultCursor:
         """Return a [`ResultCursor`][pixeltable.ResultCursor] that iterates over the query results row by row.
 
         See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
         """
         if not self._from_clause.is_local:
-            return self._exec_proxy('collect')
+            return self._exec_proxy()
         return ResultCursor(self)
 
     async def _acollect(self, args: dict[str, Any] | None = None) -> ResultSet:
@@ -715,7 +778,7 @@ class Query(QueryBase):
 
             cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
             assert isinstance(cat, CatalogProxy)
-            num_rows = cat.client.run_query('count', self.as_dict())
+            num_rows = cat.client.send_request('Query', 'count', {'query': self.as_dict()})
             self._record_query_attrs(num_rows)
             return num_rows
 
@@ -867,7 +930,9 @@ class Query(QueryBase):
         """The Query a serialized query names. Raises if it names a query of another class."""
         result = super().from_dict(d)
         if not isinstance(result, Query):
-            raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'Expected a serialized Query, got {type(result).__name__}')
+            raise excs.InternalError(
+                excs.ErrorCode.INTERNAL_ERROR, f'Expected a serialized Query, got {type(result).__name__}'
+            )
         return result
 
     def _hash_result_set(self) -> str:

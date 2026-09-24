@@ -31,13 +31,14 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.catalog import fold_identifier
 from pixeltable.config import Config
-from pixeltable.env import Env
+from pixeltable.env import Env, validate_db_name
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.process import is_pid, pid_alive
 
 from . import proxy_dispatch
-from .proxy_protocol import decode_body, encode_body
+from .proxy_protocol import decode_body
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -49,7 +50,11 @@ _STOP_TIMEOUT = 10.0
 
 def proxy_home(db: str) -> Path:
     """The daemon's home directory (its own media/tmp + port.lock), under the global home."""
-    return Config.get().home / f'proxy_{db}'
+    return Config.get().home / f'proxy_{fold_identifier(db)}'
+
+
+def log_path(db: str) -> Path:
+    return proxy_home(db) / 'logs' / 'daemon.log'
 
 
 def _port_lock(db: str) -> Path:
@@ -114,6 +119,7 @@ def _tail_log(path: Path, n_lines: int = _LOG_TAIL_LINES) -> str:
 
 def create(db: str) -> None:
     """Create the daemon's home directory. The database itself is created on first start()."""
+    validate_db_name(db)
     proxy_home(db).mkdir(parents=True, exist_ok=True)
 
 
@@ -141,6 +147,8 @@ def start(db: str, test_mode: bool = False) -> str:
         **os.environ,
         'PIXELTABLE_HOME': str(proxy_home(db)),  # own media/tmp + port.lock
         'PIXELTABLE_PGDATA': pgdata,  # shared postmaster
+        # intentionally using the raw db name (without case-folding): Env has a fallback for legacy (case-sensitive)
+        # database names.
         'PIXELTABLE_DB': db,  # own database
         'PIXELTABLE_PROXY_DAEMON': '1',  # mark this process as a proxy daemon instance
     }
@@ -148,16 +156,15 @@ def start(db: str, test_mode: bool = False) -> str:
     # attached to a pipe blocks the reader on EOF forever, and attached to a terminal it would spew daemon
     # output into that session. Redirect to a log file and detach into its own session so signals sent to
     # the launching process don't reach the daemon.
-    log_dir = proxy_home(db) / 'logs'
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / 'daemon.log'
+    log_file_path = log_path(db)
+    log_file_path.parent.mkdir(parents=True, exist_ok=True)
     argv = [sys.executable, '-m', 'pixeltable.service.proxy_daemon']
     if test_mode:
         argv.append('--test')
     project_root = Config.get().project_root
     if project_root is not None:
-        argv += ['--project-root', str(project_root)]
-    with open(log_path, 'a', encoding='utf-8') as log_file:
+        argv += ['--project-dir', str(project_root)]
+    with open(log_file_path, 'a', encoding='utf-8') as log_file:
         proc = subprocess.Popen(
             argv, env=env, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True
         )
@@ -177,10 +184,10 @@ def start(db: str, test_mode: bool = False) -> str:
         msg += '; the daemon process is still running but never reported healthy'
     else:
         msg += f'; the daemon process exited with code {returncode}'
-    tail = _tail_log(log_path)
+    tail = _tail_log(log_file_path)
     if tail != '':
-        msg += f'\n--- daemon log tail ({log_path}) ---\n{tail}'
-    raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, msg)
+        msg += f'\n--- daemon log tail ({log_file_path}) ---\n{tail}'
+    raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, msg)
 
 
 def stop(db: str) -> None:
@@ -228,7 +235,7 @@ def reinitialize(db: str) -> None:
     """
     ep = endpoint(db)
     if ep is None:
-        raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No running proxy daemon for {db!r}')
+        raise excs.NotFoundError(excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'No running proxy daemon for {db!r}')
     response = httpx.post(f'{ep}/reinitialize', timeout=60.0)
     response.raise_for_status()
 
@@ -250,23 +257,28 @@ def _reinitialize() -> None:
     pxt.init()
 
 
-def _drop_database(db: str) -> None:
+def _drop_database(db_name: str) -> None:
     env = Env.get()
     if env._db_server is None:
         return  # not running against the embedded postmaster (e.g. external DB); nothing to drop
     engine = sql.create_engine(env._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
+    preparer = engine.dialect.identifier_preparer
     try:
         with engine.begin() as conn:
-            conn.execute(
-                sql.text(
-                    'SELECT pg_terminate_backend(pid) FROM pg_stat_activity '
-                    'WHERE datname = :db AND pid <> pg_backend_pid()'
-                ),
-                {'db': db},
-            )
-            conn.execute(sql.text(f'DROP DATABASE IF EXISTS "{db}"'))
+            # Same fallback as in Env._init_db: if the folded name does not exist, try the original spelling
+            target_db_name = fold_identifier(db_name)
+            if not _db_exists(conn, target_db_name):
+                if target_db_name != db_name and _db_exists(conn, db_name):
+                    target_db_name = db_name
+                else:
+                    return
+            conn.execute(sql.text(env._dbms.drop_db_stmt(preparer.quote(target_db_name))))
     finally:
         engine.dispose()
+
+
+def _db_exists(conn: sql.Connection, db: str) -> bool:
+    return conn.execute(sql.text('SELECT COUNT(*) FROM pg_database WHERE datname = :db'), {'db': db}).scalar() > 0
 
 
 def _build_app(test_mode: bool = False) -> 'FastAPI':
@@ -287,12 +299,10 @@ def _build_app(test_mode: bool = False) -> 'FastAPI':
     async def rpc(request: Request) -> Response:
         request_json, request_parts = decode_body(await request.body())
         # dispatch is synchronous and touches the database; keep it off the event loop
-        response_json, response_parts = await run_in_threadpool(
+        body = await run_in_threadpool(
             proxy_dispatch.handle, request_json.decode(), request_parts, include_error_detail=test_mode
         )
-        return Response(
-            content=encode_body(response_json.encode(), response_parts), media_type='application/octet-stream'
-        )
+        return Response(content=body, media_type='application/octet-stream')
 
     if test_mode:
 
@@ -303,7 +313,7 @@ def _build_app(test_mode: bool = False) -> 'FastAPI':
             return Response(content='{"status": "ok"}', media_type='application/json')
 
     @app.get('/health')
-    def health() -> dict[str, str | None]:
+    async def health() -> dict[str, str | None]:
         root = Config.get().project_root
         return {'status': 'ok', 'project_root': None if root is None else str(root)}
 
@@ -321,15 +331,15 @@ def _build_app(test_mode: bool = False) -> 'FastAPI':
     return app
 
 
-def _serve(test_mode: bool = False) -> None:
+def _serve(test_mode: bool = False, host: str | None = None, port: int | None = None) -> None:
     """Daemon entrypoint.
 
     Local mode (default): binds to a random loopback port, writes a port.lock file
     for the SDK to discover, and manages the database lifecycle itself.
 
-    Fixed-address mode: when PIXELTABLE_DAEMON_HOST or PIXELTABLE_DAEMON_PORT is set,
-    binds to that address and port instead and skips the lock file. Used when an
-    external orchestrator (e.g. a sidecar) handles routing and discovery.
+    Fixed-address mode: with host or port, the daemon binds that address and writes no lock file, because
+    the caller already knows where it listens. A cloud pod runs it this way, with routing and discovery
+    handled outside.
 
     test_mode: exposes the test-only endpoints and returns diagnostic detail with errors.
     """
@@ -338,8 +348,8 @@ def _serve(test_mode: bool = False) -> None:
     try:
         import uvicorn
     except ModuleNotFoundError as e:
-        raise excs.Error(
-            excs.ErrorCode.INTERNAL_ERROR,
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
             'The proxy daemon requires the serve dependencies (fastapi, uvicorn). '
             'Install them with: pip install pixeltable[serve]',
         ) from e
@@ -349,20 +359,16 @@ def _serve(test_mode: bool = False) -> None:
     # eagerly create/migrate this daemon's database before announcing readiness
     _ = get_runtime().catalog
 
-    config = Config.get()
-    daemon_host = config.get_string_value('daemon_host')
-    daemon_port = config.get_int_value('daemon_port')
-
     # pixeltable log level also drives uvicorn
     log_level = logging.getLogger('pixeltable').getEffectiveLevel()
 
     # log_config=None suppresses uvicorn's own logging setup which results in closing every handler registered so far.
     # Note: at this point, uvicorn logging has already been configured by Env.
-    if daemon_host is not None or daemon_port is not None:
-        uvicorn.run(
-            app, host=daemon_host or '127.0.0.1', port=daemon_port or 8000, log_level=log_level, log_config=None
-        )
+    if host is not None or port is not None:
+        uvicorn.run(app, host=host or '127.0.0.1', port=port or 8000, log_level=log_level, log_config=None)
         return
+
+    config = Config.get()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -382,10 +388,20 @@ def _serve(test_mode: bool = False) -> None:
     uvicorn.Server(uvicorn.Config(app, log_level=log_level, log_config=None)).run(sockets=[sock])
 
 
-if __name__ == '__main__':
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog='pixeltable.service.proxy_daemon')
     parser.add_argument('--test', action='store_true')
-    parser.add_argument('--project-root', type=Path, default=None)
-    parsed = parser.parse_args()
-    Config.init(reinit=True, project_root=parsed.project_root)
-    _serve(test_mode=parsed.test)
+    parser.add_argument('--project-dir', type=Path, default=None)
+    parser.add_argument('--host', default=None, help='listen address; either flag serves without a lock file')
+    parser.add_argument('--port', type=int, default=None, help='listen port; either flag serves without a lock file')
+    parsed = parser.parse_args(argv)
+    if parsed.project_dir is not None and not parsed.project_dir.is_dir():
+        raise excs.InternalError(
+            excs.ErrorCode.INTERNAL_ERROR, f'--project-dir {parsed.project_dir} does not exist or is not a directory'
+        )
+    Config.init(reinit=True, project_root=parsed.project_dir)
+    _serve(test_mode=parsed.test, host=parsed.host, port=parsed.port)
+
+
+if __name__ == '__main__':
+    main()

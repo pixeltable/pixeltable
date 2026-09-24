@@ -5,6 +5,10 @@ description: 'Understanding Pixeltable types for structured data, media, and ML 
 
 Pixeltable provides a rich type system designed for multimodal AI applications. Every column and expression has an associated type that determines what data it can hold and what operations are available.
 
+<Note>
+This page leads with a `TableModel` in `app.py`. Create those tables with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`.
+</Note>
+
 ## Type overview
 
 | Pixeltable Type | Python Type | Description |
@@ -23,6 +27,10 @@ Pixeltable provides a rich type system designed for multimodal AI applications. 
 | `pxt.Audio` | `str` (file path) | Audio files |
 | `pxt.Document` | `str` (file path) | Documents (PDFs, markdown, html, etc.) |
 
+A bare type is required. `title: pxt.String` rejects a missing value. Use `pxt.String | None` when the column may be empty. A column added to a table that already has rows must be nullable, so existing rows can stay empty.
+
+Table, column, and database names match without regard to case.
+
 <Info>
 `pxt.Audio`, `pxt.Video`, and `pxt.Document` return file paths when queried. Pixeltable automatically downloads and caches remote media locally. Use `.fileurl` to get the original URL.
 </Info>
@@ -32,12 +40,26 @@ Pixeltable provides a rich type system designed for multimodal AI applications. 
 ```python
 import pixeltable as pxt
 
+TableModel = pxt.model_base()
+
+
+class Example(TableModel, name='basic_types'):
+    text: pxt.String
+    count: pxt.Int
+    score: pxt.Float
+    active: pxt.Bool
+    created: pxt.Timestamp
+```
+
+In a notebook:
+
+```python
 table = pxt.create_table('example/basic_types', {
-    'text': pxt.String,        # Text data
-    'count': pxt.Int,          # Integer numbers
-    'score': pxt.Float,        # Decimal numbers
-    'active': pxt.Bool,        # Boolean values
-    'created': pxt.Timestamp   # Date/time values
+    'text': pxt.String,
+    'count': pxt.Int,
+    'score': pxt.Float,
+    'active': pxt.Bool,
+    'created': pxt.Timestamp
 })
 ```
 
@@ -79,11 +101,26 @@ See the [UUID cookbook](/howto/cookbooks/core/workflow-uuid-identity) for more e
 Pixeltable natively supports images, video, audio, and documents as first-class column types.
 
 ```python
+import pixeltable as pxt
+
+TableModel = pxt.model_base()
+
+
+class Media(TableModel, name='media'):
+    image: pxt.Image
+    video: pxt.Video
+    audio: pxt.Audio
+    document: pxt.Document
+```
+
+In a notebook:
+
+```python
 media = pxt.create_table('example/media', {
-    'image': pxt.Image,      # Any image
-    'video': pxt.Video,      # Video reference
-    'audio': pxt.Audio,      # Audio file
-    'document': pxt.Document # PDF/text document
+    'image': pxt.Image,
+    'video': pxt.Video,
+    'audio': pxt.Audio,
+    'document': pxt.Document
 })
 ```
 

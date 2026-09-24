@@ -16,12 +16,14 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import psutil
+import pydantic
 
-from pixeltable_cli import schema_types
+from pixeltable_cli import types
 from pixeltable_cli.utils import (
     _IDENTITY_KEYS,
     _resolve_pixeltable_home,
@@ -34,6 +36,12 @@ from pixeltable_cli.utils import (
 )
 
 _IS_WINDOWS = platform.system() == 'Windows'
+
+# shared exit codes for all commands
+EXIT_IN_AGREEMENT = 0
+EXIT_ERROR = 1
+EXIT_CHANGES_PENDING = 2
+EXIT_REFUSED = 3
 
 
 def session_key() -> str:
@@ -68,11 +76,13 @@ def _daemon_log_path() -> str:
 
 
 def read_pidfile() -> int | None:
+    """The PID the daemon recorded, or None if the file is missing or holds no usable one."""
     try:
         with open(pidfile_path(), encoding='utf-8') as f:
-            return int(f.read().strip())
+            pid = int(f.read().strip())
     except (OSError, ValueError):
         return None
+    return pid if pid > 0 else None
 
 
 def fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
@@ -171,14 +181,15 @@ def _tail_daemon_log(n_lines: int = 10) -> str:
     return '\n'.join(lines[-n_lines:]).rstrip()
 
 
-def _await_health(timeout: float) -> bool:
-    """Poll /api/health until it responds or the timeout elapses. Returns whether it came up."""
+def _await_health(timeout: float) -> dict[str, Any] | None:
+    """Poll /api/health until it responds or the timeout elapses. Returns what it reported, if anything."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if is_running():
-            return True
+        health = fetch_health()
+        if health is not None:
+            return health
         time.sleep(0.1)
-    return False
+    return None
 
 
 # A freshly-spawned daemon doesn't serve /api/health until it finishes importing pixeltable, which on a
@@ -188,9 +199,11 @@ def _await_health(timeout: float) -> bool:
 _STARTUP_HEALTH_TIMEOUT_SECS = 45.0
 
 
-def wait_for_health(timeout: float = _STARTUP_HEALTH_TIMEOUT_SECS) -> None:
-    if _await_health(timeout):
-        return
+def wait_for_health(timeout: float = _STARTUP_HEALTH_TIMEOUT_SECS) -> dict[str, Any]:
+    """Wait for the daemon to serve /api/health, and return what it reported. Raises if it never answers."""
+    health = _await_health(timeout)
+    if health is not None:
+        return health
     tail = _tail_daemon_log()
     msg = f'pxt daemon did not come up within {timeout}s'
     if tail != '':
@@ -242,6 +255,7 @@ def _pid_is_our_daemon(pid: int) -> bool:
 
 
 def _pid_alive(pid: int) -> bool:
+    assert pid > 0, pid
     try:
         # signal 0 is the 'are you there?' probe (doesn't kill, just raises if the PID is gone)
         os.kill(pid, 0)
@@ -258,6 +272,7 @@ def _pid_alive(pid: int) -> bool:
 
 
 def kill_and_wait(pid: int, timeout: float = 5.0) -> None:
+    assert pid > 0, pid
     # Wait on the PID itself (not /health) so a hung-but-alive daemon that still holds the
     # listen socket is detected and SIGKILLed; otherwise the next spawn would fail with
     # 'address already in use' because we returned early on the health probe.
@@ -279,46 +294,44 @@ def kill_and_wait(pid: int, timeout: float = 5.0) -> None:
         pass
 
 
+def _restart_if_mismatched(health: dict[str, Any]) -> None:
+    """Replace the daemon that reported health if it belongs to another install, environment or project."""
+    client_identity = identity()
+    diff = _identity_diff(client_identity, health)
+    if _serves_another_project(health):
+        diff = [*diff, 'project_root']
+    if len(diff) == 0:
+        return
+    # Identity mismatch: the daemon was launched against a different install or env snapshot than the
+    # client now sees (eg, after pip install -U pixeltable). Restart it ourselves rather than making
+    # the user do it: a non-None health response means fetch_health() already verified the responder is
+    # our daemon.
+    reported_pid = health.get('pid')
+    # Refuse to target the process if its pid doesn't look real
+    if not isinstance(reported_pid, int) or isinstance(reported_pid, bool) or reported_pid <= 0:
+        raise RuntimeError(f'daemon on port {get_port()} reported an invalid pid ({reported_pid!r}); not restarting it')
+    kill_and_wait(reported_pid)
+    spawn_detached()
+    new_health = wait_for_health()
+    # Cross-verify: the new responder must have a fresh PID and an identity that fully matches the client.
+    # Anything else means the restart did not actually swap in a daemon belonging to this install/env.
+    if new_health.get('pid') == reported_pid:
+        reason = f'new daemon kept the killed PID {reported_pid}'
+    else:
+        new_diff = _identity_diff(client_identity, new_health)
+        if _serves_another_project(new_health):
+            new_diff = [*new_diff, 'project_root']
+        if len(new_diff) > 0:
+            reason = f'new daemon still differs in: {", ".join(new_diff)}'
+        else:
+            reason = ''
+    if reason != '':
+        raise RuntimeError(f'pxt daemon restart did not produce a matching responder on port {get_port()}: {reason}')
+
+
 def ensure_running() -> str:
     health = fetch_health()
-    if health is not None:
-        client_identity = identity()
-        diff = _identity_diff(client_identity, health)
-        if _serves_another_project(health):
-            diff = [*diff, 'project_root']
-        if len(diff) > 0:
-            # Identity mismatch: the daemon was launched against a different install or env snapshot than the
-            # client now sees (eg, after pip install -U pixeltable). Restart it ourselves rather than making
-            # the user do it: a non-None health response means fetch_health() already verified the responder is
-            # our daemon.
-            reported_pid = health.get('pid')
-            if not isinstance(reported_pid, int):
-                # a non-int pid can't be a real process id; refuse to target it for a restart rather than
-                # act on an untrustworthy health response
-                raise RuntimeError(
-                    f'daemon on port {get_port()} reported an invalid pid ({reported_pid!r}); not restarting it'
-                )
-            kill_and_wait(reported_pid)
-            spawn_detached()
-            wait_for_health()
-            # Cross-verify: the new responder must have a fresh PID and an identity that fully matches the client.
-            # Anything else means the restart did not actually swap in a daemon belonging to this install/env.
-            new_health = fetch_health()
-            if new_health is None:
-                reason = 'new daemon did not respond to /api/health'
-            elif new_health.get('pid') == reported_pid:
-                reason = f'new daemon kept the killed PID {reported_pid}'
-            else:
-                new_diff = _identity_diff(client_identity, new_health)
-                if len(new_diff) > 0:
-                    reason = f'new daemon still differs in: {", ".join(new_diff)}'
-                else:
-                    reason = ''
-            if reason != '':
-                raise RuntimeError(
-                    f'pxt daemon restart did not produce a matching responder on port {get_port()}: {reason}'
-                )
-    else:
+    if health is None:
         # Nothing is answering /api/health. Either no daemon is up, or one we started bound the
         # port and then wedged before serving health. The pidfile records the PID, but PIDs get
         # recycled and the file is only bookkeeping, so a live PID is not proof of ownership: only
@@ -326,13 +339,18 @@ def ensure_running() -> str:
         # daemon. An unconfirmed PID is treated as a stale pidfile and we just spawn.
         stale_pid = read_pidfile()
         if stale_pid is not None and _pid_alive(stale_pid) and _pid_is_our_daemon(stale_pid):
-            # It may just be slow to start, so give it a grace window before concluding it is
-            # hung; a daemon that comes up in the meantime is used as-is.
-            if _await_health(_STARTUP_GRACE_PERIOD_SECS):
-                return base_url()
-            kill_and_wait(stale_pid)
-        spawn_detached()
-        wait_for_health()
+            # It may just be slow to answer, so give it a grace window before concluding it is hung;
+            # a daemon that comes up in the meantime goes through the same checks as one that
+            # answered right away.
+            health = _await_health(_STARTUP_GRACE_PERIOD_SECS)
+            if health is None:
+                kill_and_wait(stale_pid)
+        if health is None:
+            spawn_detached()
+            # the daemon we spawn defers to one that already holds the port, so the responder is not
+            # necessarily the process we started
+            health = wait_for_health()
+    _restart_if_mismatched(health)
     return base_url()
 
 
@@ -403,17 +421,17 @@ def check_file(route: str, field: str, file: str, *, verb: str, as_json: bool) -
     if not path.is_file():
         print(f'pxt {verb}: file not found: {file}', file=sys.stderr)
         sys.exit(1)
-    report: schema_types.CheckReport = post_request(route, {field: str(path.resolve())})
+    report = types.CheckReport.model_validate(post_request(route, {field: str(path.resolve())}))
     if as_json:
-        print(json.dumps(report, indent=2))
+        print(report.model_dump_json(indent=2))
     else:
-        for warning in report['warnings']:
+        for warning in report.warnings:
             print(f'warning: {warning}')
-        for error in report['errors']:
+        for error in report.errors:
             print(f'error: {error}', file=sys.stderr)
-        if report['valid']:
-            print(f'{report["file"]}: valid')
-    sys.exit(0 if report['valid'] else 1)
+        if report.valid:
+            print(f'{report.file}: valid')
+    sys.exit(0 if report.valid else 1)
 
 
 def validate_path_arg(path: str) -> str:
@@ -451,3 +469,52 @@ def print_aligned(headers: list[str], rows: list[list[str]], right_align: set[in
     print(fmt(headers))
     for r in rows:
         print(fmt(r))
+
+
+def stdin_is_a_tty() -> bool:
+    """Like `sys.stdin.isatty()`, but on Windows distinguishes real consoles from NUL/other
+    character devices. msvcrt's `isatty` returns nonzero for any char device, so `subprocess.DEVNULL`
+    (which maps to NUL) is misreported as a TTY; GetConsoleMode() succeeds only on real consoles.
+    """
+    if not sys.stdin.isatty():
+        return False
+    if sys.platform != 'win32':
+        return True
+    import ctypes
+    from ctypes import wintypes
+
+    handle = ctypes.windll.msvcrt._get_osfhandle(sys.stdin.fileno())
+    mode = wintypes.DWORD()
+    return bool(ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode)))
+
+
+def plural(n: int, noun: str) -> str:
+    """Count and noun, with an s on the noun for every count but one."""
+    return f'{n} {noun}' if n == 1 else f'{n} {noun}s'
+
+
+def confirm_or_exit(
+    prompt: str, force: bool, *, refused_exit_code: int = 2, on_refusal: Callable[[], None] | None = None
+) -> None:
+    """Prompt for yes/no on stdin; refuse non-tty unless --force. Both refusals exit with refused_exit_code.
+
+    on_refusal runs just before the non-tty refusal exits, for a caller that reports the refusal itself.
+    """
+    if force:
+        return
+    if not stdin_is_a_tty():
+        if on_refusal is not None:
+            on_refusal()
+        print(f'pxt: refusing to proceed without --force/-f (no TTY for confirmation): {prompt}', file=sys.stderr)
+        sys.exit(refused_exit_code)
+    sys.stderr.write(f'{prompt} [y/N] ')
+    sys.stderr.flush()
+    ans = sys.stdin.readline().strip().lower()
+    if ans not in ('y', 'yes'):
+        print('aborted', file=sys.stderr)
+        sys.exit(refused_exit_code)
+
+
+def print_json_schema(adapter: pydantic.TypeAdapter) -> None:
+    # mode='serialization' for computed fields
+    print(json.dumps(adapter.json_schema(mode='serialization'), indent=2))

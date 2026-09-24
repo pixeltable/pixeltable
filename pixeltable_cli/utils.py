@@ -21,6 +21,11 @@ PxtPath = NewType('PxtPath', str)
 # pxt://<org>:<db>/<in-catalog path>.
 _PXT_URI_RE = re.compile(r'^pxt://(?P<org>[^:/]+)(?::(?P<db>[^/]+))?(?:/(?P<rest>.*))?$')
 
+# A hosted organization or database name, as in pxt://org:db: lowercase letters, digits, and hyphens,
+# starting and ending with a letter or digit, at most 29 characters.
+_HOSTED_NAME_RE = re.compile(r'[a-z0-9]([a-z0-9-]*[a-z0-9])?')
+_HOSTED_NAME_MAX_LEN = 29
+
 
 def _resolve_pixeltable_home() -> str:
     """Mirror of pixeltable.config.Config's home-directory resolution"""
@@ -47,10 +52,13 @@ def get_port() -> int:
         raise RuntimeError(f'PXT_PORT must be an integer port; got {raw!r}') from None
 
 
-def pidfile_path() -> str:
-    """Per-port pidfile path. The port parameterization isolates daemons running on
-    different ports so they don't read or stomp each other's PID."""
-    return os.path.join(_resolve_pixeltable_home(), f'pxt-daemon-{get_port()}.pid')
+def pidfile_path(port: int | None = None) -> str:
+    """Pidfile path for a daemon on port, or on the one PXT_PORT names.
+
+    The port parameterization isolates daemons running on different ports so they don't read or stomp each
+    other's PID.
+    """
+    return os.path.join(_resolve_pixeltable_home(), f'pxt-daemon-{port if port is not None else get_port()}.pid')
 
 
 class PxtUriParts(NamedTuple):
@@ -71,6 +79,28 @@ def split_pxt_uri(uri: str) -> PxtUriParts | None:
     if m is None:
         return None
     return PxtUriParts(m.group('org'), m.group('db'), m.group('rest'))
+
+
+def hosted_name_error(value: str, kind: str) -> str | None:
+    """Return why value is not a hosted organization or database name, or None if it is one.
+
+    kind begins the message, as in 'Database name'.
+    """
+    if len(value) > _HOSTED_NAME_MAX_LEN:
+        return f'{kind} must be at most {_HOSTED_NAME_MAX_LEN} characters (got {len(value)})'
+    # fullmatch(), since `$` in a match() pattern also matches before a trailing newline ('main\n')
+    if _HOSTED_NAME_RE.fullmatch(value) is None:
+        return (
+            f'{kind} {value!r} is invalid: use only lowercase letters, digits, and hyphens, '
+            'starting and ending with a letter or digit.'
+        )
+    return None
+
+
+def is_valid_identifier(name: str, *, allow_hyphens: bool = False) -> bool:
+    """Mirrors pixeltable.catalog.globals.is_valid_identifier(), which cannot be imported here."""
+    adj_name = name.replace('-', '_') if allow_hyphens else name
+    return adj_name.isidentifier() and name.isascii() and not name.startswith('-') and not name.startswith('_')
 
 
 def validate_path_shape(path: str) -> str | None:
@@ -137,7 +167,7 @@ def resolve_dot_segments(path: str) -> str:
 
 
 PROJECT_CONFIG_FILE = 'pixeltable.toml'
-_PYPROJECT = 'pyproject.toml'
+PYPROJECT_FILE = 'pyproject.toml'
 
 
 def find_project_root(start: Path) -> Path | None:
@@ -149,7 +179,7 @@ def find_project_root(start: Path) -> Path | None:
     for dir in (start, *start.parents):
         if (dir / PROJECT_CONFIG_FILE).is_file():
             return dir
-        pyproject = dir / _PYPROJECT
+        pyproject = dir / PYPROJECT_FILE
         if pyproject.is_file():
             try:
                 with open(pyproject, 'rb') as fp:
@@ -219,29 +249,28 @@ def project_root() -> str | None:
     return None if found is None else str(found)
 
 
-def env_fingerprint(environ: dict[str, str] | None = None) -> dict[str, str]:
-    """Returns dict mapping every set environment variable to a hash of its value.
+def value_fingerprint(value: str) -> str:
+    """A hash of one config value, short enough to print and to compare by eye."""
+    return hashlib.sha256(value.encode('utf-8')).hexdigest()[:12]
 
-    The hash is the same as value_fingerprint() in config.py.
-    """
+
+def env_fingerprint(environ: dict[str, str] | None = None) -> dict[str, str]:
+    """Returns dict mapping every set environment variable to a hash of its value."""
     env = os.environ if environ is None else environ
-    return {name: hashlib.sha256(env[name].encode('utf-8')).hexdigest()[:12] for name in sorted(env) if env[name] != ''}
+    return {name: value_fingerprint(env[name]) for name in sorted(env) if env[name] != ''}
 
 
 def identity() -> dict[str, Any]:
-    pxt_version = _pxt_version()
-    pxt_install_dir = _pxt_install_dir()
-    # Surfacing this here turns a broken pixeltable install into one clear error instead
-    # of a daemon that 500s on every /health call and respawns in a tight loop.
-    if pxt_version is None or pxt_install_dir is None:
-        raise RuntimeError(
-            "pixeltable package metadata not found (importlib.metadata can't locate the "
-            "'pixeltable' distribution). Reinstall with: pip install --force-reinstall pixeltable"
-        )
+    """The fingerprint the client compares against a running daemon's.
+
+    pxt_version and pxt_install_dir are None where the served project is pixeltable itself: a hosted
+    image installs a project's dependencies, not the project. `pxt` ships in that distribution, so a
+    local client always resolves both.
+    """
     home = _resolve_pixeltable_home()
     return {
-        'pxt_version': pxt_version,
-        'pxt_install_dir': pxt_install_dir,
+        'pxt_version': _pxt_version(),
+        'pxt_install_dir': _pxt_install_dir(),
         'python_executable': sys.executable,
         'pixeltable_home': home,
         'pixeltable_pgdata': _resolve_pixeltable_pgdata(home),

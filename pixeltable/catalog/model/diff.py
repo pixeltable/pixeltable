@@ -1,87 +1,21 @@
-"""How a model's declared schema differs from the table it is bound to, and how that difference reads."""
+"""How a model's defined schema differs from the table it is bound to, and how that difference reads."""
 
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING, Any, Literal, TypedDict
-from uuid import UUID
+from typing import TYPE_CHECKING, Any, Literal
 
 from pixeltable import catalog, exprs
 from pixeltable.types import ColumnSpec
+from pixeltable_cli.types import Resolution, SchemaChangeIndexRef, SchemaChangeOp, SchemaChangeOpDetails, TableDiff
 
-from ..globals import col_type_from_spec
-from ..table_metadata import ColumnMetadata, TableMetadata
+from ..globals import col_type_from_spec, fold_mapping_keys
+from ..table_metadata import ColumnMetadata, IndexMetadata, TableMetadata
 
 if TYPE_CHECKING:
-    from .declaration import IndexDeclaration, TableModelMeta
+    from .definition import IndexDefinition, TableModelMeta
 
 
-class SchemaChangeIndexRef(TypedDict):
-    index_type: Literal['btree', 'embedding']
-    columns: list[str]
-    name: str | None
-
-
-class SchemaChangeOpDetails(TypedDict, total=False):
-    """Operands of a SchemaChangeOp, rendered as strings to survive serialization"""
-
-    type: str  # the new type for a column add or alter
-    value: str  # the new computed value expression for a column add or alter
-    index_ref: SchemaChangeIndexRef  # the new index for an index add or alter
-
-
-class SchemaChangeOp(TypedDict):
-    """
-    A single schema change operation (eg, add column, drop column, etc).
-
-    Mirrored by pixeltable_cli.schema_types.SchemaChangeOp; adding, removing or retyping a field here means
-    doing the same there.
-    """
-
-    target: Literal['column', 'index', 'table']
-
-    # column name, index name, or for 'table', the differing attribute:
-    # 'kind' | 'iterator' | 'view_filter' | 'view_sample' | 'media_validation' | 'comment' | 'custom_metadata'
-    # can be None if target == 'index'.
-    name: str | None
-
-    op: Literal['add', 'drop', 'alter']
-    severity: Literal['additive', 'destructive', 'unsupported']
-    model: Any | None  # model-side value; None for drops
-    existing: Any | None  # catalog-side value; None for adds
-    description: str
-
-    # the change's operands
-    details: SchemaChangeOpDetails
-
-
-# Mirrored by pixeltable_cli.schema_types.DiffResolution; a value added here has to be added there too
-DiffResolution = Literal['up_to_date', 'create', 'update_additive', 'update_destructive', 'unsupported']
-
-
-class TableDiff(TypedDict):
-    """How one model differs from its catalog table.
-
-    Mirrored by pixeltable_cli.schema_types.TableDiff; adding, removing or retyping a field here means doing
-    the same there.
-    """
-
-    path: str  # catalog path of the table
-    model_cls: str  # model class name, so an agent can map back to code
-    kind: Literal['table', 'view']
-    exists: bool
-    resolution: DiffResolution
-    ops: list[SchemaChangeOp]
-
-    # identity of the existing table, as of the read this diff was computed from; None if it doesn't exist yet
-    tbl_id: UUID | None
-
-    # schema versions of the TableVersionPath
-    schema_versions: dict[UUID, int] | None
-
-
-# Table-level attribute names that are reported as a single grouped diff (as opposed to kind/iterator/filter/
-# sample, which each get their own diff line).
 _TABLE_PROP_NAMES: tuple[str, ...] = (
     'media_validation',
     'comment',
@@ -91,13 +25,13 @@ _TABLE_PROP_NAMES: tuple[str, ...] = (
 )
 
 
-def _resolution(exists: bool, ops: list[SchemaChangeOp]) -> DiffResolution:
+def _resolution(exists: bool, ops: list[SchemaChangeOp]) -> Resolution:
     """Reduce a table's list of operations to the single action `update_all()` would take."""
     if not exists:
         return 'create'
     if len(ops) == 0:
         return 'up_to_date'
-    severities = {op['severity'] for op in ops}
+    severities = {op.severity for op in ops}
     if 'unsupported' in severities:
         return 'unsupported'
     if 'destructive' in severities:
@@ -120,7 +54,7 @@ class _ColumnProperties:
 
     @classmethod
     def from_spec(cls, spec: ColumnSpec, default_media_validation: str) -> _ColumnProperties:
-        """The comparable properties of a column declared by spec, resolved to match a stored column's metadata.
+        """The comparable properties of a column defined by spec, resolved to match a stored column's metadata.
 
         A computed column's value expression carries ColumnRefByName placeholders, but those render identically to
         the ColumnRefs in the stored expression, so the display strings are directly comparable. Defaults mirror
@@ -171,7 +105,7 @@ class _TableProperties:
 
     @classmethod
     def from_model(cls, model: TableModelMeta) -> _TableProperties:
-        """The comparable table-level properties declared by a model."""
+        """The comparable table-level properties defined by a model."""
         spec = model.__table_spec__
         return cls(
             media_validation=spec['media_validation'].name.lower(),
@@ -192,7 +126,8 @@ class _TableProperties:
 
 
 def user_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
-    """The model's declared columns, plus any its base query projects via a `select()` clause."""
+    """The model's defined columns, plus any its base query projects via a `select()` clause. Keyed by folded column
+    name."""
     specs: dict[str, ColumnSpec] = dict(model.__columns__)
     base = model.__table_spec__['base']
     if base is not None and base.select_list is not None:
@@ -203,7 +138,7 @@ def user_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
                 specs[expr.default_column_name()] = {'value': expr, 'stored': False}
             else:
                 specs[col_name] = {'value': expr, 'stored': not expr.is_column_ref}
-    return specs
+    return fold_mapping_keys(specs)
 
 
 def base_query_columns(model: TableModelMeta) -> set[str]:
@@ -228,10 +163,10 @@ def _format_column_spec(spec: ColumnSpec) -> str:
 
 
 def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChangeOp:
-    details: SchemaChangeOpDetails = {'type': repr(col_type_from_spec(spec))}
+    details = SchemaChangeOpDetails(type=repr(col_type_from_spec(spec)))
     value = spec.get('value')
     if value is not None:
-        details['value'] = exprs.Expr.from_object(value).display_str(inline=False)
+        details.value = exprs.Expr.from_object(value).display_str(inline=False)
     return SchemaChangeOp(
         target='column',
         name=col_name,
@@ -244,8 +179,8 @@ def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChangeOp:
     )
 
 
-def _as_idx_ref(idx: IndexDeclaration) -> SchemaChangeIndexRef:
-    from .declaration import BtreeIndex
+def _as_idx_ref(idx: IndexDefinition) -> SchemaChangeIndexRef:
+    from .definition import BtreeIndex
 
     if isinstance(idx, BtreeIndex):
         return SchemaChangeIndexRef(index_type='btree', columns=[idx.column.name], name=None)
@@ -253,9 +188,9 @@ def _as_idx_ref(idx: IndexDeclaration) -> SchemaChangeIndexRef:
         return SchemaChangeIndexRef(index_type='embedding', columns=[idx.column.name], name=idx.name)
 
 
-def _add_index_change(idx: IndexDeclaration) -> SchemaChangeOp:
+def _add_index_change(idx: IndexDefinition, action: str = 'will be added') -> SchemaChangeOp:
     idx_ref = _as_idx_ref(idx)
-    idx_name = idx_ref['name']
+    idx_name = idx_ref.name
     return SchemaChangeOp(
         target='index',
         name=idx_name,
@@ -264,11 +199,56 @@ def _add_index_change(idx: IndexDeclaration) -> SchemaChangeOp:
         model=str(idx),
         existing=None,
         description=(
-            f'{type(idx).__name__} {idx_name!r} will be added'
+            f'{type(idx).__name__} {idx_name!r} {action}'
             if idx_name is not None
-            else f'{type(idx).__name__} on column(s) {idx_ref["columns"]!r} will be added'
+            else f'{type(idx).__name__} on column(s) {idx_ref.columns!r} {action}'
         ),
-        details={'index_ref': idx_ref},
+        details=SchemaChangeOpDetails(index_ref=idx_ref),
+    )
+
+
+def _alter_column_change(
+    col_name: str,
+    spec: ColumnSpec,
+    model_props: _ColumnProperties,
+    existing_props: _ColumnProperties,
+    col_md: ColumnMetadata,
+    altered: list[str],
+) -> SchemaChangeOp:
+    """The op for a column whose properties differ. At this point, the only supported change is a new value expression
+    for a computed column."""
+    # a computed column becoming a data column, or vice versa, changes more than the value expression
+    is_new_value_expr = altered == ['value'] and 'value' in spec and col_md['is_computed']
+    if not is_new_value_expr:
+        return SchemaChangeOp(
+            target='column',
+            name=col_name,
+            op='alter',
+            severity='unsupported',
+            model={prop: getattr(model_props, prop) for prop in altered},
+            existing={prop: getattr(existing_props, prop) for prop in altered},
+            description=f'column {col_name!r} has altered properties: {", ".join(altered)}',
+        )
+
+    return SchemaChangeOp(
+        target='column',
+        name=col_name,
+        op='alter',
+        severity='additive',
+        model={'value': model_props.value},
+        existing={'value': existing_props.value},
+        description=(
+            f'the value expression of computed column {col_name!r} will be updated; '
+            f'existing values will not be recomputed'
+            if col_md['is_stored']
+            else f'the value expression of computed column {col_name!r} will be updated'
+        ),
+        details=SchemaChangeOpDetails(
+            type=model_props.type,
+            value=model_props.value,
+            previous_value=existing_props.value,
+            stored=col_md['is_stored'],
+        ),
     )
 
 
@@ -283,7 +263,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
     import pixeltable as pxt
 
     from ..catalog import retry_loop
-    from .declaration import BtreeIndex
+    from .definition import BtreeIndex
 
     catalog_dir = catalog.Path.dir_prefix(catalog_dir)
 
@@ -327,7 +307,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
             tbl_path = existing._tbl_path
 
             # Restrict the existing columns to those defined in this table (i.e. not inherited from a base) and not
-            # produced by an iterator, so that they line up with the model's own declared columns.
+            # produced by an iterator, so that they line up with the model's own defined columns.
             existing_cols = {
                 col_name
                 for col_name, col_md in existing_md['columns'].items()
@@ -349,7 +329,6 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         existing=existing_default_idxs,
                         description=f'`{model.__name__}` specifies has_default_idxs={model_default_idxs}, '
                         f'but {name!r} was created with has_default_idxs={existing_default_idxs}',
-                        details={},
                     )
                 )
 
@@ -366,7 +345,6 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         description=(
                             f'`{model.__name__}` specifies a {model_kind}, but {name!r} is a {existing_md["kind"]}'
                         ),
-                        details={},
                     )
                 )
             for attr, model_val, existing_val in (
@@ -384,7 +362,6 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                             model=model_val,
                             existing=existing_val,
                             description=f'{attr} mismatch: model={model_val!r}, existing={existing_val!r}',
-                            details={},
                         )
                     )
 
@@ -405,34 +382,25 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                             model=model_val,
                             existing=existing_val,
                             description=f'table property {prop!r}: model={model_val!r}, existing={existing_val!r}',
-                            details={},
                         )
                     )
 
-            # Columns present in both, whose properties differ; unsupported for now (some alterations will later be
-            # applicable via allow_destructive=True).
+            # Columns that are present in both, but whose properties differ. Some kinds of changes are supported,
+            # others are not.
             default_media_validation = model.__table_spec__['media_validation'].name.lower()
             for col_name in sorted(model_cols & existing_cols):
-                model_props = _ColumnProperties.from_spec(user_cols[col_name], default_media_validation)
-                existing_props = _ColumnProperties.from_metadata(existing_md['columns'][col_name])
+                spec = user_cols[col_name]
+                col_md = existing_md['columns'][col_name]
+                model_props = _ColumnProperties.from_spec(spec, default_media_validation)
+                existing_props = _ColumnProperties.from_metadata(col_md)
                 altered = [
                     prop
                     for prop in model_props.__dataclass_fields__
                     if getattr(model_props, prop) != getattr(existing_props, prop)
                 ]
-                if len(altered) > 0:
-                    ops.append(
-                        SchemaChangeOp(
-                            target='column',
-                            name=col_name,
-                            op='alter',
-                            severity='unsupported',
-                            model={prop: getattr(model_props, prop) for prop in altered},
-                            existing={prop: getattr(existing_props, prop) for prop in altered},
-                            description=f'column {col_name!r} has altered properties: {", ".join(altered)}',
-                            details={},
-                        )
-                    )
+                if len(altered) == 0:
+                    continue
+                ops.append(_alter_column_change(col_name, spec, model_props, existing_props, col_md, altered))
 
             # Additive/destructive column and index changes.
             for col_name in sorted(model_cols - existing_cols):
@@ -447,14 +415,13 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         model=None,
                         existing=None,
                         description=f'column {col_name!r} will be dropped',
-                        details={},
                     )
                 )
             model_idxs = model.__indexes__
             existing_idxs = list(existing_md['indexes'].values())
 
             if model_default_idxs or existing_default_idxs:
-                # If has_default_idxs is declared, then we don't need to compare B-tree indexes, since B-tree index
+                # If has_default_idxs is defined, then we don't need to compare B-tree indexes, since B-tree index
                 # comparison is implicit in column comparison.
                 model_idxs = [idx for idx in model_idxs if not isinstance(idx, BtreeIndex)]
                 existing_idxs = [idx_md for idx_md in existing_idxs if idx_md['index_type'] != 'btree']
@@ -485,7 +452,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         for i, idx_md in enumerate(existing_idxs)
                         if idx_md['name'] == idx.name and idx_md['index_type'] == 'embedding'
                     ]
-                    assert len(existing_named_idxs) <= 1
+                    assert len(existing_named_idxs) <= 1, existing_named_idxs
                     if len(existing_named_idxs) == 0:
                         ops.append(_add_index_change(idx))
                     else:
@@ -495,20 +462,13 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                             or idx_md['parameters']['metric'] != idx.metric
                             or idx_md['parameters']['precision'] != idx.precision
                             or idx_md['parameters']['embedding'] != str(idx.as_fn_call())
+                            or idx_md['parameters']['embedding_functions'] != idx.resolved_embedding_fns()
                         ):
-                            idx_ref = _as_idx_ref(idx)
+                            # A different index with the same name: drop the old one, and add the new one.
                             ops.append(
-                                SchemaChangeOp(
-                                    target='index',
-                                    name=idx_ref['name'],
-                                    op='alter',
-                                    severity='unsupported',
-                                    model=str(idx),
-                                    existing=idx_md,
-                                    description=f'named index {idx.name!r} has altered properties',
-                                    details={'index_ref': idx_ref},
-                                )
+                                _drop_index_change(idx_md, 'will be dropped and re-created from its new definition')
                             )
+                            ops.append(_add_index_change(idx, 'will be re-created'))
                         existing_idxs.pop(i)
                 else:
                     # Unnamed embedding index: check if an index of identical structure exists in the catalog.
@@ -520,6 +480,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         and idx_md['parameters']['metric'] == idx.metric
                         and idx_md['parameters']['precision'] == idx.precision
                         and idx_md['parameters']['embedding'] == str(idx.as_fn_call())
+                        and idx_md['parameters']['embedding_functions'] == idx.resolved_embedding_fns()
                     ]
                     assert len(matching_idxs) <= 1
                     if len(matching_idxs) == 0:
@@ -529,22 +490,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
 
             # Any remaining items in existing_idxs are indexes that exist in the catalog but not in the model.
             for idx_md in existing_idxs:
-                idx_name = idx_md['name']
-                idx_ref = SchemaChangeIndexRef(
-                    index_type=idx_md['index_type'], columns=idx_md['columns'], name=idx_name
-                )
-                ops.append(
-                    SchemaChangeOp(
-                        target='index',
-                        name=idx_name,
-                        op='drop',
-                        severity='destructive',
-                        model=None,
-                        existing=None,
-                        description=f'index {idx_name!r} will be dropped',
-                        details={'index_ref': idx_ref},
-                    )
-                )
+                ops.append(_drop_index_change(idx_md, 'will be dropped'))
 
             results[name] = TableDiff(
                 path=bound_path,
@@ -562,79 +508,112 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
     return op()
 
 
+def _drop_index_change(idx_md: IndexMetadata, action: str) -> SchemaChangeOp:
+    idx_ref = SchemaChangeIndexRef(index_type=idx_md['index_type'], columns=idx_md['columns'], name=idx_md['name'])
+    if len(idx_md['columns']) == 1:
+        cols = f'column {idx_md["columns"][0]!r}'
+    else:
+        cols = f'columns {", ".join(repr(col_name) for col_name in idx_md["columns"])}'
+    return SchemaChangeOp(
+        target='index',
+        name=idx_md['name'],
+        op='drop',
+        severity='destructive',
+        model=None,
+        existing=None,
+        description=f'index {idx_md["name"]!r} on {cols} {action}',
+        details=SchemaChangeOpDetails(index_ref=idx_ref),
+    )
+
+
 def format_diff(name: str, diff: TableDiff) -> list[str]:
     """Human-readable lines describing how the model named `name` differs from the current catalog state."""
-    kind = diff['kind']
-    if not diff['exists']:
+    kind = diff.kind
+    if not diff.exists:
         return [
-            f'{kind.capitalize()} {name!r} (from model `{diff["model_cls"]}`) does not yet exist, and will be CREATED.'
+            f'{kind.capitalize()} {name!r} (from model `{diff.model_cls}`) does not yet exist, and will be CREATED.'
         ]
 
-    ops = diff['ops']
+    ops = diff.ops
     if len(ops) == 0:
         return []
 
     def by(target: str, op: str | None = None, names: tuple[str, ...] | None = None) -> list[SchemaChangeOp]:
         return [
-            c
-            for c in ops
-            if c['target'] == target and (op is None or c['op'] == op) and (names is None or c['name'] in names)
+            c for c in ops if c.target == target and (op is None or c.op == op) and (names is None or c.name in names)
         ]
 
     detail: list[str] = []
 
     for c in by('table', names=('kind',)):
-        detail.append(f'  kind mismatch (FATAL): {c["description"]}')
+        detail.append(f'  kind mismatch (FATAL): {c.description}')
     for attr, label in (('iterator', 'iterator'), ('view_filter', 'filter'), ('view_sample', 'sample')):
         for c in by('table', names=(attr,)):
             detail.append(f'  {label} mismatch (FATAL):')
-            detail.append(f'    model {label}   : {c["model"]}')
-            detail.append(f'    existing {label}: {c["existing"]}')
+            detail.append(f'    model {label}   : {c.model}')
+            detail.append(f'    existing {label}: {c.existing}')
 
     table_props = by('table', names=_TABLE_PROP_NAMES)
     if len(table_props) > 0:
         detail.append('  the following table properties have changed (FATAL):')
         for c in table_props:
-            detail.append(f'    {c["name"]}: model={c["model"]!r}, existing={c["existing"]!r}')
+            detail.append(f'    {c.name}: model={c.model!r}, existing={c.existing!r}')
 
     altered_cols = by('column', op='alter')
-    if len(altered_cols) > 0:
+    unsupported_alters: list[SchemaChangeOp] = [c for c in altered_cols if c.severity == 'unsupported']
+    if len(unsupported_alters) > 0:
         detail.append('  the following columns have altered properties (FATAL):')
-        for c in altered_cols:
-            for prop, model_val in c['model'].items():
-                detail.append(f'    {c["name"]!r} {prop}: model={model_val!r}, existing={c["existing"][prop]!r}')
+        for c in unsupported_alters:
+            for prop, model_val in c.model.items():
+                detail.append(f'    {c.name!r} {prop}: model={model_val!r}, existing={c.existing[prop]!r}')
+
+    supported_alters: list[SchemaChangeOp] = [c for c in altered_cols if c.severity != 'unsupported']
+    if len(supported_alters) > 0:
+        detail.append('  the following computed columns have a new value expression, and will be UPDATED:')
+        for c in supported_alters:
+            detail.append(f'    {c.name!r}: {c.existing["value"]} -> {c.model["value"]}')
+        # If any computed column's expression changed, include the recompute notice
+        if any(c.details.stored for c in supported_alters):
+            detail.append('  existing values will not be recomputed; use `pxt recompute` to do so.')
 
     new_cols = by('column', op='add')
     if len(new_cols) > 0:
         detail.append('  the following columns are new to the model, and will be ADDED:')
         for c in new_cols:
-            detail.append(f'    {c["name"]!r} = {c["model"]}')
+            detail.append(f'    {c.name!r} = {c.model}')
 
     dropped_cols = by('column', op='drop')
     if len(dropped_cols) > 0:
         detail.append('  the following columns are no longer in the model, and will be DROPPED:')
         for c in dropped_cols:
-            detail.append(f'    {c["name"]!r}')
+            detail.append(f'    {c.name!r}')
 
-    new_idxs = by('index', op='add')
+    # Present an index drop+add with the same name as one replacement
+    added_idxs = by('index', op='add')
+    dropped_idxs = by('index', op='drop')
+    replaced_names = {c.name for c in added_idxs if c.name is not None} & {
+        c.name for c in dropped_idxs if c.name is not None
+    }
+
+    new_idxs = [c for c in added_idxs if c.name not in replaced_names]
     if len(new_idxs) > 0:
         detail.append('  the following indexes are new to the model, and will be ADDED:')
         for c in new_idxs:
-            detail.append(f'    {c["model"]}')
+            detail.append(f'    {c.model}')
 
-    dropped_idxs = by('index', op='drop')
-    if len(dropped_idxs) > 0:
+    replaced_idxs = [c for c in added_idxs if c.name in replaced_names]
+    if len(replaced_idxs) > 0:
+        detail.append('  the following indexes have changed, and will be REPLACED:')
+        for c in replaced_idxs:
+            detail.append(f'    {c.model}')
+
+    removed_idxs = [c for c in dropped_idxs if c.name not in replaced_names]
+    if len(removed_idxs) > 0:
         detail.append('  the following indexes are no longer in the model, and will be DROPPED:')
-        for c in dropped_idxs:
-            detail.append(f'    {c["name"]!r}')
+        for c in removed_idxs:
+            detail.append(f'    {c.name!r}')
 
-    changed_idxs = by('index', op='alter')
-    if len(changed_idxs) > 0:
-        detail.append('  the following named indexes have altered properties (FATAL):')
-        for c in changed_idxs:
-            detail.append(f'    {c["name"]!r}')
-
-    return [f'{kind.capitalize()} {name!r} (from model `{diff["model_cls"]}`) has differences:', *detail]
+    return [f'{kind.capitalize()} {name!r} (from model `{diff.model_cls}`) has differences:', *detail]
 
 
 # closing lines of the refusals raised by create_all()/update_all(), phrased for the Python API

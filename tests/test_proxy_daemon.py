@@ -1,4 +1,12 @@
+import io
+import json
+import math
 import pathlib
+import socket
+import socketserver
+import ssl
+import threading
+import uuid
 from typing import Any
 
 import numpy as np
@@ -7,7 +15,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.service import proxy_dispatch, proxy_protocol
+from pixeltable.service import proxy_client, proxy_daemon, proxy_dispatch, proxy_protocol
 from pixeltable.service.proxy_client import HttpTransport, ProxyClient, PxtStorePartSink, TunnelTransport
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps
@@ -15,8 +23,8 @@ from pixeltable.utils.object_stores import FileDestination, ObjectOps
 from .utils import pxt_raises
 
 
-class _RemoteMediaSink(proxy_protocol.PartSink[str]):
-    """PartSink that stores media parts in a dict of object store-style object keys,
+class _RemotePartSink(proxy_protocol.PartSink[int | str]):
+    """PartSink that stores out-of-band parts in a dict of object store-style object keys,
     mirroring PxtStorePartSink's contract."""
 
     def __init__(self) -> None:
@@ -31,6 +39,11 @@ class _RemoteMediaSink(proxy_protocol.PartSink[str]):
     def add_media_file(self, path: str) -> str:
         with open(path, 'rb') as f:
             return self.add_media_bytes(f.read(), pathlib.Path(path).suffix)
+
+    def add_scalar_bytes(self, data: bytes, extension: str) -> int | str:
+        if len(data) < proxy_protocol.PxtStorePartSink._MIN_OUT_OF_BAND_SIZE:
+            return self.add_inline(data)
+        return self.add_media_bytes(data, extension)
 
 
 class TestProxyDaemon:
@@ -48,11 +61,11 @@ class TestProxyDaemon:
 
     def test_media_sink_round_trip(self, tmp_path: pathlib.Path) -> None:
         args = self._media_args(tmp_path)
-        sink = _RemoteMediaSink()
+        sink = _RemotePartSink()
         wire = proxy_protocol.serialize_args(args, sink)
         row = wire['rows'][0]
 
-        # media parts go out of band as object keys (names/formats preserved); scalar binary parts stay inline
+        # media parts go out of band as object keys (names/formats preserved); small scalars stay inline
         assert row['img_file'] == {'$pxt': 'file', 'name': 'cat.png', 'v': 'uploads/req/0.png'}
         assert row['img'] == {'$pxt': 'image', 'format': 'PNG', 'v': 'uploads/req/1.png'}
         assert row['data'] == {'$pxt': 'bytes', 'v': 0}
@@ -94,6 +107,76 @@ class TestProxyDaemon:
         assert sink.binary_parts[2] == b'abc'
         assert proxy_protocol.collect_remote_keys(wire) == []
 
+    def test_scalars_reach_a_handler_from_the_object_store(
+        self, init_env: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """End to end on the daemon side: prefetch localizes an uploaded scalar, dispatch decodes it."""
+        arr = np.arange(64, dtype=np.float32)
+        npy = io.BytesIO()
+        np.save(npy, arr, allow_pickle=False)
+        objects = {'req/0.bin': b'z' * 1024, 'req/1.npy': npy.getvalue()}
+        self._install_fake_upload_store(monkeypatch, objects, [])
+        seen: list[Any] = []
+
+        def echo_handler(request: proxy_protocol.ProxyRequest) -> None:
+            seen.append(proxy_protocol.deserialize_request(request))
+
+        monkeypatch.setitem(proxy_dispatch._HANDLERS, ('CatalogBase', 'echo_test'), echo_handler)
+        request = proxy_protocol.ProxyRequest(
+            class_name='CatalogBase',
+            method='echo_test',
+            args={
+                'blob': {'$pxt': 'bytes', 'v': 'uploads/req/0.bin'},
+                'arr': {'$pxt': 'ndarray', 'v': 'uploads/req/1.npy'},
+            },
+        )
+        head, _ = proxy_protocol.decode_body(proxy_dispatch.handle(request.model_dump_json(), []))
+        assert json.loads(head).get('error') is None
+        assert seen[0]['blob'] == objects['req/0.bin']
+        assert np.array_equal(seen[0]['arr'], arr)
+        # handle() removed the files it localized for the request
+        assert not any(pathlib.Path(p).exists() for p in request._remote_parts.values())
+
+    def test_response_round_trip(self) -> None:
+        """The generic response path preserves every value it is given."""
+        tbl_id = uuid.uuid4()
+        result = {
+            'nan': math.nan,
+            'inf': math.inf,
+            'pair': (1, 2),
+            'int_keys': {1: 'x'},
+            'reserved': {'$pxt': 'UUID', 'v': 'not-a-uuid'},
+            'id': tbl_id,
+            'data': b'abc',
+        }
+        body = proxy_protocol.encode_response({'result': result})
+        head, parts = proxy_protocol.decode_body(body)
+        decoded = proxy_protocol.deserialize_value(json.loads(head)['result'], parts)
+
+        assert math.isnan(decoded['nan'])
+        assert decoded['inf'] == math.inf
+        assert decoded['pair'] == (1, 2)
+        assert decoded['int_keys'] == {1: 'x'}
+        assert decoded['reserved'] == result['reserved']
+        assert decoded['id'] == tbl_id
+        assert decoded['data'] == b'abc'
+
+    def test_main_address_args(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The address a cloud pod names on the command line is what the daemon serves on."""
+        served: list[tuple[bool, str | None, int | None]] = []
+        monkeypatch.setattr(proxy_daemon.Config, 'init', classmethod(lambda cls, **kwargs: None))
+        monkeypatch.setattr(
+            proxy_daemon, '_serve', lambda test_mode=False, host=None, port=None: served.append((test_mode, host, port))
+        )
+
+        proxy_daemon.main(['--test', '--host', '0.0.0.0', '--port', '8000'])
+        assert served == [(True, '0.0.0.0', 8000)]
+
+        # without them the daemon picks its own port and publishes it in the lock file
+        served.clear()
+        proxy_daemon.main([])
+        assert served == [(False, None, None)]
+
     def test_collect_remote_keys(self) -> None:
         file_tag = {'$pxt': 'file', 'name': 'a.png', 'v': 'uploads/r/0.png'}
         args = {
@@ -106,11 +189,22 @@ class TestProxyDaemon:
             'rows': [{'img': {'$pxt': 'image', 'format': 'PNG', 'v': 'uploads/r/2.png'}, 'dup': dict(file_tag)}],
             # keys inside nested containers are found
             'nested': {'$pxt': 'tuple', 'v': [{'$pxt': 'file', 'name': 'c', 'v': 'uploads/r/3'}]},
-            # int-indexed (inline) media and non-media str tags are not remote keys
+            # scalars that outgrew the inline threshold carry keys of their own
+            'blob': {'$pxt': 'bytes', 'v': 'uploads/r/4.bin'},
+            'arr': {'$pxt': 'ndarray', 'v': 'uploads/r/5.npy'},
+            # int-indexed (inline) parts and str tags that are not parts at all are not remote keys
             'inline': {'$pxt': 'file', 'name': 'd', 'v': 0},
-            'not_media': {'$pxt': 'mediapath', 'v': 'uploads/r/9.png'},
+            'inline_blob': {'$pxt': 'bytes', 'v': 1},
+            'not_a_part': {'$pxt': 'mediapath', 'v': 'uploads/r/9.png'},
         }
-        expected = ['uploads/r/0.png', 'uploads/r/1.png', 'uploads/r/2.png', 'uploads/r/3']
+        expected = [
+            'uploads/r/0.png',
+            'uploads/r/1.png',
+            'uploads/r/2.png',
+            'uploads/r/3',
+            'uploads/r/4.bin',
+            'uploads/r/5.npy',
+        ]
         assert proxy_protocol.collect_remote_keys(args) == expected
 
     def test_prepare_once_on_stale_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -125,7 +219,11 @@ class TestProxyDaemon:
 
         # a stale-md response makes dispatch_table_method retry the POST without re-serializing (and thus
         # without re-reading/re-uploading media)
-        responses = [proxy_protocol.ProxyResponse(is_stale_md=True), proxy_protocol.ProxyResponse(result='ok')]
+        # _post() hands back the response head with the body's binary parts
+        responses: list[tuple[proxy_protocol.ProxyResponse, list[bytes]]] = [
+            (proxy_protocol.ProxyResponse(is_stale_md=True), []),
+            (proxy_protocol.ProxyResponse(result='ok'), []),
+        ]
         monkeypatch.setattr(ProxyClient, '_prepare', counting_prepare)
         monkeypatch.setattr(ProxyClient, '_post', lambda self, *args, **kwargs: responses.pop(0))
         result = client.dispatch_table_method(
@@ -139,7 +237,7 @@ class TestProxyDaemon:
         local_sink = HttpTransport('http://127.0.0.1:1').new_part_sink()
         assert type(local_sink) is proxy_protocol.InlinePartSink
 
-        tunnel = TunnelTransport('org1', 'db1', 'key', host='h', port=443)
+        tunnel = TunnelTransport('org1', 'db1', lambda: 'key', host='h', port=443)
         remote_sink = tunnel.new_part_sink()
         next_sink = tunnel.new_part_sink()
         assert isinstance(remote_sink, PxtStorePartSink)
@@ -255,7 +353,7 @@ class TestProxyDaemon:
 
         # keys outside uploads/ (e.g. persisted store objects) are rejected before any download
         with pxt_raises(
-            pxt.ErrorCode.INVALID_ARGUMENT, match=r"Invalid uploaded media object key: 'pixeltable/data/foo\.png'"
+            pxt.ErrorCode.INVALID_ARGUMENT, match=r"Invalid uploaded object key: 'pixeltable/data/foo\.png'"
         ):
             proxy_dispatch._prefetch_remote_parts(self._remote_file_request('pixeltable/data/foo.png'))
 
@@ -285,9 +383,8 @@ class TestProxyDaemon:
 
         # success: the handler saw the localized file; handle() unlinked it afterwards
         request = self._remote_file_request('uploads/req/0.png')
-        response_json, _ = proxy_dispatch.handle(request.model_dump_json(), [])
-        response = proxy_protocol.ProxyResponse.model_validate_json(response_json)
-        assert response.error is None
+        head, _ = proxy_protocol.decode_body(proxy_dispatch.handle(request.model_dump_json(), []))
+        assert json.loads(head).get('error') is None
         assert len(localized) == 1
         assert not pathlib.Path(localized[0]).exists()
 
@@ -298,9 +395,208 @@ class TestProxyDaemon:
 
         monkeypatch.setitem(proxy_dispatch._HANDLERS, ('CatalogBase', 'echo_test'), failing_handler)
         request = self._remote_file_request('uploads/req/0.png')
-        response_json, _ = proxy_dispatch.handle(request.model_dump_json(), [])
-        response = proxy_protocol.ProxyResponse.model_validate_json(response_json)
-        assert response.error is not None
-        assert 'boom' in response.error['message']
+        head, _ = proxy_protocol.decode_body(proxy_dispatch.handle(request.model_dump_json(), []))
+        error = json.loads(head)['error']
+        assert 'boom' in error['message']
         assert len(localized) == 2
         assert not pathlib.Path(localized[1]).exists()
+
+
+class _ScriptedResponse:
+    def __init__(self, status: int, body: bytes) -> None:
+        self.status = status
+        self._body = body
+
+    def read(self) -> bytes:
+        return self._body
+
+
+class _ScriptedConn:
+    """A tunnel connection whose write and read phases do what the script says.
+
+    Its socket is a real one, so the pool's own health check runs against it: an open socketpair reads as
+    a live connection, and closing the peer makes it read as one the server has closed.
+    """
+
+    def __init__(self, on_write: BaseException | None = None, on_read: object = (200, b'ok')) -> None:
+        self.sock, self._peer = socket.socketpair()
+        self._on_write = on_write
+        self._on_read = on_read
+        self.writes = 0
+        self.closed = False
+
+    def request(self, method: str, path: str, body: bytes | None = None, headers: dict | None = None) -> None:
+        self.writes += 1
+        if self._on_write is not None:
+            raise self._on_write
+
+    def getresponse(self) -> _ScriptedResponse:
+        if isinstance(self._on_read, BaseException):
+            raise self._on_read
+        assert isinstance(self._on_read, tuple)
+        return _ScriptedResponse(*self._on_read)
+
+    def close(self) -> None:
+        self.closed = True
+        self.sock.close()
+        self._peer.close()
+
+    def close_peer(self) -> None:
+        """Make the connection read as closed by the server."""
+        self._peer.close()
+
+
+class _PlainTLS:
+    """An SSL context that leaves the socket as it is, for a sidecar that speaks no TLS."""
+
+    def wrap_socket(self, sock: socket.socket, server_hostname: str | None = None) -> socket.socket:
+        return sock
+
+
+def _header_fields(stream: io.BufferedIOBase) -> dict[str, str]:
+    """The header fields of the next message on the stream, after its first line."""
+    stream.readline()
+    fields: dict[str, str] = {}
+    while (line := stream.readline().decode().strip()) != '':
+        name, _, value = line.partition(':')
+        fields[name] = value.strip()
+    return fields
+
+
+class _PlainSidecar(socketserver.TCPServer):
+    """A sidecar on loopback TCP that records the token in each tunnel handshake.
+
+    It answers one request per tunnel and then closes it, so the client's next request needs a new
+    handshake.
+    """
+
+    def __init__(self) -> None:
+        self.tokens: list[str] = []
+        self._create_connection = socket.create_connection
+        super().__init__(('127.0.0.1', 0), _SidecarHandler)
+        self._thread = threading.Thread(target=self.serve_forever, daemon=True)
+        self._thread.start()
+
+    def connect(self, _address: Any, timeout: float | None = None) -> socket.socket:
+        return self._create_connection(('127.0.0.1', self.server_address[1]), timeout=timeout)
+
+    def close(self) -> None:
+        self.shutdown()
+        self.server_close()
+        self._thread.join()
+
+
+class _SidecarHandler(socketserver.StreamRequestHandler):
+    server: _PlainSidecar
+
+    def handle(self) -> None:
+        self.server.tokens.append(_header_fields(self.rfile)['Authorization'].removeprefix('Bearer '))
+        self.wfile.write(b'PXT/1.0 200 OK\r\n\r\n')
+        self.rfile.read(int(_header_fields(self.rfile).get('Content-Length', '0')))
+        self.wfile.write(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok')
+
+
+class TestTunnelRetries:
+    """What the client reissues, and what it refuses to reissue."""
+
+    @staticmethod
+    def _transport(conns: list[_ScriptedConn]) -> tuple[TunnelTransport, list[_ScriptedConn]]:
+        """A transport that hands out conns in order, and the list of the ones it actually opened."""
+        transport = TunnelTransport('org1', 'db1', lambda: 'key', host='h', port=443)
+        opened: list[_ScriptedConn] = []
+        queue = list(conns)
+
+        def connect() -> object:
+            conn = queue.pop(0)
+            opened.append(conn)
+            return conn
+
+        transport._pool = proxy_client._TunnelPool(connect)  # type: ignore[arg-type]
+        return transport, opened
+
+    def test_a_daemon_that_dies_holding_the_request_is_not_retried(self) -> None:
+        """The failure that motivated this: the daemon is OOM-killed mid-request, so reissuing it just
+        kills the daemon again."""
+        transport, opened = self._transport(
+            [_ScriptedConn(on_read=ConnectionResetError('Connection reset by peer')) for _ in range(3)]
+        )
+        with pxt_raises(
+            pxt.ErrorCode.INTERNAL_ERROR, match=r'became unresponsive while handling this request: pxt://org1:db1'
+        ):
+            transport.post(b'body')
+        assert len(opened) == 1  # no reissue
+
+    def test_a_request_that_never_landed_is_retried(self) -> None:
+        """A write that fails leaves the daemon with nothing to act on, so the request can go again."""
+        transport, opened = self._transport(
+            [_ScriptedConn(on_write=ConnectionResetError('broken pipe')), _ScriptedConn(on_read=(200, b'second'))]
+        )
+        assert transport.post(b'body') == b'second'
+        assert len(opened) == 2
+        assert opened[0].closed
+
+    def test_a_server_error_is_retried(self) -> None:
+        """A 5xx comes from a daemon that is alive and answering; a rollout can produce one."""
+        transport, opened = self._transport(
+            [_ScriptedConn(on_read=(503, b'unavailable')), _ScriptedConn(on_read=(200, b'second'))]
+        )
+        assert transport.post(b'body') == b'second'
+        assert len(opened) == 2
+
+    def test_a_refused_credential_opens_no_connection(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Renewing a session is a round trip of its own, so the credential is resolved before connecting."""
+
+        def refuse() -> str:
+            raise excs.AuthorizationError(excs.ErrorCode.MISSING_CREDENTIALS, 'no credential in this test')
+
+        def connect(*_args: Any, **_kwargs: Any) -> socket.socket:
+            raise AssertionError('connected before resolving the credential')
+
+        monkeypatch.setattr(socket, 'create_connection', connect)
+        transport = TunnelTransport('org1', 'db1', refuse, host='h', port=443)
+
+        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='no credential in this test'):
+            transport.post(b'body')
+
+    def test_each_new_tunnel_sends_the_current_credential(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A session renewed between two tunnels reaches the second: the credential is resolved per handshake."""
+        sidecar = _PlainSidecar()
+        monkeypatch.setattr(socket, 'create_connection', sidecar.connect)
+        monkeypatch.setattr(ssl, 'create_default_context', _PlainTLS)
+        credentials = iter(['first-token', 'renewed-token'])
+        transport = TunnelTransport('org1', 'db1', lambda: next(credentials), host='h', port=443)
+        try:
+            assert transport.post(b'one') == b'ok'
+            assert transport.post(b'two') == b'ok'
+        finally:
+            transport.close()
+            sidecar.close()
+
+        assert sidecar.tokens == ['first-token', 'renewed-token']
+
+    def test_a_client_error_is_not_retried(self) -> None:
+        transport, opened = self._transport([_ScriptedConn(on_read=(404, b'nope')) for _ in range(2)])
+        with pytest.raises(RuntimeError, match='error 404'):
+            transport.post(b'body')
+        assert len(opened) == 1
+
+    def test_a_pooled_connection_the_server_closed_is_not_handed_out(self) -> None:
+        """Without this, an idle connection the server closed would read as a daemon that died on the
+        request, and the request would fail instead of going onto a fresh connection."""
+        dead, live = _ScriptedConn(), _ScriptedConn()
+        dead.close_peer()
+        assert proxy_client._is_server_closed(dead)  # type: ignore[arg-type]
+        assert not proxy_client._is_server_closed(live)  # type: ignore[arg-type]
+
+        opened: list[_ScriptedConn] = []
+
+        def connect() -> object:
+            opened.append(live)
+            return live
+
+        pool = proxy_client._TunnelPool(connect)  # type: ignore[arg-type]
+        pool._idle.append(dead)  # type: ignore[arg-type]
+        with pool.borrow() as conn:
+            assert conn is live
+        assert dead.closed
+        assert opened == [live]

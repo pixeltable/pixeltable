@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -11,13 +10,16 @@ import threading
 import typing
 import warnings
 from pathlib import Path
-from typing import Any, ClassVar, Generic, Literal, Mapping, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
 
 import pydantic
 import toml
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
+
+if TYPE_CHECKING:
+    from pixeltable import catalog
 
 _logger = logging.getLogger(__name__)
 
@@ -29,32 +31,37 @@ ConfVarT = TypeVar('ConfVarT', bound=str)
 
 
 class DatabaseConfig(pydantic.BaseModel):
-    """One [[pixeltable.database]] entry: what a project supplies for one of the databases it uses."""
+    """The contents of a [[pixeltable.database]] entry from the project config."""
 
     model_config = pydantic.ConfigDict(extra='forbid')
 
-    # the database this entry configures: 'local', or the pxt://org:db uri of a hosted one
+    # the database name ('local', or the uri of a hosted one)
     name: str = 'local'
 
-    # bindings for the config vars and secrets a schema declares
+    # bindings for the config vars
     vars: dict[str, str] | None = None
-    secrets: dict[str, str] | None = None
 
     # the rest applies to a hosted database, whose runtime image is built from the project
-    exclude: list[str] | None = None  # glob patterns to exclude from the bundle
+    exclude: list[str] | None = None  # glob patterns to exclude from the image
     include: list[str] | None = None  # glob patterns to explicitly include (overrides exclude or .gitignore)
-    include_only: list[str] | None = None  # glob patterns to include as the *only* files in the bundle
+    include_only: list[str] | None = None  # glob patterns to include as the *only* files in the image
     # (must be used independently of exclude/include)
     system_dependencies: list[str] | None = None
     python_version: str | None = None  # override the runtime Python version.
     uv_options: str | None = None  # extra options to pass to `uv sync` when building the runtime image
 
+    # hosted db resources
+    cpu: float | None = None
+    memory_mb: int | None = None
+    disk_gb: int | None = None
+    workers: int | None = None
+
     @pydantic.field_validator('system_dependencies')
     @classmethod
     def _check_system_dependencies(cls, v: list[str] | None) -> list[str] | None:
         # Each entry is a conda/micromamba MatchSpec installed from conda-forge. Resolvability can only be
-        # checked by conda at build time, so validate just the obvious mistakes here - before the bundle is
-        # built and shipped - leaving version-constraint operators (<,>,,) alone as they're valid MatchSpec.
+        # checked by conda at build time, so validate just the obvious mistakes here - before an image is
+        # built from them - leaving version-constraint operators (<,>,,) alone as they're valid MatchSpec.
         for spec in v or []:
             if not spec.strip():
                 raise ValueError('`system_dependencies` entries must be non-empty conda package specs')
@@ -85,7 +92,10 @@ _UNSPECIFIED = _Unspecified()
 
 # the recognized config files
 PROJECT_CONFIG_FILE = 'pixeltable.toml'
-_PYPROJECT = 'pyproject.toml'  # with a [tool.pixeltable] section
+PYPROJECT_FILE = 'pyproject.toml'  # with a [tool.pixeltable] section
+
+# both of them, for a caller that handles whichever the project holds
+PROJECT_CONFIG_FILES = (PROJECT_CONFIG_FILE, PYPROJECT_FILE)
 
 
 def _find_project_root(start: Path) -> Path | None:
@@ -95,7 +105,7 @@ def _find_project_root(start: Path) -> Path | None:
         if (dir / PROJECT_CONFIG_FILE).is_file():
             # pixeltable.toml takes precedence over pyproject.toml
             return dir
-        pyproject = dir / _PYPROJECT
+        pyproject = dir / PYPROJECT_FILE
         if pyproject.is_file():
             try:
                 parsed = toml.load(pyproject)
@@ -110,18 +120,12 @@ def _find_project_root(start: Path) -> Path | None:
     return None
 
 
-# config section names for database variables and secrets
+# config section name for database variables
 VAR_SECTION = 'pixeltable.database.vars'
-SECRET_SECTION = 'pixeltable.database.secrets'
 
-# environment variable prefixes for the two sections above; the general section_key rule produces a name that's not
+# environment variable prefix for the section above; the general section_key rule produces a name that's not
 # shell-compatible (contains '.')
 VAR_ENV_PREFIX = 'PIXELTABLE_VAR_'
-SECRET_ENV_PREFIX = 'PIXELTABLE_SECRET_'
-
-
-def value_fingerprint(value: str) -> str:
-    return hashlib.sha256(value.encode('utf-8')).hexdigest()[:12]
 
 
 # config var names are lowercase; the env var name is the name uppercased
@@ -135,8 +139,6 @@ def is_env_key(ck: ConfigKey) -> bool:
 
 def env_var_name(section: str, key: str) -> str:
     """The environment variable that binds section.key."""
-    if section == SECRET_SECTION:
-        return f'{SECRET_ENV_PREFIX}{key.upper()}'
     if section == VAR_SECTION:
         return f'{VAR_ENV_PREFIX}{key.upper()}'
     return f'{section.upper()}_{key.upper()}'
@@ -155,23 +157,12 @@ class URI(str):
         return super().__new__(cls, value)
 
 
-class Secret(str):
-    """A configuration value whose repr is redacted.
-
-    The value is an ordinary string and only its repr is redacted, so printing or logging it any other way shows the
-    value.
-    """
-
-    def __repr__(self) -> str:
-        return "Secret('<redacted>')"
-
-
 class ConfigVar(Generic[ConfVarT]):
-    """A reference to a database variable or secret, declared at module scope.
+    """A reference to a database variable, defined at module scope.
 
-    A declaration names the variable; the target it is applied to supplies the value.
+    A definition names the variable; the target it is applied to supplies the value.
 
-    Declare a variable and apply it to a column:
+    Define a variable and apply it to a column:
 
     >>> MEDIA_DEST = pxt.ConfigVar('media_dest', pxt.URI)
     ...
@@ -185,7 +176,7 @@ class ConfigVar(Generic[ConfVarT]):
     TAG = '$confvar'
 
     # types a ConfigVar may declare, by name, so that a stored reference can be reconstituted
-    _CONFVAR_TYPES: ClassVar[dict[str, type[str]]] = {'str': str, 'URI': URI, 'Secret': Secret}
+    _CONFVAR_TYPES: ClassVar[dict[str, type[str]]] = {'str': str, 'URI': URI}
 
     name: str
     type_: type[ConfVarT]
@@ -206,38 +197,32 @@ class ConfigVar(Generic[ConfVarT]):
         self.type_ = type_
 
     @property
-    def section(self) -> str:
-        """The configuration section this variable's binding is read from."""
-        return SECRET_SECTION if issubclass(self.type_, Secret) else VAR_SECTION
-
-    @property
     def env_var(self) -> str:
         """The environment variable that binds this var."""
-        return env_var_name(self.section, self.name)
+        return env_var_name(VAR_SECTION, self.name)
 
     def value(self) -> ConfVarT:
         """The bound value, converted to the declared type. Raises if the target has no binding for it.
 
         Examples:
-            Read a secret from a udf, which runs on the target:
+            Read a var from a udf, which runs on the target:
 
             >>> @pxt.udf
             ... def summarize(text: str) -> str:
-            ...     return _call(text, key=API_KEY.value())
+            ...     return _call(text, dest=MEDIA_DEST.value())
         """
-        v = Config.get().get_value(self.name, self.type_, section=self.section)
+        v = Config.get().get_value(self.name, self.type_, section=VAR_SECTION)
         if v is None:
             raise excs.RequestError(
                 excs.ErrorCode.MISSING_REQUIRED,
-                f'Config var {self.name!r} is not set.\nAdd it under [{self.section}] in {Config.get().config_file}.',
+                f'Config var {self.name!r} is not set.\nAdd it under [{VAR_SECTION}] in {Config.get().config_file}.',
             )
         return v
 
     def _as_dict(self) -> dict[str, str]:
         """The serialized form of a ConfigVar.
 
-        The declared type travels with the name: it selects the section the binding is read from, and
-        converts the raw string.
+        The declared type travels with the name, and converts the raw string when the value is read back.
         """
         return {self.TAG: self.name, 'type': self.type_.__name__}
 
@@ -259,12 +244,12 @@ class ConfigVar(Generic[ConfVarT]):
         return f'ConfigVar({self.name!r}, {self.type_.__name__})'
 
     def __str__(self) -> str:
-        """The reference form, `$<name>`, which is how a declared config var reads in metadata."""
+        """The reference form, `$<name>`, which is how a defined config var reads in metadata."""
         return f'${self.name}'
 
     def __format__(self, format_spec: str) -> str:
         # Interpolation is how a config var would be built into a larger value, which cannot work: the
-        # value is not known where the declaration is written. A composed value needs its own config var.
+        # value is not known where the definition is written. A composed value needs its own config var.
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'Config var {self.name!r} cannot be interpolated into a string.\n'
@@ -479,7 +464,7 @@ class Config:
         if root is None:
             return None
         pixeltable_toml = root / PROJECT_CONFIG_FILE
-        return pixeltable_toml if pixeltable_toml.is_file() else root / _PYPROJECT
+        return pixeltable_toml if pixeltable_toml.is_file() else root / PYPROJECT_FILE
 
     def __load_project_config(self) -> dict[str, dict[str, tuple[Any, Path]]]:
         """Load the project's settings, keyed like the home config's.
@@ -489,7 +474,7 @@ class Config:
         if self.__project_config_file is None or not self.__project_config_file.exists():
             return {}
         parsed = self.__read_toml_file(self.__project_config_file)
-        if self.__project_config_file.name == _PYPROJECT:
+        if self.__project_config_file.name == PYPROJECT_FILE:
             parsed = parsed.get('tool', {}).get('pixeltable', {})
             # in a pyproject.toml, tool.pixeltable holds the contents of the 'pixeltable' section
             parsed = {'pixeltable': parsed} if not isinstance(parsed.get('pixeltable'), dict) else parsed
@@ -524,8 +509,8 @@ class Config:
     def __merged_databases(cls, home: list[DatabaseConfig], project: list[DatabaseConfig]) -> list[DatabaseConfig]:
         """Combine the database entries of the home config with the project's, entry by entry.
 
-        Entries are matched by name, and a field the project sets wins, so a project adding a var keeps the
-        secrets the home config binds for the same database.
+        Entries are matched by name, and a field the project sets wins, so a project adding one var keeps
+        the other vars the home config binds for the same database.
         """
         by_name = {db.name: db for db in home}
         for entry in project:
@@ -536,7 +521,7 @@ class Config:
             fields = existing.model_dump()
             for name, value in entry.model_dump(exclude_none=True).items():
                 if isinstance(value, dict) and isinstance(fields.get(name), dict):
-                    fields[name] = {**fields[name], **value}  # vars and secrets combine per name
+                    fields[name] = {**fields[name], **value}  # vars combine per name
                 else:
                     fields[name] = value
             by_name[entry.name] = DatabaseConfig.model_validate(fields)
@@ -555,7 +540,7 @@ class Config:
                 try:
                     toml.dump(config_dict, stream)
                 except Exception as exc:
-                    raise excs.Error(
+                    raise excs.InternalError(
                         excs.ErrorCode.INTERNAL_ERROR, f'Could not create config file: {self.__config_file}'
                     ) from exc
             _logger.info(f'Created default config file at: {self.__config_file}')
@@ -599,23 +584,20 @@ class Config:
     @classmethod
     def __validate_config_value(cls, section: str, key: str, value: Any, expected_type: type, source: Path) -> Any:
         """
-        A config value could be a scalar, as in `pixeltable.file_cache_size_g`, or it could be a dict or a list of
-        dicts that represents a Pydantic model. If the given key has a specified type, this method validates it
-        as the given type. If the type is a Pydantic model or a list[Pydantic model], it converts the given dict(s)
-        to the appropriate model instance(s).
+        Validate a config value against its declared type.
 
-        non-Pydantic types are currently not supported (but we could add support for them in the future).
+        A scalar is returned as is; the dicts of a list[Pydantic model] option become model instances.
         """
         origin_t = typing.get_origin(expected_type) or expected_type
-        # Currently only list[PydanticModel] validation is supported.
-        # TODO: Introduce fail-fast config validation for more types
-        assert origin_t is list
-        if not isinstance(value, origin_t):
+        # isinstance() accepts a bool for int, so a TOML true would pass the check
+        if not isinstance(value, origin_t) or (origin_t is int and isinstance(value, bool)):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
                 f"Invalid type for option '{section}.{key}' in config file: {source}\n"
                 f'(expected `{origin_t.__name__}`, got `{type(value).__name__}`)',
             )
+        if origin_t is not list:
+            return value
         subscript = typing.get_args(expected_type)
         assert subscript is not None and len(subscript) == 1 and issubclass(subscript[0], pydantic.BaseModel)
         model_type = subscript[0]
@@ -656,12 +638,20 @@ class Config:
             return default
         return os.environ[env_var]
 
-    def __database_bindings(self, section: str) -> dict[str, tuple[str, Path | None]]:
-        """Return the local database's vars or secrets, each with the file that supplied it.
+    def get_database_config(self, db_uri: catalog.Path) -> DatabaseConfig | None:
+        """The [[pixeltable.database]] entry for the given path, if present."""
+        db_name = LOCAL_DATABASE if db_uri.is_local else db_uri.catalog_uri.uri_str
+        databases = self.get_value('database', list)
+        if databases is None:
+            return None
+        return next((db for db in databases if db.name == db_name), None)
 
-        [[pixeltable.database]] is an array, which the section path of a var or a secret does not address;
-        both name the entry for the local database, which is the one a process reads them from. A binding the
-        project supplies wins over one of the same name in the home config.
+    def __database_bindings(self) -> dict[str, tuple[str, Path | None]]:
+        """Return the local database's vars, each with the file that supplied it.
+
+        [[pixeltable.database]] is an array, which the section path of a var does not address; the path names
+        the entry for the local database, from which a process reads its vars. A binding the project supplies
+        wins over one of the same name in the home config.
         """
         result: dict[str, tuple[str, Path | None]] = {}
         for config, source in (
@@ -674,14 +664,13 @@ class Config:
             local = next((db for db in entry[0] if db.name == LOCAL_DATABASE), None)
             if local is None:
                 continue
-            bindings = local.secrets if section == SECRET_SECTION else local.vars
-            result.update({name: (value, source) for name, value in (bindings or {}).items()})
+            result.update({name: (value, source) for name, value in (local.vars or {}).items()})
         return result
 
     def __lookup_config_entry(self, section: str, key: str) -> tuple[Any, Path | None] | None:
         """Find key under section in __config_dict. Returns (value, source_path) or None."""
-        if section in (VAR_SECTION, SECRET_SECTION):
-            return self.__database_bindings(section).get(key)
+        if section == VAR_SECTION:
+            return self.__database_bindings().get(key)
         parts = section.split('.')
         # explicit type decl for readability
         top_section: dict[str, tuple[Any, Path | None]] | None = self.__config_dict.get(parts[0])
@@ -775,29 +764,31 @@ class Config:
         path = entry[1]
         return path if path is not None else 'unset'
 
+    def is_overridden(self, key: str, section: str = 'pixeltable') -> bool:
+        """Whether pxt.init() supplied this setting, which outranks the environment and every config file.
+
+        get_value_source() answers 'env' for such a setting too.
+        """
+        return f'{section}.{key}' in self.__config_overrides
+
     def env_keys(self) -> list[ConfigKey]:
         """The config settings that can be set via an environment variable."""
         return [ck for ck in self.config_keys() if is_env_key(ck)]
 
     def __config_var_keys(self) -> list[ConfigKey]:
         """The config vars from the config file and the environment."""
-        result: list[ConfigKey] = []
-        for section, prefix, description in (
-            (VAR_SECTION, VAR_ENV_PREFIX, 'user-declared config var'),
-            (SECRET_SECTION, SECRET_ENV_PREFIX, 'user-declared secret'),
-        ):
-            keys = set(self.__section_keys(section))
-            for name, value in os.environ.items():
-                # a config setting supplied by an env var needs to be uppercase
-                suffix = name[len(prefix) :]
-                if not name.startswith(prefix) or value == '' or suffix != suffix.upper():
-                    continue
-                if re.fullmatch(_CONFIG_VAR_NAME_RE, suffix.lower()) is not None:
-                    keys.add(suffix.lower())
-            result.extend(
-                ConfigKey(section=section, key=key, description=description, expected_type=str) for key in sorted(keys)
-            )
-        return result
+        keys = set(self.__section_keys(VAR_SECTION))
+        for name, value in os.environ.items():
+            # a config setting supplied by an env var needs to be uppercase
+            suffix = name[len(VAR_ENV_PREFIX) :]
+            if not name.startswith(VAR_ENV_PREFIX) or value == '' or suffix != suffix.upper():
+                continue
+            if re.fullmatch(_CONFIG_VAR_NAME_RE, suffix.lower()) is not None:
+                keys.add(suffix.lower())
+        return [
+            ConfigKey(section=VAR_SECTION, key=key, description='user-defined config var', expected_type=str)
+            for key in sorted(keys)
+        ]
 
     def __warn_about_miscased_env_vars(self) -> None:
         """Warn about an environment variable that differs only in case from one this instance reads."""
@@ -806,7 +797,7 @@ class Config:
             if name == name.upper() or not name.upper().startswith('PIXELTABLE_'):
                 continue
             upper = name.upper()
-            if upper in recognized or upper.startswith((VAR_ENV_PREFIX, SECRET_ENV_PREFIX)):
+            if upper in recognized or upper.startswith(VAR_ENV_PREFIX):
                 warnings.warn(
                     f'Ignoring {name}: environment variable names are uppercase; did you mean {upper}?',
                     category=excs.PixeltableWarning,
@@ -815,8 +806,8 @@ class Config:
 
     def __section_keys(self, section: str) -> list[str]:
         """The keys defined in section."""
-        if section in (VAR_SECTION, SECRET_SECTION):
-            return list(self.__database_bindings(section))
+        if section == VAR_SECTION:
+            return list(self.__database_bindings())
         parts = section.split('.')
         node: Any = self.__config_dict.get(parts[0])
         for p in parts[1:]:
@@ -826,31 +817,19 @@ class Config:
             node = entry[0] if isinstance(entry, tuple) else entry
         return list(node) if isinstance(node, dict) else []
 
-    def env_fingerprint(self) -> dict[str, str]:
-        """Fingerprints of the values of env-settable settings, as {env var name: hash}."""
-        out: dict[str, str] = {}
-        for ck in self.env_keys():
-            value = self.get_value(ck.key, str, section=ck.section)
-            if value is not None and value != '':
-                out[env_var_name(ck.section, ck.key)] = value_fingerprint(value)
-        return out
-
-    def compare_env_values(self, other: Mapping[str, str], mine: Mapping[str, str]) -> tuple[list[str], list[str]]:
-        """Compare the env fingerprint other with mine, as produced by env_fingerprint().
-
-        Returns (set for other but not in mine, resolved differently in mine). A name this instance does not
-        read config from is ignored, so an unrelated variable in the other's environment does not count. A
-        value mine has and other does not is not a disagreement.
-        """
-        known = {env_var_name(ck.section, ck.key) for ck in self.env_keys()}
-        relevant = {
-            name: h
-            for name, h in other.items()
-            if name.startswith((VAR_ENV_PREFIX, SECRET_ENV_PREFIX)) or name in known
-        }
-        missing = sorted(name for name in relevant if name not in mine)
-        differing = sorted(name for name, h in relevant.items() if name in mine and mine[name] != h)
-        return missing, differing
+    def describe_setting(self, section: str, key: str) -> str:
+        """A printable description of a setting, incl. its source."""
+        source = self.get_value_source(key, section)
+        if source == 'env':
+            return f'{env_var_name(section, key)} in the environment'
+        if source == 'unset':
+            return f'{section}.{key}, no longer set'
+        ck = next((ck for ck in self.config_keys() if (ck.section, ck.key) == (section, key)), None)
+        # a pyproject.toml holds Pixeltable's settings under [tool], and an array of tables is written [[ ]]
+        name = f'tool.{section}.{key}' if source.name == 'pyproject.toml' else f'{section}.{key}'
+        if ck is not None and typing.get_origin(ck.expected_type) is list:
+            name = f'[[{name}]]'
+        return f'{name} in {source}'
 
 
 KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
@@ -879,8 +858,11 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
             'database the contents of its runtime image',
             list[DatabaseConfig],
         ),
-        'daemon_host': 'Listen address for the proxy daemon in fixed-address mode (e.g. 0.0.0.0)',
-        'daemon_port': ('Listen port for the proxy daemon in fixed-address mode (e.g. 8000)', int),
+        'db_pool_size': ('Number of database connections the engine keeps open (default: 5)', int),
+        'db_pool_max_overflow': (
+            'Number of temporary database connections the engine may open beyond `db_pool_size` (default: 10)',
+            int,
+        ),
         'db_uri': 'Base pxt:// URI for remote catalog access (e.g. pxt://myorg:mydb)',
     },
     'anthropic': {'api_key': 'Anthropic API key'},
@@ -958,7 +940,16 @@ _FILE_ONLY_KEYS = frozenset({'file_cache_size_g', 'file_cache_lease_s'})
 
 # settings that configure the installation rather than one project, so a project config file may not set them
 _INSTALLATION_KEYS = frozenset(
-    {'home', 'config', 'pgdata', 'db', 'file_cache_size_g', 'file_cache_lease_s', 'daemon_host', 'daemon_port'}
+    {
+        'home',
+        'config',
+        'pgdata',
+        'db',
+        'file_cache_size_g',
+        'file_cache_lease_s',
+        'db_pool_size',
+        'db_pool_max_overflow',
+    }
 )
 
 # the settings pxt.init() accepts, ie. the ones a single process may set

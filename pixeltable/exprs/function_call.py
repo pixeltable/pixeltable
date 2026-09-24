@@ -231,10 +231,18 @@ class FunctionCall(Expr):
 
     def _create_rowid_refs(self, tbl: catalog.Table) -> list[Expr]:
         path = tbl._tbl_path
-        return [
-            RowidRef(tbl=None, idx=i, tbl_id=path.tbl_id, normalized_base_id=path.rowid_normalized_base_id(i))
-            for i in range(path.num_rowid_columns())
-        ]
+        return [self._rowid_ref(path, i) for i in range(path.num_rowid_columns())]
+
+    def _rowid_ref(self, path: catalog.TablePath, idx: int) -> RowidRef:
+        base = path.rowid_normalized_base(idx)
+        return RowidRef(
+            tbl=None,
+            idx=idx,
+            tbl_id=path.tbl_id,
+            effective_version=path.effective_version(),
+            normalized_base_id=base.tbl_id,
+            normalized_base_effective_version=base.effective_version(),
+        )
 
     def tbl_ids(self) -> set[UUID]:
         ids = super().tbl_ids()
@@ -292,7 +300,7 @@ class FunctionCall(Expr):
 
     def _print_args(self, start_idx: int = 0, inline: bool = True) -> str:
         arg_strs = [str(self.components[idx]) for idx in self.arg_idxs[start_idx:]]
-        arg_strs.extend([f'{param_name}={self.components[idx]}' for param_name, idx in self.kwarg_idxs.items()])
+        arg_strs.extend(f'{name}={self.components[idx]}' for name, idx in self.kwarg_idxs.items())
         if len(self.order_by) > 0:
             assert isinstance(self.fn, func.AggregateFunction)
             if self.fn.requires_order_by:
@@ -567,7 +575,9 @@ class FunctionCall(Expr):
         fn = func.Function.from_dict(d['fn'])
         return_type = ts.ColumnType.from_dict(d['return_type']) if d.get('return_type') is not None else None
         arg_idxs: list[int] = d['arg_idxs']
-        kwarg_idxs: dict[str, int] = d['kwarg_idxs']
+        # postgres may reorder the keys of a dict if stored in JSONB, so we normalize the dictionary order here;
+        # they are sorted by index order (the dictionary's integer values)
+        kwarg_idxs: dict[str, int] = dict(sorted(d['kwarg_idxs'].items(), key=lambda item: item[1]))
         group_by_start_idx: int = d['group_by_start_idx']
         group_by_stop_idx: int = d['group_by_stop_idx']
         order_by_start_idx: int = d['order_by_start_idx']

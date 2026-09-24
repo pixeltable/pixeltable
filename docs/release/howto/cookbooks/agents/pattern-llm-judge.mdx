@@ -1,0 +1,139 @@
+---
+title: 'LLM as judge'
+description: 'Score model output with a second model, as a chain of computed columns'
+---
+
+Scoring generated text by hand does not scale, and a score computed outside the table drifts from
+the row it describes. Declare the judge as columns on the same table: the answer, the judge prompt,
+the verdict, and the numeric score each become a computed column, so inserting a test case runs the
+whole evaluation and the score is stored beside the answer it grades.
+
+## The table
+
+Each row is one test case: a prompt, and the criteria the answer is judged against.
+
+```python
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+from pixeltable.functions import openai
+
+pxt.create_dir('evals', if_exists='ignore')
+
+runs = pxt.create_table(
+    'evals.runs',
+    {'prompt': pxt.String, 'criteria': pxt.String},
+    if_exists='ignore',
+)
+```
+
+## The answer under test
+
+```python
+runs.add_computed_column(
+    response=openai.chat_completions(
+        messages=[{'role': 'user', 'content': runs.prompt}], model='gpt-4o-mini'
+    )
+)
+runs.add_computed_column(answer=runs.response.choices[0].message.content)
+```
+
+## The judge prompt
+
+Build it with `pxtf.string.format`, not Python's `str.format`.
+
+<Warning>
+`template.format(prompt=runs.prompt)` does not do what it looks like. Python formats the
+expression object itself, so every row gets the same string containing the column's name.
+`pxtf.string.format` returns an expression, which is evaluated per row.
+</Warning>
+
+```python
+JUDGE_TEMPLATE = """You are grading an AI response against a set of criteria.
+
+Prompt: {prompt}
+Criteria: {criteria}
+Response: {response}
+
+Reply on exactly two lines:
+Score: <1-10>
+Explanation: <one sentence>
+"""
+
+runs.add_computed_column(
+    judge_prompt=pxtf.string.format(
+        JUDGE_TEMPLATE, prompt=runs.prompt, criteria=runs.criteria, response=runs.answer
+    )
+)
+```
+
+## The verdict and the score
+
+The judge returns prose. A UDF pulls the number out so you can sort and aggregate on it.
+
+```python
+runs.add_computed_column(
+    judge_response=openai.chat_completions(
+        messages=[
+            {'role': 'system', 'content': 'You grade AI responses. Be strict and terse.'},
+            {'role': 'user', 'content': runs.judge_prompt},
+        ],
+        model='gpt-4o-mini',
+    )
+)
+runs.add_computed_column(verdict=runs.judge_response.choices[0].message.content)
+
+
+@pxt.udf
+def extract_score(verdict: str) -> float | None:
+    """The first `Score:` line, or None when the judge did not follow the format."""
+    for line in verdict.splitlines():
+        if line.strip().startswith('Score:'):
+            try:
+                return float(line.split(':', 1)[1].strip())
+            except ValueError:
+                return None
+    return None
+
+
+runs.add_computed_column(score=extract_score(runs.verdict))
+```
+
+Returning `None` rather than `0.0` on a malformed verdict matters: a zero is indistinguishable
+from a genuinely bad answer, and it drags any average you compute.
+
+## Run it
+
+```python
+runs.insert([
+    {
+        'prompt': 'Write a haiku about dogs.',
+        'criteria': 'Follows 5-7-5. Is about dogs. Uses concrete imagery.',
+    },
+    {
+        'prompt': 'Explain quantum computing to a 10-year-old.',
+        'criteria': 'Age-appropriate words. Uses an analogy. Under 100 words.',
+    },
+])
+
+runs.order_by(runs.score).select(runs.prompt, runs.score, runs.verdict).collect()
+```
+
+Both `openai.chat_completions()` calls need `OPENAI_API_KEY`. Inserting a row runs the answer, the
+judge prompt, the verdict, and the score in order, because each column depends on the one above it.
+
+<Note>
+A UDF cannot be defined in the global namespace of a plain Python script. In a notebook or a REPL
+the definition above works as written; in a script, put `extract_score` in an importable module
+and import it.
+</Note>
+
+## Notes
+
+- Add a criterion and only the affected columns recompute; the answers already generated are not
+  called again.
+- To grade the same answers under two judges, add a second `judge_response` column with a different
+  model rather than a second table.
+- To grade answers your application already produced, put these columns on that table instead of a
+  separate one. The judge does not need its own copy of the data.
+- `pxt.create_table()` here is the notebook and test form. An application declares the same columns
+  on a `TableModel` in `app.py` and creates them with `pxt schema update`.

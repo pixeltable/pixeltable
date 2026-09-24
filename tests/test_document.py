@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 import PIL.Image
+import psutil
 import pytest
 
 import pixeltable as pxt
@@ -169,6 +170,11 @@ class TestDocument:
         else:
             assert extensions == {'.md', '.html', '.txt', '.pptx', '.docx', '.xlsx'}
 
+        def open_doc_files() -> set[str]:
+            return {f.path for f in psutil.Process().open_files() if os.path.splitext(f.path)[1] in extensions}
+
+        open_doc_files_before = open_doc_files()
+
         doc_t = pxt.create_table('docs', {'doc': pxt.Document | None})
         validate_update_status(doc_t.insert({'doc': p} for p in file_paths), expected_rows=len(file_paths))
 
@@ -257,6 +263,10 @@ class TestDocument:
                     assert all(md in r for md in metadata)
 
             pxt.drop_table('chunks')
+
+        # Verify that document splitter does not leave open files behind
+        leaked_doc_files = open_doc_files() - open_doc_files_before
+        assert not leaked_doc_files, leaked_doc_files
 
     def test_doc_splitter_headings(self, uses_db: None) -> None:
         skip_test_if_not_installed('markitdown', 'spacy')

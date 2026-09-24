@@ -20,7 +20,7 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Literal, NamedTuple, TypeVar, overload
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -35,8 +35,8 @@ from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
-from pixeltable.utils.object_stores import ObjectPath
-from pixeltable.utils.sql import add_option_to_db_url
+from pixeltable.utils.object_stores import ObjectPath, StorageTarget
+from pixeltable.utils.sql import add_option_to_db_url, redact_db_url
 
 if TYPE_CHECKING:
     # aliased to avoid clashing with pathlib.Path above; env<->catalog is circular, so this stays type-only
@@ -72,6 +72,10 @@ def init_log_level(logger: logging.Logger, config: Config, config_key: str, *, d
     logger.setLevel(level)
 
 
+_DEFAULT_DB_POOL_SIZE = 5
+_DEFAULT_DB_POOL_MAX_OVERFLOW = 10
+
+
 def store_app_name() -> str:
     """The application_name that this process's connections report to the store.
 
@@ -79,6 +83,22 @@ def store_app_name() -> str:
     processes running against the same database.
     """
     return f'pixeltable-{os.getpid()}'
+
+
+# Pixeltable DB name is used verbatim as Postgres DB name. Postgres will truncate anything longer than 63 bytes.
+MAX_DB_NAME_LEN = 63
+
+
+def validate_db_name(db_name: str) -> None:
+    from pixeltable.catalog.globals import is_valid_identifier
+
+    if not is_valid_identifier(db_name, allow_hyphens=True):
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid database name: {db_name!r}')
+    if len(db_name) > MAX_DB_NAME_LEN:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'Database name is too long ({len(db_name)} characters; the limit is {MAX_DB_NAME_LEN}): {db_name}',
+        )
 
 
 class Env:
@@ -119,7 +139,8 @@ class Env:
     _file_cache_lease_s: float
     _default_input_media_dest: str | None
     _default_output_media_dest: str | None
-    _pxt_api_key: str | None
+    _object_store_clients: dict[tuple[StorageTarget, ObjectStoreClientKind], S3CompatClientDict]
+    _object_store_clients_lock: threading.Lock
     _default_video_encoder: str | None
     _default_video_encoder_lock: threading.Lock
     _initialized: bool
@@ -160,6 +181,8 @@ class Env:
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
 
         self._media_dir = None  # computed media files
+        self._object_store_clients = {}
+        self._object_store_clients_lock = threading.Lock()
         self._file_cache_dir = None  # cached object files with external URL
         self._dataset_cache_dir = None  # cached datasets (eg, pytorch or COCO)
         self._log_dir = None  # log files
@@ -199,6 +222,11 @@ class Env:
         return self._db_url
 
     @property
+    def redacted_db_url(self) -> str:
+        """The db url with its password masked, for logging and for display."""
+        return redact_db_url(self.db_url)
+
+    @property
     def http_address(self) -> str:
         assert self._http_address is not None
         return self._http_address
@@ -206,6 +234,25 @@ class Env:
     @property
     def is_proxy_daemon(self) -> bool:
         return os.environ.get('PIXELTABLE_PROXY_DAEMON') == '1'
+
+    @overload
+    def hosted_db(self, *, required: Literal[True]) -> tuple[str, str]: ...
+
+    @overload
+    def hosted_db(self, *, required: bool = False) -> tuple[str, str] | None: ...
+
+    def hosted_db(self, *, required: bool = False) -> tuple[str, str] | None:
+        """(org, db) of the hosted database; the cloud sets PXTCLOUD_ORG and PXTCLOUD_DB on its pods."""
+        org = os.environ.get('PXTCLOUD_ORG')
+        db = os.environ.get('PXTCLOUD_DB')
+        if org and db:
+            return org, db
+        if required:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                'Internal error: PXTCLOUD_ORG and PXTCLOUD_DB are not present in the container.',
+            )
+        return None
 
     @property
     def user(self) -> str | None:
@@ -343,6 +390,14 @@ class Env:
 
         self._default_input_media_dest = config.get_string_value('input_media_dest')
         self._default_output_media_dest = config.get_string_value('output_media_dest')
+        hosted_db = self.hosted_db()
+        if hosted_db is not None:
+            org, db = hosted_db
+            home_bucket = f'pxtfs://{org}:{db}/home'
+            if self._default_input_media_dest is None:
+                self._default_input_media_dest = home_bucket
+            if self._default_output_media_dest is None:
+                self._default_output_media_dest = home_bucket
         for mode, uri in (('input', self._default_input_media_dest), ('output', self._default_output_media_dest)):
             if uri is not None:
                 try:
@@ -438,18 +493,18 @@ class Env:
 
         if self.is_local:
             # Embedded postmaster: create or reset the database as needed.
-            if reinit_db and self._store_db_exists():
+            if reinit_db and self._store_db_exists(self._db_name):
                 self._drop_store_db()
 
-            create_db = not self._store_db_exists()
+            create_db = not self._store_db_exists(self._db_name)
             if create_db:
-                _logger.info(f'creating database at: {self.db_url}')
+                _logger.info(f'creating database at: {self.redacted_db_url}')
                 self._create_store_db()
             else:
-                _logger.info(f'found database at: {self.db_url}')
+                _logger.info(f'found database at: {self.redacted_db_url}')
         else:
             # External DB: pre-provisioned; no local setup needed.
-            _logger.info(f'Using external database at: {self.db_url}')
+            _logger.info(f'Using external database at: {self.redacted_db_url}')
 
         # Create the SQLAlchemy engine. This will also set the default time zone.
         self._create_engine(time_zone_name=tz_name, echo=echo)
@@ -457,7 +512,7 @@ class Env:
         # Create catalog tables and system metadata
         self._init_metadata()
 
-        self.console_logger.info(f'Connected to Pixeltable database at: {self.db_url}')
+        self.console_logger.info(f'Connected to Pixeltable database at: {self.redacted_db_url}')
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()
@@ -470,8 +525,11 @@ class Env:
         if db_connect_str is not None:
             try:
                 db_url = sql.make_url(db_connect_str)
-            except sql.exc.ArgumentError as e:
-                error = f'Invalid db connection string {db_connect_str}: {e}'
+            except (sql.exc.ArgumentError, ValueError) as e:
+                # SQLAlchemy quotes the whole string it could not parse, password and all; replacing the
+                # empty string would put the marker between every character of the message
+                detail = str(e) if db_connect_str == '' else str(e).replace(db_connect_str, '<redacted>')
+                error = f'Invalid db connection string: {detail}'
                 _logger.error(error)
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error) from e
             self._db_url = db_url.render_as_string(hide_password=False)
@@ -480,7 +538,7 @@ class Env:
             if dialect == 'cockroachdb':
                 self._dbms = CockroachDbms(db_url)
                 # Check if database exists (CockroachDB exposes pg_database via the system DB)
-                if not self._store_db_exists():
+                if not self._store_db_exists(self._db_name):
                     error = f'Database {self._db_name!r} does not exist'
                     _logger.error(error)
                     raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error)
@@ -493,13 +551,29 @@ class Env:
                 # External PostgreSQL: database is pre-provisioned. Connect directly — no existence check needed.
             else:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
-            _logger.info(f'Using database at: {self.db_url}')
+            _logger.info(f'Using database at: {self.redacted_db_url}')
         else:
-            self._db_name = config.get_string_value('db') or 'pixeltable'
+            # the database name is an identifier, and is folded everywhere else it enters (Path, pxt localproxy)
+            from pixeltable.catalog.globals import fold_identifier
+
+            configured_name = config.get_string_value('db')
+            if configured_name:
+                validate_db_name(configured_name)
+            folded_name = fold_identifier(configured_name) if configured_name else 'pixeltable'
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
             self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
-            self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
-            self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
+            self._set_local_db(folded_name)
+            # Legacy database (with an unfolded name) fallback
+            if (
+                configured_name is not None
+                and configured_name != folded_name
+                and not self._store_db_exists(folded_name)
+                and self._store_db_exists(configured_name)
+            ):
+                self.console_logger.warning(
+                    f'Using database {configured_name!r}, which predates case-folded database names'
+                )
+                self._set_local_db(configured_name)
         assert self._dbms is not None
         assert self._db_url is not None
         assert self._db_name is not None
@@ -530,13 +604,27 @@ class Env:
         updated_url = add_option_to_db_url(self.db_url, f'-c timezone={time_zone_name}')
         updated_url = add_option_to_db_url(updated_url, f'-c application_name={store_app_name()}')
 
+        config = Config.get()
+        pool_size = config.get_int_value('db_pool_size')
+        if pool_size is None:
+            pool_size = _DEFAULT_DB_POOL_SIZE
+        pool_max_overflow = config.get_int_value('db_pool_max_overflow')
+        if pool_max_overflow is None:
+            pool_max_overflow = _DEFAULT_DB_POOL_MAX_OVERFLOW
+
         self._sa_engine = sql.create_engine(
-            updated_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level
+            updated_url,
+            echo=echo,
+            isolation_level=self._dbms.transaction_isolation_level,
+            pool_size=pool_size,
+            max_overflow=pool_max_overflow,
+            pool_pre_ping=True,
         )
 
-        _logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
+        _logger.info(f'Created SQLAlchemy engine at: {self.redacted_db_url}')
         _logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
         _logger.info(f'Engine driver : {self._sa_engine.dialect.driver}')
+        _logger.info(f'Engine connection pool: {pool_size} + {pool_max_overflow}')
 
         with self.engine.begin() as conn:
             tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
@@ -550,13 +638,19 @@ class Env:
                 assert isinstance(null_ordered_last, str)
                 _logger.info(f'Database null_ordered_last is now: {null_ordered_last}')
 
-    def _store_db_exists(self) -> bool:
-        assert self._db_name is not None
-        # don't try to connect to self.db_name, it may not exist
+    def _set_local_db(self, db_name: str) -> None:
+        """Point this Env at `db_name` on the embedded server."""
+        assert self._db_server is not None
+        self._db_name = db_name
+        self._db_url = self._db_server.get_uri(database=db_name, driver='psycopg')
+        self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
+
+    def _store_db_exists(self, db_name: str) -> bool:
+        """Whether `db_name`, defaulting to this Env's database, exists in the store."""
         engine = sql.create_engine(self._dbms.default_system_db_url(), future=True)
         try:
             with engine.begin() as conn:
-                stmt = f"SELECT COUNT(*) FROM pg_database WHERE datname = '{self._db_name}'"
+                stmt = f"SELECT COUNT(*) FROM pg_database WHERE datname = '{db_name}'"
                 result = conn.scalar(sql.text(stmt))
                 assert result <= 1
                 return result == 1
@@ -600,24 +694,6 @@ class Env:
 
         metadata.upgrade_md(self._sa_engine)
 
-    @property
-    def pxt_api_key(self) -> str | None:
-        """Get the Pixeltable API key from config"""
-        return Config.get().get_string_value('api_key')
-
-    def require_api_key(self, purpose: str | None = None) -> str:
-        """Return the Pixeltable API key, raising if none is configured. purpose names the attempted operation."""
-        api_key = self.pxt_api_key
-        if api_key is None:
-            attempt = '' if purpose is None else f' to {purpose}'
-            raise excs.AuthorizationError(
-                excs.ErrorCode.MISSING_CREDENTIALS,
-                f'A Pixeltable API key is required{attempt}. '
-                'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
-                'or add `api_key = "your-key"` to the `[pixeltable]` section in your Pixeltable config file.',
-            )
-        return api_key
-
     def proxy_endpoint(self, org: str, db: str) -> tuple[str, int]:
         """Host and port of the proxy daemon serving a hosted database."""
         # cloud_host is deliberately not a registered config option: PIXELTABLE_CLOUD_HOST is the only override
@@ -628,18 +704,27 @@ class Env:
             if ':' in setting:
                 domain, _, port_str = setting.rpartition(':')
                 if domain == '':
-                    raise excs.Error(
-                        excs.ErrorCode.GENERIC_USER_ERROR,
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_CONFIGURATION,
                         f'Invalid PIXELTABLE_CLOUD_HOST value: missing host before ":{port_str}".',
                     )
                 try:
                     port = int(port_str)
                 except ValueError as err:
-                    raise excs.Error(
-                        excs.ErrorCode.GENERIC_USER_ERROR,
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_CONFIGURATION,
                         f'Invalid PIXELTABLE_CLOUD_HOST value: port {port_str!r} is not a valid integer.',
                     ) from err
         return f'{org}-{db}.{domain}', port
+
+    def object_store_clients(self, target: StorageTarget, kind: ObjectStoreClientKind = 'client') -> S3CompatClientDict:
+        """The boto3 client (or resource) cache of an S3-compatible storage target."""
+        with self._object_store_clients_lock:
+            key = (target, kind)
+            if key not in self._object_store_clients:
+                profile = Config.get().get_string_value(f'{target.value}_profile')
+                self._object_store_clients[key] = S3CompatClientDict(profile=profile, clients={})
+            return self._object_store_clients[key]
 
     def create_client(self, name: str) -> Any:
         """
@@ -1031,6 +1116,17 @@ def register_client(name: str, *, credential_param: str | None) -> Callable:
 
 _client_factories_lock: threading.Lock = threading.Lock()
 _client_factories: dict[str, ApiClientFactory] = {}
+
+
+# boto3 offers two access APIs per storage target, each with its own object type
+ObjectStoreClientKind = Literal['client', 'resource']
+
+
+class S3CompatClientDict(NamedTuple):
+    """Container for S3-compatible storage access objects (R2, B2, etc.)."""
+
+    profile: str | None  # AWS-style profile used to locate credentials
+    clients: dict[str, Any]  # Map of endpoint URL to boto3 client instance
 
 
 @dataclass

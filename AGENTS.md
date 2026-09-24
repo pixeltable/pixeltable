@@ -2,7 +2,21 @@
 
 # AGENTS.md
 
-Instructions for AI coding agents working with the Pixeltable codebase.
+Instructions for AI coding agents working with the Pixeltable codebase. This is the single developer
+guide; `CLAUDE.md` imports it.
+
+## Where the other instructions live
+
+| File | Governs | Read it when |
+|---|---|---|
+| `.github/copilot-instructions.md` | Copilot code review on pull requests | Changing what a reviewer flags |
+| `docs/_guidelines/GUIDELINES_FOR_PROSE.md` | Prose in docs, notebooks, READMEs | Writing anything a user reads |
+| `docs/_guidelines/GUIDELINES_FOR_DOCSTRINGS.md` | Docstrings, which ship as SDK reference | Adding or editing a docstring |
+| `docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md` | Notebook structure and conversion | Touching `docs/release/**/*.ipynb` |
+| `docs/_guidelines/GUIDELINES_FOR_COOKBOOKS.md` | Cookbook recipe structure | Adding a recipe |
+| `dashboard/DESIGN.md`, `dashboard/ARCHITECTURE.md` | The local dashboard UI | Touching `dashboard/` or its server APIs |
+| `docs/release/skill.md` | Pointer to the canonical skill in `pixeltable/pixeltable-skill` | Changing what app builders are told: edit the skill repo, not this file |
+| `CONTRIBUTING.md` | Branching, review, merge process | Opening or merging a PR |
 
 ## Protected Configuration
 
@@ -46,7 +60,7 @@ pixeltable/
 ├── docs/
 │   ├── release/          # Mintlify documentation source (notebooks, MDX)
 │   ├── _guidelines/      # Documentation style guides
-│   └── sample-apps/      # Example applications
+│   └── sample-apps/      # Older showcases; examples live in pixeltable-starter-kit
 └── tool/                 # Development utilities
 ```
 
@@ -97,6 +111,11 @@ make formatcheck  # ruff format --check
 
 ### Testing
 
+Exercise behavior through public SDK, CLI, or HTTP APIs and assert on public results, metadata, or errors:
+use `Table.get_metadata()`, `t.describe()`, or queries rather than `col.stored`, `ColumnRef`, or
+`TableVersion` internals. Avoid using the internal API as much as possible. Only use it to test behaviors that
+are very difficult or impossible to reproduce using only the public API.
+
 ```bash
 # Run pytest (excludes expensive/remote_api tests)
 make pytest
@@ -117,6 +136,26 @@ pytest -m "remote_api" tests/functions/test_openai.py
 **Test markers:**
 - `@pytest.mark.expensive` - Long-running tests
 - `@pytest.mark.remote_api` - Tests calling external APIs
+
+### Required After Every Code Change
+
+After every code change, before reporting it done:
+
+1. `make format`: auto-formats code.
+2. `make check`: mypy + ruff static checks; both must pass.
+3. `git add` any new source file, then review the whole change with `git diff HEAD` (no pathspec: source
+   and tests), reading every comment, docstring, and string you added. A diff narrowed to one file does not
+   count, and an unstaged new file does not appear in it. A comment must describe only the code at hand
+   (never a caller's intent or a called function's internals) and must not state behavior you have not
+   verified.
+4. Delete before rewording: cover each comment and read only the identifier, the signature, and the code
+   below it. If those carry the same fact, delete the comment rather than improving it. See
+   [Prose and grammar](#prose-and-grammar).
+5. Check every sentence that survived against [Prose and grammar](#prose-and-grammar): straight word
+   order, no banned construction, no vacuous or informal term. Fix every violation from steps 3 to 5
+   before proceeding.
+
+Skip only if explicitly directed or if the environment makes it impossible.
 
 ### Creating a Pull Request
 
@@ -196,36 +235,144 @@ class MyIterator(ComponentIterator):
 
 ### Working with Tables
 
+Application schema is a `TableModel` class in `app.py`. `pxt schema update app.py my_app` creates those tables. Put `FastAPIRouter` routes in that same `app.py`. In tests, notebooks, and a REPL, keep using `pxt.create_table()`; do not require a project file there.
+
+```python
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+from pixeltable.serving import FastAPIRouter
+
+TableModel = pxt.model_base()
+
+
+@pxt.udf
+def excerpt(text: str, n: int = 12) -> str:
+    return text if len(text) <= n else f'{text[:n]}...'
+
+
+class Docs(TableModel, name='docs'):
+    id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
+    title: pxt.String
+    body: pxt.String | None
+    title_upper = pxtf.string.upper(title)
+    summary = excerpt(title)
+
+
+ingest = FastAPIRouter(name='ingest')
+ingest.add_insert_route(
+    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.id, Docs.title_upper, Docs.summary]
+)
+ingest.add_update_route(
+    Docs, path='/docs/update', inputs=[Docs.title], outputs=[Docs.id, Docs.title_upper]
+)
+ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
+```
+
+```bash
+pxt schema update app.py my_app
+pxt service update app.py my_app
+```
+
+After `pxt schema update`, open the table with `t = pxt.get_table('my_app.docs')`, then `t.insert()` / `.select()` / `.collect()`. On a `TableModel`, put indexes in `__indexes__`. Do not call `add_embedding_index()` in application code that you later create with `pxt schema update`.
+
+Tests and notebooks (not app files):
+
 ```python
 import pixeltable as pxt
 
-# Create table with schema
 t = pxt.create_table('my_dir.my_table', {
     'text': pxt.String,
     'image': pxt.Image,
     'metadata': pxt.Json,
 })
-
-# Add computed columns
 t.add_computed_column(embedding=some_embedding_fn(t.text))
-t.add_computed_column(analysis=some_analysis_fn(t.image))
-
-# Add embedding index
 t.add_embedding_index('text', embedding=embed_fn)
-
-# Insert data
 t.insert([{'text': 'hello', 'image': 'path/to/image.jpg'}])
-
-# Query with similarity search
-sim = t.text.similarity(string='search query')
-results = t.order_by(sim, asc=False).limit(10).select(t.text, sim).collect()
 ```
+
+Examples: [pixeltable-starter-kit](https://github.com/pixeltable/pixeltable-starter-kit).
 
 ### Error Handling
 
 - Use `pixeltable.exceptions` for custom exceptions
 - Validate inputs early and provide clear error messages
-- Use `exn.Error` for user-facing errors
+- Raise a subclass of `Error`, never `Error` itself: its `__init__` asserts
+  `raise a subclass of Error, not Error itself`. Every instance carries an `ErrorCode`, and the code
+  determines the class, so `RequestError` takes a request code and `NotFoundError` a not-found one.
+- `UserError` is the subclass for a user error with no more specific code:
+  `raise pxt.UserError(pxt.ErrorCode.GENERIC_USER_ERROR, 'message')`. Reach for a specific subclass
+  first (`RequestError`, `NotFoundError`, `AlreadyExistsError`, `AuthorizationError`,
+  `ExternalServiceError`, `ServiceUnavailableError`, `ConcurrencyError`).
+
+## Prose and grammar
+
+These rules cover every sentence we write: code comments, docstrings, error messages, CLI help, MDX docs,
+commit messages and PR descriptions. `docs/_guidelines/GUIDELINES_FOR_PROSE.md` governs what an MDX page
+says; this section governs how a sentence is built.
+
+Write the shortest sentence that states the fact, in straight word order.
+
+### Four principles
+
+1. **Use the shortest form for the relation.** A relative clause expressing only possession or
+   attribution is a possessive with extra steps: "the models a service serves" -> "the service's models";
+   "the file a binding came from" -> "the binding's source file". The tell is a verb at the end of a noun
+   phrase. Such a clause has no relative pronoun, so scanning for "that" or "which" misses every instance.
+2. **Cut a qualifier already established by the context.** Name the thing plainly and put the
+   distinguishing fact in the predicate: "a file the served project does not hold cannot be imported" ->
+   "loading a file outside the project is refused".
+3. **Name the referent, not its category.** A sentence built out of category nouns can only be skimmed.
+   Keep one concrete term, the method or the class or the field: not "refuse a Query member that needs a
+   table, naming the model that has none", but "raise an error for an attribute only a bound query has,
+   such as collect()".
+4. **Straight word order.** No preposition stranded at the end of a clause, no noun-phrase pileup ("the X
+   a Y is Z to"), no fused emphatic ("X is what makes Y work" -> "X makes Y work").
+
+### Banned constructions
+
+| Instead of | Write |
+|---|---|
+| `<noun> holds <x>` | has, contains, stores, or the relation itself: the image *contains* the file |
+| `<x> names <y>` | specifies, points at, is set to |
+| `<x> carries <y>` | has, contains, includes |
+| `the <noun> the <other> <verbs>` | the possessive, or a clause with the verb in it: "the docstring states this rule" |
+| "... has none", "... holds none", "... declares none" | say what is there, or state what is missing |
+| "resolve against", "runs against" | to, with, or according to |
+
+### Banned terms
+
+- **Vacuous**: footgun, load-bearing, happy path, self-heal(ing), envelope, leaf. Name the behavior, the
+  constraint, or the failure mode instead. "Default `mix_duration='first'` truncates the output when the
+  audio is shorter than the video" informs; "is a footgun" does not.
+- **Informal**, in anything a user reads: knob -> setting, magic -> the actual behavior, under the hood ->
+  internally, kicks in -> applies, gotcha -> the specific failure mode.
+- **slug**: `org_slug` and `db_slug` store a user-supplied name, so prose says the org's name, the
+  database's name. Naming the identifier is accurate where the code is the subject: "`db_slug` was empty".
+- **Non-ASCII typography**, in every file: no em or en dash, smart quotes, arrows, ellipsis, or math
+  symbols. Write `-`, `"`, `->`, `...`, `>=`. Leave unicode already in a file alone.
+
+### Economy
+
+One fact per comment, on one line where possible, stated once at the site that does the thing. Cut the
+"so that ..." clause when the code shows it.
+
+Delete before rewording: cover the comment and read only the identifier, the signature, and the code below
+it. If those carry the same fact, delete the comment rather than improve it. Deletion is the default
+outcome. A docstring paraphrasing the name, an "or None if ..." for a `| None` annotation, and a fact
+already stated elsewhere all go. Keep what the reader cannot recover: a constraint imposed by a callee, the
+reason for a surprising choice, an invariant that would silently break.
+
+### How to check
+
+Negative pattern-matching is not enough, since it passes any sentence whose shape is new. Run these in
+order on every sentence added or edited:
+
+1. Read it aloud. If you cannot say what happens in one breath, rewrite it rather than reflow it.
+2. Look for a noun phrase ending in a verb, and rewrite it as a possessive or a prepositional phrase.
+3. Delete any qualifier already established by the surrounding text.
+4. Check that at least one noun is the concrete referent.
+5. Then the surface checks: stranded preposition, pileup, fused emphatic, and the constructions and terms
+   banned above.
 
 ## Documentation
 
@@ -233,10 +380,10 @@ results = t.order_by(sim, asc=False).limit(10).select(t.text, sim).collect()
 
 Documentation notebooks are in `docs/release/`. Follow `docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md`:
 
-- Start with YAML frontmatter in a **Raw cell** (not Markdown)
-- No H1 headers in markdown (title comes from frontmatter)
+- Use one title source: a leading markdown H1, or a first **Raw cell** with YAML `title`
+- Do not include an H1 when using a raw frontmatter title
 - Use `##` for main sections, `###` for subsections
-- Clear outputs before committing unless output is instructive
+- Keep cell outputs: `tool/check_notebooks.py` requires them on at least 50% of code cells. Clear only outputs that are noise, such as progress bars or warnings
 - Use `raw.githubusercontent.com` for GitHub raw links
 
 ### Docstrings
@@ -246,6 +393,12 @@ Follow `docs/_guidelines/GUIDELINES_FOR_DOCSTRINGS.md`:
 - Code examples must use `>>>` prompts, not fenced code blocks
 - Backticks must be properly paired
 - HTML tags must be self-closing
+- When describing what a function does, focus on the behavior of the function itself, not its callers
+
+### Code Comments
+
+- Keep code comments succinct; avoid unnecessarily verbose comments.
+- Always use parens to denote functions: in code comments, it's `my_func()`, not `my_func`.
 
 ### Building Docs
 
@@ -256,9 +409,11 @@ make docs
 # Serve locally for development
 make docs-serve
 
-# Deploy to staging
-make docs-deploy TARGET=stage
+# Deploy to the dev environment for preview
+make docs-deploy TARGET=dev
 ```
+
+`TARGET=dev` is the only deploy target an agent may run or suggest. `stage` and `prod` are for humans.
 
 ### Local Dashboard UI
 

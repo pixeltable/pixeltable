@@ -60,7 +60,7 @@ def sentence_transformer(
         ...     )
         ... )
     """
-    env.Env.get().require_package('sentence_transformers')
+    env.Env.get().require_package('sentence_transformers', min_version=[5, 4])
     device = resolve_torch_device('auto')
     from sentence_transformers import SentenceTransformer
 
@@ -74,6 +74,7 @@ def sentence_transformer(
 
 @sentence_transformer.conditional_return_type
 def _(model_id: str) -> ts.ArrayType:
+    env.Env.get().require_package('sentence_transformers', min_version=[5, 4])
     from sentence_transformers import SentenceTransformer
 
     model = _lookup_model(model_id, SentenceTransformer)
@@ -110,7 +111,7 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
         ...     )
         ... )
     """
-    env.Env.get().require_package('sentence_transformers')
+    env.Env.get().require_package('sentence_transformers', min_version=[5, 4])
     device = resolve_torch_device('auto')
     from sentence_transformers import CrossEncoder
 
@@ -437,7 +438,7 @@ def sam3_for_segmentation(
 
     __Requirements:__
 
-    - `pip install torch transformers`
+    - `pip install torch torchvision transformers`
     - `facebook/sam3` is a gated repository. Request access on its
         [model page](https://huggingface.co/facebook/sam3), then authenticate with
         `huggingface-cli login` (or set the `HF_TOKEN` environment variable) before calling this UDF.
@@ -490,6 +491,7 @@ def sam3_for_segmentation(
         ... )
     """
     env.Env.get().require_package('torch')
+    env.Env.get().require_package('torchvision')
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
@@ -685,7 +687,7 @@ class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
 
     __Requirements:__
 
-    - `pip install torch transformers`
+    - `pip install torch torchvision transformers`
     - `facebook/sam3` is a gated repository. Request access on its
         [model page](https://huggingface.co/facebook/sam3), then authenticate with
         `huggingface-cli login` (or set the `HF_TOKEN` environment variable) before using this iterator.
@@ -767,6 +769,7 @@ class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
         revision: str | None = None,
     ) -> None:
         env.Env.get().require_package('torch')
+        env.Env.get().require_package('torchvision')
         env.Env.get().require_package('transformers')
         from pixeltable.functions.video import frame_iterator
 

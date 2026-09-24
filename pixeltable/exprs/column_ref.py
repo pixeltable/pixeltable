@@ -602,12 +602,16 @@ class ColumnRef(Expr):
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
             self.iterator = col.get_tbl().iterator_call.eval(iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
-        stored_outputs = {col_ref.col.name: data_row[col_ref.slot_idx] for col_ref in self.iter_outputs}
-        assert all(name is not None for name in stored_outputs)
+        # Use the iterator's own field names (orig_name), which are not the folded column names
+        outputs = col.get_tbl().iterator_call.outputs
+        assert outputs is not None
+        stored_outputs = {
+            outputs[col_ref.col.name].orig_name: data_row[col_ref.slot_idx] for col_ref in self.iter_outputs
+        }
         assert isinstance(self.iterator, func.PxtIterator)  # Otherwise we could not have an unstored column
         self.iterator.seek(data_row.pk[self.pos_idx], **stored_outputs)
         res = next(self.iterator)
-        data_row[self.slot_idx] = res[col.name]
+        data_row[self.slot_idx] = res[outputs[col.name].orig_name]
 
     def _as_dict(self) -> dict:
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate it

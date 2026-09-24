@@ -369,7 +369,8 @@ class TestIndex:
                 .limit(3)
                 .collect()
             )
-            assert_resultset_eq(orig_res, res, True)
+            if not db_root.is_cloud:  # local paths may differ on cloud as media data is re-fetched
+                assert_resultset_eq(orig_res, res, True)
             t.revert()
             # should be true even after reloading from persistence
             reload_catalog()
@@ -381,7 +382,8 @@ class TestIndex:
                 .limit(3)
                 .collect()
             )
-            assert_resultset_eq(orig_res, res, True)
+            if not db_root.is_cloud:
+                assert_resultset_eq(orig_res, res, True)
 
         # same should hold after a drop.
         t.drop_embedding_index(column='img')
@@ -392,7 +394,8 @@ class TestIndex:
             .limit(3)
             .collect()
         )
-        assert_resultset_eq(orig_res, res, True)
+        if not db_root.is_cloud:
+            assert_resultset_eq(orig_res, res, True)
         t.drop_embedding_index(idx_name='clip_idx')
         reload_catalog()
         t = pxt.get_table(p('small_img_tbl'))
@@ -403,7 +406,8 @@ class TestIndex:
             .limit(3)
             .collect()
         )
-        assert_resultset_eq(orig_res, res, True)
+        if not db_root.is_cloud:
+            assert_resultset_eq(orig_res, res, True)
 
     def test_add_embedding_index_if_exists(
         self, small_img_tbl: pxt.Table, reload_tester: ReloadTester, local_embed: pxt.Function
@@ -490,6 +494,33 @@ class TestIndex:
         # sanity check persistence
         reload_tester.run_reload_test()
 
+    def test_case_insensitive_index_names(self, small_img_tbl: pxt.Table, local_embed: pxt.Function) -> None:
+        """Index names fold, and the index-name and column arguments fold the name they are given."""
+        t = small_img_tbl
+        sample_img = t.select(t.img).head(1)[0, 'img']
+
+        t.add_embedding_index('IMG', idx_name='Clip_Idx', embedding=local_embed)
+        assert 'clip_idx' in t.get_metadata()['indexes']
+
+        res = (
+            t.select(t.img.localpath)
+            .order_by(t.img.similarity(image=sample_img, idx='CLIP_IDX'), asc=False)
+            .limit(3)
+            .collect()
+        )
+        assert len(res) == 3
+
+        # a name that collides after folding is a duplicate, regardless of the definition
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
+            t.add_embedding_index('img', idx_name='CLIP_IDX', embedding=local_embed, metric='l2')
+
+        t.drop_embedding_index(idx_name='CLIP_IDX')
+        assert 'clip_idx' not in t.get_metadata()['indexes']
+
+        t.add_embedding_index('img', embedding=local_embed)
+        t.drop_embedding_index(column='IMG')
+        assert len(t.get_metadata()['indexes']) == 0
+
     @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_unnamed_duplicate_detection(self, small_img_tbl: pxt.Table, local_embed: pxt.Function) -> None:
         t = small_img_tbl
@@ -528,7 +559,6 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='identical embedding index'):
             t.add_embedding_index('category', string_embed=local_embed)
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_update_img(
         self, img_tbl: pxt.Table, test_tbl: pxt.Table, db_root: DatabaseRoot, reload_tester: ReloadTester
     ) -> None:
@@ -584,7 +614,7 @@ class TestIndex:
             img_t.batch_update([repl_row], cascade=True)
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to inaccessible .fileurl [PXT-1323]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Extremely slow on cloud')
     def test_embedding_access(
         self, img_tbl: pxt.Table, db_root: DatabaseRoot, local_embed: pxt.Function, is_data_versioned: bool
     ) -> None:
@@ -617,7 +647,7 @@ class TestIndex:
         img_t.drop_column('ebd_copy')
         img_t.drop_embedding_index(column=img_t.category)
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to inaccessible .fileurl [PXT-1323]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Extremely slow on cloud')
     def test_embedding_basic(
         self,
         img_tbl: pxt.Table,
@@ -1107,8 +1137,17 @@ class TestIndex:
         for ie in ('error', 'ignore'):
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not a B-tree index'):
                 t.add_btree_index('id', idx_name='emb_idx', if_exists=ie)
+        # index names are case-insensitive
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not a B-tree index'):
+            t.add_btree_index('id', idx_name='Emb_Idx')
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not an embedding index'):
             t.add_embedding_index('name', idx_name='name_idx2', string_embed=local_embed, if_exists='ignore')
+
+        # an index added under a mixed-case name is stored, and reachable, under the folded one
+        t.add_btree_index('extra', idx_name='Extra_Idx')
+        assert 'extra_idx' in btree_idxs(t)
+        t.drop_index(idx_name='EXTRA_IDX')
+        assert 'extra_idx' not in btree_idxs(t)
 
         # drop by name and by column
         t.drop_index(idx_name='name_idx2')

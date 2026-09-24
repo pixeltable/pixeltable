@@ -1119,6 +1119,35 @@ class TestTable:
         assert res2['c1'] == [r['c1'] for r in rows]
         assert res2['c2'] == [r['c2'] for r in rows]
 
+    def test_bulk_scalar_collect(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('bulk'), {'id': pxt.Int, 'val': pxt.String})
+        for i in range(10):
+            t.insert({'id': i * 20_000 + j, 'val': f'row {i}/{j}'} for j in range(20_000))
+        assert t.count() == 200_000
+        res = t.collect()
+        assert len(res) == 200_000
+
+    def test_bulk_json_collect(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('bulk_json'), {'id': pxt.Int, 'data': pxt.Json})
+        for i in range(10):
+            t.insert({'id': i * 20_000 + j, 'data': self._nested_json(i * 20_000 + j)} for j in range(20_000))
+        assert t.count() == 200_000
+        res = t.collect()
+        assert len(res) == 200_000
+        # the values of a json column reach the caller as they were inserted, whatever they hold
+        assert t.where(t.id == 199_999).collect()[0]['data'] == self._nested_json(199_999)
+
+    def _nested_json(self, i: int) -> dict[str, Any]:
+        """A json value holding one of each scalar type, nested in a dict and a list."""
+        return {
+            'i': i,
+            's': f'row {i}',
+            'f': i / 3,
+            'b': i % 2 == 0,
+            'null': None,
+            'nested': {'items': [i, f'{i}', None, i % 2 == 1], 'inner': {'k': i * 2}},
+        }
+
     def test_insert_query(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = test_tbl
@@ -1134,6 +1163,45 @@ class TestTable:
         t2 = pxt.create_table(p('test2'), source=t)
         t2.insert(t)
         assert len(t2.collect()) == 2 * len(t.collect())
+
+    def test_join_query_as_source(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t1 = pxt.create_table(p('ints'), {'id': pxt.Int, 'n': pxt.Int})
+        t1.insert({'id': i, 'n': i * 10} for i in range(3))
+        t2 = pxt.create_table(p('strs'), {'id': pxt.Int, 's': pxt.String})
+        t2.insert({'id': i, 's': f'str_{i}'} for i in range(3))
+        src_query = t1.join(t2, on=t1.id == t2.id).select(t1.n, t2.s)
+
+        t3 = pxt.create_table(p('from_join'), source=src_query)
+        assert list(t3.columns()) == ['n', 's']
+        expected = [{'n': 0, 's': 'str_0'}, {'n': 10, 's': 'str_1'}, {'n': 20, 's': 'str_2'}]
+        assert list(t3.select(t3.n, t3.s).order_by(t3.n).collect()) == expected
+
+        t3.insert(src_query)
+        assert list(t3.select(t3.n, t3.s).order_by(t3.n).collect()) == [row for row in expected for _ in range(2)]
+
+    def test_component_view_query_as_source(self, db_root: DatabaseRoot) -> None:
+        """A component view's rowid columns do not perfectly line up with those of the target table."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('cv_base'), {'id': pxt.Int, 'n': pxt.Int})
+        t.insert([{'id': 0, 'n': 3}])
+        v = pxt.create_view(p('cv'), t, iterator=DummyIterator(limit=t.n))
+        assert v.count() == 3
+        query = v.select(v.out1, v.out2, v.n)
+
+        t2 = pxt.create_table(p('from_cv'), source=query)
+        assert list(t2.columns()) == ['out1', 'out2', 'n']
+        expected = [
+            {'out1': 'str0', 'out2': 0, 'n': 3},
+            {'out1': 'str1', 'out2': 1, 'n': 3},
+            {'out1': 'str2', 'out2': 2, 'n': 3},
+        ]
+        assert list(t2.select(t2.out1, t2.out2, t2.n).order_by(t2.out2).collect()) == expected
+
+        t2.insert(query)
+        assert list(t2.select(t2.out1, t2.out2, t2.n).order_by(t2.out2).collect()) == [
+            row for row in expected for _ in range(2)
+        ]
 
     def _setup_pydantic_scalars(
         self, p: Callable[[str], str]
@@ -2393,7 +2461,6 @@ class TestTable:
             assert container.streams.video[0].codec_context.name == 'h264'
 
     @rerun_on_network_error()
-    @pytest.mark.db_roots('local', 'proxy', reason='Cloud service hangs on first insert [PXT-1320]')
     def test_create_video_table(self, db_root: DatabaseRoot) -> None:
         if Env.get().is_using_cockroachdb:
             # TODO(PXT-921): fix this on CockroachDB
@@ -2445,7 +2512,7 @@ class TestTable:
 
         # drop() clears stored images and the cache
         tbl.insert(payload=1, video=get_video_files()[0])
-        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match="the following depend on it: 'test_view'"):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match=r"the following depend on it: '.*test_view'"):
             pxt.drop_table(p('test_tbl'))
         pxt.drop_table(p('test_view'))
         pxt.drop_table(p('test_tbl'))
@@ -2527,6 +2594,13 @@ class TestTable:
         )
         assert status.num_rows == 1
         assert status.num_excs == 0
+
+        # a non-finite float is a valid Float value and survives the round trip
+        status = t.insert([{**rows[0], 'c3': math.nan}, {**rows[0], 'c3': math.inf}])
+        assert status.num_excs == 0
+        c3_vals = t.select(t.c3).collect()['c3']
+        assert any(math.isnan(val) for val in c3_vals)
+        assert math.inf in c3_vals
 
         # drop column, then add it back; insert still works
         t.drop_column('c4')
@@ -2838,6 +2912,21 @@ class TestTable:
         # filter not expressible in SQL
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not expressible'):
             img_t.update({'split': 'train'}, where=img_t.img.width > 100)
+
+    def test_batch_update_computed_pk(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('computed_pk'), {'id': {'value': pxtf.uuid.uuid7(), 'primary_key': True}, 'caption': pxt.String | None}
+        )
+        validate_update_status(t.insert([{'caption': 'first'}]), expected_rows=1)
+        row_id = t.select(t.id).head(1)[0]['id']
+
+        validate_update_status(t.batch_update([{'id': row_id, 'caption': 'second'}]), expected_rows=1)
+        assert t.where(t.id == row_id).collect()[0]['caption'] == 'second'
+
+        # writing the key itself is still refused
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is computed'):
+            t.update({'id': row_id})
 
     def test_batch_update_return_rows(self, db_root: DatabaseRoot) -> None:
         """Coverage for the `return_rows` parameter on Table.batch_update().
@@ -3276,7 +3365,6 @@ class TestTable:
     def img_fn_with_exc(img: PIL.Image.Image) -> PIL.Image.Image:
         raise RuntimeError
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Cloud service hangs on first insert [PXT-1320]')
     def test_computed_img_cols(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         schema: dict[str, Any] = {'img': pxt.Image | None}
@@ -4435,6 +4523,109 @@ class TestTable:
                 p('tbl_invalid'),
                 {'c': {'type': pxt.Int | None, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
+
+    def test_case_insensitive_columns(self, db_root: DatabaseRoot) -> None:
+        """Column names are matched case-insensitively, and the folded spelling is what gets stored."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('T'), {'MyCol': pxt.Int | None, 'Other': pxt.String}, primary_key=['OTHER'])
+
+        # stored and displayed folded
+        assert t.columns() == ['mycol', 'other']
+        assert set(t.get_metadata()['columns'].keys()) == {'mycol', 'other'}
+
+        # every lookup form resolves
+        _ = t.mycol, t.MyCol, t['MYCOL']  # raise AttributeError if the name does not resolve
+
+        t.insert([{'MYCOL': 1, 'other': 'a'}])
+        assert t.select(t.MyCol).collect()['mycol'] == [1]
+        t.update({'MyCol': 2})
+        assert t.select(t.mycol).collect()['mycol'] == [2]
+        t.batch_update([{'MYCOL': 3, 'OTHER': 'a'}])
+        assert t.select(t.mycol).collect()['mycol'] == [3]
+
+        t.add_computed_column(Doubled=t.MyCol * 2)
+        assert 'doubled' in t.columns()
+        t.recompute_columns('DOUBLED')
+        t.drop_column('DOUBLED')
+        assert 'doubled' not in t.columns()
+
+        # inserted rows don't need to agree on the column spelling
+        t.insert([{'MyCol': 10, 'OTHER': 'b'}, {'other': 'c'}])
+        rows = t.order_by(t.OTHER).collect()
+        assert [(r['mycol'], r['other']) for r in rows] == [(3, 'a'), (10, 'b'), (None, 'c')]
+
+        # a case-only rename does nothing
+        version_before = t.get_metadata()['version']
+        t.rename_column('mycol', 'MYCOL')
+        assert t.columns() == ['mycol', 'other']
+        assert t.get_metadata()['version'] == version_before
+
+        # the table itself resolves under any casing
+        assert pxt.get_table(p('t')) == pxt.get_table(p('T'))
+
+        # alter_column resolves its column in any casing
+        t2 = pxt.create_table(p('t2'), {'Num': pxt.Int})
+        t2.alter_column('NUM', type_=pxt.Int | None)
+        validate_update_status(t2.insert([{'num': None}]), 1)
+
+        # a pydantic model's field names are matched like a dict row's keys
+        class Row(pydantic.BaseModel):
+            MYCOL: int
+            other: str
+
+        validate_update_status(t.insert([Row(MYCOL=20, other='d')]), 1)
+        assert t.where(t.OTHER == 'd').collect()['mycol'] == [20]
+
+    def test_case_insensitive_column_name_resolution(self, db_root: DatabaseRoot) -> None:
+        """Names that fold onto each other, or onto a reserved name, are rejected."""
+        p = db_root.make_catalog_path
+
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match=r'Column names are case-insensitive'):
+            pxt.create_table(p('bad'), {'a': pxt.Int | None, 'A': pxt.String | None})
+
+        t = pxt.create_table(p('t'), {'c': pxt.Int | None})
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match=r'Column names are case-insensitive'):
+            t.add_columns({'a': pxt.Int | None, 'A': pxt.String | None})
+
+        # a folded collision with an existing column is an error
+        t.add_column(mycol=pxt.Int | None)
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: mycol'):
+            t.add_column(MyCol=pxt.String | None)
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: mycol'):
+            t.add_computed_column(MYCOL=t.c + 1)
+        t.add_column(MyCol=pxt.String | None, if_exists='ignore')
+        validate_update_status(t.insert([{'MYCOL': 7}]), 1)
+        t.add_column(MYCOL=pxt.String | None, if_exists='replace')
+        validate_update_status(t.insert([{'MYCOL': 'a string'}]), 1)
+
+        # insert and update
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='Column names are case-insensitive'):
+            t.insert([{'C': 1, 'c': 2}])
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='Column names are case-insensitive'):
+            t.update({'C': 1, 'c': 2})
+
+        # the reserved-name ban applies after folding
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            pxt.create_table(p('bad'), {'Count': pxt.Int | None})
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            t.add_columns({'Count': pxt.Int | None})
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            pxt.create_table(p('bad'), {'Class': pxt.Int | None})
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            t.rename_column('c', 'Count')
+        # a Python keyword is reserved in every casing, for index names as well as column names
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            t.rename_column('c', 'Class')
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            t.add_btree_index('c', idx_name='Class')
+        assert 'c' in t.columns()
+
+        class AmbiguousRow(pydantic.BaseModel):
+            C: int
+            c: int
+
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='Column names are case-insensitive'):
+            t.insert([AmbiguousRow(C=1, c=2)])
 
     @pytest.mark.db_roots('local', reason="Operational table feature, doesn't need to run with proxy")
     def test_unsupported_operational_tbl_ops(self, uses_db: None) -> None:

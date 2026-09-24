@@ -13,11 +13,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal, NamedTuple, NoReturn
 
-# cloud_e2e is excluded from every tier: it provisions hosted databases and services against a live
-# Pixeltable cloud deployment, and is run on demand rather than from the matrix
-DEFAULT_PYTEST = "-m 'not expensive and not very_expensive and not benchmark and not cloud_e2e'"
-EXPENSIVE_PYTEST = "-m 'not very_expensive and not benchmark and not cloud_e2e'"
-VERY_EXPENSIVE_PYTEST = "-m 'not benchmark and not cloud_e2e'"
+DEFAULT_PYTEST = "-m 'not expensive and not very_expensive and not benchmark'"
+EXPENSIVE_PYTEST = "-m 'not very_expensive and not benchmark'"
+VERY_EXPENSIVE_PYTEST = "-m 'not benchmark'"
 
 # Note: in addition to these pytest filters, the tests that actually run are implicitly filtered by
 # skip_test_if_not_installed() and the install configuration.
@@ -47,6 +45,7 @@ SLIM_TESTS = (
     'tests/test_primary_key_index.py',
     'tests/test_query.py',
     'tests/test_sample.py',
+    'tests/test_session_cache.py',
     'tests/test_snapshot.py',
     'tests/test_table.py',
     'tests/test_table_model.py',
@@ -56,7 +55,7 @@ SLIM_TESTS = (
     'tests/serving/test_fastapi.py',
     'tests/serving/test_fastapi_models.py',
     'tests/pixeltable_cli/test_bridge.py',
-    'tests/pixeltable_cli/test_internals.py',
+    'tests/pixeltable_cli/test_daemon.py',
     'tests/pixeltable_cli/test_schema.py',
     'tests/pixeltable_cli/test_service.py',
     'tests/pixeltable_cli/test_smoke.py',

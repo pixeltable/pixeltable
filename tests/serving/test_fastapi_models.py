@@ -12,9 +12,10 @@ import json
 import pytest
 
 import pixeltable as pxt
+from pixeltable_cli.types import ServiceSpec
 
 from ..utils import DatabaseRoot, get_image_files, pxt_raises, skip_test_if_not_installed
-from .test_fastapi import add_one, make_test_client
+from .test_fastapi import add_one, assert_correct_result_url, make_test_client
 
 
 class TestFastAPIModels:
@@ -70,26 +71,19 @@ class TestFastAPIModels:
 
         # the definition names the model each route was declared against, before the table exists
         service = router.service_spec(name='notes')
-        assert json.loads(json.dumps(service)) == service
-        specs = {(spec['method'], spec['path']): spec for spec in service['routes']}
-        assert all(spec['model'] == 'notes' for spec in specs.values()), specs
-        assert all(spec['table'] is None for spec in specs.values()), specs
-        assert specs['POST', '/ins']['inputs'] == ['note_id', 'val']
-        assert specs['POST', '/del']['match_columns'] == ['note_id']
-        assert specs['POST', '/thumb-file']['return_fileresponse']
-        assert specs['POST', '/thumb-json']['query'].endswith('note_thumb')
+        assert ServiceSpec.model_validate(json.loads(service.model_dump_json())) == service
+        specs = {(spec.method, spec.path): spec for spec in service.routes}
+        assert all(spec.model == 'notes' for spec in specs.values()), specs
+        assert all(spec.table is None for spec in specs.values()), specs
+        assert specs['POST', '/ins'].inputs == ['note_id', 'val']
+        assert specs['POST', '/del'].match_columns == ['note_id']
+        assert specs['POST', '/thumb-file'].return_fileresponse
+        thumb_json = specs['POST', '/thumb-json'].query
+        assert thumb_json is not None and thumb_json.endswith('note_thumb')
 
         # the routes are fully described before the table exists
         schema = client.get('/openapi.json').json()
-        assert sorted(path for path in schema['paths'] if not path.startswith('/_pxt/media')) == [
-            '/_pxt/jobs/{job_id}',
-            '/comp',
-            '/del',
-            '/ins',
-            '/thumb-file',
-            '/thumb-json',
-            '/upd',
-        ]
+        assert sorted(schema['paths']) == ['/comp', '/del', '/ins', '/thumb-file', '/thumb-json', '/upd']
 
         TableModel.create_all(p(''))
         router.bind(p(''))
@@ -103,7 +97,7 @@ class TestFastAPIModels:
         # each route serves the media column the way its own response needs it
         rows = client.post('/thumb-json', json={'note_id': 5}).json()['rows']
         assert len(rows) == 1, rows
-        assert '/media/' in rows[0]['thumb'], rows[0]['thumb']
+        assert_correct_result_url(rows[0]['thumb'], db_root, True)
         resp = client.post('/thumb-file', json={'note_id': 5})
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('image/'), resp.headers['content-type']
@@ -113,6 +107,47 @@ class TestFastAPIModels:
         resp = client.post('/ins', json={'note_id': 3, 'val': 30})
         assert resp.status_code == 409, resp.text
         assert 'schema changed' in resp.json()['detail']
+
+    def test_computed_pk_update(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        import pixeltable.functions as pxtf
+        from pixeltable.serving import FastAPIRouter
+
+        TableModel = pxt.model_base()  # noqa: N806
+
+        class Photos(TableModel, name='photos'):
+            id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
+            caption: pxt.String | None
+
+        TableModel.create_all(p(''))
+
+        router = FastAPIRouter()
+        router.add_insert_route(
+            Photos,
+            path='/ins',
+            inputs=[Photos.caption],
+            outputs=[Photos.id, Photos.caption],  # type: ignore[arg-type]
+        )
+        router.add_update_route(
+            Photos,
+            path='/upd',
+            inputs=[Photos.caption],
+            outputs=[Photos.id, Photos.caption],  # type: ignore[arg-type]
+        )
+        client = make_test_client(router)
+        router.bind(p(''))
+
+        created = client.post('/ins', json={'caption': 'first'})
+        assert created.status_code == 200, created.text
+        row_id = created.json()['id']
+
+        updated = client.post('/upd', json={'id': row_id, 'caption': 'second'})
+        assert updated.status_code == 200, updated.text
+        assert updated.json() == {'id': row_id, 'caption': 'second'}
+        # the row was matched, not duplicated, and the key it was matched on is unchanged
+        t = pxt.get_table(p('photos'))
+        assert [dict(r) for r in t.select(t.caption).collect()] == [{'caption': 'second'}]
 
     def test_model_target_errors(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
@@ -141,8 +176,8 @@ class TestFastAPIModels:
         prefixed = FastAPIRouter(name='ingest', prefix='/v1')
         prefixed.add_insert_route(Notes, path='/ins')
         service = prefixed.service_spec()
-        assert service['name'] == 'ingest'  # the name the router was constructed with
-        assert (service['prefix'], service['routes'][0]['path']) == ('/v1', '/ins')
+        assert service.name == 'ingest'  # the name the router was constructed with
+        assert service.routes[0].path == '/v1/ins'  # a route records the path as it is served
 
         router = FastAPIRouter()
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown column 'nosuchcol'"):

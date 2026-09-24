@@ -1,0 +1,75 @@
+# This module intentionally omits from __future__ import annotations: the served application's route
+# handlers carry annotations that FastAPI resolves at import time.
+
+import argparse
+import logging
+from pathlib import Path
+
+from pixeltable import exceptions as excs
+from pixeltable.config import Config
+from pixeltable.service.db import report_instance_fingerprint
+from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
+from pixeltable.utils.project import ProjectFingerprint
+
+
+def _serve(
+    db_uri: str,
+    app_file: str,
+    service_name: str,
+    base_path: str,
+    project_dir: Path,
+    fingerprint_file: Path,
+    host: str,
+    port: int,
+    otel: bool,
+) -> None:
+    """Pod entry point: serve one service of the unpacked project and report what loaded."""
+    import uvicorn
+
+    if not project_dir.is_dir():
+        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'no project was unpacked at {project_dir}')
+    if not fingerprint_file.is_file():
+        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'{db_uri} has no project to serve {service_name} from')
+    fingerprint = ProjectFingerprint.model_validate_json(fingerprint_file.read_text(encoding='utf-8'))
+    # the unpacked project is this process's project root, so its modules and its database entry resolve
+    Config.init(reinit=True, project_root=project_dir)
+
+    if otel:
+        # before the first Pixeltable operation, so that loading the file is traced too
+        init_instrumentation()
+    app, _ = create_app(str(project_dir / app_file), service_name, base_path)
+    if otel:
+        instrument_app(app)
+    report_instance_fingerprint(db_uri, service_name, fingerprint, base_path)
+
+    log_level = logging.getLogger('pixeltable').getEffectiveLevel()
+    # log_config=None keeps uvicorn from replacing the logging Env has already set up
+    # root_path: the docs page fetches openapi.json by url, and a background route hands back a job url to
+    # poll, so both need the whole prefix the gateway stripped, base_path included
+    root_path = f'/{service_name}' if base_path == '' else f'/{base_path}/{service_name}'
+    uvicorn.run(app, host=host, port=port, log_level=log_level, log_config=None, root_path=root_path)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(prog='pixeltable.serving.pod_runner')
+    parser.add_argument('--db', required=True, help='pxt://org:db, the database this pod belongs to')
+    parser.add_argument('--app-file', required=True, help='path to the application file, from the project root')
+    parser.add_argument('--name', required=True, help='the service to serve')
+    parser.add_argument('--base-path', default='')
+    parser.add_argument('--project-dir', type=Path, required=True, help='directory that holds the project contents')
+    parser.add_argument('--project-fingerprint', type=Path, required=True, help='fingerprint of the project contents')
+    parser.add_argument('--host', default='0.0.0.0')
+    parser.add_argument('--port', type=int, default=8000)
+    parser.add_argument('--otel', action='store_true')
+    args = parser.parse_args()
+    _serve(
+        args.db,
+        args.app_file,
+        args.name,
+        args.base_path,
+        args.project_dir,
+        args.project_fingerprint,
+        args.host,
+        args.port,
+        args.otel,
+    )

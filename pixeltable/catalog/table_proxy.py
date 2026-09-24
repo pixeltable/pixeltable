@@ -180,10 +180,10 @@ class TableProxy(Table):
 
     def __repr__(self) -> str:
         # send the uri as a string: proxy_protocol drops org/db from wire Paths, which is exactly what describe needs
-        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri})['str']
+        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri_str})['str']
 
     def _repr_html_(self) -> str:
-        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri})['html']
+        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri_str})['html']
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset': ...
 
@@ -230,6 +230,15 @@ class TableProxy(Table):
         self._check_mutable('add columns to')
         bound_args['columns'] = bound_args.pop('kwargs')
         return self._dispatch('add_computed_column', bound_args)
+
+    def alter_computed_column(
+        self, *, recompute: bool = True, cascade: bool = True, **kwargs: exprs.Expr
+    ) -> UpdateStatus:
+        bound_args = self._dispatch_args(locals())
+        self._check_single_column_kwarg('alter_computed_column', '`col_name=expression`', kwargs)
+        self._check_mutable('alter columns of')
+        bound_args['columns'] = bound_args.pop('kwargs')
+        return self._dispatch('alter_computed_column', bound_args)
 
     def drop_column(self, column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         bound_args = self._dispatch_args(locals())
