@@ -789,7 +789,8 @@ class Config:
         return resolved[1]
 
     def is_overridden(self, key: str, section: str = 'pixeltable') -> bool:
-        """Whether pxt.init() supplied this setting, which outranks the environment and every config file.
+        """Whether pxt.init() supplied this setting, which outranks the environment and the config files but is
+        outranked by a [[pixeltable.database]] entry.
 
         get_value_source() answers 'env' for such a setting too.
         """
