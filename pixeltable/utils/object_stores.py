@@ -573,7 +573,6 @@ class ObjectOps:
         if not relocate_or_delete:
             return store.copy_local_file(src_path, dest)
 
-        # src_path is a single-use TempStore file
         assert TempStore.contains_path(src_path)
         try:
             moved_url = store.move_local_file(src_path, dest)
