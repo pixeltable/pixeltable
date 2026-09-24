@@ -661,9 +661,7 @@ class Config:
     def __own_database_values(self, field: Literal['vars', 'settings']) -> dict[str, tuple[str, Path | None]]:
         """Return the `vars` or `settings` of the database we are connected to, each with the file that supplied it.
 
-        On a hosted pod that is the entry named pxt://org:db. Anywhere else it is the local entry. Each file is read
-        separately to know the source of each value, and a value the project supplies wins over one of the same name
-        in the home config.
+        On a hosted pod the process reads the db entry for pxt://org:db. Anywhere else it reads the local entry.
         """
         org = self.get_string_value('org', section='pxtcloud')
         db = self.get_string_value('db', section='pxtcloud')

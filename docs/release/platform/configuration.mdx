@@ -64,7 +64,7 @@ rate_limit = 600  # Mistral uses a single rate limit for all models
 
 ### Per-database settings
 
-Media destinations and the OTLP endpoint and protocol can also be set for a single database. Each database has a `[[pixeltable.database]]` entry in `pixeltable.toml`. Add a `db_<key>` field to that entry, and it overrides `<key>` in the shared `[pixeltable]` or `[otel]` section for that database only. A `[[pixeltable.database]]` entry with no `name` corresponds to the local database. A `[[pixeltable.database]]` entry named `pxt://org:db` is a hosted database; its pods pick up the config when doing a `pxt db update`, and a running service moves onto it with `pxt service update`.
+Media destinations and the OTLP endpoint and protocol can also be set for a single database. Each database has a `[[pixeltable.database]]` entry in `pixeltable.toml`. Add a `db_<key>` field to that entry to set `<key>` for that database only. A `[[pixeltable.database]]` entry with no `name` corresponds to the local database. A `[[pixeltable.database]]` entry named `pxt://org:db` is a hosted database; its pods pick up the config when doing a `pxt db update`, and a running service moves onto it with `pxt service update`.
 
 ```toml
 # pixeltable.toml

@@ -61,11 +61,12 @@ def init(
     `tracer_provider`/`meter_provider` to instrument against an SDK your application owns instead.
 
     Args:
-        endpoint: OTLP collector endpoint (eg `http://localhost:4318`); resolves from
-            `otel.exporter_otlp_endpoint` / `OTEL_EXPORTER_OTLP_ENDPOINT`. With no endpoint configured
-            and no application-owned provider, instrumentation stays inert and exports nothing.
-        protocol: OTLP transport, `http/protobuf` (default) or `grpc`; resolves from
-            `otel.exporter_otlp_protocol` / `OTEL_EXPORTER_OTLP_PROTOCOL`.
+        endpoint: OTLP collector endpoint (eg `http://localhost:4318`); resolves from the database entry's
+            `db_exporter_otlp_endpoint`, then `OTEL_EXPORTER_OTLP_ENDPOINT`, then `otel.exporter_otlp_endpoint`.
+            With no endpoint configured and no application-owned provider, instrumentation stays inert and
+            exports nothing.
+        protocol: OTLP transport, `http/protobuf` (default) or `grpc`; resolves from the database entry's
+            `db_exporter_otlp_protocol`, then `OTEL_EXPORTER_OTLP_PROTOCOL`, then `otel.exporter_otlp_protocol`.
         service_name: `service.name` resource attribute (default `pixeltable`); resolves from
             `otel.service_name` / `OTEL_SERVICE_NAME`.
         headers: OTLP headers as comma-separated `key=value` pairs; resolves from

@@ -679,8 +679,6 @@ class TestService:
         body = resp.json()
         assert body['clip_id'] == 1, body
         assert pxt.get_table(f'{target}/frames').count() > 0
-        # the uploaded video is persisted where the database's entry sends inserted media for a hosted table, in
-        # the media dir for a local one
         clips = pxt.get_table(f'{target}/clips')
         video_url = clips.select(clips.video.fileurl).collect()['video_fileurl'][0]
         expected_prefix = (
