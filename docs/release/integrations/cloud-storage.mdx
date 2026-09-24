@@ -3,7 +3,7 @@ title: 'Cloud Storage'
 description: 'Store and manage media files in cloud storage providers like S3, GCS, Azure, and more'
 ---
 
-Pixeltable supports storing media files (images, videos, audio, documents) in external cloud storage providers instead of local disk. This is essential for production deployments, enabling scalable storage, team collaboration, and integration with existing data infrastructure.
+Hosted Cloud tables write media to their managed `pxtfs://org:db/home` store without configuration. For a local table that should write to S3, set `PIXELTABLE_OUTPUT_MEDIA_DEST=s3://my-bucket/output/` before creating the table. Computed media files then go to that bucket when rows are inserted.
 
 ## Supported providers
 
@@ -122,7 +122,7 @@ export PIXELTABLE_INPUT_MEDIA_DEST='pxtfs://org:db/home'
 export PIXELTABLE_OUTPUT_MEDIA_DEST='pxtfs://org:db/home'
 ```
 
-For a key instead of `pxt login`, create it under **API Keys** in the dashboard and export it. Pixeltable reads the process environment only, so a `.env` file has to be sourced first. Provider keys (`AWS_ACCESS_KEY_ID`, `OPENAI_API_KEY`, ...) go under **Secrets** or `pxt secret set`.
+For a key instead of `pxt login`, create it under **API Keys** in the dashboard and export it, or set `[pixeltable].api_key` in `~/.pixeltable/config.toml`. Pixeltable does not load a `.env` file on its own. Provider keys (`AWS_ACCESS_KEY_ID`, `OPENAI_API_KEY`, ...) go under **Secrets** or `pxt secret set`.
 
 <Tabs>
   <Tab title="URI Format">

@@ -36,7 +36,7 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
     pxt service example --out app.py
     ```
 
-    `pxt service example` writes this application file.
+    The generated application file includes this code (comments and module docstring omitted).
 
     ```python
     import pixeltable as pxt
@@ -52,10 +52,10 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
 
 
     class Docs(TableModel, name='docs'):
-        id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # a generated key: provided automatically on insert
+        id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
         title: pxt.String
         body: pxt.String | None
-        title_upper = pxtf.string.upper(title)      # an assignment: computed on insert and on update
+        title_upper = pxtf.string.upper(title)
         summary = excerpt(title)
 
 
@@ -63,13 +63,13 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
     ingest.add_insert_route(
         Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.id, Docs.title_upper, Docs.summary]
     )
-    ingest.add_update_route(  # POST /docs/update takes id plus the new values
+    ingest.add_update_route(
         Docs, path='/docs/update', inputs=[Docs.title], outputs=[Docs.id, Docs.title_upper]
     )
     ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
     ```
 
-    `title: pxt.String` is a value you insert. `title_upper = ...` is computed on insert and on update. `id` is a `uuid7()` primary key: filled on insert, required for `pxt get` and the errors view. The same file can hold `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document`: [media pipelines](/use-cases/media-processing), [RAG](/use-cases/multimodal-backend).
+    `title: pxt.String` is a value you insert. `title_upper = ...` is computed on insert and on update. The `id` primary key is generated on insert. The same file can hold `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document`: [media pipelines](/use-cases/media-processing), [RAG](/use-cases/multimodal-backend).
   </Step>
   <Step title="Create tables, then start the endpoints">
     ```bash
@@ -78,7 +78,7 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
     pxt service update app.py my_app
     ```
 
-    `pxt init` marks this directory as a project root. `pxt schema update` errors if you have not run it in this directory or a parent. `my_app`, the last argument, is a catalog inside Pixeltable, not a folder beside `app.py`. `pxt schema update` creates that catalog and its tables. It does not start the endpoints. Run it before `pxt service update`, which starts the endpoints and does not create tables.
+    `pxt init` marks this directory as a project root. `pxt schema update` errors if you have not run it in this directory or a parent. `my_app` is the table-namespace name inside Pixeltable, not a folder beside `app.py`. `pxt schema update` creates that namespace and its tables. It does not start the endpoints. Run it before `pxt service update`, which starts the endpoints and does not create tables.
   </Step>
   <Step title="Insert a row">
     Send a row with HTTP POST. Pixeltable computes `title_upper` during that insert. `pxt service list` prints the URL (the port is assigned):
@@ -101,7 +101,7 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
 |---|---|
 | `pxt init` | Mark this directory as a project root |
 | `pxt service example --out app.py` | Write a working file: models plus routes |
-| `pxt schema example --out app.py` | Schema only. `--brief` writes a small set of classes; without it, every DSL construct |
+| `pxt schema example --out app.py` | Models only. `--brief` writes a small set of classes; without it, every DSL construct |
 | `pxt schema update FILE my_app` | Create and migrate the tables `FILE` declares under last argument `my_app` |
 | `pxt service update FILE my_app` | Start the services `FILE` declares against those tables |
 | `pxt service list` | What is running, and the URL |
@@ -117,7 +117,7 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
 
 <Tabs>
   <Tab title="Cloud">
-    To run this same file on Pixeltable Cloud, create an API key in the [Cloud dashboard](/howto/deployment/cloud#get-an-api-key), set `PIXELTABLE_API_KEY`, create the hosted database with `pxt db update`, create tables with `pxt schema update`, then start hosted endpoints with `pxt service update`. Try changes by inserting from the dashboard and running `pxt schema diff`.
+    To run this same file on Pixeltable Cloud, sign in with `pxt login` or [use an API key](/howto/deployment/cloud#get-an-api-key). Create the hosted database with `pxt db update`, create tables with `pxt schema update`, then start hosted endpoints with `pxt service update`. Try changes by inserting from the dashboard and running `pxt schema diff`.
 
     ```bash
     pxt db update pxt://org:mydb
@@ -143,7 +143,7 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
 </Tabs>
 
 <Note>
-This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`. The skill writes that `TableModel`. If the agent writes `create_table` in app code, names the file `schema.py`, or writes the removed command `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`.
+This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`. If your coding agent writes `create_table` in application code or uses the removed `pxt serve` command, [update its skill](/resources/ai-skills).
 </Note>
 
 ## Next

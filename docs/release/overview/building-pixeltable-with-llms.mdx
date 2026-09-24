@@ -28,14 +28,14 @@ Works with tools that support [Agent Skills](https://agentskills.io/specificatio
     ```
   </Tab>
   <Tab title="Any LLM">
-    If your tool has no skill support, append `.md` to any docs URL and paste that markdown into the chat. Site index: [llms.txt](https://docs.pixeltable.com/llms.txt) ([standard](https://llmstxt.org/)). The skill: [SKILL.md](https://raw.githubusercontent.com/pixeltable/pixeltable-skill/main/skills/pixeltable-skill/SKILL.md).
+    If your tool has no skill support, append `.md` to any docs URL and paste that markdown into the chat. Site index: [llms.txt](https://docs.pixeltable.com/llms.txt) ([standard](https://llmstxt.org/)). Capability summary: [skill.md](https://docs.pixeltable.com/skill.md).
 
     | Resource | URL |
     |----------|-----|
     | This page as markdown | [building-pixeltable-with-llms.md](https://docs.pixeltable.com/overview/building-pixeltable-with-llms.md) |
     | Site index | [llms.txt](https://docs.pixeltable.com/llms.txt) |
     | Full map | [llms-full.txt](https://docs.pixeltable.com/llms-full.txt) |
-    | The skill | [SKILL.md](https://raw.githubusercontent.com/pixeltable/pixeltable-skill/main/skills/pixeltable-skill/SKILL.md) |
+    | Capability summary | [skill.md](https://docs.pixeltable.com/skill.md) |
   </Tab>
 </Tabs>
 
@@ -61,6 +61,7 @@ class Articles(TableModel, name='articles'):
 ```
 
 ```bash
+pxt init
 pxt schema update app.py my_app
 ```
 
@@ -84,17 +85,6 @@ Experimental local catalog MCP: [mcp-server-pixeltable-developer](https://github
 
 ## Next
 
-<CardGroup cols={2}>
-  <Card title="Quickstart" icon="bolt" href="/overview/quick-start">
-    Write `app.py`, create the tables, then start the endpoints.
-  </Card>
-  <Card title="Agents as tables" icon="robot" href="/use-cases/agentic-workflows">
-    Register tools and run `invoke_tools` as computed columns.
-  </Card>
-  <Card title="Starter kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
-    Templates for serving, batch, and FastAPI + React.
-  </Card>
-  <Card title="Cloud" icon="cloud" href="/howto/deployment/cloud">
-    Deploy the same `app.py` to a hosted database at `pxt://org:db`.
-  </Card>
-</CardGroup>
+<Card title="Quickstart" icon="bolt" href="/overview/quick-start">
+  Write `app.py`, create the tables, then start the endpoints.
+</Card>

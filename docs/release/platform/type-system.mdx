@@ -89,7 +89,7 @@ orders.add_computed_column(order_id=uuid7())
 ```
 
 <Tip>
-By default, `stored=True` for all computed columns—values compute once and persist. For UUIDs, this ensures stable identifiers. Setting `stored=False` would regenerate UUIDs on every query (almost never what you want).
+By default, `stored=True` for all computed columns: values compute once and persist. For UUIDs, this ensures stable identifiers. Setting `stored=False` would regenerate UUIDs on every query (almost never what you want).
 </Tip>
 
 <Tip>
@@ -168,9 +168,9 @@ ml_data = pxt.create_table('example/ml_features', {
 
 <Note>
 Array shapes follow NumPy conventions. Use `None` for unconstrained dimensions:
-- `(512,)` — fixed 512-element vector
-- `(None, 768)` — variable-length sequence of 768-dim vectors
-- `(64, 64, 3)` — fixed 64×64×3 tensor
+- `(512,)`: fixed 512-element vector
+- `(None, 768)`: variable-length sequence of 768-dim vectors
+- `(64, 64, 3)`: fixed 64×64×3 tensor
 </Note>
 
 ### Working with arrays
@@ -186,7 +186,7 @@ t.select(
 
 ## JSON type
 
-The `Json` type stores flexible structured data—dictionaries, lists, or primitives.
+The `Json` type stores flexible structured data: dictionaries, lists, or primitives.
 
 ```python
 logs = pxt.create_table('example/logs', {
@@ -219,7 +219,7 @@ t.select(t.event.tags[:2]).collect()
 ```
 
 <Tip>
-Pixeltable handles missing keys gracefully—you'll get `None` instead of an exception.
+Pixeltable handles missing keys gracefully: you'll get `None` instead of an exception.
 </Tip>
 
 ### JSON schema validation
