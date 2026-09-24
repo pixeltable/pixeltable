@@ -382,9 +382,8 @@ def _run_endpoint_op(
 
 
 class PxtEndpoint:
-    """
-    Wrapper for an endpoint `Callable` that carries additional metadata about the endpoint operation.
-    """
+    # Wrapper for an endpoint `Callable` that carries additional metadata about the endpoint operation. A comment,
+    # not a docstring: FastAPI publishes an endpoint's __doc__ as its route's OpenAPI description.
 
     router: FastAPIRouter
     route: _RegisteredRoute
