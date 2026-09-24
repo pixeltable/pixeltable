@@ -22,6 +22,15 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
     uv pip install 'pixeltable[serve]'
     ```
   </Tab>
+  <Tab title="Homebrew (macOS)">
+    ```bash
+    brew install pixeltable/tap/pxt
+    pxt --version
+    ```
+
+    The [official Homebrew tap](https://github.com/pixeltable/homebrew-tap) includes the service dependencies.
+    If the tap has not reached 0.7.10 yet, use venv or uv for the latest CLI commands.
+  </Tab>
 </Tabs>
 
 `[serve]` pulls in FastAPI and uvicorn, which `pxt service` needs. Skip `[serve]` and `pxt service update` if you insert from Python; `pip install pixeltable` is enough. `pxt schema example --brief` writes models only. [Self-hosting](/howto/deployment/overview).
