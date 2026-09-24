@@ -20,7 +20,7 @@ from pyarrow.parquet import ParquetDataset
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable.catalog import ColumnVersionMd, fold_identifier, fold_mapping_keys
+from pixeltable.catalog import fold_identifier, fold_mapping_keys
 from pixeltable.io.pandas import _df_check_primary_key_values, _df_row_to_pxt_row, df_infer_schema
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.pydantic import is_json_convertible
@@ -142,11 +142,8 @@ class TableDataConduit:
             return
         raise NotImplementedError
 
-    def add_table_info(self, table: pxt.Table, *, required_cols: Iterable[ColumnVersionMd] | None = None) -> None:
-        """Add information about the table into which we are inserting data.
-
-        required_cols: the columns every row must supply; defaults to the table's non-nullable, non-computed columns.
-        """
+    def add_table_info(self, table: pxt.Table) -> None:
+        """Add information about the table into which we are inserting data"""
         assert isinstance(table, pxt.Table)
         self.pxt_schema = table._get_schema()
         self.pxt_pk = []
@@ -157,9 +154,9 @@ class TableDataConduit:
                 self.pxt_pk.append(col_md.name)
             if col_md.is_computed:
                 self.computed_col_names.add(col_md.name)
-        if required_cols is None:
-            required_cols = table._tbl_path.required_input_columns(None)
-        self.reqd_col_names.update(col_md.name for col_md in required_cols)
+            elif not col_md.col_type.nullable:
+                # required for insert: non-nullable and not computed
+                self.reqd_col_names.add(col_md.name)
         self.src_pk = []
         self.tbl_name = table._name()
 

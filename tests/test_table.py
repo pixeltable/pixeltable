@@ -1399,10 +1399,8 @@ class TestTable:
         # a required column that is itself an output must be supplied
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'\(req\)'):
             r.compute([{'x': 1}], outputs=['y', 'req'])
-        # values for columns the outputs don't read are validated and ignored; the outputs keep the requested order
-        out = r.compute([{'x': 1, 'req': 5}], outputs=[r.y, 'x'])
-        assert out.column_names == ['y', 'x']
-        assert out == [{'y': 2, 'x': 1}]
+        # values for columns the outputs don't read are validated and ignored
+        assert r.compute([{'x': 1, 'req': 5}], outputs=[r.y, 'x']) == [{'x': 1, 'y': 2}]
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column name nope'):
             r.compute([{'x': 1, 'nope': 5}], outputs=['y'])
 
@@ -1644,8 +1642,8 @@ class TestTable:
         assert all(out['c1'] == out['i'] + 1 for out in output)
         assert all(TestModel2(**out) == row for out, row in zip(output, rows2))
 
-        # missing required keys in input
-        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match="Missing required column 'en'"):
+        # required fields left at None
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"Error in column 's' \(row 0\): expected non-None"):
             now = datetime.datetime.now()
             rows3 = [TestModel2(i=i, f=i * 1.0, b=i % 2 == 0, t=now) for i in range(100)]
             _ = t.compute(rows3)

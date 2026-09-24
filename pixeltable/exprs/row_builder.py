@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import sys
 import time
-from typing import TYPE_CHECKING, Any, Iterable, NamedTuple, Sequence, TypeVar
+from typing import TYPE_CHECKING, Any, Collection, Iterable, NamedTuple, Sequence, TypeVar
 from uuid import UUID
 
 import numpy as np
@@ -613,11 +613,14 @@ class RowBuilder:
             output_rows.append(row)
         return output_rows
 
-    def create_row_batch(self, data_rows: list[DataRow], output_cols: Sequence[catalog.Column]) -> RowBatch:
+    def create_row_batch(
+        self, data_rows: list[DataRow], output_cols: Collection[catalog.Column] | None = None
+    ) -> RowBatch:
         """Convert DataRows to a RowBatch.
 
-        Batch columns are output_cols, in the given order (fixed on the first call); index values and per-cell error
-        info go into each Row's index_values/errors instead of the column namespace.
+        Batch columns are the named table columns (restricted to output_cols if given; the restriction is
+        fixed on the first call); index values and per-cell error info go into each Row's
+        index_values/errors instead of the column namespace.
         """
         if self.row_batch_output_map is None:
             assert self.row_batch_col_types is None
@@ -630,14 +633,18 @@ class RowBuilder:
                 for name, info in tbl.idxs_by_name.items()
                 if info.val_col is not None
             }
+            undo_col_qids = {c.qid for tbl in tbls.values() for c in tbl.idx_undo_cols}
             for col, slot_idx in self.table_columns.items():
+                if col.qid in undo_col_qids:
+                    # skip undo cols
+                    continue
                 idx_name = idx_names.get(col.qid)
                 if idx_name is not None:
                     # index value columns have no names; key their output values by index name (unique within the table)
                     self.row_batch_output_map.append(OutputMapEntry(col, slot_idx, idx_name, True))
-            for col in output_cols:
-                self.row_batch_col_types[col.name] = col.col_type
-                self.row_batch_output_map.append(OutputMapEntry(col, self.table_columns[col], col.name, False))
+                elif output_cols is None or col in output_cols:
+                    self.row_batch_col_types[col.name] = col.col_type
+                    self.row_batch_output_map.append(OutputMapEntry(col, slot_idx, col.name, False))
 
         # bind to locals to avoid attribute lookups in the loop
         output_map = self.row_batch_output_map

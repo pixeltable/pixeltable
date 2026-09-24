@@ -256,7 +256,7 @@ class Planner:
     ) -> exec.ExecNode:
         """Creates a plan for TableVersion.insert() from either in-memory rows or a SqlDataSource."""
         assert not tbl.is_view
-        output_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
+        output_cols = cls._compute_output_cols(tbl, for_insert=True)
         assert len(output_cols) > 0
         cls.__check_valid_columns(tbl, output_cols, 'inserted into')
 
@@ -274,6 +274,19 @@ class Planner:
         plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=batch_size, ignore_errors=ignore_errors))
         plan = cls._add_save_node(plan)
         return plan
+
+    @classmethod
+    def _compute_output_cols(cls, tbl: catalog.TableVersion, for_insert: bool) -> list[Column]:
+        """Returns the columns of tbl to materialize when computing new rows for it.
+
+        If for_insert == True, only stored columns, incl. index value columns.
+        If for_insert == False, all columns except index value columns and undo columns.
+        """
+        if for_insert:
+            return [c for c in tbl.cols_by_id.values() if c.is_stored]
+        # for compute(), skip index val/undo cols
+        skipped_col_ids = {c.id for idx_info in tbl.idxs.values() for c in idx_info.columns}
+        return [c for c in tbl.cols_by_id.values() if c.id not in skipped_col_ids]
 
     @classmethod
     def _create_input_plan(
@@ -305,14 +318,16 @@ class Planner:
 
     @classmethod
     def create_compute_plan(
-        cls, path: catalog.TableVersionPath, rows: list[dict[str, Any]], ignore_errors: bool, columns: Sequence[Column]
+        cls,
+        path: catalog.TableVersionPath,
+        rows: list[dict[str, Any]],
+        ignore_errors: bool,
+        outputs: list[catalog.ColumnVersionMd] | None,
     ) -> exec.ExecNode:
         """Creates a plan for LocalTable.compute(): propagation of input rows along the entire view chain.
 
-        'columns' are the columns to materialize. They must include every column their value exprs read (see
-        TablePath.columns_to_compute()) and list each column after the columns its value expr reads: RowBuilder
-        substitutes a media column's validating ColumnRef only into exprs recorded after that column. Values in
-        'rows' for any other column are ignored.
+        The plan materializes 'outputs' (all columns if None) and the columns they read. Values in 'rows' for any
+        other column are ignored.
 
         Plan shape:
         - the input rows are handled identically to insert:
@@ -327,15 +342,25 @@ class Planner:
         base_tv = tvs[0].get()
         assert base_tv.is_insertable
 
-        # each level's columns are computed at that level's stage
+        required_col_names = [md.name for md in path.required_input_columns(outputs)]
+        for row in rows:
+            missing_col_names = [name for name in required_col_names if name not in row]
+            if len(missing_col_names) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.MISSING_REQUIRED,
+                    f'Missing required column(s) ({", ".join(missing_col_names)}) in row {row}',
+                )
+
+        # columns to materialize, base to target; each level's columns are computed at that level's stage
+        compute_qids = {md.qcolid for md in path.columns_to_compute(outputs)}
         per_tbl_output_cols: list[list[Column]] = []
         for tvh in tvs:
             tv = tvh.get()
-            cols = [c for c in columns if c.qid.tbl_id == tv.id]
+            cols = [c for c in cls._compute_output_cols(tv, for_insert=False) if c.qid in compute_qids]
             cls.__check_valid_columns(tv, cols, 'computed for')
             cls.__check_valid_iterator(tv, tv.iterator_call, 'computed for')
             per_tbl_output_cols.append(cols)
-        all_cols = list(columns)
+        all_cols = [col for cols in per_tbl_output_cols for col in cols]
 
         # view predicates and iterator args aren't column values; they need to be recorded explicitly
         extra_exprs: list[exprs.Expr] = []

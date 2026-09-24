@@ -284,31 +284,18 @@ class LocalTable(Table):
                 output_md = self._resolve_compute_outputs(outputs)
                 # input rows supply values for the base table's columns
                 base_tbl = self._get_base_tables()[-1] if path.is_view() else self
-                data_source.add_table_info(base_tbl, required_cols=path.required_input_columns(output_md))
+                data_source.add_table_info(base_tbl)
+                # the compute plan checks for the required columns that the outputs read
+                data_source.reqd_col_names.clear()
                 data_source.prepare_for_insert_into_table()
                 input_rows = [row for batch in data_source.valid_row_batch() for row in batch]
 
-                # plan columns base first and in column id order, which puts every column after the columns its
-                # value expr reads
-                plan_qids = {md.qcolid for md in path.columns_to_compute(output_md)}
-                plan_cols = [
-                    c
-                    for tvh in reversed(path.get_tbl_versions())
-                    for c in tvh.get().cols_by_id.values()
-                    if c.qid in plan_qids
-                ]
-                # RowBatch columns: the requested outputs in their order, or the visible columns in plan order
-                output_cols: list[Column] = []
-                if output_md is None:
-                    visible_qids = {c.qid for c in path.columns()}
-                    output_cols = [c for c in plan_cols if c.qid in visible_qids]
-                else:
-                    for md in output_md:
-                        col = path.get_column_by_id(md.qcolid)
-                        assert col is not None
-                        output_cols.append(col)
+                output_cols = path.columns()
+                if output_md is not None:
+                    output_qids = {md.qcolid for md in output_md}
+                    output_cols = [c for c in output_cols if c.qid in output_qids]
 
-                plan = Planner.create_compute_plan(path, input_rows, ignore_errors=not fail_on_exc, columns=plan_cols)
+                plan = Planner.create_compute_plan(path, input_rows, ignore_errors=not fail_on_exc, outputs=output_md)
                 data_rows: list[exprs.DataRow] = []
                 with plan:
                     # TODO: fix progress reporter

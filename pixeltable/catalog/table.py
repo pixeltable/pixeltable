@@ -928,10 +928,9 @@ class Table(SchemaObject):
 
         Returns:
             A [`RowBatch`][pixeltable.RowBatch] of output rows, in input row order (with an iterator's output
-            rows in iteration order). Each [`Row`][pixeltable.Row] contains a value for every requested output
-            column, in the requested order. [`Row.errors`][pixeltable.Row] holds
-            `{'errortype': ..., 'errormsg': ...}` for each cell that raised, keyed by column or index name (only
-            with `on_error='ignore'`).
+            rows in iteration order). Each [`Row`][pixeltable.Row] contains a value for every column in `outputs`.
+            [`Row.errors`][pixeltable.Row] holds `{'errortype': ..., 'errormsg': ...}` for each cell that raised,
+            keyed by column or index name (only with `on_error='ignore'`).
 
         Raises:
             Error: If one of the following conditions occurs:

@@ -18,7 +18,7 @@ from .globals import normalize_schema
 from .path import Path as CatalogPath
 from .table import Table
 from .table_path import TableMdPath, TablePathKey
-from .types import ColumnVersionMd, TableVersionKey, TableVersionMd
+from .types import TableVersionKey, TableVersionMd
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -341,8 +341,7 @@ class TableProxy(Table):
             )
         self._validate_compute()
         output_md = self._resolve_compute_outputs(outputs)
-        required_cols = self._tbl_md_path.required_input_columns(output_md)
-        rows = self._convert_local_paths(self._prepare_rows(list(source), required_cols=required_cols))
+        rows = self._convert_local_paths(self._prepare_rows(list(source)))
         output_names = None if output_md is None else [md.name for md in output_md]
         return self._dispatch('compute', {'rows': rows, 'outputs': output_names, 'on_error': on_error})
 
@@ -376,17 +375,15 @@ class TableProxy(Table):
             converted.append(new_row)
         return converted
 
-    def _prepare_rows(
-        self, source: list[Any], *, required_cols: Iterable[ColumnVersionMd] | None = None
-    ) -> list[dict[str, Any]]:
+    def _prepare_rows(self, source: list[Any]) -> list[dict[str, Any]]:
         """
         Validate and normalize a non-empty list of dict/pydantic source rows for the hosted catalog:
         - pydantic models are validated and converted to dicts on the client (the model classes aren't
-          importable on the server); required_cols narrows the columns they must supply
+          importable on the server); the server's compute plan checks for required columns
         - plain dicts are sent as-is
         """
         if isinstance(source[0], pydantic.BaseModel):
-            source = self._pydantic_to_rows(source, required_cols=required_cols)
+            source = self._pydantic_to_rows(source, check_required=False)
         rows: list[dict[str, Any]] = []
         for source_row in source:
             if not isinstance(source_row, dict):
@@ -396,14 +393,14 @@ class TableProxy(Table):
             rows.append(source_row)
         return rows
 
-    def _pydantic_to_rows(
-        self, models: list[Any], *, required_cols: Iterable[ColumnVersionMd] | None = None
-    ) -> list[dict[str, Any]]:
+    def _pydantic_to_rows(self, models: list[Any], *, check_required: bool = True) -> list[dict[str, Any]]:
         """Validate pydantic models against this table's schema and convert them to insertable dicts."""
         from pixeltable.io.table_data_conduit import PydanticTableDataConduit
 
         converter = PydanticTableDataConduit(models)
-        converter.add_table_info(self, required_cols=required_cols)
+        converter.add_table_info(self)
+        if not check_required:
+            converter.reqd_col_names.clear()
         converter.prepare_for_insert_into_table()
         return converter.pxt_rows
 
