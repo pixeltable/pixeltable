@@ -1,3 +1,4 @@
+import http.cookiejar
 import logging
 import re
 import threading
@@ -10,7 +11,35 @@ from pathlib import Path
 from random import random
 from typing import Any
 
+import requests
+from requests.adapters import HTTPAdapter, Retry
+
 _logger = logging.getLogger(__name__)
+
+# maximum number of connections kept open per host, sized for concurrent calls from multiple threads
+_POOL_MAXSIZE = 16
+# hosts whose pools are kept: the control plane and the sign-in service. With fewer, a call to one
+# evicts the other's pool, and the next call there opens a new connection.
+_POOL_HOSTS = 2
+
+
+def new_session() -> requests.Session:
+    """Create a pooled session for calls to Pixeltable's hosted services."""
+    session = requests.Session()
+    # these services set no cookies; blocking the jar leaves the session without mutable state, so
+    # concurrent calls can share it
+    session.cookies.set_policy(http.cookiejar.DefaultCookiePolicy(allowed_domains=[]))
+    # retry only failures to establish a connection: those never reached the server, so even a POST is
+    # safe to resend. Nothing that may have reached it is retried, and a Retry-After is not waited out:
+    # honoring one would turn a 429 or 503 into a RetryError that hides the answer from the caller.
+    retries = Retry(total=2, connect=2, read=0, status=0, other=0, respect_retry_after_header=False, backoff_factor=0.2)
+    adapter = HTTPAdapter(pool_connections=_POOL_HOSTS, pool_maxsize=_POOL_MAXSIZE, max_retries=retries)
+    session.mount('https://', adapter)
+    session.mount('http://', adapter)
+    return session
+
+
+SESSION = new_session()
 
 _RETRIABLE_ERROR_INDICATORS = (
     'rate limit',

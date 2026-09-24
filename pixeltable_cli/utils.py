@@ -21,6 +21,11 @@ PxtPath = NewType('PxtPath', str)
 # pxt://<org>:<db>/<in-catalog path>.
 _PXT_URI_RE = re.compile(r'^pxt://(?P<org>[^:/]+)(?::(?P<db>[^/]+))?(?:/(?P<rest>.*))?$')
 
+# A hosted organization or database name, as in pxt://org:db: lowercase letters, digits, and hyphens,
+# starting and ending with a letter or digit, at most 29 characters.
+_HOSTED_NAME_RE = re.compile(r'[a-z0-9]([a-z0-9-]*[a-z0-9])?')
+_HOSTED_NAME_MAX_LEN = 29
+
 
 def _resolve_pixeltable_home() -> str:
     """Mirror of pixeltable.config.Config's home-directory resolution"""
@@ -74,6 +79,28 @@ def split_pxt_uri(uri: str) -> PxtUriParts | None:
     if m is None:
         return None
     return PxtUriParts(m.group('org'), m.group('db'), m.group('rest'))
+
+
+def hosted_name_error(value: str, kind: str) -> str | None:
+    """Return why value is not a hosted organization or database name, or None if it is one.
+
+    kind begins the message, as in 'Database name'.
+    """
+    if len(value) > _HOSTED_NAME_MAX_LEN:
+        return f'{kind} must be at most {_HOSTED_NAME_MAX_LEN} characters (got {len(value)})'
+    # fullmatch(), since `$` in a match() pattern also matches before a trailing newline ('main\n')
+    if _HOSTED_NAME_RE.fullmatch(value) is None:
+        return (
+            f'{kind} {value!r} is invalid: use only lowercase letters, digits, and hyphens, '
+            'starting and ending with a letter or digit.'
+        )
+    return None
+
+
+def is_valid_identifier(name: str, *, allow_hyphens: bool = False) -> bool:
+    """Mirrors pixeltable.catalog.globals.is_valid_identifier(), which cannot be imported here."""
+    adj_name = name.replace('-', '_') if allow_hyphens else name
+    return adj_name.isidentifier() and name.isascii() and not name.startswith('-') and not name.startswith('_')
 
 
 def validate_path_shape(path: str) -> str | None:
