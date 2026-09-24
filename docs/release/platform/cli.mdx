@@ -50,9 +50,10 @@ These flags work the same way across the catalog commands that support them and 
 | Flag | Available on | Description |
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
-| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `revert`), the `schema` and `service` verbs, plus `db`, `secret`, `org`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), or the lifecycle subcommands that print plain status lines (`daemon start`/`stop`). |
-| `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `revert`), plus `schema update`, `schema prune`, `service update` and `service prune` | Print the intended action; don't execute. |
-| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
+| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`); `schema` and `service` verbs except `example`; `login`, `whoami`, `key`, `init`, `db`, `secret`, `org`, and `daemon status` | Emit machine-readable JSON. Not accepted by `shell`, `health` (always JSON), `dashboard`, `cd`, `pwd`, `logout`, or `daemon start`/`stop`. |
+| `--json-schema` | `schema diff`, `service diff`, `service list`, `db diff`, `db status` | Print the JSON Schema for the command's JSON output. |
+| `-n`, `--dry-run` | Catalog mutations (`drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), plus `schema update`, `schema prune`, `service update`, and `service prune` | Print the intended action; don't execute. |
+| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
 
 ### Working directory
 
@@ -454,7 +455,7 @@ The daemon imports the file, so it must be readable there. Its own directory is 
 
 ```bash
 pxt schema diff   app.py my_app     # review
-pxt schema update app.py my_app     # apply
+pxt schema update app.py my_app     # create or migrate tables
 ```
 
 `diff` prints one line per table, then one per operation:
@@ -640,6 +641,9 @@ is:
 
 ```python
 # notes_app.py
+import fastapi
+import pixeltable as pxt
+
 TableModel = pxt.model_base()
 
 class Notes(TableModel, name='notes'):
@@ -710,7 +714,7 @@ Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreeme
 
 | Flag | Verbs | Description |
 |---|---|---|
-| `--json` | all | Emit machine-readable JSON |
+| `--json` | All except `example` | Emit machine-readable JSON |
 | `-f`, `--force` | `update`, `prune` | Skip the `[y/N]` prompt |
 | `-n`, `--dry-run` | `update`, `prune` | Print the intended change; don't apply it |
 | `--allow-destructive` | `update` | Permit changes that stop serving a route callers may be using |
@@ -790,7 +794,7 @@ pxt logout                # forget the cached session
 
 #### `[[pixeltable.database]]`: what a project declares about one database
 
-Defines which project files the database gets, what its image holds, what it runs on, and which secrets it holds.
+Defines which project files the database gets, what its image holds, and what it runs on.
 
 ```toml
 [[pixeltable.database]]
@@ -810,13 +814,13 @@ cpu = 2.0
 memory_mb = 4096
 disk_gb = 50
 workers = 2
-
-# fixed when the database is created
-location = 'aws'
-region = 'us-east-1'
 ```
 
 An entry with no `name` configures the local database. A hosted database is configured by the entry naming its uri.
+
+<Warning>
+`DatabaseConfig` uses `extra='forbid'`. A `[[pixeltable.database]]` entry with `secrets.openai_api_key = 'env:OPENAI_API_KEY'` fails to load with `secrets: Extra inputs are not permitted`. Delete any `secrets.*` lines and set runtime secrets with `pxt secret set pxt://myorg:prod OPENAI_API_KEY=your-provider-key` instead.
+</Warning>
 
 ### `pxt db`
 
