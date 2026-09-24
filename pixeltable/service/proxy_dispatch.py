@@ -10,6 +10,7 @@ import dataclasses
 import logging
 import pathlib
 import shutil
+import tarfile
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -138,41 +139,84 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
                 pass
 
 
+# each archive being localized occupies temp disk twice: the archive itself and its extracted members
+_MAX_ARCHIVE_DOWNLOADS = 4
+
+
 def _prefetch_remote_parts(request: ProxyRequest) -> None:
     """Localize the request's out-of-band binary parts (object store keys) into TempStore before dispatch.
     Updates request._remote_parts with the temp paths of the localized files.
 
+    A part is either an object of its own or a member of an archive (see PxtArchivePartSink). Each archive is
+    downloaded once, and only the members the request references are extracted from it.
+
     Should be called outside of a db transaction so that object-store I/O never holds a db connection.
     """
-    keys = proxy_protocol.collect_remote_keys(request.args)
-    if len(keys) == 0:
+    refs = proxy_protocol.collect_remote_keys(request.args)
+    if len(refs) == 0:
         return
-    for remote_key in keys:
+    objects: list[str] = []
+    archives: dict[str, list[tuple[str, str]]] = {}  # archive key -> [(ref, member name)]
+    for ref in refs:
+        key, member = proxy_protocol.split_remote_ref(ref)
         # only client uploads may be localized; anything else (e.g. 'pixeltable/data/...' store objects)
         # must not be readable through this daemon
-        if not remote_key.startswith('uploads/'):
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'Invalid uploaded object key: {remote_key!r}')
+        if not key.startswith('uploads/'):
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'Invalid uploaded object key: {key!r}')
+        if member is None:
+            objects.append(key)
+        else:
+            archives.setdefault(key, []).append((ref, member))
     org, db = Env.get().hosted_db(required=True)
     store = ObjectOps.get_store(f'pxtfs://{org}:{db}/home/uploads/', False)
 
-    def download(remote_key: str) -> None:
-        dest = TempStore.create_path(extension=pathlib.Path(remote_key).suffix)
-        # record before downloading so handle() also cleans up a partial download
-        request._remote_parts[remote_key] = str(dest)
+    # record every destination before downloading so handle() also cleans up a partial download
+    for ref in refs:
+        _, member = proxy_protocol.split_remote_ref(ref)
+        request._remote_parts[ref] = str(TempStore.create_path(extension=pathlib.Path(member or ref).suffix))
+
+    def download(key: str, dest: pathlib.Path) -> None:
         try:
             # the store re-prepends its 'uploads/' prefix to the given path
-            store.copy_object_to_local_file(remote_key[len('uploads/') :], dest)
+            store.copy_object_to_local_file(key[len('uploads/') :], dest)
         except excs.NotFoundError as e:
             # the stock 404 message blames the bucket, which is wrong here: the bucket exists, the object is
             # gone (expired via the uploads/ lifecycle rule) or was never fully uploaded
             raise excs.NotFoundError(
                 excs.ErrorCode.STORAGE_NOT_FOUND,
-                f'Uploaded object {remote_key!r} not found (upload expired or incomplete); retry the operation',
+                f'Uploaded object {key!r} not found (upload expired or incomplete); retry the operation',
             ) from e
 
+    def extract(archive_key: str, members: list[tuple[str, str]]) -> None:
+        archive_path = TempStore.create_path(extension='.tar')
+        try:
+            download(archive_key, archive_path)
+            with tarfile.open(archive_path, 'r:') as tf:
+                infos = {info.name: info for info in tf.getmembers()}
+                for ref, member in members:
+                    info = infos.get(member)
+                    src = tf.extractfile(info) if info is not None and info.isfile() else None
+                    if src is None:
+                        raise excs.NotFoundError(
+                            excs.ErrorCode.STORAGE_NOT_FOUND, f'Uploaded object {ref!r} is missing from its archive'
+                        )
+                    # a member name never reaches the filesystem: each ref extracts to its own temp path
+                    with src, open(request._remote_parts[ref], 'wb') as dest:
+                        shutil.copyfileobj(src, dest)
+        except tarfile.TarError as e:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_DATA_FORMAT, f'Uploaded archive {archive_key!r} is not a valid tar file'
+            ) from e
+        finally:
+            archive_path.unlink(missing_ok=True)
+
     # concurrent downloads are safe: boto3 clients are thread-safe
-    with ThreadPoolExecutor(max_workers=min(16, len(keys))) as executor:
-        list(executor.map(download, keys))
+    if len(objects) > 0:
+        with ThreadPoolExecutor(max_workers=min(16, len(objects))) as executor:
+            list(executor.map(lambda key: download(key, pathlib.Path(request._remote_parts[key])), objects))
+    if len(archives) > 0:
+        with ThreadPoolExecutor(max_workers=min(_MAX_ARCHIVE_DOWNLOADS, len(archives))) as executor:
+            list(executor.map(lambda item: extract(*item), archives.items()))
 
 
 def _convert_result(key: tuple[str, str], result: Any) -> Any:

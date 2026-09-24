@@ -9,16 +9,19 @@ new method is "register a handler + make sure its arg/return types serialize" --
 from __future__ import annotations
 
 import abc
+import contextlib
 import dataclasses
 import datetime
 import io
 import json
 import math
+import os
 import pathlib
 import shutil
 import struct
-from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Callable, Generic, TypedDict, TypeVar
+import tarfile
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from typing import IO, TYPE_CHECKING, Any, Callable, Generic, TypedDict, TypeVar
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -44,10 +47,13 @@ from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectSto
 if TYPE_CHECKING:
     from pixeltable._query import Query
 
-PROTOCOL_VERSION = 4
+PROTOCOL_VERSION = 5
 
 # Reserved key marking a type-tagged value: {_TAG: <type-name>, 'v': <payload>}.
 _TAG = '$pxt'
+
+# Separates an archive's object key from a member name in the reference to an archived part.
+_ARCHIVE_MEMBER_SEP = '!'
 
 
 T = TypeVar('T')
@@ -87,6 +93,9 @@ class PartSink(abc.ABC, Generic[T]):
 
     def flush(self) -> None:
         """Complete any work the sink deferred while serializing."""
+
+    def abort(self) -> None:
+        """Discard any work the sink deferred while serializing; called in place of flush() on failure."""
 
 
 class InlinePartSink(PartSink[int]):
@@ -161,12 +170,25 @@ class PxtStorePartSink(PartSink[int | str]):
             return self.add_inline(data)
         return self.add_media_bytes(data, extension)
 
+    def _next_part_name(self, suffix: str) -> str:
+        """A name for the next part, unique within the request."""
+        name = f'{self._num_parts}{suffix}'
+        self._num_parts += 1
+        return name
+
     def _add_pending(self, path: pathlib.Path, *, remove_after_upload: bool) -> str:
         """Mint this part's object key and queue its upload for flush()."""
-        key = f'{self._key_prefix}{self._num_parts}{path.suffix}'
-        self._num_parts += 1
+        key = f'{self._key_prefix}{self._next_part_name(path.suffix)}'
         self._pending.append((path, key, remove_after_upload))
         return key
+
+    def _upload_one(self, store: ObjectStoreBase, path: pathlib.Path, key: str, remove_after_upload: bool) -> None:
+        try:
+            url = f'pxtfs://{self._org}:{self._db}/home/{key}'
+            store.copy_local_file(path, FileDestination(url=url, remote_key=key))
+        finally:
+            if remove_after_upload:
+                path.unlink(missing_ok=True)
 
     def flush(self) -> None:
         """Upload the queued parts concurrently.
@@ -180,18 +202,130 @@ class PxtStorePartSink(PartSink[int | str]):
         # fetch credentials and build the store once, here: the boto3 client it holds is bound to it at
         # construction (see S3Store.client()), so the upload threads share that one client, as boto3 permits
         store = self._get_store()
-
-        def upload(item: tuple[pathlib.Path, str, bool]) -> None:
-            path, key, remove_after_upload = item
-            try:
-                url = f'pxtfs://{self._org}:{self._db}/home/{key}'
-                store.copy_local_file(path, FileDestination(url=url, remote_key=key))
-            finally:
-                if remove_after_upload:
-                    path.unlink(missing_ok=True)
-
         with ThreadPoolExecutor(max_workers=min(self._MAX_UPLOAD_THREADS, len(pending))) as executor:
-            list(executor.map(upload, pending))
+            list(executor.map(lambda item: self._upload_one(store, *item), pending))
+
+    def abort(self) -> None:
+        pending, self._pending = self._pending, []
+        for path, _, remove_after_upload in pending:
+            if remove_after_upload:
+                path.unlink(missing_ok=True)
+
+
+class PxtArchivePartSink(PxtStorePartSink):
+    """PartSink that packs a request's out-of-band parts into tar archives under uploads/<request-uuid>/.
+
+    Each part is appended to an open, uncompressed tar in TempStore as it is serialized. An archive that
+    reaches _ARCHIVE_TARGET_SIZE is closed and uploaded on a background pool, so uploads overlap
+    serialization. A part's reference is '<archive key>!<member name>' (see split_remote_ref());
+    proxy_dispatch._prefetch_remote_parts() downloads each archive once and extracts the referenced members.
+
+    A part of _MAX_ARCHIVE_MEMBER_SIZE or more is uploaded as an object of its own, as PxtStorePartSink does:
+    an archive saves it no round trip and would cost a local copy.
+    """
+
+    _ARCHIVE_TARGET_SIZE = 100 * 1024 * 1024
+    _MAX_ARCHIVE_MEMBER_SIZE = 32 * 1024 * 1024
+    _MAX_ARCHIVE_UPLOADS = 4
+    # closed archives awaiting upload; bounds the temp disk used when serialization outruns the uploads
+    _MAX_PENDING_ARCHIVES = 8
+
+    _tar: tarfile.TarFile | None
+    _tar_path: pathlib.Path | None
+    _tar_key: str | None
+    _num_archives: int
+    _executor: ThreadPoolExecutor | None
+    _uploads: list[tuple[Future[None], pathlib.Path]]  # (upload, local archive file)
+
+    def __init__(self, org: str, db: str) -> None:
+        super().__init__(org, db)
+        self._tar = None
+        self._tar_path = None
+        self._tar_key = None
+        self._num_archives = 0
+        self._executor = None
+        self._uploads = []
+
+    def add_media_bytes(self, data: bytes, extension: str) -> str:
+        if len(data) >= self._MAX_ARCHIVE_MEMBER_SIZE:
+            return super().add_media_bytes(data, extension)
+        return self._add_member(extension, len(data), io.BytesIO(data))
+
+    def add_media_file(self, path: str) -> str:
+        with open(path, 'rb') as f:
+            size = os.fstat(f.fileno()).st_size
+            if size < self._MAX_ARCHIVE_MEMBER_SIZE:
+                return self._add_member(pathlib.Path(path).suffix, size, f)
+        return super().add_media_file(path)
+
+    def _add_member(self, suffix: str, size: int, fileobj: IO[bytes]) -> str:
+        """Append a part to the open archive, opening one if needed; returns the part's reference."""
+        if self._tar is None:
+            self._open_archive()
+        assert self._tar is not None
+        name = self._next_part_name(suffix)
+        info = tarfile.TarInfo(name)
+        info.size = size
+        self._tar.addfile(info, fileobj)
+        ref = f'{self._tar_key}{_ARCHIVE_MEMBER_SEP}{name}'
+        if self._tar.offset >= self._ARCHIVE_TARGET_SIZE:
+            self._close_archive()
+        return ref
+
+    def _open_archive(self) -> None:
+        # surface a failed upload now rather than after the rest of the request is serialized
+        for upload, _ in self._uploads:
+            if upload.done():
+                upload.result()
+        in_flight = [upload for upload, _ in self._uploads if not upload.done()]
+        if len(in_flight) >= self._MAX_PENDING_ARCHIVES:
+            wait(in_flight, return_when=FIRST_COMPLETED)
+        self._tar_path = TempStore.create_path(extension='.tar')
+        self._tar_key = f'{self._key_prefix}tar{self._num_archives}.tar'
+        self._num_archives += 1
+        self._tar = tarfile.open(self._tar_path, 'w', format=tarfile.PAX_FORMAT)  # noqa: SIM115
+
+    def _close_archive(self) -> None:
+        """Close the open archive and queue its upload."""
+        assert self._tar is not None and self._tar_path is not None and self._tar_key is not None
+        self._tar.close()
+        path, key = self._tar_path, self._tar_key
+        self._tar, self._tar_path, self._tar_key = None, None, None
+        # built on this thread, so the upload threads never race to construct it
+        store = self._get_store()
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(max_workers=self._MAX_ARCHIVE_UPLOADS)
+        self._uploads.append((self._executor.submit(self._upload_one, store, path, key, True), path))
+
+    def _shut_down(self) -> None:
+        """Cancel the queued uploads, wait for the running ones, and remove every local archive file."""
+        if self._executor is not None:
+            self._executor.shutdown(wait=True, cancel_futures=True)
+            self._executor = None
+        uploads, self._uploads = self._uploads, []
+        for _, path in uploads:
+            path.unlink(missing_ok=True)
+
+    def flush(self) -> None:
+        """Upload the open archive, then wait for every upload; re-raises the first failure."""
+        try:
+            if self._tar is not None:
+                self._close_archive()
+            for upload, _ in self._uploads:
+                upload.result()
+            super().flush()
+        finally:
+            self._shut_down()
+
+    def abort(self) -> None:
+        if self._tar is not None:
+            with contextlib.suppress(OSError):
+                self._tar.close()
+        if self._tar_path is not None:
+            self._tar_path.unlink(missing_ok=True)
+        self._tar, self._tar_path, self._tar_key = None, None, None
+        self._shut_down()
+        super().abort()
 
 
 @dataclasses.dataclass
@@ -595,11 +729,21 @@ def collect_remote_keys(args: Any) -> list[str]:
     return list(keys)
 
 
+def split_remote_ref(ref: str) -> tuple[str, str | None]:
+    """Split an out-of-band part's reference into its object key and, for an archived part, its member name."""
+    key, sep, member = ref.partition(_ARCHIVE_MEMBER_SEP)
+    return key, member if sep else None
+
+
 def serialize_args(args: dict[str, Any], sink: PartSink) -> dict[str, Any]:
     """Encode a request's args for the wire; binary values go to sink (see _serialize())."""
-    wire_args = _serialize(args, sink)
-    assert isinstance(wire_args, dict)
-    sink.flush()  # an out-of-band sink defers its transfers to here, where they can run concurrently
+    try:
+        wire_args = _serialize(args, sink)
+        assert isinstance(wire_args, dict)
+        sink.flush()  # an out-of-band sink defers its transfers to here, where they can run concurrently
+    except BaseException:
+        sink.abort()
+        raise
     return wire_args
 
 
