@@ -191,7 +191,7 @@ def test_protocol_grpc(tmp_path: Path) -> None:
 
 
 def check_endpoint_from_database_entry() -> None:
-    for k in os.environ:
+    for k in list(os.environ):
         if k.startswith(('OTEL_EXPORTER_OTLP_ENDPOINT', 'OTEL_EXPORTER_OTLP_PROTOCOL')):
             del os.environ[k]
     Path(os.environ['PIXELTABLE_CONFIG']).write_text(

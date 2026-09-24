@@ -17,7 +17,7 @@ from pixeltable.service.proxy_client import HttpTransport, ProxyClient, PxtStore
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps
 
-from .utils import pxt_raises
+from .utils import pxt_raises, reload_env
 
 
 class _RemotePartSink(proxy_protocol.PartSink[int | str]):
@@ -315,6 +315,7 @@ class TestProxyDaemon:
         monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(fake_get_store))
         monkeypatch.setenv('PXTCLOUD_ORG', 'org1')
         monkeypatch.setenv('PXTCLOUD_DB', 'db1')
+        reload_env()
 
     @staticmethod
     def _remote_file_request(*keys: str) -> proxy_protocol.ProxyRequest:
@@ -360,6 +361,7 @@ class TestProxyDaemon:
 
         # without the container's org/db in the environment, remote keys cannot be localized
         monkeypatch.delenv('PXTCLOUD_ORG')
+        reload_env()
         with pxt_raises(
             pxt.ErrorCode.INVALID_CONFIGURATION,
             match=r'Internal error: PXTCLOUD_ORG and PXTCLOUD_DB are not present in the container.',
