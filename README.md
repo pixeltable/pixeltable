@@ -11,7 +11,7 @@
 [**Quickstart**](https://docs.pixeltable.com/overview/quick-start) |
 [**Documentation**](https://docs.pixeltable.com/) |
 [**CLI**](https://docs.pixeltable.com/platform/cli) |
-[**Cloud**](https://docs.pixeltable.com/howto/deployment/cloud) |
+[**Cloud**](https://docs.pixeltable.com/cloud) |
 [**Discord**](https://discord.gg/QPyqFYx2UN)
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -95,7 +95,7 @@ curl -X POST "$URL/docs" \
 # {"id":"...","title_upper":"HELLO","summary":"Hello"}
 ```
 
-The same file runs on Pixeltable Cloud. Create an API key in the [Cloud dashboard](https://docs.pixeltable.com/howto/deployment/cloud#get-an-api-key), set `PIXELTABLE_API_KEY`, name the database in `pixeltable.toml`, then target it by URI. `pxt db update` creates or updates the hosted database; it does not insert rows. `pxt service run` is local only and cannot target Cloud.
+The same file runs on Pixeltable Cloud. Sign in with `pxt login`, name the database in `pixeltable.toml`, then target it by URI. An [API key](https://docs.pixeltable.com/cloud#get-an-api-key) is optional for automation or hosted HTTP. `pxt db update` creates or updates the hosted database; it does not insert rows. `pxt service run` is local only and cannot target Cloud.
 
 ```bash
 pxt db update pxt://org:mydb

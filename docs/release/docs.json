@@ -46,7 +46,7 @@
                   "howto/deployment/security"
                 ]
               },
-              "howto/deployment/cloud"
+              "cloud"
             ]
           },
           {
@@ -699,23 +699,23 @@
     },
     {
       "source": "/cloud/services",
-      "destination": "/howto/deployment/cloud"
+      "destination": "/cloud"
     },
     {
-      "source": "/cloud",
-      "destination": "/howto/deployment/cloud"
+      "source": "/howto/deployment/cloud",
+      "destination": "/cloud"
     },
     {
       "source": "/docs/cloud",
-      "destination": "/howto/deployment/cloud"
+      "destination": "/cloud"
     },
     {
       "source": "/use-cases/services",
-      "destination": "/howto/deployment/cloud"
+      "destination": "/cloud"
     },
     {
       "source": "/use-cases/cloud",
-      "destination": "/howto/deployment/cloud"
+      "destination": "/cloud"
     },
     {
       "source": "/notebooks/integrations/working-with-bedrock",

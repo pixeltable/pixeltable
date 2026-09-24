@@ -126,7 +126,7 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
 
 <Tabs>
   <Tab title="Cloud">
-    To run this same file on Pixeltable Cloud, sign in with `pxt login` or [use an API key](/howto/deployment/cloud#get-an-api-key). Create the hosted database with `pxt db update`, create tables with `pxt schema update`, then start hosted endpoints with `pxt service update`. Try changes by inserting from the dashboard and running `pxt schema diff`.
+    To run this same file on Pixeltable Cloud, sign in with `pxt login` or [use an API key](/cloud#get-an-api-key). Create the hosted database with `pxt db update`, create tables with `pxt schema update`, then start hosted endpoints with `pxt service update`. Try changes by inserting from the dashboard and running `pxt schema diff`.
 
     ```bash
     pxt db update pxt://org:mydb
@@ -134,7 +134,7 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
     pxt service update app.py pxt://org:mydb
     ```
 
-    [Deploy to Pixeltable Cloud](/howto/deployment/cloud).
+    [Pixeltable Cloud](/cloud).
   </Tab>
   <Tab title="Starter kit">
     [`uvx pixeltable-new`](https://github.com/pixeltable/pixeltable-new) copies a full app. The default copied app uses namespace `agent` as the last argument to `pxt schema update`. `--video` copies video search and uses `videointel`.
@@ -161,7 +161,7 @@ This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt
   <Card title="How it works" icon="layer-group" href="/overview/how-it-works">
     What `pxt schema` and `pxt service` do, including `diff`, `update`, and `prune`.
   </Card>
-  <Card title="Cloud" icon="cloud" href="/howto/deployment/cloud">
+  <Card title="Cloud" icon="cloud" href="/cloud">
     The same `app.py`. `pxt db update`, then `pxt schema update` and `pxt service update` against `pxt://org:mydb`.
   </Card>
 </CardGroup>
