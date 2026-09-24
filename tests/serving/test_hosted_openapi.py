@@ -32,23 +32,13 @@ def test_gateway_security_only_on_hosted_schema() -> None:
         hosted_schema = client.get('/openapi.json').json()
 
     assert hosted_schema['servers'] == [{'url': '/nested/service'}]
-    assert hosted_schema['components']['securitySchemes']['PixeltableGatewayBearer'] == {
-        'type': 'http',
-        'scheme': 'bearer',
+    assert hosted_schema['components']['securitySchemes'] == {
+        'HTTPBasic': {'type': 'http', 'scheme': 'basic'},
+        'PixeltableGatewayApiKey': {'type': 'apiKey', 'in': 'header', 'name': 'X-api-key'},
     }
-    assert hosted_schema['components']['securitySchemes']['PixeltableGatewayApiKey'] == {
-        'type': 'apiKey',
-        'in': 'header',
-        'name': 'X-api-key',
-    }
-    assert hosted_schema['paths']['/private']['get']['security'] == [
-        {'PixeltableGatewayBearer': [], 'HTTPBasic': []},
-        {'PixeltableGatewayApiKey': [], 'HTTPBasic': []},
-    ]
-    assert hosted_schema['paths']['/write']['post']['security'] == [
-        {'PixeltableGatewayBearer': []},
-        {'PixeltableGatewayApiKey': []},
-    ]
+    # the route's own Authorization-based scheme and the gateway key are both required
+    assert hosted_schema['paths']['/private']['get']['security'] == [{'PixeltableGatewayApiKey': [], 'HTTPBasic': []}]
+    assert hosted_schema['paths']['/write']['post']['security'] == [{'PixeltableGatewayApiKey': []}]
     assert 'security' not in hosted_schema['paths']['/health']['get']
     assert app.openapi() is app.openapi()
-    assert 'PixeltableGatewayBearer' not in local_schema['components']['securitySchemes']
+    assert 'PixeltableGatewayApiKey' not in local_schema['components']['securitySchemes']
