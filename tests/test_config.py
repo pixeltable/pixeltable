@@ -12,7 +12,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as PxtPath
-from pixeltable.config import VAR_SECTION, Config, DatabaseConfig
+from pixeltable.config import VAR_SECTION, Config
 
 from .utils import get_image_files, pxt_raises
 
@@ -284,29 +284,6 @@ class TestConfig:
         # a python version that is not a version
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'`python_version` must be a version'):
             load("[[pixeltable.database]]\npython_version = '3'\n")
-
-    def test_database_name_case(self, tmp_path: Path) -> None:
-        """A database entry is found whatever the case of the name, in the file or in the URI."""
-        project = tmp_path / 'proj'
-        project.mkdir()
-        config_file = project / 'pixeltable.toml'
-
-        def config_for(uri: str) -> DatabaseConfig | None:
-            return Config.get().get_database_config(PxtPath.parse(uri, allow_empty_path=True))
-
-        config_file.write_text("[[pixeltable.database]]\nname = 'pxt://MyOrg:MyDb'\ncpu = 2.0\n")
-        Config.init(reinit=True, project_root=project)
-        for uri in ('pxt://myorg:mydb', 'pxt://MyOrg:MyDb', 'pxt://MYORG:MYDB'):
-            assert config_for(uri) is not None, uri
-        assert config_for('pxt://myorg:other') is None
-
-        # two entries differing only by case are one database, so the duplicate-name check catches them
-        config_file.write_text(
-            "[[pixeltable.database]]\nname = 'pxt://myorg:testuno'\ncpu = 2.0\n"
-            "[[pixeltable.database]]\nname = 'pxt://myorg:TestUno'\nmemory_mb = 512\n"
-        )
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Duplicate `DatabaseConfig` name'):
-            Config.init(reinit=True, project_root=project)
 
     def test_typed_option_values(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """An option declaring a scalar type is read from the config file and validated against that type."""

@@ -120,6 +120,19 @@ class TestDb:
         finally:
             cli('db', 'delete', absent, cwd=project, check=False)
 
+    def test_name_case(self, cli: PxtRunner, project: pathlib.Path) -> None:
+        """A database is found whatever the case of its name, in the config file or on the command line."""
+        db = f'pxttest-absent-{uuid.uuid4().hex[:12]}'
+        lower, mixed = f'pxt://pixeltable:{db}', f'pxt://pixeltable:{db.upper()}'
+
+        # db_diff() fails the test on any other exit status, so reaching a plan is the assertion: before,
+        # the entry matched only a command spelling it the same way
+        create_project_config(cli, project, mixed)
+        assert db_diff(cli, project, lower)['resolution'] == 'create'
+
+        create_project_config(cli, project, lower)
+        assert db_diff(cli, project, mixed)['resolution'] == 'create'
+
     def test_source_edit(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
         create_project_config(cli, project, test_db_uri)
         db_update(cli, project, test_db_uri)

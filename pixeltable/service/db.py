@@ -7,7 +7,7 @@ import urllib.request
 from pathlib import Path
 
 from pixeltable import catalog, exceptions as excs, metadata
-from pixeltable.config import LOCAL_DATABASE, Config, DatabaseConfig
+from pixeltable.config import Config, DatabaseConfig
 from pixeltable.service import management_client
 from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.service.management_protocol import (
