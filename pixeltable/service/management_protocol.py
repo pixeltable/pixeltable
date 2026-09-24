@@ -271,7 +271,8 @@ class SecretListItem(BaseModel):
     model_config = ConfigDict(extra='ignore')
 
     key: str
-    db: str | None = Field(description='null for an org-level secret')
+    # None for an org-level secret
+    db: str | None
 
 
 class ListAllSecretsResponse(BaseModel):
