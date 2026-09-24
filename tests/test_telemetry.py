@@ -4,7 +4,7 @@ from typing import Any, Iterator
 
 import pytest
 
-from pixeltable import telemetry
+from pixeltable import telemetry, telemetry_schemas
 from pixeltable.telemetry import SubscriberRegistry
 
 
@@ -13,7 +13,9 @@ class RecordingSubscriber(telemetry.Subscriber):
 
     def __init__(self) -> None:
         self.spans: list[dict[str, Any]] = []
-        self.events: list[tuple[str, dict[str, Any] | None]] = []
+        self.events: list[tuple[Any, str, dict[str, Any]]] = []
+        self.counter_adds: list[tuple[telemetry.Counter, int | float, dict[str, Any]]] = []
+        self.histogram_records: list[tuple[telemetry.Histogram, int | float, dict[str, Any]]] = []
         self.ctx_restores: list[Any] = []
         self.ctx_exits: list[Any] = []
 
@@ -36,8 +38,14 @@ class RecordingSubscriber(telemetry.Subscriber):
         token['exc'] = exc
         token['end_attrs'] = attrs
 
-    def on_event(self, name: str, attrs: dict[str, Any] | None) -> None:
-        self.events.append((name, attrs))
+    def on_event(self, token: Any, name: str, attrs: dict[str, Any]) -> None:
+        self.events.append((token, name, attrs))
+
+    def on_counter_add(self, counter: telemetry.Counter, value: int | float, attrs: dict[str, Any]) -> None:
+        self.counter_adds.append((counter, value, attrs))
+
+    def on_histogram_record(self, histogram: telemetry.Histogram, value: int | float, attrs: dict[str, Any]) -> None:
+        self.histogram_records.append((histogram, value, attrs))
 
     def capture_context(self) -> Any:
         return 'ctx'
@@ -62,8 +70,14 @@ class RaisingSubscriber(telemetry.Subscriber):
     def on_span_end(self, token: Any, exc: BaseException | None, attrs: dict[str, Any] | None) -> None:
         raise RuntimeError('on_span_end')
 
-    def on_event(self, name: str, attrs: dict[str, Any] | None) -> None:
+    def on_event(self, token: Any, name: str, attrs: dict[str, Any]) -> None:
         raise RuntimeError('on_event')
+
+    def on_counter_add(self, counter: telemetry.Counter, value: int | float, attrs: dict[str, Any]) -> None:
+        raise RuntimeError('on_counter_add')
+
+    def on_histogram_record(self, histogram: telemetry.Histogram, value: int | float, attrs: dict[str, Any]) -> None:
+        raise RuntimeError('on_histogram_record')
 
     def capture_context(self) -> Any:
         raise RuntimeError('capture_context')
@@ -99,7 +113,7 @@ class TestHooks:
         handle = telemetry.span_start('a', attrs=attrs)
         assert handle is None
         telemetry.span_end(handle)
-        telemetry.emit('e', attrs=attrs)
+        telemetry.emit(handle, 'e', x=1)
         assert telemetry.capture_context() is None
         telemetry.restore_context(None)
         telemetry.exit_context(None)
@@ -119,6 +133,47 @@ class TestHooks:
         assert not telemetry.active()
         assert telemetry.span_start('b', set_current=True) is None
         assert len(s.spans) == 1
+
+    def test_counter_and_histogram(self, sub: RecordingSubscriber) -> None:
+        c = telemetry.counter('pixeltable.test.rows', unit='{row}')
+        h = telemetry.histogram('pixeltable.test.latency', unit='s')
+        c.add(5, table='dir.tbl', skipped=None)
+        h.record(0.25, udf='f')
+        assert sub.counter_adds == [(c, 5, {'pxt.table': 'dir.tbl'})]
+        assert sub.histogram_records == [(h, 0.25, {'pxt.udf': 'f'})]
+
+    def test_record_token_usage(self, sub: RecordingSubscriber) -> None:
+        # both counts present: one add per token counter, with the udf dimension
+        telemetry_schemas.record_token_usage(
+            'messages', {'input_tokens': 7, 'output_tokens': 3}, 'input_tokens', 'output_tokens'
+        )
+        assert sub.counter_adds == [
+            (telemetry_schemas.udf_input_tokens, 7, {'pxt.udf': 'messages'}),
+            (telemetry_schemas.udf_output_tokens, 3, {'pxt.udf': 'messages'}),
+        ]
+        # one count present: only that counter records
+        telemetry_schemas.record_token_usage('messages', {'input_tokens': 5}, 'input_tokens', 'output_tokens')
+        assert len(sub.counter_adds) == 3
+        # non-dict usage and non-int counts record nothing
+        telemetry_schemas.record_token_usage('messages', None, 'input_tokens', 'output_tokens')
+        telemetry_schemas.record_token_usage('messages', {'input_tokens': 'x'}, 'input_tokens', 'output_tokens')
+        assert len(sub.counter_adds) == 3
+
+    def test_metrics_inactive_noop(self) -> None:
+        assert not telemetry.active()
+        telemetry.counter('pixeltable.test.rows').add(1, table='t')
+        telemetry.histogram('pixeltable.test.latency').record(1.0)
+
+    def test_metrics_exception_isolation(self, sub: RecordingSubscriber) -> None:
+        raising = RaisingSubscriber()
+        SubscriberRegistry.get().subscribe(raising)
+        try:
+            telemetry.counter('pixeltable.test.rows').add(1)
+            telemetry.histogram('pixeltable.test.latency').record(1.0)
+        finally:
+            SubscriberRegistry.get().unsubscribe(raising)
+        assert len(sub.counter_adds) == 1
+        assert len(sub.histogram_records) == 1
 
     def test_ambient_nesting(self, sub: RecordingSubscriber) -> None:
         op = telemetry.span_start('op', set_current=True)
@@ -193,15 +248,15 @@ class TestHooks:
         SubscriberRegistry.get().subscribe(bad)
         try:
             handle = telemetry.span_start('a', set_current=True)
+            telemetry.emit(handle, 'e', k=1)
             telemetry.span_end(handle)
-            telemetry.emit('e', attrs={'k': 1})
             token = telemetry.restore_context(telemetry.capture_context())
             telemetry.exit_context(token)
         finally:
             SubscriberRegistry.get().unsubscribe(bad)
         # the well-behaved subscriber saw everything despite the raising one
         assert sub.find('a')['ended']
-        assert sub.events == [('e', {'k': 1})]
+        assert sub.events == [(sub.find('a'), 'e', {'pxt.k': 1})]
 
     def test_late_subscriber(self, sub: RecordingSubscriber) -> None:
         op = telemetry.span_start('op', set_current=True)
@@ -264,6 +319,81 @@ class TestHooks:
         telemetry.span_end(suppressed)
         assert [s['name'] for s in sub.spans] == ['op']
 
+    def test_emit(self, sub: RecordingSubscriber) -> None:
+        handle = telemetry.span_start('op', set_current=True)
+        telemetry.emit(handle, 'e', k=1, skipped=None)
+        telemetry.span_end(handle)
+        assert sub.events == [(sub.find('op'), 'e', {'pxt.k': 1})]  # 'pxt.' prefix added, None skipped
+        telemetry.emit(None, 'e', k=1)  # no-op for inactive/suppressed handles
+        suppressed = telemetry.span_start('s', level=telemetry.DEBUG)
+        telemetry.emit(suppressed, 'e', k=1)
+        assert len(sub.events) == 1
+
+    def test_spanned(self, sub: RecordingSubscriber) -> None:
+        @telemetry.spanned('work', set_current=True)
+        def fn(x: int) -> int:
+            return x + 1
+
+        assert fn(1) == 2
+        record = sub.find('work')
+        assert record['set_current'] is True and record['ended'] and record['exc'] is None
+
+        @telemetry.spanned('failing', set_current=True)
+        def boom() -> None:
+            raise ValueError('boom')
+
+        with pytest.raises(ValueError, match='boom'):
+            boom()
+        assert isinstance(sub.find('failing')['exc'], ValueError)
+
+    def test_spanned_preserves_topology(self, sub: RecordingSubscriber) -> None:
+        # a spanned(set_current=False) function must not become the ambient parent: spans started inside it
+        # parent to the ambient op span, exactly as with a lexical `with span(...)` block
+        @telemetry.spanned('node')
+        def fn() -> None:
+            inner = telemetry.span_start('inner')
+            telemetry.span_end(inner)
+
+        op = telemetry.span_start('op', set_current=True)
+        fn()
+        telemetry.span_end(op)
+        assert sub.find('node')['parent_id'] == sub.find('op')['id']
+        assert sub.find('inner')['parent_id'] == sub.find('op')['id']
+
+    def test_spanned_func_span(self, sub: RecordingSubscriber) -> None:
+        assert telemetry.func_span() is None
+
+        @telemetry.spanned('work', set_current=True)
+        def fn() -> None:
+            telemetry.add_attrs(telemetry.func_span(), rows=5)
+
+        fn()
+        assert sub.find('work')['end_attrs'] == {'pxt.rows': 5}
+        assert telemetry.func_span() is None
+
+        # a suppressed spanned() span shadows any outer one, so attrs can't leak to the wrong span
+        @telemetry.spanned('suppressed', level=telemetry.DEBUG)
+        def inner() -> None:
+            assert telemetry.func_span() is None
+            telemetry.add_attrs(telemetry.func_span(), rows=1)
+
+        @telemetry.spanned('outer', set_current=True)
+        def outer() -> None:
+            inner()
+
+        outer()
+        assert sub.find('outer')['end_attrs'] is None
+
+    def test_spanned_inactive(self) -> None:
+        assert not telemetry.active()
+
+        @telemetry.spanned('work', set_current=True)
+        def fn(x: int) -> int:
+            assert telemetry.func_span() is None
+            return x * 2
+
+        assert fn(3) == 6
+
     def test_failing_attrs_callable(self, sub: RecordingSubscriber) -> None:
         def bad() -> dict[str, Any]:
             raise RuntimeError('bad attrs')
@@ -272,8 +402,6 @@ class TestHooks:
         telemetry.span_end(handle, attrs=bad)
         record = sub.find('a')
         assert record['attrs'] is None and record['ended']
-        telemetry.emit('e', attrs=bad)
-        assert sub.events == [('e', None)]
 
     def test_thread_handoff(self, sub: RecordingSubscriber) -> None:
         op = telemetry.span_start('op', set_current=True)

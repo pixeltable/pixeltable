@@ -10,7 +10,7 @@ from uuid import UUID
 import psycopg
 import sqlalchemy as sql
 
-from pixeltable import catalog, exceptions as excs, telemetry
+from pixeltable import catalog, exceptions as excs, telemetry, telemetry_schemas
 from pixeltable.catalog.update_status import RowCountStats
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
@@ -173,6 +173,7 @@ class StoreBase:
         """Name of the Postgres object enforcing the Pixeltable primary key."""
         return f'pk_idx_{tbl_version.id.hex}'
 
+    @telemetry.spanned('pixeltable.store.create_sa_tbl', level=telemetry.DEBUG)
     def create_sa_tbl(self, tbl_version: catalog.TableVersion | None = None) -> None:
         """Create self.sa_tbl from self.tbl_version."""
         if tbl_version is None:
@@ -183,8 +184,8 @@ class StoreBase:
         for col_md in tbl_version.tbl_md.column_md.values():
             if not col_md.stored:
                 continue
-            # re-create sql.Column for each stored column, regardless of whether it already has sa_col set: it was bound
-            # to the last sql.Table version we created and cannot be reused
+            # re-create sql.Column for each stored column, regardless of whether it already has sa_col set:
+            # it was bound to the last sql.Table version we created and cannot be reused
             assert col_md.sa_col_type is not None
             store_name = catalog.Column.store_name_from_id(col_md.id)
             # all storage columns are nullable (we deal with null errors in Pixeltable directly)
@@ -260,6 +261,7 @@ class StoreBase:
     def _storage_name(self) -> str:
         """Return the name of the data store table"""
 
+    @telemetry.spanned('pixeltable.store.count', level=telemetry.DEBUG)
     def count(self) -> int:
         """Return the number of rows visible in self.tbl_version"""
         stmt = sql.select(sql.func.count('*')).select_from(self.sa_tbl)
@@ -356,10 +358,12 @@ class StoreBase:
             f'Value too large for the {idx_info.idx.display_name()} index on column {idx_info.col.name!r}',
         )
 
+    @telemetry.spanned('pixeltable.store.create_index', level=telemetry.DEBUG)
     def create_index(self, idx_id: int) -> None:
         """Create index if not exists"""
         tv = self.tbl_version.get()
         idx_info = tv.idxs[idx_id]
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.StoreAttrs(index=idx_info.name))
         indexed_sa_col = idx_info.indexed_sa_col
         assert indexed_sa_col.table is self.sa_tbl, idx_info
         stmt = idx_info.idx.sa_create_stmt(tv._store_idx_name(idx_id), indexed_sa_col)
@@ -406,9 +410,11 @@ class StoreBase:
             f'{sa_col.name} {col_type_str} {"NOT " if not sa_col.nullable else ""} NULL'
         )
 
+    @telemetry.spanned('pixeltable.store.add_column', level=telemetry.DEBUG)
     def add_column(self, col: catalog.Column, if_not_exists: bool) -> None:
         """Add column(s) to the store-resident table based on a catalog column"""
         assert col.is_stored
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.StoreAttrs(column=col.name))
         conn = get_runtime().conn
         col_type_str = col.sa_col_type.compile(dialect=conn.dialect)
         if_not_exists_clause = 'IF NOT EXISTS' if if_not_exists else ''
@@ -438,6 +444,7 @@ class StoreBase:
         log_stmt(_logger, stmt)
         get_runtime().conn.execute(stmt)
 
+    @telemetry.spanned('pixeltable.store.write_column')
     def write_column(self, col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int:
         """Populate store column of a computed column with values produced by an execution plan
 
@@ -448,6 +455,7 @@ class StoreBase:
             excs.Error if on_error='abort' and there was an exception during row evaluation
         """
         assert col.get_tbl().id == self.tbl_version.id
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.StoreAttrs(column=col.name))
         num_excs = 0
         num_rows = 0
         # create temp table to store output of exec_plan, with the same primary key as the store table
@@ -479,16 +487,21 @@ class StoreBase:
                     num_rows += len(row_batch)
                     batch_table_rows: list[list[Any]] = []
 
-                    for row in row_batch:
-                        if abort_on_exc and row.has_exc():
-                            exc = row.get_first_exc()
-                            raise excs.RequestError(
-                                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                                f'Error while evaluating computed column {col.name!r}:\n{exc}',
-                            ) from exc
-                        table_row, num_row_exc = row_builder.create_store_table_row(row, None, row.pk)
-                        num_excs += num_row_exc
-                        batch_table_rows.append(table_row)
+                    with telemetry.span(
+                        'pixeltable.store.build_rows',
+                        level=telemetry.DEBUG,
+                        **telemetry_schemas.StoreAttrs(rows=len(row_batch)),
+                    ):
+                        for row in row_batch:
+                            if abort_on_exc and row.has_exc():
+                                exc = row.get_first_exc()
+                                raise excs.RequestError(
+                                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                                    f'Error while evaluating computed column {col.name!r}:\n{exc}',
+                                ) from exc
+                            table_row, num_row_exc = row_builder.create_store_table_row(row, None, row.pk)
+                            num_excs += num_row_exc
+                            batch_table_rows.append(table_row)
 
                     table_rows.extend(batch_table_rows)
 
@@ -521,6 +534,7 @@ class StoreBase:
 
             run_cleanup(remove_tmp_tbl, raise_error=False)
 
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.StoreAttrs(rows=num_rows))
         return num_excs
 
     def insert_rows(
@@ -562,7 +576,11 @@ class StoreBase:
                 batch_table_rows: list[list[Any]] = []
 
                 # compute batch of rows and convert them into table rows
-                with telemetry.span('pixeltable.store.build_rows', level=telemetry.DEBUG, rows=len(row_batch)):
+                with telemetry.span(
+                    'pixeltable.store.build_rows',
+                    level=telemetry.DEBUG,
+                    **telemetry_schemas.StoreAttrs(rows=len(row_batch)),
+                ):
                     for row in row_batch:
                         # if abort_on_exc == True, we need to check for media validation exceptions
                         if abort_on_exc and row.has_exc():
@@ -605,6 +623,9 @@ class StoreBase:
                 if return_rows:
                     inserted_rows.extend(row_builder.create_output_rows(table_rows=table_rows, has_pk=True))
 
+            telemetry_schemas.rows_written.add(
+                num_rows, table=self.tbl_version.get().name, table_id=str(self.tbl_version.id)
+            )
             row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs, computed_values=0)
 
             return cols_with_excs, row_counts, (inserted_rows if return_rows else None)
@@ -613,7 +634,7 @@ class StoreBase:
         assert len(table_rows) > 0
         conn = get_runtime().conn
         try:
-            with telemetry.span('pixeltable.sa.insert_rows'):
+            with telemetry.span('pixeltable.sa.insert_rows', **telemetry_schemas.StoreAttrs(rows=len(table_rows))):
                 conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
         except sql.exc.IntegrityError as e:
             if (
@@ -688,6 +709,7 @@ class StoreBase:
         log_explain(_logger, stmt, conn)
         return conn.execute(stmt).rowcount
 
+    @telemetry.spanned('pixeltable.store.soft_delete_rows')
     def soft_delete_rows(
         self,
         current_version: int,
@@ -735,6 +757,7 @@ class StoreBase:
         conn = get_runtime().conn
         log_explain(_logger, stmt, conn)
         status = conn.execute(stmt)
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.StoreAttrs(rows=status.rowcount))
         return status.rowcount
 
     def dump_rows(self, version: int, filter_view: StoreBase, filter_view_version: int) -> Iterator[dict[str, Any]]:

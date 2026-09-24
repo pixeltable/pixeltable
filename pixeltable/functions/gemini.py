@@ -29,7 +29,7 @@ import PIL.Image
 from tenacity import RetryCallState, retry, retry_if_result, stop_after_delay, wait_exponential
 
 import pixeltable as pxt
-from pixeltable import env, exceptions as excs, exprs, type_system as ts
+from pixeltable import env, exceptions as excs, exprs, telemetry_schemas, type_system as ts
 from pixeltable.func import Batch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
@@ -185,6 +185,9 @@ async def generate_content(
                     img = PIL.Image.open(io.BytesIO(blob['data']))
                     img.load()
                     blob['data'] = img
+        telemetry_schemas.record_token_usage(
+            'generate_content', result.get('usage_metadata'), 'prompt_token_count', 'candidates_token_count'
+        )
         return result
 
 
