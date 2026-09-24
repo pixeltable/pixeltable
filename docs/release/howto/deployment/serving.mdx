@@ -68,7 +68,35 @@ export async function pixeltableRequest(path: string, init: RequestInit = {}): P
 }
 ```
 
-Call it with fixed route paths from a Server Component or from your own authenticated Route Handler or Server Action; do not pass untrusted browser input as `path`. For a JSON route, use `await response.json()` and the generated OpenAPI type for that operation. For a binary route, use `await response.blob()` or stream `response.body` through your Route Handler with the upstream `Content-Type`. For an upload, pass `FormData` as `body` and let `fetch` set its multipart boundary; do not set `Content-Type` yourself. Protect any Route Handler or Server Action that exposes writes to browser users with your application's authorization checks. The Cloud dashboard's **Use this endpoint** TypeScript and JavaScript snippets are server-side examples.
+Call it with fixed route paths from a Server Component or from your own authenticated Route Handler or Server Action; do not pass untrusted browser input as `path`. For a JSON route, use `await response.json()`. For a binary route, use `await response.blob()` or stream `response.body` through your Route Handler with the upstream `Content-Type`. For an upload, pass `FormData` as `body` and let `fetch` set its multipart boundary; do not set `Content-Type` yourself. Protect any Route Handler or Server Action that exposes writes to browser users with your application's authorization checks. The Cloud dashboard's **Use this endpoint** TypeScript and JavaScript snippets are server-side examples.
+
+Generated types do not automatically type-check raw `fetch` calls. For typed JSON requests and responses, run `npm install openapi-fetch` and use the generated `paths` in `src/lib/pixeltable-client.ts`. With the README's `/titles` compute route:
+
+```typescript
+import 'server-only';
+import createClient from 'openapi-fetch';
+import type { paths } from '../pixeltable';
+
+const serviceUrl = process.env.PIXELTABLE_SERVICE_URL;
+if (!serviceUrl) throw new Error('Set PIXELTABLE_SERVICE_URL');
+const apiKey = process.env.PIXELTABLE_API_KEY;
+
+const client = createClient<paths>({
+  baseUrl: serviceUrl,
+  headers: apiKey ? { 'X-api-key': apiKey } : {},
+  cache: 'no-store',
+});
+
+export async function computeTitle(title: string) {
+  const { data, error } = await client.POST('/titles', {
+    body: { title },
+  });
+  if (error) throw new Error(JSON.stringify(error));
+  return data; // inferred from the service schema
+}
+```
+
+Regenerate `src/pixeltable.d.ts` when routes change, and run your TypeScript check so request and response mismatches fail before deployment. For media routes, the raw helper above preserves access to response headers and streams; `openapi-fetch` also supports `parseAs: 'blob'` or `'stream'`.
 
 Pixeltable runtime errors use a JSON `detail` object with `error_code`, `message`, and `retryable` (sometimes `retry_after`). FastAPI request-validation errors instead use a `detail` array. Handle both shapes when displaying errors or deciding whether to retry a write.
 
