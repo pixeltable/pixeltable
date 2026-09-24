@@ -247,7 +247,9 @@ class DataRow:
         return self.excs[mask][0]
 
     def set_exc(self, slot_idx: int, exc: Exception) -> None:
-        assert self.excs[slot_idx] is None
+        if self.excs[slot_idx] is not None:
+            # a slot can receive an exception from each failing dependency and from its own evaluation
+            return
         self.excs[slot_idx] = exc
         self._may_have_exc = True
 

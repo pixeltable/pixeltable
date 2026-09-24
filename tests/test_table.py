@@ -3282,10 +3282,14 @@ class TestTable:
         t = pxt.create_table(p('test_insert'), schema, _is_data_versioned=is_data_versioned)
         status = t.add_computed_column(add1=self.f2(self.f1(t.c2)))
         assert status.num_excs == 0
+        # add11 fails on the same rows as add1, so add_sum gets two exceptions on each of those rows
+        t.add_computed_column(add11=self.f2(self.f1(t.c2 * 11)))
+        t.add_computed_column(add_sum=t.add1 + t.add11)
         status = t.insert(rows, on_error='ignore')
         assert status.num_excs >= 10
         assert 'test_insert.add1' in status.cols_with_excs
         assert t.where(t.add1.errortype != None).count() == 10
+        assert t.where(t.add_sum.errortype != None).count() == 10
 
         # exception during add_computed_column()
         t = pxt.create_table(p('test_add_column'), schema, _is_data_versioned=is_data_versioned)
