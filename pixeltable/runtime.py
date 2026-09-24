@@ -16,6 +16,7 @@ from sqlalchemy import orm
 
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
+from pixeltable.service.management_client import resolve
 from pixeltable.utils import fault_injection
 
 if TYPE_CHECKING:
@@ -159,9 +160,14 @@ class Runtime:
             return CatalogProxy(catalog_uri, ProxyClient.local(f'http://127.0.0.1:{info["port"]}'))
 
         # Remote database: connect via TLS to the proxy endpoint.
-        api_key = Env.get().require_api_key(f'connect to hosted database {catalog_uri!r}')
+        # Either kind works: the sidecar picks its validation path by the credential's shape. Passed
+        # as a callable because this client is cached and the tunnel reconnects: reading it once
+        # would pin a session token that expires long before the process does.
+        purpose = f'connect to hosted database {catalog_uri!r}'
         host, port = Env.get().proxy_endpoint(catalog_uri.org, catalog_uri.db)
-        client = ProxyClient.remote(catalog_uri.org, catalog_uri.db, api_key, host=host, port=port)
+        client = ProxyClient.remote(
+            catalog_uri.org, catalog_uri.db, lambda: resolve(purpose).value, host=host, port=port
+        )
         return CatalogProxy(catalog_uri, client)
 
     @property

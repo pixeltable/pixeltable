@@ -513,6 +513,25 @@ def _update_output(plan: SchemaPlan, *, as_json: bool) -> None:
     for tbl in plan.tables:
         outcome = 'refused' if tbl.status == 'refused' else _RESOLUTIONS[tbl.resolution].applied
         print(f'{outcome:9s} {tbl.path}')
+    _print_recompute_notice(plan)
+
+
+def _print_recompute_notice(plan: SchemaPlan) -> None:
+    altered_cols_by_tbl: dict[str, list[str]] = {}
+    for tbl in plan.tables:
+        for op in tbl.ops:
+            if op.op == 'alter' and op.details.stored and op.status == 'applied':
+                altered_cols_by_tbl.setdefault(tbl.path, []).append(op.name)
+    if len(altered_cols_by_tbl) == 0:
+        return
+    print()
+    print('the value expressions of these columns changed, but their stored values were not recomputed:')
+    for path, col_names in altered_cols_by_tbl.items():
+        for col_name in col_names:
+            print(f'  {path}.{col_name}')
+    print('run the following if you wish to recompute them:')
+    for path, col_names in altered_cols_by_tbl.items():
+        print(f'  pxt recompute {path} {" ".join(col_names)}')
 
 
 def _set_statuses(plan: SchemaPlan, *, destructive: OpStatus, other: OpStatus) -> None:

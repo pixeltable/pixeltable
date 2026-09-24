@@ -1176,10 +1176,24 @@ class TestPathValidator:
         r = cli('describe', 'x/', check=False)
         assert r.returncode != 0
         assert "must not end with '/'" in r.stderr
+        # in a hosted path too, whatever its first component is called
+        r = cli('describe', 'pxt://acme:main/catalog/', check=False)
+        assert r.returncode != 0
+        assert "must not end with '/'" in r.stderr
         # '//' produces an empty internal component
         r = cli('describe', 'a//b', check=False)
         assert r.returncode != 0
         assert 'empty components' in r.stderr
+
+    @pytest.mark.parametrize(
+        'argv',
+        [('db', 'diff', 'pxt://acme:main/'), ('org', 'status', 'pxt://acme/'), ('secret', 'list', 'pxt://acme:main/')],
+    )
+    def test_hosted_uri_rejects_trailing_slash(self, cli: PxtRunner, argv: tuple[str, ...]) -> None:
+        """A database or organization URI has no path, so a trailing '/' is refused before any request."""
+        r = cli(*argv, check=False)
+        assert r.returncode == 2
+        assert 'URI must be' in r.stderr
 
     def test_path_commands_reject_bad_shape(self, cli: PxtRunner) -> None:
         """Every command taking a path runs the validator over each of its path arguments."""
@@ -1388,14 +1402,17 @@ class TestColdStartBudget:
     budget and defeating the daemon split. The `-X importtime` log is authoritative.
     """
 
-    def test_pixeltable_not_imported_by_pxt_ls(
-        self, cli: PxtRunner, pxt_daemon: int, session_project: pathlib.Path
+    @pytest.mark.parametrize('command', ['ls', 'login', 'logout', 'whoami', 'key', 'org', 'db', 'service'])
+    def test_pixeltable_not_imported_by_client(
+        self, cli: PxtRunner, pxt_daemon: int, session_project: pathlib.Path, command: str
     ) -> None:
+        # `ls` runs in full; the others would reach the control plane, so only their parsers run
+        argv = [command] if command == 'ls' else [command, '--help']
         # Use sys.executable so the subprocess runs under the same interpreter as the test,
         # not whatever python resolves to on PATH.
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
         r = subprocess.run(
-            [sys.executable, '-X', 'importtime', '-m', 'pixeltable_cli.client.main', 'ls'],
+            [sys.executable, '-X', 'importtime', '-m', 'pixeltable_cli.client.main', *argv],
             capture_output=True,
             text=True,
             env=env,
@@ -1403,8 +1420,8 @@ class TestColdStartBudget:
             stdin=subprocess.DEVNULL,
             cwd=session_project,
         )
-        # We only inspect the import log; the underlying ls call may pass or fail
-        # depending on catalog state, which is irrelevant here.
+        # We only inspect the import log; the command itself may pass or fail depending on catalog
+        # state, which is irrelevant here.
         imported = [line for line in r.stderr.splitlines() if line.startswith('import time:')]
         # Each line of the form 'import time: ...' ends with the dotted module name; we want to catch
         # the top-level package alone, not e.g. a stdlib numbers module sharing a prefix.
@@ -1416,6 +1433,6 @@ class TestColdStartBudget:
             if top in forbidden and top not in offenders:
                 offenders[top] = line
         assert len(offenders) == 0, (
-            'cold-start budget broken; the following packages were imported during `pxt ls` startup:\n'
+            f'cold-start budget broken; these packages were imported during `pxt {command}` startup:\n'
             + '\n'.join(f'  {pkg}: {line}' for pkg, line in offenders.items())
         )

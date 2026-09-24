@@ -217,16 +217,19 @@ class TunnelTransport(Transport):
 
     _org: str
     _db: str
-    _api_key: str
+
+    # needed per handshake; not static
+    _credential_cb: Callable[[], str]
+
     _host: str
     _port: int
     _endpoint: str
     _pool: _TunnelPool
 
-    def __init__(self, org: str, db: str, api_key: str, host: str, port: int):
+    def __init__(self, org: str, db: str, credential_cb: Callable[[], str], host: str, port: int):
         self._org = org
         self._db = db
-        self._api_key = api_key
+        self._credential_cb = credential_cb
         self._host = host
         self._port = port
         self._pool = _TunnelPool(self._connect_tunnel)
@@ -235,6 +238,8 @@ class TunnelTransport(Transport):
 
     def _connect_tunnel(self) -> http.client.HTTPConnection:
         """Open one tunnel connection: TCP + TLS + PXT/1.0 CONNECT handshake."""
+        # before connecting: renewing a session is a round trip of its own, and a refused credential needs no socket
+        credential = self._credential_cb()
         ctx = ssl.create_default_context()
         raw_sock = socket.create_connection((self._host, self._port), timeout=_CONNECT_TIMEOUT)
         ssl_sock: ssl.SSLSocket | None = None
@@ -251,9 +256,9 @@ class TunnelTransport(Transport):
                 raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
             ssl_sock = ctx.wrap_socket(raw_sock, server_hostname=self._host)
 
-            # the sidecar authenticates via the API key and routes the tunnel to org/db, then relays to the
+            # the sidecar authenticates the credential and routes the tunnel to org/db, then relays to the
             # proxy daemon's HTTP server; it answers 'PXT/1.0 200' on success (checked below)
-            frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {self._api_key}\r\n\r\n'
+            frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {credential}\r\n\r\n'
             ssl_sock.sendall(frame.encode())
 
             buf = b''
@@ -359,9 +364,9 @@ class ProxyClient:
         return cls(HttpTransport(endpoint))
 
     @classmethod
-    def remote(cls, org: str, db: str, api_key: str, host: str, port: int) -> ProxyClient:
+    def remote(cls, org: str, db: str, credential_cb: Callable[[], str], host: str, port: int) -> ProxyClient:
         """Connect to the Pixeltable cloud service's proxy daemon over an authenticated TLS tunnel."""
-        return cls(TunnelTransport(org, db, api_key, host=host, port=port))
+        return cls(TunnelTransport(org, db, credential_cb, host=host, port=port))
 
     def _prepare(self, args: dict[str, Any]) -> tuple[dict[str, Any], list[bytes]]:
         """Serialize args for the wire, exactly once per logical request (media files are read, and for a

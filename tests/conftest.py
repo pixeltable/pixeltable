@@ -158,6 +158,26 @@ def project_env(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> Iter
     Config.init(reinit=True, project_root=original)
 
 
+@pytest.fixture
+def private_home(tmp_path: pathlib.Path) -> Iterator[pathlib.Path]:
+    """A Pixeltable home and config file of the test's own, with no API key in the environment.
+
+    Config reads the home when it starts, so it is reinitialized here, and again afterwards with the
+    environment and project root it had before.
+    """
+    from pixeltable.config import Config
+
+    project_root = Config.get().project_root
+    home = tmp_path / 'pxt-home'
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv('PIXELTABLE_HOME', str(home))
+        mp.setenv('PIXELTABLE_CONFIG', str(home / 'config.toml'))
+        mp.delenv('PIXELTABLE_API_KEY', raising=False)
+        Config.init(reinit=True, project_root=project_root)
+        yield home
+    Config.init(reinit=True, project_root=project_root)
+
+
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:  # type: ignore[misc]
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
