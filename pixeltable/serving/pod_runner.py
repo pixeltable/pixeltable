@@ -26,8 +26,9 @@ def _add_gateway_openapi_security(app: 'fastapi.FastAPI') -> None:
         if hosted_schema is not None:
             return hosted_schema
         schema = copy.deepcopy(original_openapi())
+        # X-api-key, not Bearer: the gateway reads it before Authorization, so it never collides with a
+        # route's own Authorization-based scheme
         schemes = schema.setdefault('components', {}).setdefault('securitySchemes', {})
-        schemes['PixeltableGatewayBearer'] = {'type': 'http', 'scheme': 'bearer'}
         schemes['PixeltableGatewayApiKey'] = {'type': 'apiKey', 'in': 'header', 'name': 'X-api-key'}
         for path, path_item in schema.get('paths', {}).items():
             if path == '/health':
@@ -36,11 +37,7 @@ def _add_gateway_openapi_security(app: 'fastapi.FastAPI') -> None:
                 if method.lower() not in {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'}:
                     continue
                 app_security = operation.get('security', schema.get('security', [])) or [{}]
-                operation['security'] = [
-                    {gateway: [], **requirement}
-                    for requirement in app_security
-                    for gateway in ('PixeltableGatewayBearer', 'PixeltableGatewayApiKey')
-                ]
+                operation['security'] = [{'PixeltableGatewayApiKey': [], **requirement} for requirement in app_security]
         hosted_schema = schema
         return schema
 

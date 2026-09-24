@@ -30,75 +30,45 @@ curl -fsS -H "X-api-key: $PIXELTABLE_API_KEY" "${SERVICE_URL%/}/openapi.json" -o
 npx openapi-typescript openapi.json -o src/pixeltable.d.ts
 ```
 
-The hosted schema declares the gateway's Bearer and `X-api-key` options; local service schemas do not require them. In the Cloud dashboard, expand **API docs** on the service detail page to inspect and try routes without pasting an API key. Trying an insert, update, or delete route can change data.
+The hosted schema declares the gateway's `X-api-key` header on every route except `/health`; local service schemas declare no key. In the Cloud dashboard, expand **API docs** on the service detail page to inspect and try routes as your signed-in user, without an API key. Trying an insert, update, or delete route can change data.
 
 Routes with `return_fileresponse=True` advertise a binary response for any media type. Check the response's `Content-Type` when handling the returned image, video, audio, or document.
 
 ## Call from a TypeScript app server
 
-Keep a Cloud API key in your application server's environment, never in browser code. A Next.js server-only helper can call the same service locally (no key) or in Cloud (key required). Set `PIXELTABLE_SERVICE_URL` to the full service endpoint, as above. Run `npm install server-only` in the Next.js project, then put this in `src/lib/pixeltable-service.ts`:
-
-```typescript
-import 'server-only';
-
-export async function pixeltableRequest(path: string, init: RequestInit = {}): Promise<Response> {
-  const serviceUrl = process.env.PIXELTABLE_SERVICE_URL;
-  if (!serviceUrl) throw new Error('Set PIXELTABLE_SERVICE_URL');
-  if (!path.startsWith('/') || path.startsWith('//')) throw new Error('Use a service route path');
-
-  const headers = new Headers(init.headers);
-  const apiKey = process.env.PIXELTABLE_API_KEY;
-  if (apiKey) headers.set('X-api-key', apiKey);
-  const response = await fetch(`${serviceUrl.replace(/\/$/, '')}${path}`, {
-    ...init,
-    headers,
-    cache: 'no-store',
-  });
-  if (!response.ok) {
-    const error: unknown = await response.json().catch(() => null);
-    const detail = error && typeof error === 'object' && 'detail' in error ? error.detail : null;
-    const message = Array.isArray(detail)
-      ? detail.map((issue: unknown) => issue && typeof issue === 'object' && 'msg' in issue &&
-        typeof issue.msg === 'string' ? issue.msg : '').filter(Boolean).join('; ') || `HTTP ${response.status}`
-      : detail && typeof detail === 'object' && 'message' in detail &&
-        typeof detail.message === 'string' ? detail.message : `HTTP ${response.status}`;
-    throw new Error(message);
-  }
-  return response;
-}
-```
-
-Call it with fixed route paths from a Server Component or from your own authenticated Route Handler or Server Action; do not pass untrusted browser input as `path`. For a JSON route, use `await response.json()`. For a binary route, use `await response.blob()` or stream `response.body` through your Route Handler with the upstream `Content-Type`. For an upload, pass `FormData` as `body` and let `fetch` set its multipart boundary; do not set `Content-Type` yourself. Protect any Route Handler or Server Action that exposes writes to browser users with your application's authorization checks. The Cloud dashboard's **Use this endpoint** TypeScript and JavaScript snippets are server-side examples.
-
-Generated types do not automatically type-check raw `fetch` calls. For typed JSON requests and responses, run `npm install openapi-fetch` and use the generated `paths` in `src/lib/pixeltable-client.ts`. With the README's `/titles` compute route:
+Keep a Cloud API key in your application server's environment, never in browser code. Generated types do not check raw `fetch` calls, so call routes through `openapi-fetch` with the generated `paths`. The same module calls a local service (no key) or a hosted one. Set `PIXELTABLE_SERVICE_URL` to the full service endpoint, as above, run `npm install openapi-fetch server-only`, and put this in `src/lib/pixeltable-client.ts`. With the README's `/titles` compute route:
 
 ```typescript
 import 'server-only';
 import createClient from 'openapi-fetch';
 import type { paths } from '../pixeltable';
 
-const serviceUrl = process.env.PIXELTABLE_SERVICE_URL;
-if (!serviceUrl) throw new Error('Set PIXELTABLE_SERVICE_URL');
 const apiKey = process.env.PIXELTABLE_API_KEY;
 
-const client = createClient<paths>({
-  baseUrl: serviceUrl,
+export const pixeltable = createClient<paths>({
+  baseUrl: process.env.PIXELTABLE_SERVICE_URL,
   headers: apiKey ? { 'X-api-key': apiKey } : {},
   cache: 'no-store',
 });
 
+export class PixeltableError extends Error {
+  constructor(readonly status: number, readonly body: unknown) {
+    super(`Pixeltable service returned HTTP ${status}`);
+  }
+}
+
 export async function computeTitle(title: string) {
-  const { data, error } = await client.POST('/titles', {
-    body: { title },
-  });
-  if (error) throw new Error(JSON.stringify(error));
-  return data; // inferred from the service schema
+  const { data, error, response } = await pixeltable.POST('/titles', { body: { title } });
+  if (error !== undefined || !response.ok) throw new PixeltableError(response.status, error);
+  return data; // typed from the service schema
 }
 ```
 
-Regenerate `src/pixeltable.d.ts` when routes change, and run your TypeScript check so request and response mismatches fail before deployment. For media routes, the raw helper above preserves access to response headers and streams; `openapi-fetch` also supports `parseAs: 'blob'` or `'stream'`.
+Call it from a Server Component, or from your own Route Handler or Server Action; protect any that expose writes to browser users with your application's authorization checks. Regenerate `src/pixeltable.d.ts` when routes change, and run your TypeScript check so request and response mismatches fail before deployment. The Cloud dashboard's **Use this endpoint** TypeScript and JavaScript snippets are server-side examples.
 
-Pixeltable runtime errors use a JSON `detail` object with `error_code`, `message`, and `retryable` (sometimes `retry_after`). FastAPI request-validation errors instead use a `detail` array. Handle both shapes when displaying errors or deciding whether to retry a write.
+A `return_fileresponse=True` route needs `parseAs: 'blob'`, or `parseAs: 'stream'` to pipe `response.body` through your Route Handler with the upstream `Content-Type`; without it the client parses the file as JSON and throws. Generated types describe upload fields as strings, so send an upload with `fetch`, a `FormData` body, and the same `X-api-key` header, and let `fetch` set the multipart boundary.
+
+`PixeltableError.body` is the parsed error response. Its `detail` is an object with `error_code`, `message`, and `retryable` (sometimes `retry_after`) for a Pixeltable runtime error, a string for a missing row, and an array for a request-validation error. Hosted, the gateway answers with an HTML body instead: 401 for a missing or invalid key, 403 for a key without access to the service, 404 for an unknown service, and 503 when the service is not running, key validation is briefly unavailable, or the key is rate limited. Retry a write only when `detail.retryable` is true or the gateway answered 503, which means the request did not reach the service.
 
 ## Mount on your own FastAPI app
 
