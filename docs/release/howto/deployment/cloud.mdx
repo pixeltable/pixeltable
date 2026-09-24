@@ -8,7 +8,7 @@ description: 'Same application file against a hosted database'
   Pixeltable Cloud is in Limited Beta. Email [contact@pixeltable.com](mailto:contact@pixeltable.com) if you are interested.
 </Note>
 
-Use the same `app.py` as the [Quickstart](/overview/quick-start). Sign in with `pxt login`, then create the hosted database, the tables, and hosted HTTP. You can use an API key instead of a login session.
+Use the same `app.py` as the [Quickstart](/overview/quick-start). Sign in with `pxt login`, then create the hosted database, the tables, and hosted HTTP. You do not need an API key for these CLI commands.
 
 ## Sign in
 
@@ -23,16 +23,23 @@ pxt whoami
 
 ## Get an API key
 
-For automation or hosted HTTP calls, create a key and export it. The CLI reads `PIXELTABLE_API_KEY` or `[pixeltable].api_key` from `~/.pixeltable/config.toml`. The environment variable takes precedence.
+API keys are optional. Skip this section if you use the CLI with `pxt login` or work in the signed-in Cloud dashboard. Create a key for CI, background jobs, or a backend that calls a hosted service. If a browser frontend needs that service, have it call your backend. Keep the key out of browser code.
 
 <Steps>
-  <Step title="Sign in">
-    New account: [pixeltable.com/signup](https://www.pixeltable.com/signup). Existing account: [pixeltable.com/login](https://www.pixeltable.com/login). After sign-in, the [dashboard](https://www.pixeltable.com/dashboard) opens your organization.
-  </Step>
   <Step title="Create a key">
-    Open **API Keys** in the organization sidebar, or go to `https://www.pixeltable.com/dashboard/your-org/api-keys`. Click **New**, or **Create API Key** if the list is empty. Name the key. Click **Create Key**. Copy the value now. The dashboard shows the full key once.
+    After `pxt login`, create one from the CLI:
+
+    ```bash
+    pxt key create my-app
+    ```
+
+    The CLI prints the key once. `pxt key list` shows key names, but cannot show their secrets again. A key created without `--grant` acts as you. [Scoped service keys](/platform/cli#pxt-key) are in preview.
+
+    Or open **API Keys** in the [Cloud dashboard](https://www.pixeltable.com/dashboard), click **New** (or **Create API Key** if the list is empty), name the key, and copy the value when it appears.
   </Step>
-  <Step title="Export it">
+  <Step title="Use the key where needed">
+    For CLI automation or Python clients, export the key:
+
     ```bash
     export PIXELTABLE_API_KEY='your-key'
     ```
@@ -44,7 +51,9 @@ For automation or hosted HTTP calls, create a key and export it. The CLI reads `
     api_key = 'your-key'
     ```
 
-    [Configuration](/platform/configuration). This key authenticates Cloud CLI and hosted HTTP. Provider keys such as `OPENAI_API_KEY` go under **Secrets** in the dashboard, or `pxt secret set pxt://org OPENAI_API_KEY=...`. They do not go in this API key. [CLI](/platform/cli#pxt-secret).
+    The CLI uses a configured API key before a `pxt login` session. `PIXELTABLE_API_KEY` takes precedence over the config file. For direct hosted HTTP calls, send the key in the `X-api-key` header from your backend. [Configuration](/platform/configuration).
+
+    Provider keys such as `OPENAI_API_KEY` go under **Secrets** in the dashboard, or `pxt secret set pxt://org OPENAI_API_KEY=...`. They do not go in this API key. [CLI](/platform/cli#pxt-secret).
   </Step>
 </Steps>
 
