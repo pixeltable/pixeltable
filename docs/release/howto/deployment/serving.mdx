@@ -10,25 +10,67 @@ Install FastAPI and uvicorn first:
 pip install 'pixeltable[serve]'
 ```
 
-How the process starts is on [Self-hosting](/howto/deployment/overview). This page covers the route API once you have chosen which process serves it. A local service exposes FastAPI's interactive docs at `/docs` and its OpenAPI schema at `/openapi.json`. Generate TypeScript types from that schema:
+How the process starts is on [Self-hosting](/howto/deployment/overview). This page covers the route API once you have chosen which process serves it. A local service exposes FastAPI's interactive docs at `/docs` and its OpenAPI schema at `/openapi.json`. `pxt service update` assigns a local port; look up the endpoint by catalog path and service name rather than assuming port 8000. For the README's `my_app/ingest` example:
 
 ```bash
-npx openapi-typescript http://localhost:8000/openapi.json -o src/pixeltable.d.ts
+SERVICE_URL=$(pxt service list my_app --json | jq -r '.[] | select(.catalog_path == "my_app" and .name == "ingest") | .endpoint')
+curl -fsS "${SERVICE_URL%/}/openapi.json" -o openapi.json
+npx openapi-typescript openapi.json -o src/pixeltable.d.ts
 ```
+
+Replace `my_app` and `ingest` when using another target or service.
 
 Each column named in a route's `outputs` becomes a typed field, computed columns included.
 Regenerate types after changing the Python routes.
 
-For a hosted service, copy its full endpoint URL from the Cloud dashboard. The gateway requires a credential to download the schema:
+For a hosted service, copy its full endpoint URL from the Cloud dashboard or find it with `pxt service list pxt://org:db --json` using an organization key. The gateway requires a credential to download the schema:
 
 ```bash
 curl -fsS -H "X-api-key: $PIXELTABLE_API_KEY" "$SERVICE_URL/openapi.json" -o openapi.json
 npx openapi-typescript openapi.json -o src/pixeltable.d.ts
 ```
 
-The hosted schema declares the gateway's Bearer and `X-api-key` options; local service schemas do not require them. In the Cloud dashboard, the service's **API docs** link opens an authenticated viewer where you can inspect and try routes without pasting an API key. Trying an insert, update, or delete route can change data.
+The hosted schema declares the gateway's Bearer and `X-api-key` options; local service schemas do not require them. In the Cloud dashboard, expand **API docs** on the service detail page to inspect and try routes without pasting an API key. Trying an insert, update, or delete route can change data.
 
 Routes with `return_fileresponse=True` advertise a binary response for any media type. Check the response's `Content-Type` when handling the returned image, video, audio, or document; a fetch caller can consume its bytes with `response.blob()` or `response.arrayBuffer()`.
+
+## Call from a TypeScript frontend
+
+Keep a Cloud API key in your application server's environment, never in browser code. A Next.js server-only helper can call the same service locally (no key) or in Cloud (key required). Set `PIXELTABLE_SERVICE_URL` to the full service endpoint, as above. Run `npm install server-only` in the Next.js project, then put this in `src/lib/pixeltable-service.ts`:
+
+```typescript
+import 'server-only';
+
+export async function pixeltableRequest(path: string, init: RequestInit = {}): Promise<Response> {
+  const serviceUrl = process.env.PIXELTABLE_SERVICE_URL;
+  if (!serviceUrl) throw new Error('Set PIXELTABLE_SERVICE_URL');
+  if (!path.startsWith('/') || path.startsWith('//')) throw new Error('Use a service route path');
+
+  const headers = new Headers(init.headers);
+  const apiKey = process.env.PIXELTABLE_API_KEY;
+  if (apiKey) headers.set('X-api-key', apiKey);
+  const response = await fetch(`${serviceUrl.replace(/\/$/, '')}${path}`, {
+    ...init,
+    headers,
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    const error: unknown = await response.json().catch(() => null);
+    const detail = error && typeof error === 'object' && 'detail' in error ? error.detail : null;
+    const message = Array.isArray(detail)
+      ? detail.map((issue: unknown) => issue && typeof issue === 'object' && 'msg' in issue &&
+        typeof issue.msg === 'string' ? issue.msg : '').filter(Boolean).join('; ') || `HTTP ${response.status}`
+      : detail && typeof detail === 'object' && 'message' in detail &&
+        typeof detail.message === 'string' ? detail.message : `HTTP ${response.status}`;
+    throw new Error(message);
+  }
+  return response;
+}
+```
+
+Call it with fixed route paths from a Server Component or from your own authenticated Route Handler or Server Action; do not pass untrusted browser input as `path`. For a JSON route, use `await response.json()` and the generated OpenAPI type for that operation. For a binary route, use `await response.blob()` or stream `response.body` through your Route Handler with the upstream `Content-Type`. For an upload, pass `FormData` as `body` and let `fetch` set its multipart boundary; do not set `Content-Type` yourself. Protect any Route Handler or Server Action that exposes writes to browser users with your application's authorization checks. The Cloud dashboard's **Use this endpoint** TypeScript and JavaScript snippets are server-side examples.
+
+Pixeltable runtime errors use a JSON `detail` object with `error_code`, `message`, and `retryable` (sometimes `retry_after`). FastAPI request-validation errors instead use a `detail` array. Handle both shapes when displaying errors or deciding whether to retry a write.
 
 ## Mount on your own FastAPI app
 
@@ -277,6 +319,8 @@ curl http://127.0.0.1:<port>/_pxt/jobs/abc123
 # {"status": "done", "result": {...}}
 # {"status": "error", "error": "..."}
 ```
+
+Poll through your application server with the same Cloud key when hosted. The polling path is currently omitted from the generated OpenAPI schema, so call the returned `job_url` directly rather than expecting a generated client method.
 
 `background` cannot combine with `return_fileresponse`.
 
