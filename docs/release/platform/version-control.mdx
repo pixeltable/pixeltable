@@ -3,7 +3,7 @@ title: Version Control and Lineage
 description: Automatic versioning, time travel queries, and full data lineage tracking
 ---
 
-Pixeltable automatically tracks every change to your tables—data insertions, updates, deletions, and schema modifications. Query any point in history, undo mistakes, and maintain full reproducibility without manual version management.
+Pixeltable automatically tracks every change to your tables: data insertions, updates, deletions, and schema modifications. Query any point in history, undo mistakes, and maintain full reproducibility without manual version management.
 
 <Note>
 Put the table on a `TableModel` in `app.py` for an application. Inserts, updates, `history()`, and time travel below are runtime APIs and are the same in an app or a notebook.
@@ -44,7 +44,7 @@ products.add_computed_column(price_with_tax=products.price * 1.08)
 products.update({'price': 19.99}, where=products.name == 'Widget')
 ```
 
-No configuration required—versioning is always on.
+No configuration required: versioning is always on.
 
 ## Viewing history
 
@@ -84,7 +84,7 @@ products_v1.collect()  # Returns data as it was at version 1
 products.collect()  # Returns current data
 ```
 
-Version handles are **read-only**—you cannot modify historical data.
+Version handles are **read-only**: you cannot modify historical data.
 
 ### Use cases
 

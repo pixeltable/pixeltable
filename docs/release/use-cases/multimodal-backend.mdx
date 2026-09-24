@@ -64,7 +64,7 @@ docs.insert([{'document': 'report.pdf'}])
 
 `pxt service list` prints the URL. POST `/docs` to insert. POST `/search` with `{"query_text": "..."}` to rank chunks.
 
-On Cloud, create an API key in the [dashboard](/howto/deployment/cloud#get-an-api-key), set `PIXELTABLE_API_KEY`, then run `pxt db update`, `pxt schema update`, and `pxt service update` against `pxt://org:mydb`.
+On Cloud, sign in with `pxt login` or [use an API key](/cloud#get-an-api-key), then run `pxt db update`, `pxt schema update`, and `pxt service update` against `pxt://org:mydb`.
 
 Export those tables for training: [Datasets from media](/use-cases/media-processing). Tool calls as columns: [Agents](/use-cases/agentic-workflows).
 
