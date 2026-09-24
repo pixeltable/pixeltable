@@ -95,12 +95,12 @@ curl -X POST "$URL/docs" \
 # {"id":"...","title_upper":"HELLO","summary":"Hello"}
 ```
 
-The same file runs on Pixeltable Cloud. Sign in with `pxt login`, name the database in `pixeltable.toml`, then target it by URI. An [API key](https://docs.pixeltable.com/cloud#get-an-api-key) is optional for automation or hosted HTTP. `pxt db update` creates or updates the hosted database; it does not insert rows. `pxt service run` is local only and cannot target Cloud.
+The same file runs on [Pixeltable Cloud](https://docs.pixeltable.com/cloud). Sign in with `pxt login`, name the database in the project configuration, then target it by URI. An [API key](https://docs.pixeltable.com/cloud#get-an-api-key) is optional for CLI automation and required for direct hosted HTTP calls. `pxt db update` prepares the hosted database; it does not insert rows. `pxt service run` is local only and cannot target Cloud.
 
 ```bash
-pxt db update pxt://org:mydb
-pxt schema update app.py pxt://org:mydb
-pxt service update app.py pxt://org:mydb
+pxt db update pxt://org:main
+pxt schema update app.py pxt://org:main
+pxt service update app.py pxt://org:main
 ```
 
 A `@pxt.udf` in that same `app.py` is in the image `pxt db update` builds.

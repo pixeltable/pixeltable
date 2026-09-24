@@ -73,19 +73,19 @@ A schema change with a service already running needs `pxt service update` after 
     pxt init
     ```
 
-    Add this hosted entry to `pixeltable.toml`, keeping the local entry that `pxt init` wrote:
+    Add this hosted entry to `pixeltable.toml`, keeping the local entry that `pxt init` wrote. A new organization gets the `main` database when you run `pxt org create`:
 
     ```toml
     [[pixeltable.database]]
-    name = 'pxt://org:mydb'
+    name = 'pxt://org:main'
     ```
 
     If `pxt init` wrote to `pyproject.toml` instead, use `[[tool.pixeltable.database]]` for the hosted entry. Then run:
 
     ```bash
-    pxt db update pxt://org:mydb
-    pxt schema update app.py pxt://org:mydb
-    pxt service update app.py pxt://org:mydb
+    pxt db update pxt://org:main
+    pxt schema update app.py pxt://org:main
+    pxt service update app.py pxt://org:main
     ```
 
     [Pixeltable Cloud](/cloud#first-deployment) shows the full setup. `pxt service run` only starts endpoints in your local terminal.
