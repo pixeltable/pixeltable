@@ -5,7 +5,8 @@
   <img alt="Pixeltable" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/_logo/pxt-light.svg" width="40%">
 </picture>
 
-## The unified multimodal backend agents build with
+# The backend agents build with
+### Multimodal database, orchestration, and serving in one file
 
 [**Quickstart**](https://docs.pixeltable.com/overview/quick-start) |
 [**Documentation**](https://docs.pixeltable.com/) |

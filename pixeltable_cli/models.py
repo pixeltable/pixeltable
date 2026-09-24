@@ -41,7 +41,8 @@ class InFlightRequest(BaseModel):
 class HealthResponse(BaseModel):
     ok: bool
     service: Literal['pxt'] = 'pxt'
-    pxt_version: str
+    # None where the served project is pixeltable itself, which its image does not install
+    pxt_version: str | None = None
     pid: int
     started_at: str
 
@@ -49,7 +50,7 @@ class HealthResponse(BaseModel):
     # verbatim on each /health call. The client computes the same fingerprint locally (without
     # importing pixeltable) and restarts the daemon on any mismatch, so the daemon never keeps
     # serving requests against a stale install or a stale snapshot of the environment.
-    pxt_install_dir: str
+    pxt_install_dir: str | None = None
     python_executable: str
     pixeltable_home: str
     pixeltable_pgdata: str
@@ -304,3 +305,54 @@ class CwdBody(BaseModel):
 
 class CwdResponse(BaseModel):
     uri: str | None  # the session's working directory, or None when unset (catalog root)
+
+
+class LoginStartResponse(BaseModel):
+    """What the browser needs to approve, and what the next poll has to send back."""
+
+    client_id: str
+    device_code: str
+    user_code: str
+    verification_uri: str
+    interval: float
+    expires_in: float
+
+
+class LoginPollBody(BaseModel):
+    client_id: str
+    device_code: str
+
+
+class LoginPollResponse(BaseModel):
+    # 'granted', or the OAuth error code the sign-in service answered with
+    status: str
+    email: str = ''
+    organization_id: str = ''
+    detail: str = ''  # the error_description of that answer
+
+
+class WhoamiResponse(BaseModel):
+    api_url: str
+    email: str
+    organization_id: str
+    using: str  # 'api_key', 'session' or 'none'
+    credential_source: str
+    accepted: bool
+    rejection: str = ''
+    # the control plane's reason for refusing the check's operation to an accepted credential, such as a
+    # key limited by its grants
+    note: str = ''
+
+
+class LogoutResponse(BaseModel):
+    signed_out: bool
+    # where to send a browser to end the sign-in behind the session, empty when there is none
+    browser_logout_url: str
+    warning: str = ''
+
+
+class OrgCreateResponse(BaseModel):
+    org: dict[str, Any]  # the control plane's answer
+    # the organization the `pxt login` session was switched to; empty when it was not switched
+    session_organization_id: str = ''
+    warning: str = ''

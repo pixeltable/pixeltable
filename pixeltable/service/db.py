@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import logging
-import shutil
-import tarfile
-import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -16,8 +13,6 @@ from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.service.management_protocol import (
     ArtifactUpload,
     DatabaseReport,
-    GetArchiveRequest,
-    GetArchiveResponse,
     GetDbRequest,
     GetDbResponse,
     ReportServiceInstanceRequest,
@@ -30,16 +25,12 @@ from pixeltable.utils.project import (
     package_image_context,
     package_project_archive,
     project_fingerprint,
-    unpacked_digest,
 )
 from pixeltable_cli.types import DbArtifact, DbChangeOp, DbPlan, DbState, DbTarget, OpStatus
 
 _logger = logging.getLogger('pixeltable')
 
 _UPLOAD_TIMEOUT = 300
-_DOWNLOAD_TIMEOUT = 300
-
-_ARCHIVE_DIR = 'project'
 
 _DB_DESTRUCTIVE_HINT = "Re-run 'pxt db update' with --allow-destructive to apply these changes."
 
@@ -229,61 +220,6 @@ def db_build_image(db_uri: str) -> list[DbChangeOp]:
     archive_op = DbChangeOp.upload_archive()
     archive_op.status = 'applied' if 'archive' in stored else 'skipped'
     return [image_op, archive_op]
-
-
-def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:
-    """Unpack db_uri's project archive into dest, and return what the control plane served it as."""
-    db_path = _validated_db_uri(db_uri)
-    response = GetArchiveResponse.model_validate(
-        management_client.api_call(GetArchiveRequest(org=db_path.org, db=db_path.db))
-    )
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    # unpacked next to dest and moved into place, so that dest never holds a file the archive dropped
-    unpacking = Path(tempfile.mkdtemp(dir=dest.parent, prefix=f'.{dest.name}.'))
-    archive_path = unpacking / 'project.tar.bz2'
-    try:
-        # streamed to disk: a project may select files too large to hold in memory
-        with (
-            urllib.request.urlopen(response.presigned_url, timeout=_DOWNLOAD_TIMEOUT) as r,
-            archive_path.open('wb') as f,
-        ):
-            shutil.copyfileobj(r, f)
-
-        project_dir = unpacking / _ARCHIVE_DIR
-        project_dir.mkdir()  # an archive holding no files still unpacks to an empty project
-        prefix = f'{_ARCHIVE_DIR}/'
-        with tarfile.open(archive_path, mode='r:bz2') as tf:
-            members: list[tarfile.TarInfo] = []
-            for member in tf.getmembers():
-                if member.name == _ARCHIVE_DIR:
-                    continue
-                if not member.name.startswith(prefix):
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_DATA_FORMAT,
-                        f'{db_path.uri_str} serves an archive holding {member.name!r}, which is outside {prefix}',
-                    )
-                member.name = member.name[len(prefix) :]
-                if member.islnk() and member.linkname.startswith(prefix):
-                    # a hard link points at another member, and that name loses the prefix too
-                    member.linkname = member.linkname[len(prefix) :]
-                members.append(member)
-            # filter='data': refuses a member naming a path outside the directory, and drops ownership bits
-            tf.extractall(project_dir, members=members, filter='data')
-
-        unpacked = unpacked_digest(project_dir)
-        if unpacked != response.digest:
-            # what arrived is not what the control plane named, whatever it named
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_DATA_FORMAT,
-                f'{db_path.uri_str} served an archive holding project {unpacked}, not {response.digest}',
-            )
-
-        if dest.exists():
-            shutil.rmtree(dest)
-        project_dir.rename(dest)
-    finally:
-        shutil.rmtree(unpacking, ignore_errors=True)
-    return response
 
 
 def report_instance_fingerprint(

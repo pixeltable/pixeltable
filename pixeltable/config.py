@@ -120,14 +120,12 @@ def _find_project_root(start: Path) -> Path | None:
     return None
 
 
-# config section names for database variables
+# config section name for database variables
 VAR_SECTION = 'pixeltable.database.vars'
-SECRET_SECTION = 'pixeltable.database.secrets'
 
-# environment variable prefixes for the two sections above; the general section_key rule produces a name that's not
+# environment variable prefix for the section above; the general section_key rule produces a name that's not
 # shell-compatible (contains '.')
 VAR_ENV_PREFIX = 'PIXELTABLE_VAR_'
-SECRET_ENV_PREFIX = 'PIXELTABLE_SECRET_'
 
 
 # config var names are lowercase; the env var name is the name uppercased
@@ -141,8 +139,6 @@ def is_env_key(ck: ConfigKey) -> bool:
 
 def env_var_name(section: str, key: str) -> str:
     """The environment variable that binds section.key."""
-    if section == SECRET_SECTION:
-        return f'{SECRET_ENV_PREFIX}{key.upper()}'
     if section == VAR_SECTION:
         return f'{VAR_ENV_PREFIX}{key.upper()}'
     return f'{section.upper()}_{key.upper()}'
@@ -161,19 +157,8 @@ class URI(str):
         return super().__new__(cls, value)
 
 
-class Secret(str):
-    """A configuration value whose repr is redacted.
-
-    The value is an ordinary string and only its repr is redacted, so printing or logging it any other way shows the
-    value.
-    """
-
-    def __repr__(self) -> str:
-        return "Secret('<redacted>')"
-
-
 class ConfigVar(Generic[ConfVarT]):
-    """A reference to a database variable or secret, defined at module scope.
+    """A reference to a database variable, defined at module scope.
 
     A definition names the variable; the target it is applied to supplies the value.
 
@@ -191,7 +176,7 @@ class ConfigVar(Generic[ConfVarT]):
     TAG = '$confvar'
 
     # types a ConfigVar may declare, by name, so that a stored reference can be reconstituted
-    _CONFVAR_TYPES: ClassVar[dict[str, type[str]]] = {'str': str, 'URI': URI, 'Secret': Secret}
+    _CONFVAR_TYPES: ClassVar[dict[str, type[str]]] = {'str': str, 'URI': URI}
 
     name: str
     type_: type[ConfVarT]
@@ -212,38 +197,32 @@ class ConfigVar(Generic[ConfVarT]):
         self.type_ = type_
 
     @property
-    def section(self) -> str:
-        """The configuration section this variable's binding is read from."""
-        return SECRET_SECTION if issubclass(self.type_, Secret) else VAR_SECTION
-
-    @property
     def env_var(self) -> str:
         """The environment variable that binds this var."""
-        return env_var_name(self.section, self.name)
+        return env_var_name(VAR_SECTION, self.name)
 
     def value(self) -> ConfVarT:
         """The bound value, converted to the declared type. Raises if the target has no binding for it.
 
         Examples:
-            Read a secret from a udf, which runs on the target:
+            Read a var from a udf, which runs on the target:
 
             >>> @pxt.udf
             ... def summarize(text: str) -> str:
-            ...     return _call(text, key=API_KEY.value())
+            ...     return _call(text, dest=MEDIA_DEST.value())
         """
-        v = Config.get().get_value(self.name, self.type_, section=self.section)
+        v = Config.get().get_value(self.name, self.type_, section=VAR_SECTION)
         if v is None:
             raise excs.RequestError(
                 excs.ErrorCode.MISSING_REQUIRED,
-                f'Config var {self.name!r} is not set.\nAdd it under [{self.section}] in {Config.get().config_file}.',
+                f'Config var {self.name!r} is not set.\nAdd it under [{VAR_SECTION}] in {Config.get().config_file}.',
             )
         return v
 
     def _as_dict(self) -> dict[str, str]:
         """The serialized form of a ConfigVar.
 
-        The declared type travels with the name: it selects the section the binding is read from, and
-        converts the raw string.
+        The declared type travels with the name, and converts the raw string when the value is read back.
         """
         return {self.TAG: self.name, 'type': self.type_.__name__}
 
@@ -530,8 +509,8 @@ class Config:
     def __merged_databases(cls, home: list[DatabaseConfig], project: list[DatabaseConfig]) -> list[DatabaseConfig]:
         """Combine the database entries of the home config with the project's, entry by entry.
 
-        Entries are matched by name, and a field the project sets wins, so a project adding a var keeps the
-        secrets the home config binds for the same database.
+        Entries are matched by name, and a field the project sets wins, so a project adding one var keeps
+        the other vars the home config binds for the same database.
         """
         by_name = {db.name: db for db in home}
         for entry in project:
@@ -542,7 +521,7 @@ class Config:
             fields = existing.model_dump()
             for name, value in entry.model_dump(exclude_none=True).items():
                 if isinstance(value, dict) and isinstance(fields.get(name), dict):
-                    fields[name] = {**fields[name], **value}  # vars and secrets combine per name
+                    fields[name] = {**fields[name], **value}  # vars combine per name
                 else:
                     fields[name] = value
             by_name[entry.name] = DatabaseConfig.model_validate(fields)
@@ -670,9 +649,9 @@ class Config:
     def __database_bindings(self) -> dict[str, tuple[str, Path | None]]:
         """Return the local database's vars, each with the file that supplied it.
 
-        [[pixeltable.database]] is an array, which the section path of a var does not address; it names the
-        entry for the local database, which is the one a process reads them from. A binding the project
-        supplies wins over one of the same name in the home config.
+        [[pixeltable.database]] is an array, which the section path of a var does not address; the path names
+        the entry for the local database, from which a process reads its vars. A binding the project supplies
+        wins over one of the same name in the home config.
         """
         result: dict[str, tuple[str, Path | None]] = {}
         for config, source in (
@@ -692,8 +671,6 @@ class Config:
         """Find key under section in __config_dict. Returns (value, source_path) or None."""
         if section == VAR_SECTION:
             return self.__database_bindings().get(key)
-        if section == SECRET_SECTION:
-            return None  # a secret is bound by its environment variable, which get_value() reads first
         parts = section.split('.')
         # explicit type decl for readability
         top_section: dict[str, tuple[Any, Path | None]] | None = self.__config_dict.get(parts[0])
@@ -787,29 +764,31 @@ class Config:
         path = entry[1]
         return path if path is not None else 'unset'
 
+    def is_overridden(self, key: str, section: str = 'pixeltable') -> bool:
+        """Whether pxt.init() supplied this setting, which outranks the environment and every config file.
+
+        get_value_source() answers 'env' for such a setting too.
+        """
+        return f'{section}.{key}' in self.__config_overrides
+
     def env_keys(self) -> list[ConfigKey]:
         """The config settings that can be set via an environment variable."""
         return [ck for ck in self.config_keys() if is_env_key(ck)]
 
     def __config_var_keys(self) -> list[ConfigKey]:
         """The config vars from the config file and the environment."""
-        result: list[ConfigKey] = []
-        for section, prefix, description in (
-            (VAR_SECTION, VAR_ENV_PREFIX, 'user-defined config var'),
-            (SECRET_SECTION, SECRET_ENV_PREFIX, 'user-defined secret'),
-        ):
-            keys = set(self.__section_keys(section))
-            for name, value in os.environ.items():
-                # a config setting supplied by an env var needs to be uppercase
-                suffix = name[len(prefix) :]
-                if not name.startswith(prefix) or value == '' or suffix != suffix.upper():
-                    continue
-                if re.fullmatch(_CONFIG_VAR_NAME_RE, suffix.lower()) is not None:
-                    keys.add(suffix.lower())
-            result.extend(
-                ConfigKey(section=section, key=key, description=description, expected_type=str) for key in sorted(keys)
-            )
-        return result
+        keys = set(self.__section_keys(VAR_SECTION))
+        for name, value in os.environ.items():
+            # a config setting supplied by an env var needs to be uppercase
+            suffix = name[len(VAR_ENV_PREFIX) :]
+            if not name.startswith(VAR_ENV_PREFIX) or value == '' or suffix != suffix.upper():
+                continue
+            if re.fullmatch(_CONFIG_VAR_NAME_RE, suffix.lower()) is not None:
+                keys.add(suffix.lower())
+        return [
+            ConfigKey(section=VAR_SECTION, key=key, description='user-defined config var', expected_type=str)
+            for key in sorted(keys)
+        ]
 
     def __warn_about_miscased_env_vars(self) -> None:
         """Warn about an environment variable that differs only in case from one this instance reads."""
@@ -818,7 +797,7 @@ class Config:
             if name == name.upper() or not name.upper().startswith('PIXELTABLE_'):
                 continue
             upper = name.upper()
-            if upper in recognized or upper.startswith((VAR_ENV_PREFIX, SECRET_ENV_PREFIX)):
+            if upper in recognized or upper.startswith(VAR_ENV_PREFIX):
                 warnings.warn(
                     f'Ignoring {name}: environment variable names are uppercase; did you mean {upper}?',
                     category=excs.PixeltableWarning,
@@ -829,8 +808,6 @@ class Config:
         """The keys defined in section."""
         if section == VAR_SECTION:
             return list(self.__database_bindings())
-        if section == SECRET_SECTION:
-            return []  # a secret is named by its environment variable, which __config_var_keys() scans
         parts = section.split('.')
         node: Any = self.__config_dict.get(parts[0])
         for p in parts[1:]:

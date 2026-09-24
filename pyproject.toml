@@ -191,8 +191,9 @@ dev = [
     # whisperx is disabled because it hard-pins torch 2.8 (four full versions behind at the time of this writing).
     # "whisperx>=3.8.5 ; python_version < '3.14'",
     "ollama>=0.6",
-    # "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
-    "mcp>=1.27.2",
+    "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
+    # TODO(PXT-1452): drop the <2 cap once pixeltable/func/mcp.py targets the MCP 2.x client API
+    "mcp>=1.27.2,<2",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     # fiftyone is commented out, because even the most recent versions hardcode a dependency on an insecure version
     # of at least one library. We can re-enable it once they update their dependencies.
@@ -235,6 +236,14 @@ extra-dev = [
 cuda-dev = [
     # Dependencies that require CUDA.
     "vllm>=0.24"
+]
+cloud-dev = [
+    # Minimal set of dev dependencies needed to run the [cloud*] tests. This is a subset of `dev`.
+    "mistune",
+    "markitdown[pptx,docx,xlsx] ; python_version < '3.14'",
+    "spacy ; python_version < '3.14'",
+    "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+    "datasets",
 ]
 storage-sdks = [
     # Used for CI configurations that need only the storage SDKs (in addition to basic dependencies).
@@ -305,10 +314,9 @@ module = ["apps.*"]
 ignore_missing_imports = true
 
 [[tool.pixeltable.database]]
-# we need the repo for the uv-dynamic-versioning install, and pixeltable/_version.py in order for the
-# package to function. Both are ignored by default
+# pixeltable/_version.py is gitignored, and the package reads __version__ out of it
 name = 'pxt://pixeltable:pxttest'
-include = ['.git/**', 'pixeltable/_version.py']
+include = ['pixeltable/_version.py']
 # no pod reads the documentation tree, and it is a quarter of what the archive would otherwise carry
 exclude = ['docs/**']
 system_dependencies = ["libiconv", "ffmpeg==6.1.1=gpl*"]
@@ -316,7 +324,7 @@ memory_mb = 6144
 workers = 3
 cpu = 2.0
 disk_gb = 40
-uv_options = "--no-dev"
+uv_options = "--no-dev --group cloud-dev"
 
 [tool.pyright]
 typeCheckingMode = "off"
@@ -328,14 +336,13 @@ extraPaths = ["packages/opentelemetry-instrumentation-pixeltable/src"]
 # instrumentation), whose dependencies are absent in the --no-dev minimal config. Those packages run via their
 # own CI config (see tool/ci_tool.py). Explicit path args on the command line override testpaths as usual.
 testpaths = ["tests"]
-addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark and not otel and not cloud_e2e" --strict-markers'
+addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark and not otel" --strict-markers'
 markers = [
     "expensive: marks tests as expensive to run",
     "very_expensive: marks tests as very expensive to run, or as depending on an unreliable external service",
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
     "benchmark: marks tests as benchmark tests (excluded from regular test runs)",
     "db_roots: test runs only against specified database roots, e.g. @pytest.mark.db_roots('local', reason='...')",
-    "cloud_e2e: marks tests as cloud end-to-end tests requiring PIXELTABLE_API_KEY",
     "otel: marks tests as requiring the otel extra (run on the otel CI leg)",
 ]
 filterwarnings = [

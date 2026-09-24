@@ -7,7 +7,7 @@ import threading
 import time
 from typing import Mapping
 
-from pixeltable.config import SECRET_ENV_PREFIX, VAR_ENV_PREFIX, Config, env_var_name
+from pixeltable.config import VAR_ENV_PREFIX, Config, env_var_name
 from pixeltable_cli.models import InFlightRequest, Method
 from pixeltable_cli.utils import value_fingerprint
 
@@ -34,9 +34,7 @@ def compare_env_values(other: Mapping[str, str], mine: Mapping[str, str]) -> tup
     Returns (set for other but not in mine, resolved differently in mine)
     """
     known = {env_var_name(ck.section, ck.key) for ck in Config.get().env_keys()}
-    relevant = {
-        name: h for name, h in other.items() if name.startswith((VAR_ENV_PREFIX, SECRET_ENV_PREFIX)) or name in known
-    }
+    relevant = {name: h for name, h in other.items() if name.startswith(VAR_ENV_PREFIX) or name in known}
     missing = sorted(name for name in relevant if name not in mine)
     differing = sorted(name for name, h in relevant.items() if name in mine and mine[name] != h)
     return missing, differing

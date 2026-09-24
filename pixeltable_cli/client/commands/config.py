@@ -29,11 +29,7 @@ def _report_env_differences(resp: models.ConfigResponse) -> None:
     """Print the env vars the caller's environment and the daemon resolve differently, if any."""
     daemon_values = resp.env_fingerprint
     known: set[str] = set(resp.env_var_names) | set(daemon_values)
-    caller = {
-        name: h
-        for name, h in env_fingerprint().items()
-        if name in known or name.startswith(('PIXELTABLE_SECRET_', 'PIXELTABLE_VAR_'))
-    }
+    caller = {name: h for name, h in env_fingerprint().items() if name in known or name.startswith('PIXELTABLE_VAR_')}
     missing = sorted(name for name in caller if name not in daemon_values)
     differing = sorted(name for name, h in caller.items() if name in daemon_values and daemon_values[name] != h)
     if len(missing) > 0:

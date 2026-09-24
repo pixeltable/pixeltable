@@ -14,7 +14,7 @@ import pytest
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config, DatabaseConfig
-from pixeltable.service.db import db_update, unpack_project_archive
+from pixeltable.service.db import db_update
 from pixeltable.service.management_protocol import ArtifactUpload, DatabaseReport, UpdateDbResponse
 from pixeltable.utils.project import (
     create_image_context,
@@ -355,36 +355,6 @@ class TestProjectArchive:
 
         assert packaged.files['b.txt'] == packaged.files['a.txt'], 'both paths hold the same file'
         assert packaged.files == project_fingerprint(tmp_path, None).files
-
-    def test_round_trip(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Unpacking an archive yields the project it was packaged from, whatever shapes its files take.
-
-        unpack_project_archive() checks the unpacked project against the digest the caller served it, so
-        serving this project's own digest makes the call itself the assertion.
-        """
-        project = tmp_path / 'project'
-        (project / 'pkg').mkdir(parents=True)
-        (project / 'app.py').write_text('x = 1\n')
-        (project / 'pkg' / 'mod.py').write_text('y = 2\n')
-        (project / 'link.py').symlink_to('app.py')
-        os.link(project / 'app.py', project / 'hard.py')
-
-        packaged = package_project_archive(project)
-        fingerprint = project_fingerprint(project, None)
-        served = {
-            'presigned_url': packaged.path.as_uri(),
-            'digest': fingerprint.archive_digest(),
-            'fingerprint': fingerprint.model_dump(mode='json'),
-        }
-        monkeypatch.setattr('pixeltable.service.db.management_client.api_call', lambda request: served)
-
-        unpacked = tmp_path / 'unpacked'
-        unpack_project_archive('pxt://acme:main', unpacked)
-
-        assert unpacked_digest(unpacked) == fingerprint.archive_digest()
-        assert (unpacked / 'pkg' / 'mod.py').read_text() == 'y = 2\n'
-        assert (unpacked / 'link.py').is_symlink() and os.readlink(unpacked / 'link.py') == 'app.py'
-        assert (unpacked / 'hard.py').read_text() == 'x = 1\n'
 
     def test_symlinked_requirement(self, tmp_path: Path) -> None:
         """pip reads the path as spelled, so a requirement reached through a symlink is absent from the context."""

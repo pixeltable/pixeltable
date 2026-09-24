@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import errno
 import io
 import os
 import re
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import ClassVar
 
@@ -382,6 +384,26 @@ class TestDestination:
         # Ensure that local file is copied to a specified destination
         assert ObjectOps.count(t._id, dest=dest1_uri) == len(r)
 
+    @pytest.mark.db_roots('local', reason='media destination/object-store internals')
+    def test_dest_cross_device_move(self, monkeypatch: pytest.MonkeyPatch, uses_db: None) -> None:
+        """A destination on another filesystem than the TempStore falls back from rename to copy."""
+        dest_uri = self.resolve_destination_uri(StorageTarget.LOCAL_STORE)
+        store = ObjectOps.get_store(f'{dest_uri}/bucket1', False)
+
+        src_path = TempStore.create_path(extension='.bin')
+        src_path.write_bytes(b'cross-device payload')
+        dest = store.resolve_destination(uuid.uuid4(), 0, 0, ext=src_path.suffix)
+
+        def rename_exdev(self: Path, target: object) -> None:
+            raise OSError(errno.EXDEV, 'Invalid cross-device link')
+
+        monkeypatch.setattr(Path, 'rename', rename_exdev)
+        url = ObjectOps.put_file_resolved(store, src_path, dest, relocate_or_delete=True)
+
+        assert url == dest.url
+        assert dest.local_path.read_bytes() == b'cross-device payload'
+        assert not src_path.exists()
+
     @pytest.mark.very_expensive
     def test_dest_all(self, db_root: DatabaseRoot) -> None:
         """Test destination with all available storage targets"""
@@ -460,7 +482,7 @@ class TestDestination:
         """Media that names no destination lands in the hosted database's home bucket; a column that names one goes
         there instead."""
         p = db_root.make_catalog_path
-        home = home_bucket_uri(db_root.prefix)
+        home = home_bucket_uri(db_root.base_uri)
         elsewhere = f'{home}/elsewhere'
         t = pxt.create_table(
             p('home_default'), {'img': pxt.Image, 'video': pxt.Video | None, 'audio': pxt.Audio | None}

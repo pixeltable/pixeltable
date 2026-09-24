@@ -139,7 +139,6 @@ class Env:
     _file_cache_lease_s: float
     _default_input_media_dest: str | None
     _default_output_media_dest: str | None
-    _pxt_api_key: str | None
     _object_store_clients: dict[tuple[StorageTarget, ObjectStoreClientKind], S3CompatClientDict]
     _object_store_clients_lock: threading.Lock
     _default_video_encoder: str | None
@@ -694,24 +693,6 @@ class Env:
         from pixeltable import metadata
 
         metadata.upgrade_md(self._sa_engine)
-
-    @property
-    def pxt_api_key(self) -> str | None:
-        """Get the Pixeltable API key from config"""
-        return Config.get().get_string_value('api_key')
-
-    def require_api_key(self, purpose: str | None = None) -> str:
-        """Return the Pixeltable API key, raising if none is configured. purpose names the attempted operation."""
-        api_key = self.pxt_api_key
-        if api_key is None:
-            attempt = '' if purpose is None else f' to {purpose}'
-            raise excs.AuthorizationError(
-                excs.ErrorCode.MISSING_CREDENTIALS,
-                f'A Pixeltable API key is required{attempt}. '
-                'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
-                'or add `api_key = "your-key"` to the `[pixeltable]` section in your Pixeltable config file.',
-            )
-        return api_key
 
     def proxy_endpoint(self, org: str, db: str) -> tuple[str, int]:
         """Host and port of the proxy daemon serving a hosted database."""

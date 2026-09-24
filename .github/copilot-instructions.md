@@ -81,7 +81,7 @@ Roughly 18 of the last 100 PRs drew a maintainer comment about this. It outranks
 | `pixeltable/metadata/` | Migration tests + `tests/data/` + `tool/create_test_db_dump.py` |
 | `tests/data/dbdumps/*-info.toml` | Regenerate the matching `.dump.gz` in the same commit |
 | `pyproject.toml` (deps) | `uv.lock` |
-| The `app.py` example | Its copies in `README.md`, `AGENTS.md`, `docs/release/skill.md`, `quick-start.mdx`, `cloud.mdx` |
+| The `app.py` example | Its copies in `README.md`, `AGENTS.md`, `quick-start.mdx`, `cloud.mdx` |
 
 ## Current API (Citing a Stale One Wastes Review Time)
 

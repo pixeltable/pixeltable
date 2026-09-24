@@ -13,11 +13,11 @@ No CI job checks prose, so review is the only place these are caught.
 
 ## Notebooks
 
-- Exactly one title source: either a raw cell with YAML frontmatter, or a leading H1 that Quarto converts. Flag a notebook carrying both, which renders a double title. Do not flag a leading H1 on its own; 93 of 100 notebooks use one.
+- Exactly one title source: either a raw cell with YAML frontmatter, or a leading H1 that Quarto converts. Flag a notebook carrying both, which renders a double title. Do not flag a leading H1 on its own.
 - Code cells format at line length **74**, not the 120 that applies to `.py` files (`scripts/check-notebooks.sh`).
 - At least 50% of code cells must have outputs (`tool/check_notebooks.py`). Never advise clearing all outputs.
 - Markdown cells must be `nbqa mdformat` clean. Use `raw.githubusercontent.com`, never `raw.github.com`.
-- No badge images in markdown cells. Kaggle/Colab/download links belong in the frontmatter `description`.
+- No hand-written badges or open-in links in notebook cells or frontmatter. The docs build generates Kaggle, Colab, and download links from the notebook path.
 - Schema ops in examples must use `if_exists='ignore'` / `if_not_exists=True`.
 
 ## Accuracy traps

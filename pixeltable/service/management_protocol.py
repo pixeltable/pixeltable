@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import re
+from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
@@ -12,6 +12,7 @@ from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.service.service_md import ServiceInstanceRecord
 from pixeltable.utils.project import ProjectFingerprint
 from pixeltable_cli.types import DbArtifact, DbPlan, ServiceSpec
+from pixeltable_cli.utils import hosted_name_error
 
 
 class ManagementOperationType(str, Enum):
@@ -36,31 +37,26 @@ class ManagementOperationType(str, Enum):
     GET_ARCHIVE = 'get_archive'
     GET_LOGS = 'get_logs'
 
+    CREATE_ORG = 'create_org'
     LIST_ORGS = 'list_orgs'
 
     SET_SECRET = 'set_secret'
     DELETE_SECRET = 'delete_secret'
     LIST_SECRETS = 'list_secrets'
 
+    CREATE_KEY = 'create_key'
+    LIST_KEYS = 'list_keys'
+    UPDATE_KEY = 'update_key'
+    DELETE_KEY = 'delete_key'
+
 
 # Db operations
 
-# A hosted database name: lowercase letters, digits, and hyphens, starting and ending with a letter
-# or digit, at most 29 characters. This is the `db` identifier that appears in pxt://org:db URIs.
-_HOSTED_NAME_RE = re.compile(r'[a-z0-9]([a-z0-9-]*[a-z0-9])?')
-_HOSTED_NAME_MAX_LEN = 29
-
 
 def _validate_hosted_name(value: str, kind: str) -> str:
-    if len(value) > _HOSTED_NAME_MAX_LEN:
-        raise ValueError(f'{kind} must be at most {_HOSTED_NAME_MAX_LEN} characters (got {len(value)})')
-    # fullmatch anchors both ends; match() + `$` would let a trailing newline
-    # through ('main\n'), which corrupts the URI we build from this downstream.
-    if not _HOSTED_NAME_RE.fullmatch(value):
-        raise ValueError(
-            f'{kind} {value!r} is invalid: use only lowercase letters, digits, and hyphens, '
-            'starting and ending with a letter or digit.'
-        )
+    error = hosted_name_error(value, kind)
+    if error is not None:
+        raise ValueError(error)
     return value
 
 
@@ -71,10 +67,13 @@ class DatabaseReport(BaseModel):
 
     db: str = ''
 
-    target_resources: DatabaseResources | None = None
+    target_resources: DatabaseResources | None = Field(
+        default=None, description='what the project configuration asks for; an update moves the database to this'
+    )
 
-    # None: the database does not exist
-    current: DatabaseStatus | None = None
+    current: DatabaseStatus | None = Field(
+        default=None, description='what the database provides now; null when the database does not exist'
+    )
 
 
 class GetDbRequest(BaseModel):
@@ -213,6 +212,14 @@ class SetSecretRequest(BaseModel):
     db: str | None = None
     key: str
     value: str
+
+    @field_validator('key')
+    @classmethod
+    def _validate_key(cls, key: str) -> str:
+        # TODO(PXT-1418): pxt secret operations can fail partially
+        if key.upper().startswith('PIXELTABLE_'):
+            raise ValueError(f'Invalid secret name {key!r}: the PIXELTABLE_ prefix is reserved.')
+        return key
 
 
 class SetSecretResponse(BaseModel):
@@ -399,9 +406,98 @@ class OrgRecord(BaseModel):
     updated_at: float
 
 
+class CreateOrgRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.CREATE_ORG] = ManagementOperationType.CREATE_ORG
+    org: str  # the namespace in pxt://org:db; unique across Pixeltable
+
+    # the backing WorkOS organization. A dashboard has already created one and sets this; with no
+    # WorkOS credentials, a CLI leaves it empty and the control plane creates the organization.
+    org_id: str | None = None
+
+    display_name: str | None = None  # what people see; defaults to org
+    location: str | None = None  # e.g. 'aws/us-east-1'; defaults to the primary region
+
+    @field_validator('org')
+    @classmethod
+    def _validate_org(cls, value: str) -> str:
+        return _validate_hosted_name(value, 'Organization name')
+
+
+class CreateOrgResponse(BaseModel):
+    org_id: str
+    org: str
+    default_db: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class ListOrgsRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.LIST_ORGS] = ManagementOperationType.LIST_ORGS
 
 
 class ListOrgsResponse(BaseModel):
     orgs: list[OrgRecord]
+
+
+# API keys
+#
+# The caller's credential decides the organization: no request here has an organization field, and a grant in
+# another organization is refused.
+
+
+class KeyRecord(BaseModel):
+    name: str
+    key_type: Literal['user', 'runtime']  # the Principal.type the control plane records for it
+    grants: list[str] = Field(default_factory=list)  # empty for a key that acts as its creator
+    created_at: datetime
+    # Who created it: an email when the control plane knows one, else a user id; empty when unknown.
+    created_by: str = ''
+    # Set only in a create response: the secret is shown once and never stored in retrievable form.
+    api_key: str | None = None
+
+
+class CreateKeyRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.CREATE_KEY] = ManagementOperationType.CREATE_KEY
+    name: str
+    # Each a verb on a pxt:// resource, such as 'access:pxt://acme:main/services/ingest'. Empty asks for
+    # a key that acts as you; any grant asks for one that acts as nobody.
+    grants: list[str] = Field(default_factory=list)
+
+
+class CreateKeyResponse(BaseModel):
+    key: KeyRecord
+
+
+class ListKeysRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.LIST_KEYS] = ManagementOperationType.LIST_KEYS
+
+
+class ListKeysResponse(BaseModel):
+    keys: list[KeyRecord]
+
+
+class UpdateKeyRequest(BaseModel):
+    """Add and remove grants on an existing key, leaving the rest alone.
+
+    A delta rather than a replacement list, so granting one more resource does not depend on the
+    caller first knowing -- and faithfully resending -- everything the key already had.
+    """
+
+    operation_type: Literal[ManagementOperationType.UPDATE_KEY] = ManagementOperationType.UPDATE_KEY
+    name: str
+    # grants in the form CreateKeyRequest.grants takes
+    allow: list[str] = Field(default_factory=list)
+    revoke: list[str] = Field(default_factory=list)
+
+
+class UpdateKeyResponse(BaseModel):
+    key: KeyRecord
+
+
+class DeleteKeyRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.DELETE_KEY] = ManagementOperationType.DELETE_KEY
+    name: str
+
+
+class DeleteKeyResponse(BaseModel):
+    name: str

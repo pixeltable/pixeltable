@@ -49,7 +49,9 @@ paragraphs produces chunks too small to carry context. `char_limit` gives you pr
 predictable embedding cost, and cuts mid-sentence.
 
 Valid separators are `heading`, `paragraph`, `sentence`, `token_limit`, `char_limit`, and `page`.
-Combine them with a comma, most structural first:
+`sentence` needs `spacy` and its default English model: run `pip install spacy`, then
+`python -m spacy download en_core_web_sm`. `token_limit` needs `pip install tiktoken`.
+Combine separators with a comma, most structural first:
 
 ```python
 iterator=document_splitter(sites.url, separators='heading,token_limit', limit=300)
