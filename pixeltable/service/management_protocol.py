@@ -40,7 +40,9 @@ class ManagementOperationType(str, Enum):
 
     SET_SECRET = 'set_secret'
     DELETE_SECRET = 'delete_secret'
+    # TODO(PXT-1438): delete this when we no longer need to support older pxt cli
     LIST_SECRETS = 'list_secrets'
+    LIST_ALL_SECRETS = 'list_all_secrets'
 
 
 # Db operations
@@ -249,6 +251,29 @@ class ListSecretsRequest(BaseModel):
 
 class ListSecretsResponse(BaseModel):
     keys: list[str]
+
+
+class ListAllSecretsRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.LIST_ALL_SECRETS] = ManagementOperationType.LIST_ALL_SECRETS
+    # If org is set, the server validates that it matches the API key's org
+    org: str | None = None
+    # The server always returns the org-level secrets because each database inherits them. In addition to that, if db is
+    # set, the server returns that database's secrets. Otherwise it returns all secrets in all databases in the org.
+    db: str | None = None
+
+
+class SecretListItem(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
+    key: str
+    db: str | None = Field(description='null for an org-level secret')
+
+
+class ListAllSecretsResponse(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
+    org: str
+    secrets: list[SecretListItem]
 
 
 # Services

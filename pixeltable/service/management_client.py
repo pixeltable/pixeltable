@@ -35,6 +35,7 @@ _LONG_OPS = frozenset(
 _READ_OPS = frozenset(
     op.value
     for op in (
+        ManagementOperationType.LIST_ALL_SECRETS,
         ManagementOperationType.LIST_ORGS,
         ManagementOperationType.LIST_DBS,
         ManagementOperationType.GET_DB,
