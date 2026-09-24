@@ -1087,6 +1087,8 @@ class TestFastAPI:
 
         file_resp = paths['/file']['post']['responses']['200']
         assert file_resp['content'] == {'*/*': {'schema': {'type': 'string', 'format': 'binary'}}}
+        # no route publishes the endpoint wrapper's internals as its description
+        assert all('description' not in op for item in paths.values() for op in item.values())
 
         # /bg: background route returns BackgroundJobResponse
         bg_resp = paths['/bg']['post']['responses']['200']['content']['application/json']['schema']

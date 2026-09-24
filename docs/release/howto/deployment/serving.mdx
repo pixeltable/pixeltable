@@ -52,8 +52,12 @@ export const pixeltable = createClient<paths>({
 });
 
 export class PixeltableError extends Error {
-  constructor(readonly status: number, readonly body: unknown) {
+  status: number;
+  body: unknown;
+  constructor(status: number, body: unknown) {
     super(`Pixeltable service returned HTTP ${status}`);
+    this.status = status;
+    this.body = body;
   }
 }
 
@@ -68,7 +72,7 @@ Call it from a Server Component, or from your own Route Handler or Server Action
 
 A `return_fileresponse=True` route needs `parseAs: 'blob'`, or `parseAs: 'stream'` to pipe `response.body` through your Route Handler with the upstream `Content-Type`; without it the client parses the file as JSON and throws. Generated types describe upload fields as strings, so send an upload with `fetch`, a `FormData` body, and the same `X-api-key` header, and let `fetch` set the multipart boundary.
 
-`PixeltableError.body` is the parsed error response. Its `detail` is an object with `error_code`, `message`, and `retryable` (sometimes `retry_after`) for a Pixeltable runtime error, a string for a missing row, and an array for a request-validation error. Hosted, the gateway answers with an HTML body instead: 401 for a missing or invalid key, 403 for a key without access to the service, 404 for an unknown service, and 503 when the service is not running, key validation is briefly unavailable, or the key is rate limited. Retry a write only when `detail.retryable` is true or the gateway answered 503, which means the request did not reach the service.
+`PixeltableError.body` is the parsed error response. Its `detail` is an object with `error_code`, `message`, and `retryable` (sometimes `retry_after`) for a Pixeltable runtime error, a string for a missing row, and an array for a request-validation error; branch on its shape, not the status. Hosted, the gateway answers with an HTML body instead: 401 for a missing or invalid key, 403 for a key without access to the service, 404 for an unknown service, and 503 when the service is not running, key validation is briefly unavailable, or the key is rate limited. Retry a write only when `detail.retryable` is true or the gateway answered 503, which means the request did not reach the service.
 
 ## Mount on your own FastAPI app
 
