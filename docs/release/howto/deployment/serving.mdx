@@ -23,7 +23,7 @@ Replace `my_app` and `ingest` when using another target or service.
 Each column named in a route's `outputs` becomes a typed field, computed columns included.
 Regenerate types after changing the Python routes.
 
-For a hosted service, copy its full endpoint URL from the Cloud dashboard or find it with `pxt service list pxt://org:db --json` using an organization key. The gateway requires a credential to download the schema:
+For a hosted service, copy its full endpoint URL from the Cloud dashboard or find it with `pxt service list pxt://org:db --json` using a credential that can list services. A key scoped only to invoke a service cannot list services, but can download that service's schema when granted access. The gateway requires a credential to download the schema:
 
 ```bash
 curl -fsS -H "X-api-key: $PIXELTABLE_API_KEY" "$SERVICE_URL/openapi.json" -o openapi.json
