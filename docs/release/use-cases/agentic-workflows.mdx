@@ -55,9 +55,9 @@ assistant.select(assistant.message, assistant.tool_output).collect()
 
 A full chat app: [`uvx pixeltable-new`](https://github.com/pixeltable/pixeltable-new) copies the [starter kit](/resources/starter-kit) agent. Pass `agent` as the last argument to `pxt schema update`. `/ask` needs `ANTHROPIC_API_KEY`.
 
-On Cloud, create an API key in the [dashboard](/howto/deployment/cloud#get-an-api-key), set `PIXELTABLE_API_KEY`, then run `pxt db update`, `pxt schema update`, and `pxt service update` against `pxt://org:mydb`.
+On Cloud, sign in with `pxt login` or [use an API key](/cloud#get-an-api-key), then run `pxt db update`, `pxt schema update`, and `pxt service update` against `pxt://org:mydb`.
 
-Search over chunks instead of tools: [RAG and live APIs](/use-cases/multimodal-backend). Coming from LangGraph: [Migrate](/howto/coming-from#langgraph).
+Search over chunks instead of tools: [RAG and live APIs](/use-cases/multimodal-backend).
 
 <CardGroup cols={2}>
   <Card title="Tool calling" icon="wrench" href="/howto/cookbooks/agents/llm-tool-calling">

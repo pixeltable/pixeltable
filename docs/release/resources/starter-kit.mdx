@@ -17,7 +17,7 @@ pxt schema update app.py agent
 pxt service update app.py agent
 ```
 
-`agent` is the catalog Pixeltable creates, not a folder on disk. For the video app, run `uvx pixeltable-new myapp --video` and use `videointel` as that catalog.
+`agent` is the catalog name Pixeltable creates, not a folder on disk. For the video app, run `uvx pixeltable-new myapp --video` and use `videointel` as that catalog name.
 The scaffold includes `pixeltable.toml`. If you copied files by hand, run `pxt init` first.
 
 Routes live on a `FastAPIRouter` in the same file as the `TableModel` classes.
@@ -53,7 +53,7 @@ pxt schema update app.py pxt://org:mydb
 pxt service update app.py pxt://org:mydb
 ```
 
-[Deploy to Pixeltable Cloud](/howto/deployment/cloud). `pxt service run` starts a service in your terminal and cannot target Cloud; use `pxt service update` for hosted endpoints.
+[Pixeltable Cloud](/cloud). `pxt service run` starts a service in your terminal and cannot target Cloud; use `pxt service update` for hosted endpoints.
 
 <CardGroup cols={2}>
   <Card title="AI Skills" icon="robot" href="/resources/ai-skills">

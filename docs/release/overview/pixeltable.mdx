@@ -1,6 +1,6 @@
 ---
 title: 'Why Pixeltable?'
-description: 'The unified multimodal backend agents build with. Database, orchestration, and serving in one Python file.'
+description: 'Put tables and routes in app.py. Computed columns run when rows are inserted.'
 ---
 
 <Note>
@@ -11,14 +11,14 @@ description: 'The unified multimodal backend agents build with. Database, orches
 
 <CardGroup cols={2}>
   <Card title="A glued stack" icon="layer-group">
-    Most stacks glue object storage, a warehouse, a vector database, an orchestrator, and custom endpoints.
+    Most stacks glue a blob store, a warehouse, a vector database, an orchestrator, and custom endpoints.
   </Card>
   <Card title="You pay for the joints" icon="link">
     Each extra store or orchestrator is another system to operate.
   </Card>
 </CardGroup>
 
-Pixeltable is the database, the orchestration, and the serving: tables, computed columns, indexes, and endpoints in **one Python file** (`app.py`).
+Put `TableModel` tables, computed columns, indexes, and routes in `app.py`. Run `pxt schema update` to create the tables, then insert a row. Pixeltable computes assigned columns and updates indexes during the insert. Run `pxt service update` when you want HTTP endpoints.
 
 ## With Pixeltable
 
@@ -39,7 +39,7 @@ Pixeltable is the database, the orchestration, and the serving: tables, computed
 
 If you process media and serve model pipelines, that file is the backend you keep. Insert a row. Transforms run. Indexes stay current.
 
-Locally, create those tables with `pxt schema update`. Start the endpoints with `pxt service update`. On [Pixeltable Cloud](/howto/deployment/cloud), use the same `app.py` after you set `PIXELTABLE_API_KEY` and run `pxt db update`. That Cloud command creates or updates the hosted database. It does not insert rows and does not start app endpoints.
+Locally, create those tables with `pxt schema update`. Start the endpoints with `pxt service update`. On [Pixeltable Cloud](/cloud), sign in with `pxt login` or use an API key, then run `pxt db update` with the same `app.py`. That command creates or updates the hosted database. It does not insert rows or start app endpoints.
 
 <Card title="Quickstart" icon="bolt" href="/overview/quick-start">
   Write `app.py`, run `pxt schema update` and `pxt service update`, then POST a row.

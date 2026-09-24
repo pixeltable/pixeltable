@@ -17,25 +17,32 @@ Works with tools that support [Agent Skills](https://agentskills.io/specificatio
 
 <Tabs>
   <Tab title="Cursor / Windsurf">
-    To install the skill, run `npx skills add`. Do not copy this repository's `AGENTS.md` into an application; that file is for Pixeltable contributors.
+    In Cursor, install the [Pixeltable plugin](https://cursor.directory/plugins/pixeltable),
+    or use `npx skills add` for the skill alone. In Windsurf, use `npx skills add`.
+    Do not copy this repository's `AGENTS.md` into an application; that file is for Pixeltable contributors.
   </Tab>
   <Tab title="Claude Code">
-    Same `npx skills add`, or the plugin:
+    See [Pixeltable on Claude Marketplace](https://claude.com/marketplace/plugins/pixeltable).
+    To add the plugin from its repository in Claude Code:
 
     ```bash
     /plugin marketplace add pixeltable/pixeltable-skill
-    /plugin install pixeltable-skill@pixeltable-skill
+    /plugin install pixeltable@pixeltable-skill
     ```
   </Tab>
+  <Tab title="ChatGPT">
+    Install the [Pixeltable plugin for ChatGPT](https://chatgpt.com/plugins/plugins_6aa9bce6481c81918d73be74740eed28),
+    then use `@Pixeltable` in a chat to ask for a Pixeltable application or help with an existing one.
+  </Tab>
   <Tab title="Any LLM">
-    If your tool has no skill support, append `.md` to any docs URL and paste that markdown into the chat. Site index: [llms.txt](https://docs.pixeltable.com/llms.txt) ([standard](https://llmstxt.org/)). The skill: [SKILL.md](https://raw.githubusercontent.com/pixeltable/pixeltable-skill/main/skills/pixeltable-skill/SKILL.md).
+    If your tool has no skill support, append `.md` to any docs URL and paste that markdown into the chat. Site index: [llms.txt](https://docs.pixeltable.com/llms.txt) ([standard](https://llmstxt.org/)). Capability summary: [skill.md](https://docs.pixeltable.com/skill.md).
 
     | Resource | URL |
     |----------|-----|
     | This page as markdown | [building-pixeltable-with-llms.md](https://docs.pixeltable.com/overview/building-pixeltable-with-llms.md) |
     | Site index | [llms.txt](https://docs.pixeltable.com/llms.txt) |
     | Full map | [llms-full.txt](https://docs.pixeltable.com/llms-full.txt) |
-    | The skill | [SKILL.md](https://raw.githubusercontent.com/pixeltable/pixeltable-skill/main/skills/pixeltable-skill/SKILL.md) |
+    | Capability summary | [skill.md](https://docs.pixeltable.com/skill.md) |
   </Tab>
 </Tabs>
 
@@ -61,10 +68,11 @@ class Articles(TableModel, name='articles'):
 ```
 
 ```bash
+pxt init
 pxt schema update app.py my_app
 ```
 
-After the schema exists, open the table with `t = pxt.get_table('my_app.articles')` and insert rows, or serve the same file over [HTTP](/howto/deployment/serving). To run that file on Pixeltable Cloud, pass a `pxt://org:db` URI instead of `my_app`: [Deploy to Pixeltable Cloud](/howto/deployment/cloud).
+After the schema exists, open the table with `t = pxt.get_table('my_app.articles')` and insert rows, or serve the same file over [HTTP](/howto/deployment/serving). To run that file on Pixeltable Cloud, pass a `pxt://org:db` URI instead of `my_app`: [Pixeltable Cloud](/cloud).
 
 ## Docs search and catalog CLI
 
@@ -84,17 +92,6 @@ Experimental local catalog MCP: [mcp-server-pixeltable-developer](https://github
 
 ## Next
 
-<CardGroup cols={2}>
-  <Card title="Quickstart" icon="bolt" href="/overview/quick-start">
-    Write `app.py`, create the tables, then start the endpoints.
-  </Card>
-  <Card title="Agents as tables" icon="robot" href="/use-cases/agentic-workflows">
-    Register tools and run `invoke_tools` as computed columns.
-  </Card>
-  <Card title="Starter kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
-    Templates for serving, batch, and FastAPI + React.
-  </Card>
-  <Card title="Cloud" icon="cloud" href="/howto/deployment/cloud">
-    Deploy the same `app.py` to a hosted database at `pxt://org:db`.
-  </Card>
-</CardGroup>
+<Card title="Quickstart" icon="bolt" href="/overview/quick-start">
+  Write `app.py`, create the tables, then start the endpoints.
+</Card>

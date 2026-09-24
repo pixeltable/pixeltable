@@ -3,22 +3,9 @@ title: 'Iterators'
 description: 'Learn about iterators for processing documents, videos, audio, and images'
 ---
 
-## What are iterators?
+## Split a row into chunks
 
-Iterators in Pixeltable are specialized tools for processing and transforming media content. They efficiently break down large files into manageable chunks, enabling analysis at different granularities. Iterators work seamlessly with views to create virtual derived tables without duplicating storage.
-
-In Pixeltable, iterators:
-- Process media files incrementally to manage memory efficiently
-- Transform single records into multiple output records
-- Support various media types including documents, videos, images, and audio
-- Integrate with the view system for automated processing pipelines
-- Provide configurable parameters for fine-tuning output
-
-Iterators are particularly useful when:
-- Working with large media files that can't be processed at once
-- Building retrieval systems that require chunked content
-- Creating analysis pipelines for multimedia data
-- Implementing feature extraction workflows
+Set `iterator=` on a view's `TableModel` to turn one document, video, or audio row into multiple rows. For example, `document_splitter(..., separators='sentence,token_limit', limit=300)` creates chunk rows from each document. Run `pxt schema update app.py my_app`; inserting a document then creates its chunks in the view.
 
 <Note>
 In an app file, set `iterator=` on the view's `TableModel`. In a notebook, pass `iterator=` to `pxt.create_view()`.
