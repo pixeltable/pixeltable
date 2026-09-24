@@ -1142,6 +1142,12 @@ class TestHostedService:
         instance = service_list(cli, project, current_db)['ingest']
         assert instance['state'] == 'AVAILABLE', instance
         assert instance['catalog_path'] == current_db
+        bearer_response = httpx.get(
+            f'{instance["endpoint"]}/openapi.json',
+            headers={'Authorization': f'Bearer {os.environ["PIXELTABLE_API_KEY"]}'},
+            timeout=_REQUEST_TIMEOUT,
+        )
+        assert bearer_response.status_code == 200, bearer_response.text
 
         # a new route requires a db update
         edit_app(project, "ingest.add_delete_route(Docs, path='/docs/purge')")

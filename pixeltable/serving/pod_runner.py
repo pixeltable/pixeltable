@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
 
 def _add_gateway_openapi_security(app: 'fastapi.FastAPI') -> None:
-    """Describe the authentication enforced by the hosted HTTP gateway."""
     original_openapi = app.openapi
     hosted_schema: dict[str, Any] | None = None
 

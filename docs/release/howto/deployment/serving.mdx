@@ -26,15 +26,15 @@ Regenerate types after changing the Python routes.
 For a hosted service, copy its full endpoint URL from the Cloud dashboard or find it with `pxt service list pxt://org:db --json` using a credential that can list services. A key scoped only to invoke a service cannot list services, but can download that service's schema when granted access. The gateway requires a credential to download the schema:
 
 ```bash
-curl -fsS -H "X-api-key: $PIXELTABLE_API_KEY" "$SERVICE_URL/openapi.json" -o openapi.json
+curl -fsS -H "X-api-key: $PIXELTABLE_API_KEY" "${SERVICE_URL%/}/openapi.json" -o openapi.json
 npx openapi-typescript openapi.json -o src/pixeltable.d.ts
 ```
 
 The hosted schema declares the gateway's Bearer and `X-api-key` options; local service schemas do not require them. In the Cloud dashboard, expand **API docs** on the service detail page to inspect and try routes without pasting an API key. Trying an insert, update, or delete route can change data.
 
-Routes with `return_fileresponse=True` advertise a binary response for any media type. Check the response's `Content-Type` when handling the returned image, video, audio, or document; a fetch caller can consume its bytes with `response.blob()` or `response.arrayBuffer()`.
+Routes with `return_fileresponse=True` advertise a binary response for any media type. Check the response's `Content-Type` when handling the returned image, video, audio, or document.
 
-## Call from a TypeScript frontend
+## Call from a TypeScript app server
 
 Keep a Cloud API key in your application server's environment, never in browser code. A Next.js server-only helper can call the same service locally (no key) or in Cloud (key required). Set `PIXELTABLE_SERVICE_URL` to the full service endpoint, as above. Run `npm install server-only` in the Next.js project, then put this in `src/lib/pixeltable-service.ts`:
 
