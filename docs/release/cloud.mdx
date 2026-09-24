@@ -1,145 +1,127 @@
 ---
 title: 'Pixeltable Cloud'
 sidebarTitle: 'Pixeltable Cloud'
-description: 'Same application file against a hosted database'
+description: 'Run the same Pixeltable application against a hosted database'
 ---
 
 <Note>
-  Pixeltable Cloud is in Limited Beta. Email [contact@pixeltable.com](mailto:contact@pixeltable.com) if you are interested.
+  Pixeltable Cloud is in Limited Beta. [Join the waitlist](https://www.pixeltable.com/waitlist) or email [contact@pixeltable.com](mailto:contact@pixeltable.com) for access.
 </Note>
 
-Use the same `app.py` as the [Quickstart](/overview/quick-start). Sign in with `pxt login`, then create the hosted database, the tables, and hosted HTTP. You do not need an API key for these CLI commands.
+The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same application file creates tables and starts HTTP on a hosted database. A `pxt login` session is enough for the first deployment; you do not need an API key.
 
-## Sign in
-
-`pxt login`, `pxt whoami`, and `pxt key` require Pixeltable 0.7.10 or later. Upgrade an existing installation with `pip install -U pixeltable`.
-
-```bash
-pxt login
-pxt whoami
-```
-
-`pxt login` opens a browser and shows a code to confirm. If you have no organization yet, run `pxt org create org` and use that name in the `pxt://` commands below. Cloud is in Limited Beta; [contact us](mailto:contact@pixeltable.com) if you need access. An API key takes precedence over a login session when one is configured.
-
-## Get an API key
-
-API keys are optional. Skip this section if you use the CLI with `pxt login` or work in the signed-in Cloud dashboard. Create a key for CI, background jobs, or a backend that calls a hosted service. If a browser frontend needs that service, have it call your backend. Keep the key out of browser code.
+## First deployment
 
 <Steps>
-  <Step title="Create a key">
-    After `pxt login`, create one from the CLI:
+  <Step title="Install Pixeltable and sign in">
+    `pxt login`, `pxt whoami`, and `pxt key` require Pixeltable 0.7.10 or later.
 
     ```bash
-    pxt key create my-app
+    pip install -U 'pixeltable[serve]'
+    pxt login
+    pxt whoami
+    pxt org list
     ```
 
-    The CLI prints the key once. `pxt key list` shows key names, but cannot show their secrets again. A key created without `--grant` acts as you. [Scoped service keys](/platform/cli#pxt-key) are in preview.
-
-    Or open **API Keys** in the [Cloud dashboard](https://www.pixeltable.com/dashboard), click **New** (or **Create API Key** if the list is empty), name the key, and copy the value when it appears.
+    `pxt login` shows a code to confirm in your browser. Use the organization name from `pxt org list` in the `pxt://` commands below. If you have no organization, run `pxt org create org` first.
   </Step>
-  <Step title="Use the key where needed">
-    For CLI automation or Python clients, export the key:
+  <Step title="Prepare the application and Cloud target">
+    In a new directory, run:
 
     ```bash
-    export PIXELTABLE_API_KEY='your-key'
+    mkdir cloud-app && cd cloud-app
+    pxt init
+    pxt service example --out app.py
     ```
 
-    Or in `~/.pixeltable/config.toml`:
+    `pxt service example` writes a working `app.py` with a `Docs` table and an `ingest` HTTP service. If you already completed the Quickstart, use that `app.py` instead.
+
+    Add a hosted database entry to the `pixeltable.toml` that `pxt init` created. Replace `org` with your organization name:
 
     ```toml
-    [pixeltable]
-    api_key = 'your-key'
+    [[pixeltable.database]]
+    name = 'pxt://org:mydb'
     ```
 
-    The CLI uses a configured API key before a `pxt login` session. `PIXELTABLE_API_KEY` takes precedence over the config file. For direct hosted HTTP calls, send the key in the `X-api-key` header from your backend. [Configuration](/platform/configuration).
+    Keep the local database entry that `pxt init` wrote. If your project has a `pyproject.toml`, `pxt init` adds its entry there instead; use `[[tool.pixeltable.database]]` for the hosted entry.
+  </Step>
+  <Step title="Create the database, tables, and service">
+    Run these commands from the project directory, in order:
 
-    Provider keys such as `OPENAI_API_KEY` go under **Secrets** in the dashboard, or `pxt secret set pxt://org OPENAI_API_KEY=...`. They do not go in this API key. [CLI](/platform/cli#pxt-secret).
+    ```bash
+    pxt db update pxt://org:mydb
+    pxt schema update app.py pxt://org:mydb
+    pxt service update app.py pxt://org:mydb
+    pxt service list pxt://org:mydb
+    ```
+
+    `pxt db update` creates the hosted database and uploads the project. `pxt schema update` creates its tables. `pxt service update` starts the HTTP service. `pxt service list` prints its URL and routes.
+  </Step>
+  <Step title="Insert a row and check the result">
+    The generated `app.py` defines a `docs` table with a computed `title_upper` column. Insert a row from Python:
+
+    ```python
+    import pixeltable as pxt
+
+    docs = pxt.get_table('pxt://org:mydb/docs')
+    docs.insert(title='Hello', body='world')
+    print(docs.select(docs.title, docs.title_upper).collect())
+    ```
+
+    The result includes `Hello` and `HELLO`. The insert computes `title_upper` on Cloud. You can also insert and inspect rows in the signed-in [Cloud dashboard](https://www.pixeltable.com/dashboard).
   </Step>
 </Steps>
 
-Run `pxt init` in your application directory:
+## Get an API key
+
+API keys are optional for the CLI and Python workflow above. Create one for CI, background jobs, or a backend that calls a hosted HTTP service. If a browser frontend needs that service, have it call your backend. Keep the key out of browser code.
+
+After `pxt login`, create a key from the CLI:
 
 ```bash
-pxt init
+pxt key create my-app
 ```
 
-Add the hosted URL to the generated `pixeltable.toml`:
+The CLI prints the secret once. `pxt key list` shows key names, but cannot show their secrets again. A key created without `--grant` acts as you. [Scoped service keys](/platform/cli#pxt-key) are in preview. You can also create a key under **API Keys** in the [Cloud dashboard](https://www.pixeltable.com/dashboard).
 
-```toml
-[[pixeltable.database]]
-name = 'pxt://org:mydb'
-```
+### Call the hosted service
+
+Get the service URL from `pxt service list pxt://org:mydb`. Put the key in your backend's environment and send it in the `X-api-key` header:
 
 ```bash
-pxt db update pxt://org:mydb
-pxt schema update app.py pxt://org:mydb
-pxt service update app.py pxt://org:mydb
+export PIXELTABLE_API_KEY='your-key'
+SERVICE_URL='URL from pxt service list'
+curl -X POST "$SERVICE_URL/docs" \
+  -H "X-api-key: $PIXELTABLE_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "Hello from HTTP", "body": "world"}'
 ```
 
-A Cloud table path uses the URI plus `/table`. Open it with `t = pxt.get_table('pxt://org:mydb/docs')`. A local table uses dotted `namespace.table`, such as `pxt.get_table('my_app.docs')`.
+For CLI automation or Python clients, `PIXELTABLE_API_KEY` also works as a credential. You can set `api_key` in `~/.pixeltable/config.toml` instead. A configured key takes precedence over a `pxt login` session; the environment value takes precedence over the config file. [Configuration](/platform/configuration).
 
-```python
-import pixeltable as pxt
-import pixeltable.functions as pxtf
-from pixeltable.serving import FastAPIRouter
+## Add provider secrets
 
-TableModel = pxt.model_base()
+`PIXELTABLE_API_KEY` authenticates to Pixeltable Cloud. Provider keys, such as `OPENAI_API_KEY`, belong in Cloud **Secrets**. For a database that uses OpenAI:
 
-
-class Docs(TableModel, name='docs'):
-    title: pxt.String
-    body: pxt.String | None
-    title_upper = pxtf.string.upper(title)
-
-
-ingest = FastAPIRouter(name='ingest')
-ingest.add_insert_route(
-    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.title, Docs.title_upper]
-)
+```bash
+pxt secret set pxt://org:mydb OPENAI_API_KEY=your-provider-key
+pxt db restart pxt://org:mydb
+pxt service restart pxt://org:mydb/ingest
 ```
 
-The same file can hold `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document`: [media pipelines](/use-cases/media-processing), [RAG](/use-cases/multimodal-backend).
+The restarts let running table and service processes read the new value. You can also set secrets in the [Cloud dashboard](https://www.pixeltable.com/dashboard). [CLI secret commands](/platform/cli#pxt-secret).
 
-`pxt db update` creates the hosted database or updates its image, project files, and size. Set provider secrets with `pxt secret set`. `pxt db update` does not insert data or start app endpoints. `pxt schema update` creates the tables. `pxt service update` starts hosted endpoints. `pxt service run` starts endpoints in your local terminal.
+## Update and inspect the deployment
 
-After the database is up, insert from the Cloud dashboard or from Python. A local file path on a Cloud table uploads the file. Run `pxt schema diff app.py pxt://org:mydb` to see pending schema changes.
+After editing `app.py` or dependencies, run `pxt db update pxt://org:mydb` to update the hosted project or image. If you changed tables, follow it with `pxt schema update app.py pxt://org:mydb`. If you changed HTTP routes, follow it with `pxt service update app.py pxt://org:mydb`. Use the corresponding `diff` commands to see pending changes first. [CLI reference](/platform/cli#cloud).
 
-Use `pxt service list pxt://org:mydb` to find the hosted service URL. Call its route with an API key in `X-api-key`; `pxt key create NAME` prints a key once. Use `pxt db logs pxt://org:mydb` and `pxt service logs pxt://org:mydb/ingest` to inspect running services.
+```bash
+pxt db logs pxt://org:mydb
+pxt service logs pxt://org:mydb/ingest
+```
 
-After `pxt secret set pxt://org:mydb KEY=VALUE`, run `pxt db restart pxt://org:mydb` for table processes and `pxt service restart pxt://org:mydb/ingest` for the service. Running processes read secrets when they start.
+These commands show database and service logs when a deployment or request fails.
 
 ## Media on the home bucket
 
-Every Cloud database includes a managed Media Store at `pxtfs://org:mydb/home`. Hosted tables and services use it by default, so no `destination=` setting is needed. Set `destination=` only when a computed column should write elsewhere:
-
-```python
-class Images(TableModel, name='images'):
-    photo: pxt.Image
-    thumbnail = pxt.Column(
-        value=photo.resize((256, 256)),
-        destination='s3://my-bucket/thumbnails',
-    )
-```
-
-Or set `output_media_dest` as the default for computed media. Details: [Cloud storage](/integrations/cloud-storage#pixeltable-cloud-home-bucket).
-
-## Local vs Cloud
-
-| | Local | Cloud |
-|---|---|---|
-| Hosted database | not needed | `pxt db update pxt://org:mydb` |
-| Tables | `pxt schema update app.py my_app` | `pxt schema update app.py pxt://org:mydb` |
-| HTTP | `pxt service update app.py my_app` | `pxt service update app.py pxt://org:mydb` |
-| Try a change | insert, `pxt dashboard`, `pxt schema diff app.py my_app` | dashboard insert, `pxt schema diff app.py pxt://org:mydb` |
-| Media | local disk | `pxtfs://org:mydb/home` |
-
-`pxt db` also lists, starts, stops, diffs, and deletes hosted databases. `pxt db build-image` rebuilds the Python image without waiting for drift. [CLI](/platform/cli#cloud).
-
-<CardGroup cols={2}>
-  <Card title="Join the waitlist" icon="envelope" href="https://www.pixeltable.com/waitlist">
-    Early access to Pixeltable Cloud.
-  </Card>
-  <Card title="Book a demo" icon="calendar" href="https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM">
-    Talk through a Cloud deployment.
-  </Card>
-</CardGroup>
+A Cloud database has a managed Media Store at `pxtfs://org:mydb/home`. Hosted tables and services use it by default; normal media columns need no `destination=` setting. To write computed media to your own bucket, set `destination=` on that column or configure `output_media_dest`. [Cloud storage](/integrations/cloud-storage#pixeltable-cloud-home-bucket).
