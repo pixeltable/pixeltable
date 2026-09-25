@@ -286,7 +286,7 @@ def disposable_db(cli: PxtRunner, uri: str, cwd: pathlib.Path) -> Iterator[str]:
     try:
         yield uri
     finally:
-        cli('db', 'delete', uri, cwd=cwd, check=False)
+        cli('db', 'delete', uri, '-f', cwd=cwd, check=False)
 
 
 def write_requirements(project: pathlib.Path, wheel: pathlib.Path, *extra: str) -> None:

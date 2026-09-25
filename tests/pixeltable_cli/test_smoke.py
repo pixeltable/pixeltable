@@ -53,6 +53,21 @@ class TestDbJsonSchema:
         assert 'current' in report['properties']
 
 
+@pytest.mark.db_roots('local', reason='confirmation refuses deletion before contacting the control plane')
+class TestDbDelete:
+    def test_requires_confirmation(self, cli: PxtRunner) -> None:
+        uri = 'pxt://pixeltable:pxttest-delete-confirmation'
+        for uri_args in ([], [uri]):
+            for output_args in ([], ['--json']):
+                result = cli(
+                    'db', 'delete', *uri_args, *output_args, env_overrides={'PIXELTABLE_DB_URI': uri}, check=False
+                )
+                assert result.returncode == 3, result.stderr
+                assert f'delete {uri}? This is irreversible.' in result.stderr
+                assert '--force/-f' in result.stderr
+                assert result.stdout == ''
+
+
 class TestLs:
     def test_lists(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """Bare ls (text + json) lists what's in the catalog and reflects mutations."""
