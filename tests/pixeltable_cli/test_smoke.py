@@ -642,12 +642,10 @@ class TestGet:
         assert cli('get', p('cli_get_coerce/f'), '1.5', '--json').json['row']['v'] == 'one-and-a-half'
         assert cli('get', p('cli_get_coerce/f'), '  1.5  ', '--json').json['row']['v'] == 'one-and-a-half'
 
-        # a token that doesn't parse as the declared numeric type is rejected
         r = cli('get', p('cli_get_coerce/f'), 'abc', check=False)
         assert r.returncode != 0
         assert 'not a valid Float value' in r.stderr
 
-        # string PK: a numeric-looking value stays a string, and leading zeros are kept
         t = pxt.create_table(
             p('cli_get_coerce/s'), {'k': pxt.String, 'v': pxt.Int | None}, primary_key='k', if_exists='replace'
         )
