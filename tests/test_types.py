@@ -11,6 +11,7 @@ import PIL.Image
 import pydantic
 import pytest
 
+import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.type_system import (
     UUID,
@@ -44,6 +45,8 @@ from pixeltable.type_system import (
     Video,
     VideoType,
 )
+
+from .utils import pxt_raises
 
 FLOAT32 = np.dtype('float32')
 
@@ -102,6 +105,8 @@ class TestTypes:
             assert ColumnType.infer_literal_type(val) == expected_type, val
 
     def test_from_python_type(self, init_env: None) -> None:
+        from .module_with_future_annotations import FutureQualifiedTypedDict, FutureTypedDict
+
         # Test cases: (python_type, pxt_type, str(pxt_type))
         test_cases: tuple[tuple[Any, ColumnType, str], ...] = (
             # Builtin and standard types
@@ -231,6 +236,26 @@ class TestTypes:
             # optional_keys
             (
                 Json[TypedDict4],
+                JsonType(
+                    JsonType.TypeSchema(
+                        {'a': IntType(), 'b': StringType(), 'c': FloatType()}, optional_keys=frozenset(('b', 'c'))
+                    )
+                ),
+                "Json[{'a': Int, 'b': String, 'c': Float}, optional_keys=['b', 'c']]",
+            ),
+            # TypedDicts declared under `from __future__ import annotations`
+            (
+                Json[FutureTypedDict],
+                JsonType(
+                    JsonType.TypeSchema(
+                        {'a': StringType(), 'b': IntType(nullable=True), 'img': ImageType(), 'note': StringType()},
+                        optional_keys=frozenset(('note',)),
+                    )
+                ),
+                "Json[{'a': String, 'b': Int | None, 'img': Image, 'note': String}, optional_keys=['note']]",
+            ),
+            (
+                Json[FutureQualifiedTypedDict],
                 JsonType(
                     JsonType.TypeSchema(
                         {'a': IntType(), 'b': StringType(), 'c': FloatType()}, optional_keys=frozenset(('b', 'c'))
@@ -475,5 +500,12 @@ class TestTypes:
                 Json[subscript]
 
     def test_type_errors(self, init_env: None) -> None:
+        from .module_with_future_annotations import make_unresolvable_typed_dict
+
         with pytest.raises(excs.RequestError, match='Bare `Required` is not a valid type'):
             ColumnType.from_python_type(Required)
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_TYPE,
+            match=r"Cannot resolve the field types of TypedDict `Unresolvable`: name 'LocalFloat' is not defined",
+        ):
+            ColumnType.from_python_type(make_unresolvable_typed_dict())

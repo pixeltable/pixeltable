@@ -53,10 +53,17 @@ Building an application with Pixeltable? The agent skill covers the full API:
     npx skills add pixeltable/pixeltable-skill
 """
 
+from typing import NotRequired, TypedDict
+
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
 TableModel = pxt.model_base()
+
+
+class Author(TypedDict):
+    name: str
+    email: NotRequired[str]
 
 
 # a udf: a Python function the computed columns below can call
@@ -76,6 +83,7 @@ class Docs(TableModel, name='docs'):
     body: pxt.String | None
     published: pxt.Timestamp | None
     tags: pxt.Json | None
+    author: pxt.Json[Author] | None
     rating: pxt.Float | None
     is_draft: pxt.Bool | None
     embedding: pxt.Array[(384,), pxt.Float] | None
