@@ -1146,6 +1146,7 @@ class TestService:
 @pytest.mark.remote_api
 @pytest.mark.expensive
 @pytest.mark.db_roots('local', reason='pxt service acts on a hosted database, not on the catalog a test runs against')
+@pytest.mark.usefixtures('hosted_environment')
 class TestHostedService:
     """`pxt service` against a hosted database."""
 
