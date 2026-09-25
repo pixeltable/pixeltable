@@ -5,13 +5,14 @@ import sqlalchemy.exc as sql_exc
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+from pixeltable import functions as pxtf
 from pixeltable.env import Env, store_app_name
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
 
 from .coordinator import MultiThreadedScenario
 from .fault_injection import BlockFault, ExceptionFault
-from .utils import DatabaseRoot, pxt_raises
+from .utils import DatabaseRoot, dummy_embedding, pxt_raises
 
 
 class TestCatalog:
@@ -152,6 +153,29 @@ class TestCatalog:
         t.add_column(b=pxt.Int | None)
         fault.assert_count(1)
         _ = t.select(t.b).collect()
+
+    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
+    def test_finalize_pending_ops_get_tbl_version_error(self, uses_db: None, fault_injection: None) -> None:
+        TableModel = pxt.model_base()  # noqa: N806
+
+        class Base(TableModel, name='base'):
+            s: pxt.String
+
+        class Chunks(
+            TableModel, name='chunks', base=Base, iterator=pxtf.string.string_splitter(Base.s, separators='sentence')
+        ):
+            __indexes__ = [  # noqa: RUF012
+                pxt.EmbeddingIndex(text, string_embed=dummy_embedding.using(n=8), name='idx')  # type: ignore[name-defined]  # noqa: F821
+            ]
+
+        # the statement stages its ops before the first one needing a TableVersion runs, so finalization has
+        # to abort the statement rather than retry an op it can never reach
+        exc = Exception('injected')
+        fault = ExceptionFault(exc, recurring=True)
+        get_runtime().fault_manager.inject_fault(FaultLocation.CATALOG_LOAD_TBL_VERSION_BEFORE_INIT, fault)
+
+        with pxt_raises(code=excs.ErrorCode.INTERNAL_ERROR, match=str(exc)):
+            TableModel.create_all('')
 
     @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_finalize_pending_ops_non_retriable_error(self, uses_db: None, fault_injection: None) -> None:
