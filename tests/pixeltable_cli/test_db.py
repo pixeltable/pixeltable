@@ -137,8 +137,6 @@ class TestDb:
         db = f'pxttest-absent-{uuid.uuid4().hex[:12]}'
         lower, mixed = f'pxt://pixeltable:{db}', f'pxt://pixeltable:{db.upper()}'
 
-        # db_diff() fails the test on any other exit status, so reaching a plan is the assertion: before,
-        # the entry matched only a command spelling it the same way
         create_project_config(cli, project, mixed)
         assert db_diff(cli, project, lower)['resolution'] == 'create'
 

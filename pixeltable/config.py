@@ -71,8 +71,9 @@ class DatabaseConfig(pydantic.BaseModel):
     @pydantic.field_validator('name')
     @classmethod
     def _fold_name(cls, v: str) -> str:
-        # every Pixeltable identifier folds to lower case, and the lookup compares this to a parsed pxt:// URI
-        return v.lower()
+        from pixeltable.catalog import fold_identifier
+
+        return fold_identifier(v)
 
     @pydantic.field_validator('system_dependencies')
     @classmethod
