@@ -1158,7 +1158,6 @@ class TestHostedService:
         instance = service_list(cli, project, current_db)['ingest']
         assert instance['state'] == 'AVAILABLE', instance
         assert instance['catalog_path'] == current_db
-        # the deployed schema declares the key the gateway requires
         schema_response = httpx.get(
             f'{instance["endpoint"]}/openapi.json',
             headers={'X-api-key': os.environ['PIXELTABLE_API_KEY']},
