@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from ..globals import TableDataSource
     from .table_metadata import TableMetadata, VersionMetadata
     from .table_path import TablePath
+    from .types import ColumnVersionMd
     from .update_status import UpdateStatus
 
 
@@ -891,11 +892,15 @@ class Table(SchemaObject):
         source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],
         /,
         *,
+        outputs: Sequence[str | ColumnRef] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
     ) -> RowBatch:
         """
         Materialize the computed columns of this table for the given input rows and return the resulting rows
         without persisting them.
+
+        Computes only the requested `outputs` and the columns they use. An input row must supply each stored required
+        column used by `outputs`.
 
         If this table is a view, the input rows are applied to the view's insertable base table (i.e., the root of the
         view hierarchy) and the output rows are the resulting rows of the view, as if the input had been inserted into
@@ -906,8 +911,11 @@ class Table(SchemaObject):
         Args:
             source: Rows to compute, as a sequence of dictionaries or Pydantic model instances. Rows contain
                 values for the base table's columns (for a view) or this table's columns; each row must supply
-                values for every required (non-nullable, non-computed) column; the same rules as
-                [`insert()`][pixeltable.Table.insert] apply.
+                values for every required (non-nullable, non-computed) column used by `outputs`; otherwise the same
+                rules as [`insert()`][pixeltable.Table.insert] apply.
+
+            outputs: The columns to compute and return, as names or column references. Defaults to all columns
+                of the table.
 
             on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
                 invalid media file (such as a corrupt image).
@@ -920,8 +928,8 @@ class Table(SchemaObject):
 
         Returns:
             A [`RowBatch`][pixeltable.RowBatch] of output rows, in input row order (with an iterator's output
-            rows in iteration order). Each [`Row`][pixeltable.Row] contains a value for every column of the
-            table. [`Row.errors`][pixeltable.Row] holds `{'errortype': ..., 'errormsg': ...}` for each cell that raised,
+            rows in iteration order). Each [`Row`][pixeltable.Row] contains a value for every column in `outputs`.
+            [`Row.errors`][pixeltable.Row] holds `{'errortype': ..., 'errormsg': ...}` for each cell that raised,
             keyed by column or index name (only with `on_error='ignore'`).
 
         Raises:
@@ -929,6 +937,7 @@ class Table(SchemaObject):
 
                 - The table is a snapshot, a view of a snapshot, or a view defined with a sample clause.
                 - The table has been dropped.
+                - `outputs` is empty or names a column that is not in the table.
                 - One of the input rows does not conform to the base table schema.
                 - An error occurs during processing of computed columns, and `on_error='abort'`.
 
@@ -938,6 +947,11 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... rows = tbl.compute([{'a': 1, 'b': 1}, {'a': 2, 'b': 2}])
             ... # rows == [{'a': 1, 'b': 1, 'c': 2}, {'a': 2, 'b': 2, 'c': 4}]
+
+            Compute and return only `c`:
+
+            >>> rows = tbl.compute([{'a': 1, 'b': 1}], outputs=['c'])
+            ... # rows == [{'c': 2}]
 
             Same with Pydantic model inputs:
 
@@ -1003,6 +1017,21 @@ class Table(SchemaObject):
     def _validate_insert_source(self, source: TableDataSource | None) -> None:
         if source is not None and isinstance(source, Sequence) and len(source) == 0:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot insert an empty sequence.')
+
+    def _resolve_compute_outputs(self, outputs: Sequence[str | ColumnRef] | None) -> list[ColumnVersionMd] | None:
+        """Return the metadata of the compute() output columns named by `outputs`, in the given order."""
+        if outputs is None:
+            return None
+        if len(outputs) == 0:
+            raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, 'At least one output column must be specified')
+        result: list[ColumnVersionMd] = []
+        for output in outputs:
+            name = output if isinstance(output, str) else output.col_md.name
+            col_md = self._tbl_path.get_column_md_by_name(name)
+            if col_md is None:
+                raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {name}')
+            result.append(col_md)
+        return result
 
     def _validate_compute(self) -> None:
         """Raises if compute() is not supported for this table's path."""

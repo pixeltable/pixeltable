@@ -122,6 +122,10 @@ class TablePath(abc.ABC):
         """True if this table or one of its ancestors is defined with a sample clause."""
 
     @abc.abstractmethod
+    def view_md(self) -> schema.ViewMd | None:
+        """The view definition of this path's leaf table; None for a base table."""
+
+    @abc.abstractmethod
     def is_data_versioned(self) -> bool: ...
 
     @property
@@ -374,6 +378,9 @@ class TableVersionPath(TablePath):
             return True
         return self.base is not None and self.base.has_sample_clause()
 
+    def view_md(self) -> schema.ViewMd | None:
+        return self._cached_tv().view_md
+
     def comment(self) -> str:
         return self._cached_tv().comment
 
@@ -609,6 +616,9 @@ class TableMdPath(TablePath):
 
     def is_component_view(self) -> bool:
         return self.md.tbl_md.view_md is not None and self.md.tbl_md.view_md.iterator_call is not None
+
+    def view_md(self) -> schema.ViewMd | None:
+        return self.md.tbl_md.view_md
 
     def is_mutable(self) -> bool:
         return self.md.tbl_md.is_mutable
