@@ -2,43 +2,46 @@ from pixeltable.serving.pod_runner import _add_gateway_openapi_security
 from tests.utils import skip_test_if_not_installed
 
 
-def test_gateway_security_only_on_hosted_schema() -> None:
-    skip_test_if_not_installed('fastapi')
-    import fastapi
-    from fastapi.security import HTTPBasic
-    from fastapi.testclient import TestClient
+class TestHostedOpenapi:
+    def test_gateway_security_only_on_hosted_schema(self) -> None:
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.security import HTTPBasic
+        from fastapi.testclient import TestClient
 
-    app = fastapi.FastAPI()
-    basic = HTTPBasic()
+        app = fastapi.FastAPI()
+        basic = HTTPBasic()
 
-    @app.get('/private', dependencies=[fastapi.Depends(basic)])
-    def private() -> dict[str, bool]:
-        return {'ok': True}
+        @app.get('/private', dependencies=[fastapi.Depends(basic)])
+        def private() -> dict[str, bool]:
+            return {'ok': True}
 
-    @app.post('/write')
-    def write() -> dict[str, bool]:
-        return {'ok': True}
+        @app.post('/write')
+        def write() -> dict[str, bool]:
+            return {'ok': True}
 
-    @app.get('/health')
-    def health() -> dict[str, bool]:
-        return {'ok': True}
+        @app.get('/health')
+        def health() -> dict[str, bool]:
+            return {'ok': True}
 
-    local_schema = app.openapi()
-    assert local_schema['paths']['/private']['get']['security'] == [{'HTTPBasic': []}]
-    assert 'security' not in local_schema['paths']['/write']['post']
+        local_schema = app.openapi()
+        assert local_schema['paths']['/private']['get']['security'] == [{'HTTPBasic': []}]
+        assert 'security' not in local_schema['paths']['/write']['post']
 
-    _add_gateway_openapi_security(app)
-    with TestClient(app, root_path='/nested/service') as client:
-        hosted_schema = client.get('/openapi.json').json()
+        _add_gateway_openapi_security(app)
+        with TestClient(app, root_path='/nested/service') as client:
+            hosted_schema = client.get('/openapi.json').json()
 
-    assert hosted_schema['servers'] == [{'url': '/nested/service'}]
-    assert hosted_schema['components']['securitySchemes'] == {
-        'HTTPBasic': {'type': 'http', 'scheme': 'basic'},
-        'PixeltableGatewayApiKey': {'type': 'apiKey', 'in': 'header', 'name': 'X-api-key'},
-    }
-    # the route's own Authorization-based scheme and the gateway key are both required
-    assert hosted_schema['paths']['/private']['get']['security'] == [{'PixeltableGatewayApiKey': [], 'HTTPBasic': []}]
-    assert hosted_schema['paths']['/write']['post']['security'] == [{'PixeltableGatewayApiKey': []}]
-    assert 'security' not in hosted_schema['paths']['/health']['get']
-    assert app.openapi() is app.openapi()
-    assert 'PixeltableGatewayApiKey' not in local_schema['components']['securitySchemes']
+        assert hosted_schema['servers'] == [{'url': '/nested/service'}]
+        assert hosted_schema['components']['securitySchemes'] == {
+            'HTTPBasic': {'type': 'http', 'scheme': 'basic'},
+            'PixeltableGatewayApiKey': {'type': 'apiKey', 'in': 'header', 'name': 'X-api-key'},
+        }
+        # the route's own Authorization-based scheme and the gateway key are both required
+        assert hosted_schema['paths']['/private']['get']['security'] == [
+            {'PixeltableGatewayApiKey': [], 'HTTPBasic': []}
+        ]
+        assert hosted_schema['paths']['/write']['post']['security'] == [{'PixeltableGatewayApiKey': []}]
+        assert 'security' not in hosted_schema['paths']['/health']['get']
+        assert app.openapi() is app.openapi()
+        assert 'PixeltableGatewayApiKey' not in local_schema['components']['securitySchemes']

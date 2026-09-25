@@ -111,9 +111,7 @@ class JobStatusResponse(pydantic.BaseModel):
     # only set for status == 'error'
     error: str | None = None
 
-    # only set for status == 'error', when the job failed with an HTTP error: the `detail` the route would have
-    # answered with synchronously
-    detail: Any | None = None
+    error_detail: Any | None = None
 
     # the per-route response_model produced by add_insert_route(); typed as Any since it varies by route
     # only set for status == 'done'
@@ -2654,8 +2652,8 @@ class FastAPIRouter(fastapi.APIRouter):
             exc = fut.exception()
             if exc is not None:
                 # _run_endpoint_op() already turned a Pixeltable error into its HTTPException
-                detail = exc.detail if isinstance(exc, HTTPException) else None
-                return JobStatusResponse(status='error', error=str(exc), detail=detail)
+                error_detail = exc.detail if isinstance(exc, HTTPException) else None
+                return JobStatusResponse(status='error', error=str(exc), error_detail=error_detail)
             # FileResponse cannot be JSON-serialized; only response_model instances make it here
             # in practice (background+return_fileresponse is rejected at registration).
             return JobStatusResponse(status='done', result=fut.result())

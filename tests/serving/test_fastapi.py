@@ -1020,8 +1020,8 @@ class TestFastAPI:
             assert time.time() < deadline, status
             time.sleep(0.05)
         assert status['status'] == 'error', status
-        assert status['detail'] == sync_resp.json()['detail']
-        assert {'error_code', 'message', 'retryable'} <= status['detail'].keys(), status
+        assert status['error_detail'] == sync_resp.json()['detail']
+        assert {'error_code', 'message', 'retryable'} <= status['error_detail'].keys(), status
 
     def test_openapi(self, db_root: DatabaseRoot) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""
