@@ -290,6 +290,8 @@ class DbBuildImageBody(BaseModel):
 
 
 class ServiceStopBody(BaseModel):
+    project_root: str | None = None
+
     # each one an address ('pxt://org:db/dir/ingest', 'dir/ingest') or a bare local service name
     names: list[str]
 
