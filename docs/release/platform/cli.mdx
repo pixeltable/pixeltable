@@ -820,13 +820,30 @@ calling process, so it is local by definition. Two verbs differ in meaning again
 a stopped service keeps its registration: `stop` stops it and leaves it there to be started again, while
 `prune` forgets it.
 
+`pxt service stop` accepts a service address in several forms. A bare name matches the services of the
+current project, or every local service when the working directory is outside a project. `TARGET/NAME`
+stops the service under `TARGET`, including one in another project, and `/NAME` stops the service at the
+catalog root. A bare name that matches more than one service is refused, and the error lists the
+qualified path of each match.
+
+```bash
+pxt service stop ingest                  # the service named ingest in the current project
+pxt service stop my_dir/ingest           # the service of that name under my_dir
+pxt service stop /ingest                 # the service of that name at the catalog root
+pxt service stop pxt://acme:main/ingest  # the one in a hosted database
+```
+
+A name that matches no service, or matches one that is already stopped, is reported as `skipped` with
+the reason (`not found` or `already stopped`), so stopping a set of services can be repeated safely.
+
 `pxt service restart` cycles a service's pods onto the database's current image and project, keeping the
-service's registration and endpoint, and accepts the same service addresses as `stop`. Use it after
+service's registration and endpoint, and accepts the same service addresses as `stop`, except that a
+bare name matches every local service of that name, whatever its project. Use it after
 `pxt db update` to move a running service onto the new project, and to pick up the current values of its
 referenced secrets. Against a local target it stops the process and starts it again on the same
 port, so callers keep their address.
 
-`pxt service logs` reads a service's log and accepts the same service addresses as `stop`. `pxt db logs` reads
+`pxt service logs` reads a service's log and accepts the same service addresses as `restart`. `pxt db logs` reads
 the log of a hosted database's pod:
 
 ```bash
@@ -851,7 +868,7 @@ local file instead, and `pxt service logs` reports the path of that file.
 | `pxt service update APP TARGET` | Start the services declared by `APP`, and restart the ones whose declaration changed |
 | `pxt service run APP TARGET [SERVICE]` | Serve one of them from this process instead, until interrupted |
 | `pxt service prune APP TARGET` | Stop and forget the services at `TARGET` that `APP` does not declare |
-| `pxt service stop NAME...` | Stop the named services |
+| `pxt service stop NAME...` | Stop the named services; a bare name matches within the current project |
 | `pxt service list [TARGET]` | What is running locally, and where |
 | `pxt service logs NAME` | What the named service logged; `TARGET/NAME` to disambiguate |
 | `pxt service check APP` | Validate the application file on its own. Takes no `TARGET` and reads no catalog |
