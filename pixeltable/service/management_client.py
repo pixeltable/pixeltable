@@ -116,8 +116,8 @@ def _no_credential(purpose: str) -> excs.Error:
     return excs.AuthorizationError(
         excs.ErrorCode.MISSING_CREDENTIALS,
         f'A Pixeltable API key or sign-in is required to {purpose}.\n'
-        'To fix this, either: run `pxt login`; set the `PIXELTABLE_API_KEY` environment variable to an existing key; '
-        f'or put `api_key` in the `pixeltable` section of {Config.get().config_file}.\n'
+        'Either run `pxt login`; or set the `PIXELTABLE_API_KEY` environment variable to an existing key; '
+        'or put `api_key` in the `pixeltable` section of your user configuration file.\n'
         'For details, see: https://docs.pixeltable.com/platform/configuration',
     )
 
