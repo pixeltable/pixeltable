@@ -1230,6 +1230,8 @@ class TestServiceStop:
         other_target: str,
         qualified: bool,
     ) -> None:
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
         app = apps('basic.py')
         other = tmp_path / 'other'
         other.mkdir()
