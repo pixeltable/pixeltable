@@ -1,4 +1,10 @@
-"""Management API protocol: request/response models shared between the pxt SDK and the Pixeltable cloud server."""
+"""Management API protocol: request/response models shared between the Pixeltable SDK and the Pixeltable cloud server.
+
+Each request is org-scoped and requires an API key for authorization. Some requests include an optional org parameter.
+If an org is set, the server will verify that the API key belongs to that org. This is to avoid scenarios in which
+the client thinks that it acts on one org whereas its API key actually points to the other.
+
+The pixeltable-cloud repo imports this module, so care must be taken when making backwards-incompatible changes."""
 
 from __future__ import annotations
 
@@ -42,7 +48,9 @@ class ManagementOperationType(str, Enum):
 
     SET_SECRET = 'set_secret'
     DELETE_SECRET = 'delete_secret'
+    # TODO(PXT-1438): delete this when we no longer need to support older pxt cli
     LIST_SECRETS = 'list_secrets'
+    LIST_ALL_SECRETS = 'list_all_secrets'
 
     CREATE_KEY = 'create_key'
     LIST_KEYS = 'list_keys'
@@ -245,6 +253,29 @@ class ListSecretsRequest(BaseModel):
 
 class ListSecretsResponse(BaseModel):
     keys: list[str]
+
+
+class ListAllSecretsRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.LIST_ALL_SECRETS] = ManagementOperationType.LIST_ALL_SECRETS
+    org: str | None = None
+    # If db is set, the server returns that database's secrets and org-wide secrets. Otherwise it returns all secrets in
+    # the org.
+    db: str | None = None
+
+
+class SecretListItem(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
+    key: str
+    # None for an org-level secret
+    db: str | None
+
+
+class ListAllSecretsResponse(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
+    org: str
+    secrets: list[SecretListItem]
 
 
 # Services
