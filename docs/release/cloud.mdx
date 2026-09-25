@@ -23,7 +23,7 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     pxt org list
     ```
 
-    `pxt login` shows a code to confirm in your browser. Use the organization name from `pxt org list` in the `pxt://` commands below. If you have no organization, run `pxt org create org` first.
+    `pxt login` shows a code to confirm in your browser. Use the organization name from `pxt org list` in the `pxt://` commands below. If you have no organization, run `pxt org create org` first. It provisions your first database, `main`.
   </Step>
   <Step title="Prepare the application and Cloud target">
     In a new directory, run:
@@ -36,26 +36,26 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
 
     `pxt service example` writes a working `app.py` with a `Docs` table and an `ingest` HTTP service. If you already completed the Quickstart, use that `app.py` instead.
 
-    Add a hosted database entry to the `pixeltable.toml` that `pxt init` created. Replace `org` with your organization name:
+    Add a hosted database entry for that `main` database to the `pixeltable.toml` that `pxt init` created. Replace `org` with your organization name:
 
     ```toml
     [[pixeltable.database]]
-    name = 'pxt://org:mydb'
+    name = 'pxt://org:main'
     ```
 
     Keep the local database entry that `pxt init` wrote. If your project has a `pyproject.toml`, `pxt init` adds its entry there instead; use `[[tool.pixeltable.database]]` for the hosted entry.
   </Step>
-  <Step title="Create the database, tables, and service">
+  <Step title="Upload the project, create tables, and start the service">
     Run these commands from the project directory, in order:
 
     ```bash
-    pxt db update pxt://org:mydb
-    pxt schema update app.py pxt://org:mydb
-    pxt service update app.py pxt://org:mydb
-    pxt service list pxt://org:mydb
+    pxt db update pxt://org:main
+    pxt schema update app.py pxt://org:main
+    pxt service update app.py pxt://org:main
+    pxt service list pxt://org:main
     ```
 
-    `pxt db update` creates the hosted database and uploads the project. `pxt schema update` creates its tables. `pxt service update` starts the HTTP service. `pxt service list` prints its URL and routes.
+    `pxt db update` uploads the project and builds the image. It does not insert rows. `pxt schema update` creates its tables. `pxt service update` starts the HTTP service. `pxt service list` prints its URL and routes.
   </Step>
   <Step title="Insert a row and check the result">
     The generated `app.py` defines a `docs` table with a computed `title_upper` column. Insert a row from Python:
@@ -63,7 +63,7 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     ```python
     import pixeltable as pxt
 
-    docs = pxt.get_table('pxt://org:mydb/docs')
+    docs = pxt.get_table('pxt://org:main/docs')
     docs.insert(title='Hello', body='world')
     print(docs.select(docs.title, docs.title_upper).collect())
     ```
@@ -86,7 +86,7 @@ The CLI prints the secret once. `pxt key list` shows key names, but cannot show 
 
 ### Call the hosted service
 
-Get the service URL from `pxt service list pxt://org:mydb`. Put the key in your backend's environment and send it in the `X-api-key` header:
+Get the service URL from `pxt service list pxt://org:main`. Put the key in your backend's environment and send it in the `X-api-key` header:
 
 ```bash
 export PIXELTABLE_API_KEY='your-key'
@@ -165,24 +165,24 @@ The browser calls `/api/title`; the Route Handler calls Pixeltable. Add your app
 `PIXELTABLE_API_KEY` authenticates to Pixeltable Cloud. Provider keys, such as `OPENAI_API_KEY`, belong in Cloud **Secrets**. For a database that uses OpenAI:
 
 ```bash
-pxt secret set pxt://org:mydb OPENAI_API_KEY=your-provider-key
-pxt db restart pxt://org:mydb
-pxt service restart pxt://org:mydb/ingest
+pxt secret set pxt://org:main OPENAI_API_KEY=your-provider-key
+pxt db restart pxt://org:main
+pxt service restart pxt://org:main/ingest
 ```
 
 The restarts let running table and service processes read the new value. You can also set secrets in the [Cloud dashboard](https://www.pixeltable.com/dashboard). [CLI secret commands](/platform/cli#pxt-secret).
 
 ## Update and inspect the deployment
 
-After editing `app.py` or dependencies, run `pxt db update pxt://org:mydb` to update the hosted project or image. If you changed tables, follow it with `pxt schema update app.py pxt://org:mydb`. If you changed HTTP routes, follow it with `pxt service update app.py pxt://org:mydb`. Use the corresponding `diff` commands to see pending changes first. [CLI reference](/platform/cli#cloud).
+After editing `app.py` or dependencies, run `pxt db update pxt://org:main` to update the hosted project or image. If you changed tables, follow it with `pxt schema update app.py pxt://org:main`. If you changed HTTP routes, follow it with `pxt service update app.py pxt://org:main`. Use the corresponding `diff` commands to see pending changes first. [CLI reference](/platform/cli#cloud).
 
 ```bash
-pxt db logs pxt://org:mydb
-pxt service logs pxt://org:mydb/ingest
+pxt db logs pxt://org:main
+pxt service logs pxt://org:main/ingest
 ```
 
 These commands show database and service logs when a deployment or request fails.
 
 ## Media on the home bucket
 
-A Cloud database has a managed Media Store at `pxtfs://org:mydb/home`. Hosted tables and services use it by default; normal media columns need no `destination=` setting. To write computed media to your own bucket, set `destination=` on that column or configure `output_media_dest`. [Cloud storage](/integrations/cloud-storage#pixeltable-cloud-home-bucket).
+A Cloud database has a managed Media Store at `pxtfs://org:main/home`. Hosted tables and services use it by default; normal media columns need no `destination=` setting. To write computed media to your own bucket, set `destination=` on that column or configure `output_media_dest`. [Cloud storage](/integrations/cloud-storage#pixeltable-cloud-home-bucket).

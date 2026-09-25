@@ -126,12 +126,12 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
 
 <Tabs>
   <Tab title="Cloud">
-    To run this same file on Pixeltable Cloud, sign in with `pxt login` or [use an API key](/cloud#get-an-api-key). First add a named hosted database entry to the project configuration as shown in [Pixeltable Cloud](/cloud#first-deployment). Then create the hosted database with `pxt db update`, create tables with `pxt schema update`, and start hosted endpoints with `pxt service update`. Try changes by inserting from the dashboard and running `pxt schema diff`.
+    To run this same file on Pixeltable Cloud, sign in with `pxt login`. An [API key](/cloud#get-an-api-key) is optional for the CLI and required for hosted HTTP. `pxt org create` provisions `main`. Add a project entry for `main`, as shown in [Pixeltable Cloud](/cloud#first-deployment). `pxt db update` uploads the project and builds the image. `pxt schema update` creates tables. `pxt service update` starts hosted endpoints. Try changes by inserting from the dashboard and running `pxt schema diff`.
 
     ```bash
-    pxt db update pxt://org:mydb
-    pxt schema update app.py pxt://org:mydb
-    pxt service update app.py pxt://org:mydb
+    pxt db update pxt://org:main
+    pxt schema update app.py pxt://org:main
+    pxt service update app.py pxt://org:main
     ```
 
     [Pixeltable Cloud](/cloud).
@@ -162,6 +162,6 @@ This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt
     What `pxt schema` and `pxt service` do, including `diff`, `update`, and `prune`.
   </Card>
   <Card title="Cloud" icon="cloud" href="/cloud">
-    The same `app.py`. `pxt db update`, then `pxt schema update` and `pxt service update` against `pxt://org:mydb`.
+    The same `app.py`. `pxt db update`, then `pxt schema update` and `pxt service update` against `pxt://org:main`.
   </Card>
 </CardGroup>
