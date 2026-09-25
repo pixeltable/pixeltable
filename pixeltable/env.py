@@ -139,6 +139,8 @@ class Env:
     _file_cache_lease_s: float
     _default_input_media_dest: str | None
     _default_output_media_dest: str | None
+    _cloud_org: str | None
+    _cloud_db: str | None
     _object_store_clients: dict[tuple[StorageTarget, ObjectStoreClientKind], S3CompatClientDict]
     _object_store_clients_lock: threading.Lock
     _default_video_encoder: str | None
@@ -243,10 +245,8 @@ class Env:
 
     def hosted_db(self, *, required: bool = False) -> tuple[str, str] | None:
         """(org, db) of the hosted database; the cloud sets PXTCLOUD_ORG and PXTCLOUD_DB on its pods."""
-        org = os.environ.get('PXTCLOUD_ORG')
-        db = os.environ.get('PXTCLOUD_DB')
-        if org and db:
-            return org, db
+        if self._cloud_org and self._cloud_db:
+            return self._cloud_org, self._cloud_db
         if required:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
@@ -388,6 +388,8 @@ class Env:
         lease_s = config.get_float_value('file_cache_lease_s')
         self._file_cache_lease_s = 600.0 if lease_s is None else lease_s
 
+        self._cloud_org = config.get_string_value('org', section='pxtcloud')
+        self._cloud_db = config.get_string_value('db', section='pxtcloud')
         self._default_input_media_dest = config.get_string_value('input_media_dest')
         self._default_output_media_dest = config.get_string_value('output_media_dest')
         hosted_db = self.hosted_db()

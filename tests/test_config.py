@@ -486,6 +486,110 @@ class TestConfig:
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid `DatabaseConfig`'):
             load("[[pixeltable.database]]\nnot_a_setting = 'x'\n")
 
+    def test_database_settings(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A database entry sets the media destinations and the OTLP endpoint and protocol of its database."""
+        for var in (
+            'PIXELTABLE_INPUT_MEDIA_DEST',
+            'PIXELTABLE_OUTPUT_MEDIA_DEST',
+            'OTEL_EXPORTER_OTLP_ENDPOINT',
+            'OTEL_EXPORTER_OTLP_PROTOCOL',
+            'PXTCLOUD_ORG',
+            'PXTCLOUD_DB',
+        ):
+            monkeypatch.delenv(var, raising=False)
+        config_file = tmp_path / 'config.toml'
+        monkeypatch.setenv('PIXELTABLE_CONFIG', str(config_file))
+
+        def load(text: str) -> Config:
+            config_file.write_text(text)
+            Config.init(reinit=True)
+            return Config.get()
+
+        # the entry's values are read under the section and key each setting has always had
+        config = load(
+            dedent(
+                """
+                [[pixeltable.database]]
+                db_input_media_dest = 's3://local/input/'
+                db_output_media_dest = 's3://local/output/'
+                db_exporter_otlp_endpoint = 'https://otlp.local.example'
+                db_exporter_otlp_protocol = 'grpc'
+                vars.media_dest = 's3://local/bucket'
+
+                [[pixeltable.database]]
+                name = 'pxt://myorg:prod'
+                db_input_media_dest = 's3://prod/input/'
+                db_exporter_otlp_endpoint = 'https://otlp.prod.example'
+                vars.media_dest = 's3://prod/bucket'
+                """
+            )
+        )
+        assert config.get_string_value('input_media_dest') == 's3://local/input/'
+        assert config.get_string_value('output_media_dest') == 's3://local/output/'
+        assert config.get_string_value('exporter_otlp_endpoint', section='otel') == 'https://otlp.local.example'
+        assert config.get_string_value('exporter_otlp_protocol', section='otel') == 'grpc'
+        assert config.get_value_source('input_media_dest') == config_file
+        assert config.describe_setting('pixeltable', 'input_media_dest') == (
+            f'[[pixeltable.database]].db_input_media_dest in {config_file}'
+        )
+
+        # on a hosted database's pod the process reads that database's entry, settings and bindings alike
+        monkeypatch.setenv('PXTCLOUD_ORG', 'myorg')
+        monkeypatch.setenv('PXTCLOUD_DB', 'prod')
+        assert config.get_string_value('input_media_dest') == 's3://prod/input/'
+        assert config.get_string_value('output_media_dest') is None
+        assert config.get_string_value('exporter_otlp_endpoint', section='otel') == 'https://otlp.prod.example'
+        assert config.get_string_value('exporter_otlp_protocol', section='otel') is None
+        assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://prod/bucket'
+        monkeypatch.delenv('PXTCLOUD_ORG')
+        monkeypatch.delenv('PXTCLOUD_DB')
+
+        # the entry outranks the environment variable and a pxt.init() override; a setting the entry leaves unset
+        # still comes from the environment
+        monkeypatch.setenv('PIXELTABLE_INPUT_MEDIA_DEST', 's3://from/env/')
+        monkeypatch.setenv('PIXELTABLE_OUTPUT_MEDIA_DEST', 's3://from/env/')
+        assert config.get_string_value('input_media_dest') == 's3://local/input/'
+        assert config.get_value_source('input_media_dest') == config_file
+        monkeypatch.setenv('PXTCLOUD_ORG', 'myorg')
+        monkeypatch.setenv('PXTCLOUD_DB', 'prod')
+        assert config.get_string_value('output_media_dest') == 's3://from/env/'
+        assert config.get_value_source('output_media_dest') == 'env'
+        monkeypatch.delenv('PXTCLOUD_ORG')
+        monkeypatch.delenv('PXTCLOUD_DB')
+        monkeypatch.delenv('PIXELTABLE_INPUT_MEDIA_DEST')
+        monkeypatch.delenv('PIXELTABLE_OUTPUT_MEDIA_DEST')
+        Config.init({'pixeltable.input_media_dest': 's3://from/init/'}, reinit=True)
+        assert Config.get().get_string_value('input_media_dest') == 's3://local/input/'
+        # a var named like a setting is a var, not that setting
+        Config.init(reinit=True)
+        assert Config.get().get_string_value('input_media_dest', section=VAR_SECTION) is None
+
+        # the entry outranks the section every database shares, which still applies where the entry is silent
+        config = load(
+            dedent(
+                """
+                [pixeltable]
+                input_media_dest = 's3://shared/input/'
+                output_media_dest = 's3://shared/output/'
+
+                [otel]
+                exporter_otlp_endpoint = 'https://otlp.shared.example'
+
+                [[pixeltable.database]]
+                db_input_media_dest = 's3://local/input/'
+                """
+            )
+        )
+        assert config.get_string_value('input_media_dest') == 's3://local/input/'
+        assert config.get_string_value('output_media_dest') == 's3://shared/output/'
+        assert config.get_string_value('exporter_otlp_endpoint', section='otel') == 'https://otlp.shared.example'
+
+        # only a db_<key> field of DatabaseConfig overrides a setting; the entry accepts no other one
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='db_verbosity'):
+            load('[[pixeltable.database]]\ndb_verbosity = 2\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='input_media_dest'):
+            load("[[pixeltable.database]]\ninput_media_dest = 's3://local/input/'\n")
+
     def test_reload_if_changed(self, tmp_path: Path) -> None:
         """The config file is re-read after it changes, which is how a running daemon picks up an edit."""
         config_file = tmp_path / 'config.toml'

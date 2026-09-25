@@ -28,7 +28,16 @@ from ..utils import (
     new_db_uri,
     skip_test_if_not_installed,
 )
-from .conftest import BUILD_TIMEOUT, EXIT_ERROR, BackgroundPxt, PxtRunner, db_update, disposable_db, read_logs_until
+from .conftest import (
+    BUILD_TIMEOUT,
+    EXIT_ERROR,
+    INPUT_MEDIA_PREFIX,
+    BackgroundPxt,
+    PxtRunner,
+    db_update,
+    disposable_db,
+    read_logs_until,
+)
 from .hosted import (
     APP_FILE,
     await_service_available,
@@ -671,6 +680,12 @@ class TestService:
         body = resp.json()
         assert body['clip_id'] == 1, body
         assert pxt.get_table(f'{target}/frames').count() > 0
+        clips = pxt.get_table(f'{target}/clips')
+        video_url = clips.select(clips.video.fileurl).collect()['video_fileurl'][0]
+        expected_prefix = (
+            f'{home_bucket_uri(db_root.base_uri)}/{INPUT_MEDIA_PREFIX}/' if db_root.is_cloud else 'file://'
+        )
+        assert video_url.startswith(expected_prefix), video_url
         # the persisted poster comes back as a url
         assert_image_bytes(_fetch_media(body['poster'], db_root))
         # so does media a query makes on the fly, which no row stores

@@ -56,15 +56,17 @@ def init(
 
     Call once, before the first Pixeltable operation. Each argument overrides the matching `[otel]`
     config setting and its standard `OTEL_*` environment variable; when an argument is left as None the
-    value resolves from that env var (highest priority) then the `[otel]` config section. Pass
+    value resolves from the database's `[[pixeltable.database]]` entry where it sets one (the endpoint and
+    protocol, as `db_<key>`), then that env var, then the `[otel]` config section. Pass
     `tracer_provider`/`meter_provider` to instrument against an SDK your application owns instead.
 
     Args:
-        endpoint: OTLP collector endpoint (eg `http://localhost:4318`); resolves from
-            `otel.exporter_otlp_endpoint` / `OTEL_EXPORTER_OTLP_ENDPOINT`. With no endpoint configured
-            and no application-owned provider, instrumentation stays inert and exports nothing.
-        protocol: OTLP transport, `http/protobuf` (default) or `grpc`; resolves from
-            `otel.exporter_otlp_protocol` / `OTEL_EXPORTER_OTLP_PROTOCOL`.
+        endpoint: OTLP collector endpoint (eg `http://localhost:4318`); resolves from the database entry's
+            `db_exporter_otlp_endpoint`, then `OTEL_EXPORTER_OTLP_ENDPOINT`, then `otel.exporter_otlp_endpoint`.
+            With no endpoint configured and no application-owned provider, instrumentation stays inert and
+            exports nothing.
+        protocol: OTLP transport, `http/protobuf` (default) or `grpc`; resolves from the database entry's
+            `db_exporter_otlp_protocol`, then `OTEL_EXPORTER_OTLP_PROTOCOL`, then `otel.exporter_otlp_protocol`.
         service_name: `service.name` resource attribute (default `pixeltable`); resolves from
             `otel.service_name` / `OTEL_SERVICE_NAME`.
         headers: OTLP headers as comma-separated `key=value` pairs; resolves from
