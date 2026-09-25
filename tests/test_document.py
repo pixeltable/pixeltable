@@ -142,6 +142,13 @@ class TestDocument:
                     'chunks', t, iterator=document_splitter(document=t.doc, separators=sep, elements=['image'])
                 )
 
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'image_dpi' must be a positive number"):
+            _ = pxt.create_view(
+                'chunks',
+                t,
+                iterator=document_splitter(document=t.doc, separators='page', elements=['image'], image_dpi=0),
+            )
+
         pdf_file = next(f for f in self.valid_doc_paths() if f.endswith('.pdf'))
         t = pxt.create_table('docs', {'doc': pxt.Document | None}, if_exists='replace')
         _ = pxt.create_view('paragraphs', t, iterator=document_splitter(t.doc, separators='paragraph'))
@@ -401,3 +408,20 @@ class TestDocument:
 
         res = chunks.collect()
         assert all(isinstance(r['image'], PIL.Image.Image) for r in res)
+
+    def test_doc_splitter_image_dpi(self, uses_db: None) -> None:
+        pdf = next(p for p in get_documents() if p.endswith('.pdf'))
+        t = pxt.create_table('docs', {'doc': pxt.Document})
+        t.insert([{'doc': pdf}])
+        sizes: dict[int, tuple[int, int]] = {}
+        for dpi in (72, 144):
+            v = pxt.create_view(
+                f'pages_{dpi}',
+                t,
+                iterator=document_splitter(document=t.doc, separators='page', elements=['image'], image_dpi=dpi),
+            )
+            sizes[dpi] = v.order_by(v.pos).select(v.image).limit(1).collect()[0]['image'].size
+        assert sizes[72] == (612, 792)  # US Letter: 8.5 x 11 in at 72 dpi
+        # rendered sizes are rounded to whole pixels
+        assert abs(sizes[144][0] - 2 * sizes[72][0]) <= 1
+        assert abs(sizes[144][1] - 2 * sizes[72][1]) <= 1

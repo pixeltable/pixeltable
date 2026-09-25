@@ -204,7 +204,7 @@ class document_splitter(pxt.PxtIterator):
             this parameter overrides `tiktoken_encoding`. This parameter is ignored unless the `'token_limit'`
             separator is specified.
         image_dpi: DPI to use when extracting images from PDFs. Defaults to 300.
-        image_format: format to use when extracting images from PDFs. Defaults to 'png'.
+        image_format: has no effect; page images are stored as JPEG.
 
     Examples:
         All these examples assume an existing table `tbl` with a column `doc` of type `pxt.Document`.
@@ -489,7 +489,8 @@ class document_splitter(pxt.PxtIterator):
             with closing(page):
                 img: PIL.Image.Image | None = None
                 if Element.IMAGE in self._elements:
-                    with closing(page.render()) as bitmap:
+                    # pypdfium2 renders at 72 dpi for scale=1
+                    with closing(page.render(scale=self._image_dpi / 72)) as bitmap:
                         img = bitmap.to_pil().copy()
                 with closing(page.get_textpage()) as textpage:
                     text = textpage.get_text_bounded()
@@ -583,6 +584,9 @@ class document_splitter(pxt.PxtIterator):
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 "Image elements are only supported for the 'page' separator on PDF documents",
             )
+        image_dpi = bound_args.get('image_dpi')
+        if image_dpi is not None and image_dpi <= 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'image_dpi' must be a positive number")
         if limit is not None or overlap is not None:
             if Separator.TOKEN_LIMIT not in separators and Separator.CHAR_LIMIT not in separators:
                 raise excs.RequestError(
