@@ -10,13 +10,69 @@ Install FastAPI and uvicorn first:
 pip install 'pixeltable[serve]'
 ```
 
-How the process starts is on [Self-hosting](/howto/deployment/overview). This page covers the route API once you have chosen which process serves it. After a service is running, FastAPI's OpenAPI UI is at `http://<host>:<port>/docs`, and the schema behind it is at `http://<host>:<port>/openapi.json`. Generate TypeScript types for a frontend from that schema:
+How the process starts is on [Self-hosting](/howto/deployment/overview). This page covers the route API once you have chosen which process serves it. A local service exposes FastAPI's interactive docs at `/docs` and its OpenAPI schema at `/openapi.json`. `pxt service update` assigns a local port; look up the endpoint by catalog path and service name rather than assuming port 8000. For the README's `my_app/ingest` example:
 
 ```bash
-npx openapi-typescript http://localhost:8000/openapi.json -o src/pixeltable.d.ts
+SERVICE_URL=$(pxt service list my_app --json | jq -r '.[] | select(.catalog_path == "my_app" and .name == "ingest") | .endpoint')
+curl -fsS "${SERVICE_URL%/}/openapi.json" -o openapi.json
+npx openapi-typescript openapi.json -o src/pixeltable.d.ts
 ```
 
+Replace `my_app` and `ingest` when using another target or service.
+
 Each column named in a route's `outputs` becomes a typed field, computed columns included.
+Regenerate types after changing the Python routes.
+
+For a hosted service, copy its full endpoint URL from the Cloud dashboard or find it with `pxt service list pxt://org:db --json` using a credential that can list services. A key scoped only to invoke a service cannot list services, but can download that service's schema when granted access. The gateway requires a credential to download the schema:
+
+```bash
+curl -fsS -H "X-api-key: $PIXELTABLE_API_KEY" "${SERVICE_URL%/}/openapi.json" -o openapi.json
+npx openapi-typescript openapi.json -o src/pixeltable.d.ts
+```
+
+The hosted schema declares the gateway's `X-api-key` header on every route except `/health`; local service schemas declare no key. In the Cloud dashboard, expand **API docs** on the service detail page to inspect and try routes as your signed-in user, without an API key. Trying an insert, update, or delete route can change data.
+
+Routes with `return_fileresponse=True` advertise a binary response for any media type. Check the response's `Content-Type` when handling the returned image, video, audio, or document.
+
+## Call from a TypeScript app server
+
+Keep a Cloud API key in your application server's environment, never in browser code. Generated types do not check raw `fetch` calls, so call routes through `openapi-fetch` with the generated `paths`. The same module calls a local service (no key) or a hosted one. Set `PIXELTABLE_SERVICE_URL` to the full service endpoint, as above, run `npm install openapi-fetch server-only`, and put this in `src/lib/pixeltable-client.ts`. With the README's `/titles` compute route:
+
+```typescript
+import 'server-only';
+import createClient from 'openapi-fetch';
+import type { paths } from '../pixeltable';
+
+const apiKey = process.env.PIXELTABLE_API_KEY;
+
+export const pixeltable = createClient<paths>({
+  baseUrl: process.env.PIXELTABLE_SERVICE_URL,
+  headers: apiKey ? { 'X-api-key': apiKey } : {},
+  cache: 'no-store',
+});
+
+export class PixeltableError extends Error {
+  status: number;
+  body: unknown;
+  constructor(status: number, body: unknown) {
+    super(`Pixeltable service returned HTTP ${status}`);
+    this.status = status;
+    this.body = body;
+  }
+}
+
+export async function computeTitle(title: string) {
+  const { data, error, response } = await pixeltable.POST('/titles', { body: { title } });
+  if (error !== undefined || !response.ok) throw new PixeltableError(response.status, error);
+  return data; // typed from the service schema
+}
+```
+
+Call it from a Server Component, or from your own Route Handler or Server Action; protect any that expose writes to browser users with your application's authorization checks. Regenerate `src/pixeltable.d.ts` when routes change, and run your TypeScript check so request and response mismatches fail before deployment. The Cloud dashboard's **Use this endpoint** TypeScript and JavaScript snippets are server-side examples.
+
+A `return_fileresponse=True` route needs `parseAs: 'blob'`, or `parseAs: 'stream'` to pipe `response.body` through your Route Handler with the upstream `Content-Type`; without it the client parses the file as JSON and throws. Generated types describe upload fields as strings, so send an upload with `fetch`, a `FormData` body, and the same `X-api-key` header, and let `fetch` set the multipart boundary.
+
+`PixeltableError.body` is the parsed error response. Its `detail` is an object with `error_code`, `message`, and `retryable` (sometimes `retry_after`) for a Pixeltable runtime error and for an error the Cloud gateway answers itself: 401 for a missing or invalid key, 403 for a key without access to the service, 404 for an unknown service, 429 when the key is rate limited, and 503 when the service is not running. It is a string for a missing row and an array for a request-validation error, so branch on its shape, not the status. Retry a write only when `detail.retryable` is true, after `retry_after` seconds when present.
 
 ## Mount on your own FastAPI app
 
@@ -263,8 +319,10 @@ Poll `job_url` (`pxt service list` prints the base URL):
 curl http://127.0.0.1:<port>/_pxt/jobs/abc123
 # {"status": "pending"}
 # {"status": "done", "result": {...}}
-# {"status": "error", "error": "..."}
+# {"status": "error", "error": "...", "error_detail": {...}}
 ```
+
+Poll through your application server with the same Cloud key when hosted. Cloud returns an HTTPS `job_url`. The polling path is in the generated schema, so polling is a typed call on the same [TypeScript client](#call-from-a-typescript-app-server): `pixeltable.GET('/_pxt/jobs/{job_id}', { params: { path: { job_id: id } } })`. A failed job's `error_detail` has the same shape as an HTTP error's `detail`, so the same retry rule applies.
 
 `background` cannot combine with `return_fileresponse`.
 

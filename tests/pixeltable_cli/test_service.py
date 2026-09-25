@@ -157,8 +157,9 @@ def assert_serving(cli: PxtRunner, app: str, target: str, *names: str) -> dict[s
         served_paths = set(served.json()['paths'])
         # the listed paths are being served, as per the docs endpoint
         assert listed_paths <= served_paths, (listed_paths, sorted(served_paths))
-        # internal paths are not exposed
-        assert not any('/_pxt/' in path for path in served_paths), sorted(served_paths)
+        # of the internal paths, only the one that polls background jobs is exposed
+        internal_paths = [path for path in served_paths if '/_pxt/' in path]
+        assert all(path.endswith('/_pxt/jobs/{job_id}') for path in internal_paths), sorted(served_paths)
     return running
 
 
@@ -1157,6 +1158,13 @@ class TestHostedService:
         instance = service_list(cli, project, current_db)['ingest']
         assert instance['state'] == 'AVAILABLE', instance
         assert instance['catalog_path'] == current_db
+        schema_response = httpx.get(
+            f'{instance["endpoint"]}/openapi.json',
+            headers={'X-api-key': os.environ['PIXELTABLE_API_KEY']},
+            timeout=_REQUEST_TIMEOUT,
+        )
+        assert schema_response.status_code == 200, schema_response.text
+        assert 'PixeltableGatewayApiKey' in schema_response.json()['components']['securitySchemes']
 
         # a new route requires a db update
         edit_app(project, "ingest.add_delete_route(Docs, path='/docs/purge')")
