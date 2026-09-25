@@ -35,7 +35,7 @@ Examples:
   pxt db stop pxt://org:db
   pxt db restart pxt://org:db   # cycle its pods onto the image and project it runs
   pxt db build-image pxt://org:db   # build an image without comparing first
-  pxt db delete pxt://org:db
+  pxt db delete pxt://org:db -f   # no confirmation
 
 The uri selects the matching [[pixeltable.database]] entry in the project configuration:
 
