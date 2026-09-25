@@ -1390,7 +1390,7 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='At least one output column'):
             t.compute([{'id': 1}], outputs=[])
 
-        # a row must supply the required (non-nullable) columns that the requested outputs read, and no others
+        # a row must supply the required (non-nullable) columns that the requested outputs read
         r = pxt.create_table(p('test_compute_required'), {'req': pxt.Int, 'x': pxt.Int | None})
         r.add_computed_column(y=r.x + 1)
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'Missing required column\(s\) \(req\)'):

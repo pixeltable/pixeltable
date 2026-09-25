@@ -899,8 +899,8 @@ class Table(SchemaObject):
         Materialize the computed columns of this table for the given input rows and return the resulting rows
         without persisting them.
 
-        Only the requested `outputs` and the columns their value expressions read are computed, so an input row
-        needs to supply only the stored columns those depend on.
+        Computes only the requested `outputs` and the columns they use. An input row must supply each stored required
+        column used by `outputs`.
 
         If this table is a view, the input rows are applied to the view's insertable base table (i.e., the root of the
         view hierarchy) and the output rows are the resulting rows of the view, as if the input had been inserted into
@@ -911,8 +911,8 @@ class Table(SchemaObject):
         Args:
             source: Rows to compute, as a sequence of dictionaries or Pydantic model instances. Rows contain
                 values for the base table's columns (for a view) or this table's columns; each row must supply
-                values for every required (non-nullable, non-computed) column that the `outputs` depend on;
-                otherwise the same rules as [`insert()`][pixeltable.Table.insert] apply.
+                values for every required (non-nullable, non-computed) column used by `outputs`; otherwise the same
+                rules as [`insert()`][pixeltable.Table.insert] apply.
 
             outputs: The columns to compute and return, as names or column references. Defaults to all columns
                 of the table.

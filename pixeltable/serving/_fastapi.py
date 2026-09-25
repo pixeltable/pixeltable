@@ -2427,8 +2427,6 @@ class FastAPIRouter(fastapi.APIRouter):
             output_item_str='column',
         )
         if route_type != 'update':
-            # the request carries only the declared inputs, so they must cover every column the operation requires:
-            # for an insert every required column of the table, for a compute those the outputs depend on
             output_md = None if route_type == 'insert' else [cols_by_name[name] for name in output_col_names]
             required_names = [
                 c.name for c in Planner.required_input_columns(defined_path, output_md) if c.name is not None
