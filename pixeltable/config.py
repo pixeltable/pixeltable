@@ -103,7 +103,12 @@ def _load_toml(path: Path) -> dict[str, Any]:
     try:
         with open(path, 'rb') as stream:
             return tomllib.load(stream)
-    except (OSError, tomllib.TOMLDecodeError) as e:
+    except OSError as e:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'{path} cannot be read: {e.strerror or e}'
+        ) from e
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
+        # tomllib decodes the file itself, so text that is not UTF-8 fails here rather than at the read
         raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'{path} cannot be parsed: {e}') from e
 
 
@@ -116,7 +121,6 @@ def _find_project_root(start: Path) -> Path | None:
             return dir
         pyproject = dir / PYPROJECT_FILE
         if pyproject.is_file():
-            # fail early
             parsed = _load_toml(pyproject)
             tool = parsed.get('tool')
             if isinstance(tool, dict) and 'pixeltable' in tool:

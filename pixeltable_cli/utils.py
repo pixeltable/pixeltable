@@ -148,7 +148,10 @@ def parse_toml(path: Path) -> dict[str, Any]:
     try:
         with open(path, 'rb') as fp:
             return tomllib.load(fp)
-    except (OSError, tomllib.TOMLDecodeError) as e:
+    except OSError as e:
+        raise RuntimeError(f'{path} cannot be read: {e.strerror or e}') from e
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
+        # tomllib decodes the file itself, so text that is not UTF-8 fails here rather than at the read
         raise RuntimeError(f'{path} cannot be parsed: {e}') from e
 
 
@@ -161,8 +164,7 @@ def find_project_root(start: Path) -> Path | None:
     for dir in (start, *start.parents):
         pixeltable_toml = dir / PROJECT_CONFIG_FILE
         if pixeltable_toml.is_file():
-            # parsed for its error alone: a daemon spawned with an unparseable file never serves health
-            parse_toml(pixeltable_toml)
+            _ = parse_toml(pixeltable_toml)
             return dir
         pyproject = dir / PYPROJECT_FILE
         if pyproject.is_file():

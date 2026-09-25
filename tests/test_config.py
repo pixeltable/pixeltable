@@ -49,6 +49,12 @@ class TestConfig:
         spawn_cmd({'PIXELTABLE_HOME': str(tmp)}, f'pixeltable.exceptions.RequestError: Not a directory: {tmp}')
         spawn_cmd({'PIXELTABLE_CONFIG': str(tmp)}, f'pixeltable.exceptions.RequestError: {tmp} cannot be parsed:')
 
+        tmp.chmod(0o000)
+        try:
+            spawn_cmd({'PIXELTABLE_CONFIG': str(tmp)}, f'pixeltable.exceptions.RequestError: {tmp} cannot be read:')
+        finally:
+            tmp.chmod(0o644)
+
         with open(tmp, 'w', encoding='utf-8') as fp:
             fp.write('[pixeltable]\nunknown_key = "value"')
         spawn_cmd(

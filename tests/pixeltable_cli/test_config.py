@@ -346,22 +346,33 @@ class TestConfig:
         assert str(config_file) in r.stderr
         assert 'RemoteDisconnected' not in r.stderr
 
-    def test_unparseable_project_config(self, cli: PxtRunner, served_project: pathlib.Path) -> None:
-        """An unquoted string in pixeltable.toml is reported by the client, before any daemon reads it."""
-        project_config = served_project / PROJECT_CONFIG_FILE
-        original = project_config.read_text(encoding='utf-8')
-        # leave a daemon running and this passes either way: it answers before the client reads the file
-        cli('daemon', 'stop', '-f')
+    def test_unparseable_project_config(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+        """A project file the client cannot read or parse is reported by the client, not by the daemon."""
+        project_config = tmp_path / PROJECT_CONFIG_FILE
+
         project_config.write_text('[[pixeltable.database]]\nname = pxt://my-org:my-db\n', encoding='utf-8')
+        r = cli('ls', '/', cwd=tmp_path, check=False)
+        assert r.returncode != 0
+        assert str(project_config) in r.stderr
+        assert 'line 2, column 8' in r.stderr, r.stderr
+        assert 'did not come up' not in r.stderr, r.stderr
+        assert 'Traceback' not in r.stderr, r.stderr
+
+        project_config.write_bytes(b'[[pixeltable.database]]\nname = "\xff"\n')
+        r = cli('ls', '/', cwd=tmp_path, check=False)
+        assert r.returncode != 0
+        assert 'cannot be parsed' in r.stderr, r.stderr
+        assert 'Traceback' not in r.stderr, r.stderr
+
+        project_config.write_text("[[pixeltable.database]]\nname = 'pxt://my-org:my-db'\n", encoding='utf-8')
+        project_config.chmod(0o000)
         try:
-            r = cli('ls', '/', check=False)
+            r = cli('ls', '/', cwd=tmp_path, check=False)
             assert r.returncode != 0
-            assert str(project_config) in r.stderr
-            assert 'line 2, column 8' in r.stderr, r.stderr
-            assert 'did not come up' not in r.stderr, r.stderr
+            assert 'cannot be read' in r.stderr, r.stderr
             assert 'Traceback' not in r.stderr, r.stderr
         finally:
-            project_config.write_text(original, encoding='utf-8')
+            project_config.chmod(0o644)
             cli('daemon', 'restart')
 
     def test_restart_while_serving(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:

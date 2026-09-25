@@ -68,7 +68,11 @@ def run(argv: list[str]) -> None:
     args = ap.parse_args(argv)
 
     root = pathlib.Path.cwd()
-    existing = _find_project_config(root)
+    try:
+        existing = _find_project_config(root)
+    except RuntimeError as e:
+        print(f'pxt init: {e}', file=sys.stderr)
+        sys.exit(EXIT_ERROR)
     if existing is not None and existing.parent == root:
         _report(root, existing, created=False, as_json=args.as_json)
         return
