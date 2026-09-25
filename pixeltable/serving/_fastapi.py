@@ -44,6 +44,7 @@ from pixeltable.catalog.model.query import ModelQuery
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
+from pixeltable.plan import Planner
 from pixeltable.runtime import close_threadpool_runtimes
 from pixeltable.service.proxy_protocol import PxtStorePartSink
 from pixeltable.serving import SqlExport
@@ -2429,7 +2430,9 @@ class FastAPIRouter(fastapi.APIRouter):
             # the request carries only the declared inputs, so they must cover every column the operation requires:
             # for an insert every required column of the table, for a compute those the outputs depend on
             output_md = None if route_type == 'insert' else [cols_by_name[name] for name in output_col_names]
-            required_names = [c.name for c in defined_path.required_input_columns(output_md) if c.name is not None]
+            required_names = [
+                c.name for c in Planner.required_input_columns(defined_path, output_md) if c.name is not None
+            ]
             missing = [name for name in required_names if name not in input_col_names]
             if len(missing) > 0:
                 remedy = (
