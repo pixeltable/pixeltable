@@ -47,10 +47,13 @@ for nb in "$TEST_PATH"/*.ipynb; do
     echo "Running notebook $nb ..."
     pytest -v -m '' --nbmake --nbmake-timeout=1800 "$nb" || (( FAILURES++ )) || true
 
+    echo "Stopping the pxt daemon, if the notebook started one ..."
+    pxt daemon stop -f || true
+
     echo "Cleaning $PIXELTABLE_DB postgres DB ..."
     POSTGRES_BIN_PATH=$(python -c 'import pixeltable_pgserver; import sys; sys.stdout.write(str(pixeltable_pgserver._commands.POSTGRES_BIN_PATH))')
     PIXELTABLE_URL="postgresql://postgres:@/postgres?host=$PIXELTABLE_HOME/pgdata"
-    "$POSTGRES_BIN_PATH/psql" "$PIXELTABLE_URL" -U postgres -c "DROP DATABASE IF EXISTS $PIXELTABLE_DB;"
+    "$POSTGRES_BIN_PATH/psql" "$PIXELTABLE_URL" -U postgres -c "DROP DATABASE IF EXISTS $PIXELTABLE_DB WITH (FORCE);"
 
     echo "Cleaning Hugging Face cache ..."
     rm -rf ~/.cache/huggingface

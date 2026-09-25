@@ -88,6 +88,24 @@ class TestJson:
         assert res['my_int'] == [j for i in range(50) for j in range(i + 1)]
         assert res['my_str'] == [f'string_{j}' if j < i else None for i in range(50) for j in range(i + 1)]
 
+    def test_list_iterator_non_nullable_cast_args(self, uses_db: None) -> None:
+        t = pxt.create_table('test_table', {'j': pxt.Json | None})
+        t.insert([{'j': {'segments': [{'start': 0.5, 'text': 'a'}, {'start': 2.0, 'text': 'b'}]}}])
+        segments = t.j.segments['*']
+        v = pxt.create_view(
+            'test_view',
+            t,
+            iterator=pxtf.json.list_iterator(
+                start=segments.start.astype(pxt.Json[[float]]), text=segments.text.astype(pxt.Json[[str]])
+            ),
+        )
+        res = v.order_by(v.pos).collect()
+        assert res['start'] == [0.5, 2.0]
+        assert res['text'] == ['a', 'b']
+
+        t.insert([{'j': {'segments': [{'start': 3.5, 'text': 'c'}]}}])
+        assert sorted(v.select(v.start).collect()['start']) == [0.5, 2.0, 3.5]
+
     def test_len_and_is_empty(self, uses_db: None) -> None:
         t = pxt.create_table('json_len', {'id': pxt.Int | None, 'j': pxt.Json | None})
         t.insert(

@@ -947,10 +947,18 @@ class TestOpenaiTypedDictAdherence:
 
         ours_fields, ours_optional = self._td_fields(ImagesResponse)
         sdk_fields = self._pydantic_fields(SdkImagesResponse)
+        sdk_names = set(SdkImagesResponse.model_fields)
 
-        overrides = {'data'}  # we re-type and guarantee non-null
-        assert set(ours_fields) == set(sdk_fields), (
-            f'ImagesResponse field set drifted: ours={set(ours_fields)} sdk={set(sdk_fields)}'
+        # data: we re-type and guarantee non-null
+        # size: openai >= 3.10 types it as a union of str and a Literal, which doesn't convert; ours is str | None
+        overrides = {'data', 'size'}
+        assert set(ours_fields) == sdk_names, (
+            f'ImagesResponse field set drifted: ours={set(ours_fields)} sdk={sdk_names}'
+        )
+        # SDK fields we couldn't convert must be in overrides
+        sdk_unconverted = sdk_names - set(sdk_fields)
+        assert sdk_unconverted <= overrides, (
+            f'Unhandled SDK fields (not convertible and not in overrides): {sdk_unconverted - overrides}'
         )
         for name, sdk_type in sdk_fields.items():
             if name in overrides:
