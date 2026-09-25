@@ -80,7 +80,9 @@ def _serve(
     # root_path: the docs page fetches openapi.json by url, and a background route hands back a job url to
     # poll, so both need the whole prefix the gateway stripped, base_path included
     root_path = f'/{service_name}' if base_path == '' else f'/{base_path}/{service_name}'
-    uvicorn.run(app, host=host, port=port, log_level=log_level, log_config=None, root_path=root_path)
+    uvicorn.run(
+        app, host=host, port=port, log_level=log_level, log_config=None, root_path=root_path, proxy_headers=False
+    )
 
 
 if __name__ == '__main__':

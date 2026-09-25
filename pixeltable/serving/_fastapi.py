@@ -429,10 +429,17 @@ class PxtEndpoint:
 
         if self.route.spec.background:
             job_id = uuid.uuid4().hex
+            job_url = str(request.url_for(_JOB_STATUS_ROUTE_NAME, job_id=job_id))
+            public_origin = os.environ.get('PIXELTABLE_PUBLIC_ORIGIN')
+            if public_origin is not None:
+                origin = urllib.parse.urlsplit(public_origin)
+                if origin.scheme != 'https' or not origin.netloc or origin.path or origin.query or origin.fragment:
+                    raise ValueError('PIXELTABLE_PUBLIC_ORIGIN must be an HTTPS origin')
+                job_url = f'{public_origin}{urllib.parse.urlsplit(job_url).path}'
             fut = self.router._executor.submit(_run_endpoint_op, self.endpoint_op, kwargs, tmp_paths, media)
             with self.router._jobs_lock:
                 self.router._jobs[job_id] = fut
-            return BackgroundJobResponse(id=job_id, job_url=str(request.url_for(_JOB_STATUS_ROUTE_NAME, job_id=job_id)))
+            return BackgroundJobResponse(id=job_id, job_url=job_url)
         else:
             return _run_endpoint_op(self.endpoint_op, kwargs, tmp_paths, media)
 

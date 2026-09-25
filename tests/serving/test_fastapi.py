@@ -1023,6 +1023,30 @@ class TestFastAPI:
         assert status['error_detail'] == sync_resp.json()['detail']
         assert {'error_code', 'message', 'retryable'} <= status['error_detail'].keys(), status
 
+    def test_background_job_uses_public_origin(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serving import FastAPIRouter
+
+        t = pxt.create_table(db_root.make_catalog_path('items'), {'id': pxt.Int})
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/bg', background=True)
+        app = fastapi.FastAPI()
+        app.include_router(router)
+        monkeypatch.setenv('PIXELTABLE_PUBLIC_ORIGIN', 'https://org-db.svc.pxt.run')
+        with TestClient(app, base_url='http://internal.test', root_path='/nested/service') as client:
+            response = client.post(
+                '/bg', json={'id': 1}, headers={'Host': 'untrusted.test', 'X-Forwarded-Proto': 'http'}
+            )
+            assert response.status_code == 200, response.text
+            job = response.json()
+            assert job['job_url'] == f'https://org-db.svc.pxt.run/nested/service/_pxt/jobs/{job["id"]}'
+            monkeypatch.setenv('PIXELTABLE_PUBLIC_ORIGIN', 'http://org-db.svc.pxt.run')
+            with pytest.raises(ValueError, match='must be an HTTPS origin'):
+                client.post('/bg', json={'id': 2})
+
     def test_openapi(self, db_root: DatabaseRoot) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""
         p = db_root.make_catalog_path
