@@ -68,6 +68,13 @@ class DatabaseConfig(pydantic.BaseModel):
             data['settings'] = {**data.get('settings', {}), **settings}
         return data
 
+    @pydantic.field_validator('name')
+    @classmethod
+    def _fold_name(cls, v: str) -> str:
+        from pixeltable.catalog import fold_identifier
+
+        return fold_identifier(v)
+
     @pydantic.field_validator('system_dependencies')
     @classmethod
     def _check_system_dependencies(cls, v: list[str] | None) -> list[str] | None:
