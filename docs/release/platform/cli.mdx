@@ -52,7 +52,7 @@ These flags work the same way across the catalog commands that support them and 
 | `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs other than `example`, plus `init`, `login`, `whoami`, `db`, `secret`, `org`, `key`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), `schema example` and `service example` (which print an example file), or the commands that print plain status lines (`logout`, `daemon start`/`stop`/`restart`). |
 | `--json-schema` | `schema diff`, `service diff`, `db diff`, `db status`, `service list` | Print the JSON Schema of that command's `--json` output, with descriptions of every field and enum value, and exit. |
 | `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), plus `schema update`, `schema prune`, `service update` and `service prune` | Print the intended action; don't execute. |
-| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
+| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`, `db update`, `db delete`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
 
 ### Working directory
 
@@ -1070,10 +1070,11 @@ Builds the image from the project environment without comparing anything first, 
 #### `pxt db delete`
 
 ```bash
-pxt db delete pxt://myorg:mydb --json
+pxt db delete pxt://myorg:mydb -f --json
 ```
 
 Deletes the database, its storage, and all services. Irreversible.
+Prompts for confirmation with `[y/N]` on a TTY; otherwise exits with code 3. Pass `-f` or `--force` to skip confirmation.
 
 A database recreated under the same name is a different database: its workers are keyed by a new
 internal id, so credentials for the old database no longer work. Treat a
