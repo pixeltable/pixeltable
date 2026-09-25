@@ -11,6 +11,8 @@ from .fault_injection import BlockFault, Fault
 
 _logger = logging.getLogger('pixeltable_test')
 
+_POLL_INTERVAL = 0.500
+
 
 @dataclass
 class _Step:
@@ -19,6 +21,7 @@ class _Step:
     fn: Callable[[], Any]
     gate: Event | None = None
     next_gate: Event | None = None
+    poll_condition: Callable[[], bool] | None = None
 
 
 class MultiThreadedScenario:
@@ -42,10 +45,28 @@ class MultiThreadedScenario:
         return self
 
     def then_run_until(
-        self, *, thread_id: int, name: str, event: Event, fn: Callable[[], Any]
+        self,
+        *,
+        thread_id: int,
+        name: str,
+        fn: Callable[[], Any],
+        event: Event | None = None,
+        poll_condition: Callable[[], bool] | None = None,
     ) -> 'MultiThreadedScenario':
-        """Append a step that runs `fn` on Thread `thread_id`; `event` gates the next step."""
-        self._steps.append(_Step(thread_id=thread_id, name=name, fn=fn, next_gate=event))
+        """Append a step that runs `fn` on Thread `thread_id`, gating the next step on `fn` reaching some point.
+
+        Exactly one of:
+        - event: `fn` sets it from the inside, typically a BlockFault parking at a fault point. The next step is
+          admitted when it is set.
+        - poll_condition: a predicate the scenario evaluates on separate thread, such as a PostgreSQL lock
+          blocking. The next step is admitted as soon as a poll observes it true, so the condition must describe a
+          state that `fn` stays in until a later step releases it. The step fails if `fn` returns before a poll
+          observed the condition.
+
+        Either way the next step is admitted while `fn` is still running, and `fn` runs on past that point.
+        """
+        assert (event is None) != (poll_condition is None), 'pass exactly one of event, poll_condition'
+        self._steps.append(_Step(thread_id=thread_id, name=name, fn=fn, next_gate=event, poll_condition=poll_condition))
         return self
 
     def then_inject_fault(self, *, thread_id: int, loc: FaultLocation, fault: Fault) -> 'MultiThreadedScenario':
@@ -75,9 +96,9 @@ class MultiThreadedScenario:
         if not self._steps:
             return
 
-        assert self._steps[-1].next_gate is None, (
-            f'Scenario ends with an "until" step ("{self._steps[-1].name}"); '
-            'the condition event would never be waited on'
+        last_step = self._steps[-1]
+        assert last_step.next_gate is None and last_step.poll_condition is None, (
+            f'Scenario ends with an "until" step ("{last_step.name}"); its condition would never be waited on'
         )
 
         # Fill in absent events and wire the gate chain so step[i].next_gate == step[i+1].gate.
@@ -102,9 +123,41 @@ class MultiThreadedScenario:
         abort = Event()
         deadline = time.monotonic() + timeout
 
-        def record_exc(e: BaseException, step: _Step) -> None:
+        def fail(e: BaseException, step: _Step) -> None:
+            """Record an exception and tear the scenario down, releasing anyone parked at a fault point."""
             with exc_lock:
                 exceptions.append((step.name, e))
+            abort.set()
+            self._unblock_all()
+
+        def start_poller(step: _Step) -> None:
+            """Start polling `step`'s condition on a dedicated thread. Open `step`'s gate when it holds."""
+            assert step.poll_condition is not None
+            assert step.next_gate is not None
+            # give up a little before execute() stops joining workers, so that this step's specific failure is
+            # the one reported rather than the generic "scenario timed out"
+            poll_deadline = deadline - 2 * _POLL_INTERVAL
+
+            def poll() -> None:
+                try:
+                    # the gate also gets set when fn returns, which is the signal to stop polling
+                    while not abort.is_set() and not step.next_gate.is_set():
+                        try:
+                            if step.poll_condition():
+                                _logger.info(f'poll condition met: {step.name}')
+                                return
+                        except BaseException as e:
+                            fail(e, step)
+                            return
+                        if time.monotonic() > poll_deadline:
+                            fail(TimeoutError(f'{step.name}: poll condition not met'), step)
+                            return
+                        time.sleep(_POLL_INTERVAL)
+                finally:
+                    # every exit, success or failure, opens the next gate
+                    step.next_gate.set()
+
+            Thread(target=poll, name=f'poll-{step.thread_id}', daemon=True).start()
 
         def run_worker(steps: list[_Step]) -> None:
             for step in steps:
@@ -123,14 +176,13 @@ class MultiThreadedScenario:
                         if time.monotonic() > deadline:
                             raise TimeoutError(f'{step.name} timed out waiting on its gate')
                     _logger.info(f'[{current_thread().name}] running: {step.name}')
+                    if step.poll_condition is not None:
+                        start_poller(step)
                     step.fn()
+                    if step.poll_condition is not None and not step.next_gate.is_set():
+                        raise AssertionError(f'{step.name}: returned before its poll condition was met')
                 except BaseException as e:
-                    record_exc(e, step)
-                    # stop processing this thread's remaining steps, and signal to other threads to do the same
-                    abort.set()
-                    # a thread parked at a fault point waits on an event that no remaining step will set; release it
-                    # so it can unwind its transaction
-                    self._unblock_all()
+                    fail(e, step)
                     return
                 finally:
                     # always unblock downstream
