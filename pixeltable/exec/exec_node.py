@@ -155,6 +155,9 @@ class ExecNode(abc.ABC):
 
             # asyncio.Runner gives this thread the same loop teardown that asyncio.run() performs
             with asyncio.Runner() as runner:
+                # as in Runtime._init_event_loop(): debug mode warns about each callback that runs longer than
+                # this, and a sync udf runs on the loop
+                runner.get_loop().slow_callback_duration = 3600
                 try:
                     runner.run(produce())
                     result_queue.put(ExecNode._THREAD_QUEUE_SENTINEL)

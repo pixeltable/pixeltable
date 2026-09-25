@@ -1,5 +1,7 @@
 import asyncio
+import logging
 import os
+import time
 from pathlib import Path
 from typing import Iterator
 
@@ -324,3 +326,26 @@ class TestApiClients:
         clients = _test_clients[n_clients:]
         assert len(clients) == 1
         assert (clients[0].closes, clients[0].loop_was_open) == (1, True)
+
+
+@pxt.udf
+def blocks_the_loop(n: int) -> int:
+    time.sleep(0.2)
+    return n
+
+
+class TestThreadLoop:
+    def test_no_slow_callback_warning(
+        self, uses_db: None, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setenv('PYTHONASYNCIODEBUG', '1')
+        t = pxt.create_table('slow', {'n': pxt.Int})
+        t.insert([{'n': 1}])
+
+        async def select_from_a_running_loop() -> None:  # noqa: RUF029
+            t.select(blocks_the_loop(t.n)).collect()
+
+        with caplog.at_level(logging.WARNING, logger='asyncio'):
+            asyncio.run(select_from_a_running_loop())
+        # the caller's loop still warns about the blocking collect(); only the worker loop is Pixeltable's
+        assert not any('FnCallEvaluator' in r.getMessage() for r in caplog.records)
