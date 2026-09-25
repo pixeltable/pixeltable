@@ -73,7 +73,7 @@ A schema change with a service already running needs `pxt service update` after 
     pxt init
     ```
 
-    Add this hosted entry to `pixeltable.toml`, keeping the local entry that `pxt init` wrote. A new organization gets the `main` database when you run `pxt org create`:
+    `pxt org create` provisions the `main` database. Add this hosted entry to `pixeltable.toml`, keeping the local entry that `pxt init` wrote:
 
     ```toml
     [[pixeltable.database]]
@@ -96,7 +96,7 @@ A schema change with a service already running needs `pxt service update` after 
 
 <CardGroup cols={2}>
   <Card title="Cloud" icon="cloud" href="/cloud">
-    Use the same `app.py` with a hosted URL such as `pxt://your-org:your-db`.
+    Use the same `app.py` against `pxt://org:main`.
   </Card>
   <Card title="Self-hosting" icon="server" href="/howto/deployment/overview">
     Which process: nothing listening, your FastAPI, or `pxt service`.

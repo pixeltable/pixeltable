@@ -45,7 +45,7 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
 
     Keep the local database entry that `pxt init` wrote. If your project has a `pyproject.toml`, `pxt init` adds its entry there instead; use `[[tool.pixeltable.database]]` for the hosted entry.
   </Step>
-  <Step title="Prepare the database, tables, and service">
+  <Step title="Upload the project, create tables, and start the service">
     Run these commands from the project directory, in order:
 
     ```bash
@@ -55,7 +55,7 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     pxt service list pxt://org:main
     ```
 
-    `pxt db update` uploads the project and prepares the hosted database. `pxt schema update` creates its tables. `pxt service update` starts the HTTP service. `pxt service list` prints its URL and routes.
+    `pxt db update` uploads the project and builds the image. It does not insert rows. `pxt schema update` creates its tables. `pxt service update` starts the HTTP service. `pxt service list` prints its URL and routes.
   </Step>
   <Step title="Insert a row and check the result">
     The generated `app.py` defines a `docs` table with a computed `title_upper` column. Insert a row from Python:

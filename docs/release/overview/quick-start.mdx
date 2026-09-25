@@ -126,7 +126,7 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
 
 <Tabs>
   <Tab title="Cloud">
-    To run this same file on Pixeltable Cloud, sign in with `pxt login` or [use an API key](/cloud#get-an-api-key). First add a named hosted database entry to the project configuration as shown in [Pixeltable Cloud](/cloud#first-deployment). Then prepare the hosted database with `pxt db update`, create tables with `pxt schema update`, and start hosted endpoints with `pxt service update`. Try changes by inserting from the dashboard and running `pxt schema diff`.
+    To run this same file on Pixeltable Cloud, sign in with `pxt login`. An [API key](/cloud#get-an-api-key) is optional for the CLI and required for hosted HTTP. `pxt org create` provisions `main`. Add a project entry for `main`, as shown in [Pixeltable Cloud](/cloud#first-deployment). `pxt db update` uploads the project and builds the image. `pxt schema update` creates tables. `pxt service update` starts hosted endpoints. Try changes by inserting from the dashboard and running `pxt schema diff`.
 
     ```bash
     pxt db update pxt://org:main
