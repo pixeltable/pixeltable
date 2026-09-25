@@ -628,8 +628,8 @@ class TestGet:
         assert out['row'] == {'a': 100}
 
     def test_pk_coercion(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        """A numeric-looking PK token is coerced to int or float; everything else stays a
-        string. There is no quoting escape for a string PK that looks like a number."""
+        """A Float PK parses its value and rejects one that does not parse; a String PK keeps a
+        numeric-looking value as typed, leading zeros included."""
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_get_coerce'), if_exists='ignore')
 
@@ -642,12 +642,17 @@ class TestGet:
         assert cli('get', p('cli_get_coerce/f'), '1.5', '--json').json['row']['v'] == 'one-and-a-half'
         assert cli('get', p('cli_get_coerce/f'), '  1.5  ', '--json').json['row']['v'] == 'one-and-a-half'
 
-        # string PK: a token that doesn't parse as a number stays a string.
+        r = cli('get', p('cli_get_coerce/f'), 'abc', check=False)
+        assert r.returncode != 0
+        assert 'not a valid Float value' in r.stderr
+
         t = pxt.create_table(
             p('cli_get_coerce/s'), {'k': pxt.String, 'v': pxt.Int | None}, primary_key='k', if_exists='replace'
         )
-        t.insert([{'k': 'alpha', 'v': 1}])
+        t.insert([{'k': 'alpha', 'v': 1}, {'k': '90210', 'v': 2}, {'k': '007', 'v': 3}])
         assert cli('get', p('cli_get_coerce/s'), 'alpha', '--json').json['row']['v'] == 1
+        assert cli('get', p('cli_get_coerce/s'), '90210', '--json').json['row']['v'] == 2
+        assert cli('get', p('cli_get_coerce/s'), '007', '--json').json['row']['v'] == 3
 
     def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """No-PK rejection, PK count mismatch, unknown col, empty/whitespace PK, empty --cols token."""

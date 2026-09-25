@@ -266,7 +266,7 @@ pxt rows my_dir/my_table --cols id,text,score
 
 ### `pxt get`
 
-Look up a single row by primary key. A numeric-looking PK token is coerced to int or float; everything else stays a string. There is no quoting escape for a string-typed PK whose value looks numeric -- if your PK column is a string but the value is `42`, the server will reject the type mismatch. The table must declare a primary key. Unstored computed columns are skipped unless requested explicitly via `--cols` (consistent with `rows`).
+Look up a single row by primary key. An `Int`, `Float`, or `UUID` PK column parses its value and rejects one that does not parse. A `String` PK column keeps the value as typed, so `007` stays `007`. Lookup by a PK of any other type, such as `Date` or `Timestamp`, is not supported yet and finds no row. The table must declare a primary key. Unstored computed columns are skipped unless requested explicitly via `--cols` (consistent with `rows`).
 
 | Flag | Description |
 |---|---|
