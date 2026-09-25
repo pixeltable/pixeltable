@@ -69,8 +69,20 @@ class ServiceManagerProxy(ServiceManagerBase):
         return [ServiceInstance(r, self) for r in response.instances if self._serves(r, base_path, recursive)]
 
     def start(
-        self, app_file: str, name: str, base_path: str = '', *, otel: bool = False, port: int | None = None
+        self,
+        app_file: str,
+        name: str,
+        base_path: str = '',
+        *,
+        otel: bool = False,
+        port: int | None = None,
+        restart: bool = False,
     ) -> ServiceInstance:
+        """Make the named service in app_file serve base_path, and return its instance.
+
+        An available instance is not stopped: an update replaces its pods in place when its definition changed.
+        restart: replace them with a restart when it did not, which moves them onto the database's current project.
+        """
         if port is not None:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -113,6 +125,8 @@ class ServiceManagerProxy(ServiceManagerBase):
                     )
                 )
                 instance = self._wait_for_state(name, base_path, ServiceState.AVAILABLE)
+            elif restart and instance.state is ServiceState.AVAILABLE:
+                self.restart(instance)
             if instance.state is ServiceState.AVAILABLE:
                 self._wait_for_endpoint(instance)
                 return instance

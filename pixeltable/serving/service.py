@@ -36,6 +36,7 @@ from pixeltable_cli.utils import PxtPath
 
 from . import service_instance
 from .service_manager import get_manager
+from .service_manager_proxy import ServiceManagerProxy
 
 _DESTRUCTIVE_HINT = "Re-run 'pxt service update' with --allow-destructive to apply these changes."
 
@@ -120,16 +121,20 @@ def service_update(
         if diff.resolution == 'up_to_date':
             diff.status = 'skipped'
             continue
-        instance = running.get(diff.name)
-        # a restart keeps the service's port, so that its callers are not redirected
-        service_port = port
-        if instance is not None and instance.state is ServiceState.AVAILABLE:
-            # a hosted instance is reached at its own hostname and has no port to keep
-            if service_port is None and isinstance(instance.record, LocalServiceInstanceRecord):
-                service_port = instance.record.port
-            # the running service serves the old definition; binding happens once per process, so it is replaced
-            instance.stop()
-        started = manager.start(app_file, diff.name, _base_path(target), otel=otel, port=service_port)
+        if isinstance(manager, ServiceManagerProxy):
+            # a hosted instance is replaced in place rather than stopped, so that the control plane can keep its
+            # old pods serving until the new ones are ready
+            started = manager.start(app_file, diff.name, _base_path(target), otel=otel, port=port, restart=True)
+        else:
+            instance = running.get(diff.name)
+            # a restart keeps the service's port, so that its callers are not redirected
+            service_port = port
+            if instance is not None and instance.state is ServiceState.AVAILABLE:
+                if service_port is None and isinstance(instance.record, LocalServiceInstanceRecord):
+                    service_port = instance.record.port
+                # the running service serves the old definition; binding happens once per process, so it is replaced
+                instance.stop()
+            started = manager.start(app_file, diff.name, _base_path(target), otel=otel, port=service_port)
         diff.status = 'applied'
         diff.state = started.state
         diff.endpoint = started.endpoint

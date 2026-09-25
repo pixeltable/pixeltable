@@ -7,14 +7,28 @@ import time
 from textwrap import dedent
 from types import SimpleNamespace
 from typing import Any, Callable, Iterator
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 
 import httpx
 import pytest
 
 import pixeltable as pxt
 from pixeltable.config import Config
+from pixeltable.service import management_client
+from pixeltable.service.management_protocol import (
+    ListServiceInstancesRequest,
+    StopServiceInstanceRequest,
+    UpdateServiceInstanceRequest,
+)
+from pixeltable.service.service_md import LocalServiceInstanceRecord, ServiceInstanceRecord
+from pixeltable.serving import service as serving_service
+from pixeltable.serving.service_instance import ServiceInstance
+from pixeltable.serving.service_manager import ServiceManager
+from pixeltable.serving.service_manager_proxy import ServiceManagerProxy
+from pixeltable.utils.app_module import module_name
 from pixeltable_cli.client.commands import service as service_cmd
+from pixeltable_cli.types import ServiceChangeOp, ServiceDiff, ServicePlan, ServiceSpec, ServiceState
+from pixeltable_cli.utils import PxtPath
 
 from ..conftest import SampleFileServer
 from ..utils import (
@@ -1187,6 +1201,149 @@ class TestHostedService:
         stopped = service_list(cli, project, current_db)['ingest']
         assert stopped['state'] == 'STOPPED', stopped
         assert not service_diff(cli, project, app_file, current_db)['in_agreement']
+
+
+class _ControlPlane:
+    """The management API of a hosted database holding one service instance.
+
+    It keeps every request but the listings, and each one settles at once, so that ServiceManagerProxy's polls read
+    the state it leaves the instance in on their first try.
+    """
+
+    record: ServiceInstanceRecord
+    sent: list[Any]
+
+    def __init__(self, record: ServiceInstanceRecord) -> None:
+        self.record = record
+        self.sent = []
+
+    def api_call(self, request: Any) -> dict[str, Any]:
+        if isinstance(request, ListServiceInstancesRequest):
+            return {'instances': [self.record.model_dump(mode='json')]}
+        self.sent.append(request)
+        stopped = isinstance(request, StopServiceInstanceRequest)
+        changes: dict[str, Any] = {'state': ServiceState.STOPPED if stopped else ServiceState.AVAILABLE}
+        if isinstance(request, UpdateServiceInstanceRequest):
+            changes.update(spec=request.spec, app_module=request.app_module, otel=request.otel)
+        self.record = self.record.model_copy(update=changes)
+        return {}
+
+
+def _plan(app_file: str, target: str, state: ServiceState, *ops: ServiceChangeOp) -> ServicePlan:
+    """What service_diff reports for an instance of 'ingest' in state, with ops pending."""
+    return ServicePlan(
+        app_file=app_file,
+        target=PxtPath(target),
+        services=[
+            ServiceDiff(
+                name='ingest',
+                exists=True,
+                state=state,
+                endpoint=None,
+                catalog_path=PxtPath(target),
+                kind='declarative',
+                # a registered instance that is not serving is started, whatever its definition says
+                resolution='update_additive' if state is ServiceState.AVAILABLE else 'create',
+                route_comparison='declarative',
+                route_detail=None,
+                ops=list(ops),
+            )
+        ],
+    )
+
+
+@pytest.mark.db_roots('local', reason='the service managers are faked, so no catalog serves anything')
+class TestServiceUpdateRunning:
+    """What `pxt service update` does to a registered instance: a hosted one is replaced in place, so that it keeps
+    serving, and a local one is stopped and started again."""
+
+    @pytest.fixture
+    def app_file(self, project_dir: pathlib.Path) -> str:
+        skip_test_if_not_installed('fastapi')
+        path = project_dir / 'app.py'
+        path.write_text(
+            "from pixeltable.serving import FastAPIRouter\n\ningest = FastAPIRouter(name='ingest')\n", encoding='utf-8'
+        )
+        return str(path)
+
+    def _update_hosted(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        app_file: str,
+        state: ServiceState,
+        *ops: ServiceChangeOp,
+        otel: bool = False,
+    ) -> list[Any]:
+        """Update a hosted instance in state that serves app_file's 'ingest' as the file defines it.
+
+        Returns the requests the control plane received.
+        """
+        record = ServiceInstanceRecord(
+            service_name='ingest',
+            base_path='',
+            endpoint='https://acme-main.example.com/ingest',
+            app_module=module_name(app_file, subject='application file'),
+            spec=ServiceSpec(name='ingest'),
+            state=state,
+        )
+        control_plane = _ControlPlane(record)
+        monkeypatch.setattr(management_client, 'api_call', control_plane.api_call)
+        # no pod answers behind the endpoint
+        monkeypatch.setattr(ServiceManagerProxy, '_wait_for_endpoint', lambda self, instance: None)
+        plan = _plan(app_file, 'pxt://acme:main', state, *ops)
+        monkeypatch.setattr(serving_service, 'service_diff', lambda *args, **kwargs: plan)
+
+        [diff] = serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=otel).services
+        # reported as for an instance that was started
+        assert (diff.status, diff.state, diff.endpoint, diff.exists) == ('applied', 'AVAILABLE', record.endpoint, True)
+        assert [op.status for op in diff.ops] == ['applied'] * len(ops)
+        return control_plane.sent
+
+    def test_hosted_changed(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """A running hosted instance whose definition changed is updated, without being stopped first."""
+        sent = self._update_hosted(
+            monkeypatch, app_file, ServiceState.AVAILABLE, ServiceChangeOp.otel(False, True), otel=True
+        )
+        assert [type(r).__name__ for r in sent] == ['UpdateServiceInstanceRequest']
+        assert sent[0].otel
+
+    def test_hosted_redeployed(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """One whose definition is unchanged but whose project is not the database's is restarted onto it."""
+        changed = ServiceChangeOp.fingerprint_changed(['app.py changed'])
+        sent = self._update_hosted(monkeypatch, app_file, ServiceState.AVAILABLE, changed)
+        assert [type(r).__name__ for r in sent] == ['RestartServiceInstanceRequest']
+
+    def test_hosted_stopped(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """A stopped hosted instance is started."""
+        sent = self._update_hosted(monkeypatch, app_file, ServiceState.STOPPED)
+        assert [type(r).__name__ for r in sent] == ['StartServiceInstanceRequest']
+
+    def test_local(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A running local instance is stopped and started again on its port: binding happens once per process."""
+        manager = Mock(spec=ServiceManager)
+        record = LocalServiceInstanceRecord(
+            service_name='ingest',
+            base_path='',
+            endpoint='http://127.0.0.1:8123',
+            app_module='app',
+            spec=ServiceSpec(name='ingest'),
+            port=8123,
+            pid=1,
+        )
+        running = ServiceInstance(record, manager)
+        manager.list.return_value = [running]
+        manager.start.return_value = ServiceInstance(record.model_copy(update={'pid': 2}), manager)
+        monkeypatch.setattr(serving_service, 'get_manager', lambda target: manager)
+        plan = _plan('app.py', '', ServiceState.AVAILABLE, ServiceChangeOp.fingerprint_changed(['app.py changed']))
+        monkeypatch.setattr(serving_service, 'service_diff', lambda *args, **kwargs: plan)
+
+        [diff] = serving_service.service_update('app.py', PxtPath('')).services
+        assert manager.mock_calls == [
+            call.list(''),
+            call.stop(running),
+            call.start('app.py', 'ingest', '', otel=False, port=8123),
+        ]
+        assert (diff.status, diff.state, diff.endpoint, diff.exists) == ('applied', 'AVAILABLE', record.endpoint, True)
 
 
 class TestServiceOtel:
