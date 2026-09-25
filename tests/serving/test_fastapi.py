@@ -997,6 +997,32 @@ class TestFastAPI:
         assert loops[0].is_closed(), 'app shutdown left the worker thread with an open event loop'
         assert t.count() == 1, 'the job did not finish'
 
+    def test_background_job_error(self, db_root: DatabaseRoot) -> None:
+        """A failed job carries the `detail` its route would have answered with synchronously."""
+        p = db_root.make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        t = pxt.create_table(p('items'), {'id': pxt.Int, 'val': pxt.Int | None}, primary_key='id')
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/ins')
+        router.add_insert_route(t, path='/bg', background=True)
+        client = make_test_client(router)
+
+        # a duplicate primary key fails the insert with a Pixeltable error
+        assert client.post('/ins', json={'id': 1}).status_code == 200
+        sync_resp = client.post('/ins', json={'id': 1})
+        assert sync_resp.status_code == 422, sync_resp.text
+
+        job = client.post('/bg', json={'id': 1}).json()
+        deadline = time.time() + 30.0
+        while (status := client.get(job['job_url']).json())['status'] == 'pending':
+            assert time.time() < deadline, status
+            time.sleep(0.05)
+        assert status['status'] == 'error', status
+        assert status['detail'] == sync_resp.json()['detail']
+        assert {'error_code', 'message', 'retryable'} <= status['detail'].keys(), status
+
     def test_openapi(self, db_root: DatabaseRoot) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""
         p = db_root.make_catalog_path
@@ -1032,9 +1058,8 @@ class TestFastAPI:
         # routes present
         for route_path in ('/json', '/upload', '/file', '/bg'):
             assert route_path in paths, f'missing {route_path} from openapi paths: {list(paths)}'
-        # the routes Pixeltable serves itself are excluded from the document, so a reader sees only
-        # the application's own paths
-        assert not any(path.startswith('/_pxt/') for path in paths), sorted(paths)
+        # of the routes Pixeltable serves itself, the document lists only the one that polls a background job
+        assert [path for path in paths if path.startswith('/_pxt/')] == ['/_pxt/jobs/{job_id}'], sorted(paths)
 
         def deref(schema_or_ref: dict[str, Any]) -> dict[str, Any]:
             """
@@ -1096,6 +1121,8 @@ class TestFastAPI:
         assert 'BackgroundJobResponse' in schemas
         bg_model = schemas['BackgroundJobResponse']
         assert set(bg_model['properties'].keys()) == {'id', 'job_url'}
+        job_resp = paths['/_pxt/jobs/{job_id}']['get']['responses']['200']['content']['application/json']['schema']
+        assert job_resp == {'$ref': '#/components/schemas/JobStatusResponse'}, job_resp
 
     def test_add_query_route_scalars(self, db_root: DatabaseRoot) -> None:
         """Multi-column scalar query route, plus retrieval_udf flavor and registration errors."""

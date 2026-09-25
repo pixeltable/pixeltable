@@ -157,8 +157,9 @@ def assert_serving(cli: PxtRunner, app: str, target: str, *names: str) -> dict[s
         served_paths = set(served.json()['paths'])
         # the listed paths are being served, as per the docs endpoint
         assert listed_paths <= served_paths, (listed_paths, sorted(served_paths))
-        # internal paths are not exposed
-        assert not any('/_pxt/' in path for path in served_paths), sorted(served_paths)
+        # of the internal paths, only the one that polls background jobs is exposed
+        internal_paths = [path for path in served_paths if '/_pxt/' in path]
+        assert all(path.endswith('/_pxt/jobs/{job_id}') for path in internal_paths), sorted(served_paths)
     return running
 
 

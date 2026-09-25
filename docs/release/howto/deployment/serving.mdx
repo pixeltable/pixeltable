@@ -319,10 +319,10 @@ Poll `job_url` (`pxt service list` prints the base URL):
 curl http://127.0.0.1:<port>/_pxt/jobs/abc123
 # {"status": "pending"}
 # {"status": "done", "result": {...}}
-# {"status": "error", "error": "..."}
+# {"status": "error", "error": "...", "detail": {...}}
 ```
 
-Poll through your application server with the same Cloud key when hosted. The polling path is currently omitted from the generated OpenAPI schema, so call the returned `job_url` directly rather than expecting a generated client method.
+Poll through your application server with the same Cloud key when hosted. The polling path is in the generated schema, so polling is a typed call on the same [TypeScript client](#call-from-a-typescript-app-server): `pixeltable.GET('/_pxt/jobs/{job_id}', { params: { path: { job_id: id } } })`. A failed job's `detail` has the same shape as an HTTP error's `detail`, so the same retry rule applies.
 
 `background` cannot combine with `return_fileresponse`.
 
