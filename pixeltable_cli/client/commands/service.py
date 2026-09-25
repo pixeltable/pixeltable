@@ -9,7 +9,7 @@ from pathlib import Path
 import pydantic
 
 from ...types import Resolution, ServiceChangeOp, ServiceInstance, ServicePlan
-from ...utils import PxtPath, split_pxt_uri
+from ...utils import PxtPath, project_root, split_pxt_uri
 from ..hosted import add_logs_args, print_logs
 from ..parser import Parser
 from ..utils import (
@@ -152,10 +152,13 @@ A stopped service can be started again with 'pxt service update'.
 
 STOP_EPILOG = """\
 Examples:
-  pxt service stop ingest                  # a bare name, when only one target has a service of that name
+  pxt service stop ingest                  # a unique service name in the current project
   pxt service stop my_dir/ingest           # the service of that name under my_dir
   pxt service stop pxt://acme:main/ingest  # one in a hosted database
   pxt service stop ingest reader
+
+Bare names match the current project, or all local services outside a project.
+Use TARGET/NAME for another project. Use /NAME for a service at the catalog root.
 """
 
 RESTART_EPILOG = """\
@@ -537,7 +540,10 @@ def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_ru
 
 
 def _stop(names: list[str], *, as_json: bool) -> None:
-    ops = [ServiceChangeOp.model_validate(op) for op in post_request('/api/service/stop', {'names': names})]
+    ops = [
+        ServiceChangeOp.model_validate(op)
+        for op in post_request('/api/service/stop', {'names': names, 'project_root': project_root()})
+    ]
     _print_ops(ops, as_json=as_json, verb='stopped')
 
 
@@ -610,6 +616,9 @@ def _print_ops(ops: list[ServiceChangeOp], *, as_json: bool, verb: str) -> None:
     for op in ops:
         endpoint = op.details.get('endpoint', '')
         suffix = f'  {endpoint}' if endpoint != '' else ''
+        reason = op.details.get('reason')
+        if reason is not None:
+            suffix += f'  {reason}'
         print(f'{op.name:<24s} {op.status or verb}{suffix}')
     print()
     print(f'{verb}: {sum(1 for op in ops if op.status == "applied")} service(s)')

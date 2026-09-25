@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 from typing import Literal, Sequence
 
 from pixeltable import catalog, exceptions as excs
@@ -35,7 +36,7 @@ from pixeltable_cli.types import (
 from pixeltable_cli.utils import PxtPath
 
 from . import service_instance
-from .service_manager import get_manager
+from .service_manager import ServiceManager, get_manager
 
 _DESTRUCTIVE_HINT = "Re-run 'pxt service update' with --allow-destructive to apply these changes."
 
@@ -153,21 +154,26 @@ def service_prune(app_file: str, target: PxtPath, *, dry_run: bool = False) -> S
     return ServicePlan(app_file=app_file, target=target, extras=extras, ops=ops)
 
 
-def service_stop(names: list[str]) -> list[ServiceChangeOp]:
-    """Stop the named instances and forget them.
-
-    A unrecognized name yields a 'skipped' operation rather than an error, so that stopping a set of
-    services is idempotent.
-    """
+def service_stop(names: list[str], *, project_root: str | None = None) -> list[ServiceChangeOp]:
+    """Resolve bare names within project_root, or across all local services when it is None."""
     ops: list[ServiceChangeOp] = []
     for name in names:
-        found = _resolve_service_instances(name)
-        if len(found) == 0:
-            ops.append(ServiceChangeOp.delete_service(name, None, 'skipped'))
-            continue
+        found = _resolve_service_instances(name, project_root=project_root)
         if len(found) > 1:
-            found_at = ', '.join(sorted(f'{i.base_path}/{i.service_name}'.lstrip('/') for i in found))
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} is ambiguous; it names {found_at}')
+            found_at = ', '.join(sorted(f'{i.base_path}/{i.service_name}' for i in found))
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} is ambiguous; use a qualified path: {found_at}'
+            )
+        if len(found) == 0:
+            op = ServiceChangeOp.delete_service(name, None, 'skipped')
+            op.details['reason'] = 'not found'
+            ops.append(op)
+            continue
+        if found[0].state == ServiceState.STOPPED:
+            op = ServiceChangeOp.delete_service(name, None, 'skipped')
+            op.details['reason'] = 'already stopped'
+            ops.append(op)
+            continue
         found[0].stop()
         ops.append(ServiceChangeOp.delete_service(name, found[0].endpoint, 'applied'))
     return ops
@@ -201,19 +207,21 @@ def service_logs(target: PxtPath, *, since_seconds: int, limit: int, include_hea
     return found[0].logs(since_seconds=since_seconds, limit=limit, include_health=include_health)
 
 
-def _resolve_service_instances(name_or_uri: str) -> list[service_instance.ServiceInstance]:
-    """Return the instances matching a service uri or name.
-
-    A uri matches exactly one instance; a bare service name matches every locally running instance with that same name.
-    """
-    path = catalog.Path.parse(name_or_uri, allow_empty_path=True)
+def _resolve_service_instances(
+    name_or_uri: str, *, project_root: str | None = None
+) -> list[service_instance.ServiceInstance]:
+    path = catalog.Path.parse(name_or_uri.removeprefix('/'), allow_empty_path=True)
     if path.is_root:
         # root cannot be used as a service name
         return []
-    if path.len > 1 or not path.is_local:
+    if path.len > 1 or not path.is_local or name_or_uri.startswith('/'):
         target = PxtPath(str(path.parent))
         found = get_manager(target).get(path.name, _base_path(target))
         return [] if found is None else [found]
+    if project_root is not None:
+        manager = get_manager('')
+        assert isinstance(manager, ServiceManager)
+        return manager.find_in_project(path.name, Path(project_root))
     return [i for i in get_manager('').list('', recursive=True) if i.service_name == name_or_uri]
 
 

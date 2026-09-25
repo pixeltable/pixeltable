@@ -7,7 +7,7 @@ import time
 from textwrap import dedent
 from types import SimpleNamespace
 from typing import Any, Callable, Iterator
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import httpx
 import pytest
@@ -116,7 +116,7 @@ def stop_services(cli: PxtRunner) -> Iterator[None]:
     """Leave nothing running: a service outlives the test that started it, and the next one would see it."""
     yield
     for service in cli('service', 'list', '--json').json:
-        cli('service', 'stop', f'{service["catalog_path"]}/{service["name"]}'.lstrip('/'))
+        cli('service', 'stop', f'{service["catalog_path"]}/{service["name"]}')
 
 
 def get_services(cli: PxtRunner, target: str | None = None) -> dict[str, dict[str, Any]]:
@@ -1040,6 +1040,9 @@ class TestService:
         # stopping something that is not running is reported, not an error
         r = cli('service', 'stop', 'nosuch', '--json')
         assert [(op['name'], op['status']) for op in r.json] == [('nosuch', 'skipped')]
+        assert r.json[0]['details']['reason'] == 'not found'
+        r = cli('service', 'stop', 'nosuch')
+        assert 'skipped' in r.stdout and 'not found' in r.stdout
 
         # a hosted target requires a database
         r = cli('service', 'list', 'pxt://acme', check=False)
@@ -1186,6 +1189,9 @@ class TestHostedService:
         cli('service', 'stop', f'{current_db}/ingest', cwd=project)
         stopped = service_list(cli, project, current_db)['ingest']
         assert stopped['state'] == 'STOPPED', stopped
+        repeated = cli('service', 'stop', f'{current_db}/ingest', '--json', cwd=project)
+        assert repeated.json[0]['status'] == 'skipped'
+        assert repeated.json[0]['details']['reason'] == 'already stopped'
         assert not service_diff(cli, project, app_file, current_db)['in_agreement']
 
 
@@ -1209,3 +1215,71 @@ class TestServiceOtel:
         mock_otel_init.assert_called_once_with()
         mock_instrument_fastapi.assert_called_once_with(app)
         mock_run.assert_called_once()
+
+
+class TestServiceStop:
+    @pytest.mark.parametrize('other_target', ['two', ''])
+    @pytest.mark.parametrize('qualified', [False, True])
+    @pytest.mark.db_roots('local', reason='local service names are scoped by filesystem project')
+    def test_stop_project_scope(
+        self,
+        session_cli: PxtRunner,
+        apps: Callable[[str], str],
+        session_project: pathlib.Path,
+        tmp_path: pathlib.Path,
+        other_target: str,
+        qualified: bool,
+    ) -> None:
+        app = apps('basic.py')
+        other = tmp_path / 'other'
+        other.mkdir()
+        (other / 'pixeltable.toml').write_text('')
+        shutil.copyfile(app, other / 'app.py')
+        deploy(session_cli, app, 'one')
+        session_cli('schema', 'update', 'app.py', other_target, cwd=other)
+        session_cli('service', 'update', 'app.py', other_target, '-f', cwd=other)
+        second = next(s for s in session_cli('service', 'list', '--json').json if s['catalog_path'] == other_target)
+
+        result = session_cli('service', 'stop', 'ingest', cwd=tmp_path, check=False)
+        assert result.returncode == 1
+        assert 'ambiguous' in result.stderr
+        assert 'one/ingest' in result.stderr and f'{other_target}/ingest' in result.stderr
+
+        nested = session_project / 'nested'
+        nested.mkdir(exist_ok=True)
+        result = session_cli('service', 'stop', 'ingest', '--json', cwd=nested)
+        assert result.json[0]['status'] == 'applied'
+        assert get_services(session_cli, 'one') == {}
+        assert get_services(session_cli, other_target)['ingest']['pid'] == second['pid']
+        assert httpx.get(f'{second["endpoint"]}/openapi.json', timeout=_REQUEST_TIMEOUT).status_code == 200
+
+        result = session_cli('service', 'stop', 'ingest')
+        assert 'skipped' in result.stdout and 'not found' in result.stdout
+        if qualified:
+            result = session_cli('service', 'stop', f'{other_target}/ingest', '--json')
+        else:
+            result = session_cli('service', 'stop', 'ingest', '--json', cwd=tmp_path)
+        assert result.json[0]['status'] == 'applied'
+        assert get_services(session_cli, other_target) == {}
+
+    @pytest.mark.db_roots('local', reason='the hosted service manager is mocked')
+    @pytest.mark.parametrize('as_json', [False, True])
+    def test_already_stopped(self, capsys: pytest.CaptureFixture[str], as_json: bool) -> None:
+        from pixeltable.serving.service import service_stop
+        from pixeltable_cli.types import ServiceState
+
+        instance = Mock(state=ServiceState.STOPPED)
+        manager = Mock()
+        manager.get.return_value = instance
+        with patch('pixeltable.serving.service.get_manager', return_value=manager):
+            ops = service_stop(['pxt://acme:main/ingest'])
+        instance.stop.assert_not_called()
+        with patch.object(service_cmd, 'post_request', return_value=[op.model_dump() for op in ops]):
+            service_cmd.run(['stop', 'pxt://acme:main/ingest', *(['--json'] if as_json else [])])
+        output = capsys.readouterr().out
+        if as_json:
+            [op] = json.loads(output)
+            assert op['status'] == 'skipped'
+            assert op['details']['reason'] == 'already stopped'
+        else:
+            assert 'skipped' in output and 'already stopped' in output
