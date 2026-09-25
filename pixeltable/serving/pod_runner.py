@@ -2,14 +2,46 @@
 # handlers carry annotations that FastAPI resolves at import time.
 
 import argparse
+import copy
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.service.db import report_instance_fingerprint
 from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
 from pixeltable.utils.project import ProjectFingerprint
+
+if TYPE_CHECKING:
+    import fastapi
+
+
+def _add_gateway_openapi_security(app: 'fastapi.FastAPI') -> None:
+    original_openapi = app.openapi
+    hosted_schema: dict[str, Any] | None = None
+
+    def hosted_openapi() -> dict[str, Any]:
+        nonlocal hosted_schema
+        if hosted_schema is not None:
+            return hosted_schema
+        schema = copy.deepcopy(original_openapi())
+        # X-api-key, not Bearer: the gateway reads it before Authorization, so it never collides with a
+        # route's own Authorization-based scheme
+        schemes = schema.setdefault('components', {}).setdefault('securitySchemes', {})
+        schemes['PixeltableGatewayApiKey'] = {'type': 'apiKey', 'in': 'header', 'name': 'X-api-key'}
+        for path, path_item in schema.get('paths', {}).items():
+            if path == '/health':
+                continue
+            for method, operation in path_item.items():
+                if method.lower() not in {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'}:
+                    continue
+                app_security = operation.get('security', schema.get('security', [])) or [{}]
+                operation['security'] = [{'PixeltableGatewayApiKey': [], **requirement} for requirement in app_security]
+        hosted_schema = schema
+        return schema
+
+    app.openapi = hosted_openapi  # type: ignore[method-assign]
 
 
 def _serve(
@@ -38,6 +70,7 @@ def _serve(
         # before the first Pixeltable operation, so that loading the file is traced too
         init_instrumentation()
     app, _ = create_app(str(project_dir / app_file), service_name, base_path)
+    _add_gateway_openapi_security(app)
     if otel:
         instrument_app(app)
     report_instance_fingerprint(db_uri, service_name, fingerprint, base_path)
@@ -47,7 +80,9 @@ def _serve(
     # root_path: the docs page fetches openapi.json by url, and a background route hands back a job url to
     # poll, so both need the whole prefix the gateway stripped, base_path included
     root_path = f'/{service_name}' if base_path == '' else f'/{base_path}/{service_name}'
-    uvicorn.run(app, host=host, port=port, log_level=log_level, log_config=None, root_path=root_path)
+    uvicorn.run(
+        app, host=host, port=port, log_level=log_level, log_config=None, root_path=root_path, proxy_headers=False
+    )
 
 
 if __name__ == '__main__':

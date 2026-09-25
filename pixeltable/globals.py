@@ -49,8 +49,9 @@ def init(config_overrides: dict[str, Any] | None = None) -> None:
 
     Args:
         config_overrides: Configuration settings for this process, keyed by `'<section>.<key>'`. A setting given
-            here takes precedence over the environment and the config file. Settings that apply to the instance
-            as a whole, such as `pixeltable.file_cache_size_g`, cannot be given here.
+            here takes precedence over the environment and the config file, but a `db_<key>` field on the database's
+            `[[pixeltable.database]]` entry takes precedence over it. Settings that apply to the instance as a whole,
+            such as `pixeltable.file_cache_size_g`, cannot be given here.
 
     Examples:
         Supply an API key and a database name for this process:

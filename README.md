@@ -46,6 +46,7 @@ pxt service update app.py my_app
 
 `pxt schema update` creates the catalog `my_app` and its tables; it does not start HTTP.
 `pxt service update` starts HTTP; it does not create tables.
+Generate TypeScript types from a service's OpenAPI schema and call it from a Next.js backend using the [HTTP serving guide](https://docs.pixeltable.com/howto/deployment/serving).
 
 `pxt service example` writes this application file.
 

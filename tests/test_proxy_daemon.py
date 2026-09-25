@@ -3,7 +3,11 @@ import json
 import math
 import pathlib
 import socket
+import socketserver
+import ssl
+import threading
 import uuid
+from collections.abc import Iterator
 from typing import Any
 
 import numpy as np
@@ -17,7 +21,19 @@ from pixeltable.service.proxy_client import HttpTransport, ProxyClient, PxtStore
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps
 
-from .utils import pxt_raises
+from .utils import pxt_raises, reload_env
+
+
+@pytest.fixture
+def hosted_identity(init_env: None, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Give the Env the daemon's org/db identity for the test, and take it back afterwards."""
+    monkeypatch.setenv('PXTCLOUD_ORG', 'org1')
+    monkeypatch.setenv('PXTCLOUD_DB', 'db1')
+    reload_env()
+    yield
+    monkeypatch.delenv('PXTCLOUD_ORG', raising=False)
+    monkeypatch.delenv('PXTCLOUD_DB', raising=False)
+    reload_env()
 
 
 class _RemotePartSink(proxy_protocol.PartSink[int | str]):
@@ -105,7 +121,7 @@ class TestProxyDaemon:
         assert proxy_protocol.collect_remote_keys(wire) == []
 
     def test_scalars_reach_a_handler_from_the_object_store(
-        self, init_env: None, monkeypatch: pytest.MonkeyPatch
+        self, hosted_identity: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """End to end on the daemon side: prefetch localizes an uploaded scalar, dispatch decodes it."""
         arr = np.arange(64, dtype=np.float32)
@@ -234,7 +250,7 @@ class TestProxyDaemon:
         local_sink = HttpTransport('http://127.0.0.1:1').new_part_sink()
         assert type(local_sink) is proxy_protocol.InlinePartSink
 
-        tunnel = TunnelTransport('org1', 'db1', 'key', host='h', port=443)
+        tunnel = TunnelTransport('org1', 'db1', lambda: 'key', host='h', port=443)
         remote_sink = tunnel.new_part_sink()
         next_sink = tunnel.new_part_sink()
         assert isinstance(remote_sink, PxtStorePartSink)
@@ -298,7 +314,7 @@ class TestProxyDaemon:
         monkeypatch: pytest.MonkeyPatch, objects: dict[str, bytes], store_uris: list[str]
     ) -> None:
         """Route ObjectOps.get_store to a fake store serving objects (keyed store-relative, i.e. without the
-        'uploads/' prefix) and put the daemon's org/db identity in the environment."""
+        'uploads/' prefix)."""
         from pixeltable.utils.object_stores import ObjectOps
 
         class FakeStore:
@@ -313,8 +329,6 @@ class TestProxyDaemon:
             return FakeStore()
 
         monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(fake_get_store))
-        monkeypatch.setenv('PXTCLOUD_ORG', 'org1')
-        monkeypatch.setenv('PXTCLOUD_DB', 'db1')
 
     @staticmethod
     def _remote_file_request(*keys: str) -> proxy_protocol.ProxyRequest:
@@ -324,7 +338,7 @@ class TestProxyDaemon:
             args={'rows': [{'f': {'$pxt': 'file', 'name': f'x{i}', 'v': k}} for i, k in enumerate(keys)]},
         )
 
-    def test_prefetch_remote_parts(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_prefetch_remote_parts(self, hosted_identity: None, monkeypatch: pytest.MonkeyPatch) -> None:
         objects = {'req/0.png': b'png-bytes', 'req/1.jpg': b'jpg-bytes'}
         store_uris: list[str] = []
         self._install_fake_upload_store(monkeypatch, objects, store_uris)
@@ -360,13 +374,14 @@ class TestProxyDaemon:
 
         # without the container's org/db in the environment, remote keys cannot be localized
         monkeypatch.delenv('PXTCLOUD_ORG')
+        reload_env()
         with pxt_raises(
             pxt.ErrorCode.INVALID_CONFIGURATION,
             match=r'Internal error: PXTCLOUD_ORG and PXTCLOUD_DB are not present in the container.',
         ):
             proxy_dispatch._prefetch_remote_parts(self._remote_file_request('uploads/req/0.png'))
 
-    def test_handle_cleans_remote_parts(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_handle_cleans_remote_parts(self, hosted_identity: None, monkeypatch: pytest.MonkeyPatch) -> None:
         objects = {'req/0.png': b'png-bytes'}
         self._install_fake_upload_store(monkeypatch, objects, [])
         localized: list[str] = []
@@ -443,13 +458,63 @@ class _ScriptedConn:
         self._peer.close()
 
 
+class _PlainTLS:
+    """An SSL context that leaves the socket as it is, for a sidecar that speaks no TLS."""
+
+    def wrap_socket(self, sock: socket.socket, server_hostname: str | None = None) -> socket.socket:
+        return sock
+
+
+def _header_fields(stream: io.BufferedIOBase) -> dict[str, str]:
+    """The header fields of the next message on the stream, after its first line."""
+    stream.readline()
+    fields: dict[str, str] = {}
+    while (line := stream.readline().decode().strip()) != '':
+        name, _, value = line.partition(':')
+        fields[name] = value.strip()
+    return fields
+
+
+class _PlainSidecar(socketserver.TCPServer):
+    """A sidecar on loopback TCP that records the token in each tunnel handshake.
+
+    It answers one request per tunnel and then closes it, so the client's next request needs a new
+    handshake.
+    """
+
+    def __init__(self) -> None:
+        self.tokens: list[str] = []
+        self._create_connection = socket.create_connection
+        super().__init__(('127.0.0.1', 0), _SidecarHandler)
+        self._thread = threading.Thread(target=self.serve_forever, daemon=True)
+        self._thread.start()
+
+    def connect(self, _address: Any, timeout: float | None = None) -> socket.socket:
+        return self._create_connection(('127.0.0.1', self.server_address[1]), timeout=timeout)
+
+    def close(self) -> None:
+        self.shutdown()
+        self.server_close()
+        self._thread.join()
+
+
+class _SidecarHandler(socketserver.StreamRequestHandler):
+    server: _PlainSidecar
+
+    def handle(self) -> None:
+        self.server.tokens.append(_header_fields(self.rfile)['Authorization'].removeprefix('Bearer '))
+        self.wfile.write(b'PXT/1.0 200 OK\r\n\r\n')
+        self.rfile.read(int(_header_fields(self.rfile).get('Content-Length', '0')))
+        self.wfile.write(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok')
+
+
 class TestTunnelRetries:
     """What the client reissues, and what it refuses to reissue."""
 
     @staticmethod
     def _transport(conns: list[_ScriptedConn]) -> tuple[TunnelTransport, list[_ScriptedConn]]:
         """A transport that hands out conns in order, and the list of the ones it actually opened."""
-        transport = TunnelTransport('org1', 'db1', 'key', host='h', port=443)
+        transport = TunnelTransport('org1', 'db1', lambda: 'key', host='h', port=443)
         opened: list[_ScriptedConn] = []
         queue = list(conns)
 
@@ -489,6 +554,37 @@ class TestTunnelRetries:
         )
         assert transport.post(b'body') == b'second'
         assert len(opened) == 2
+
+    def test_a_refused_credential_opens_no_connection(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Renewing a session is a round trip of its own, so the credential is resolved before connecting."""
+
+        def refuse() -> str:
+            raise excs.AuthorizationError(excs.ErrorCode.MISSING_CREDENTIALS, 'no credential in this test')
+
+        def connect(*_args: Any, **_kwargs: Any) -> socket.socket:
+            raise AssertionError('connected before resolving the credential')
+
+        monkeypatch.setattr(socket, 'create_connection', connect)
+        transport = TunnelTransport('org1', 'db1', refuse, host='h', port=443)
+
+        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='no credential in this test'):
+            transport.post(b'body')
+
+    def test_each_new_tunnel_sends_the_current_credential(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A session renewed between two tunnels reaches the second: the credential is resolved per handshake."""
+        sidecar = _PlainSidecar()
+        monkeypatch.setattr(socket, 'create_connection', sidecar.connect)
+        monkeypatch.setattr(ssl, 'create_default_context', _PlainTLS)
+        credentials = iter(['first-token', 'renewed-token'])
+        transport = TunnelTransport('org1', 'db1', lambda: next(credentials), host='h', port=443)
+        try:
+            assert transport.post(b'one') == b'ok'
+            assert transport.post(b'two') == b'ok'
+        finally:
+            transport.close()
+            sidecar.close()
+
+        assert sidecar.tokens == ['first-token', 'renewed-token']
 
     def test_a_client_error_is_not_retried(self) -> None:
         transport, opened = self._transport([_ScriptedConn(on_read=(404, b'nope')) for _ in range(2)])

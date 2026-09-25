@@ -24,7 +24,7 @@ import pytest
 from pixeltable.config import Config
 from pixeltable_cli.client.utils import is_running
 
-from ..utils import CLOUD_DB_ROOT_URIS, DatabaseRoot, cloud_env_configured
+from ..utils import CLOUD_DB_ROOT_URIS, DatabaseRoot, cloud_env_configured, home_bucket_uri
 
 _REPO_ROOT = pathlib.Path(__file__).parents[2]
 _CORPUS_DIR = pathlib.Path(__file__).parent
@@ -202,6 +202,9 @@ PxtRunner = Callable[..., PxtResult]
 # `pxt db update` against a hosted database builds its image, which runs CodeBuild
 BUILD_TIMEOUT = 1800.0
 
+# where the cloud-serving database's entry sends inserted media, under its home bucket
+INPUT_MEDIA_PREFIX = 'entry-input'
+
 _RUN_TIMEOUT_SECS = 300
 
 _WHEEL_SUBDIR = 'wheels'
@@ -283,7 +286,7 @@ def disposable_db(cli: PxtRunner, uri: str, cwd: pathlib.Path) -> Iterator[str]:
     try:
         yield uri
     finally:
-        cli('db', 'delete', uri, cwd=cwd, check=False)
+        cli('db', 'delete', uri, '-f', cwd=cwd, check=False)
 
 
 def write_requirements(project: pathlib.Path, wheel: pathlib.Path, *extra: str) -> None:
@@ -314,7 +317,9 @@ def cloud_service_db(
     write_requirements(session_project, pixeltable_wheel, *PROJECT_EXTRAS)
     with disposable_db(session_cli, cloud_serving_db_uri, session_project) as uri:
         (session_project / 'pixeltable.toml').write_text(
-            f'[[pixeltable.database]]\nname = {json.dumps(uri)}\n', encoding='utf-8'
+            f'[[pixeltable.database]]\nname = {json.dumps(uri)}\n'
+            f'db_input_media_dest = {json.dumps(f"{home_bucket_uri(uri)}/{INPUT_MEDIA_PREFIX}/")}\n',
+            encoding='utf-8',
         )
         # the daemon read the project config when it started
         session_cli('daemon', 'restart', cwd=session_project)

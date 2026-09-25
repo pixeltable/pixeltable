@@ -322,29 +322,31 @@ class TestFunction:
         multi_a = r"multiple values for argument 'a'"
         too_many_pos = r'too many positional arguments'
         exp_ab = r'expected \(a: pxt\.Int, b: pxt\.Int\)'
+        exp_ab_pos_only = r'expected \(a: pxt\.Int, b: pxt\.Int, /\)'
+        exp_ab_kw_only = r'expected \(\*, a: pxt\.Int, b: pxt\.Int\)'
 
         # udf with positional params only
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab_pos_only}, got \(\)'):
             _ = t.select(self.udf_pos_only_params()).collect()
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(x=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab_pos_only}, got \(x=Int\)'):
             _ = t.select(self.udf_pos_only_params(x=0)).collect()
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab_pos_only}, got \(Int\)'):
             _ = t.select(self.udf_pos_only_params(0)).collect()
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{pos_only_a}; {exp_ab}, got \(a=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{pos_only_a}; {exp_ab_pos_only}, got \(a=Int\)'):
             _ = t.select(self.udf_pos_only_params(a=1)).collect()
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(Int, a=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab_pos_only}, got \(Int, a=Int\)'):
             _ = t.select(self.udf_pos_only_params(1, a=1)).collect()
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{pos_only_b}; {exp_ab}, got \(Int, b=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{pos_only_b}; {exp_ab_pos_only}, got \(Int, b=Int\)'):
             _ = t.select(self.udf_pos_only_params(1, b=1)).collect()
 
         # udf with keyword params only
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab_kw_only}, got \(\)'):
             _ = t.select(self.udf_kw_only_params()).collect()
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{too_many_pos}; {exp_ab}, got \(Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{too_many_pos}; {exp_ab_kw_only}, got \(Int\)'):
             _ = t.select(self.udf_kw_only_params(0)).collect()
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab}, got \(x=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_a}; {exp_ab_kw_only}, got \(x=Int\)'):
             _ = t.select(self.udf_kw_only_params(x=0)).collect()
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab_kw_only}, got \(a=Int\)'):
             _ = t.select(self.udf_kw_only_params(a=0)).collect()
 
         # udf with positional or kw params
@@ -392,21 +394,21 @@ class TestFunction:
             _ = t.select(self.udf_variadic_kw(1, x=0)).collect()
 
         # column ref as an argument for udf
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab_pos_only}, got \(Int\)'):
             _ = t.select(self.udf_pos_only_params(t.c2)).collect()
 
         # arbitrary expr as an argument
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(Float\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab_pos_only}, got \(Float\)'):
             _ = t.select(self.udf_pos_only_params(t.c2 + t.c3)).collect()
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Float\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab_kw_only}, got \(a=Float\)'):
             _ = t.select(self.udf_kw_only_params(a=t.c2 + t.c3)).collect()
 
         # function call as an argument
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab_kw_only}, got \(a=Int\)'):
             _ = t.select(self.udf_kw_only_params(a=t.c2.increment())).collect()
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab_kw_only}, got \(a=Int\)'):
             _ = t.select(self.udf_kw_only_params(a=t.c2.successor)).collect()
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab}, got \(a=Int\)'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=rf'{missing_b}; {exp_ab_kw_only}, got \(a=Int\)'):
             _ = t.select(self.udf_kw_only_params(a=self.udf_pos_only_params(0, 0))).collect()
 
     @staticmethod

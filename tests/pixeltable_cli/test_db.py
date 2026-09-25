@@ -42,6 +42,11 @@ def db_status(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> dict[str, A
     return {**(current.get('resources') or {}), **current}
 
 
+def _list_dbs(cli: PxtRunner, project: pathlib.Path) -> set[str]:
+    listed = cli('db', 'list', '--json', cwd=project).json
+    return {entry['db'] for entry in listed}
+
+
 def get_target_ops(plan: dict[str, Any], target: str) -> list[dict[str, Any]]:
     """The plan's operations against one target: image, archive, capacity or secret."""
     return [op for op in plan['ops'] if op['target'] == target]
@@ -74,7 +79,8 @@ pytestmark = [
 @pytest.mark.usefixtures('hosted_environment')
 class TestDb:
     def test_create(self, cli: PxtRunner, project: pathlib.Path) -> None:
-        absent = f'pxt://pixeltable:pxttest-absent-{uuid.uuid4().hex[:12]}'
+        db_name = f'pxttest-absent-{uuid.uuid4().hex[:12]}'
+        absent = f'pxt://pixeltable:{db_name}'
         create_project_config(cli, project, absent)
 
         plan = db_diff(cli, project, absent)
@@ -113,12 +119,18 @@ class TestDb:
             cli('db', 'restart', absent, cwd=project, timeout=APPLY_TIMEOUT)
             assert db_status(cli, project, absent)['state'] == 'AVAILABLE'
 
-            listed = cli('db', 'list', '--json', cwd=project).json
-            assert absent.rsplit(':', 1)[-1] in [entry['db'] for entry in listed], listed
+            assert db_name in _list_dbs(cli, project)
             # the database now holds this project, so a second look has nothing to do
             assert_in_agreement(cli, project, absent)
+
+            refused = cli('db', 'delete', absent, cwd=project, check=False)
+            assert refused.returncode == 3, refused.stderr
+            assert db_name in _list_dbs(cli, project)
+
+            cli('db', 'delete', absent, '-f', cwd=project)
+            assert db_name not in _list_dbs(cli, project)
         finally:
-            cli('db', 'delete', absent, cwd=project, check=False)
+            cli('db', 'delete', absent, '-f', cwd=project, check=False)
 
     def test_name_case(self, cli: PxtRunner, project: pathlib.Path) -> None:
         """A database is found whatever the case of its name, in the config file or on the command line."""

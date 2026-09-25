@@ -8,11 +8,11 @@ description: 'Same application file against a hosted database'
   Pixeltable Cloud is in Limited Beta. Email [contact@pixeltable.com](mailto:contact@pixeltable.com) if you are interested.
 </Note>
 
-Use the same `app.py` as the [Quickstart](/overview/quick-start). Create an API key in the Cloud dashboard, export it, then create the hosted database, the tables, and hosted HTTP.
+Use the same `app.py` as the [Quickstart](/overview/quick-start). Sign in with `pxt login`, or create an API key in the Cloud dashboard and export it, then create the hosted database, the tables, and hosted HTTP.
 
 ## Get an API key
 
-Sign in from the browser, create a key, then export it. The CLI reads `PIXELTABLE_API_KEY`. It does not log you in.
+Sign in from the browser, create a key, then export it. The CLI reads the key from `PIXELTABLE_API_KEY`, or from `api_key` in the `[pixeltable]` section of the Pixeltable config file; the environment variable wins, and either one takes precedence over a `pxt login` session. To use the CLI without a key, run `pxt login` instead ([CLI](/platform/cli#signing-in)).
 
 <Steps>
   <Step title="Sign in">
@@ -26,7 +26,7 @@ Sign in from the browser, create a key, then export it. The CLI reads `PIXELTABL
     export PIXELTABLE_API_KEY='your-key'
     ```
 
-    Pixeltable reads the process environment and never loads a `.env` file on its own, so source one yourself first (`set -a; source .env; set +a`). Do not write `api_key` in `config.toml`. [Configuration](/platform/configuration). This key authenticates Cloud CLI and hosted HTTP. Provider keys such as `OPENAI_API_KEY` go under **Secrets** in the dashboard, or `pxt secret set pxt://org OPENAI_API_KEY=...`. They do not go in this API key. [CLI](/platform/cli#pxt-secret).
+    Pixeltable reads the process environment and never loads a `.env` file on its own, so source one yourself first (`set -a; source .env; set +a`). [Configuration](/platform/configuration). This key authenticates Cloud CLI and hosted HTTP. Provider keys such as `OPENAI_API_KEY` go under **Secrets** in the dashboard, or `pxt secret set pxt://org OPENAI_API_KEY=...`. They do not go in this API key. [CLI](/platform/cli#pxt-secret).
   </Step>
 </Steps>
 
@@ -135,7 +135,7 @@ Every Cloud database includes a managed Media Store at `pxtfs://org:mydb/home`. 
 
 Set dest only for two cases:
 
-- **Local Pixeltable** writing into that same bucket: `PIXELTABLE_API_KEY` plus `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST` (see [Cloud storage](/integrations/cloud-storage#pixeltable-cloud-home-bucket)).
+- **Local Pixeltable** writing into that same bucket: `pxt login` or `PIXELTABLE_API_KEY`, plus `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST` (see [Cloud storage](/integrations/cloud-storage#pixeltable-cloud-home-bucket)).
 - **Your own bucket**: store `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (or GCS / Azure names) under **Secrets** or `pxt secret`, then point those dest env vars at `s3://`, `gs://`, or `wasbs://`. A single computed column can also set `destination=`:
 
 ```python
@@ -146,6 +146,8 @@ class Images(TableModel, name='images'):
         destination='s3://my-bucket/thumbnails',
     )
 ```
+
+Or set `db_input_media_dest` / `db_output_media_dest` on the database's `[[pixeltable.database]]` entry to change the default for inserted or computed media. Details: [Cloud storage](/integrations/cloud-storage#default-destinations).
 
 ## Local vs Cloud
 

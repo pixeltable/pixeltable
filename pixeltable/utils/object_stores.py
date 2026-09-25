@@ -570,16 +570,18 @@ class ObjectOps:
         """Worker-thread version of put_file: performs move-or-copy with no catalog access."""
         from pixeltable.utils.local_store import TempStore
 
-        if relocate_or_delete:
-            # File is temporary, used only once, so we can delete it after copy if it can't be moved
-            assert TempStore.contains_path(src_path)
+        if not relocate_or_delete:
+            return store.copy_local_file(src_path, dest)
+
+        assert TempStore.contains_path(src_path)
+        try:
             moved_url = store.move_local_file(src_path, dest)
             if moved_url is not None:
                 return moved_url
-        url = store.copy_local_file(src_path, dest)
-        if relocate_or_delete:
-            TempStore.delete_media_file(src_path)
-        return url
+            return store.copy_local_file(src_path, dest)
+        finally:
+            if src_path.exists():
+                TempStore.delete_media_file(src_path)
 
     @classmethod
     def delete(cls, dest: str | None, tbl_id: UUID, tbl_version: int | None = None) -> int | None:

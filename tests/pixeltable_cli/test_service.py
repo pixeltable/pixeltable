@@ -28,7 +28,16 @@ from ..utils import (
     new_db_uri,
     skip_test_if_not_installed,
 )
-from .conftest import BUILD_TIMEOUT, EXIT_ERROR, BackgroundPxt, PxtRunner, db_update, disposable_db, read_logs_until
+from .conftest import (
+    BUILD_TIMEOUT,
+    EXIT_ERROR,
+    INPUT_MEDIA_PREFIX,
+    BackgroundPxt,
+    PxtRunner,
+    db_update,
+    disposable_db,
+    read_logs_until,
+)
 from .hosted import (
     APP_FILE,
     await_service_available,
@@ -148,8 +157,9 @@ def assert_serving(cli: PxtRunner, app: str, target: str, *names: str) -> dict[s
         served_paths = set(served.json()['paths'])
         # the listed paths are being served, as per the docs endpoint
         assert listed_paths <= served_paths, (listed_paths, sorted(served_paths))
-        # internal paths are not exposed
-        assert not any('/_pxt/' in path for path in served_paths), sorted(served_paths)
+        # of the internal paths, only the one that polls background jobs is exposed
+        internal_paths = [path for path in served_paths if '/_pxt/' in path]
+        assert all(path.endswith('/_pxt/jobs/{job_id}') for path in internal_paths), sorted(served_paths)
     return running
 
 
@@ -671,6 +681,12 @@ class TestService:
         body = resp.json()
         assert body['clip_id'] == 1, body
         assert pxt.get_table(f'{target}/frames').count() > 0
+        clips = pxt.get_table(f'{target}/clips')
+        video_url = clips.select(clips.video.fileurl).collect()['video_fileurl'][0]
+        expected_prefix = (
+            f'{home_bucket_uri(db_root.base_uri)}/{INPUT_MEDIA_PREFIX}/' if db_root.is_cloud else 'file://'
+        )
+        assert video_url.startswith(expected_prefix), video_url
         # the persisted poster comes back as a url
         assert_image_bytes(_fetch_media(body['poster'], db_root))
         # so does media a query makes on the fly, which no row stores
@@ -1142,6 +1158,13 @@ class TestHostedService:
         instance = service_list(cli, project, current_db)['ingest']
         assert instance['state'] == 'AVAILABLE', instance
         assert instance['catalog_path'] == current_db
+        schema_response = httpx.get(
+            f'{instance["endpoint"]}/openapi.json',
+            headers={'X-api-key': os.environ['PIXELTABLE_API_KEY']},
+            timeout=_REQUEST_TIMEOUT,
+        )
+        assert schema_response.status_code == 200, schema_response.text
+        assert 'PixeltableGatewayApiKey' in schema_response.json()['components']['securitySchemes']
 
         # a new route requires a db update
         edit_app(project, "ingest.add_delete_route(Docs, path='/docs/purge')")

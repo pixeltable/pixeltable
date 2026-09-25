@@ -1,17 +1,22 @@
 """Tests for how a cli client spawns or adopts its daemon."""
 
 import contextlib
+import errno
 import json
 import os
 import pathlib
 import signal
 import subprocess
 import sys
+import threading
+import urllib.error
+import urllib.request
 from typing import Any
 
 import psutil
 import pytest
 
+from pixeltable_cli.server import http_server
 from pixeltable_cli.utils import pidfile_path
 
 _HEALTH_TIMEOUT_SECS = 180.0
@@ -105,3 +110,115 @@ class TestDaemon:
         pathlib.Path(pidfile_path(daemon_port)).write_text(pidfile_content, encoding='utf-8')
 
         assert _pxt_health(daemon_port, cwd=project)['project_root'] == str(project)
+
+
+def _request_daemon(
+    port: int,
+    path: str,
+    *,
+    host: str,
+    body: bytes | None = None,
+    content_type: str | None = None,
+    address: str = '127.0.0.1',
+) -> tuple[int, dict[str, Any]]:
+    """Send a request to the daemon on address:port with the given Host header, and return the status and the answer."""
+    headers = {'Host': host}
+    if content_type is not None:
+        headers['Content-Type'] = content_type
+    req = urllib.request.Request(f'http://{address}:{port}{path}', data=body, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+class TestBrowserRequests:
+    """Any web page in a browser on this machine can send requests to the daemon's loopback port."""
+
+    @pytest.mark.parametrize(
+        ('host', 'status'), [('attacker.example:{port}', 403), ('127.0.0.1:{port}', 200), ('LOCALHOST:{port}', 200)]
+    )
+    def test_host_header(self, pxt_daemon: int, host: str, status: int) -> None:
+        """A page that rebinds its own host name to 127.0.0.1 reaches the port, but sends that name as Host."""
+        code, answer = _request_daemon(pxt_daemon, '/api/health', host=host.format(port=pxt_daemon))
+
+        assert code == status
+        if status == 403:
+            assert 'only answers requests addressed to' in answer['detail']
+
+    def test_host_header_other_loopback_address(self) -> None:
+        """A daemon bound to another loopback address answers requests addressed to that address."""
+        try:
+            server = http_server.bind('127.0.0.2', 0)
+        except OSError as e:
+            if e.errno != errno.EADDRNOTAVAIL:
+                raise
+            pytest.skip('127.0.0.2 is not a local address here, as on macOS, which assigns 127.0.0.1 alone')
+        port = server.server_address[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            own_code, _ = _request_daemon(port, '/api/health', host=f'127.0.0.2:{port}', address='127.0.0.2')
+            foreign_code, answer = _request_daemon(
+                port, '/api/health', host=f'attacker.example:{port}', address='127.0.0.2'
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        assert own_code == 200
+        assert foreign_code == 403
+        assert answer['detail'] == f'this daemon only answers requests addressed to 127.0.0.2:{port}'
+
+    def test_form_post(self, pxt_daemon: int) -> None:
+        """A page needs no CORS preflight to post a form, but it does to post JSON."""
+        code, answer = _request_daemon(
+            pxt_daemon,
+            '/api/cwd',
+            host=f'127.0.0.1:{pxt_daemon}',
+            body=b'uri=elsewhere',
+            content_type='application/x-www-form-urlencoded',
+        )
+
+        assert code == 415
+        assert 'application/json' in answer['detail']
+
+    @pytest.mark.parametrize('spelling', ['LOCALHOST', 'LocalHost'])
+    def test_bind_loopback_hostname_spellings(self, spelling: str) -> None:
+        """A daemon bound to loopback by any spelling of localhost refuses what a web page could forge."""
+        server = http_server.bind(spelling, 0)
+        port = server.server_address[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            own_code, _ = _request_daemon(port, '/api/health', host=f'{spelling}:{port}')
+            foreign_code, answer = _request_daemon(port, '/api/health', host=f'attacker.example:{port}')
+            form_code, _ = _request_daemon(
+                port,
+                '/api/cwd',
+                host=f'localhost:{port}',
+                body=b'uri=elsewhere',
+                content_type='application/x-www-form-urlencoded',
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        assert own_code == 200
+        assert foreign_code == 403
+        assert (
+            answer['detail'] == f'this daemon only answers requests addressed to 127.0.0.1:{port} or localhost:{port}'
+        )
+        assert form_code == 415
+
+    def test_bind_beyond_loopback(self) -> None:
+        """A daemon bound beyond loopback, as on a hosted pod behind the gateway, answers any Host."""
+        server = http_server.bind('0.0.0.0', 0)
+        port = server.server_address[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            code, _ = _request_daemon(port, '/api/health', host=f'attacker.example:{port}')
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        assert code == 200
