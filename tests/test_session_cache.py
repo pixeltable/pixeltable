@@ -300,11 +300,13 @@ class TestCredentialChoice:
         assert management_client.configured_credential() is None
 
     def test_no_credential(self) -> None:
-        """The error says what the credential was for, and both ways to provide one, without a home path."""
+        """The error says what the credential was for, and every way to provide one, without a home path."""
         with pxt_raises(
-            excs.ErrorCode.MISSING_CREDENTIALS,
-            match=r'API key or sign-in is required to reach the home bucket\. Run `pxt login`, or set an API key .*'
-            r'in the `\[pixeltable\]` section of the Pixeltable config file\.',
+            excs.ErrorCode.MISSING_CREDENTIALS, match=r'API key or sign-in is required to reach the home bucket\.'
         ) as info:
             management_client.resolve('reach the home bucket')
-        assert str(Config.get().home) not in info.value.message
+        message = info.value.message
+        assert str(Config.get().home) not in message, message
+        for way_out in ('pxt login', 'PIXELTABLE_API_KEY', 'api_key'):
+            assert way_out in message, message
+        assert 'os.environ' not in message, message
