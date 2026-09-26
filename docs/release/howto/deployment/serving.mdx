@@ -23,14 +23,14 @@ Replace `my_app` and `ingest` when using another target or service.
 Each column named in a route's `outputs` becomes a typed field, computed columns included.
 Regenerate types after changing the Python routes.
 
-For a hosted service, copy its full endpoint URL from the Cloud dashboard or find it with `pxt service list pxt://org:db --json` using a credential that can list services. A key scoped only to invoke a service cannot list services, but can download that service's schema when granted access. The gateway requires a credential to download the schema:
+For a hosted service, copy its full endpoint URL from the Cloud dashboard or find it with `pxt service list pxt://org:main --json` using a credential that can list services. A key scoped only to invoke a service cannot list services, but can download that service's schema when granted access. The gateway requires a credential to download the schema:
 
 ```bash
 curl -fsS -H "X-api-key: $PIXELTABLE_API_KEY" "${SERVICE_URL%/}/openapi.json" -o openapi.json
 npx openapi-typescript openapi.json -o src/pixeltable.d.ts
 ```
 
-The hosted schema declares the gateway's `X-api-key` header on every route except `/health`; local service schemas declare no key. In the Cloud dashboard, expand **API docs** on the service detail page to inspect and try routes as your signed-in user, without an API key. Trying an insert, update, or delete route can change data.
+The hosted schema declares the gateway's `X-api-key` header on every route except `/health`; local service schemas declare no key. Cloud hosts the same `app.py`. Calls send `X-api-key`. If a request also sends `Authorization: Bearer`, Cloud authenticates the API key. `pxt service run` only starts endpoints in your local terminal. After `pxt secret set`, run `pxt db restart` and `pxt service restart` so running processes read the new value. [Pixeltable Cloud](/cloud). In the Cloud dashboard, expand **API docs** on the service detail page to inspect and try routes as your signed-in user, without an API key. Trying an insert, update, or delete route can change data.
 
 Routes with `return_fileresponse=True` advertise a binary response for any media type. Check the response's `Content-Type` when handling the returned image, video, audio, or document.
 
@@ -218,6 +218,8 @@ A connection string with an embedded password is plaintext in the application fi
 
 ## Full example
 
+The table and the routes that do not call `@pxt.query` go in `app.py` before `pxt schema update`:
+
 ```python
 # app.py
 import pixeltable as pxt
@@ -232,11 +234,6 @@ class Images(TableModel, name='images'):
     height: pxt.Int
     tag: pxt.String | None
     thumbnail = image.resize(size=(128, 128))
-
-
-@pxt.query
-def search_images(text: str) -> pxt.Query:
-    return Images.where(Images.tag == text).select(Images.thumbnail)
 
 
 images = FastAPIRouter(name='image-processing')
@@ -262,6 +259,19 @@ images.add_delete_route(Images, path='/images/delete')
 images.add_delete_route(
     Images, path='/images/delete-by-tag', match_columns=['tag']
 )
+```
+
+```bash
+pxt schema update app.py images
+```
+
+`@pxt.query` runs the function body when Python imports the file. Add the query to `app.py` after that command, then start HTTP:
+
+```python
+@pxt.query
+def search_images(text: str) -> pxt.Query:
+    return Images.where(Images.tag == text).select(Images.thumbnail)
+
 
 images.add_query_route(path='/search', query=search_images)
 
@@ -272,6 +282,10 @@ images.add_query_route(
     method='get',
     return_fileresponse=True,
 )
+```
+
+```bash
+pxt service update app.py images
 ```
 
 ## Return computed columns

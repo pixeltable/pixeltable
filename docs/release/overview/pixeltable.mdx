@@ -39,7 +39,7 @@ Pixeltable is the database, the orchestration, and the serving: tables, computed
 
 If you process media and serve model pipelines, that file is the backend you keep. Insert a row. Transforms run. Indexes stay current.
 
-Locally, create those tables with `pxt schema update`. Start the endpoints with `pxt service update`. On [Pixeltable Cloud](/howto/deployment/cloud), use the same `app.py` after you set `PIXELTABLE_API_KEY` and run `pxt db update`. That Cloud command creates or updates the hosted database. It does not insert rows and does not start app endpoints.
+Locally, create those tables with `pxt schema update`. Start the endpoints with `pxt service update`. On [Pixeltable Cloud](/cloud), sign in with `pxt login`, or set `PIXELTABLE_API_KEY`. `pxt org create` provisions `main`. Then run `pxt db update`, `pxt schema update`, and `pxt service update` against `pxt://org:main`. `pxt db update` creates or updates the hosted database. It does not insert rows and does not start app endpoints.
 
 <Card title="Quickstart" icon="bolt" href="/overview/quick-start">
   Write `app.py`, run `pxt schema update` and `pxt service update`, then POST a row.
