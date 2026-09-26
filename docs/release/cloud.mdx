@@ -55,7 +55,7 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     pxt service list pxt://org:main
     ```
 
-    `pxt db update` creates the hosted database, uploads the project files, and updates its image and size. It does not insert rows and does not start app endpoints. `pxt schema update` creates the tables. It does not start the endpoints. `pxt service update` starts hosted endpoints. Do not use `pxt service run` for Cloud. That command only starts endpoints in your local terminal.
+    `pxt org create` already provisioned `main`. `pxt db update` uploads the project onto that database and updates its image and size. It does not insert rows and does not start app endpoints. `pxt schema update` creates the tables. It does not start the endpoints. `pxt service update` starts hosted endpoints. Do not use `pxt service run` for Cloud. That command only starts endpoints in your local terminal.
 
     `pxt service list` prints the service URL and its routes. The host looks like `https://{org}-{db}.svc.pxt.run/<service>`. The control plane host is separate. Do not hardcode either hostname.
   </Step>
@@ -74,7 +74,7 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
   </Step>
 </Steps>
 
-A Cloud table path uses the URI plus `/table`, such as `pxt.get_table('pxt://org:main/docs')`. A local table uses dotted `namespace.table`, such as `pxt.get_table('my_app.docs')`. Run `pxt schema diff app.py pxt://org:main` to see pending schema changes. The same file can hold `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document`: [media pipelines](/use-cases/media-processing), [RAG](/use-cases/multimodal-backend).
+A Cloud table path uses the URI plus `/table`, such as `pxt.get_table('pxt://org:main/docs')`. A local table uses dotted `namespace.table`, such as `pxt.get_table('my_app.docs')`. Run `pxt schema diff app.py pxt://org:main` to see pending schema changes. The same file can define `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document` columns: [media pipelines](/use-cases/media-processing), [RAG](/use-cases/multimodal-backend).
 
 ## Get an API key
 
@@ -123,12 +123,12 @@ The restarts let running table and service processes read the new value. You can
 
 A hosted database runs two things that come from your project, and they move independently.
 
-- **The image** holds the Python environment: your dependencies, the Python version, and any system packages. `pxt db update` rebuilds it only when that environment changed, which is the slow step.
+- **The image** is the Python environment: your dependencies, the Python version, and any system packages. `pxt db update` rebuilds it only when that environment changed, which is the slow step.
 - **The project files** are your `app.py` and whatever else the entry selects. They are uploaded on their own, without a rebuild.
 
 So editing a UDF costs an upload, while adding a line to `pyproject.toml` costs a build. Both are `pxt db update`. It works out which happened.
 
-`[[pixeltable.database]]` in `pixeltable.toml` declares which files are selected, what the image holds, and the CPU, memory, disk, and worker counts. See the [cloud configuration reference](/platform/cli#cloud-configuration-reference).
+`[[pixeltable.database]]` in `pixeltable.toml` declares which files are selected, what the image includes, and the CPU, memory, disk, and worker counts. See the [cloud configuration reference](/platform/cli#cloud-configuration-reference).
 
 ## What to run after a change
 

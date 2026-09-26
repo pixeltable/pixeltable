@@ -438,7 +438,7 @@ The commands above act on one object at a time. `pxt schema` works differently: 
 | `pxt schema diff FILE my_app` | Show what `update` would change. Read-only |
 | `pxt schema update FILE my_app` | Create the tables the file declares under the last argument, and migrate existing ones |
 | `pxt schema prune FILE my_app` | Drop the tables under the last argument that the file does not declare |
-| `pxt schema check FILE` | Validate the file on its own. Takes no last argument and reads no catalog |
+| `pxt schema check FILE` | Validate the file on its own. No catalog argument, and it reads no catalog |
 | `pxt schema example` | Write a working file to start from |
 
 `FILE` is a path to a Python file. The last argument is a catalog: a local directory such as `my_app`, or a `pxt://` URI. `update` creates it if it doesn't exist.
@@ -854,7 +854,7 @@ local file instead, and `pxt service logs` reports the path of that file.
 | `pxt service stop NAME...` | Stop the named services |
 | `pxt service list [my_app]` | What is running at a local or hosted catalog, and where |
 | `pxt service logs NAME` | What the named service logged. Pass `my_app/NAME` or a `pxt://` path to disambiguate |
-| `pxt service check APP` | Validate the application file on its own. Takes no last argument and reads no catalog |
+| `pxt service check APP` | Validate the application file on its own. No catalog argument, and it reads no catalog |
 | `pxt service example` | Write a working application file to start from |
 
 Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreement, `2` changes pending,

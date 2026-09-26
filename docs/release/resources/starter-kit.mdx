@@ -45,7 +45,12 @@ To skip endpoints, see [Self-hosting](/howto/deployment/overview) for the insert
   </Card>
 </Columns>
 
-To run the same starter app on Pixeltable Cloud, sign in with `pxt login`. `pxt org create` provisions `main`. Then create the hosted database, the tables, and the services against that URI:
+To run the same starter app on Pixeltable Cloud, sign in with `pxt login`. `pxt org create` provisions `main`. Add this entry to the project file before `pxt db update`. Without it, the command errors. `pxt db update` uploads the project onto that database:
+
+```toml
+[[pixeltable.database]]
+name = 'pxt://org:main'
+```
 
 ```bash
 pxt db update pxt://org:main

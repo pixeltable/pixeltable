@@ -103,7 +103,7 @@ app.include_router(router)
 uvicorn.run(app, host='0.0.0.0', port=8000)
 ```
 
-`@pxt.query` evaluates the function body at decoration time. Define `@pxt.query` functions only after `pxt schema update`, because the decorator runs the function body immediately. Use a plain FastAPI `@app.post()` when one `FastAPIRouter` helper cannot express the request.
+`@pxt.query` runs the function body when the file is imported. A query over a `TableModel` stays unbound until the models are bound, so put it in the same `app.py` as the model, before `pxt schema update`. Use a plain FastAPI `@app.post()` when one `FastAPIRouter` helper cannot express the request.
 
 ## Compute without inserting
 
@@ -218,8 +218,6 @@ A connection string with an embedded password is plaintext in the application fi
 
 ## Full example
 
-The table and the routes that do not call `@pxt.query` go in `app.py` before `pxt schema update`:
-
 ```python
 # app.py
 import pixeltable as pxt
@@ -234,6 +232,11 @@ class Images(TableModel, name='images'):
     height: pxt.Int
     tag: pxt.String | None
     thumbnail = image.resize(size=(128, 128))
+
+
+@pxt.query
+def search_images(text: str) -> pxt.Query:
+    return Images.where(Images.tag == text).select(Images.thumbnail)
 
 
 images = FastAPIRouter(name='image-processing')
@@ -259,19 +262,6 @@ images.add_delete_route(Images, path='/images/delete')
 images.add_delete_route(
     Images, path='/images/delete-by-tag', match_columns=['tag']
 )
-```
-
-```bash
-pxt schema update app.py images
-```
-
-`@pxt.query` runs the function body when Python imports the file. Add the query to `app.py` after that command, then start HTTP:
-
-```python
-@pxt.query
-def search_images(text: str) -> pxt.Query:
-    return Images.where(Images.tag == text).select(Images.thumbnail)
-
 
 images.add_query_route(path='/search', query=search_images)
 
@@ -285,6 +275,7 @@ images.add_query_route(
 ```
 
 ```bash
+pxt schema update app.py images
 pxt service update app.py images
 ```
 

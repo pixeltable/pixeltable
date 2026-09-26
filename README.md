@@ -95,7 +95,12 @@ curl -X POST "$URL/docs" \
 # {"id":"...","title_upper":"HELLO","summary":"Hello"}
 ```
 
-The same file runs on [Pixeltable Cloud](https://docs.pixeltable.com/cloud). Sign in with `pxt login`. `pxt org create` provisions `main`. Add a project entry for `main`, then target `pxt://org:main`. An [API key](https://docs.pixeltable.com/cloud#get-an-api-key) is optional for CLI automation and required for direct hosted HTTP calls. `PIXELTABLE_API_KEY`, or `api_key` in the config file, takes precedence over a `pxt login` session. `pxt db update` uploads the project and builds the image. It does not insert rows. `pxt service run` is local only and cannot target Cloud.
+The same file runs on [Pixeltable Cloud](https://docs.pixeltable.com/cloud). Sign in with `pxt login`. `pxt org create` provisions `main`. Add this entry to the project file before `pxt db update`. Without it, the command errors. An [API key](https://docs.pixeltable.com/cloud#get-an-api-key) is optional for CLI automation and required for direct hosted HTTP calls. `PIXELTABLE_API_KEY`, or `api_key` in the config file, takes precedence over a `pxt login` session. `pxt db update` uploads the project onto that database and builds the image. It does not insert rows. `pxt service run` is local only and cannot target Cloud.
+
+```toml
+[[pixeltable.database]]
+name = 'pxt://org:main'
+```
 
 ```bash
 pxt db update pxt://org:main
