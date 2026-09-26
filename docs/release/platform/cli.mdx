@@ -1147,7 +1147,7 @@ pxt secret delete pxt://myorg:mydb OLD_KEY
 
 An org secret applies to every database in the org. A database secret applies to that database and wins on a key collision. `list` prints names, never values.
 
-A running database uses the values from its startup. `pxt db restart`, or `pxt service restart` for one service, picks up a change; a database or service started afterwards reads the current value at startup.
+A running database or service uses the values from its startup. `pxt db restart` picks up a change for the database's tables, and `pxt service restart` for each service; a database or service started afterwards reads the current value at startup.
 
 <Warning>
 A `[[pixeltable.database]]` entry no longer accepts `secrets`. A project config that still has

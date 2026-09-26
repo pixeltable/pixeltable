@@ -23,9 +23,11 @@ from pixeltable.service.management_protocol import (
     ListServiceInstancesResponse,
     LogRecord,
     RestartServiceInstanceRequest,
+    RestartServiceInstanceResponse,
     StartServiceInstanceRequest,
     StopServiceInstanceRequest,
     UpdateServiceInstanceRequest,
+    UpdateServiceInstanceResponse,
 )
 from pixeltable.utils.app_module import load_app_module, module_name, module_routers, service_spec, services_by_name
 
@@ -69,8 +71,21 @@ class ServiceManagerProxy(ServiceManagerBase):
         return [ServiceInstance(r, self) for r in response.instances if self._serves(r, base_path, recursive)]
 
     def start(
-        self, app_file: str, name: str, base_path: str = '', *, otel: bool = False, port: int | None = None
+        self,
+        app_file: str,
+        name: str,
+        base_path: str = '',
+        *,
+        otel: bool = False,
+        port: int | None = None,
+        restart: bool = False,
     ) -> ServiceInstance:
+        """Make the named service in app_file serve base_path, and return its instance.
+
+        An available instance is not stopped: an update replaces its pods in place when its definition changed.
+        restart: replace them with a restart when it did not, which moves them onto the database's current project.
+        A replacement whose new pods do not come up raises, also when the old ones keep serving.
+        """
         if port is not None:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -101,18 +116,23 @@ class ServiceManagerProxy(ServiceManagerBase):
             )
         else:
             if (instance.spec, instance.record.app_module, instance.otel) != (spec, app_module, otel):
-                management_client.api_call(
-                    UpdateServiceInstanceRequest(
-                        org=self._org,
-                        db=self._db,
-                        service_name=name,
-                        base_path=base_path,
-                        spec=spec,
-                        app_module=app_module,
-                        otel=otel,
+                updated = UpdateServiceInstanceResponse.model_validate(
+                    management_client.api_call(
+                        UpdateServiceInstanceRequest(
+                            org=self._org,
+                            db=self._db,
+                            service_name=name,
+                            base_path=base_path,
+                            spec=spec,
+                            app_module=app_module,
+                            otel=otel,
+                        )
                     )
                 )
                 instance = self._wait_for_state(name, base_path, ServiceState.AVAILABLE)
+                self._raise_if_not_updated(updated.instance, instance)
+            elif restart and instance.state is ServiceState.AVAILABLE:
+                self.restart(instance)
             if instance.state is ServiceState.AVAILABLE:
                 self._wait_for_endpoint(instance)
                 return instance
@@ -138,9 +158,11 @@ class ServiceManagerProxy(ServiceManagerBase):
         self._wait_for_state(instance.service_name, instance.base_path, ServiceState.STOPPED)
 
     def restart(self, instance: ServiceInstance) -> None:
-        management_client.api_call(
-            RestartServiceInstanceRequest(
-                org=self._org, db=self._db, service_name=instance.service_name, base_path=instance.base_path
+        restarting = RestartServiceInstanceResponse.model_validate(
+            management_client.api_call(
+                RestartServiceInstanceRequest(
+                    org=self._org, db=self._db, service_name=instance.service_name, base_path=instance.base_path
+                )
             )
         )
         restarted = self._wait_for_state(instance.service_name, instance.base_path, ServiceState.AVAILABLE)
@@ -150,6 +172,7 @@ class ServiceManagerProxy(ServiceManagerBase):
                 excs.ErrorCode.INTERNAL_ERROR,
                 f'Service {instance.service_name!r} did not come back; it is {restarted.state.value}{detail}',
             )
+        self._raise_if_not_updated(restarting.instance, restarted)
         self._wait_for_endpoint(restarted)
 
     def delete(self, instance: ServiceInstance) -> None:
@@ -201,6 +224,20 @@ class ServiceManagerProxy(ServiceManagerBase):
                     f'after {self._POLL_TIMEOUT:.0f}s',
                 )
             time.sleep(self._POLL_INTERVAL)
+
+    def _raise_if_not_updated(self, answered: ServiceInstanceRecord, settled: ServiceInstance) -> None:
+        """Raise if the roll a request started ended back on the pods that served before it.
+
+        answered: the instance as the control plane answered the request. A roll of an instance it routes (UPDATING)
+        whose new pods do not come up leaves the old ones serving, AVAILABLE with error saying so. A request that
+        started no roll leaves an earlier roll's error in place, so error is not read then.
+        """
+        rolled = answered.state is ServiceState.UPDATING
+        if rolled and settled.state is ServiceState.AVAILABLE and settled.record.error is not None:
+            raise excs.InternalError(
+                excs.ErrorCode.INTERNAL_ERROR,
+                f'Service {settled.service_name!r} was not updated: {settled.record.error}',
+            )
 
     def _wait_for_endpoint(self, instance: ServiceInstance) -> None:
         """Poll an available instance's endpoint until a request reaches the pod behind it.
