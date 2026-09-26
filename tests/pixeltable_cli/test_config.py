@@ -364,16 +364,18 @@ class TestConfig:
         assert 'cannot be parsed' in r.stderr, r.stderr
         assert 'Traceback' not in r.stderr, r.stderr
 
-        project_config.write_text("[[pixeltable.database]]\nname = 'pxt://my-org:my-db'\n", encoding='utf-8')
-        project_config.chmod(0o000)
-        try:
-            r = cli('ls', '/', cwd=tmp_path, check=False)
-            assert r.returncode != 0
-            assert 'cannot be read' in r.stderr, r.stderr
-            assert 'Traceback' not in r.stderr, r.stderr
-        finally:
-            project_config.chmod(0o644)
-            cli('daemon', 'restart')
+        # Windows ignores the mode, and root reads a file whatever its mode
+        if os.name == 'posix' and os.geteuid() != 0:
+            project_config.write_text("[[pixeltable.database]]\nname = 'pxt://my-org:my-db'\n", encoding='utf-8')
+            project_config.chmod(0o000)
+            try:
+                r = cli('ls', '/', cwd=tmp_path, check=False)
+                assert r.returncode != 0
+                assert 'cannot be read' in r.stderr, r.stderr
+                assert 'Traceback' not in r.stderr, r.stderr
+            finally:
+                project_config.chmod(0o644)
+                cli('daemon', 'restart')
 
     def test_restart_while_serving(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """A restart that would abandon work in progress is refused; once the work is done it goes through."""
