@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import pathlib
+import threading
 import time
 import urllib.parse
 import uuid
@@ -139,6 +140,16 @@ def make_test_client(router: Any) -> 'TestClient':
     client = TestClient(app)
     _live_clients.append(client)
     return client
+
+
+def _schema_changed_detail(route: str) -> dict[str, Any]:
+    """The 409 detail for a request to a route whose table's schema changed since the route was registered."""
+    return {
+        'error_code': 'CONCURRENT_MODIFICATION',
+        'message': f'{route} was registered against an earlier schema of its table; '
+        'retry once the service restarts on the new definition (pxt service update)',
+        'retryable': True,
+    }
 
 
 def make_media_poster(
@@ -3116,7 +3127,12 @@ class TestFastAPI:
 
     @pytest.mark.parametrize(
         ('op_name', 'first_body', 'retry_body'),
-        [('insert', {'id': 2, 'val': 20}, {'id': 3, 'val': 30}), ('delete', {'id': 1}, {'id': 2})],
+        [
+            ('insert', {'id': 2, 'val': 20}, {'id': 3, 'val': 30}),
+            ('update', {'id': 1, 'val': 11}, {'id': 1, 'val': 12}),
+            ('delete', {'id': 1}, {'id': 2}),
+            ('compute', {'id': 4, 'val': 40}, {'id': 5, 'val': 50}),
+        ],
     )
     @pytest.mark.parametrize('schema_op', ['add_column', 'drop'])
     def test_schema_change(
@@ -3127,7 +3143,8 @@ class TestFastAPI:
         retry_body: dict[str, Any],
         schema_op: str,
     ) -> None:
-        """Schema-version bump or drop-and-recreate after route registration causes the handler to 409."""
+        """Schema-version bump or drop-and-recreate after route registration causes the handler to answer a retryable
+        409: the request can succeed once the service restarts on the new definition."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
@@ -3138,10 +3155,13 @@ class TestFastAPI:
         t.insert([{'id': 1, 'val': 10}])
 
         router = FastAPIRouter()
-        if op_name == 'insert':
-            router.add_insert_route(t, path='/ep')
-        else:
-            router.add_delete_route(t, path='/ep')
+        add_routes: dict[str, Callable[..., None]] = {
+            'insert': router.add_insert_route,
+            'update': router.add_update_route,
+            'delete': router.add_delete_route,
+            'compute': router.add_compute_route,
+        }
+        add_routes[op_name](t, path='/ep')
         client = make_test_client(router)
 
         # baseline: endpoint works before schema change
@@ -3159,4 +3179,48 @@ class TestFastAPI:
         # handler now detects the mismatch and rejects the request
         resp = client.post('/ep', json=retry_body)
         assert resp.status_code == 409, resp.text
-        assert 'table schema changed' in resp.json()['detail']
+        assert resp.json()['detail'] == _schema_changed_detail('POST /ep')
+
+    @pytest.mark.db_roots('local', reason='the schema change is committed ahead of a lock the in-process catalog takes')
+    def test_schema_change_while_waiting_for_lock(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A write whose table's schema changes while it waits for the table's lock is refused once it holds the
+        lock, and writes nothing: a check made before the lock would pass and let it write to the new schema."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.catalog.catalog import Catalog
+        from pixeltable.serving import FastAPIRouter
+
+        t = pxt.create_table('items', {'id': pxt.Int, 'val': pxt.Int | None}, primary_key='id')
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/ep')
+        client = make_test_client(router)
+
+        acquire_locks = Catalog._acquire_locks
+        change_errors: list[BaseException] = []
+        changed = threading.Event()
+
+        def change_schema() -> None:
+            try:
+                t.add_computed_column(val_plus_1=t.val + 1)
+            except BaseException as e:
+                change_errors.append(e)
+
+        def schema_change_first(self: Catalog, *args: Any, **kwargs: Any) -> None:
+            # the first time the request asks for the table's write lock, another session commits a schema change
+            # before the lock is taken, as when the request waits for the lock while that change holds it
+            if not changed.is_set() and any(tvp.tbl_id == t._id for tvp in kwargs.get('write_tvps', ())):
+                changed.set()
+                change = threading.Thread(target=change_schema)
+                change.start()
+                change.join()
+            acquire_locks(self, *args, **kwargs)
+
+        monkeypatch.setattr(Catalog, '_acquire_locks', schema_change_first)
+        resp = client.post('/ep', json={'id': 1, 'val': 10})
+        monkeypatch.undo()
+
+        assert change_errors == []
+        assert changed.is_set()
+        assert 'val_plus_1' in t.get_metadata()['columns']
+        assert resp.status_code == 409, resp.text
+        assert resp.json()['detail'] == _schema_changed_detail('POST /ep')
+        assert t.count() == 0

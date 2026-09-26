@@ -109,7 +109,9 @@ class TestFastAPIModels:
         Notes.table.add_column(extra=pxt.String | None)
         resp = client.post('/ins', json={'note_id': 3, 'val': 30})
         assert resp.status_code == 409, resp.text
-        assert 'schema changed' in resp.json()['detail']
+        detail = resp.json()['detail']
+        assert (detail['error_code'], detail['retryable']) == ('CONCURRENT_MODIFICATION', True), detail
+        assert detail['message'].startswith('POST /ins was registered against an earlier schema'), detail
 
     def test_computed_pk_update(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

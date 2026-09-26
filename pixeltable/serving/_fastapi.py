@@ -44,7 +44,7 @@ from pixeltable.catalog.model.query import ModelQuery
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
-from pixeltable.runtime import close_threadpool_runtimes
+from pixeltable.runtime import close_threadpool_runtimes, get_runtime
 from pixeltable.service.proxy_protocol import PxtStorePartSink
 from pixeltable.serving import SqlExport
 from pixeltable.serving.globals import SqlExporter
@@ -61,6 +61,8 @@ from pixeltable_cli.types import RouteSpec, ServiceSpec
 ColumnsParam = Union[list[str], list[exprs.ColumnRef], list[exprs.ColumnRefByName]]
 
 RouteTarget = Union[pxt.Table, model.TableModelMeta]
+
+T = TypeVar('T')
 
 
 def _path_kind(path: catalog.TablePath) -> str:
@@ -175,12 +177,24 @@ def _route_table_path(target: RouteTarget) -> catalog.TablePath:
     return target._tbl_path
 
 
-def _validate_registered_schema(tbl: pxt.Table, schema_version: int) -> None:
+def _schema_changed(route: _RegisteredRoute) -> pxt.ConcurrencyError:
+    """The 409 for a route whose table no longer has the schema the route was registered against.
+
+    Retryable: the request can succeed once the service restarts on the new definition.
+    """
+    return pxt.ConcurrencyError(
+        pxt.ErrorCode.CONCURRENT_MODIFICATION,
+        f'{route.display_name} was registered against an earlier schema of its table; '
+        'retry once the service restarts on the new definition (pxt service update)',
+    )
+
+
+def _validate_registered_schema(route: _RegisteredRoute, tbl: pxt.Table, schema_version: int) -> None:
     """Raise 409 if the table's schema changed since the route's contract was frozen.
 
     A schema bump shows up as a different schema_version; a drop (or drop-and-recreate at the same path under
     a new id) makes the metadata lookup raise TABLE_NOT_FOUND. Both mean the frozen request/response contract
-    is stale, so the caller should restart the service.
+    is stale until the service restarts. A write checks under its table's lock instead: see _write_as_registered().
     """
     try:
         changed = tbl.get_metadata()['schema_version'] != schema_version
@@ -189,9 +203,33 @@ def _validate_registered_schema(tbl: pxt.Table, schema_version: int) -> None:
             raise
         changed = True
     if changed:
-        raise HTTPException(
-            status_code=409, detail='table schema changed since route was registered; please restart the service'
-        )
+        raise _schema_changed(route)
+
+
+def _write_as_registered(route: _RegisteredRoute, tbl: pxt.Table, schema_version: int, write: Callable[[], T]) -> T:
+    """Run a route's write if its table still has the schema the route was registered against; raise 409 if not.
+
+    The check runs in the write's own transaction, after the table's lock is held: a request that waited for the lock
+    while a schema change held it sees that change, instead of writing to the new schema with the route's old contract.
+    A hosted table's write runs in its server's transaction, which this cannot join, so it is checked beforehand.
+    """
+    if not isinstance(tbl, catalog.LocalTable):
+        _validate_registered_schema(route, tbl, schema_version)
+        return write()
+    tvp = tbl._tbl_version_path
+    locked = False
+    try:
+        # the locks insert(), batch_update() and delete() take, which they then find held
+        with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[tvp], lock_mutable_tree=True):
+            locked = True
+            if tvp.schema_version() != schema_version:
+                raise _schema_changed(route)
+            return write()
+    except pxt.NotFoundError as exc:
+        # before the lock was held, the table was dropped, or replaced at its path under a new id
+        if locked or exc.error_code is not pxt.ErrorCode.TABLE_NOT_FOUND:
+            raise
+        raise _schema_changed(route) from None
 
 
 def _check_route_output_schema(output_cols: list[catalog.ColumnVersionMd], error_prefix: str) -> None:
@@ -321,9 +359,6 @@ _MEDIA_CONTENT_TYPES: dict[ts.ColumnType.Type, str] = {
     ts.ColumnType.Type.AUDIO: 'audio/*',
     ts.ColumnType.Type.DOCUMENT: 'application/octet-stream',
 }
-
-
-T = TypeVar('T')
 
 
 class _ResponseMedia:
@@ -1816,13 +1851,16 @@ class FastAPIRouter(fastapi.APIRouter):
         ) -> DeleteResponse:
             # Table references are thread-safe, so the binding is shared across requests
             tbl, schema_version = self._route_binding(route.route_id)
-            _validate_registered_schema(tbl, schema_version)
 
-            where_expr: exprs.Expr | None = None
-            for name in match_col_names:
-                predicate = tbl[name] == row_kwargs[name]
-                where_expr = predicate if where_expr is None else (where_expr & predicate)
-            status = tbl.delete(where=where_expr)
+            def delete() -> pxt.UpdateStatus:
+                # resolved after the check: a match column the schema change dropped answers the 409, not a 404
+                where_expr: exprs.Expr | None = None
+                for name in match_col_names:
+                    predicate = tbl[name] == row_kwargs[name]
+                    where_expr = predicate if where_expr is None else (where_expr & predicate)
+                return tbl.delete(where=where_expr)
+
+            status = _write_as_registered(route, tbl, schema_version, delete)
             return DeleteResponse(num_rows=status.num_rows)
 
         # use the metadata path (works for both local and hosted tables); skip system columns (name is None)
@@ -2173,17 +2211,25 @@ class FastAPIRouter(fastapi.APIRouter):
         def run_dml(row_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
             # Table references are thread-safe, so the binding is shared across requests
             tbl, schema_version = self._route_binding(route.route_id)
-            _validate_registered_schema(tbl, schema_version)
             rows: Sequence[Mapping[str, Any]]
             if route_type == 'update':
-                status = tbl.batch_update([row_kwargs], if_not_exists='ignore', return_rows=True)
+                status = _write_as_registered(
+                    route,
+                    tbl,
+                    schema_version,
+                    lambda: tbl.batch_update([row_kwargs], if_not_exists='ignore', return_rows=True),
+                )
                 if status.num_rows == 0:
                     raise HTTPException(status_code=404, detail='row not found')
                 rows = status.rows or []
             elif route_type == 'compute':
+                # compute() writes nothing, so it takes no lock to check under
+                _validate_registered_schema(route, tbl, schema_version)
                 rows = tbl.compute([row_kwargs])
             else:  # 'insert'
-                status = tbl.insert([row_kwargs], return_rows=True)
+                status = _write_as_registered(
+                    route, tbl, schema_version, lambda: tbl.insert([row_kwargs], return_rows=True)
+                )
                 rows = status.rows or []
             return rows_processor(rows, url_for_media)
 
