@@ -17,6 +17,7 @@ from typing import Callable
 import pytest
 
 import pixeltable as pxt
+from pixeltable.utils.app_module import load_app_module
 from pixeltable_cli.client.utils import display_path
 
 from ..utils import DatabaseRoot, get_image_files
@@ -1028,25 +1029,34 @@ class TestMv:
     'local', reason='TODO: run against a hosted database, once a pod can fetch a project it was not built with'
 )
 class TestRecompute:
-    @pxt.udf
-    @staticmethod
-    def _doubled(a: int) -> int:
-        if a < 0:
-            raise ValueError('negative')
-        return a * 2
+    _UDF_SOURCE = (
+        'import pixeltable as pxt\n'
+        '\n'
+        '\n'
+        '@pxt.udf\n'
+        'def doubled(a: int) -> int:\n'
+        '    if a < 0:\n'
+        "        raise ValueError('negative')\n"
+        '    return a * 2\n'
+    )
 
-    def _table(self, path: str) -> pxt.Table:
+    def _table(self, path: str, project_dir: pathlib.Path) -> pxt.Table:
         """A table with a computed column that fails on one row, and a second column that depends on it."""
+        # a project file, because a daemon started from the project root can't import this module without an
+        # editable install
+        udf_file = project_dir / 'recompute_udfs.py'
+        udf_file.write_text(self._UDF_SOURCE, encoding='utf-8')
+        udfs = load_app_module(str(udf_file), subject='udf file')
         t = pxt.create_table(path, {'a': pxt.Int | None}, if_exists='replace')
-        t.add_computed_column(doubled=TestRecompute._doubled(t.a), on_error='ignore')
+        t.add_computed_column(doubled=udfs.doubled(t.a), on_error='ignore')
         t.add_computed_column(quadrupled=t.doubled * 2)
         t.insert([{'a': 1}, {'a': 2}, {'a': -1}], on_error='ignore')
         return t
 
-    def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_rc'), if_exists='ignore')
-        t = self._table(p('cli_rc/t'))
+        t = self._table(p('cli_rc/t'), project_dir)
 
         # dry-run reports the row count it would recompute over, and changes nothing
         v_before = t.get_metadata()['version']
@@ -1079,10 +1089,10 @@ class TestRecompute:
         assert 'recomputed' in text
         assert '2 errors in t.doubled' in text
 
-    def test_cascade_and_errors_only(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    def test_cascade_and_errors_only(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_rc2'), if_exists='ignore')
-        t = self._table(p('cli_rc2/t'))
+        t = self._table(p('cli_rc2/t'), project_dir)
 
         # --no-cascade leaves the dependent column out of the operation
         out = cli('recompute', p('cli_rc2/t'), 'doubled', '--no-cascade', '-f', '--json').json
@@ -1093,10 +1103,10 @@ class TestRecompute:
         assert out['num_rows'] == 1
         assert t.where(t.a == 2).select(t.doubled).collect()[0]['doubled'] == 4
 
-    def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_rc_err'), if_exists='ignore')
-        t = self._table(p('cli_rc_err/t'))
+        t = self._table(p('cli_rc_err/t'), project_dir)
 
         # client preflight: errors_only takes one column
         r = cli('recompute', p('cli_rc_err/t'), 'doubled', 'quadrupled', '--errors-only', '-f', check=False)

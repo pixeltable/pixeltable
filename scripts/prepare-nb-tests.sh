@@ -15,6 +15,7 @@ SKIP_NOTEBOOKS=(
 if ! nvidia-smi > /dev/null 2>&1; then
     echo "nvidia-smi not found or not working; skipping GPU notebooks."
     SKIP_NOTEBOOKS+=(
+        img-promptable-segmentation # SAM3 video segmentation runs past the nbmake timeout on CPU
         working-with-vllm           # vLLM requires a CUDA environment
     )
 fi
@@ -160,7 +161,8 @@ fi
 if [[ $INCLUDE_EXPENSIVE == false ]]; then
     for nb in "${EXPENSIVE_NOTEBOOKS[@]}"; do
         echo "Skipping $TARGET_DIR/${nb}.ipynb because it is in EXPENSIVE_NOTEBOOKS."
-        rm "$TARGET_DIR/${nb}.ipynb"
+        # -f: on a runner without a GPU, SKIP_NOTEBOOKS already removed the GPU notebooks
+        rm -f "$TARGET_DIR/${nb}.ipynb"
     done
 fi
 

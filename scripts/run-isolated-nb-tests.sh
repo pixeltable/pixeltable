@@ -19,6 +19,9 @@ eval "$(conda shell.bash hook)"
 # Use a separate Pixeltable DB for these tests
 export PIXELTABLE_HOME=~/.pixeltable
 export PIXELTABLE_DB="isolatednbtests"
+# and a free port for the pxt daemon, so stopping it after each notebook leaves any other daemon running
+PXT_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+export PXT_PORT
 
 "$SCRIPT_DIR/prepare-nb-tests.sh" --include-very-expensive --include-expensive "$TEST_PATH" docs/release
 rm -f "$TEST_PATH"/audio-transcriptions.ipynb  # temporary workaround
@@ -47,10 +50,13 @@ for nb in "$TEST_PATH"/*.ipynb; do
     echo "Running notebook $nb ..."
     pytest -v -m '' --nbmake --nbmake-timeout=1800 "$nb" || (( FAILURES++ )) || true
 
+    echo "Stopping the pxt daemon, if the notebook started one ..."
+    pxt daemon stop -f || true
+
     echo "Cleaning $PIXELTABLE_DB postgres DB ..."
     POSTGRES_BIN_PATH=$(python -c 'import pixeltable_pgserver; import sys; sys.stdout.write(str(pixeltable_pgserver._commands.POSTGRES_BIN_PATH))')
     PIXELTABLE_URL="postgresql://postgres:@/postgres?host=$PIXELTABLE_HOME/pgdata"
-    "$POSTGRES_BIN_PATH/psql" "$PIXELTABLE_URL" -U postgres -c "DROP DATABASE IF EXISTS $PIXELTABLE_DB;"
+    "$POSTGRES_BIN_PATH/psql" "$PIXELTABLE_URL" -U postgres -c "DROP DATABASE IF EXISTS $PIXELTABLE_DB WITH (FORCE);"
 
     echo "Cleaning Hugging Face cache ..."
     rm -rf ~/.cache/huggingface
