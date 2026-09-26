@@ -83,6 +83,17 @@ class TestInit:
         assert 'raw data' not in r.stderr
         assert cli('init', '--json', cwd=tmp_path).json['unusable_dirs'] == ['ad gen']
 
+    def test_unparseable_config_here(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+        """`pxt init` reports a project file it cannot parse, rather than raising through to the shell."""
+        (tmp_path / 'pixeltable.toml').write_text(
+            '[[pixeltable.database]]\nname = pxt://my-org:my-db\n', encoding='utf-8'
+        )
+
+        r = cli('init', cwd=tmp_path, check=False)
+        assert r.returncode != 0
+        assert str(tmp_path / 'pixeltable.toml') in r.stderr, r.stderr
+        assert 'Traceback' not in r.stderr, r.stderr
+
 
 class TestProjectHandoff:
     def test_daemon_gets_client_project(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:

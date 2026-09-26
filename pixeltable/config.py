@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 import threading
+import tomllib
 import typing
 import warnings
 from pathlib import Path
@@ -117,6 +118,19 @@ PYPROJECT_FILE = 'pyproject.toml'  # with a [tool.pixeltable] section
 PROJECT_CONFIG_FILES = (PROJECT_CONFIG_FILE, PYPROJECT_FILE)
 
 
+def _load_toml(path: Path) -> dict[str, Any]:
+    try:
+        with open(path, 'rb') as stream:
+            return tomllib.load(stream)
+    except OSError as e:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'{path} cannot be read: {e.strerror or e}'
+        ) from e
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
+        # tomllib decodes the file itself, so text that is not UTF-8 fails here rather than at the read
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'{path} cannot be parsed: {e}') from e
+
+
 def _find_project_root(start: Path) -> Path | None:
     """Find the nearest directory holding one of the recognized project config files."""
     start = start.resolve()
@@ -126,13 +140,7 @@ def _find_project_root(start: Path) -> Path | None:
             return dir
         pyproject = dir / PYPROJECT_FILE
         if pyproject.is_file():
-            try:
-                parsed = toml.load(pyproject)
-            except Exception as e:
-                # fail early
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION, f'{pyproject} cannot be parsed: {e}'
-                ) from e
+            parsed = _load_toml(pyproject)
             tool = parsed.get('tool')
             if isinstance(tool, dict) and 'pixeltable' in tool:
                 return dir
@@ -458,13 +466,7 @@ class Config:
     def __read_toml_file(cls, path: Path) -> dict[str, Any]:
         if not path.exists():
             return {}
-        try:
-            with open(path, 'r', encoding='utf-8') as stream:
-                return toml.load(stream)
-        except Exception as exc:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION, f'Could not read config file: {path}'
-            ) from exc
+        return _load_toml(path)
 
     @classmethod
     def __add_path(cls, config_dict: dict[str, Any], path: Path) -> dict[str, dict[str, tuple[Any, Path]]]:
