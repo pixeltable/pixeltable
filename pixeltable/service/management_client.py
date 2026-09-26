@@ -83,7 +83,7 @@ _PURPOSES = {
 
 @dataclasses.dataclass(frozen=True)
 class Credential:
-    kind: Literal['api_key', 'session']  # API key in header, session token in bearer
+    kind: Literal['api_key', 'session', 'trial']  # API key or trial's key in header, session token in bearer
     value: str
     source: str
 
@@ -102,15 +102,17 @@ def _api_key_source() -> str:
 
 
 def configured_credential() -> Credential | None:
-    """Return the API key or session credential, depending on what's available."""
-    # an API key outranks a session
+    """Return the API key, session or trial credential, depending on what's available."""
+    # an API key outranks a session or a trial
     api_key = Config.get().get_string_value('api_key')
     if api_key is not None:
         return Credential('api_key', api_key, _api_key_source())
-    session = session_cache.load(api_url())
-    if session is None:
+    cached = session_cache.load_credential(api_url())
+    if cached is None:
         return None
-    return Credential('session', session.access_token, f'your `pxt login` session for {api_url()}')
+    if isinstance(cached, session_cache.Trial):
+        return Credential('trial', cached.api_key, f'your `pxt new` trial for {api_url()}')
+    return Credential('session', cached.access_token, f'your `pxt login` session for {api_url()}')
 
 
 def _no_credential(purpose: str) -> excs.Error:
@@ -128,7 +130,7 @@ def resolve(purpose: str) -> Credential:
     configured = configured_credential()
     if configured is None:
         raise _no_credential(purpose)
-    if configured.kind == 'api_key':
+    if configured.kind != 'session':
         return configured
     token = auth.access_token(api_url())
     if token is None:
@@ -163,15 +165,20 @@ def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) ->
         )
     if resp.status_code == 403:
         # the control plane accepted the credential and refused the operation, so signing in again cannot help
-        holder = f'The API key from {sent.source}' if sent.kind == 'api_key' else 'Your Pixeltable session'
+        holder = 'Your Pixeltable session' if sent.kind == 'session' else f'The API key from {sent.source}'
         raise excs.AuthorizationError(
             excs.ErrorCode.INSUFFICIENT_PRIVILEGES, f'{holder} is valid but is not permitted to {purpose}: {reason}.'
         )
-    message = (
-        f'The API key from {sent.source} was rejected: {reason}.'
-        if sent.kind == 'api_key'
-        else f'Your Pixeltable session was rejected: {reason}. {auth.SIGN_IN_AGAIN}'
-    )
+    if sent.kind == 'session':
+        message = f'Your Pixeltable session was rejected: {reason}. {auth.SIGN_IN_AGAIN}'
+    elif sent.kind == 'trial':
+        # an unclaimed trial is deleted when it expires, and its key with it
+        message = (
+            f'The API key from {sent.source} was rejected: {reason}. '
+            'Run `pxt logout`, then `pxt new`, to start another trial.'
+        )
+    else:
+        message = f'The API key from {sent.source} was rejected: {reason}.'
     # PROVIDER_AUTH_ERROR, not PROVIDER_ERROR: a refused credential is not retryable, and retrying
     # one only delays the error. A 401 is always the control plane's own decision -- it answers 503,
     # never 401, when WorkOS is the thing that could not be reached.

@@ -30,6 +30,30 @@ def _session(**kw: Any) -> session_cache.Session:
     return session_cache.Session(**{**base, **kw})
 
 
+def _trial(**kw: Any) -> session_cache.Trial:
+    base = {
+        'api_key': 'sk-trial',
+        'org': 'trial-org',
+        'org_id': 'org_01TRIAL',
+        'db': 'main',
+        'claim_url': 'https://pixeltable.com/claim?org=trial-org&token=t',
+        'expires_at': time.time() + 3600,
+    }
+    return session_cache.Trial(**{**base, **kw})
+
+
+# a valid trial record, which each invalid one in TestTrial differs from
+_TRIAL_RECORD = {
+    'kind': 'trial',
+    'api_key': 'sk',
+    'org': 'o',
+    'org_id': 'id',
+    'db': 'main',
+    'claim_url': 'u',
+    'expires_at': 0,
+}
+
+
 def _cache_file() -> pathlib.Path:
     return Config.get().home / 'auth' / 'sessions.json'
 
@@ -66,6 +90,95 @@ class TestRoundTrip:
         session_cache.save(_PROD, _session(access_token='second'))
 
         assert session_cache.load(_PROD).access_token == 'second'
+
+
+class TestTrial:
+    """A `pxt new` trial is the other credential a control plane's record can have."""
+
+    def test_round_trip(self) -> None:
+        trial = _trial()
+        session_cache.save(_PROD, trial)
+
+        assert session_cache.load_credential(_PROD) == trial
+        # load() and load_for_sign_out() are for sessions
+        assert session_cache.load(_PROD) is None
+        assert session_cache.load_for_sign_out(_PROD) is None
+
+    def test_record(self) -> None:
+        """A trial's record says so under 'kind'; a session's record has none, as earlier versions wrote it."""
+        session_cache.save(_PROD, _trial())
+        session_cache.save(_DEV, _session())
+
+        records = json.loads(_cache_file().read_text())
+        assert records[_PROD]['kind'] == 'trial'
+        assert 'kind' not in records[_DEV]
+
+    def test_expiry(self) -> None:
+        assert not _trial().is_expired()
+        assert _trial(expires_at=time.time() - 1).is_expired()
+
+    @pytest.mark.parametrize(
+        'record',
+        [
+            {'kind': 'trial'},
+            {k: v for k, v in _TRIAL_RECORD.items() if k != 'expires_at'},
+            {**_TRIAL_RECORD, 'api_key': 7},
+            {**_TRIAL_RECORD, 'expires_at': 'soon'},
+            {**_TRIAL_RECORD, 'expires_at': True},
+            {**_TRIAL_RECORD, 'kind': 'workload'},
+            {'kind': None, 'access_token': 'at', 'expires_at': 0},
+        ],
+    )
+    def test_invalid_record(self, record: Any) -> None:
+        """A record that is neither a session nor a trial is refused like an unreadable one.
+
+        Signing out removes it.
+        """
+        _write_cache_file(json.dumps({_PROD: record, _DEV: {'access_token': 'dev', 'expires_at': 0}}).encode())
+
+        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='is unreadable'):
+            session_cache.load_credential(_PROD)
+        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='is unreadable'):
+            session_cache.reuse_or_create_trial(_PROD, _trial)
+        assert session_cache.load(_DEV).access_token == 'dev'
+
+        assert session_cache.clear(_PROD) is True
+        assert session_cache.load_credential(_PROD) is None
+
+    def test_not_renewed(self) -> None:
+        """renew() is for sessions: a trial in the record is never passed to refresh()."""
+        trial = _trial()
+        session_cache.save(_PROD, trial)
+
+        assert session_cache.renew(_PROD, lambda _s: True, lambda _s: pytest.fail('refreshed a trial')) is None
+        assert session_cache.load_credential(_PROD) == trial
+
+    def test_reuse_or_create(self) -> None:
+        """A session or an unexpired trial is returned as it is; create() replaces only an expired trial, or none."""
+        created = _trial(api_key='sk-created')
+
+        assert session_cache.reuse_or_create_trial(_PROD, lambda: created) == (created, True)
+        assert session_cache.reuse_or_create_trial(_PROD, lambda: pytest.fail('created twice')) == (created, False)
+
+        session_cache.save(_PROD, _trial(expires_at=time.time() - 1))
+        assert session_cache.reuse_or_create_trial(_PROD, lambda: created) == (created, True)
+        assert session_cache.load_credential(_PROD) == created
+
+        session = _session()
+        session_cache.save(_DEV, session)
+        assert session_cache.reuse_or_create_trial(_DEV, lambda: pytest.fail('replaced a session')) == (session, False)
+
+    def test_create_fails(self) -> None:
+        """A failed create() leaves the cache as it was."""
+        expired = _trial(expires_at=time.time() - 1)
+        session_cache.save(_PROD, expired)
+
+        def create() -> session_cache.Trial:
+            raise excs.ExternalServiceError(excs.ErrorCode.RATE_LIMITED, 'none left')
+
+        with pxt_raises(excs.ErrorCode.RATE_LIMITED, match='none left'):
+            session_cache.reuse_or_create_trial(_PROD, create)
+        assert session_cache.load_credential(_PROD) == expired
 
 
 class TestExpiry:
@@ -295,6 +408,24 @@ class TestCredentialChoice:
             excs.ErrorCode.MISSING_CREDENTIALS, match=r'is unreadable, so it was not used\. Run `pxt logout`, then'
         ):
             management_client.resolve('reach Pixeltable Cloud')
+
+    def test_trial_without_key(self) -> None:
+        session_cache.save(management_client.api_url(), _trial(api_key='sk-trial'))
+
+        cred = management_client.configured_credential()
+
+        assert cred is not None
+        assert (cred.kind, cred.value, cred.header()) == ('trial', 'sk-trial', {'X-api-key': 'sk-trial'})
+        assert cred.source == f'your `pxt new` trial for {management_client.api_url()}'
+
+    def test_api_key_outranks_trial(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv('PIXELTABLE_API_KEY', 'sk-test')
+        session_cache.save(management_client.api_url(), _trial())
+
+        cred = management_client.configured_credential()
+
+        assert cred is not None
+        assert (cred.kind, cred.value) == ('api_key', 'sk-test')
 
     def test_neither(self) -> None:
         assert management_client.configured_credential() is None

@@ -323,25 +323,46 @@ class LoginPollBody(BaseModel):
     device_code: str
 
 
+class TrialOrg(BaseModel):
+    """A `pxt new` trial organization, without its API key."""
+
+    org: str
+    org_id: str
+    db: str
+    claim_url: str
+    expires_at: str  # ISO 8601, UTC; unclaimed, the organization is deleted then
+    expired: bool
+
+
 class LoginPollResponse(BaseModel):
     # 'granted', or the OAuth error code the sign-in service answered with
     status: str
     email: str = ''
     organization_id: str = ''
     detail: str = ''  # the error_description of that answer
+    # the cached trial, replaced by the granted session
+    replaced_trial: TrialOrg | None = None
+
+
+class NewResponse(BaseModel):
+    trial: TrialOrg
+    created: bool  # False when the trial was already cached
+    api_url: str  # where commands send the trial's key
+    warning: str = ''
 
 
 class WhoamiResponse(BaseModel):
     api_url: str
     email: str
     organization_id: str
-    using: str  # 'api_key', 'session' or 'none'
+    using: str  # 'api_key', 'session', 'trial' or 'none'
     credential_source: str
     accepted: bool
     rejection: str = ''
     # the control plane's reason for refusing the check's operation to an accepted credential, such as a
     # key limited by its grants
     note: str = ''
+    trial: TrialOrg | None = None
 
 
 class LogoutResponse(BaseModel):
@@ -349,6 +370,7 @@ class LogoutResponse(BaseModel):
     # where to send a browser to end the sign-in behind the session, empty when there is none
     browser_logout_url: str
     warning: str = ''
+    trial: TrialOrg | None = None  # the trial removed from this machine
 
 
 class OrgCreateResponse(BaseModel):

@@ -40,6 +40,7 @@ COMMANDS: dict[str, str] = {
     'org': 'manage organizations (create/list/status)',
     'secret': "manage an org's or a database's secrets (list/set/delete)",
     'key': 'manage API keys and scoped runtime keys (list/create/update/delete)',
+    'new': 'get a free Pixeltable Cloud database, no account needed',
     'login': 'sign in to Pixeltable Cloud in a browser (no API key needed)',
     'logout': 'forget the cached session',
     'whoami': 'show who this machine is signed in as',
