@@ -1,4 +1,4 @@
-"""The on-disk cache of `pxt login` sessions, one per control plane."""
+"""The on-disk cache of credentials, one per control plane: a `pxt login` session or a `pxt new` trial."""
 
 from __future__ import annotations
 
@@ -54,6 +54,21 @@ class Session:
         return bool(self.refresh_token and self.client_id)
 
 
+@dataclasses.dataclass
+class Trial:
+    """A trial organization from `pxt new`, against one control plane. Its API key is never renewed."""
+
+    api_key: str
+    org: str
+    org_id: str
+    db: str
+    claim_url: str  # whoever opens it becomes the organization's admin
+    expires_at: float  # epoch seconds; unclaimed, the organization is deleted then
+
+    def is_expired(self, now: float | None = None) -> bool:
+        return self.expires_at <= (time.time() if now is None else now)
+
+
 # The types each Session field may have in a cache record.
 _FIELD_TYPES: dict[str, tuple[type, ...]] = {
     'access_token': (str,),
@@ -63,6 +78,20 @@ _FIELD_TYPES: dict[str, tuple[type, ...]] = {
     'email': (str,),
     'organization_id': (str,),
 }
+
+# The types each Trial field may have in a cache record.
+_TRIAL_FIELD_TYPES: dict[str, tuple[type, ...]] = {
+    'api_key': (str,),
+    'org': (str,),
+    'org_id': (str,),
+    'db': (str,),
+    'claim_url': (str,),
+    'expires_at': (int, float),
+}
+
+# A trial's record has this value under 'kind'. A session's record has no 'kind': versions before `pxt new` wrote
+# none, and they reject a record that lacks access_token, so none of them sends a trial's key as a session token.
+_TRIAL_KIND = 'trial'
 
 
 def _path() -> Path:
@@ -136,41 +165,61 @@ def _write_sessions(cache: dict[str, Any]) -> None:
         raise
 
 
-def _from_record(record: Any) -> Session | None:
-    """The session in one control plane's cache record; None when there is no record.
+def _to_record(credential: Session | Trial) -> dict[str, Any]:
+    record = dataclasses.asdict(credential)
+    if isinstance(credential, Trial):
+        record['kind'] = _TRIAL_KIND
+    return record
 
-    Raises for a record that is not an object whose fields have the types in _FIELD_TYPES: a dataclass does
-    not check the types of its fields, and a string in expires_at would fail the next renewal, not this read.
+
+def _from_record(record: Any) -> Session | Trial | None:
+    """The credential in one control plane's cache record; None when there is no record.
+
+    Raises for a record that is not an object whose fields have the types in _FIELD_TYPES, or in
+    _TRIAL_FIELD_TYPES for a trial: a dataclass does not check the types of its fields, and a string in
+    expires_at would fail the next renewal, not this read.
     """
     if record is None:
         return None
-    if isinstance(record, dict):
-        values = {f.name: record[f.name] for f in dataclasses.fields(Session) if f.name in record}
+    if isinstance(record, dict) and ('kind' not in record or record['kind'] == _TRIAL_KIND):
+        cls: type[Session | Trial] = Trial if 'kind' in record else Session
+        field_types = _TRIAL_FIELD_TYPES if cls is Trial else _FIELD_TYPES
+        values = {f.name: record[f.name] for f in dataclasses.fields(cls) if f.name in record}
         # isinstance() accepts a bool as an int
-        if all(isinstance(v, _FIELD_TYPES[k]) and not isinstance(v, bool) for k, v in values.items()):
+        if all(isinstance(v, field_types[k]) and not isinstance(v, bool) for k, v in values.items()):
             with contextlib.suppress(TypeError):  # the record lacks a field this version requires
-                return Session(**values)
+                return cls(**values)
     raise _unusable('is unreadable')
 
 
-def load(api_url: str) -> Session | None:
-    """The cached session for this control plane, expired or not. None when never signed in.
+def load_credential(api_url: str) -> Session | Trial | None:
+    """The cached session or trial for this control plane, expired or not. None when there is neither.
 
     Raises when the file or this control plane's record in it is unreadable.
     """
     return _from_record(_read_sessions(check_private=True).get(api_url))
 
 
+def load(api_url: str) -> Session | None:
+    """The cached session for this control plane, expired or not. None when never signed in, or for a trial.
+
+    Raises when the file or this control plane's record in it is unreadable.
+    """
+    cached = load_credential(api_url)
+    return cached if isinstance(cached, Session) else None
+
+
 def load_for_sign_out(api_url: str) -> Session | None:
     """The cached session for this control plane, even from a file that other users can read.
 
-    None when never signed in, and when the file or this control plane's record in it is unreadable. The
-    session's token must not be sent: another user may have copied it.
+    None when never signed in, for a trial, and when the file or this control plane's record in it is
+    unreadable. The session's token must not be sent: another user may have copied it.
     """
     try:
-        return _from_record(_read_sessions(check_private=False).get(api_url))
+        cached = _from_record(_read_sessions(check_private=False).get(api_url))
     except excs.AuthorizationError:
         return None
+    return cached if isinstance(cached, Session) else None
 
 
 # InterProcessLock excludes other processes but not other threads of this one
@@ -183,7 +232,7 @@ def _exclusive() -> Iterator[None]:
 
     Daemons for different projects share one Pixeltable home, so two writers would otherwise each read the
     old file and the later replace() would drop the earlier one's change. Neither lock is reentrant, so the
-    holder must not call save(), clear() or renew().
+    holder must not call save(), clear(), renew() or reuse_or_create_trial().
     """
     with _thread_lock:
         path = Config.get().home / 'auth'
@@ -211,12 +260,14 @@ def renew(api_url: str, stale: Callable[[Session], bool], refresh: Callable[[Ses
 
     The lock is held across refresh(): WorkOS refuses a refresh token it has already rotated, so a second
     renewal of the same session would fail. Rereading under the lock picks up a renewal that finished
-    meanwhile, and a sign-out, in which case this returns None.
+    meanwhile, and a sign-out or a trial in the session's place, in which case this returns None.
     """
     with _exclusive():
         cache = _read_sessions(check_private=True)
         session = _from_record(cache.get(api_url))
-        if session is None or not stale(session):
+        if not isinstance(session, Session):
+            return None
+        if not stale(session):
             return session
         try:
             renewed = refresh(session)
@@ -225,16 +276,34 @@ def renew(api_url: str, stale: Callable[[Session], bool], refresh: Callable[[Ses
             _write_sessions(cache)
             raise e.error from None
         # the refresh token just spent is gone, so losing the rotated one would leave no way back into the session
-        cache[api_url] = dataclasses.asdict(renewed)
+        cache[api_url] = _to_record(renewed)
         _write_sessions(cache)
         return renewed
 
 
-def save(api_url: str, session: Session) -> None:
+def save(api_url: str, credential: Session | Trial) -> None:
     with _exclusive():
         cache = _rewritable_sessions()
-        cache[api_url] = dataclasses.asdict(session)
+        cache[api_url] = _to_record(credential)
         _write_sessions(cache)
+
+
+def reuse_or_create_trial(api_url: str, create: Callable[[], Trial]) -> tuple[Session | Trial, bool]:
+    """The session or unexpired trial cached for api_url, else the trial create() returns, cached in its place.
+
+    True with the trial create() returned. The lock is held across create(), so that concurrent callers create one
+    trial: the site hands out a trial's API key once, and a second trial would replace the first one's record.
+    Raises when the file or this control plane's record in it is unreadable, rather than replace it.
+    """
+    with _exclusive():
+        cache = _read_sessions(check_private=True)
+        cached = _from_record(cache.get(api_url))
+        if isinstance(cached, Session) or (isinstance(cached, Trial) and not cached.is_expired()):
+            return cached, False
+        trial = create()
+        cache[api_url] = _to_record(trial)
+        _write_sessions(cache)
+        return trial, True
 
 
 def clear(api_url: str | None = None) -> bool:

@@ -118,6 +118,7 @@ pxt service list                     # what is running, and where
 pxt service logs my_app/ingest       # what a service logged; pxt://myorg:mydb/my_app/ingest for a hosted one
 
 # cloud -- signing in
+pxt new                          # a free trial database, no account needed
 pxt login                        # approve a code in a browser; no API key needed
 pxt whoami                       # who this machine is signed in as, and which credential it sends
 pxt logout                       # forget this device's cached session
@@ -747,6 +748,27 @@ to no organization, and every hosted command needs one, so `pxt login` and `pxt 
 the command that creates one, `pxt org create NAME`, rather than letting the next command fail as an
 authorization error.
 
+### Trial databases
+
+```bash
+pxt new
+```
+
+`pxt new` needs no account. It creates a trial organization with one database, `main`, and caches
+the trial's API key on this machine, so later commands use it without `pxt login` or an exported
+key. It prints the database's URI, the `[[pixeltable.database]]` entry for `pixeltable.toml`, the
+next commands, and a claim link. It never prints the key, and neither does `pxt new --json`.
+
+Until it is claimed, the organization has 1 database, at most 2 services and 1 GiB of storage, and
+it is deleted 72 hours after it was created. Whoever opens the claim link signs in or signs up and
+becomes the organization's admin.
+
+Running `pxt new` again prints the same trial and creates nothing. `pxt whoami` shows the trial, its
+claim link and its expiry. `pxt logout` forgets the trial on this machine and prints the claim link
+once more; it does not delete the organization. An API key or a `pxt login` session outranks a
+trial, so with either one configured, `pxt new` exits 1 and creates nothing. `PIXELTABLE_SITE_URL`
+points `pxt new` at a site other than `https://pixeltable.com`.
+
 ### Organizations
 
 ```bash
@@ -924,7 +946,7 @@ callers may be using, so it needs `--allow-destructive`.
 
 ## Cloud
 
-`pxt db` and `pxt org` manage cloud-hosted databases and organizations. Cloud commands need a credential: a `pxt login` session or an API key ([Signing in](#signing-in)). To use an API key, create it in the Cloud dashboard ([Get an API key](/howto/deployment/cloud#get-an-api-key)) or with `pxt key create`, then export it as `PIXELTABLE_API_KEY`. The CLI reads the process environment and does not load `.env` on its own ([Configuration](/platform/configuration)).
+`pxt db` and `pxt org` manage cloud-hosted databases and organizations. Cloud commands need a credential: a `pxt login` session, a `pxt new` trial ([Trial databases](#trial-databases)), or an API key ([Signing in](#signing-in)). To use an API key, create it in the Cloud dashboard ([Get an API key](/howto/deployment/cloud#get-an-api-key)) or with `pxt key create`, then export it as `PIXELTABLE_API_KEY`. The CLI reads the process environment and does not load `.env` on its own ([Configuration](/platform/configuration)).
 
 Every cloud command except `pxt logout` accepts `--json` for machine-readable output.
 

@@ -10,6 +10,8 @@ description: 'Same application file against a hosted database'
 
 Use the same `app.py` as the [Quickstart](/overview/quick-start). Sign in with `pxt login`, or create an API key in the Cloud dashboard and export it, then create the hosted database, the tables, and hosted HTTP.
 
+Without an account, `pxt new` creates a trial organization with one database, `main`, and signs this machine in to it ([Trial databases](/platform/cli#trial-databases)).
+
 ## Get an API key
 
 Sign in from the browser, create a key, then export it. The CLI reads the key from `PIXELTABLE_API_KEY`, or from `api_key` in the `[pixeltable]` section of the Pixeltable config file; the environment variable wins, and either one takes precedence over a `pxt login` session. To use the CLI without a key, run `pxt login` instead ([CLI](/platform/cli#signing-in)).
