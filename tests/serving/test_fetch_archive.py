@@ -10,18 +10,22 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import pytest
 
 from pixeltable import exceptions as excs
 from pixeltable.service import fetch_archive
+from pixeltable.service.management_protocol import GetArchiveRequest
 from pixeltable.utils.project import package_project_archive, project_fingerprint, unpacked_digest
 
 from ..utils import pxt_raises
 
 _DB_URI = 'pxt://acme:main'
+_BUILD_ID = uuid.UUID('6f1c2a4e-0000-4000-8000-000000000001')
 
 
 def _served(project_root: Path) -> mock.Mock:
@@ -33,6 +37,23 @@ def _not_found() -> excs.ExternalServiceError:
     return excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, 'no archive', status_code=404)
 
 
+def _control_plane(project: Path, sent: list[GetArchiveRequest]) -> Any:
+    """api_call for a control plane serving project's archive, whatever the request names; records each request."""
+    (project / 'app.py').write_text('x = 1\n')
+    packaged = package_project_archive(project)
+    fingerprint = project_fingerprint(project, None)
+
+    def _api_call(request: GetArchiveRequest) -> dict[str, Any]:
+        sent.append(request)
+        return {
+            'presigned_url': packaged.path.as_uri(),
+            'digest': fingerprint.archive_digest(),
+            'fingerprint': fingerprint.model_dump(mode='json'),
+        }
+
+    return _api_call
+
+
 class TestFetchArchive:
     def test_unpacks_the_project_and_records_the_fingerprint(self, tmp_path: Path) -> None:
         archive_dir = tmp_path / 'archive'
@@ -40,7 +61,7 @@ class TestFetchArchive:
         source.mkdir()
         (source / 'app.py').write_text('x = 1\n', encoding='utf-8')
 
-        def _unpack(db_uri: str, dest: Path) -> mock.Mock:
+        def _unpack(db_uri: str, dest: Path, **_release: object) -> mock.Mock:
             dest.mkdir(parents=True)
             (dest / 'app.py').write_text('x = 1\n', encoding='utf-8')
             return _served(source)
@@ -84,7 +105,7 @@ class TestFetchArchive:
 
         attempts = 0
 
-        def _unpack(db_uri: str, dest: Path) -> mock.Mock:
+        def _unpack(db_uri: str, dest: Path, **_release: object) -> mock.Mock:
             nonlocal attempts
             attempts += 1
             if attempts < 3:
@@ -106,7 +127,7 @@ class TestFetchArchive:
         fetch_archive.fingerprint_path(archive_dir).parent.mkdir(parents=True)
         fetch_archive.fingerprint_path(archive_dir).write_text('{}', encoding='utf-8')
 
-        def _unpack(db_uri: str, dest: Path) -> mock.Mock:
+        def _unpack(db_uri: str, dest: Path, **_release: object) -> mock.Mock:
             dest.mkdir(parents=True, exist_ok=True)
             return mock.Mock(fingerprint=None)
 
@@ -127,6 +148,92 @@ class TestFetchArchive:
         ):
             fetch_archive.fetch(_DB_URI, archive_dir)
         assert unpack.call_count == 1  # not retried
+
+
+class TestPinnedRelease:
+    """A pod template names the release it belongs to, and the fetch asks for that release's archive.
+
+    Without the pin, a pod that starts after its database moved on (a restart, a scale-up, a surge pod) loads
+    another release's code than the one its image and its sibling pods run.
+    """
+
+    def test_the_template_pin_reaches_the_request(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        sent: list[GetArchiveRequest] = []
+        project = tmp_path / 'project'
+        project.mkdir()
+        monkeypatch.setattr(fetch_archive.management_client, 'api_call', _control_plane(project, sent))
+        digest = project_fingerprint(project, None).archive_digest()
+        monkeypatch.setenv(fetch_archive.DIGEST_ENV, digest)
+        monkeypatch.setenv(fetch_archive.BUILD_ID_ENV, str(_BUILD_ID))
+        archive_dir = tmp_path / 'archive'
+
+        fetch_archive.main(['--db', _DB_URI, '--archive-dir', str(archive_dir)])
+
+        (request,) = sent
+        # the body api_call sends
+        body = json.loads(request.model_dump_json(by_alias=True))
+        assert (body['digest'], body['build_id']) == (digest, str(_BUILD_ID))
+        assert (fetch_archive.project_dir(archive_dir) / 'app.py').is_file()
+
+    @pytest.mark.parametrize('value', [None, ''])
+    def test_a_template_with_no_release_asks_for_the_current_archive(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: str | None
+    ) -> None:
+        """As a template from before pins does, or one for a database created with no project yet."""
+        for name in (fetch_archive.DIGEST_ENV, fetch_archive.BUILD_ID_ENV):
+            if value is None:
+                monkeypatch.delenv(name, raising=False)
+            else:
+                monkeypatch.setenv(name, value)
+        sent: list[GetArchiveRequest] = []
+
+        def _api_call(request: GetArchiveRequest) -> dict[str, Any]:
+            sent.append(request)
+            raise _not_found()
+
+        monkeypatch.setattr(fetch_archive.management_client, 'api_call', _api_call)
+        with mock.patch.object(fetch_archive.time, 'sleep'):
+            # no project yet, which is still no failure
+            fetch_archive.main(['--db', _DB_URI, '--archive-dir', str(tmp_path / 'archive')])
+
+        assert len(sent) == len(fetch_archive._ARCHIVE_FETCH_DELAYS)
+        assert all((r.digest, r.build_id) == (None, None) for r in sent)
+
+    def test_a_release_whose_archive_is_gone_fails_the_pod(self, tmp_path: Path) -> None:
+        """A release has a project, so its 404 is not 'no project yet': coming up without the code is worse."""
+        with (
+            mock.patch.object(fetch_archive, 'unpack_project_archive', side_effect=_not_found()) as unpack,
+            mock.patch.object(fetch_archive.time, 'sleep'),
+            pxt_raises(excs.ErrorCode.PROVIDER_ERROR, match='no archive'),
+        ):
+            fetch_archive.fetch(_DB_URI, tmp_path / 'archive', digest='d' * 64, build_id=_BUILD_ID)
+        # not retried: no upload is under way for an archive a template already names
+        assert unpack.call_count == 1
+
+    def test_a_control_plane_that_ignores_the_pin_still_serves(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One that predates the pin serves its current archive, as every pod got before. Refusing that would take
+        the pod down during a rollback of the control plane, and pin nothing."""
+        sent: list[GetArchiveRequest] = []
+        project = tmp_path / 'project'
+        project.mkdir()
+        monkeypatch.setattr(fetch_archive.management_client, 'api_call', _control_plane(project, sent))
+        unpacked = tmp_path / 'unpacked'
+
+        with mock.patch.object(fetch_archive, '_logger') as logger:
+            response = fetch_archive.unpack_project_archive(_DB_URI, unpacked, digest='d' * 64, build_id=_BUILD_ID)
+
+        # verified against the digest it was served under, not the one asked for
+        assert unpacked_digest(unpacked) == response.digest
+        logger.warning.assert_called_once()
+
+    def test_a_field_from_a_newer_fetcher_is_ignored(self) -> None:
+        """pixeltable-cloud parses requests with the GetArchiveRequest of the pixeltable it pins. That is how a pin
+        reaches a control plane from before pins, and a field added later must reach this one as harmlessly."""
+        body = {'operation_type': 'get_archive', 'db': 'main', 'digest': 'd' * 64, 'added_later': 1}
+        request = GetArchiveRequest.model_validate(body)
+        assert (request.digest, request.build_id) == ('d' * 64, None)
 
 
 class TestUnpack:

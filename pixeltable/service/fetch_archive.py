@@ -13,17 +13,23 @@ Layout under --archive-dir, mounted by both containers:
 
 The fingerprint is written to disk rather than re-fetched: a pod reports which archive it loaded,
 and a second GetArchive call could return a different one.
+
+A pod template that belongs to a release names it in DIGEST_ENV and BUILD_ID_ENV, and the fetch asks for
+that release's archive rather than the database's current one. Every pod the template starts then runs
+the same code, whether it starts with the rollout or later, as a restart or a scale-up.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
 import shutil
 import tarfile
 import tempfile
 import time
 import urllib.request
+import uuid
 from pathlib import Path
 
 from pixeltable import exceptions as excs
@@ -34,6 +40,11 @@ from pixeltable.utils.project import unpacked_digest
 
 PROJECT_SUBDIR = 'project'
 FINGERPRINT_FILE = 'fingerprint.json'
+
+# Environment variables rather than flags: a template may name a base image whose fetcher predates them, which
+# ignores a variable and would refuse a flag.
+DIGEST_ENV = 'PXTCLOUD_ARCHIVE_DIGEST'
+BUILD_ID_ENV = 'PXTCLOUD_BUILD_ID'
 
 _DOWNLOAD_TIMEOUT = 300
 # the archive's own top-level directory, inside the tarball
@@ -54,12 +65,25 @@ def fingerprint_path(archive_dir: Path) -> Path:
     return archive_dir / FINGERPRINT_FILE
 
 
-def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:
-    """Unpack db_uri's project archive into dest; returns the control plane's response."""
+def unpack_project_archive(
+    db_uri: str, dest: Path, *, digest: str | None = None, build_id: uuid.UUID | None = None
+) -> GetArchiveResponse:
+    """Unpack db_uri's project archive into dest; returns the control plane's response.
+
+    digest and build_id name the release to unpack (GetArchiveRequest); without them, the database's current one.
+    """
     db_path = _validated_db_uri(db_uri)
-    response = GetArchiveResponse.model_validate(
-        management_client.api_call(GetArchiveRequest(org=db_path.org, db=db_path.db))
-    )
+    request = GetArchiveRequest(org=db_path.org, db=db_path.db, digest=digest, build_id=build_id)
+    response = GetArchiveResponse.model_validate(management_client.api_call(request))
+    if digest is not None and response.digest != digest:
+        # a control plane that predates GetArchiveRequest.digest serves its current archive, as it did before pods
+        # named one; refusing it would take the pod down without pinning anything
+        _logger.warning(
+            '%s served project %s, not %s, which this pod was started for: its control plane ignores the pin',
+            db_path.uri_str,
+            response.digest,
+            digest,
+        )
     dest.parent.mkdir(parents=True, exist_ok=True)
     # staged next to dest and moved into place, so that dest ends up with exactly the archive's files
     unpacking = Path(tempfile.mkdtemp(dir=dest.parent, prefix=f'.{dest.name}.'))
@@ -108,16 +132,20 @@ def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:
     return response
 
 
-def fetch(db_uri: str, archive_dir: Path) -> bool:
-    """Unpack db_uri's project into archive_dir; False if the database has no project yet."""
+def fetch(db_uri: str, archive_dir: Path, *, digest: str | None = None, build_id: uuid.UUID | None = None) -> bool:
+    """Unpack db_uri's project into archive_dir; False if the database has no project yet.
+
+    digest and build_id name the release the pod was started for. That release has a project, so a 404 for it
+    raises: its archive is gone, and the pod must not come up without the release's code.
+    """
     archive_dir.mkdir(parents=True, exist_ok=True)
     for delay in _ARCHIVE_FETCH_DELAYS:
         if delay > 0.0:
             time.sleep(delay)
         try:
-            response = unpack_project_archive(db_uri, project_dir(archive_dir))
+            response = unpack_project_archive(db_uri, project_dir(archive_dir), digest=digest, build_id=build_id)
         except excs.ExternalServiceError as exc:
-            if exc.provider_http_status_code != 404:
+            if exc.provider_http_status_code != 404 or digest is not None:
                 raise
             continue
         # archive_dir reflects this run alone: an archive served without a fingerprint must not leave
@@ -137,7 +165,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument('--db', required=True, help='pxt://org:db, the database whose project to unpack')
     parser.add_argument('--archive-dir', type=Path, required=True, help='unpack the project under here')
     parsed = parser.parse_args(argv)
-    if not fetch(parsed.db, parsed.archive_dir):
+    # an empty value is unset, as for a template that belongs to no release
+    digest = os.environ.get(DIGEST_ENV) or None
+    build_id = os.environ.get(BUILD_ID_ENV) or None
+    if not fetch(
+        parsed.db, parsed.archive_dir, digest=digest, build_id=None if build_id is None else uuid.UUID(build_id)
+    ):
         # exit 0: a non-zero exit would crash-loop the pod, and a database with no project still serves
         _logger.warning('%s has no project; its udfs cannot be resolved', parsed.db)
 

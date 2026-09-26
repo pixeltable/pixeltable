@@ -8,6 +8,7 @@ The pixeltable-cloud repo imports this module, so care must be taken when making
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
@@ -164,11 +165,21 @@ class RestartDbRequest(BaseModel):
 
 
 class GetArchiveRequest(BaseModel):
-    """Ask for a url serving the database's current project archive; a pod sends this as it starts."""
+    """Ask for a url serving one of the database's project archives; a pod sends this as it starts.
+
+    With digest, the url serves that archive or the request fails, so a pod runs the release its template names
+    however late it starts. Without it, the url serves the database's current archive. A control plane that
+    predates digest ignores it, and answers as it does without one.
+    """
 
     operation_type: Literal[ManagementOperationType.GET_ARCHIVE] = ManagementOperationType.GET_ARCHIVE
     org: str | None = None
     db: str
+    # ProjectFingerprint.archive_digest() of the release the pod was started for
+    digest: str | None = None
+    # that release's image build: releases with the same archive can differ in their image, and in the fingerprint
+    # the response carries
+    build_id: uuid.UUID | None = None
 
 
 class GetArchiveResponse(BaseModel):
