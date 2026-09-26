@@ -172,10 +172,10 @@ def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) ->
     if sent.kind == 'session':
         message = f'Your Pixeltable session was rejected: {reason}. {auth.SIGN_IN_AGAIN}'
     elif sent.kind == 'trial':
-        # an unclaimed trial is deleted when it expires, and its key with it
+        # claiming the organization may revoke the agent's key; unclaimed, it is deleted at expiry, its key with it
         message = (
-            f'The API key from {sent.source} was rejected: {reason}. '
-            'Run `pxt logout`, then `pxt new`, to start another trial.'
+            f'The API key from {sent.source} was rejected: {reason}. The organization may have been claimed: '
+            'ask its person to run `pxt login`. Otherwise, run `pxt logout`, then `pxt new`, to start another trial.'
         )
     else:
         message = f'The API key from {sent.source} was rejected: {reason}.'

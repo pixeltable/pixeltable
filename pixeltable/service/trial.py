@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import time
+import urllib.parse
 from typing import Any
 
 import requests
@@ -20,7 +22,8 @@ from pixeltable.service import management_client, session_cache
 from pixeltable.service.session_cache import Session, Trial
 from pixeltable.utils.http import SESSION
 
-_DEFAULT_SITE_URL = 'https://pixeltable.com'
+# not the apex, which redirects every path here: `pxt new` follows no redirect of a POST
+_DEFAULT_SITE_URL = 'https://www.pixeltable.com'
 
 _RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource'
 _REGISTER_PATH = '/agent/identity'
@@ -37,6 +40,10 @@ _TIMEOUT_S = 30.0
 # the site waits up to 60 seconds for the control plane to create the organization
 _TRIAL_TIMEOUT_S = 90.0
 
+# The hosts `pxt new` may reach over http. It sends an access token and receives an API key, which must
+# not cross a network in cleartext.
+_LOOPBACK_HOSTS = ('localhost', '127.0.0.1', '::1')
+
 
 def site_url() -> str:
     """URL of the Pixeltable site, which hands out trials."""
@@ -45,11 +52,17 @@ def site_url() -> str:
     return _DEFAULT_SITE_URL if url is None else url.rstrip('/')
 
 
+def _encrypted_or_loopback(url: str) -> bool:
+    """Whether url is https, or http to this machine."""
+    parts = urllib.parse.urlsplit(url)
+    return parts.scheme == 'https' or (parts.scheme == 'http' and parts.hostname in _LOOPBACK_HOSTS)
+
+
 @dataclasses.dataclass(frozen=True)
 class NewTrialResult:
     trial: Trial
     created: bool  # False when the trial was already cached
-    warning: str = ''
+    warnings: tuple[str, ...] = ()
 
 
 def new_trial(api_url: str) -> NewTrialResult:
@@ -66,22 +79,34 @@ def new_trial(api_url: str) -> NewTrialResult:
     reported_api_urls: list[str] = []
 
     def create() -> Trial:
+        if not _encrypted_or_loopback(site):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'PIXELTABLE_SITE_URL is {site}; `pxt new` requires https, or http to localhost.',
+            )
         trial, reported_api_url = _create_trial(site, _access_token(site))
         reported_api_urls.append(reported_api_url)
         return trial
 
-    cached, created = session_cache.reuse_or_create_trial(api_url, create)
+    cached, created, replaced = session_cache.reuse_or_create_trial(api_url, create)
     if isinstance(cached, Session):
         # signed in after the check above
         raise _signed_in(api_url, 'a `pxt login` session')
-    warning = ''
+    warnings: list[str] = []
+    if replaced is not None:
+        # a claimed organization outlives the trial's expiry, and its key may still work
+        expired_at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(replaced.expires_at))
+        warnings.append(
+            f'this machine no longer uses the trial pxt://{replaced.org}:{replaced.db}, which expired at '
+            f'{expired_at}. If it was claimed, its person reaches it with `pxt login`.'
+        )
     if created and reported_api_urls[0].rstrip('/') != api_url.rstrip('/'):
-        warning = (
+        warnings.append(
             f"{site} reported {reported_api_urls[0]} as the trial's control plane, and commands send its key to "
             f'{api_url}. If the key is rejected, set PIXELTABLE_SITE_URL and PIXELTABLE_API_URL to the same '
             'environment.'
         )
-    return NewTrialResult(cached, created, warning)
+    return NewTrialResult(cached, created, tuple(warnings))
 
 
 def _signed_in(api_url: str, credential: str) -> excs.Error:
@@ -95,6 +120,24 @@ def _unreachable(what: str, exc: Exception) -> excs.Error:
     return excs.ExternalServiceError(
         excs.ErrorCode.PROVIDER_ERROR, f'{what} could not be reached: {exc}', provider='pixeltable_cloud'
     )
+
+
+def _post(url: str, what: str, timeout: float, **kwargs: Any) -> requests.Response:
+    """POST once, following no redirect: one would resend the request's credential wherever it points."""
+    try:
+        resp = SESSION.post(url, timeout=timeout, allow_redirects=False, **kwargs)
+    except requests.RequestException as e:
+        raise _unreachable(what, e) from e
+    if 300 <= resp.status_code < 400:
+        location = resp.headers.get('Location', '')
+        target = f' to {location}' if location != '' else ''
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_BAD_REQUEST,
+            f'{url} answered HTTP {resp.status_code}, a redirect{target} that `pxt new` does not follow.',
+            provider='pixeltable_cloud',
+            status_code=resp.status_code,
+        )
+    return resp
 
 
 def _server_error(what: str, resp: requests.Response) -> excs.Error:
@@ -146,16 +189,20 @@ def _issuer(site: str) -> str:
     servers = _json_object(resp).get('authorization_servers') if resp.status_code == 200 else None
     if not isinstance(servers, list) or len(servers) == 0 or not isinstance(servers[0], str) or servers[0] == '':
         raise _no_trials_here(site)
-    return servers[0].rstrip('/')
+    issuer = servers[0].rstrip('/')
+    if not _encrypted_or_loopback(issuer):
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_BAD_REQUEST,
+            f'{site} names {issuer} as its sign-in service; `pxt new` requires https, or http to localhost.',
+            provider='pixeltable_cloud',
+        )
+    return issuer
 
 
 def _access_token(site: str) -> str:
     """Register an anonymous agent with the site's issuer, and exchange its assertion for an access token."""
     issuer = _issuer(site)
-    try:
-        resp = SESSION.post(issuer + _REGISTER_PATH, json={'type': 'anonymous'}, timeout=_TIMEOUT_S)
-    except requests.RequestException as e:
-        raise _unreachable(_SIGN_IN_SERVICE, e) from e
+    resp = _post(issuer + _REGISTER_PATH, _SIGN_IN_SERVICE, _TIMEOUT_S, json={'type': 'anonymous'})
     body = _json_object(resp)
     if resp.status_code not in (200, 201):
         raise _registration_error(site, resp, body)
@@ -164,12 +211,12 @@ def _access_token(site: str) -> str:
     if assertion == '':
         raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'{_SIGN_IN_SERVICE} returned no identity assertion')
 
-    try:
-        resp = SESSION.post(
-            issuer + _TOKEN_PATH, data={'grant_type': _JWT_BEARER_GRANT, 'assertion': assertion}, timeout=_TIMEOUT_S
-        )
-    except requests.RequestException as e:
-        raise _unreachable(_SIGN_IN_SERVICE, e) from e
+    resp = _post(
+        issuer + _TOKEN_PATH,
+        _SIGN_IN_SERVICE,
+        _TIMEOUT_S,
+        data={'grant_type': _JWT_BEARER_GRANT, 'assertion': assertion},
+    )
     body = _json_object(resp)
     if resp.status_code >= 500 or resp.status_code == 429:
         raise _server_error(_SIGN_IN_SERVICE, resp)
@@ -217,10 +264,7 @@ def _registration_error(site: str, resp: requests.Response, body: dict[str, Any]
 
 def _create_trial(site: str, token: str) -> tuple[Trial, str]:
     """Create the trial, and return it with the control plane URL in the site's answer."""
-    try:
-        resp = SESSION.post(site + _TRIAL_PATH, headers={'Authorization': f'Bearer {token}'}, timeout=_TRIAL_TIMEOUT_S)
-    except requests.RequestException as e:
-        raise _unreachable(site, e) from e
+    resp = _post(site + _TRIAL_PATH, site, _TRIAL_TIMEOUT_S, headers={'Authorization': f'Bearer {token}'})
     body = _json_object(resp)
     if resp.status_code not in (200, 201):
         raise _trial_error(site, resp, _text(body, 'message'))

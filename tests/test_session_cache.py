@@ -4,7 +4,9 @@ import json
 import os
 import pathlib
 import stat
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pytest
@@ -154,19 +156,67 @@ class TestTrial:
         assert session_cache.load_credential(_PROD) == trial
 
     def test_reuse_or_create(self) -> None:
-        """A session or an unexpired trial is returned as it is; create() replaces only an expired trial, or none."""
+        """A session or an unexpired trial is returned as it is; create() replaces only an expired trial, or none.
+
+        The expired trial it replaces is returned too: once claimed, its organization outlives the expiry.
+        """
         created = _trial(api_key='sk-created')
 
-        assert session_cache.reuse_or_create_trial(_PROD, lambda: created) == (created, True)
-        assert session_cache.reuse_or_create_trial(_PROD, lambda: pytest.fail('created twice')) == (created, False)
+        assert session_cache.reuse_or_create_trial(_PROD, lambda: created) == (created, True, None)
+        assert session_cache.reuse_or_create_trial(_PROD, lambda: pytest.fail('created twice')) == (
+            created,
+            False,
+            None,
+        )
 
-        session_cache.save(_PROD, _trial(expires_at=time.time() - 1))
-        assert session_cache.reuse_or_create_trial(_PROD, lambda: created) == (created, True)
+        expired = _trial(org='expired-org', expires_at=time.time() - 1)
+        session_cache.save(_PROD, expired)
+        assert session_cache.reuse_or_create_trial(_PROD, lambda: created) == (created, True, expired)
         assert session_cache.load_credential(_PROD) == created
 
         session = _session()
         session_cache.save(_DEV, session)
-        assert session_cache.reuse_or_create_trial(_DEV, lambda: pytest.fail('replaced a session')) == (session, False)
+        assert session_cache.reuse_or_create_trial(_DEV, lambda: pytest.fail('replaced a session')) == (
+            session,
+            False,
+            None,
+        )
+
+    def test_create_holds_no_cache_lock(self) -> None:
+        """create() waits on the network, so a sign-in meanwhile does not wait for it, and is not replaced by it."""
+        session = _session()
+
+        def create() -> session_cache.Trial:
+            signing_in = threading.Thread(target=session_cache.save, args=(_PROD, session))
+            signing_in.start()
+            signing_in.join(timeout=10)
+            assert not signing_in.is_alive(), 'the sign-in waited for create()'
+            return _trial()
+
+        assert session_cache.reuse_or_create_trial(_PROD, create) == (session, False, None)
+        assert session_cache.load_credential(_PROD) == session
+
+    def test_concurrent_callers_create_one_trial(self) -> None:
+        """The site hands out a trial's API key once, so a second trial would replace the first one's record."""
+        callers = 4
+        barrier = threading.Barrier(callers)
+        created: list[session_cache.Trial] = []
+
+        def create() -> session_cache.Trial:
+            # long enough for every caller to arrive while the first creation is in flight
+            time.sleep(0.3)
+            created.append(_trial(api_key=f'sk-{len(created)}'))
+            return created[-1]
+
+        def call(_i: int) -> session_cache.Session | session_cache.Trial:
+            barrier.wait(timeout=10)
+            return session_cache.reuse_or_create_trial(_PROD, create)[0]
+
+        with ThreadPoolExecutor(max_workers=callers) as pool:
+            answers = list(pool.map(call, range(callers)))
+
+        assert len(created) == 1
+        assert answers == created * callers
 
     def test_create_fails(self) -> None:
         """A failed create() leaves the cache as it was."""

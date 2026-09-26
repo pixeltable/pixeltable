@@ -56,7 +56,7 @@ def run(argv: list[str]) -> None:
         # the claim link was on this machine only in the trial's record
         print(
             f'pxt login: warning: this machine no longer uses the trial pxt://{replaced["org"]}:{replaced["db"]}. '
-            f'{trial_fate(replaced)}',
+            f'{trial_fate(replaced, replaced["claim_url"])}',
             file=sys.stderr,
         )
     if args.json_output:
@@ -109,10 +109,14 @@ def run_logout(argv: list[str]) -> None:
     parser.parse_args(argv)
 
     answer = post_request('/api/logout', {})
-    print('Signed out.' if answer['signed_out'] else 'Not signed in.')
     trial = answer['trial']
-    if trial is not None:
-        print(f'This machine no longer uses the trial pxt://{trial["org"]}:{trial["db"]}. {trial_fate(trial)}')
+    if trial is None:
+        print('Signed out.' if answer['signed_out'] else 'Not signed in.')
+    else:
+        print(f'Removed the trial pxt://{trial["org"]}:{trial["db"]} from this machine.')
+        if not trial['expired']:
+            print('Its API key is not revoked: it works until the organization is claimed or expires.')
+        print(trial_fate(trial, trial['claim_url']))
     if answer['warning'] != '':
         print(f'pxt logout: warning: {answer["warning"]}', file=sys.stderr)
 

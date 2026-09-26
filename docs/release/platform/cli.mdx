@@ -761,13 +761,17 @@ next commands, and a claim link. It never prints the key, and neither does `pxt 
 
 Until it is claimed, the organization has 1 database, at most 2 services and 1 GiB of storage, and
 it is deleted 72 hours after it was created. Whoever opens the claim link signs in or signs up and
-becomes the organization's admin.
+becomes the organization's admin, so keep the link out of shared logs.
 
-Running `pxt new` again prints the same trial and creates nothing. `pxt whoami` shows the trial, its
-claim link and its expiry. `pxt logout` forgets the trial on this machine and prints the claim link
-once more; it does not delete the organization. An API key or a `pxt login` session outranks a
-trial, so with either one configured, `pxt new` exits 1 and creates nothing. `PIXELTABLE_SITE_URL`
-points `pxt new` at a site other than `https://pixeltable.com`.
+Running `pxt new` again prints the same trial, without the claim link, and creates nothing.
+`pxt whoami` shows the trial and its expiry. `pxt logout` removes the trial's key from this machine
+and prints the claim link once more. It revokes nothing: the key works until the organization is
+claimed or expires. An API key or a `pxt login` session outranks a trial, so with either one
+configured, `pxt new` exits 1 and creates nothing. When the trial's key is rejected, the
+organization may have been claimed, and its person signs in with `pxt login`.
+
+`PIXELTABLE_SITE_URL` points `pxt new` at a site other than `https://www.pixeltable.com`. It must
+use https, except on localhost.
 
 ### Organizations
 

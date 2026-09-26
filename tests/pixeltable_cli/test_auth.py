@@ -34,7 +34,7 @@ import pytest
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog import globals as catalog_globals
-from pixeltable.service import auth, management_client, session_cache
+from pixeltable.service import auth, management_client, session_cache, trial
 from pixeltable.service.management_protocol import CreateKeyRequest, ListOrgsRequest
 from pixeltable.utils import cloud_utils
 from pixeltable_cli import utils as cli_utils
@@ -109,8 +109,9 @@ class ControlPlane:
     token_delay_s: float = 0.0  # how long the token endpoint takes to answer
     # how many management requests to close unanswered, as a peer closes a pooled connection that sat idle
     drop: int = 0
-    # `pxt new`'s answers for each path of the site and its issuer, taken in order before site_answer()'s defaults,
-    # and the path and the fields of each request: the form or JSON body, or for a trial its Authorization header
+    # `pxt new`'s answers for each path of the site and its issuer, taken in order before site_answer()'s defaults
+    # (a redirect's answer is its Location), and the path and the fields of each request: the form or JSON body,
+    # or for a trial its Authorization header
     site_answers: dict[str, list[tuple[int, Any]]] = field(default_factory=dict)
     site_seen: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     site_drop: int = 0  # how many site or issuer requests to close unanswered
@@ -177,10 +178,13 @@ class ControlPlane:
 def _serve(plane: ControlPlane) -> HTTPServer:
     class Handler(BaseHTTPRequestHandler):
         def _reply(self, status: int, answer: Any) -> None:
-            payload = answer if isinstance(answer, bytes) else json.dumps(answer).encode()
+            redirect = 300 <= status < 400
+            payload = b'' if redirect else answer if isinstance(answer, bytes) else json.dumps(answer).encode()
             self.send_response(status)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(payload)))
+            if redirect:
+                self.send_header('Location', answer)
             if status in (429, 503):
                 self.send_header('Retry-After', '1')  # as throttled and unavailable services send it
             self.end_headers()
@@ -1435,6 +1439,7 @@ class TestNew:
         )
         assert f'\n  {uri}\n' in r.stdout
         assert f'Claim it at {claim_url}, or it is deleted at ' in r.stdout
+        assert '\nAnyone with this link can claim the organization.\n' in r.stdout
         assert f"  [[pixeltable.database]]\n  name = '{uri}'\n" in r.stdout
         for command in (f'pxt db update {uri}', f'pxt schema update app.py {uri}', f'pxt service update app.py {uri}'):
             assert f'  {command}\n' in r.stdout
@@ -1445,7 +1450,7 @@ class TestNew:
         assert control_plane.credentials_seen == [{'x-api-key': _TRIAL_KEY}]
 
     def test_new_again(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        """A second `pxt new` prints the cached trial, and asks nothing of the site or its issuer."""
+        """A second `pxt new` prints the cached trial without its claim link, and asks nothing of the site."""
         first = cloud_cli('new', '--json').json
         requests_made = len(control_plane.site_seen)
 
@@ -1454,10 +1459,12 @@ class TestNew:
 
         assert len(control_plane.site_seen) == requests_made
         assert 'This machine already has a Pixeltable Cloud trial' in r.stdout
-        assert first['claim_url'] in r.stdout
+        assert f'Unless it is claimed, it is deleted at {first["expires_at"]}.' in r.stdout
+        assert 'claim-secret' not in r.stdout + r.stderr
         assert 'run `pxt logout`, then `pxt new`' in r.stdout
         assert (first['created'], again['created']) == (True, False)
-        assert {**again, 'created': True} == first
+        assert (first['claim_url'], again['claim_url']) == (control_plane.trial()['claim_url'], None)
+        assert {**again, 'created': True, 'claim_url': first['claim_url']} == first
 
     def test_new_never_prints_the_key(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         results = [
@@ -1477,6 +1484,7 @@ class TestNew:
             'db': 'main',
             'claim_url': control_plane.trial()['claim_url'],
             'expires_at': results[0].json['expires_at'],
+            'warnings': [],
         }
         for r in results:
             assert _TRIAL_KEY not in r.stdout + r.stderr
@@ -1510,28 +1518,39 @@ class TestNew:
         )
         assert 'Not signed in' in cloud_cli('whoami', check=False).stderr
 
+    def test_new_other_control_plane(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """A control plane in the site's answer other than the commands' one is a warning, in --json too."""
+        control_plane.site_answers[_TRIAL] = [(201, control_plane.trial(api_url='https://elsewhere.example.com'))]
+
+        r = cloud_cli('new', '--json')
+
+        [warning] = r.json['warnings']
+        assert warning.startswith(f"{control_plane.url} reported https://elsewhere.example.com as the trial's")
+        assert r.stderr == f'pxt new: warning: {warning}\n'
+
     def test_whoami_trial(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         created = cloud_cli('new', '--json').json
 
         r = cloud_cli('whoami')
         answer = cloud_cli('whoami', '--json').json
 
+        # the claim link hands over the organization, so a status command does not repeat it
         assert r.stdout.splitlines() == [
             f'Trial pxt://{_TRIAL_ORG}:main on {control_plane.url}',
-            f'Claim it at {created["claim_url"]}, or it is deleted at {created["expires_at"]}.',
+            f'Unless it is claimed, it is deleted at {created["expires_at"]}.',
         ]
         assert (answer['using'], answer['accepted']) == ('trial', True)
         assert answer['trial'] == {
             'org': _TRIAL_ORG,
             'org_id': 'org_01TRIAL',
             'db': 'main',
-            'claim_url': created['claim_url'],
             'expires_at': created['expires_at'],
             'expired': False,
         }
+        assert 'claim-secret' not in r.stdout + json.dumps(answer)
 
     def test_whoami_trial_rejected(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        """An unclaimed trial is deleted when it expires, and its key is rejected from then on."""
+        """A claim may revoke the trial's key, and expiry deletes an unclaimed trial with its key."""
         cloud_cli('new')
         control_plane.status = 401
         control_plane.answers['list_orgs'] = b'Unauthorized : Pixeltable API key is invalid or expired.'
@@ -1544,19 +1563,21 @@ class TestNew:
         assert r.returncode == 1
         assert r.stderr == (
             f'The API key from your `pxt new` trial for {control_plane.url} was rejected: Pixeltable API key is '
-            'invalid or expired. Run `pxt logout`, then `pxt new`, to start another trial.\n'
+            'invalid or expired. The organization may have been claimed: ask its person to run `pxt login`. '
+            'Otherwise, run `pxt logout`, then `pxt new`, to start another trial.\n'
         )
 
     def test_logout_trial(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        """Signing out forgets the key, and the claim link is printed once more: the organization is not deleted."""
+        """Signing out removes the key from this machine only, and prints the claim link, which only its record kept."""
         created = cloud_cli('new', '--json').json
 
         r = cloud_cli('logout')
 
         assert r.stdout.splitlines() == [
-            'Signed out.',
-            f'This machine no longer uses the trial pxt://{_TRIAL_ORG}:main. Claim it at {created["claim_url"]}, '
-            f'or it is deleted at {created["expires_at"]}.',
+            f'Removed the trial pxt://{_TRIAL_ORG}:main from this machine.',
+            'Its API key is not revoked: it works until the organization is claimed or expires.',
+            f'Claim it at {created["claim_url"]}, or it is deleted at {created["expires_at"]}.',
+            'Anyone with this link can claim the organization.',
         ]
         assert 'Not signed in' in cloud_cli('whoami', check=False).stderr
         assert cloud_cli('new', '--json').json['created']
@@ -1571,7 +1592,8 @@ class TestNew:
         assert 'Signed in as you@example.com' in r.stdout
         assert (
             f'pxt login: warning: this machine no longer uses the trial pxt://{_TRIAL_ORG}:main. '
-            f'Claim it at {created["claim_url"]}, or it is deleted at {created["expires_at"]}.'
+            f'Claim it at {created["claim_url"]}, or it is deleted at {created["expires_at"]}.\n'
+            'Anyone with this link can claim the organization.\n'
         ) in r.stderr
         assert cloud_cli('whoami', '--json').json['using'] == 'session'
 
@@ -1694,6 +1716,34 @@ class TestNewTrial:
                 excs.ErrorCode.INTERNAL_ERROR,
                 '{site} returned a trial without org_id, api_key, api_url, claim_url, expires_at',
             ),
+            # a redirect to the same path: following it would resend the request, and it would succeed
+            (
+                _REGISTER,
+                [(307, _REGISTER)],
+                excs.ErrorCode.PROVIDER_BAD_REQUEST,
+                '{site}/agent/identity answered HTTP 307, a redirect to /agent/identity that `pxt new` does not '
+                'follow.',
+            ),
+            (
+                _TOKEN,
+                [(307, _TOKEN)],
+                excs.ErrorCode.PROVIDER_BAD_REQUEST,
+                '{site}/oauth2/token answered HTTP 307, a redirect to /oauth2/token that `pxt new` does not follow.',
+            ),
+            (
+                _TRIAL,
+                [(308, _TRIAL)],
+                excs.ErrorCode.PROVIDER_BAD_REQUEST,
+                '{site}/api/v1/trial-orgs answered HTTP 308, a redirect to /api/v1/trial-orgs that `pxt new` does '
+                'not follow.',
+            ),
+            (
+                _RESOURCE_METADATA,
+                [(200, {'authorization_servers': ['http://signin.example.com']})],
+                excs.ErrorCode.PROVIDER_BAD_REQUEST,
+                '{site} names http://signin.example.com as its sign-in service; `pxt new` requires https, or http '
+                'to localhost.',
+            ),
         ],
     )
     def test_refusal(
@@ -1709,6 +1759,35 @@ class TestNewTrial:
         for post in (_REGISTER, _TOKEN, _TRIAL):
             assert paths.count(post) <= 1
         assert session_cache.load_credential(fresh_plane.url) is None
+
+    @pytest.mark.parametrize('site', ['http://pixeltable.example.com', 'http://localhost.example.com'])
+    def test_cleartext_site(self, fresh_plane: ControlPlane, monkeypatch: pytest.MonkeyPatch, site: str) -> None:
+        """The site receives an access token and answers with an API key, so it must use https."""
+        monkeypatch.setenv('PIXELTABLE_SITE_URL', site)
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            match=f'^{re.escape(f"PIXELTABLE_SITE_URL is {site}; `pxt new` requires https, or http to localhost.")}$',
+        ):
+            self._new()
+
+        assert session_cache.load_credential(fresh_plane.url) is None
+
+    @pytest.mark.parametrize(
+        ('url', 'allowed'),
+        [
+            ('https://www.pixeltable.com', True),
+            ('http://localhost:3000', True),
+            ('http://127.0.0.1:3000', True),
+            ('http://[::1]:3000', True),
+            ('http://pixeltable.com', False),
+            ('http://localhost.example.com', False),
+            ('http://127.0.0.1.example.com', False),
+            ('ftp://localhost', False),
+        ],
+    )
+    def test_cleartext_only_to_loopback(self, url: str, allowed: bool) -> None:
+        assert trial._encrypted_or_loopback(url) is allowed
 
     @pytest.mark.parametrize('failure', ['503', 'dropped'])
     def test_resource_metadata_asked_again(self, fresh_plane: ControlPlane, failure: str) -> None:
@@ -1738,19 +1817,26 @@ class TestNewTrial:
         assert fresh_plane.site_seen == []
 
     def test_expired_trial_replaced(self, fresh_plane: ControlPlane) -> None:
-        session_cache.save(fresh_plane.url, self._trial(expires_at=time.time() - 1))
+        """The replaced trial is named: once claimed, its organization outlives the expiry."""
+        expired_at = time.time() - 1
+        session_cache.save(fresh_plane.url, self._trial(expires_at=expired_at))
 
         answer = self._new()
 
         assert (answer.created, answer.trial.org) == (True, _TRIAL_ORG)
         assert self._cached_key(fresh_plane.url) == _TRIAL_KEY
+        assert answer.warnings == [
+            'this machine no longer uses the trial pxt://cached-org:main, which expired at '
+            f'{time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(expired_at))}. If it was claimed, its person '
+            'reaches it with `pxt login`.'
+        ]
 
     def test_cached_trial_reused(self, fresh_plane: ControlPlane) -> None:
         session_cache.save(fresh_plane.url, self._trial())
 
         answer = self._new()
 
-        assert (answer.created, answer.trial.org) == (False, 'cached-org')
+        assert (answer.created, answer.trial.org, answer.claim_url, answer.warnings) == (False, 'cached-org', None, [])
         assert fresh_plane.site_seen == []
 
     def test_other_control_plane(self, fresh_plane: ControlPlane) -> None:
@@ -1760,7 +1846,8 @@ class TestNewTrial:
         answer = self._new()
 
         assert answer.api_url == fresh_plane.url
-        assert 'https://elsewhere.example.com' in answer.warning
+        [warning] = answer.warnings
+        assert 'https://elsewhere.example.com' in warning
         assert self._cached_key(fresh_plane.url) == _TRIAL_KEY
 
     def test_credential(self, fresh_plane: ControlPlane) -> None:

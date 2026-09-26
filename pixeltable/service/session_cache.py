@@ -224,6 +224,17 @@ def load_for_sign_out(api_url: str) -> Session | None:
 
 # InterProcessLock excludes other processes but not other threads of this one
 _thread_lock = threading.Lock()
+_trial_thread_lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def _locked(thread_lock: threading.Lock, name: str) -> Iterator[None]:
+    """Hold thread_lock and the lock file of that name next to the cache file."""
+    with thread_lock:
+        path = Config.get().home / 'auth'
+        path.mkdir(parents=True, exist_ok=True)
+        with InterProcessLock(str(path / name)):
+            yield
 
 
 @contextlib.contextmanager
@@ -234,11 +245,8 @@ def _exclusive() -> Iterator[None]:
     old file and the later replace() would drop the earlier one's change. Neither lock is reentrant, so the
     holder must not call save(), clear(), renew() or reuse_or_create_trial().
     """
-    with _thread_lock:
-        path = Config.get().home / 'auth'
-        path.mkdir(parents=True, exist_ok=True)
-        with InterProcessLock(str(path / 'sessions.lock')):
-            yield
+    with _locked(_thread_lock, 'sessions.lock'):
+        yield
 
 
 class RejectedRefreshError(Exception):
@@ -288,22 +296,29 @@ def save(api_url: str, credential: Session | Trial) -> None:
         _write_sessions(cache)
 
 
-def reuse_or_create_trial(api_url: str, create: Callable[[], Trial]) -> tuple[Session | Trial, bool]:
+def reuse_or_create_trial(api_url: str, create: Callable[[], Trial]) -> tuple[Session | Trial, bool, Trial | None]:
     """The session or unexpired trial cached for api_url, else the trial create() returns, cached in its place.
 
-    True with the trial create() returned. The lock is held across create(), so that concurrent callers create one
-    trial: the site hands out a trial's API key once, and a second trial would replace the first one's record.
+    Also returns whether create() made the credential, and the expired trial that the new one replaced.
+    Concurrent callers create one trial, under trial.lock: the site hands out a trial's API key once, and a
+    second trial would replace the first one's record. create() waits on the network, so the cache's own lock
+    is taken only to write, and renewals and sign-ins in other processes do not wait on the site. A session
+    cached meanwhile outranks the new trial, which is then dropped.
     Raises when the file or this control plane's record in it is unreadable, rather than replace it.
     """
-    with _exclusive():
-        cache = _read_sessions(check_private=True)
-        cached = _from_record(cache.get(api_url))
+    with _locked(_trial_thread_lock, 'trial.lock'):
+        cached = load_credential(api_url)
         if isinstance(cached, Session) or (isinstance(cached, Trial) and not cached.is_expired()):
-            return cached, False
+            return cached, False, None
         trial = create()
-        cache[api_url] = _to_record(trial)
-        _write_sessions(cache)
-        return trial, True
+        with _exclusive():
+            cache = _read_sessions(check_private=True)
+            current = _from_record(cache.get(api_url))
+            if isinstance(current, Session):
+                return current, False, None
+            cache[api_url] = _to_record(trial)
+            _write_sessions(cache)
+        return trial, True, current
 
 
 def clear(api_url: str | None = None) -> bool:

@@ -324,14 +324,19 @@ class LoginPollBody(BaseModel):
 
 
 class TrialOrg(BaseModel):
-    """A `pxt new` trial organization, without its API key."""
+    """A `pxt new` trial organization, without its API key or its claim link."""
 
     org: str
     org_id: str
     db: str
-    claim_url: str
     expires_at: str  # ISO 8601, UTC; unclaimed, the organization is deleted then
     expired: bool
+
+
+class TrialOrgWithClaimUrl(TrialOrg):
+    """A trial and its claim link, for a response that removes the trial's record, the link's only copy here."""
+
+    claim_url: str  # anyone who holds it can claim the organization
 
 
 class LoginPollResponse(BaseModel):
@@ -341,14 +346,16 @@ class LoginPollResponse(BaseModel):
     organization_id: str = ''
     detail: str = ''  # the error_description of that answer
     # the cached trial, replaced by the granted session
-    replaced_trial: TrialOrg | None = None
+    replaced_trial: TrialOrgWithClaimUrl | None = None
 
 
 class NewResponse(BaseModel):
     trial: TrialOrg
     created: bool  # False when the trial was already cached
+    # only when this request created the trial: anyone who holds it can claim the organization
+    claim_url: str | None = None
     api_url: str  # where commands send the trial's key
-    warning: str = ''
+    warnings: list[str] = Field(default_factory=list)
 
 
 class WhoamiResponse(BaseModel):
@@ -370,7 +377,7 @@ class LogoutResponse(BaseModel):
     # where to send a browser to end the sign-in behind the session, empty when there is none
     browser_logout_url: str
     warning: str = ''
-    trial: TrialOrg | None = None  # the trial removed from this machine
+    trial: TrialOrgWithClaimUrl | None = None  # the trial removed from this machine
 
 
 class OrgCreateResponse(BaseModel):

@@ -822,7 +822,7 @@ def login_poll(req: Request) -> models.LoginPollResponse:
         status='granted',
         email=answer.email,
         organization_id=answer.organization_id,
-        replaced_trial=None if replaced is None else _trial_org(replaced),
+        replaced_trial=None if replaced is None else _removed_trial(replaced),
     )
 
 
@@ -831,10 +831,14 @@ def _trial_org(cached: session_cache.Trial) -> models.TrialOrg:
         org=cached.org,
         org_id=cached.org_id,
         db=cached.db,
-        claim_url=cached.claim_url,
         expires_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(cached.expires_at)),
         expired=cached.is_expired(),
     )
+
+
+def _removed_trial(cached: session_cache.Trial) -> models.TrialOrgWithClaimUrl:
+    """A trial whose record is being removed, with the claim link that nothing on this machine keeps afterwards."""
+    return models.TrialOrgWithClaimUrl(**_trial_org(cached).model_dump(), claim_url=cached.claim_url)
 
 
 def _cached_trial(api_url: str) -> session_cache.Trial | None:
@@ -851,7 +855,11 @@ def new_trial(_req: Request) -> models.NewResponse:
     url = management_client.api_url()
     result = trial.new_trial(url)
     return models.NewResponse(
-        trial=_trial_org(result.trial), created=result.created, api_url=url, warning=result.warning
+        trial=_trial_org(result.trial),
+        created=result.created,
+        claim_url=result.trial.claim_url if result.created else None,
+        api_url=url,
+        warnings=list(result.warnings),
     )
 
 
@@ -911,7 +919,7 @@ def logout(_req: Request) -> models.LogoutResponse:
         signed_out=signed_out,
         browser_logout_url=browser_url,
         warning=warning,
-        trial=None if cached_trial is None else _trial_org(cached_trial),
+        trial=None if cached_trial is None else _removed_trial(cached_trial),
     )
 
 
