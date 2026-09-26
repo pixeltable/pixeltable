@@ -129,13 +129,14 @@ class ServiceManagerProxy(ServiceManagerBase):
                         )
                     )
                 )
-                instance = self._wait_for_state(name, base_path, ServiceState.AVAILABLE)
-                self._raise_if_not_updated(updated.instance, instance)
+                instance = self._wait_for_roll(name, base_path, updated.instance)
             elif restart and instance.state is ServiceState.AVAILABLE:
                 self.restart(instance)
             if instance.state is ServiceState.AVAILABLE:
                 self._wait_for_endpoint(instance)
                 return instance
+            # only an instance found not serving gets here: a roll above came back or raised, because a Start after
+            # a failed roll would run the failed release again
             management_client.api_call(
                 StartServiceInstanceRequest(org=self._org, db=self._db, service_name=name, base_path=base_path)
             )
@@ -165,14 +166,7 @@ class ServiceManagerProxy(ServiceManagerBase):
                 )
             )
         )
-        restarted = self._wait_for_state(instance.service_name, instance.base_path, ServiceState.AVAILABLE)
-        if restarted.state is not ServiceState.AVAILABLE:
-            detail = '' if restarted.record.error is None else f': {restarted.record.error}'
-            raise excs.InternalError(
-                excs.ErrorCode.INTERNAL_ERROR,
-                f'Service {instance.service_name!r} did not come back; it is {restarted.state.value}{detail}',
-            )
-        self._raise_if_not_updated(restarting.instance, restarted)
+        restarted = self._wait_for_roll(instance.service_name, instance.base_path, restarting.instance)
         self._wait_for_endpoint(restarted)
 
     def delete(self, instance: ServiceInstance) -> None:
@@ -224,6 +218,21 @@ class ServiceManagerProxy(ServiceManagerBase):
                     f'after {self._POLL_TIMEOUT:.0f}s',
                 )
             time.sleep(self._POLL_INTERVAL)
+
+    def _wait_for_roll(self, name: str, base_path: str, answered: ServiceInstanceRecord) -> ServiceInstance:
+        """Poll the named instance until the roll that an update or a restart started settles, and return it.
+
+        answered: the instance as the control plane answered that request. A roll that ends FAILED raises with the
+        instance's error, and so does one that ended back on the old pods (see _raise_if_not_updated).
+        """
+        rolled = self._wait_for_state(name, base_path, ServiceState.AVAILABLE)
+        if rolled.state is not ServiceState.AVAILABLE:
+            detail = '' if rolled.record.error is None else f': {rolled.record.error}'
+            raise excs.InternalError(
+                excs.ErrorCode.INTERNAL_ERROR, f'Service {name!r} did not come back; it is {rolled.state.value}{detail}'
+            )
+        self._raise_if_not_updated(answered, rolled)
+        return rolled
 
     def _raise_if_not_updated(self, answered: ServiceInstanceRecord, settled: ServiceInstance) -> None:
         """Raise if the roll a request started ended back on the pods that served before it.

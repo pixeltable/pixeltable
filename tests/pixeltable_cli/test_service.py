@@ -1207,6 +1207,8 @@ class TestHostedService:
 
 # what the control plane records on an instance whose new pods did not come up while its old ones kept serving
 _ROLL_FAILED = 'rollout failed, still serving the previous version: pod did not become ready within 300s'
+# what it records on an instance whose roll it marked FAILED
+_ROLL_TIMED_OUT = 'pod did not become ready within 300s'
 
 
 class _ControlPlane:
@@ -1221,13 +1223,23 @@ class _ControlPlane:
     sent: list[Any]
     # False: an update or restart rolls no pod, so the instance keeps its state and error
     rolls: bool
+    # the state a roll settles in
+    roll_state: ServiceState
     # the error a roll leaves when its new pods do not come up; None: they do, which clears an earlier roll's error
     roll_error: str | None
 
-    def __init__(self, record: ServiceInstanceRecord, *, rolls: bool = True, roll_error: str | None = None) -> None:
+    def __init__(
+        self,
+        record: ServiceInstanceRecord,
+        *,
+        rolls: bool = True,
+        roll_state: ServiceState = ServiceState.AVAILABLE,
+        roll_error: str | None = None,
+    ) -> None:
         self.record = record
         self.sent = []
         self.rolls = rolls
+        self.roll_state = roll_state
         self.roll_error = roll_error
 
     def api_call(self, request: Any) -> dict[str, Any]:
@@ -1244,7 +1256,7 @@ class _ControlPlane:
             changes.update(state=ServiceState.AVAILABLE)
         elif self.rolls:
             answered = answered.model_copy(update={'state': ServiceState.UPDATING})
-            changes.update(state=ServiceState.AVAILABLE, error=self.roll_error)
+            changes.update(state=self.roll_state, error=self.roll_error)
         self.record = self.record.model_copy(update=changes)
         return {'instance': answered.model_dump(mode='json')}
 
@@ -1294,11 +1306,12 @@ class TestServiceUpdateRunning:
         *ops: ServiceChangeOp,
         error: str | None = None,
         rolls: bool = True,
+        roll_state: ServiceState = ServiceState.AVAILABLE,
         roll_error: str | None = None,
     ) -> _ControlPlane:
         """Fake a hosted instance in state that serves app_file's 'ingest' as the file defines it, with ops pending.
 
-        error: what an earlier roll left on the instance. rolls, roll_error: how the control plane rolls it.
+        error: what an earlier roll left on the instance. rolls, roll_state, roll_error: how the control plane rolls it.
         """
         record = ServiceInstanceRecord(
             service_name='ingest',
@@ -1309,7 +1322,7 @@ class TestServiceUpdateRunning:
             state=state,
             error=error,
         )
-        control_plane = _ControlPlane(record, rolls=rolls, roll_error=roll_error)
+        control_plane = _ControlPlane(record, rolls=rolls, roll_state=roll_state, roll_error=roll_error)
         monkeypatch.setattr(management_client, 'api_call', control_plane.api_call)
         # no pod answers behind the endpoint
         monkeypatch.setattr(ServiceManagerProxy, '_wait_for_endpoint', lambda self, instance: None)
@@ -1379,6 +1392,32 @@ class TestServiceUpdateRunning:
             serving_service.service_restart(['pxt://acme:main/ingest'])
         assert str(info.value) == f"Service 'ingest' was not updated: {_ROLL_FAILED}"
         assert [type(r).__name__ for r in control_plane.sent] == ['RestartServiceInstanceRequest'] * 2
+
+    @pytest.mark.parametrize(
+        ('op', 'otel', 'rolled_by'),
+        [
+            (ServiceChangeOp.otel(False, True), True, 'UpdateServiceInstanceRequest'),
+            (ServiceChangeOp.fingerprint_changed(['app.py changed']), False, 'RestartServiceInstanceRequest'),
+        ],
+        ids=['update', 'restart'],
+    )
+    def test_hosted_roll_ended_failed(
+        self, monkeypatch: pytest.MonkeyPatch, app_file: str, op: ServiceChangeOp, otel: bool, rolled_by: str
+    ) -> None:
+        """An update or a restart whose roll ends FAILED raises with the instance's error and sends no Start, which
+        would run the failed release again."""
+        control_plane = self._hosted(
+            monkeypatch,
+            app_file,
+            ServiceState.AVAILABLE,
+            op,
+            roll_state=ServiceState.FAILED,
+            roll_error=_ROLL_TIMED_OUT,
+        )
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR) as info:
+            serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=otel)
+        assert str(info.value) == f"Service 'ingest' did not come back; it is FAILED: {_ROLL_TIMED_OUT}"
+        assert [type(r).__name__ for r in control_plane.sent] == [rolled_by]
 
     def test_hosted_no_roll(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
         """An update that rolls no pod succeeds, whatever error an earlier roll left on the instance."""
