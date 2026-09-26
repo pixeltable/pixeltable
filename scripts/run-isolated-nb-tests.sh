@@ -19,6 +19,9 @@ eval "$(conda shell.bash hook)"
 # Use a separate Pixeltable DB for these tests
 export PIXELTABLE_HOME=~/.pixeltable
 export PIXELTABLE_DB="isolatednbtests"
+# and a free port for the pxt daemon, so stopping it after each notebook leaves any other daemon running
+PXT_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+export PXT_PORT
 
 "$SCRIPT_DIR/prepare-nb-tests.sh" --include-very-expensive --include-expensive "$TEST_PATH" docs/release
 rm -f "$TEST_PATH"/audio-transcriptions.ipynb  # temporary workaround

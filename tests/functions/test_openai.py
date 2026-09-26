@@ -939,7 +939,8 @@ class TestOpenaiTypedDictAdherence:
 
     def test_images_response(self) -> None:
         """ImagesResponse mirrors SDK ImagesResponse field-for-field, except data is non-null
-        (we guarantee a populated list in _decode_image_response)."""
+        (we guarantee a populated list in _decode_image_response) and size is str | None (openai >= 3.10 types it as
+        a union of str and a Literal, which doesn't convert)."""
         skip_test_if_not_installed('openai')
         from openai.types.images_response import ImagesResponse as SdkImagesResponse
 
@@ -949,13 +950,10 @@ class TestOpenaiTypedDictAdherence:
         sdk_fields = self._pydantic_fields(SdkImagesResponse)
         sdk_names = set(SdkImagesResponse.model_fields)
 
-        # data: we re-type and guarantee non-null
-        # size: openai >= 3.10 types it as a union of str and a Literal, which doesn't convert; ours is str | None
         overrides = {'data', 'size'}
         assert set(ours_fields) == sdk_names, (
             f'ImagesResponse field set drifted: ours={set(ours_fields)} sdk={sdk_names}'
         )
-        # SDK fields we couldn't convert must be in overrides
         sdk_unconverted = sdk_names - set(sdk_fields)
         assert sdk_unconverted <= overrides, (
             f'Unhandled SDK fields (not convertible and not in overrides): {sdk_unconverted - overrides}'

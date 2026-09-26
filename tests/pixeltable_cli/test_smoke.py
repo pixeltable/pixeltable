@@ -1041,11 +1041,9 @@ class TestRecompute:
     )
 
     def _table(self, path: str, project_dir: pathlib.Path) -> pxt.Table:
-        """A table with a computed column that fails on one row, and a second column that depends on it.
-
-        The udf is defined in a project file: `pxt recompute` runs it in the daemon, which imports it by its path
-        relative to the project root.
-        """
+        """A table with a computed column that fails on one row, and a second column that depends on it."""
+        # a project file, because a daemon started from the project root can't import this module without an
+        # editable install
         udf_file = project_dir / 'recompute_udfs.py'
         udf_file.write_text(self._UDF_SOURCE, encoding='utf-8')
         udfs = load_app_module(str(udf_file), subject='udf file')
