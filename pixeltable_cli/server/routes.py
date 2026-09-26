@@ -17,7 +17,7 @@ from pixeltable.catalog import Path, fold_identifier
 from pixeltable.catalog.model import schema
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.service import auth, db, management_client, proxy_daemon, session_cache
+from pixeltable.service import auth, db, management_client, proxy_daemon, session_cache, trial
 from pixeltable.service.management_protocol import (
     CreateKeyRequest,
     CreateOrgRequest,
@@ -809,21 +809,59 @@ def login_poll(req: Request) -> models.LoginPollResponse:
             excs.ErrorCode.INVALID_ARGUMENT,
             'This sign-in code was not issued by this daemon, or it has expired. Run `pxt login` again.',
         )
-    answer = auth.device_login_poll(management_client.api_url(), body.client_id, body.device_code)
+    url = management_client.api_url()
+    # read before the poll, whose session replaces a trial's record
+    replaced = _cached_trial(url)
+    answer = auth.device_login_poll(url, body.client_id, body.device_code)
     if not isinstance(answer, auth.TokenErrorResponse) or answer.code not in _PENDING_LOGIN:
         with _issued_device_codes_lock:
             _issued_device_codes.pop(body.device_code, None)
     if isinstance(answer, auth.TokenErrorResponse):
         return models.LoginPollResponse(status=answer.code, detail=answer.description)
-    return models.LoginPollResponse(status='granted', email=answer.email, organization_id=answer.organization_id)
+    return models.LoginPollResponse(
+        status='granted',
+        email=answer.email,
+        organization_id=answer.organization_id,
+        replaced_trial=None if replaced is None else _trial_org(replaced),
+    )
+
+
+def _trial_org(cached: session_cache.Trial) -> models.TrialOrg:
+    return models.TrialOrg(
+        org=cached.org,
+        org_id=cached.org_id,
+        db=cached.db,
+        claim_url=cached.claim_url,
+        expires_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(cached.expires_at)),
+        expired=cached.is_expired(),
+    )
+
+
+def _cached_trial(api_url: str) -> session_cache.Trial | None:
+    """The trial cached for api_url; None for a session, and for a file that is unreadable or other users can read."""
+    try:
+        cached = session_cache.load_credential(api_url)
+    except excs.AuthorizationError:
+        return None
+    return cached if isinstance(cached, session_cache.Trial) else None
+
+
+@router.post('/api/trial')
+def new_trial(_req: Request) -> models.NewResponse:
+    url = management_client.api_url()
+    result = trial.new_trial(url)
+    return models.NewResponse(
+        trial=_trial_org(result.trial), created=result.created, api_url=url, warning=result.warning
+    )
 
 
 @router.get('/api/whoami')
 def whoami(req: Request) -> models.WhoamiResponse:
     url = management_client.api_url()
     cred = management_client.configured_credential()
-    # An API key takes precedence, and may belong to a different account than a cached session.
-    session = session_cache.load(url) if cred is not None and cred.kind == 'session' else None
+    # An API key takes precedence, and may belong to a different account than a cached session or trial.
+    cached = session_cache.load_credential(url) if cred is not None and cred.kind != 'api_key' else None
+    session = cached if isinstance(cached, session_cache.Session) else None
 
     # A cached session says nothing about whether it still works: it can be revoked, and another
     # device can rotate its refresh token away.
@@ -851,6 +889,7 @@ def whoami(req: Request) -> models.WhoamiResponse:
         accepted=cred is not None and rejection == '',
         rejection=rejection,
         note=note,
+        trial=_trial_org(cached) if isinstance(cached, session_cache.Trial) else None,
     )
 
 
@@ -859,6 +898,7 @@ def logout(_req: Request) -> models.LogoutResponse:
     url = management_client.api_url()
     # the browser's sign-out needs the session id, so read it before clearing; clearing needs no network
     session = session_cache.load_for_sign_out(url)
+    cached_trial = _cached_trial(url)
     signed_out = session_cache.clear(url)
     browser_url = ''
     warning = ''
@@ -867,7 +907,12 @@ def logout(_req: Request) -> models.LogoutResponse:
             browser_url = auth.browser_logout_url(url, session)
         except excs.Error as e:
             warning = f'This machine is signed out, but the browser could not be signed out: {e.message}'
-    return models.LogoutResponse(signed_out=signed_out, browser_logout_url=browser_url, warning=warning)
+    return models.LogoutResponse(
+        signed_out=signed_out,
+        browser_logout_url=browser_url,
+        warning=warning,
+        trial=None if cached_trial is None else _trial_org(cached_trial),
+    )
 
 
 @router.get('/api/orgs')
@@ -882,7 +927,7 @@ def create_org(req: Request) -> models.OrgCreateResponse:
     cred = management_client.configured_credential()
     created = management_client.api_call(body)
     name = str(created.get('org') or body.org)
-    if cred is not None and cred.kind == 'api_key':
+    if cred is not None and cred.kind != 'session':
         return models.OrgCreateResponse(
             org=created,
             warning=f'Your API key stays bound to its own organization, and outranks a `pxt login` session. '

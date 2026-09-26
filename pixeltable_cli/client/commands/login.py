@@ -19,12 +19,13 @@ from typing import Any, NoReturn
 
 from ..parser import Parser
 from ..utils import get_request, post_request
+from .new import trial_fate
 
 EPILOG = """\
 Examples:
   pxt login                     # sign in, or create an account, in a browser
   pxt whoami                    # who this machine is signed in as, and whether Pixeltable Cloud recognizes it
-  pxt logout                    # forget this device's cached session
+  pxt logout                    # forget this device's cached session, or its `pxt new` trial
 
 The session is cached in your Pixeltable home directory. When its token expires, the next command
 that needs a token renews the session, for as long as Pixeltable Cloud honors it. An API key, if
@@ -50,6 +51,14 @@ def run(argv: list[str]) -> None:
         print('Could not open a browser; open the link above.', file=sys.stderr)
 
     granted = _await_approval(start)
+    replaced = granted['replaced_trial']
+    if replaced is not None and not replaced['expired']:
+        # the claim link was on this machine only in the trial's record
+        print(
+            f'pxt login: warning: this machine no longer uses the trial pxt://{replaced["org"]}:{replaced["db"]}. '
+            f'{trial_fate(replaced)}',
+            file=sys.stderr,
+        )
     if args.json_output:
         print(json.dumps({'email': granted['email'], 'organization_id': granted['organization_id']}))
         return
@@ -101,6 +110,9 @@ def run_logout(argv: list[str]) -> None:
 
     answer = post_request('/api/logout', {})
     print('Signed out.' if answer['signed_out'] else 'Not signed in.')
+    trial = answer['trial']
+    if trial is not None:
+        print(f'This machine no longer uses the trial pxt://{trial["org"]}:{trial["db"]}. {trial_fate(trial)}')
     if answer['warning'] != '':
         print(f'pxt logout: warning: {answer["warning"]}', file=sys.stderr)
 
@@ -132,9 +144,13 @@ def run_whoami(argv: list[str]) -> None:
         print(f'Not signed in to {answer["api_url"]}. Run `pxt login`.', file=sys.stderr)
         sys.exit(1)
 
+    trial = answer['trial']
     if answer['using'] == 'session':
         print(f'{answer["email"] or "(unknown)"} on {answer["api_url"]}')
         print(_org_line(answer['organization_id']))
+    elif trial is not None:
+        print(f'Trial pxt://{trial["org"]}:{trial["db"]} on {answer["api_url"]}')
+        print(trial_fate(trial))
     else:
         print(f'API key on {answer["api_url"]}')
     # a rejection or a note already says which credential was sent

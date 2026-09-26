@@ -1,11 +1,11 @@
-"""Tests for `pxt login`, `pxt logout`, `pxt whoami`, `pxt org create`, `pxt key`, and session renewal.
+"""Tests for `pxt login`, `pxt logout`, `pxt whoami`, `pxt new`, `pxt org create`, `pxt key`, and session renewal.
 
 The session commands read and write the daemon's own cache, so a prepared file in it stands in for a
 sign-in. The commands that reach the control plane talk to a stub of it, served by a daemon this
-module starts with `PIXELTABLE_API_URL` set to it. The stub also plays the sign-in service, so a test
-can script an approval, a rotation or a refusal that real WorkOS will not perform. Tests that need a
-cold discovery cache or several renewing processes run in this process instead, against a stub on a
-port of its own.
+module starts with `PIXELTABLE_API_URL` set to it. The stub also plays the sign-in service, and for
+`pxt new` the site and its issuer (`PIXELTABLE_SITE_URL`), so a test can script an approval, a
+rotation or a refusal that real WorkOS will not perform. Tests that need a cold discovery cache or
+several renewing processes run in this process instead, against a stub on a port of its own.
 
 What a stub cannot check is whether the control plane stores what it reports, so `pxt key` is
 exercised against a real one in test_key.py, and only what the client refuses or prints remains here.
@@ -58,6 +58,18 @@ _DEVICE = {
     'interval': 0,
 }
 
+# what `pxt new` sends and receives: the anonymous registration's assertion, its access token, and the trial's key
+_ASSERTION = 'agent-assertion'
+_AGENT_TOKEN = 'agent-access-token'
+_TRIAL_KEY = 'sk-pxt-trial-never-printed'
+_TRIAL_ORG = 'trial-x7k2'
+
+# the site's and the issuer's paths, as `pxt new` requests them
+_RESOURCE_METADATA = '/.well-known/oauth-protected-resource'
+_REGISTER = '/agent/identity'
+_TOKEN = '/oauth2/token'
+_TRIAL = '/api/v1/trial-orgs'
+
 _PENDING = (400, {'error': 'authorization_pending', 'error_description': 'not yet'})
 _SLOW_DOWN = (400, {'error': 'slow_down', 'error_description': 'too fast'})
 _DENIED = (400, {'error': 'access_denied', 'error_description': 'refused'})
@@ -97,6 +109,11 @@ class ControlPlane:
     token_delay_s: float = 0.0  # how long the token endpoint takes to answer
     # how many management requests to close unanswered, as a peer closes a pooled connection that sat idle
     drop: int = 0
+    # `pxt new`'s answers for each path of the site and its issuer, taken in order before site_answer()'s defaults,
+    # and the path and the fields of each request: the form or JSON body, or for a trial its Authorization header
+    site_answers: dict[str, list[tuple[int, Any]]] = field(default_factory=dict)
+    site_seen: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+    site_drop: int = 0  # how many site or issuer requests to close unanswered
 
     @property
     def url(self) -> str:
@@ -124,6 +141,38 @@ class ControlPlane:
         time.sleep(self.token_delay_s)
         return self.tokens.pop(0) if len(self.tokens) > 0 else (200, self.grant())
 
+    def trial(self, **overrides: Any) -> dict[str, Any]:
+        """The site's answer to a trial request, which expires in 72 hours."""
+        expires_at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + 72 * 3600))
+        created = {
+            'org': _TRIAL_ORG,
+            'org_id': 'org_01TRIAL',
+            'db': 'main',
+            'api_key': _TRIAL_KEY,
+            'api_url': self.url,
+            'claim_url': f'{self.url}/claim?org={_TRIAL_ORG}&token=claim-secret',
+            'expires_at': expires_at,
+        }
+        created.update(overrides)
+        return created
+
+    def site_answer(self, path: str, fields: dict[str, Any]) -> tuple[int, Any]:
+        self.site_seen.append((path, fields))
+        queued = self.site_answers.get(path, [])
+        if len(queued) > 0:
+            return queued.pop(0)
+        if path == _RESOURCE_METADATA:
+            return 200, {'resource': self.url, 'authorization_servers': [self.url]}
+        if path == _REGISTER:
+            identity = {'assertion': _ASSERTION, 'expires_at': int(time.time()) + 3600}
+            return 201, {'id': 'agent_reg_01TEST', 'identity': identity, 'claim': {}, 'scopes': {}}
+        if path == _TOKEN:
+            return 200, {'access_token': _AGENT_TOKEN, 'token_type': 'bearer', 'expires_in': 300, 'scope': ''}
+        return 201, self.trial()
+
+    def site_paths(self) -> list[str]:
+        return [path for path, _fields in self.site_seen]
+
 
 def _serve(plane: ControlPlane) -> HTTPServer:
     class Handler(BaseHTTPRequestHandler):
@@ -137,14 +186,33 @@ def _serve(plane: ControlPlane) -> HTTPServer:
             self.end_headers()
             self.wfile.write(payload)
 
+        def _site_reply(self, fields: dict[str, Any]) -> None:
+            if plane.site_drop > 0:
+                plane.site_drop -= 1
+                plane.site_seen.append((self.path, fields))
+                self.close_connection = True
+                return
+            self._reply(*plane.site_answer(self.path, fields))
+
         def do_GET(self) -> None:
             if self.path == '/.well-known/pixeltable-auth':
                 self._reply(*(plane.discovery or (200, {'client_id': plane.client_id, 'workos_api': plane.url})))
+            elif self.path == _RESOURCE_METADATA:
+                self._site_reply({})
             else:
                 self._reply(404, {})
 
         def do_POST(self) -> None:
             body = self.rfile.read(int(self.headers.get('Content-Length') or 0))
+            if self.path == _TOKEN:
+                self._site_reply({k: v[0] for k, v in urllib.parse.parse_qs(body.decode()).items()})
+                return
+            if self.path == _REGISTER:
+                self._site_reply(json.loads(body))
+                return
+            if self.path == _TRIAL:
+                self._site_reply({'authorization': self.headers.get('Authorization', '')})
+                return
             if self.path.startswith('/user_management/'):
                 fields = {k: v[0] for k, v in urllib.parse.parse_qs(body.decode()).items()}
                 if self.path.endswith('/authorize/device'):
@@ -245,6 +313,7 @@ def cloud_cli(
         'PXT_PORT': str(port),
         'BROWSER': 'true',
         'PIXELTABLE_API_URL': control_plane.url,
+        'PIXELTABLE_SITE_URL': control_plane.url,
     }
     env.pop('PIXELTABLE_API_KEY', None)
     log_path = tmp_path_factory.mktemp('auth-daemon') / 'daemon.log'
@@ -549,7 +618,7 @@ class TestLogout:
     ) -> None:
         """With no browser to open, the sign-out link is printed for the user to open."""
         url = f'{control_plane.url}/user_management/sessions/logout?session_id=session_01TEST'
-        answer = {'signed_out': True, 'browser_logout_url': url, 'warning': ''}
+        answer = {'signed_out': True, 'browser_logout_url': url, 'warning': '', 'trial': None}
         monkeypatch.setattr(login, 'post_request', lambda _path, _body: answer)
         monkeypatch.setattr(webbrowser, 'open', lambda _url: False)
 
@@ -1324,3 +1393,389 @@ class TestDiscovery:
 
         with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='does not support `pxt login` yet'):
             auth.sign_in_config(fresh_plane.url)
+
+
+class TestNew:
+    """`pxt new` end to end: the daemon registers with the stub's issuer, and the stub site creates the trial."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        cloud_cli('logout')
+        control_plane.site_answers.clear()
+        control_plane.site_seen.clear()
+
+    def test_new(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """The trial's key is cached, and the next command sends it."""
+        claim_url = control_plane.trial()['claim_url']
+
+        r = cloud_cli('new')
+
+        assert control_plane.site_paths() == [_RESOURCE_METADATA, _REGISTER, _TOKEN, _TRIAL]
+        _, registration, token_request, trial_request = control_plane.site_seen
+        assert registration[1] == {'type': 'anonymous'}
+        assert token_request[1] == {
+            'grant_type': 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+            'assertion': _ASSERTION,
+        }
+        assert trial_request[1] == {'authorization': f'Bearer {_AGENT_TOKEN}'}
+        uri = f'pxt://{_TRIAL_ORG}:main'
+        assert r.stdout.startswith(
+            f'Created a free Pixeltable Cloud trial: organization {_TRIAL_ORG}, with database main.'
+        )
+        assert f'\n  {uri}\n' in r.stdout
+        assert f'Claim it at {claim_url}, or it is deleted at ' in r.stdout
+        assert f"  [[pixeltable.database]]\n  name = '{uri}'\n" in r.stdout
+        for command in (f'pxt db update {uri}', f'pxt schema update app.py {uri}', f'pxt service update app.py {uri}'):
+            assert f'  {command}\n' in r.stdout
+        assert r.stderr == ''
+
+        control_plane.credentials_seen.clear()
+        cloud_cli('org', 'list')
+        assert control_plane.credentials_seen == [{'x-api-key': _TRIAL_KEY}]
+
+    def test_new_again(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """A second `pxt new` prints the cached trial, and asks nothing of the site or its issuer."""
+        first = cloud_cli('new', '--json').json
+        requests_made = len(control_plane.site_seen)
+
+        r = cloud_cli('new')
+        again = cloud_cli('new', '--json').json
+
+        assert len(control_plane.site_seen) == requests_made
+        assert 'This machine already has a Pixeltable Cloud trial' in r.stdout
+        assert first['claim_url'] in r.stdout
+        assert 'run `pxt logout`, then `pxt new`' in r.stdout
+        assert (first['created'], again['created']) == (True, False)
+        assert {**again, 'created': True} == first
+
+    def test_new_never_prints_the_key(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        results = [
+            cloud_cli('new', '--json'),
+            cloud_cli('new'),
+            cloud_cli('whoami'),
+            cloud_cli('whoami', '--json'),
+            cloud_cli('logout'),
+            cloud_cli('new'),
+        ]
+
+        assert results[0].json == {
+            'created': True,
+            'api_url': control_plane.url,
+            'org': _TRIAL_ORG,
+            'org_id': 'org_01TRIAL',
+            'db': 'main',
+            'claim_url': control_plane.trial()['claim_url'],
+            'expires_at': results[0].json['expires_at'],
+        }
+        for r in results:
+            assert _TRIAL_KEY not in r.stdout + r.stderr
+
+    def test_new_signed_in(
+        self, cloud_cli: PxtRunner, control_plane: ControlPlane, signed_in: Callable[..., None]
+    ) -> None:
+        """A `pxt login` session outranks a trial, so `pxt new` creates none and leaves the session as it was."""
+        signed_in()
+
+        r = cloud_cli('new', check=False)
+
+        assert r.returncode == 1
+        assert (
+            f'This machine is already signed in to {control_plane.url} with a `pxt login` session, so `pxt new` '
+            'created no trial.'
+        ) in r.stderr
+        assert control_plane.site_seen == []
+        assert 'you@example.com' in cloud_cli('whoami').stdout
+
+    def test_new_refused(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """A refusal is one sentence, and caches nothing."""
+        control_plane.site_answers[_TRIAL] = [(429, {'message': 'No trial organizations are available right now.'})]
+
+        r = cloud_cli('new', check=False)
+
+        assert r.returncode == 1
+        assert r.stderr == (
+            f'pxt: 429 No trial databases are available right now; try again later, or sign up at '
+            f'{control_plane.url}/signup.\n'
+        )
+        assert 'Not signed in' in cloud_cli('whoami', check=False).stderr
+
+    def test_whoami_trial(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        created = cloud_cli('new', '--json').json
+
+        r = cloud_cli('whoami')
+        answer = cloud_cli('whoami', '--json').json
+
+        assert r.stdout.splitlines() == [
+            f'Trial pxt://{_TRIAL_ORG}:main on {control_plane.url}',
+            f'Claim it at {created["claim_url"]}, or it is deleted at {created["expires_at"]}.',
+        ]
+        assert (answer['using'], answer['accepted']) == ('trial', True)
+        assert answer['trial'] == {
+            'org': _TRIAL_ORG,
+            'org_id': 'org_01TRIAL',
+            'db': 'main',
+            'claim_url': created['claim_url'],
+            'expires_at': created['expires_at'],
+            'expired': False,
+        }
+
+    def test_whoami_trial_rejected(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """An unclaimed trial is deleted when it expires, and its key is rejected from then on."""
+        cloud_cli('new')
+        control_plane.status = 401
+        control_plane.answers['list_orgs'] = b'Unauthorized : Pixeltable API key is invalid or expired.'
+        try:
+            r = cloud_cli('whoami', check=False)
+        finally:
+            control_plane.status = 200
+            control_plane.answers['list_orgs'] = {'orgs': []}
+
+        assert r.returncode == 1
+        assert r.stderr == (
+            f'The API key from your `pxt new` trial for {control_plane.url} was rejected: Pixeltable API key is '
+            'invalid or expired. Run `pxt logout`, then `pxt new`, to start another trial.\n'
+        )
+
+    def test_logout_trial(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """Signing out forgets the key, and the claim link is printed once more: the organization is not deleted."""
+        created = cloud_cli('new', '--json').json
+
+        r = cloud_cli('logout')
+
+        assert r.stdout.splitlines() == [
+            'Signed out.',
+            f'This machine no longer uses the trial pxt://{_TRIAL_ORG}:main. Claim it at {created["claim_url"]}, '
+            f'or it is deleted at {created["expires_at"]}.',
+        ]
+        assert 'Not signed in' in cloud_cli('whoami', check=False).stderr
+        assert cloud_cli('new', '--json').json['created']
+
+    def test_login_replaces_trial(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """The claim link is on this machine only in the trial's record, so signing in over it prints the link."""
+        created = cloud_cli('new', '--json').json
+        control_plane.tokens[:] = [(200, control_plane.grant())]
+
+        r = cloud_cli('login')
+
+        assert 'Signed in as you@example.com' in r.stdout
+        assert (
+            f'pxt login: warning: this machine no longer uses the trial pxt://{_TRIAL_ORG}:main. '
+            f'Claim it at {created["claim_url"]}, or it is deleted at {created["expires_at"]}.'
+        ) in r.stderr
+        assert cloud_cli('whoami', '--json').json['using'] == 'session'
+
+
+class TestNewTrial:
+    """`pxt new` in this process, against a stub site of its own: the module's daemon has a fixed environment."""
+
+    @pytest.fixture(autouse=True)
+    def _site(self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        monkeypatch.setenv('PIXELTABLE_SITE_URL', fresh_plane.url)
+
+    @staticmethod
+    def _new() -> Any:
+        return routes.new_trial(Request(query={}, body_bytes=b'{}'))
+
+    @staticmethod
+    def _cached_key(api_url: str) -> str:
+        cached = session_cache.load_credential(api_url)
+        assert isinstance(cached, session_cache.Trial), cached
+        return cached.api_key
+
+    @staticmethod
+    def _trial(**overrides: Any) -> session_cache.Trial:
+        fields = {
+            'api_key': 'sk-pxt-cached',
+            'org': 'cached-org',
+            'org_id': 'org_01CACHED',
+            'db': 'main',
+            'claim_url': 'https://example.com/claim?token=cached',
+            'expires_at': time.time() + 3600,
+        }
+        return session_cache.Trial(**{**fields, **overrides})
+
+    @pytest.mark.parametrize(
+        ('path', 'answers', 'code', 'message'),
+        [
+            (
+                _RESOURCE_METADATA,
+                [(404, {})],
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'Trial databases are not available from {site}.',
+            ),
+            (
+                _RESOURCE_METADATA,
+                [(200, {'resource': 'x'})],
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'Trial databases are not available from {site}.',
+            ),
+            (
+                _RESOURCE_METADATA,
+                [(503, {}), (503, {})],
+                excs.ErrorCode.PROVIDER_ERROR,
+                '{site} returned HTTP 503; try again later.',
+            ),
+            (
+                _REGISTER,
+                [(400, {'code': 'anonymous_registration_disabled', 'message': 'Anonymous registration is disabled.'})],
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'Trial databases are not available from {site}.',
+            ),
+            (
+                _REGISTER,
+                [(429, {'code': 'rate_limit_exceeded', 'message': 'Too many registrations.', 'retry_after': 30})],
+                excs.ErrorCode.RATE_LIMITED,
+                'The Pixeltable sign-in service is limiting new registrations; try again in 30 seconds.',
+            ),
+            (
+                _REGISTER,
+                [(400, {'code': 'invalid_request', 'message': 'type is not supported.'})],
+                excs.ErrorCode.PROVIDER_BAD_REQUEST,
+                'The Pixeltable sign-in service refused to register this agent: type is not supported.',
+            ),
+            (
+                _REGISTER,
+                [(502, b'<html>Bad Gateway</html>')],
+                excs.ErrorCode.PROVIDER_ERROR,
+                'The Pixeltable sign-in service returned HTTP 502; try again later.',
+            ),
+            (
+                _TOKEN,
+                [(400, {'error': 'invalid_grant', 'error_description': 'assertion expired'})],
+                excs.ErrorCode.PROVIDER_BAD_REQUEST,
+                'The Pixeltable sign-in service did not issue an access token for the new registration: '
+                'invalid_grant: assertion expired.',
+            ),
+            (
+                _TRIAL,
+                [(401, {'message': 'Invalid token.'})],
+                excs.ErrorCode.PROVIDER_AUTH_ERROR,
+                "{site} rejected the new registration's access token; run `pxt new` again.",
+            ),
+            (
+                _TRIAL,
+                [(403, {'message': 'This agent has been claimed.'})],
+                excs.ErrorCode.INSUFFICIENT_PRIVILEGES,
+                '{site} gives no trial to a claimed agent registration; sign in with `pxt login` instead.',
+            ),
+            (
+                _TRIAL,
+                [(409, {'message': 'This registration already has a trial.'})],
+                excs.ErrorCode.PROVIDER_BAD_REQUEST,
+                '{site} already gave this registration a trial; run `pxt new` again for a new registration.',
+            ),
+            (
+                _TRIAL,
+                [(429, {'message': 'No trial organizations are available right now.'})],
+                excs.ErrorCode.RATE_LIMITED,
+                'No trial databases are available right now; try again later, or sign up at {site}/signup.',
+            ),
+            (
+                _TRIAL,
+                [(503, {'message': 'Trial organizations are not available here.'})],
+                excs.ErrorCode.PROVIDER_ERROR,
+                '{site} cannot create a trial right now: Trial organizations are not available here.',
+            ),
+            (
+                _TRIAL,
+                [(201, {'org': 'x', 'db': 'main'})],
+                excs.ErrorCode.INTERNAL_ERROR,
+                '{site} returned a trial without org_id, api_key, api_url, claim_url, expires_at',
+            ),
+        ],
+    )
+    def test_refusal(
+        self, fresh_plane: ControlPlane, path: str, answers: list[tuple[int, Any]], code: excs.ErrorCode, message: str
+    ) -> None:
+        """Each refusal is one sentence, a POST is sent once, and nothing is cached."""
+        fresh_plane.site_answers[path] = list(answers)
+
+        with pxt_raises(code, match=f'^{re.escape(message.format(site=fresh_plane.url))}$'):
+            self._new()
+
+        paths = fresh_plane.site_paths()
+        for post in (_REGISTER, _TOKEN, _TRIAL):
+            assert paths.count(post) <= 1
+        assert session_cache.load_credential(fresh_plane.url) is None
+
+    @pytest.mark.parametrize('failure', ['503', 'dropped'])
+    def test_resource_metadata_asked_again(self, fresh_plane: ControlPlane, failure: str) -> None:
+        """The site's metadata is a GET, which changes nothing, so a failed one is asked once more."""
+        if failure == '503':
+            fresh_plane.site_answers[_RESOURCE_METADATA] = [(503, {})]
+        else:
+            fresh_plane.site_drop = 1
+
+        assert self._new().created
+
+        assert fresh_plane.site_paths() == [_RESOURCE_METADATA, _RESOURCE_METADATA, _REGISTER, _TOKEN, _TRIAL]
+
+    def test_api_key(self, fresh_plane: ControlPlane, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An API key outranks a trial, so `pxt new` creates none."""
+        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_STATE,
+            match=re.escape(
+                f'This machine is already signed in to {fresh_plane.url} with the API key from the '
+                'PIXELTABLE_API_KEY environment variable, so `pxt new` created no trial.'
+            ),
+        ):
+            self._new()
+
+        assert fresh_plane.site_seen == []
+
+    def test_expired_trial_replaced(self, fresh_plane: ControlPlane) -> None:
+        session_cache.save(fresh_plane.url, self._trial(expires_at=time.time() - 1))
+
+        answer = self._new()
+
+        assert (answer.created, answer.trial.org) == (True, _TRIAL_ORG)
+        assert self._cached_key(fresh_plane.url) == _TRIAL_KEY
+
+    def test_cached_trial_reused(self, fresh_plane: ControlPlane) -> None:
+        session_cache.save(fresh_plane.url, self._trial())
+
+        answer = self._new()
+
+        assert (answer.created, answer.trial.org) == (False, 'cached-org')
+        assert fresh_plane.site_seen == []
+
+    def test_other_control_plane(self, fresh_plane: ControlPlane) -> None:
+        """The trial is cached for the commands' control plane; a different one in the site's answer is a warning."""
+        fresh_plane.site_answers[_TRIAL] = [(201, fresh_plane.trial(api_url='https://elsewhere.example.com'))]
+
+        answer = self._new()
+
+        assert answer.api_url == fresh_plane.url
+        assert 'https://elsewhere.example.com' in answer.warning
+        assert self._cached_key(fresh_plane.url) == _TRIAL_KEY
+
+    def test_credential(self, fresh_plane: ControlPlane) -> None:
+        """The trial's key goes in the API key header, never renewed."""
+        self._new()
+
+        sent = management_client.resolve('reach Pixeltable Cloud')
+
+        assert (sent.kind, sent.header()) == ('trial', {'X-api-key': _TRIAL_KEY})
+        assert sent.source == f'your `pxt new` trial for {fresh_plane.url}'
+
+    @pytest.mark.parametrize('cache', ['mode_0644', 'not_json', 'foreign_record'])
+    def test_unusable_cache(self, fresh_plane: ControlPlane, private_home: pathlib.Path, cache: str) -> None:
+        """A cache file that another user can read, or that is not a cache, is refused rather than replaced."""
+        if cache == 'mode_0644' and os.name != 'posix':
+            pytest.skip('Windows has no POSIX permissions')
+        session_cache.save(fresh_plane.url, self._trial(expires_at=time.time() - 1))
+        cache_file = private_home / 'auth' / 'sessions.json'
+        if cache == 'mode_0644':
+            cache_file.chmod(0o644)
+        elif cache == 'not_json':
+            cache_file.write_bytes(b'{not json')
+        else:
+            cache_file.write_text(json.dumps({fresh_plane.url: {'kind': 'workload', 'api_key': 'sk'}}))
+
+        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match=r'Run `pxt logout`, then `pxt login`\.'):
+            self._new()
+
+        assert fresh_plane.site_seen == []
