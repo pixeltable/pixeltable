@@ -1,4 +1,4 @@
-"""Tests for `pxt secret set`."""
+"""Tests for `pxt secret`."""
 
 import http.server
 import json
@@ -6,13 +6,15 @@ import os
 import pathlib
 import subprocess
 import threading
+import uuid
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
 
-from .conftest import PxtResult
+from ..utils import CLOUD_DB_ROOT_URIS, cloud_env_configured
+from .conftest import PxtResult, PxtRunner
 
 _RUN_TIMEOUT_SECS = 180.0
 
@@ -23,21 +25,26 @@ class FakeControlPlane:
 
     url: str
     received_requests: list[dict[str, Any]]
+    # the body of the answer to each operation_type; any other operation is answered with {}
+    responses: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @pytest.fixture
 def fake_control_plane() -> Iterator[FakeControlPlane]:
-    """A control plane on localhost: it remembers every request it was sent, and answers each with {}."""
+    """A control plane on localhost: it remembers every request it was sent, and answers from its responses."""
     received_requests: list[dict[str, Any]] = []
+    responses: dict[str, dict[str, Any]] = {}
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self) -> None:
-            received_requests.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
+            request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            received_requests.append(request)
+            body = json.dumps(responses.get(request['operation_type'], {})).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', '2')
+            self.send_header('Content-Length', str(len(body)))
             self.end_headers()
-            self.wfile.write(b'{}')
+            self.wfile.write(body)
 
         def log_message(self, *args: object) -> None:
             pass
@@ -45,7 +52,7 @@ def fake_control_plane() -> Iterator[FakeControlPlane]:
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        yield FakeControlPlane(f'http://127.0.0.1:{server.server_address[1]}', received_requests)
+        yield FakeControlPlane(f'http://127.0.0.1:{server.server_address[1]}', received_requests, responses)
     finally:
         server.shutdown()
         server.server_close()
@@ -84,7 +91,10 @@ class TestSecret:
             '--json',
         )
         assert r.returncode == 0, r.stderr
-        assert r.json == ['CUSTOM_TOKEN', 'OPENAI_API_KEY']
+        assert r.json == [
+            {'key': 'CUSTOM_TOKEN', 'scope': 'pxt://acme:main'},
+            {'key': 'OPENAI_API_KEY', 'scope': 'pxt://acme:main'},
+        ]
         expected_requests = [
             {
                 'operation_type': 'set_secret',
@@ -109,3 +119,83 @@ class TestSecret:
             assert r.returncode != 0
             assert 'is reserved' in r.stderr, r.stderr
         assert fake_control_plane.received_requests == expected_requests
+
+        r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'delete', 'pxt://acme', 'OLD_KEY', 'OLD_TOKEN')
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.splitlines() == ['KEY        SCOPE', 'OLD_KEY    pxt://acme', 'OLD_TOKEN  pxt://acme']
+        assert fake_control_plane.received_requests[len(expected_requests) :] == [
+            {'operation_type': 'delete_secret', 'org': 'acme', 'db': None, 'key': 'OLD_KEY'},
+            {'operation_type': 'delete_secret', 'org': 'acme', 'db': None, 'key': 'OLD_TOKEN'},
+        ]
+
+    def test_list(self, daemon_port: int, tmp_path: pathlib.Path, fake_control_plane: FakeControlPlane) -> None:
+        fake_control_plane.responses['list_all_secrets'] = {
+            'org': 'acme',
+            'secrets': [
+                {'key': 'SHARED_KEY', 'db': 'main', 'audit': {'updated_at': '2026-09-01T00:00:00Z'}},
+                {'key': 'SHARED_KEY', 'db': None},
+                {'key': 'OTHER_KEY', 'db': 'dev'},
+                {'key': 'DB_KEY', 'db': 'main'},
+                {'key': 'ORG_KEY', 'db': None},
+            ],
+        }
+        r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'list')
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.splitlines() == [
+            'KEY         SCOPE            NOTE',
+            'ORG_KEY     pxt://acme',
+            'SHARED_KEY  pxt://acme',
+            'OTHER_KEY   pxt://acme:dev',
+            'DB_KEY      pxt://acme:main',
+            'SHARED_KEY  pxt://acme:main  overrides an organization secret',
+        ]
+
+        r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'list', 'pxt://acme:main', '--json')
+        assert r.returncode == 0, r.stderr
+        assert r.json == [
+            {'key': 'ORG_KEY', 'scope': 'pxt://acme'},
+            {'key': 'SHARED_KEY', 'scope': 'pxt://acme'},
+            {'key': 'OTHER_KEY', 'scope': 'pxt://acme:dev'},
+            {'key': 'DB_KEY', 'scope': 'pxt://acme:main'},
+            {'key': 'SHARED_KEY', 'scope': 'pxt://acme:main', 'overrides_org': True},
+        ]
+        assert fake_control_plane.received_requests == [
+            {'operation_type': 'list_all_secrets', 'org': None, 'db': None},
+            {'operation_type': 'list_all_secrets', 'org': 'acme', 'db': 'main'},
+        ]
+
+        fake_control_plane.responses['list_all_secrets'] = {'org': 'acme', 'secrets': [{'key': 'ORG_KEY', 'db': None}]}
+        r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'list')
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.splitlines() == ['KEY      SCOPE       NOTE', 'ORG_KEY  pxt://acme']
+
+        fake_control_plane.responses['list_all_secrets'] = {'org': 'acme', 'secrets': []}
+        r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'list', 'pxt://acme')
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.strip() == 'No secrets.'
+        r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'list', 'pxt://acme', '--json')
+        assert r.returncode == 0, r.stderr
+        assert r.json == []
+
+
+@pytest.mark.skipif(not cloud_env_configured(), reason='needs a Pixeltable cloud environment')
+def test_cloud_list(session_cli: PxtRunner) -> None:
+    db_uri = CLOUD_DB_ROOT_URIS['cloud-cli']
+    org_uri = db_uri.rsplit(':', maxsplit=1)[0]
+    run_id = uuid.uuid4().hex[:8].upper()
+    shared, org_only, db_only = f'PXTTEST_SHARED_{run_id}', f'PXTTEST_ORG_{run_id}', f'PXTTEST_DB_{run_id}'
+    try:
+        session_cli('secret', 'set', org_uri, f'{shared}=org-value', f'{org_only}=org-value')
+        session_cli('secret', 'set', db_uri, f'{shared}=db-value', f'{db_only}=db-value')
+        expected = [
+            {'key': org_only, 'scope': org_uri},
+            {'key': shared, 'scope': org_uri},
+            {'key': db_only, 'scope': db_uri},
+            {'key': shared, 'scope': db_uri, 'overrides_org': True},
+        ]
+        for args in ((), (org_uri,), (db_uri,)):
+            rows = session_cli('secret', 'list', *args, '--json').json
+            assert [row for row in rows if run_id in row['key']] == expected, args
+    finally:
+        session_cli('secret', 'delete', org_uri, shared, org_only, check=False)
+        session_cli('secret', 'delete', db_uri, shared, db_only, check=False)

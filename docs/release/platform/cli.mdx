@@ -131,7 +131,7 @@ pxt db logs   pxt://myorg:mydb   # what the database's pod logged
 
 # cloud -- secrets
 pxt secret set  pxt://myorg OPENAI_API_KEY=sk-...
-pxt secret list                  # the org your credential reaches
+pxt secret list                  # every secret in your org and its databases
 
 # cloud -- keys
 pxt key create ci                # a key that acts as you
@@ -1138,7 +1138,7 @@ between two keys. Any member of the organization can delete any key.
 ### `pxt secret`
 
 ```bash
-pxt secret list                    # the org your credential reaches
+pxt secret list                    # every secret in your org and its databases
 pxt secret list   pxt://myorg
 pxt secret list   pxt://myorg:mydb
 pxt secret set    pxt://myorg OPENAI_API_KEY=sk-...
@@ -1146,6 +1146,17 @@ pxt secret delete pxt://myorg:mydb OLD_KEY
 ```
 
 An org secret applies to every database in the org. A database secret applies to that database and wins on a key collision. `list` prints names, never values.
+
+`list` prints one table for the org and its databases. Without a URI it covers your credential's org; `pxt://myorg:mydb` narrows it to the org and that database. A database secret with the same name as an org secret is marked `overrides an organization secret`, and the org row stays in the table:
+
+```
+KEY                    SCOPE             NOTE
+OPENAI_API_KEY         pxt://myorg
+AWS_SECRET_ACCESS_KEY  pxt://myorg:mydb
+OPENAI_API_KEY         pxt://myorg:mydb  overrides an organization secret
+```
+
+With `--json`, each row is an object with `key` and `scope`, plus `"overrides_org": true` on a database secret that overrides an org secret.
 
 A running database uses the values from its startup. `pxt db restart`, or `pxt service restart` for one service, picks up a change; a database or service started afterwards reads the current value at startup.
 

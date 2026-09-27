@@ -5,21 +5,26 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from typing import Any
 
 from pixeltable_cli.utils import split_pxt_uri
 
 from ..parser import Parser
-from ..utils import get_request, post_request
+from ..utils import get_request, post_request, print_aligned
 
 EPILOG = """\
 Examples:
   pxt secret list
+  pxt secret list pxt://myorg
   pxt secret list pxt://myorg:mydb
   pxt secret set  pxt://myorg OPENAI_API_KEY=sk-... ANTHROPIC_API_KEY=sk-...
   pxt secret delete pxt://myorg:mydb OLD_KEY STALE_KEY
 
 An org secret applies to every database in the org; a database secret applies to that database and
 wins on a key collision.
+
+`list` without a URI lists the secrets of your credential's org and of every database in it; pxt://myorg
+does the same for that org, and pxt://myorg:mydb lists the org's secrets and that database's.
 
 After a `pxt secret set` or `pxt secret delete`, run `pxt db restart` to pick up the changes for a hosted database's
 tables and `pxt service restart` to do the same for its services.
@@ -34,12 +39,14 @@ A process reads its secrets once, at startup, so a running one keeps the values 
 `pxt db restart` for a hosted database's tables and `pxt service restart` for its services.
 """
 
+_OVERRIDES_ORG_NOTE = 'overrides an organization secret'
+
 
 def run(argv: list[str]) -> None:
     parser = Parser(prog='pxt secret', description="manage a database's secrets", epilog=EPILOG)
     sub = parser.add_subparsers(dest='action', required=True)
 
-    p = sub.add_parser('list', help='list secret names in a scope (never their values)')
+    p = sub.add_parser('list', help='list the secret names of an org and its databases (never their values)')
     p.add_argument('uri', nargs='?', help='Scope URI: pxt://org or pxt://org:db')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
@@ -83,14 +90,32 @@ def _assignments(items: list[str]) -> dict[str, str]:
     return secrets
 
 
-def _print_keys(keys: list[str], json_output: bool) -> None:
+def _print_secrets(org: str, secrets: list[dict[str, Any]], json_output: bool, with_overrides: bool) -> None:
+    """secrets are dicts with 'key' and 'db', where db is None for an org secret.
+
+    with_overrides marks db secrets that override an org secret; this requires secrets to include all org secrets.
+    """
+    org_uri = f'pxt://{org}'
+    secrets = sorted(secrets, key=lambda s: (s['db'] is not None, s['db'] or '', s['key']))
+    org_keys = {s['key'] for s in secrets if s['db'] is None}
+    rows: list[dict[str, Any]] = []
+    for s in secrets:
+        if s['db'] is None:
+            rows.append({'key': s['key'], 'scope': org_uri})
+        else:
+            row = {'key': s['key'], 'scope': f'{org_uri}:{s["db"]}'}
+            if with_overrides and s['key'] in org_keys:
+                row['overrides_org'] = True
+            rows.append(row)
     if json_output:
-        print(json.dumps(keys))
-    elif not keys:
+        print(json.dumps(rows))
+    elif not rows:
         print('No secrets.')
+    elif with_overrides:
+        table = [[r['key'], r['scope'], _OVERRIDES_ORG_NOTE if 'overrides_org' in r else ''] for r in rows]
+        print_aligned(['KEY', 'SCOPE', 'NOTE'], table, right_align=set())
     else:
-        for key in keys:
-            print(key)
+        print_aligned(['KEY', 'SCOPE'], [[r['key'], r['scope']] for r in rows], right_align=set())
 
 
 def _list(args: argparse.Namespace) -> None:
@@ -101,7 +126,7 @@ def _list(args: argparse.Namespace) -> None:
         if db is not None:
             params['db'] = db
     resp = get_request('/api/secrets', params)
-    _print_keys(resp.get('keys', []) if isinstance(resp, dict) else [], args.json_output)
+    _print_secrets(resp['org'], resp['secrets'], args.json_output, with_overrides=True)
 
 
 def _set(args: argparse.Namespace) -> None:
@@ -109,11 +134,11 @@ def _set(args: argparse.Namespace) -> None:
     secrets = _assignments(args.assignments)
     for key, value in secrets.items():
         post_request('/api/secrets', {'org': org, 'db': db, 'key': key, 'value': value})
-    _print_keys(sorted(secrets), args.json_output)
+    _print_secrets(org, [{'key': key, 'db': db} for key in secrets], args.json_output, with_overrides=False)
 
 
 def _delete(args: argparse.Namespace) -> None:
     org, db = _scope(args.uri, 'pxt secret delete')
     for key in args.keys:
         post_request('/api/secrets/delete', {'org': org, 'db': db, 'key': key})
-    _print_keys(sorted(args.keys), args.json_output)
+    _print_secrets(org, [{'key': key, 'db': db} for key in args.keys], args.json_output, with_overrides=False)
