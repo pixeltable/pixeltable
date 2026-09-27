@@ -1,0 +1,11 @@
+{
+  "name": "pixeltable-cloud",
+  "version": "0.1.0",
+  "description": "Read your Pixeltable Cloud databases, services, catalog, schemas, and table rows through OAuth.",
+  "author": {
+    "name": "Pixeltable",
+    "email": "contact@pixeltable.com"
+  },
+  "homepage": "https://pixeltable.com/developers/mcp-cloud",
+  "keywords": ["pixeltable", "cloud", "mcp", "data"]
+}

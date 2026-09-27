@@ -130,6 +130,8 @@ To mount the routes on an existing FastAPI app, `app.include_router(...)`. [HTTP
 
 The links above install the skill and MCP. How the skill writes `app.py`: [AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms).
 
+Pixeltable offers three MCP servers: [Docs MCP](https://docs.pixeltable.com/mcp) searches public documentation; [hosted Cloud MCP](https://pixeltable.com/developers/mcp-cloud) reads your signed-in Cloud organization through OAuth; and the [local developer MCP](https://github.com/pixeltable/mcp-server-pixeltable-developer) runs on your machine with catalog, query, and REPL tools. The hosted Cloud MCP does not deploy or change resources; use the `pxt` CLI for that.
+
 ```bash
 npx skills add pixeltable/pixeltable-skill
 ```

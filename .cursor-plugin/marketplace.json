@@ -1,0 +1,17 @@
+{
+  "name": "pixeltable",
+  "owner": {
+    "name": "Pixeltable",
+    "email": "contact@pixeltable.com"
+  },
+  "metadata": {
+    "description": "Pixeltable agent integrations"
+  },
+  "plugins": [
+    {
+      "name": "pixeltable-cloud",
+      "source": "plugins/pixeltable-cloud",
+      "description": "Read your Pixeltable Cloud organization through a hosted MCP server"
+    }
+  ]
+}
