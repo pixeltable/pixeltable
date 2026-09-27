@@ -117,15 +117,20 @@ Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path i
 
 <Tabs>
   <Tab title="Cloud">
-    To run this same file on Pixeltable Cloud, create an API key in the [Cloud dashboard](/howto/deployment/cloud#get-an-api-key), set `PIXELTABLE_API_KEY`, create the hosted database with `pxt db update`, create tables with `pxt schema update`, then start hosted endpoints with `pxt service update`. Try changes by inserting from the dashboard and running `pxt schema diff`.
+    To run this same file on Pixeltable Cloud, sign in with `pxt login`, or set `PIXELTABLE_API_KEY`. The environment variable, or `api_key` in the config file, takes precedence over a `pxt login` session. `pxt org create` provisions `main`. Add this entry to the project file before `pxt db update`. Without it, the command errors. `pxt db update` uploads the project onto that database. `pxt schema update` creates tables. `pxt service update` starts hosted endpoints. Try changes by inserting from the [Cloud dashboard](https://www.pixeltable.com/dashboard) and running `pxt schema diff`.
 
-    ```bash
-    pxt db update pxt://org:mydb
-    pxt schema update app.py pxt://org:mydb
-    pxt service update app.py pxt://org:mydb
+    ```toml
+    [[pixeltable.database]]
+    name = 'pxt://org:main'
     ```
 
-    [Deploy to Pixeltable Cloud](/howto/deployment/cloud).
+    ```bash
+    pxt db update pxt://org:main
+    pxt schema update app.py pxt://org:main
+    pxt service update app.py pxt://org:main
+    ```
+
+    [Pixeltable Cloud](/cloud).
   </Tab>
   <Tab title="Starter kit">
     [`uvx pixeltable-new`](https://github.com/pixeltable/pixeltable-new) copies a full app. The default copied app uses namespace `agent` as the last argument to `pxt schema update`. `--video` copies video search and uses `videointel`.
@@ -152,7 +157,7 @@ This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt
   <Card title="How it works" icon="layer-group" href="/overview/how-it-works">
     What `pxt schema` and `pxt service` do, including `diff`, `update`, and `prune`.
   </Card>
-  <Card title="Cloud" icon="cloud" href="/howto/deployment/cloud">
-    The same `app.py`. `pxt db update`, then `pxt schema update` and `pxt service update` against `pxt://org:mydb`.
+  <Card title="Cloud" icon="cloud" href="/cloud">
+    The same `app.py`. `pxt db update`, then `pxt schema update` and `pxt service update` against `pxt://org:main`.
   </Card>
 </CardGroup>

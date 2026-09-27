@@ -584,7 +584,11 @@ class stitch_tiles(pxt.Aggregator):
     The reconstruction is naive: tiles are pasted in the order they arrive, so where tiles overlap, later tiles
     overwrite earlier ones. It composites pixels and does not merge or deduplicate detections across tile seams.
 
+    Call as `stitch_tiles(order_key, tile, tile_box, width, height)`. `order_by=` is invalid.
+
     Args:
+        order_key: Positional only. The expression that orders the tiles within a group, typically the tile
+            position emitted by `tile_iterator`.
         tile: The image tile to paste, the same size as the tiles emitted by
         [`tile_iterator`][pixeltable.functions.image.tile_iterator]. All tiles in a group must have the same mode
             (and palette, for palette images).
@@ -598,9 +602,9 @@ class stitch_tiles(pxt.Aggregator):
         are no non-null tiles.
 
     Examples:
-        Split each image into tiles, draw a segmentation overlay on every tile, then stitch the overlaid tiles
-        back into a single full-resolution image, one per source image. Assumes a view `tiles` created with
-        [`tile_iterator`][pixeltable.functions.image.tile_iterator], with an `overlay` column computed per tile:
+        Stitch per-tile overlays back into one full-resolution image per source image. Assumes a view `tiles`
+        created with [`tile_iterator`][pixeltable.functions.image.tile_iterator], with an `overlay` column
+        computed per tile:
 
         >>> tiles.group_by(tiles.image).select(
         ...     stitched=stitch_tiles(
@@ -611,6 +615,10 @@ class stitch_tiles(pxt.Aggregator):
         ...         tiles.image.height,
         ...     )
         ... ).collect()
+
+        For the full pipeline, from tiling through segmentation to stitching, see the
+        [Promptable segmentation with SAM 3](https://docs.pixeltable.com/howto/cookbooks/images/img-promptable-segmentation)
+        cookbook.
     """
 
     canvas: PIL.Image.Image | None
