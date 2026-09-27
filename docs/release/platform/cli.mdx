@@ -761,7 +761,8 @@ next commands, and a claim link. It never prints the key, and neither does `pxt 
 
 Until it is claimed, the organization has 1 database and at most 2 services, each on 1 worker with up
 to 1 cpu, 2048 MB and 10 GB of disk, and about 1 GiB of storage: past that, uploads stop. It is deleted
-72 hours after it was created. One network holds at most 10 unclaimed trials at once. Whoever opens the claim link signs in or signs up and
+72 hours after it was created. Its pods reach the internet on ports 80, 443 and 5432 only, and one
+network holds at most 10 unclaimed trials at once. Whoever opens the claim link signs in or signs up and
 becomes the organization's admin, so keep the link out of shared logs.
 
 Running `pxt new` again prints the same trial, without the claim link, and creates nothing.
