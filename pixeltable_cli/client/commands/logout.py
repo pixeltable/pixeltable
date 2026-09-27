@@ -1,4 +1,4 @@
-"""`pxt logout` - forget the session `pxt login` cached. See commands/login.py."""
+"""`pxt logout` - forget the session `pxt login` cached, or the trial `pxt new` made. See commands/login.py."""
 
 from __future__ import annotations
 

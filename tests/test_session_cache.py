@@ -488,6 +488,6 @@ class TestCredentialChoice:
             management_client.resolve('reach the home bucket')
         message = info.value.message
         assert str(Config.get().home) not in message, message
-        for way_out in ('pxt login', 'PIXELTABLE_API_KEY', 'api_key'):
+        for way_out in ('pxt login', 'pxt new', 'PIXELTABLE_API_KEY', 'api_key'):
             assert way_out in message, message
         assert 'os.environ' not in message, message

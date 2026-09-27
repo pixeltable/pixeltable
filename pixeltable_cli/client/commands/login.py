@@ -60,7 +60,13 @@ def run(argv: list[str]) -> None:
             file=sys.stderr,
         )
     if args.json_output:
-        print(json.dumps({'email': granted['email'], 'organization_id': granted['organization_id']}))
+        # the replaced trial, claim link included: it was on this machine only in the trial's record
+        document = {
+            'email': granted['email'],
+            'organization_id': granted['organization_id'],
+            'replaced_trial': replaced,
+        }
+        print(json.dumps(document))
         return
     print(f'Signed in as {granted["email"] or "(unknown)"}.')
     print(_org_line(granted['organization_id']))
@@ -105,7 +111,7 @@ def _fail(reason: str) -> NoReturn:
 
 
 def run_logout(argv: list[str]) -> None:
-    parser = Parser(prog='pxt logout', description="forget this device's cached session")
+    parser = Parser(prog='pxt logout', description="forget this device's cached session, or its `pxt new` trial")
     parser.parse_args(argv)
 
     answer = post_request('/api/logout', {})
@@ -145,7 +151,11 @@ def run_whoami(argv: list[str]) -> None:
         sys.exit(0 if answer['accepted'] else 1)
 
     if answer['using'] == 'none':
-        print(f'Not signed in to {answer["api_url"]}. Run `pxt login`.', file=sys.stderr)
+        print(
+            f'Not signed in to {answer["api_url"]}. '
+            'Run `pxt login`, or, with no account, `pxt new` for a trial database.',
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     trial = answer['trial']

@@ -402,7 +402,7 @@ class TestWhoami:
 
         assert r.returncode == 1
         assert 'Not signed in' in r.stderr
-        assert 'pxt login' in r.stderr
+        assert 'pxt login' in r.stderr and 'pxt new' in r.stderr
 
     def test_whoami_organization(self, cloud_cli: PxtRunner, signed_in: Callable[..., None]) -> None:
         signed_in(organization_id='org_01ACME')
@@ -1596,6 +1596,17 @@ class TestNew:
             'Anyone with this link can claim the organization.\n'
         ) in r.stderr
         assert cloud_cli('whoami', '--json').json['using'] == 'session'
+
+    def test_login_json_replaces_trial(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """A script reads stdout only, so the document itself carries the replaced trial's claim link."""
+        created = cloud_cli('new', '--json').json
+        control_plane.tokens[:] = [(200, control_plane.grant())]
+
+        document = cloud_cli('login', '--json').json
+
+        replaced = document['replaced_trial']
+        assert (replaced['org'], replaced['db'], replaced['claim_url']) == (_TRIAL_ORG, 'main', created['claim_url'])
+        assert document['email'] == 'you@example.com'
 
 
 class TestNewTrial:

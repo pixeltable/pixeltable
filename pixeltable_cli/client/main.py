@@ -42,7 +42,7 @@ COMMANDS: dict[str, str] = {
     'key': 'manage API keys and scoped runtime keys (list/create/update/delete)',
     'new': 'get a free Pixeltable Cloud database, no account needed',
     'login': 'sign in to Pixeltable Cloud in a browser (no API key needed)',
-    'logout': 'forget the cached session',
+    'logout': 'forget the cached session or trial',
     'whoami': 'show who this machine is signed in as',
 }
 

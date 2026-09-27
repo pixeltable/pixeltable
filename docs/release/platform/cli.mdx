@@ -121,7 +121,7 @@ pxt service logs my_app/ingest       # what a service logged; pxt://myorg:mydb/m
 pxt new                          # a free trial database, no account needed
 pxt login                        # approve a code in a browser; no API key needed
 pxt whoami                       # who this machine is signed in as, and which credential it sends
-pxt logout                       # forget this device's cached session
+pxt logout                       # forget this device's cached session, or its `pxt new` trial
 
 # cloud -- databases
 pxt db update pxt://myorg:mydb   # create the database, or bring it up to what the project declares
@@ -698,7 +698,7 @@ parameters into account); the paths served by the application itself are diffed 
 
 ### Signing in
 
-Hosted commands need a credential. `pxt login`, `pxt whoami`, and `pxt key` require Pixeltable 0.7.10 or later. There are two credentials, and you need one of them.
+Hosted commands need a credential. `pxt login`, `pxt whoami`, and `pxt key` require Pixeltable 0.7.10 or later. There are three: a `pxt login` session, a `pxt new` trial ([Trial databases](#trial-databases)), and an API key. You need one of them.
 
 ```bash
 pxt login
@@ -726,7 +726,7 @@ cached session without asking.
 pxt logout
 ```
 
-`pxt logout` forgets this machine's cached session. When the session has the sign-in service's
+`pxt logout` forgets this machine's cached session, or its `pxt new` trial ([Trial databases](#trial-databases)). When the session has the sign-in service's
 session id, `pxt logout` also opens that service's sign-out page for the session in your browser,
 and prints the link when no browser opens. It signs out of both because a browser that is still
 signed in confirms the next code without naming the account, so signing out of only one leaves you
@@ -759,8 +759,9 @@ the trial's API key on this machine, so later commands use it without `pxt login
 key. It prints the database's URI, the `[[pixeltable.database]]` entry for `pixeltable.toml`, the
 next commands, and a claim link. It never prints the key, and neither does `pxt new --json`.
 
-Until it is claimed, the organization has 1 database, at most 2 services and 1 GiB of storage, and
-it is deleted 72 hours after it was created. Whoever opens the claim link signs in or signs up and
+Until it is claimed, the organization has 1 database and at most 2 services, each on 1 worker with up
+to 1 cpu, 2048 MB and 10 GB of disk, and about 1 GiB of storage: past that, uploads stop. It is deleted
+72 hours after it was created. One network holds at most 10 unclaimed trials at once. Whoever opens the claim link signs in or signs up and
 becomes the organization's admin, so keep the link out of shared logs.
 
 Running `pxt new` again prints the same trial, without the claim link, and creates nothing.
