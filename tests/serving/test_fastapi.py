@@ -143,7 +143,6 @@ def make_test_client(router: Any) -> 'TestClient':
 
 
 def _schema_changed_detail(route: str) -> dict[str, Any]:
-    """The 409 detail for a request to a route whose table's schema changed since the route was registered."""
     return {
         'error_code': 'CONCURRENT_MODIFICATION',
         'message': f'{route} was registered against an earlier schema of its table; '

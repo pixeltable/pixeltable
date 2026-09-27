@@ -178,10 +178,6 @@ def _route_table_path(target: RouteTarget) -> catalog.TablePath:
 
 
 def _schema_changed(route: _RegisteredRoute) -> pxt.ConcurrencyError:
-    """The 409 for a route whose table no longer has the schema the route was registered against.
-
-    Retryable: the request can succeed once the service restarts on the new definition.
-    """
     return pxt.ConcurrencyError(
         pxt.ErrorCode.CONCURRENT_MODIFICATION,
         f'{route.display_name} was registered against an earlier schema of its table; '
@@ -194,7 +190,7 @@ def _validate_registered_schema(route: _RegisteredRoute, tbl: pxt.Table, schema_
 
     A schema bump shows up as a different schema_version; a drop (or drop-and-recreate at the same path under
     a new id) makes the metadata lookup raise TABLE_NOT_FOUND. Both mean the frozen request/response contract
-    is stale until the service restarts. A write checks under its table's lock instead: see _write_as_registered().
+    is stale until the service restarts.
     """
     try:
         changed = tbl.get_metadata()['schema_version'] != schema_version
@@ -219,14 +215,12 @@ def _write_as_registered(route: _RegisteredRoute, tbl: pxt.Table, schema_version
     tvp = tbl._tbl_version_path
     locked = False
     try:
-        # the locks insert(), batch_update() and delete() take, which they then find held
         with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[tvp], lock_mutable_tree=True):
             locked = True
             if tvp.schema_version() != schema_version:
                 raise _schema_changed(route)
             return write()
     except pxt.NotFoundError as exc:
-        # before the lock was held, the table was dropped, or replaced at its path under a new id
         if locked or exc.error_code is not pxt.ErrorCode.TABLE_NOT_FOUND:
             raise
         raise _schema_changed(route) from None
