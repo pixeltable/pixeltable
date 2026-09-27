@@ -64,7 +64,7 @@ class Articles(TableModel, name='articles'):
 pxt schema update app.py my_app
 ```
 
-After the schema exists, open the table with `t = pxt.get_table('my_app.articles')` and insert rows, or serve the same file over [HTTP](/howto/deployment/serving). To run that file on Pixeltable Cloud, pass a `pxt://org:db` URI instead of `my_app`: [Deploy to Pixeltable Cloud](/howto/deployment/cloud).
+After the schema exists, open the table with `t = pxt.get_table('my_app.articles')` and insert rows, or serve the same file over [HTTP](/howto/deployment/serving). To run that file on Pixeltable Cloud, sign in with `pxt login` and run `pxt db update`, then `pxt schema update`, then `pxt service update`, against `pxt://org:main`: [Pixeltable Cloud](/cloud).
 
 ## Docs search and catalog CLI
 
@@ -94,7 +94,7 @@ Experimental local catalog MCP: [mcp-server-pixeltable-developer](https://github
   <Card title="Starter kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
     Templates for serving, batch, and FastAPI + React.
   </Card>
-  <Card title="Cloud" icon="cloud" href="/howto/deployment/cloud">
-    Deploy the same `app.py` to a hosted database at `pxt://org:db`.
+  <Card title="Cloud" icon="cloud" href="/cloud">
+    The same `app.py`. `pxt db update`, then `pxt schema update` and `pxt service update` against `pxt://org:main`.
   </Card>
 </CardGroup>

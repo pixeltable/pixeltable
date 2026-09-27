@@ -41,7 +41,7 @@ Set `base=Docs` to make a view of `Docs`. The view can use columns from that bas
 
 `pxt schema example` writes a long sample. `--brief` writes only a small set of classes. Create tables with `pxt schema update app.py my_app`. Extra tables in that namespace stay until you run `pxt schema prune`, which deletes them.
 
-`pxt schema update` imports `app.py` as a module, so a `@pxt.udf` there is recorded by file path. A UDF defined in a script you run with `python app.py` is refused. Renaming `app.py` leaves columns that call it unable to compute. On Cloud, `pxt db update` puts the project in the image so workers can resolve that path ([Deploy to Pixeltable Cloud](/howto/deployment/cloud)).
+`pxt schema update` imports `app.py` as a module, so a `@pxt.udf` there is recorded by file path. A UDF defined in a script you run with `python app.py` is refused. Renaming `app.py` leaves columns that call it unable to compute. On Cloud, `pxt db update` puts the project in the image so workers can resolve that path ([Pixeltable Cloud](/cloud)).
 
 ## Services
 
@@ -64,21 +64,30 @@ A schema change with a service already running needs `pxt service update` after 
     ```
   </Tab>
   <Tab title="Cloud">
-    Use the same `app.py` with a `pxt://` URL as the last argument after `pxt db update`. [Deploy to Pixeltable Cloud](/howto/deployment/cloud). `pxt service run` only starts endpoints in your local terminal.
+    Sign in with `pxt login`, or set `PIXELTABLE_API_KEY`. That variable, or `api_key` in the config file, takes precedence over a `pxt login` session. `pxt org create` provisions `main`. Add this hosted entry to `pixeltable.toml`, keeping the local entry that `pxt init` wrote:
+
+    ```toml
+    [[pixeltable.database]]
+    name = 'pxt://org:main'
+    ```
+
+    If `pxt init` wrote to `pyproject.toml` instead, use `[[tool.pixeltable.database]]` for the hosted entry. Then run:
 
     ```bash
-    pxt db update pxt://org:mydb
-    pxt schema update app.py pxt://org:mydb
-    pxt service update app.py pxt://org:mydb
+    pxt db update pxt://org:main
+    pxt schema update app.py pxt://org:main
+    pxt service update app.py pxt://org:main
     ```
+
+    [Pixeltable Cloud](/cloud#first-deployment) shows the full setup. `pxt service run` only starts endpoints in your local terminal.
   </Tab>
 </Tabs>
 
 ## Next
 
 <CardGroup cols={2}>
-  <Card title="Cloud" icon="cloud" href="/howto/deployment/cloud">
-    Use the same `app.py` with a hosted URL such as `pxt://your-org:your-db`.
+  <Card title="Cloud" icon="cloud" href="/cloud">
+    Use the same `app.py` against `pxt://org:main`.
   </Card>
   <Card title="Self-hosting" icon="server" href="/howto/deployment/overview">
     Which process: nothing listening, your FastAPI, or `pxt service`.
