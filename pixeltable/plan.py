@@ -199,7 +199,7 @@ class Analyzer:
                 if not is_input:
                     raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid nested aggregates: {e}')
             return True, False
-        elif isinstance(e, exprs.Literal):
+        elif isinstance(e, (exprs.Literal, exprs.Variable)):
             return True, True
         elif isinstance(e, (exprs.ColumnRef, exprs.RowidRef)):
             # we already know that this isn't a grouping expr
@@ -207,6 +207,7 @@ class Analyzer:
         else:
             # an expression such as <grouping expr 1> + <grouping expr 2> can both be the output and input of agg
             assert len(e.components) > 0
+            # TODO this looks like it can use a refactor
             component_is_output, component_is_input = zip(
                 *[self._determine_agg_status(c, grouping_expr_ids) for c in e.components]
             )
@@ -1136,9 +1137,9 @@ class Planner:
         candidates.extend(
             exprs.Expr.list_subexprs(analyzer.stratify_exprs, filter=sql_elements.contains, traverse_matches=False)
         )
-        # not isinstance(...): we don't want to materialize Literals via a Select (some types, eg arrays,
-        # don't round-trip cleanly through SQL parameter binding)
-        sql_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, exprs.Literal))
+        # Exclude Literals and Variables: if materialized by the scan, they would appear ungrouped in an aggregation's
+        # select list and result in a SQL error.
+        sql_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, (exprs.Literal, exprs.Variable)))
 
         # create table scans; each scan produces subexprs of (sql_exprs + join clauses)
         join_exprs = exprs.ExprSet(
