@@ -189,29 +189,28 @@ class TestSecret:
         assert r.returncode == 0, r.stderr
         assert r.json == []
 
-
-@pytest.mark.skipif(not cloud_env_configured(), reason='needs a Pixeltable cloud environment')
-def test_cloud_list(session_cli: PxtRunner) -> None:
-    db_uri = CLOUD_DB_ROOT_URIS['cloud-cli']
-    other_db_uri = CLOUD_DB_ROOT_URIS['cloud']
-    org_uri = db_uri.rsplit(':', maxsplit=1)[0]
-    assert other_db_uri.rsplit(':', maxsplit=1)[0] == org_uri
-    run_id = uuid.uuid4().hex[:8].upper()
-    shared, org_only, db_only = f'PXTTEST_SHARED_{run_id}', f'PXTTEST_ORG_{run_id}', f'PXTTEST_DB_{run_id}'
-    other_db_only = f'PXTTEST_OTHER_DB_{run_id}'
-    try:
-        session_cli('secret', 'set', org_uri, f'{shared}=org-value', f'{org_only}=org-value')
-        session_cli('secret', 'set', db_uri, f'{shared}=db-value', f'{db_only}=db-value')
-        session_cli('secret', 'set', other_db_uri, f'{other_db_only}=other-db-value')
-        org_rows = [{'key': org_only, 'scope': org_uri}, {'key': shared, 'scope': org_uri}]
-        db_rows = [{'key': db_only, 'scope': db_uri}, {'key': shared, 'scope': db_uri, 'overrides_org': True}]
-        other_db_rows = [{'key': other_db_only, 'scope': other_db_uri}]
-        # databases sort by name, and 'pxttest' sorts before 'pxttest-cli'
-        whole_org = org_rows + other_db_rows + db_rows
-        for args, expected in (((), whole_org), ((org_uri,), whole_org), ((db_uri,), org_rows + db_rows)):
-            rows = session_cli('secret', 'list', *args, '--json').json
-            assert [row for row in rows if run_id in row['key']] == expected, args
-    finally:
-        session_cli('secret', 'delete', org_uri, shared, org_only, check=False)
-        session_cli('secret', 'delete', db_uri, shared, db_only, check=False)
-        session_cli('secret', 'delete', other_db_uri, other_db_only, check=False)
+    @pytest.mark.skipif(not cloud_env_configured(), reason='needs a Pixeltable cloud environment')
+    def test_cloud_list(self, session_cli: PxtRunner) -> None:
+        db_uri = CLOUD_DB_ROOT_URIS['cloud-cli']
+        other_db_uri = CLOUD_DB_ROOT_URIS['cloud']
+        org_uri = db_uri.rsplit(':', maxsplit=1)[0]
+        assert other_db_uri.rsplit(':', maxsplit=1)[0] == org_uri
+        run_id = uuid.uuid4().hex[:8].upper()
+        shared, org_only, db_only = f'PXTTEST_SHARED_{run_id}', f'PXTTEST_ORG_{run_id}', f'PXTTEST_DB_{run_id}'
+        other_db_only = f'PXTTEST_OTHER_DB_{run_id}'
+        try:
+            session_cli('secret', 'set', org_uri, f'{shared}=org-value', f'{org_only}=org-value')
+            session_cli('secret', 'set', db_uri, f'{shared}=db-value', f'{db_only}=db-value')
+            session_cli('secret', 'set', other_db_uri, f'{other_db_only}=other-db-value')
+            org_rows = [{'key': org_only, 'scope': org_uri}, {'key': shared, 'scope': org_uri}]
+            db_rows = [{'key': db_only, 'scope': db_uri}, {'key': shared, 'scope': db_uri, 'overrides_org': True}]
+            other_db_rows = [{'key': other_db_only, 'scope': other_db_uri}]
+            # databases sort by name, and 'pxttest' sorts before 'pxttest-cli'
+            whole_org = org_rows + other_db_rows + db_rows
+            for args, expected in (((), whole_org), ((org_uri,), whole_org), ((db_uri,), org_rows + db_rows)):
+                rows = session_cli('secret', 'list', *args, '--json').json
+                assert [row for row in rows if run_id in row['key']] == expected, args
+        finally:
+            session_cli('secret', 'delete', org_uri, shared, org_only, check=False)
+            session_cli('secret', 'delete', db_uri, shared, db_only, check=False)
+            session_cli('secret', 'delete', other_db_uri, other_db_only, check=False)
