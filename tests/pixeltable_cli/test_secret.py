@@ -170,9 +170,12 @@ class TestSecret:
         assert r.stdout.splitlines() == ['KEY      SCOPE       NOTE', 'ORG_KEY  pxt://acme']
 
         fake_control_plane.responses['list_all_secrets'] = {'org': 'acme', 'secrets': []}
-        r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'list', 'pxt://acme')
+        r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'list')
         assert r.returncode == 0, r.stderr
-        assert r.stdout.strip() == 'No secrets.'
+        assert r.stdout.strip() == 'No secrets for pxt://acme.'
+        r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'list', 'pxt://acme:main')
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.strip() == 'No secrets for pxt://acme:main.'
         r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'list', 'pxt://acme', '--json')
         assert r.returncode == 0, r.stderr
         assert r.json == []

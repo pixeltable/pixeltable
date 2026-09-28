@@ -109,8 +109,6 @@ def _print_secrets(org: str, secrets: list[dict[str, Any]], json_output: bool, w
             rows.append(row)
     if json_output:
         print(json.dumps(rows))
-    elif not rows:
-        print('No secrets.')
     elif with_overrides:
         table = [[r['key'], r['scope'], _OVERRIDES_ORG_NOTE if 'overrides_org' in r else ''] for r in rows]
         print_aligned(['KEY', 'SCOPE', 'NOTE'], table, right_align=set())
@@ -120,12 +118,17 @@ def _print_secrets(org: str, secrets: list[dict[str, Any]], json_output: bool, w
 
 def _list(args: argparse.Namespace) -> None:
     params = {}
+    db = None
     if args.uri is not None:
         org, db = _scope(args.uri, 'pxt secret list')
         params['org'] = org
         if db is not None:
             params['db'] = db
     resp = get_request('/api/secrets', params)
+    if len(resp['secrets']) == 0 and not args.json_output:
+        scope = f'pxt://{resp["org"]}' if db is None else f'pxt://{resp["org"]}:{db}'
+        print(f'No secrets for {scope}.')
+        return
     _print_secrets(resp['org'], resp['secrets'], args.json_output, with_overrides=True)
 
 
