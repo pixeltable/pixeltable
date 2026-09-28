@@ -272,6 +272,32 @@ class TestIndex:
         # insert more rows in order to run the query function
         validate_update_status(queries.insert(query_rows))
 
+    def test_query_similarity_in_aggregate(self, db_root: DatabaseRoot, local_embed: pxt.Function) -> None:
+        p = db_root.make_catalog_path
+        chunks = pxt.create_table(p('chunks'), {'text': pxt.String})
+        chunks.insert(
+            [
+                {'text': 'the stock of artificial intelligence companies is up 1000%'},
+                {'text': 'machine learning is a subset of artificial intelligence'},
+                {'text': 'gas car companies are in danger of being left behind by electric car companies'},
+            ]
+        )
+        chunks.add_embedding_index(column='text', string_embed=local_embed)
+        query_texts = ['artificial intelligence', 'electric cars']
+        queries = pxt.create_table(p('queries'), {'query_text': pxt.String})
+        queries.insert({'query_text': q} for q in query_texts)
+
+        @pxt.query
+        def sim_stats(q: str) -> pxt.Query:
+            sim = chunks.text.similarity(string=q)
+            return chunks.select(mean=pxtf.mean(sim), mean_sq=pxtf.mean(sim * sim), n=pxtf.count(sim))
+
+        res = queries.order_by(queries.query_text).select(r=sim_stats(queries.query_text)).collect()
+        for q, r in zip(query_texts, res['r']):
+            sim = chunks.text.similarity(string=q)
+            expected = chunks.select(mean=pxtf.mean(sim), mean_sq=pxtf.mean(sim * sim), n=pxtf.count(sim)).collect()
+            assert r == [expected[0]]
+
     def test_search_fn(self, small_img_tbl: pxt.Table, local_embed: pxt.Function) -> None:
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
