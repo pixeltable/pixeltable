@@ -1156,7 +1156,9 @@ AWS_SECRET_ACCESS_KEY  pxt://myorg:mydb
 OPENAI_API_KEY         pxt://myorg:mydb  overrides an organization secret
 ```
 
-With `--json`, each row is an object with `key` and `scope`, plus `"overrides_org": true` on a database secret that overrides an org secret.
+With `--json`, each row is an object with `key` and `scope`, plus `"overrides_org": true` on a database secret that overrides an org secret. With nothing set, `list` prints `No secrets for pxt://myorg.` (or the database's URI), and `list --json` prints `[]`.
+
+`set` and `delete` print the keys they changed as the same `KEY` and `SCOPE` rows, without `NOTE`; with `--json`, as `key` and `scope` objects. Earlier releases printed bare key names, and `--json` printed an array of strings.
 
 A running database uses the values from its startup. `pxt db restart`, or `pxt service restart` for one service, picks up a change; a database or service started afterwards reads the current value at startup.
 
