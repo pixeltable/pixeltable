@@ -79,23 +79,26 @@ def _pxt_secret(port: int, cwd: pathlib.Path, control_plane: FakeControlPlane, *
 
 
 class TestSecret:
-    def test_set(self, daemon_port: int, tmp_path: pathlib.Path, fake_control_plane: FakeControlPlane) -> None:
-        r = _pxt_secret(
-            daemon_port,
-            tmp_path,  # any path will do, as long as it's not the repo root or its subdir
-            fake_control_plane,
-            'set',
-            'pxt://acme:main',
-            'OPENAI_API_KEY=test=value',
-            'CUSTOM_TOKEN=custom-value',
-            '--json',
-        )
+    def test_set_list_delete(
+        self, daemon_port: int, tmp_path: pathlib.Path, fake_control_plane: FakeControlPlane
+    ) -> None:
+        def pxt_secret(*args: str) -> PxtResult:
+            # any cwd will do, as long as it's not the repo root or its subdir
+            return _pxt_secret(daemon_port, tmp_path, fake_control_plane, *args)
+
+        def sent() -> list[dict[str, Any]]:
+            requests = list(fake_control_plane.received_requests)
+            fake_control_plane.received_requests.clear()
+            return requests
+
+        # set
+        r = pxt_secret('set', 'pxt://acme:main', 'OPENAI_API_KEY=test=value', 'CUSTOM_TOKEN=custom-value', '--json')
         assert r.returncode == 0, r.stderr
         assert r.json == [
             {'key': 'CUSTOM_TOKEN', 'scope': 'pxt://acme:main'},
             {'key': 'OPENAI_API_KEY', 'scope': 'pxt://acme:main'},
         ]
-        expected_requests = [
+        assert sent() == [
             {
                 'operation_type': 'set_secret',
                 'org': 'acme',
@@ -111,24 +114,27 @@ class TestSecret:
                 'value': 'custom-value',
             },
         ]
-        assert fake_control_plane.received_requests == expected_requests
+        r = pxt_secret('set', 'pxt://acme', 'ORG_KEY=org-value')
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.splitlines() == ['KEY      SCOPE', 'ORG_KEY  pxt://acme']
+        assert sent() == [
+            {'operation_type': 'set_secret', 'org': 'acme', 'db': None, 'key': 'ORG_KEY', 'value': 'org-value'}
+        ]
 
-        # reserved prefix
-        for key in ('PIXELTABLE_HOME', 'PIXELTABLE_DB', 'PIXELTABLE_VAR_FOO', 'pixeltable_home', 'Pixeltable_Db'):
-            r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'set', 'pxt://acme:main', f'{key}=test-value')
-            assert r.returncode != 0
-            assert 'is reserved' in r.stderr, r.stderr
-        assert fake_control_plane.received_requests == expected_requests
-
-        r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'delete', 'pxt://acme', 'OLD_KEY', 'OLD_TOKEN')
+        # delete
+        r = pxt_secret('delete', 'pxt://acme', 'OLD_KEY', 'OLD_TOKEN')
         assert r.returncode == 0, r.stderr
         assert r.stdout.splitlines() == ['KEY        SCOPE', 'OLD_KEY    pxt://acme', 'OLD_TOKEN  pxt://acme']
-        assert fake_control_plane.received_requests[len(expected_requests) :] == [
+        assert sent() == [
             {'operation_type': 'delete_secret', 'org': 'acme', 'db': None, 'key': 'OLD_KEY'},
             {'operation_type': 'delete_secret', 'org': 'acme', 'db': None, 'key': 'OLD_TOKEN'},
         ]
+        r = pxt_secret('delete', 'pxt://acme:main', 'OLD_KEY', '--json')
+        assert r.returncode == 0, r.stderr
+        assert r.json == [{'key': 'OLD_KEY', 'scope': 'pxt://acme:main'}]
+        assert sent() == [{'operation_type': 'delete_secret', 'org': 'acme', 'db': 'main', 'key': 'OLD_KEY'}]
 
-    def test_list(self, daemon_port: int, tmp_path: pathlib.Path, fake_control_plane: FakeControlPlane) -> None:
+        # list: the whole org, with an override; the fake's audit field is ignored
         fake_control_plane.responses['list_all_secrets'] = {
             'org': 'acme',
             'secrets': [
@@ -139,7 +145,7 @@ class TestSecret:
                 {'key': 'ORG_KEY', 'db': None},
             ],
         }
-        r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'list')
+        r = pxt_secret('list')
         assert r.returncode == 0, r.stderr
         assert r.stdout.splitlines() == [
             'KEY         SCOPE            NOTE',
@@ -149,8 +155,14 @@ class TestSecret:
             'DB_KEY      pxt://acme:main',
             'SHARED_KEY  pxt://acme:main  overrides an organization secret',
         ]
+        r = pxt_secret('list', 'pxt://acme')
+        assert r.returncode == 0, r.stderr
+        assert sent() == [
+            {'operation_type': 'list_all_secrets', 'org': None, 'db': None},
+            {'operation_type': 'list_all_secrets', 'org': 'acme', 'db': None},
+        ]
 
-        # the server's answer to db='main': the org's secrets and main's
+        # list: one database; the server's answer to db='main' has the org's secrets and main's
         fake_control_plane.responses['list_all_secrets'] = {
             'org': 'acme',
             'secrets': [
@@ -160,7 +172,7 @@ class TestSecret:
                 {'key': 'ORG_KEY', 'db': None},
             ],
         }
-        r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'list', 'pxt://acme:main', '--json')
+        r = pxt_secret('list', 'pxt://acme:main', '--json')
         assert r.returncode == 0, r.stderr
         assert r.json == [
             {'key': 'ORG_KEY', 'scope': 'pxt://acme'},
@@ -168,26 +180,46 @@ class TestSecret:
             {'key': 'DB_KEY', 'scope': 'pxt://acme:main'},
             {'key': 'SHARED_KEY', 'scope': 'pxt://acme:main', 'overrides_org': True},
         ]
-        assert fake_control_plane.received_requests == [
-            {'operation_type': 'list_all_secrets', 'org': None, 'db': None},
-            {'operation_type': 'list_all_secrets', 'org': 'acme', 'db': 'main'},
-        ]
+        assert sent() == [{'operation_type': 'list_all_secrets', 'org': 'acme', 'db': 'main'}]
 
+        # list: no overrides; NOTE stays in the header
         fake_control_plane.responses['list_all_secrets'] = {'org': 'acme', 'secrets': [{'key': 'ORG_KEY', 'db': None}]}
-        r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'list')
+        r = pxt_secret('list')
         assert r.returncode == 0, r.stderr
         assert r.stdout.splitlines() == ['KEY      SCOPE       NOTE', 'ORG_KEY  pxt://acme']
 
+        # list: nothing set
         fake_control_plane.responses['list_all_secrets'] = {'org': 'acme', 'secrets': []}
-        r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'list')
+        r = pxt_secret('list')
         assert r.returncode == 0, r.stderr
         assert r.stdout.strip() == 'No secrets for pxt://acme.'
-        r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'list', 'pxt://acme:main')
+        r = pxt_secret('list', 'pxt://acme:main')
         assert r.returncode == 0, r.stderr
         assert r.stdout.strip() == 'No secrets for pxt://acme:main.'
-        r = _pxt_secret(daemon_port, tmp_path, fake_control_plane, 'list', 'pxt://acme', '--json')
+        r = pxt_secret('list', 'pxt://acme', '--json')
         assert r.returncode == 0, r.stderr
         assert r.json == []
+        sent()
+
+        # invalid arguments are refused before any request
+        for key in ('PIXELTABLE_HOME', 'PIXELTABLE_DB', 'PIXELTABLE_VAR_FOO', 'pixeltable_home', 'Pixeltable_Db'):
+            r = pxt_secret('set', 'pxt://acme:main', f'{key}=test-value')
+            assert r.returncode != 0
+            assert 'is reserved' in r.stderr, r.stderr
+        for assignment in ('NO_VALUE', '=value'):
+            r = pxt_secret('set', 'pxt://acme', assignment)
+            assert r.returncode == 2
+            assert f'expected KEY=VALUE, got {assignment!r}' in r.stderr, r.stderr
+        for args in (
+            ('list', 'acme'),
+            ('list', 'pxt://acme:main/tbl'),
+            ('set', 'pxt://acme:main/tbl', 'KEY=value'),
+            ('delete', 'acme', 'KEY'),
+        ):
+            r = pxt_secret(*args)
+            assert r.returncode == 2, args
+            assert 'URI must be pxt://org or pxt://org:db' in r.stderr, r.stderr
+        assert sent() == []
 
     @pytest.mark.skipif(not cloud_env_configured(), reason='needs a Pixeltable cloud environment')
     def test_cloud_list(self, session_cli: PxtRunner) -> None:
