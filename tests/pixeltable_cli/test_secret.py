@@ -221,6 +221,7 @@ class TestSecret:
             assert 'URI must be pxt://org or pxt://org:db' in r.stderr, r.stderr
         assert sent() == []
 
+    # TODO use hosted_environment when https://github.com/pixeltable/pixeltable/pull/1671 is merged
     @pytest.mark.skipif(not cloud_env_configured(), reason='needs a Pixeltable cloud environment')
     def test_cloud_list(self, session_cli: PxtRunner) -> None:
         db_uri = CLOUD_DB_ROOT_URIS['cloud-cli']
