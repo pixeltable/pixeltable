@@ -370,7 +370,9 @@ def _service_diff(
         resolution = 'create'
     elif any(op.destructive for op in ops):
         resolution = 'update_destructive'
-    elif len(ops) > 0:
+    elif len(ops) > 0 or (
+        not isinstance(running.record, LocalServiceInstanceRecord) and running.record.error is not None
+    ):
         resolution = 'update_additive'
     else:
         resolution = 'up_to_date'

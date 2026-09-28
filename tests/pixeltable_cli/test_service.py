@@ -13,6 +13,7 @@ import httpx
 import pytest
 
 import pixeltable as pxt
+from pixeltable import catalog
 from pixeltable.config import Config
 from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
@@ -27,6 +28,7 @@ from pixeltable.serving.service_instance import ServiceInstance
 from pixeltable.serving.service_manager import ServiceManager
 from pixeltable.serving.service_manager_proxy import ServiceManagerProxy
 from pixeltable.utils.app_module import module_name
+from pixeltable.utils.project import ProjectFingerprint
 from pixeltable_cli.client.commands import service as service_cmd
 from pixeltable_cli.types import ServiceChangeOp, ServiceDiff, ServicePlan, ServiceSpec, ServiceState
 from pixeltable_cli.utils import PxtPath
@@ -1216,7 +1218,7 @@ class _ControlPlane:
 
     It keeps every request but the listings, and each one settles at once, so that ServiceManagerProxy's polls read
     the state it leaves the instance in on their first try. It answers an update or a restart as the control plane
-    answers one of an instance the gateway routes: with the instance UPDATING, its pods rolling.
+    answers one of an instance the gateway routes with UPDATING, and one of a stopped instance with STARTING.
     """
 
     record: ServiceInstanceRecord
@@ -1255,7 +1257,10 @@ class _ControlPlane:
         elif isinstance(request, StartServiceInstanceRequest):
             changes.update(state=ServiceState.AVAILABLE)
         elif self.rolls:
-            answered = answered.model_copy(update={'state': ServiceState.UPDATING})
+            rolling_state = (
+                ServiceState.STARTING if self.record.state is ServiceState.STOPPED else ServiceState.UPDATING
+            )
+            answered = answered.model_copy(update={'state': rolling_state})
             changes.update(state=self.roll_state, error=self.roll_error)
         self.record = self.record.model_copy(update=changes)
         return {'instance': answered.model_dump(mode='json')}
@@ -1346,7 +1351,6 @@ class TestServiceUpdateRunning:
         """
         control_plane = self._hosted(monkeypatch, app_file, state, *ops, error=error, rolls=rolls)
         [diff] = serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=otel).services
-        # reported as for an instance that was started
         endpoint = control_plane.record.endpoint
         assert (diff.status, diff.state, diff.endpoint, diff.exists) == ('applied', 'AVAILABLE', endpoint, True)
         assert [op.status for op in diff.ops] == ['applied'] * len(ops)
@@ -1371,13 +1375,59 @@ class TestServiceUpdateRunning:
         sent = self._update_hosted(monkeypatch, app_file, ServiceState.STOPPED)
         assert [type(r).__name__ for r in sent] == ['StartServiceInstanceRequest']
 
+    def test_hosted_stopped_changed(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        sent = self._update_hosted(
+            monkeypatch, app_file, ServiceState.STOPPED, ServiceChangeOp.otel(False, True), otel=True
+        )
+        assert [type(r).__name__ for r in sent] == ['UpdateServiceInstanceRequest']
+
+    def test_hosted_failed_otel_retry(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        record = ServiceInstanceRecord(
+            service_name='ingest',
+            base_path='',
+            endpoint='https://acme-main.example.com/ingest',
+            app_module=module_name(app_file, subject='application file'),
+            spec=ServiceSpec(name='ingest'),
+            state=ServiceState.AVAILABLE,
+        )
+        control_plane = _ControlPlane(record, roll_error=_ROLL_FAILED)
+        monkeypatch.setattr(management_client, 'api_call', control_plane.api_call)
+        monkeypatch.setattr(ServiceManagerProxy, '_wait_for_endpoint', lambda self, instance: None)
+        manager = ServiceManagerProxy(catalog.Path.parse('pxt://acme:main', allow_empty_path=True))
+        monkeypatch.setattr(serving_service, 'get_manager', lambda target: manager)
+        fingerprint = ProjectFingerprint(
+            files={}, python_version='3.11', system_dependencies=[], pixeltable_version='test', vars={}
+        )
+        app_info = serving_service._AppInfo(
+            app_file=app_file,
+            services={'ingest': serving_service._ServiceInfo(spec=record.spec, kind='declarative')},
+            model_mismatch_reason=None,
+            db_uri='pxt://acme:main',
+            target_db_fingerprint=fingerprint,
+            local_fingerprint=fingerprint,
+        )
+        monkeypatch.setattr(serving_service, '_get_app_info', lambda app_file, target: app_info)
+
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=f"Service 'ingest' was not updated: {_ROLL_FAILED}"):
+            serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=True)
+        assert control_plane.record.otel
+        assert control_plane.record.error == _ROLL_FAILED
+
+        control_plane.roll_error = None
+        [diff] = serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=True).services
+        assert diff.status == 'applied'
+        assert control_plane.record.error is None
+        assert [type(request).__name__ for request in control_plane.sent] == [
+            'UpdateServiceInstanceRequest',
+            'RestartServiceInstanceRequest',
+        ]
+
     def test_hosted_changed_roll_failed(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
         """An update whose new pods do not come up is reported as not updated, although the old ones keep serving."""
         changed = ServiceChangeOp.otel(False, True)
         control_plane = self._hosted(monkeypatch, app_file, ServiceState.AVAILABLE, changed, roll_error=_ROLL_FAILED)
-        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR) as info:
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=f"Service 'ingest' was not updated: {_ROLL_FAILED}"):
             serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=True)
-        assert str(info.value) == f"Service 'ingest' was not updated: {_ROLL_FAILED}"
         # nor started over the pods that still serve
         assert [type(r).__name__ for r in control_plane.sent] == ['UpdateServiceInstanceRequest']
 
@@ -1385,12 +1435,10 @@ class TestServiceUpdateRunning:
         """So is a restart, whether `pxt service update` or `pxt service restart` sends it."""
         changed = ServiceChangeOp.fingerprint_changed(['app.py changed'])
         control_plane = self._hosted(monkeypatch, app_file, ServiceState.AVAILABLE, changed, roll_error=_ROLL_FAILED)
-        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR) as info:
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=f"Service 'ingest' was not updated: {_ROLL_FAILED}"):
             serving_service.service_update(app_file, PxtPath('pxt://acme:main'))
-        assert str(info.value) == f"Service 'ingest' was not updated: {_ROLL_FAILED}"
-        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR) as info:
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=f"Service 'ingest' was not updated: {_ROLL_FAILED}"):
             serving_service.service_restart(['pxt://acme:main/ingest'])
-        assert str(info.value) == f"Service 'ingest' was not updated: {_ROLL_FAILED}"
         assert [type(r).__name__ for r in control_plane.sent] == ['RestartServiceInstanceRequest'] * 2
 
     @pytest.mark.parametrize(
@@ -1414,9 +1462,10 @@ class TestServiceUpdateRunning:
             roll_state=ServiceState.FAILED,
             roll_error=_ROLL_TIMED_OUT,
         )
-        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR) as info:
+        with pxt_raises(
+            pxt.ErrorCode.INTERNAL_ERROR, match=f"Service 'ingest' did not come back; it is FAILED: {_ROLL_TIMED_OUT}"
+        ):
             serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=otel)
-        assert str(info.value) == f"Service 'ingest' did not come back; it is FAILED: {_ROLL_TIMED_OUT}"
         assert [type(r).__name__ for r in control_plane.sent] == [rolled_by]
 
     def test_hosted_no_roll(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:

@@ -51,7 +51,7 @@ class ServiceInstanceRecord(pydantic.BaseModel):
     # set on every update of the record
     updated_at: float | None = None
 
-    # the reason for a FAILED state
+    # why the service failed, or why its previous pods remain available after a failed roll
     error: str | None = None
 
     # the project the instance serves; None until its pod reports one
