@@ -207,12 +207,9 @@ class Analyzer:
         else:
             # an expression such as <grouping expr 1> + <grouping expr 2> can both be the output and input of agg
             assert len(e.components) > 0
-            # TODO this looks like it can use a refactor
-            component_is_output, component_is_input = zip(
-                *[self._determine_agg_status(c, grouping_expr_ids) for c in e.components]
-            )
-            is_output = component_is_output.count(True) == len(e.components)
-            is_input = component_is_input.count(True) == len(e.components)
+            statuses: list[tuple[bool, bool]] = [self._determine_agg_status(c, grouping_expr_ids) for c in e.components]
+            is_output = all(out for out, _ in statuses)
+            is_input = all(inp for _, inp in statuses)
             if not is_output and not is_input:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression, mixes aggregate with non-aggregate: {e}'
