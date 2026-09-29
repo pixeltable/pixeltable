@@ -7,7 +7,7 @@ first `pip install openai-whisper`.
 """
 
 import threading
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, NotRequired, Sequence, TypedDict
 
 import pixeltable as pxt
 from pixeltable.env import Env
@@ -15,6 +15,57 @@ from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     from whisper import Whisper  # type: ignore[import-untyped]
+
+
+class WhisperWord(TypedDict):
+    """One word of a transcription segment, with its timing."""
+
+    word: str
+    """The word's text, including any leading space and attached punctuation."""
+    start: float
+    """Word start, in seconds from the start of the audio."""
+    end: float
+    """Word end, in seconds from the start of the audio."""
+    probability: float
+    """Mean probability of the word's tokens."""
+
+
+class WhisperSegment(TypedDict):
+    """One segment of a transcription, with its timing and decoding statistics."""
+
+    id: int
+    """Index of the segment in the transcription's `segments` list."""
+    seek: int
+    """Start of the segment's decoding window, in 10 ms frames."""
+    start: float
+    """Segment start, in seconds from the start of the audio."""
+    end: float
+    """Segment end, in seconds from the start of the audio."""
+    text: str
+    """The segment's text."""
+    tokens: list[int]
+    """Token IDs of the segment; can include timestamp tokens."""
+    temperature: float
+    """Sampling temperature of the segment's decoding window."""
+    avg_logprob: float
+    """Average log probability of the tokens in the segment's decoding window."""
+    compression_ratio: float
+    """Compression ratio of the text in the segment's decoding window; a high value indicates repetitive output."""
+    no_speech_prob: float
+    """Probability that the segment's decoding window contains no speech."""
+    words: NotRequired[list[WhisperWord]]
+    """Timings of the segment's words; present only when `word_timestamps=True`."""
+
+
+class WhisperTranscription(TypedDict):
+    """Output of [`transcribe()`][pixeltable.functions.whisper.transcribe]."""
+
+    text: str
+    """The full transcription."""
+    segments: list[WhisperSegment]
+    """The transcription's segments, in order."""
+    language: str
+    """Code of the transcription's language, such as `en`."""
 
 
 @pxt.udf
@@ -32,7 +83,7 @@ def transcribe(
     prepend_punctuations: str = '"\'“¿([{-',
     append_punctuations: str = '"\'.。,，!！?？:：”)]}、',  # noqa: RUF001
     decode_options: dict | None = None,
-) -> dict:
+) -> WhisperTranscription:
     """
     Transcribe an audio file using Whisper.
 
@@ -49,13 +100,18 @@ def transcribe(
         model: The name of the model to use for transcription.
 
     Returns:
-        A dictionary containing the transcription and various other metadata.
+        A [`WhisperTranscription`][pixeltable.functions.whisper.WhisperTranscription] dictionary with the
+        transcription's text, segments, and language.
 
     Examples:
         Add a computed column that applies the model `base.en` to an existing Pixeltable column `tbl.audio`
         of the table `tbl`:
 
         >>> tbl.add_computed_column(result=transcribe(tbl.audio, model='base.en'))
+
+        Add a `String` column with the transcription's text:
+
+        >>> tbl.add_computed_column(text=tbl.result.text)
     """
     Env.get().require_package('whisper')
     Env.get().require_package('torch')
@@ -97,7 +153,8 @@ _cache_lock = threading.Lock()
 _model_cache: dict[tuple[str, str], 'Whisper'] = {}
 
 
-__all__ = local_public_names(__name__)
+_class_names = ['WhisperTranscription', 'WhisperSegment', 'WhisperWord']
+__all__ = local_public_names(__name__) + _class_names
 
 
 def __dir__() -> list[str]:
