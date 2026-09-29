@@ -148,7 +148,7 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
     Updates request._remote_parts with the temp paths of the localized files.
 
     A part is either an object of its own or a member of an archive (see PxtArchivePartSink). Each archive is
-    downloaded once, and only the members the request references are extracted from it.
+    downloaded once, and only the members referenced by the request are extracted from it.
 
     Should be called outside of a db transaction so that object-store I/O never holds a db connection.
     """

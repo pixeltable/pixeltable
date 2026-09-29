@@ -92,7 +92,7 @@ class PartSink(abc.ABC, Generic[T]):
         """Complete any work the sink deferred while serializing."""
 
     def abort(self) -> None:
-        """Discard any work the sink deferred while serializing; called in place of flush() on failure."""
+        """Discard the sink's deferred work; called when serialization or flush() fails."""
 
 
 class InlinePartSink(PartSink[int]):
@@ -369,8 +369,8 @@ class ProxyRequest(BaseModel):
     # temp path -> the client's original filename; needed for informative error messages
     _uploaded_names: dict[str, str] = PrivateAttr(default_factory=dict)
 
-    # (object key, member name) -> local temp path, for the parts the client uploaded out of band; populated by
-    # the server before dispatch (see proxy_dispatch._prefetch_remote_parts)
+    # (object key, member name) -> local temp path, for the client's out-of-band parts; populated by the server
+    # before dispatch (see proxy_dispatch._prefetch_remote_parts)
     _remote_parts: dict[tuple[str, str | None], str] = PrivateAttr(default_factory=dict)
 
 
