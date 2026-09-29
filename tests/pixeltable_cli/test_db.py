@@ -15,7 +15,7 @@ from typing import Any, Iterator
 import pytest
 
 from pixeltable.service import proxy_daemon
-from tests.utils import DatabaseRoot, new_db_uri, skip_test_if_no_config
+from tests.utils import DatabaseRoot, new_db_uri
 
 from .conftest import (
     APPLY_TIMEOUT,
@@ -50,12 +50,6 @@ def _list_dbs(cli: PxtRunner, project: pathlib.Path) -> set[str]:
 def get_target_ops(plan: dict[str, Any], target: str) -> list[dict[str, Any]]:
     """The plan's operations against one target: image, archive, capacity or secret."""
     return [op for op in plan['ops'] if op['target'] == target]
-
-
-@pytest.fixture
-def hosted_environment() -> None:
-    """Skip the test unless a control plane is configured to create the database against."""
-    skip_test_if_no_config('api_key')
 
 
 @pytest.fixture(scope='module')
@@ -131,6 +125,17 @@ class TestDb:
             assert db_name not in _list_dbs(cli, project)
         finally:
             cli('db', 'delete', absent, '-f', cwd=project, check=False)
+
+    def test_name_case(self, cli: PxtRunner, project: pathlib.Path) -> None:
+        """A database is found whatever the case of its name, in the config file or on the command line."""
+        db = f'pxttest-absent-{uuid.uuid4().hex[:12]}'
+        lower, mixed = f'pxt://pixeltable:{db}', f'pxt://pixeltable:{db.upper()}'
+
+        create_project_config(cli, project, mixed)
+        assert db_diff(cli, project, lower)['resolution'] == 'create'
+
+        create_project_config(cli, project, lower)
+        assert db_diff(cli, project, mixed)['resolution'] == 'create'
 
     def test_source_edit(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
         create_project_config(cli, project, test_db_uri)

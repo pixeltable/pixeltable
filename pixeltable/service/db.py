@@ -354,7 +354,7 @@ def _get_db_config(db_uri: catalog.Path) -> DatabaseConfig:
         where = Config.get().project_config_file or 'the project configuration'
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            f'no [[pixeltable.database]] entry names {db_uri.uri_str!r}; add one to {where}:\n'
+            f'no [[pixeltable.database]] entry for {db_uri.uri_str!r}; add one to {where}:\n'
             f'  [[pixeltable.database]]\n  name = {db_uri.uri_str!r}',
         )
     return config
