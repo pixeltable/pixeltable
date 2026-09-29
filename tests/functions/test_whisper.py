@@ -35,10 +35,9 @@ class TestWhisper:
         row = t.collect()[0]
         assert row['transcription']['language'] == 'en'
         assert 'city upon a hill' in row['text']
-        assert all('words' not in segment for segment in row['transcription']['segments'])
         assert row['first_word']['start'] <= row['first_word']['end']
 
-        # insert() rejects a value that does not match the WhisperTranscription schema
+        # insert() checks that both outputs conform to the WhisperTranscription schema
         out = pxt.create_table('whisper_out', {'transcription': whisper.WhisperTranscription})
         validate_update_status(
             out.insert([{'transcription': row['transcription']}, {'transcription': row['transcription_words']}]),

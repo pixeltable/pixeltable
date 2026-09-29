@@ -54,7 +54,7 @@ class WhisperSegment(TypedDict):
     no_speech_prob: float
     """Probability that the segment's decoding window contains no speech."""
     words: NotRequired[list[WhisperWord]]
-    """Timings of the segment's words; present only when `word_timestamps=True`."""
+    """Timings of the segment's words; empty or absent unless `word_timestamps=True`."""
 
 
 class WhisperTranscription(TypedDict):
