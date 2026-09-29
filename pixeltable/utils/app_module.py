@@ -86,7 +86,6 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
             excs.ErrorCode.UNSUPPORTED_OPERATION, _prohibited_write_msg(str(path), subject, e)
         ) from e
     except excs.Error as e:
-        # a Pixeltable error's message is written for the user; its class name adds nothing
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'error loading {file}: {e}') from e
     except Exception as e:
         reason = f'{type(e).__name__}: {e}' if str(e) else type(e).__name__
