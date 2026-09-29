@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 from typing import TYPE_CHECKING, Any, Literal
 
 from pixeltable import catalog, exprs
@@ -11,6 +12,8 @@ from pixeltable_cli.types import Resolution, SchemaChangeIndexRef, SchemaChangeO
 
 from ..globals import col_type_from_spec, fold_mapping_keys
 from ..table_metadata import ColumnMetadata, IndexMetadata, TableMetadata
+from .definition import bind_query_templates
+from .resolution import resolve_model_value_expr
 
 if TYPE_CHECKING:
     from .definition import IndexDefinition, TableModelMeta
@@ -252,6 +255,41 @@ def _alter_column_change(
     )
 
 
+def _value_expr_dict(
+    value: Any, tbl_path: catalog.TablePath, *, catalog_dir: str, origin: Literal['base_query', 'model_body']
+) -> dict[str, Any]:
+    """Return the resolved expression dictionary for a model column value.
+
+    `value` is the model column value, and `tbl_path` is its catalog table. `catalog_dir` provides the directory for
+    binding query templates. `origin` affects which columns are visible.
+    """
+    value_expr = exprs.Expr.from_object(value)
+    value_expr = bind_query_templates(value_expr.copy(), catalog_dir)
+    return resolve_model_value_expr(tbl_path, value_expr, origin).as_dict()
+
+
+def _column_value_changed(
+    spec: ColumnSpec,
+    col_name: str,
+    tbl_path: catalog.TablePath,
+    *,
+    catalog_dir: str,
+    origin: Literal['base_query', 'model_body'],
+) -> bool:
+    """Return whether the model and catalog define different values for a column."""
+    model_value = spec.get('value')
+    existing_col_md = tbl_path.get_column_md_by_name(col_name)
+    assert existing_col_md is not None
+    existing_value = existing_col_md.schema_col.value_expr
+    if model_value is None or existing_value is None:
+        return model_value is not existing_value
+    model_value_dict = _value_expr_dict(model_value, tbl_path, catalog_dir=catalog_dir, origin=origin)
+
+    # Both dicts can contain tuples independently from each other. Running them through JSON serialization and back
+    # normalizes them.
+    return json.loads(json.dumps(model_value_dict)) != json.loads(json.dumps(existing_value))
+
+
 def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: str) -> dict[str, TableDiff]:
     """
     Analyze each registered model against the current catalog state, summarizing the schema changes that creating
@@ -388,16 +426,21 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
             # Columns that are present in both, but whose properties differ. Some kinds of changes are supported,
             # others are not.
             default_media_validation = model.__table_spec__['media_validation'].name.lower()
+            base_cols = base_query_columns(model)
             for col_name in sorted(model_cols & existing_cols):
                 spec = user_cols[col_name]
                 col_md = existing_md['columns'][col_name]
                 model_props = _ColumnProperties.from_spec(spec, default_media_validation)
                 existing_props = _ColumnProperties.from_metadata(col_md)
+                origin: Literal['base_query', 'model_body'] = 'base_query' if col_name in base_cols else 'model_body'
+                value_changed = _column_value_changed(spec, col_name, tbl_path, catalog_dir=catalog_dir, origin=origin)
                 altered = [
                     prop
                     for prop in model_props.__dataclass_fields__
-                    if getattr(model_props, prop) != getattr(existing_props, prop)
+                    if prop != 'value' and getattr(model_props, prop) != getattr(existing_props, prop)
                 ]
+                if value_changed:
+                    altered.append('value')
                 if len(altered) == 0:
                     continue
                 ops.append(_alter_column_change(col_name, spec, model_props, existing_props, col_md, altered))

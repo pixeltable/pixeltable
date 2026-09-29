@@ -2950,7 +2950,7 @@ class TestTableModel:
                 ]
 
     def test_update_all_altered_computed_column(self, db_root: DatabaseRoot) -> None:
-        """`update_all()` replaces a computed column's value expression without recomputing its stored values."""
+        """`update_all()` replaces computed column value expressions without recomputing their stored values."""
         p = db_root.make_catalog_path
         root = p('')
 
@@ -3065,6 +3065,56 @@ class TestTableModel:
         assert all(d.resolution == 'up_to_date' for d in NarrowedModel.get_model_diff(root).values())
         t.recompute_columns('doubled')
         assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [100, 200]
+
+        # Detect a query UDF body change when its name and call arguments stay unchanged.
+        QueryModel = pxt.model_base()
+
+        class Docs(QueryModel, name='docs'):
+            doc_id: pxt.Int
+            title: pxt.String
+
+        @pxt.query
+        def titles_after(cutoff: int) -> pxt.Query:
+            return Docs.where(Docs.doc_id > cutoff).select(Docs.title)  # type: ignore[arg-type]
+
+        class Probe(QueryModel, name='probe'):
+            cutoff: pxt.Int
+            matches = titles_after(cutoff)
+
+        query_root = p('query_udf')
+        pxt.create_dir(query_root, parents=True)
+        QueryModel.create_all(query_root)
+        pxt.get_table(f'{query_root}/docs').insert([{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 5, 'title': 'beta'}])
+        probe = pxt.get_table(f'{query_root}/probe')
+        probe.insert([{'cutoff': 0}])
+        assert probe.select(probe.matches).collect()['matches'] == [[{'title': 'alpha'}, {'title': 'beta'}]]
+
+        reload_catalog()
+        AlteredQueryModel = pxt.model_base()
+
+        class AlteredDocs(AlteredQueryModel, name='docs'):
+            doc_id: pxt.Int
+            title: pxt.String
+
+        # redefine the query
+        @pxt.query  # type: ignore[no-redef]
+        def titles_after(cutoff: int) -> pxt.Query:
+            return AlteredDocs.where(AlteredDocs.doc_id < cutoff).select(AlteredDocs.title)  # type: ignore[arg-type]
+
+        # Updated model. The only difference is matches' underlying query
+        class AlteredProbe(AlteredQueryModel, name='probe'):
+            cutoff: pxt.Int
+            matches = titles_after(cutoff)
+
+        diff = AlteredQueryModel.get_model_diff(query_root)['probe']
+        assert diff.resolution == 'update_additive'
+        assert [(op.op, op.name) for op in diff.ops] == [('alter', 'matches')]
+
+        AlteredQueryModel.update_all(query_root)
+        assert AlteredQueryModel.get_model_diff(query_root)['probe'].resolution == 'up_to_date'
+        probe = pxt.get_table(f'{query_root}/probe')
+        probe.recompute_columns('matches')
+        assert probe.select(probe.matches).collect()['matches'] == [[]]
 
     def test_update_all_altered_column_unsupported(self, db_root: DatabaseRoot) -> None:
         """Unsupported column changes"""
