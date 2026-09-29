@@ -11,6 +11,7 @@ import logging
 import pathlib
 import shutil
 import tarfile
+import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -141,6 +142,8 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
 
 # each archive being localized occupies temp disk twice: the archive itself and its extracted members
 _MAX_ARCHIVE_DOWNLOADS = 4
+# shared by all requests, so the bound holds across concurrent inserts
+_archive_download_slots = threading.BoundedSemaphore(_MAX_ARCHIVE_DOWNLOADS)
 
 
 def _prefetch_remote_parts(request: ProxyRequest) -> None:
@@ -188,20 +191,28 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
     def extract(archive_key: str, members: list[str]) -> None:
         archive_path = TempStore.create_path(extension='.tar')
         try:
-            download(archive_key, archive_path)
-            with tarfile.open(archive_path, 'r:') as tf:
-                infos = {info.name: info for info in tf.getmembers()}
-                for member in members:
-                    info = infos.get(member)
-                    src = tf.extractfile(info) if info is not None and info.isfile() else None
-                    if src is None:
-                        raise excs.NotFoundError(
-                            excs.ErrorCode.STORAGE_NOT_FOUND,
-                            f'Uploaded archive {archive_key!r} is missing member {member!r}',
-                        )
-                    # a member name never reaches the filesystem: each part extracts to its own temp path
-                    with src, open(request._remote_parts[archive_key, member], 'wb') as dest:
-                        shutil.copyfileobj(src, dest)
+            with _archive_download_slots:
+                download(archive_key, archive_path)
+                with tarfile.open(archive_path, 'r:') as tf:
+                    infos = {info.name: info for info in tf.getmembers()}
+                    for member in members:
+                        info = infos.get(member)
+                        if info is None:
+                            raise excs.NotFoundError(
+                                excs.ErrorCode.STORAGE_NOT_FOUND,
+                                f'Uploaded archive {archive_key!r} is missing member {member!r}',
+                            )
+                        # a sparse member extracts to more bytes than the archive stores
+                        src = tf.extractfile(info) if info.isfile() and not info.issparse() else None
+                        if src is None:
+                            raise excs.RequestError(
+                                excs.ErrorCode.INVALID_DATA_FORMAT,
+                                f'Uploaded archive {archive_key!r}: member {member!r} is not a regular, '
+                                'non-sparse file',
+                            )
+                        # a member name never reaches the filesystem: each part extracts to its own temp path
+                        with src, open(request._remote_parts[archive_key, member], 'wb') as dest:
+                            shutil.copyfileobj(src, dest)
         except tarfile.TarError as e:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_DATA_FORMAT, f'Uploaded archive {archive_key!r} is not a valid tar file'
@@ -211,10 +222,12 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
 
     # concurrent downloads are safe: boto3 clients are thread-safe
     if len(objects) > 0:
-        with ThreadPoolExecutor(max_workers=min(16, len(objects))) as executor:
+        with ThreadPoolExecutor(max_workers=min(16, len(objects)), thread_name_prefix='pxt-part-download') as executor:
             list(executor.map(lambda key: download(key, pathlib.Path(request._remote_parts[key, None])), objects))
     if len(archives) > 0:
-        with ThreadPoolExecutor(max_workers=min(_MAX_ARCHIVE_DOWNLOADS, len(archives))) as executor:
+        with ThreadPoolExecutor(
+            max_workers=min(_MAX_ARCHIVE_DOWNLOADS, len(archives)), thread_name_prefix='pxt-archive-download'
+        ) as executor:
             list(executor.map(lambda item: extract(*item), archives.items()))
 
 

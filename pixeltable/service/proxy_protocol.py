@@ -20,7 +20,7 @@ import pathlib
 import shutil
 import struct
 import tarfile
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
 from typing import IO, TYPE_CHECKING, Any, Callable, Generic, TypedDict, TypeVar
 from uuid import UUID, uuid4
 
@@ -206,8 +206,21 @@ class PxtStorePartSink(PartSink[int | str | ArchiveMember]):
         # construction (see S3Store.client()), so the upload threads share that one client, as boto3 permits
         store = self._get_store()
         pending, self._pending = self._pending, []
-        with ThreadPoolExecutor(max_workers=min(self._MAX_UPLOAD_THREADS, len(pending))) as executor:
-            list(executor.map(lambda item: self._upload_one(store, *item), pending))
+        executor = ThreadPoolExecutor(
+            max_workers=min(self._MAX_UPLOAD_THREADS, len(pending)), thread_name_prefix='pxt-part-upload'
+        )
+        uploads: list[Future[None]] = []
+        try:
+            for item in pending:
+                uploads.append(executor.submit(self._upload_one, store, *item))
+            for upload in wait(uploads, return_when=FIRST_EXCEPTION).done:
+                upload.result()
+        finally:
+            # waiting for a running upload would hold up a Ctrl+C; each one removes its own staged file
+            executor.shutdown(wait=False, cancel_futures=True)
+            for i, (path, _, remove_after_upload) in enumerate(pending):
+                if remove_after_upload and (i >= len(uploads) or uploads[i].cancelled()):
+                    path.unlink(missing_ok=True)
 
     def abort(self) -> None:
         pending, self._pending = self._pending, []
@@ -264,7 +277,6 @@ class PxtArchivePartSink(PxtStorePartSink):
         return super().add_media_file(path)
 
     def _add_member(self, suffix: str, size: int, fileobj: IO[bytes]) -> ArchiveMember:
-        """Append a part to the open archive, opening one if needed."""
         if self._tar is None:
             self._open_archive()
         assert self._tar is not None and self._tar_key is not None
@@ -297,14 +309,18 @@ class PxtArchivePartSink(PxtStorePartSink):
         # built on this thread, so the upload threads never race to construct it
         store = self._get_store()
         if self._executor is None:
-            self._executor = ThreadPoolExecutor(max_workers=self._MAX_ARCHIVE_UPLOADS)
+            self._executor = ThreadPoolExecutor(
+                max_workers=self._MAX_ARCHIVE_UPLOADS, thread_name_prefix='pxt-archive-upload'
+            )
         upload = self._executor.submit(self._upload_one, store, self._tar_path, self._tar_key, True)
         self._uploads.append((upload, self._tar_path))
         self._tar, self._tar_path, self._tar_key = None, None, None
 
     def _shut_down(self) -> None:
-        """Remove the archive not yet queued for upload, cancel the queued uploads, wait for the running ones,
-        and remove every local archive file."""
+        """Remove the archive not yet queued for upload and the archives of the cancelled uploads.
+
+        Waiting for a running upload would hold up a Ctrl+C, so it is left to finish and remove its own archive.
+        """
         if self._tar is not None:
             with contextlib.suppress(OSError):
                 self._tar.close()
@@ -312,18 +328,19 @@ class PxtArchivePartSink(PxtStorePartSink):
             self._tar_path.unlink(missing_ok=True)
         self._tar, self._tar_path, self._tar_key = None, None, None
         if self._executor is not None:
-            self._executor.shutdown(wait=True, cancel_futures=True)
+            self._executor.shutdown(wait=False, cancel_futures=True)
             self._executor = None
         uploads, self._uploads = self._uploads, []
-        for _, path in uploads:
-            path.unlink(missing_ok=True)
+        for upload, path in uploads:
+            if not upload.running():
+                path.unlink(missing_ok=True)
 
     def flush(self) -> None:
         """Upload the open archive, then wait for every upload; re-raises the first failure."""
         try:
             if self._tar is not None:
                 self._close_archive()
-            for upload, _ in self._uploads:
+            for upload in wait([upload for upload, _ in self._uploads], return_when=FIRST_EXCEPTION).done:
                 upload.result()
             super().flush()
         finally:
@@ -736,7 +753,13 @@ def collect_remote_keys(args: Any) -> list[tuple[str, str | None]]:
                 walk(item)
         elif isinstance(obj, dict):
             if obj.get(_TAG) in _BINARY_TAGS and isinstance(obj.get('v'), str):
-                keys[obj['v'], obj.get('member')] = None
+                member = obj.get('member')
+                if member is not None and not isinstance(member, str):
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_ARGUMENT,
+                        f'Invalid archive member name: expected a string, got {type(member).__name__}',
+                    )
+                keys[obj['v'], member] = None
             else:
                 for value in obj.values():
                     walk(value)

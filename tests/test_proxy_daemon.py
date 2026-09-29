@@ -7,6 +7,7 @@ import socketserver
 import ssl
 import tarfile
 import threading
+import time
 import uuid
 from collections.abc import Iterator
 from typing import Any
@@ -68,6 +69,17 @@ def _tar_bytes(members: dict[str, bytes]) -> bytes:
             info = tarfile.TarInfo(name)
             info.size = len(data)
             tf.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+def _sparse_tar_bytes(name: str, size: int) -> bytes:
+    """A tar whose one member stores a single byte but extracts to size bytes (GNU sparse format 0.1)."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode='w', format=tarfile.PAX_FORMAT) as tf:
+        info = tarfile.TarInfo(name)
+        info.size = 1
+        info.pax_headers = {'GNU.sparse.map': '0,1', 'GNU.sparse.size': str(size)}
+        tf.addfile(info, io.BytesIO(b'x'))
     return buf.getvalue()
 
 
@@ -248,6 +260,13 @@ class TestProxyDaemon:
             ('uploads/r/tar0.tar', '7.bin'),
         ]
         assert proxy_protocol.collect_remote_keys(args) == expected
+
+        # a member name that is not a string is the client's error
+        bad_member = {'$pxt': 'file', 'name': 'a', 'v': 'uploads/r/tar0.tar', 'member': ['0.png']}
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match='Invalid archive member name: expected a string, got list'
+        ):
+            proxy_protocol.collect_remote_keys({'rows': [bad_member]})
 
     def test_prepare_once_on_stale_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
         client = ProxyClient.local('http://127.0.0.1:1')
@@ -537,6 +556,59 @@ class TestProxyDaemon:
         assert objects == {}
         assert TempStore.count() == tmp_count
 
+    @staticmethod
+    def _wait_for_temp_count(expected: int) -> None:
+        """Wait for background uploads to remove their local files."""
+        deadline = time.monotonic() + 10
+        while TempStore.count() != expected and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert TempStore.count() == expected
+
+    def test_failures_do_not_wait_for_running_uploads(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A failure reaches the caller while an upload is still running, so it does not hold up a Ctrl+C; the
+        running upload removes its own local file when it finishes."""
+        started, release = threading.Event(), threading.Event()
+
+        class BlockingStore:
+            def copy_local_file(self, src_path: pathlib.Path, dest: FileDestination) -> str:
+                assert dest.remote_key is not None
+                if dest.remote_key.endswith('.fail'):
+                    started.wait(5)
+                    raise RuntimeError('upload failed')
+                started.set()
+                release.wait(30)
+                return dest.url
+
+        monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(lambda *args, **kwargs: BlockingStore()))
+        tmp_count = TempStore.count()
+
+        # the archive sink: every member closes its archive, so an upload is running when serialization fails
+        monkeypatch.setattr(PxtArchivePartSink, '_ARCHIVE_TARGET_SIZE', 1)
+        # releases the upload after 5 s; if abort() waited for it, serialize_args() would return only after that
+        watchdog = threading.Timer(5, release.set)
+        watchdog.start()
+        with pytest.raises(AssertionError, match='cannot serialize object'):
+            proxy_protocol.serialize_args({'small': b'y' * 1000, 'bad': object()}, PxtArchivePartSink('org1', 'db1'))
+        assert started.is_set() and not release.is_set()
+        watchdog.cancel()
+        release.set()
+        self._wait_for_temp_count(tmp_count)
+
+        # PxtStorePartSink: one upload fails while another is running
+        started.clear()
+        release.clear()
+        sink = PxtStorePartSink('org1', 'db1')
+        sink.add_media_bytes(b'x' * 1000, '.slow')
+        sink.add_media_bytes(b'x' * 1000, '.fail')
+        watchdog = threading.Timer(5, release.set)
+        watchdog.start()
+        with pytest.raises(RuntimeError, match='upload failed'):
+            sink.flush()
+        assert not release.is_set()
+        watchdog.cancel()
+        release.set()
+        self._wait_for_temp_count(tmp_count)
+
     def test_sinks_clean_up_after_failed_store_setup(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         """A credential fetch that fails in flush() leaves nothing in TempStore."""
 
@@ -568,6 +640,7 @@ class TestProxyDaemon:
             'req/tar1.tar': _tar_bytes({'2.jpg': b'c'}),
             'req/3.bin': b'd',
             'req/bad.tar': b'not a tar file',
+            'req/sparse.tar': _sparse_tar_bytes('0.bin', 50 * 1024 * 1024),
         }
         store_uris: list[str] = []
         downloads: list[str] = []
@@ -616,6 +689,13 @@ class TestProxyDaemon:
         # an object that is not a tar file
         with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=r'bad\.tar.*not a valid tar file'):
             proxy_dispatch._prefetch_remote_parts(self._remote_file_request(('uploads/req/bad.tar', '0.png')))
+
+        # a sparse member, which would extract to 50 MB from a 10 KB archive
+        with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=r"member '0\.bin' is not a regular, non-sparse file"):
+            proxy_dispatch._prefetch_remote_parts(self._remote_file_request(('uploads/req/sparse.tar', '0.bin')))
+
+        # the failed requests left no archive and no extracted member behind
+        assert TempStore.count() == tmp_count
 
     def test_archive_round_trip_through_prefetch(
         self, hosted_identity: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
