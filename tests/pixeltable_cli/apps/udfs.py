@@ -25,9 +25,3 @@ def dummy_embedding(text: str) -> pxt.Array[(32,), np.float32]:
     arr = np.zeros((32,), dtype=np.float32)
     arr[len(text) % 32] = 1
     return arr
-
-
-@pxt.udf
-def excerpt(text: str, n: int = 12) -> str:
-    """A udf, so that a computed column is not only an expression over other columns."""
-    return text if len(text) <= n else f'{text[:n]}...'

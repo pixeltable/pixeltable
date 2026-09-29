@@ -4,7 +4,7 @@
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from apps.udfs import excerpt
+from apps.basic import excerpt
 from pixeltable.serving import FastAPIRouter
 
 TableModel = pxt.model_base()
