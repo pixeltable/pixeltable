@@ -939,6 +939,36 @@ class TestLogin:
 
         assert 'No organization yet: create one with `pxt org create NAME`' in r.stdout
 
+    @pytest.mark.parametrize(
+        ('status', 'org_line', 'switched_to'),
+        [(200, 'Organization: org_01ONLY', ['org_01ONLY']), (500, 'No organization yet', [])],
+        ids=['one-org', 'lookup-fails'],
+    )
+    def test_login_switches_to_the_only_organization(
+        self,
+        cloud_cli: PxtRunner,
+        control_plane: ControlPlane,
+        monkeypatch: pytest.MonkeyPatch,
+        status: int,
+        org_line: str,
+        switched_to: list[str],
+    ) -> None:
+        """A sign-in without an organization is switched to the caller's only organization.
+
+        A failed lookup still signs in, without an organization.
+        """
+        monkeypatch.setitem(control_plane.answers, 'list_orgs', {'orgs': [{'org_id': 'org_01ONLY', 'org': 'only'}]})
+        monkeypatch.setattr(control_plane, 'status', status)
+        control_plane.tokens[:] = [
+            (200, control_plane.grant(organization_id='')),
+            (200, control_plane.grant(organization_id='org_01ONLY', refresh_token='refresh-2')),
+        ]
+
+        r = cloud_cli('login')
+
+        assert org_line in r.stdout
+        assert [t['organization_id'] for t in control_plane.token_seen if 'organization_id' in t] == switched_to
+
     def test_login_json(self, cloud_cli: PxtRunner) -> None:
         """The code and the link are progress, so a caller parsing stdout must not see them."""
         r = cloud_cli('login', '--json')

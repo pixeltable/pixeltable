@@ -815,7 +815,24 @@ def login_poll(req: Request) -> models.LoginPollResponse:
             _issued_device_codes.pop(body.device_code, None)
     if isinstance(answer, auth.TokenErrorResponse):
         return models.LoginPollResponse(status=answer.code, detail=answer.description)
-    return models.LoginPollResponse(status='granted', email=answer.email, organization_id=answer.organization_id)
+    session = _scoped_to_only_org(answer)
+    return models.LoginPollResponse(status='granted', email=session.email, organization_id=session.organization_id)
+
+
+def _scoped_to_only_org(session: session_cache.Session) -> session_cache.Session:
+    # The sign-in service attaches an organization to a device sign-in only sometimes,
+    # and most hosted commands require one.
+    cred = management_client.configured_credential()
+    # an API key outranks the session, so list_orgs would not use the session
+    if session.organization_id != '' or cred is None or cred.kind != 'session':
+        return session
+    try:
+        orgs = management_client.api_call(ListOrgsRequest()).get('orgs', [])
+        org_id = str(orgs[0].get('org_id') or '') if len(orgs) == 1 else ''
+        return auth.rescope(management_client.api_url(), org_id) if org_id != '' else session
+    except (excs.Error, OSError):
+        # the sign-in has already succeeded
+        return session
 
 
 @router.get('/api/whoami')
