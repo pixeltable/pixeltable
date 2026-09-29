@@ -434,13 +434,13 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                 existing_props = _ColumnProperties.from_metadata(col_md)
                 origin: Literal['base_query', 'model_body'] = 'base_query' if col_name in base_cols else 'model_body'
                 value_changed = _column_value_changed(spec, col_name, tbl_path, catalog_dir=catalog_dir, origin=origin)
-                altered = [
-                    prop
-                    for prop in model_props.__dataclass_fields__
-                    if prop != 'value' and getattr(model_props, prop) != getattr(existing_props, prop)
-                ]
-                if value_changed:
-                    altered.append('value')
+                altered: list[str] = []
+                for prop in model_props.__dataclass_fields__:
+                    if prop == 'value':
+                        if value_changed:
+                            altered.append(prop)
+                    elif getattr(model_props, prop) != getattr(existing_props, prop):
+                        altered.append(prop)
                 if len(altered) == 0:
                     continue
                 ops.append(_alter_column_change(col_name, spec, model_props, existing_props, col_md, altered))
