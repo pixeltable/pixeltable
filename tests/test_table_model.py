@@ -1351,6 +1351,8 @@ class TestTableModel:
               sample mismatch (FATAL):
                 model sample   : sample(n=None, n_per_stratum=None, fraction=0.25, seed=2, [])
                 existing sample: sample(n=None, n_per_stratum=None, fraction=0.5, seed=1, [])
+              the following computed columns have a new value expression, and will be UPDATED:
+                'id_copy': id -> id
               the following columns are new to the model, and will be ADDED:
                 'extra1' = {'value': extra1, 'stored': False}
                 'plustwo' = {'value': id + 2, 'stored': True}
@@ -1621,6 +1623,16 @@ class TestTableModel:
                         "model='sample(n=None, n_per_stratum=None, fraction=0.25, seed=2, [])', "
                         "existing='sample(n=None, n_per_stratum=None, fraction=0.5, seed=1, [])'",
                         'details': {},
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'id_copy',
+                        'op': 'alter',
+                        'severity': 'additive',
+                        'model': {'value': 'id'},
+                        'existing': {'value': 'id'},
+                        'description': "the value expression of computed column 'id_copy' will be updated",
+                        'details': {'type': 'Int', 'value': 'id', 'previous_value': 'id', 'stored': False},
                     },
                     {
                         'target': 'column',
