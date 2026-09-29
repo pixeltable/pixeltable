@@ -1109,8 +1109,9 @@ class Planner:
         cls._verify_join_clauses(analyzer)
 
         # materialized with SQL table scans (ie, single-table SELECT statements):
-        # - select list subexprs that aren't aggregates; in a grouping aggregation, only the args of aggregate and
-        #   window function calls: the rest of the select list is aggregate output, and a scan column is ungrouped
+        # - Select list subexprs that aren't aggregates. In a grouping aggregation, only the args of aggregate and
+        # window function calls; the rest of the analyzer's select list is aggregate output, which is not allowed to be
+        # materialized in the inner scan.
         # - join clause subexprs
         # - subexprs of Where clause conjuncts that can't be run in SQL
         # - all grouping exprs
