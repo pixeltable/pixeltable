@@ -35,7 +35,7 @@ Examples:
   pxt db stop pxt://org:db
   pxt db restart pxt://org:db   # cycle its pods onto the image and project it runs
   pxt db build-image pxt://org:db   # build an image without comparing first
-  pxt db delete pxt://org:db
+  pxt db delete pxt://org:db -f   # no confirmation
 
 The uri selects the matching [[pixeltable.database]] entry in the project configuration:
 
@@ -109,6 +109,7 @@ def run(argv: list[str]) -> None:
 
     p = sub.add_parser('delete', help='delete a hosted database')
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
+    p.add_argument('-f', '--force', action='store_true', help='skip confirmation')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     args = parser.parse_args(argv)
@@ -272,6 +273,7 @@ def _print_plan(plan: DbPlan, *, as_json: bool, applied: bool = False) -> None:
 
 def _delete(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db delete')
+    confirm_or_exit(f'delete pxt://{org}:{db}? This is irreversible.', args.force, refused_exit_code=EXIT_REFUSED)
     post_request('/api/db/delete', {'org': org, 'db': db})
     if args.json_output:
         print(json.dumps({'deleted': db}))

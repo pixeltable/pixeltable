@@ -111,6 +111,8 @@ class JobStatusResponse(pydantic.BaseModel):
     # only set for status == 'error'
     error: str | None = None
 
+    error_detail: Any | None = None
+
     # the per-route response_model produced by add_insert_route(); typed as Any since it varies by route
     # only set for status == 'done'
     result: Any | None = None
@@ -383,9 +385,7 @@ def _run_endpoint_op(
 
 
 class PxtEndpoint:
-    """
-    Wrapper for an endpoint `Callable` that carries additional metadata about the endpoint operation.
-    """
+    # FastAPI publishes an endpoint's __doc__ as its route's OpenAPI description.
 
     router: FastAPIRouter
     route: _RegisteredRoute
@@ -430,10 +430,17 @@ class PxtEndpoint:
 
         if self.route.spec.background:
             job_id = uuid.uuid4().hex
+            job_url = str(request.url_for(_JOB_STATUS_ROUTE_NAME, job_id=job_id))
+            public_origin = os.environ.get('PIXELTABLE_PUBLIC_ORIGIN')
+            if public_origin is not None:
+                origin = urllib.parse.urlsplit(public_origin)
+                if origin.scheme != 'https' or not origin.netloc or origin.path or origin.query or origin.fragment:
+                    raise ValueError('PIXELTABLE_PUBLIC_ORIGIN must be an HTTPS origin')
+                job_url = f'{public_origin}{urllib.parse.urlsplit(job_url).path}'
             fut = self.router._executor.submit(_run_endpoint_op, self.endpoint_op, kwargs, tmp_paths, media)
             with self.router._jobs_lock:
                 self.router._jobs[job_id] = fut
-            return BackgroundJobResponse(id=job_id, job_url=str(request.url_for(_JOB_STATUS_ROUTE_NAME, job_id=job_id)))
+            return BackgroundJobResponse(id=job_id, job_url=job_url)
         else:
             return _run_endpoint_op(self.endpoint_op, kwargs, tmp_paths, media)
 
@@ -496,7 +503,6 @@ class FastAPIRouter(fastapi.APIRouter):
         self._unbound_queries = {}
         self._base_path = None
         self._register_media_route()
-        self._register_jobs_route()
         # Shut down the worker pool when the parent app's lifespan ends. include_router()
         # merges this handler into the app's on_shutdown list, so it fires on app shutdown.
         self.add_event_handler('shutdown', self.__shutdown)
@@ -639,6 +645,10 @@ class FastAPIRouter(fastapi.APIRouter):
             table_path=defined_path,
             query_cols=tuple(query_cols),
         )
+        if background and not any(r.spec.background for r in self._routes):
+            # only a router that starts jobs serves the route that polls them: in an application that includes
+            # several routers, the others' copies would shadow its path and duplicate it in the schema
+            self._register_jobs_route()
         self._routes.append(route)
         if tbl is not None:
             self._route_bindings[route.route_id] = (tbl, tbl.get_metadata()['schema_version'])
@@ -2064,6 +2074,7 @@ class FastAPIRouter(fastapi.APIRouter):
             api_kwargs['response_model'] = endpoint_model
         if return_fileresponse:
             api_kwargs['response_class'] = FileResponse
+            api_kwargs['responses'] = {200: {'content': {'*/*': {'schema': {'type': 'string', 'format': 'binary'}}}}}
         self.add_api_route(path, endpoint, **api_kwargs)
 
     def _make_schema_sql_exporter(
@@ -2187,6 +2198,7 @@ class FastAPIRouter(fastapi.APIRouter):
             api_kwargs['response_model'] = response_model
         if return_fileresponse:
             api_kwargs['response_class'] = FileResponse
+            api_kwargs['responses'] = {200: {'content': {'*/*': {'schema': {'type': 'string', 'format': 'binary'}}}}}
 
         self.add_api_route(path, endpoint, **api_kwargs)
 
@@ -2647,7 +2659,9 @@ class FastAPIRouter(fastapi.APIRouter):
                 return JobStatusResponse(status='pending')
             exc = fut.exception()
             if exc is not None:
-                return JobStatusResponse(status='error', error=str(exc))
+                # _run_endpoint_op() already turned a Pixeltable error into its HTTPException
+                error_detail = exc.detail if isinstance(exc, HTTPException) else None
+                return JobStatusResponse(status='error', error=str(exc), error_detail=error_detail)
             # FileResponse cannot be JSON-serialized; only response_model instances make it here
             # in practice (background+return_fileresponse is rejected at registration).
             return JobStatusResponse(status='done', result=fut.result())
@@ -2658,7 +2672,6 @@ class FastAPIRouter(fastapi.APIRouter):
             methods=['GET'],
             response_model=JobStatusResponse,
             name=_JOB_STATUS_ROUTE_NAME,
-            include_in_schema=False,
         )
 
     def _build_response_field(self, col_type: ts.ColumnType, *, comment: str | None = None) -> tuple[Any, FieldInfo]:

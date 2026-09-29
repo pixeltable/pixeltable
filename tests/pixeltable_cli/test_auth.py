@@ -568,6 +568,17 @@ class TestKey:
 
         assert 'No keys.' in cloud_cli('key', 'list').stdout
 
+    def test_key_list_no_credential(self, cloud_cli: PxtRunner) -> None:
+        """A command run without a credential says what to run, rather than what to type in Python."""
+        cloud_cli('logout')
+
+        r = cloud_cli('key', 'list', check=False)
+
+        assert r.returncode != 0, r.stdout
+        assert 'os.environ' not in r.stderr, r.stderr
+        assert 'pxt login' in r.stderr, r.stderr
+        assert 'PIXELTABLE_API_KEY' in r.stderr, r.stderr
+
     def test_key_create_repeated_grants(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         """Repeated and comma-joined flags both flatten, and a duplicate is sent once."""
         control_plane.answers['create_key'] = {'key': _key('app')}

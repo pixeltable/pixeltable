@@ -185,9 +185,9 @@ class ObjectStoreSaveNode(ExecNode):
             new_file_url, exc = f.result()
             if exc is not None and not ignore_errors:
                 raise exc
-            assert new_file_url is not None
 
             if exc is None:
+                assert new_file_url is not None
                 num_objects += 1
                 num_bytes += work_designator.file_size
 

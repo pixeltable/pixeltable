@@ -8,6 +8,7 @@ import ssl
 import tarfile
 import threading
 import uuid
+from collections.abc import Iterator
 from typing import Any
 
 import numpy as np
@@ -22,7 +23,19 @@ from pixeltable.service.proxy_protocol import ArchiveMember, PxtArchivePartSink,
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps
 
-from .utils import pxt_raises
+from .utils import pxt_raises, reload_env
+
+
+@pytest.fixture
+def hosted_identity(init_env: None, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Give the Env the daemon's org/db identity for the test, and take it back afterwards."""
+    monkeypatch.setenv('PXTCLOUD_ORG', 'org1')
+    monkeypatch.setenv('PXTCLOUD_DB', 'db1')
+    reload_env()
+    yield
+    monkeypatch.delenv('PXTCLOUD_ORG', raising=False)
+    monkeypatch.delenv('PXTCLOUD_DB', raising=False)
+    reload_env()
 
 
 class _RemotePartSink(proxy_protocol.PartSink[int | str]):
@@ -130,7 +143,7 @@ class TestProxyDaemon:
         assert proxy_protocol.collect_remote_keys(wire) == []
 
     def test_scalars_reach_a_handler_from_the_object_store(
-        self, init_env: None, monkeypatch: pytest.MonkeyPatch
+        self, hosted_identity: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """End to end on the daemon side: prefetch localizes an uploaded scalar, dispatch decodes it."""
         arr = np.arange(64, dtype=np.float32)
@@ -279,7 +292,7 @@ class TestProxyDaemon:
     ) -> None:
         """PxtStorePartSink mints keys while serializing and performs every upload in flush().
 
-        This is the per-object sink that _ResponseMedia uses, since it presigns a url for each key."""
+        _ResponseMedia uses this per-object sink, since it presigns a url for each key."""
         uploaded: dict[str, tuple[pathlib.Path, bytes]] = {}
         store_uris: list[str] = []
 
@@ -338,8 +351,7 @@ class TestProxyDaemon:
         downloads: list[str] | None = None,
     ) -> None:
         """Route ObjectOps.get_store to a fake store serving objects (keyed store-relative, i.e. without the
-        'uploads/' prefix) and put the daemon's org/db identity in the environment. Uploads land in objects,
-        and each download's key is appended to downloads."""
+        'uploads/' prefix). Uploads are stored in objects, and each download's key is appended to downloads."""
         from pixeltable.utils.object_stores import ObjectOps
 
         class FakeStore:
@@ -361,8 +373,6 @@ class TestProxyDaemon:
             return FakeStore()
 
         monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(fake_get_store))
-        monkeypatch.setenv('PXTCLOUD_ORG', 'org1')
-        monkeypatch.setenv('PXTCLOUD_DB', 'db1')
 
     @staticmethod
     def _remote_file_request(*parts: str | tuple[str, str]) -> proxy_protocol.ProxyRequest:
@@ -377,7 +387,7 @@ class TestProxyDaemon:
             rows.append({'f': tag})
         return proxy_protocol.ProxyRequest(class_name='CatalogBase', method='echo_test', args={'rows': rows})
 
-    def test_prefetch_remote_parts(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_prefetch_remote_parts(self, hosted_identity: None, monkeypatch: pytest.MonkeyPatch) -> None:
         objects = {'req/0.png': b'png-bytes', 'req/1.jpg': b'jpg-bytes'}
         store_uris: list[str] = []
         self._install_fake_upload_store(monkeypatch, objects, store_uris)
@@ -413,6 +423,7 @@ class TestProxyDaemon:
 
         # without the container's org/db in the environment, remote keys cannot be localized
         monkeypatch.delenv('PXTCLOUD_ORG')
+        reload_env()
         with pxt_raises(
             pxt.ErrorCode.INVALID_CONFIGURATION,
             match=r'Internal error: PXTCLOUD_ORG and PXTCLOUD_DB are not present in the container.',
@@ -423,7 +434,7 @@ class TestProxyDaemon:
         'part', ['uploads/req/0.png', ('uploads/req/tar0.tar', '0.png')], ids=['object', 'archive_member']
     )
     def test_handle_cleans_remote_parts(
-        self, init_env: None, monkeypatch: pytest.MonkeyPatch, part: str | tuple[str, str]
+        self, hosted_identity: None, monkeypatch: pytest.MonkeyPatch, part: str | tuple[str, str]
     ) -> None:
         objects = {'req/0.png': b'png-bytes', 'req/tar0.tar': _tar_bytes({'0.png': b'png-bytes'})}
         self._install_fake_upload_store(monkeypatch, objects, [])
@@ -518,7 +529,8 @@ class TestProxyDaemon:
         tmp_count = TempStore.count()
 
         sink = PxtArchivePartSink('org1', 'db1')
-        # a value staged for a per-object upload and an open archive, then a value that cannot be serialized
+        # a large value staged for its own upload, a small one in the open archive, then a value that cannot be
+        # serialized
         args = {'large': b'x' * 3000, 'small': b'y' * 1000, 'bad': object()}
         with pytest.raises(AssertionError, match='cannot serialize object'):
             proxy_protocol.serialize_args(args, sink)
@@ -550,7 +562,7 @@ class TestProxyDaemon:
         store_sink.abort()
         assert TempStore.count() == tmp_count
 
-    def test_prefetch_archive_parts(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_prefetch_archive_parts(self, hosted_identity: None, monkeypatch: pytest.MonkeyPatch) -> None:
         objects = {
             'req/tar0.tar': _tar_bytes({'0.png': b'a', '1.png': b'b'}),
             'req/tar1.tar': _tar_bytes({'2.jpg': b'c'}),
@@ -570,7 +582,7 @@ class TestProxyDaemon:
             ('uploads/req/tar0.tar', '0.png'),
         )
         proxy_dispatch._prefetch_remote_parts(request)
-        # one download per archive, however many of its members the request references
+        # one download per archive, however many of its members are referenced
         assert sorted(downloads) == ['req/3.bin', 'req/tar0.tar', 'req/tar1.tar']
         assert store_uris == ['pxtfs://org1:db1/home/uploads/']
         expected = {
@@ -606,7 +618,7 @@ class TestProxyDaemon:
             proxy_dispatch._prefetch_remote_parts(self._remote_file_request(('uploads/req/bad.tar', '0.png')))
 
     def test_archive_round_trip_through_prefetch(
-        self, init_env: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+        self, hosted_identity: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Serialize with PxtArchivePartSink, localize on the daemon side, and decode."""
         objects: dict[str, bytes] = {}
@@ -640,9 +652,9 @@ class TestProxyDaemon:
             pathlib.Path(path_str).unlink()
 
     def test_exclamation_mark_in_file_names(
-        self, init_env: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+        self, hosted_identity: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A file name's suffix is only data on the wire, whatever characters it has."""
+        """A file name whose suffix contains '!' reaches the daemon intact, archived or uploaded on its own."""
         objects: dict[str, bytes] = {}
         self._install_fake_upload_store(monkeypatch, objects, [])
         monkeypatch.setattr(PxtArchivePartSink, '_MAX_ARCHIVE_MEMBER_SIZE', 2048)

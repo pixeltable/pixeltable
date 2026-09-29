@@ -14,6 +14,7 @@ from typing import Any, Iterator
 import pytest
 
 import pixeltable as pxt
+from pixeltable_cli.utils import PROJECT_CONFIG_FILE
 
 from ..utils import DatabaseRoot, skip_test_if_not_installed
 from .conftest import PxtRunner
@@ -345,6 +346,37 @@ class TestConfig:
         assert r.returncode != 0
         assert str(config_file) in r.stderr
         assert 'RemoteDisconnected' not in r.stderr
+
+    def test_unparseable_project_config(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+        """A project file the client cannot read or parse is reported by the client, not by the daemon."""
+        project_config = tmp_path / PROJECT_CONFIG_FILE
+
+        project_config.write_text('[[pixeltable.database]]\nname = pxt://my-org:my-db\n', encoding='utf-8')
+        r = cli('ls', '/', cwd=tmp_path, check=False)
+        assert r.returncode != 0
+        assert str(project_config) in r.stderr
+        assert 'line 2, column 8' in r.stderr, r.stderr
+        assert 'did not come up' not in r.stderr, r.stderr
+        assert 'Traceback' not in r.stderr, r.stderr
+
+        project_config.write_bytes(b'[[pixeltable.database]]\nname = "\xff"\n')
+        r = cli('ls', '/', cwd=tmp_path, check=False)
+        assert r.returncode != 0
+        assert 'cannot be parsed' in r.stderr, r.stderr
+        assert 'Traceback' not in r.stderr, r.stderr
+
+        # Windows ignores the mode, and root reads a file whatever its mode
+        if os.name == 'posix' and os.geteuid() != 0:
+            project_config.write_text("[[pixeltable.database]]\nname = 'pxt://my-org:my-db'\n", encoding='utf-8')
+            project_config.chmod(0o000)
+            try:
+                r = cli('ls', '/', cwd=tmp_path, check=False)
+                assert r.returncode != 0
+                assert 'cannot be read' in r.stderr, r.stderr
+                assert 'Traceback' not in r.stderr, r.stderr
+            finally:
+                project_config.chmod(0o644)
+                cli('daemon', 'restart')
 
     def test_restart_while_serving(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """A restart that would abandon work in progress is refused; once the work is done it goes through."""
