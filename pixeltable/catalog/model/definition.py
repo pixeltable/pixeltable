@@ -449,8 +449,11 @@ class _ModelNamespace(dict):
         self.known_cols = ordered
 
 
-def bind_query_templates(e: exprs.Expr, catalog_dir: str) -> exprs.Expr:
-    """Rebind QueryTemplateFunction calls of ModelQuery instances to the equivalent Query of the bound model."""
+def bind_query_templates(e: exprs.Expr, catalog_dir: str | None) -> exprs.Expr:
+    """Rebind QueryTemplateFunction calls of ModelQuery instances to the equivalent Query of the bound model.
+
+    With `catalog_dir=None`, each Query is over its model's defined shape rather than over a table.
+    """
     from .query import ModelQuery
 
     subst: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
@@ -460,7 +463,7 @@ def bind_query_templates(e: exprs.Expr, catalog_dir: str) -> exprs.Expr:
             continue
         assert fn_call.group_by_start_idx == fn_call.group_by_stop_idx  # a query udf takes no window clause
         rebound = func.QueryTemplateFunction(
-            fn.template_query.bind(catalog_dir),
+            fn.template_query.to_defined_query() if catalog_dir is None else fn.template_query.bind(catalog_dir),
             list(fn.signature.parameters.values()),
             return_scalar=fn.return_scalar,
             path=fn.self_path,
@@ -885,7 +888,9 @@ class TableModelMeta(type):
         for col_name, col_spec in cls.__columns__.items():
             copied = col_spec.copy()
             if 'value' in copied:
-                copied['value'] = copied['value'].copy()
+                # a query over a model cannot be serialized, and nothing deserializes this metadata's values, so each
+                # query udf is rebound to its model's defined shape
+                copied['value'] = bind_query_templates(copied['value'].copy(), None)
             columns[col_name] = copied
         iterator, cols, idxs = prepare_model(
             handle, columns, spec['display_name'], spec['iterator'], base, cls.__indexes__, spec['is_data_versioned']

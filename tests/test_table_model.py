@@ -2661,6 +2661,44 @@ class TestTableModel:
         rows = probe.order_by(probe.cutoff).select(probe.matches).collect()
         assert [r['matches'] for r in rows] == [[{'title': 'beta'}], [{'title': 'beta'}]]
 
+    def test_view_over_query_udf_model(self, db_root: DatabaseRoot) -> None:
+        """A view model can be based on a model whose computed columns call a query udf over another model."""
+        from pixeltable.functions import anthropic
+
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            doc_id: pxt.Int
+            title: pxt.String
+
+        @pxt.query
+        def titles_after(cutoff: int) -> pxt.Query:
+            return Docs.where(Docs.doc_id > cutoff).order_by(Docs.doc_id).select(Docs.title)  # type: ignore[arg-type]
+
+        class Probe(TableModel, name='probe'):
+            cutoff: pxt.Int
+            response: pxt.Json
+            matches = titles_after(cutoff)
+            tool_matches = anthropic.invoke_tools(pxt.tools(titles_after), response)
+
+        class ProbeView(TableModel, name='probe_view', base=Probe.where(Probe.cutoff > 0)):
+            match_count = pxtf.json.len(Probe.matches)
+
+        target = db_root.make_catalog_path('qudf_view')
+        pxt.create_dir(target, parents=True)
+        TableModel.create_all(target)
+        pxt.get_table(f'{target}/docs').insert([{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 5, 'title': 'beta'}])
+        tool_use = {'type': 'tool_use', 'name': 'titles_after', 'input': {'cutoff': 1}}
+        pxt.get_table(f'{target}/probe').insert(
+            [{'cutoff': 0, 'response': {'content': [tool_use]}}, {'cutoff': 1, 'response': {'content': [tool_use]}}]
+        )
+
+        view = pxt.get_table(f'{target}/probe_view')
+        rows = view.select(view.matches, view.tool_matches, view.match_count).collect()
+        assert list(rows) == [
+            {'matches': [{'title': 'beta'}], 'tool_matches': {'titles_after': [[{'title': 'beta'}]]}, 'match_count': 1}
+        ]
+
     def test_table_model_validation_errors(self, db_root: DatabaseRoot) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
         p = db_root.make_catalog_path
