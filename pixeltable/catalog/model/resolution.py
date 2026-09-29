@@ -8,7 +8,7 @@ from uuid import UUID
 from pixeltable import catalog, exceptions as excs, exprs, func, index
 from pixeltable.types import ColumnSpec
 
-from ..globals import fold_mapping_keys
+from ..globals import MediaValidation, fold_mapping_keys
 from ..table_version_handle import TableVersionHandle
 
 if TYPE_CHECKING:
@@ -235,9 +235,23 @@ class ModelUpdates(NamedTuple):
 def resolve_model_value_expr(
     tbl_path: catalog.TablePath, value_expr: exprs.Expr, origin: Literal['base_query', 'model_body']
 ) -> exprs.Expr:
-    """Resolve a model value expression against the columns visible at its declaration site."""
+    """Replace model column names with catalog column references visible at the declaration site."""
     reference_path = tbl_path.base if origin == 'base_query' else tbl_path
     assert reference_path is not None
+
+    if isinstance(reference_path, catalog.TableVersionPath):
+        subst = exprs.ExprDict[exprs.Expr](
+            (
+                exprs.ColumnRefByName(col.name),
+                exprs.ColumnRef(
+                    col.column_version_md(), perform_validation=col.media_validation == MediaValidation.ON_READ
+                ),
+            )
+            for col in reference_path.columns()
+        )
+        return value_expr.substitute(subst)
+
+    assert isinstance(reference_path, catalog.TableMdPath)
 
     def column_ref(col_md: catalog.ColumnVersionMd) -> exprs.ColumnRef:
         owner_path = reference_path
