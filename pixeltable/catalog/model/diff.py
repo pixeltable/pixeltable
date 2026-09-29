@@ -6,7 +6,7 @@ import dataclasses
 import json
 from typing import TYPE_CHECKING, Any, Literal
 
-from pixeltable import catalog, exprs
+from pixeltable import catalog, exprs, func
 from pixeltable.types import ColumnSpec
 from pixeltable_cli.types import Resolution, SchemaChangeIndexRef, SchemaChangeOp, SchemaChangeOpDetails, TableDiff
 
@@ -154,6 +154,21 @@ def base_query_columns(model: TableModelMeta) -> set[str]:
     return {expr.default_column_name() if name is None else name for expr, name in base.select_list}
 
 
+def queried_models(col_spec: ColumnSpec) -> set[TableModelMeta]:
+    """The models a column's value queries through a @pxt.query UDF."""
+    from .query import ModelQuery
+
+    value = col_spec.get('value')
+    if not isinstance(value, exprs.Expr):
+        return set()
+    result: set[TableModelMeta] = set()
+    for fn_call in value.subexprs(exprs.FunctionCall):
+        fn = fn_call.fn
+        if isinstance(fn, func.QueryTemplateFunction) and isinstance(fn.template_query, ModelQuery):
+            result.add(fn.template_query.model_cls)
+    return result
+
+
 def _format_column_spec(spec: ColumnSpec) -> str:
     """A display string for a column spec. The value expression is rendered via str() (not repr()), so a bare
     ColumnRefByName placeholder shows as its column name (e.g. extra1) rather than ColumnRefByName('extra1'),
@@ -283,6 +298,11 @@ def _column_value_changed(
     existing_value = existing_col_md.schema_col.value_expr
     if model_value is None or existing_value is None:
         return model_value is not existing_value
+
+    # A shortcut: if an expression queries a table that does not yet exist, that expression must have changed. Without
+    # this shortcut, the value expression resolution that follows will fail.
+    if any(model._resolve_tbl(catalog_dir, if_not_exists='ignore') is None for model in queried_models(spec)):
+        return True
     model_value_dict = _value_expr_dict(model_value, tbl_path, catalog_dir=catalog_dir, origin=origin)
 
     # Both dicts can contain tuples independently from each other. Running them through JSON serialization and back

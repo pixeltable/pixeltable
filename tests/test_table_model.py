@@ -1121,7 +1121,7 @@ class TestTableModel:
         )
 
     def test_update_all_creates_queried_table(self, db_root: DatabaseRoot) -> None:
-        """The table a @pxt.query reads is created by the same update_all() that adds the column calling it."""
+        """The table a @pxt.query reads is created by the same update_all() that adds or alters its calling column."""
         p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
@@ -1152,6 +1152,39 @@ class TestTableModel:
             'question': 'A sample doc body',
             'hits': [{'body': 'A sample doc body that has a bunch of text'}],
         }
+
+        # the existing column's (`asks.hits`) computed expression changes to a query UDF that references a new table
+        # `archive`
+        reload_catalog()
+        TableModel3 = pxt.model_base()
+
+        class Docs3(TableModel3, name='docs'):
+            body: pxt.String
+
+        class Archive(TableModel3, name='archive'):
+            body: pxt.String
+
+        @pxt.query
+        def find_archived(q: str) -> pxt.Query:
+            return Archive.where(Archive.body.startswith(q)).select(body=Archive.body).limit(3)  # type: ignore[arg-type]
+
+        class Asks3(TableModel3, name='asks'):
+            question: pxt.String
+            hits = find_archived(question)
+
+        diffs = TableModel3.get_model_diff(p(''))
+        assert {name: d.resolution for name, d in diffs.items()} == {
+            'docs': 'up_to_date',
+            'archive': 'create',
+            'asks': 'update_additive',
+        }
+        assert [(op.op, op.name) for op in diffs['asks'].ops] == [('alter', 'hits')]
+
+        TableModel3.update_all(p(''))
+        assert all(d.resolution == 'up_to_date' for d in TableModel3.get_model_diff(p('')).values())
+        Archive.insert(body='A sample doc body from the archive')
+        Asks3.table.recompute_columns('hits')
+        assert Asks3.table.select(Asks3.hits).collect()['hits'] == [[{'body': 'A sample doc body from the archive'}]]
 
     def test_update_all_migrates_queried_model(self, db_root: DatabaseRoot) -> None:
         """A @pxt.query reads a model that the same update_all() also migrates."""
