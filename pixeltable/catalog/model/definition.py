@@ -888,8 +888,6 @@ class TableModelMeta(type):
         for col_name, col_spec in cls.__columns__.items():
             copied = col_spec.copy()
             if 'value' in copied:
-                # a query over a model cannot be serialized, and nothing deserializes this metadata's values, so each
-                # query udf is rebound to its model's defined shape
                 copied['value'] = bind_query_templates(copied['value'].copy(), None)
             columns[col_name] = copied
         iterator, cols, idxs = prepare_model(
