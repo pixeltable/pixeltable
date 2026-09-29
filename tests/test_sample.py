@@ -85,6 +85,13 @@ class TestSample:
             _ = t.select().sample(fraction=12.9)
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be of type `Int`; got `Float`'):
             _ = t.select().sample(n=10, seed=-123.456)  # type: ignore[arg-type]
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'seed' parameter must be a constant"):
+            _ = t.select().sample(n=10, seed=t.c2)  # type: ignore[arg-type]
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'seed' parameter must be a constant"):
+
+            @pxt.query
+            def sample_with_seed(seed: int) -> pxt.Query:
+                return t.sample(n=10, seed=seed)
 
         # Test invalid sample parameter combinations
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='Exactly one of '):

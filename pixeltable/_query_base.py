@@ -210,7 +210,7 @@ class QueryBase(ABC):
 
     @classmethod
     def _convert_param_to_typed_expr(
-        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: tuple[Any, Any] | None = None
+        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str
     ) -> exprs.Expr | None:
         if v is None:
             if required:
@@ -222,25 +222,25 @@ class QueryBase(ABC):
                 excs.ErrorCode.TYPE_MISMATCH,
                 f'{name!r} parameter must be of type `{required_type}`; got `{v_expr.col_type}`',
             )
+        return v_expr
+
+    @classmethod
+    def _validate_constant_type_range(
+        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: tuple[Any, Any] | None = None
+    ) -> Any:
+        """Validate that the given named parameter is a constant of the required type and within the specified range."""
+        v_expr = cls._convert_param_to_typed_expr(v, required_type, required, name)
+        if v_expr is None:
+            return None
+        if not isinstance(v_expr, exprs.Literal):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} parameter must be a constant; got: {v_expr}'
+            )
         if range is not None:
-            if not isinstance(v_expr, exprs.Literal):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} parameter must be a constant; got: {v_expr}'
-                )
             if range[0] is not None and not (v_expr.val >= range[0]):
                 raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} parameter must be >= {range[0]}')
             if range[1] is not None and not (v_expr.val <= range[1]):
                 raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} parameter must be <= {range[1]}')
-        return v_expr
-
-    @classmethod
-    def validate_constant_type_range(
-        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: tuple[Any, Any] | None = None
-    ) -> Any:
-        """Validate that the given named parameter is a constant of the required type and within the specified range."""
-        v_expr = cls._convert_param_to_typed_expr(v, required_type, required, name, range)
-        if v_expr is None:
-            return None
         return v_expr.val
 
     def parameters(self) -> dict[str, ColumnType]:
@@ -987,14 +987,14 @@ class QueryBase(ABC):
             )
 
         # Check parameter types and values
-        n = self.validate_constant_type_range(n, ts.IntType(nullable=False), False, 'n', (1, None))
-        n_per_stratum = self.validate_constant_type_range(
+        n = self._validate_constant_type_range(n, ts.IntType(nullable=False), False, 'n', (1, None))
+        n_per_stratum = self._validate_constant_type_range(
             n_per_stratum, ts.IntType(nullable=False), False, 'n_per_stratum', (1, None)
         )
-        fraction = self.validate_constant_type_range(
+        fraction = self._validate_constant_type_range(
             fraction, ts.FloatType(nullable=False), False, 'fraction', (0.0, 1.0)
         )
-        seed = self.validate_constant_type_range(seed, ts.IntType(nullable=False), False, 'seed')
+        seed = self._validate_constant_type_range(seed, ts.IntType(nullable=False), False, 'seed')
 
         # analyze stratify list
         stratify_exprs: list[exprs.Expr] = []
