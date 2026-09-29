@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 import threading
+import tomllib
 import typing
 import warnings
 from pathlib import Path
@@ -41,6 +42,9 @@ class DatabaseConfig(pydantic.BaseModel):
     # bindings for the config vars
     vars: dict[str, str] | None = None
 
+    # settings this database uses in place of the shared [pixeltable] / [otel] values
+    settings: dict[str, str] | None = None
+
     # the rest applies to a hosted database, whose runtime image is built from the project
     exclude: list[str] | None = None  # glob patterns to exclude from the image
     include: list[str] | None = None  # glob patterns to explicitly include (overrides exclude or .gitignore)
@@ -55,6 +59,22 @@ class DatabaseConfig(pydantic.BaseModel):
     memory_mb: int | None = None
     disk_gb: int | None = None
     workers: int | None = None
+
+    @pydantic.model_validator(mode='before')
+    @classmethod
+    def _collect_settings(cls, data: dict[str, Any]) -> dict[str, Any]:
+        # move the overrides into `settings` so that pydantic does not reject them as unknown fields
+        settings = {key: data.pop(key) for key in list(data) if key in _DATABASE_OVERRIDE_KEYS}
+        if len(settings) > 0:
+            data['settings'] = {**data.get('settings', {}), **settings}
+        return data
+
+    @pydantic.field_validator('name')
+    @classmethod
+    def _fold_name(cls, v: str) -> str:
+        from pixeltable.catalog import fold_identifier
+
+        return fold_identifier(v)
 
     @pydantic.field_validator('system_dependencies')
     @classmethod
@@ -98,6 +118,19 @@ PYPROJECT_FILE = 'pyproject.toml'  # with a [tool.pixeltable] section
 PROJECT_CONFIG_FILES = (PROJECT_CONFIG_FILE, PYPROJECT_FILE)
 
 
+def _load_toml(path: Path) -> dict[str, Any]:
+    try:
+        with open(path, 'rb') as stream:
+            return tomllib.load(stream)
+    except OSError as e:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'{path} cannot be read: {e.strerror or e}'
+        ) from e
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
+        # tomllib decodes the file itself, so text that is not UTF-8 fails here rather than at the read
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'{path} cannot be parsed: {e}') from e
+
+
 def _find_project_root(start: Path) -> Path | None:
     """Find the nearest directory holding one of the recognized project config files."""
     start = start.resolve()
@@ -107,13 +140,7 @@ def _find_project_root(start: Path) -> Path | None:
             return dir
         pyproject = dir / PYPROJECT_FILE
         if pyproject.is_file():
-            try:
-                parsed = toml.load(pyproject)
-            except Exception as e:
-                # fail early
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION, f'{pyproject} cannot be parsed: {e}'
-                ) from e
+            parsed = _load_toml(pyproject)
             tool = parsed.get('tool')
             if isinstance(tool, dict) and 'pixeltable' in tool:
                 return dir
@@ -439,13 +466,7 @@ class Config:
     def __read_toml_file(cls, path: Path) -> dict[str, Any]:
         if not path.exists():
             return {}
-        try:
-            with open(path, 'r', encoding='utf-8') as stream:
-                return toml.load(stream)
-        except Exception as exc:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION, f'Could not read config file: {path}'
-            ) from exc
+        return _load_toml(path)
 
     @classmethod
     def __add_path(cls, config_dict: dict[str, Any], path: Path) -> dict[str, dict[str, tuple[Any, Path]]]:
@@ -646,13 +667,14 @@ class Config:
             return None
         return next((db for db in databases if db.name == db_name), None)
 
-    def __database_bindings(self) -> dict[str, tuple[str, Path | None]]:
-        """Return the local database's vars, each with the file that supplied it.
+    def __own_database_values(self, field: Literal['vars', 'settings']) -> dict[str, tuple[str, Path | None]]:
+        """Return the `vars` or `settings` of the database we are connected to, each with the file that supplied it.
 
-        [[pixeltable.database]] is an array, which the section path of a var does not address; the path names
-        the entry for the local database, from which a process reads its vars. A binding the project supplies
-        wins over one of the same name in the home config.
+        On a hosted pod the process reads the db entry for pxt://org:db. Anywhere else it reads the local entry.
         """
+        org = self.get_string_value('org', section='pxtcloud')
+        db = self.get_string_value('db', section='pxtcloud')
+        name = f'pxt://{org}:{db}' if org and db else LOCAL_DATABASE
         result: dict[str, tuple[str, Path | None]] = {}
         for config, source in (
             (self.__home_config, self.__config_file),
@@ -661,16 +683,26 @@ class Config:
             entry = config.get('pixeltable', {}).get('database')
             if entry is None or not isinstance(entry[0], list):
                 continue
-            local = next((db for db in entry[0] if db.name == LOCAL_DATABASE), None)
-            if local is None:
+            own = next((db for db in entry[0] if db.name == name), None)
+            if own is None:
                 continue
-            result.update({name: (value, source) for name, value in (local.vars or {}).items()})
+            values = own.vars if field == 'vars' else own.settings
+            result.update({key: (value, source) for key, value in (values or {}).items()})
         return result
+
+    def __database_setting(self, section: str, key: str) -> tuple[Any, Path | None] | None:
+        """Return the value the database we are connected to sets for `key` (as db_<key>), with its source file."""
+        if section == VAR_SECTION:
+            return None  # a var named like a setting is not that setting
+        name = f'db_{key}'
+        if name not in _DATABASE_OVERRIDE_KEYS:
+            return None
+        return self.__own_database_values('settings').get(name)
 
     def __lookup_config_entry(self, section: str, key: str) -> tuple[Any, Path | None] | None:
         """Find key under section in __config_dict. Returns (value, source_path) or None."""
         if section == VAR_SECTION:
-            return self.__database_bindings().get(key)
+            return self.__own_database_values('vars').get(key)
         parts = section.split('.')
         # explicit type decl for readability
         top_section: dict[str, tuple[Any, Path | None]] | None = self.__config_dict.get(parts[0])
@@ -692,18 +724,22 @@ class Config:
             return None
         return (sub_section[key], source)
 
+    def __resolve(self, section: str, key: str) -> tuple[Any, Path | Literal['env'] | None] | None:
+        """The value of section.key and its source, in precedence order: the connected database's db_<key>, then a
+        pxt.init() override or the environment, then the config files."""
+        setting = self.__database_setting(section, key)
+        if setting is not None:
+            return setting
+        value = self.lookup_env(section, key)
+        if value is not None:
+            return value, 'env'
+        return self.__lookup_config_entry(section, key)
+
     def get_value(self, key: str, expected_type: type[T], section: str = 'pixeltable') -> T | None:
-        value: Any = self.lookup_env(section, key)  # Try to get from environment first
-        # Next try the config file
-        if value is None:
-            entry = self.__lookup_config_entry(section, key)
-            if entry is None:
-                return None
-            value = entry[0]
-
-        if value is None:
-            return None  # Not specified
-
+        resolved = self.__resolve(section, key)
+        if resolved is None or resolved[0] is None:
+            return None
+        value = resolved[0]
         try:
             if expected_type is bool and isinstance(value, str):
                 if value.lower() not in ('true', 'false'):
@@ -752,20 +788,18 @@ class Config:
 
     def get_value_source(self, key: str, section: str = 'pixeltable') -> Path | Literal['env', 'unset']:
         """Return the source of the config value returned by get_value():
-        - 'env': an environment variable or a pxt.init() config override is set
         - Path: the config file the value came from
+        - 'env': an environment variable or a pxt.init() config override is set
         - 'unset': neither carries the value
         """
-        if self.lookup_env(section, key) is not None:
-            return 'env'
-        entry = self.__lookup_config_entry(section, key)
-        if entry is None:
+        resolved = self.__resolve(section, key)
+        if resolved is None or resolved[1] is None:
             return 'unset'
-        path = entry[1]
-        return path if path is not None else 'unset'
+        return resolved[1]
 
     def is_overridden(self, key: str, section: str = 'pixeltable') -> bool:
-        """Whether pxt.init() supplied this setting, which outranks the environment and every config file.
+        """Whether pxt.init() supplied this setting, which outranks the environment and the config files but is
+        outranked by a [[pixeltable.database]] entry.
 
         get_value_source() answers 'env' for such a setting too.
         """
@@ -807,7 +841,7 @@ class Config:
     def __section_keys(self, section: str) -> list[str]:
         """The keys defined in section."""
         if section == VAR_SECTION:
-            return list(self.__database_bindings())
+            return list(self.__own_database_values('vars'))
         parts = section.split('.')
         node: Any = self.__config_dict.get(parts[0])
         for p in parts[1:]:
@@ -829,6 +863,9 @@ class Config:
         name = f'tool.{section}.{key}' if source.name == 'pyproject.toml' else f'{section}.{key}'
         if ck is not None and typing.get_origin(ck.expected_type) is list:
             name = f'[[{name}]]'
+        if self.__database_setting(section, key) is not None:
+            tool = 'tool.' if source.name == 'pyproject.toml' else ''
+            name = f'[[{tool}pixeltable.database]].db_{key}'
         return f'{name} in {source}'
 
 
@@ -854,8 +891,9 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
         'database': (
-            'One entry per database the project uses: variable and secret bindings, and for a hosted '
-            'database the contents of its runtime image',
+            'One entry per database the project uses: its variable bindings, per-database values for the media '
+            'destinations and the OTLP endpoint and protocol (db_<key>), and for a hosted database the contents of '
+            'its runtime image',
             list[DatabaseConfig],
         ),
         'db_pool_size': ('Number of database connections the engine keeps open (default: 5)', int),
@@ -950,6 +988,12 @@ _INSTALLATION_KEYS = frozenset(
         'db_pool_size',
         'db_pool_max_overflow',
     }
+)
+
+# whitelist of allowed setting overrides for individual dbs; the db_ prefix keeps them apart from the db
+# section's own fields such as name and cpu
+_DATABASE_OVERRIDE_KEYS = frozenset(
+    {'db_input_media_dest', 'db_output_media_dest', 'db_exporter_otlp_endpoint', 'db_exporter_otlp_protocol'}
 )
 
 # the settings pxt.init() accepts, ie. the ones a single process may set

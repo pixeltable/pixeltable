@@ -83,6 +83,8 @@ class ServiceInstanceRecord(pydantic.BaseModel):
 class LocalServiceInstanceRecord(ServiceInstanceRecord):
     """A service instance served by a process on this machine."""
 
+    project_root: str
+
     # the loopback port, kept across a restart so callers keep their address
     port: int | None = None
 

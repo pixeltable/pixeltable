@@ -37,9 +37,9 @@ _LONG_OPS = frozenset(
 _READ_OPS = frozenset(
     op.value
     for op in (
+        ManagementOperationType.LIST_ALL_SECRETS,
         ManagementOperationType.LIST_ORGS,
         ManagementOperationType.LIST_KEYS,
-        ManagementOperationType.LIST_SECRETS,
         ManagementOperationType.LIST_DBS,
         ManagementOperationType.GET_DB,
         ManagementOperationType.LIST_SERVICE_INSTANCES,
@@ -72,7 +72,7 @@ _PURPOSES = {
     ManagementOperationType.LIST_ORGS.value: 'list organizations',
     ManagementOperationType.SET_SECRET.value: 'set secrets',
     ManagementOperationType.DELETE_SECRET.value: 'delete secrets',
-    ManagementOperationType.LIST_SECRETS.value: 'list secrets',
+    ManagementOperationType.LIST_ALL_SECRETS.value: 'list secrets',
     ManagementOperationType.CREATE_KEY.value: 'create keys',
     ManagementOperationType.LIST_KEYS.value: 'list keys',
     ManagementOperationType.UPDATE_KEY.value: 'update keys',
@@ -115,10 +115,10 @@ def configured_credential() -> Credential | None:
 def _no_credential(purpose: str) -> excs.Error:
     return excs.AuthorizationError(
         excs.ErrorCode.MISSING_CREDENTIALS,
-        f'A Pixeltable API key or sign-in is required to {purpose}. Run `pxt login`, or set an '
-        'API key with `os.environ["PIXELTABLE_API_KEY"] = "your-key"` or `api_key = "your-key"` '
-        'in the `[pixeltable]` section of the Pixeltable config file.\n'
-        'For details, see https://docs.pixeltable.com/platform/configuration',
+        f'A Pixeltable API key or sign-in is required to {purpose}.\n'
+        'Either run `pxt login`; or set the `PIXELTABLE_API_KEY` environment variable to an existing key; '
+        'or put `api_key` in the `pixeltable` section of your user configuration file.\n'
+        'For details, see: https://docs.pixeltable.com/platform/configuration',
     )
 
 

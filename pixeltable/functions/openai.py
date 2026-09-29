@@ -40,6 +40,8 @@ _logger = logging.getLogger(__name__)
 
 @env.register_client('openai', credential_param='api_key')
 def _(api_key: str, base_url: str | None = None, api_version: str | None = None) -> 'openai.AsyncOpenAI':
+    env.Env.get().require_package('openai', [3])
+
     import httpx2
     import openai
 

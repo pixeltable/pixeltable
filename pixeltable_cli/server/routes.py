@@ -27,10 +27,10 @@ from pixeltable.service.management_protocol import (
     GetDbRequest,
     GetLogsRequest,
     GetLogsResponse,
+    ListAllSecretsRequest,
     ListDbRequest,
     ListKeysRequest,
     ListOrgsRequest,
-    ListSecretsRequest,
     RestartDbRequest,
     SetSecretRequest,
     StartDbRequest,
@@ -561,7 +561,7 @@ def service_prune(req: Request) -> types.ServicePlan:
 @router.post('/api/service/stop')
 def service_stop(req: Request) -> list[types.ServiceChangeOp]:
     body = req.body(models.ServiceStopBody)
-    return service.service_stop(body.names)
+    return service.service_stop(body.names, project_root=body.project_root)
 
 
 @router.post('/api/service/restart')
@@ -936,7 +936,7 @@ def list_dbs(req: Request) -> dict[str, Any]:
 
 @router.get('/api/secrets')
 def list_secrets(req: Request) -> dict[str, Any]:
-    return management_client.api_call(ListSecretsRequest(org=req.query_str('org'), db=req.query_str('db')))
+    return management_client.api_call(ListAllSecretsRequest(org=req.query_str('org'), db=req.query_str('db')))
 
 
 @router.post('/api/secrets')

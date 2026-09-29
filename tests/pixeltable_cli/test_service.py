@@ -7,7 +7,7 @@ import time
 from textwrap import dedent
 from types import SimpleNamespace
 from typing import Any, Callable, Iterator
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import httpx
 import pytest
@@ -28,7 +28,16 @@ from ..utils import (
     new_db_uri,
     skip_test_if_not_installed,
 )
-from .conftest import BUILD_TIMEOUT, EXIT_ERROR, BackgroundPxt, PxtRunner, db_update, disposable_db, read_logs_until
+from .conftest import (
+    BUILD_TIMEOUT,
+    EXIT_ERROR,
+    INPUT_MEDIA_PREFIX,
+    BackgroundPxt,
+    PxtRunner,
+    db_update,
+    disposable_db,
+    read_logs_until,
+)
 from .hosted import (
     APP_FILE,
     await_service_available,
@@ -107,7 +116,7 @@ def stop_services(cli: PxtRunner) -> Iterator[None]:
     """Leave nothing running: a service outlives the test that started it, and the next one would see it."""
     yield
     for service in cli('service', 'list', '--json').json:
-        cli('service', 'stop', f'{service["catalog_path"]}/{service["name"]}'.lstrip('/'))
+        cli('service', 'stop', f'{service["catalog_path"]}/{service["name"]}')
 
 
 def get_services(cli: PxtRunner, target: str | None = None) -> dict[str, dict[str, Any]]:
@@ -148,8 +157,9 @@ def assert_serving(cli: PxtRunner, app: str, target: str, *names: str) -> dict[s
         served_paths = set(served.json()['paths'])
         # the listed paths are being served, as per the docs endpoint
         assert listed_paths <= served_paths, (listed_paths, sorted(served_paths))
-        # internal paths are not exposed
-        assert not any('/_pxt/' in path for path in served_paths), sorted(served_paths)
+        # of the internal paths, only the one that polls background jobs is exposed
+        internal_paths = [path for path in served_paths if '/_pxt/' in path]
+        assert all(path.endswith('/_pxt/jobs/{job_id}') for path in internal_paths), sorted(served_paths)
     return running
 
 
@@ -671,6 +681,12 @@ class TestService:
         body = resp.json()
         assert body['clip_id'] == 1, body
         assert pxt.get_table(f'{target}/frames').count() > 0
+        clips = pxt.get_table(f'{target}/clips')
+        video_url = clips.select(clips.video.fileurl).collect()['video_fileurl'][0]
+        expected_prefix = (
+            f'{home_bucket_uri(db_root.base_uri)}/{INPUT_MEDIA_PREFIX}/' if db_root.is_cloud else 'file://'
+        )
+        assert video_url.startswith(expected_prefix), video_url
         # the persisted poster comes back as a url
         assert_image_bytes(_fetch_media(body['poster'], db_root))
         # so does media a query makes on the fly, which no row stores
@@ -1024,6 +1040,9 @@ class TestService:
         # stopping something that is not running is reported, not an error
         r = cli('service', 'stop', 'nosuch', '--json')
         assert [(op['name'], op['status']) for op in r.json] == [('nosuch', 'skipped')]
+        assert r.json[0]['details']['reason'] == 'not found'
+        r = cli('service', 'stop', 'nosuch')
+        assert 'skipped' in r.stdout and 'not found' in r.stdout
 
         # a hosted target requires a database
         r = cli('service', 'list', 'pxt://acme', check=False)
@@ -1130,6 +1149,7 @@ class TestService:
 @pytest.mark.remote_api
 @pytest.mark.expensive
 @pytest.mark.db_roots('local', reason='pxt service acts on a hosted database, not on the catalog a test runs against')
+@pytest.mark.usefixtures('hosted_environment')
 class TestHostedService:
     """`pxt service` against a hosted database."""
 
@@ -1142,6 +1162,13 @@ class TestHostedService:
         instance = service_list(cli, project, current_db)['ingest']
         assert instance['state'] == 'AVAILABLE', instance
         assert instance['catalog_path'] == current_db
+        schema_response = httpx.get(
+            f'{instance["endpoint"]}/openapi.json',
+            headers={'X-api-key': os.environ['PIXELTABLE_API_KEY']},
+            timeout=_REQUEST_TIMEOUT,
+        )
+        assert schema_response.status_code == 200, schema_response.text
+        assert 'PixeltableGatewayApiKey' in schema_response.json()['components']['securitySchemes']
 
         # a new route requires a db update
         edit_app(project, "ingest.add_delete_route(Docs, path='/docs/purge')")
@@ -1163,6 +1190,9 @@ class TestHostedService:
         cli('service', 'stop', f'{current_db}/ingest', cwd=project)
         stopped = service_list(cli, project, current_db)['ingest']
         assert stopped['state'] == 'STOPPED', stopped
+        repeated = cli('service', 'stop', f'{current_db}/ingest', '--json', cwd=project)
+        assert repeated.json[0]['status'] == 'skipped'
+        assert repeated.json[0]['details']['reason'] == 'already stopped'
         assert not service_diff(cli, project, app_file, current_db)['in_agreement']
 
 
@@ -1186,3 +1216,73 @@ class TestServiceOtel:
         mock_otel_init.assert_called_once_with()
         mock_instrument_fastapi.assert_called_once_with(app)
         mock_run.assert_called_once()
+
+
+class TestServiceStop:
+    @pytest.mark.parametrize('other_target', ['two', ''])
+    @pytest.mark.parametrize('qualified', [False, True])
+    @pytest.mark.db_roots('local', reason='local service names are scoped by filesystem project')
+    def test_stop_project_scope(
+        self,
+        session_cli: PxtRunner,
+        apps: Callable[[str], str],
+        session_project: pathlib.Path,
+        tmp_path: pathlib.Path,
+        other_target: str,
+        qualified: bool,
+    ) -> None:
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app = apps('basic.py')
+        other = tmp_path / 'other'
+        other.mkdir()
+        (other / 'pixeltable.toml').write_text('')
+        shutil.copyfile(app, other / 'app.py')
+        deploy(session_cli, app, 'one')
+        session_cli('schema', 'update', 'app.py', other_target, cwd=other)
+        session_cli('service', 'update', 'app.py', other_target, '-f', cwd=other)
+        second = next(s for s in session_cli('service', 'list', '--json').json if s['catalog_path'] == other_target)
+
+        result = session_cli('service', 'stop', 'ingest', cwd=tmp_path, check=False)
+        assert result.returncode == 1
+        assert 'ambiguous' in result.stderr
+        assert 'one/ingest' in result.stderr and f'{other_target}/ingest' in result.stderr
+
+        nested = session_project / 'nested'
+        nested.mkdir(exist_ok=True)
+        result = session_cli('service', 'stop', 'ingest', '--json', cwd=nested)
+        assert result.json[0]['status'] == 'applied'
+        assert get_services(session_cli, 'one') == {}
+        assert get_services(session_cli, other_target)['ingest']['pid'] == second['pid']
+        assert httpx.get(f'{second["endpoint"]}/openapi.json', timeout=_REQUEST_TIMEOUT).status_code == 200
+
+        result = session_cli('service', 'stop', 'ingest')
+        assert 'skipped' in result.stdout and 'not found' in result.stdout
+        if qualified:
+            result = session_cli('service', 'stop', f'{other_target}/ingest', '--json')
+        else:
+            result = session_cli('service', 'stop', 'ingest', '--json', cwd=tmp_path)
+        assert result.json[0]['status'] == 'applied'
+        assert get_services(session_cli, other_target) == {}
+
+    @pytest.mark.db_roots('local', reason='the hosted service manager is mocked')
+    @pytest.mark.parametrize('as_json', [False, True])
+    def test_already_stopped(self, capsys: pytest.CaptureFixture[str], as_json: bool) -> None:
+        from pixeltable.serving.service import service_stop
+        from pixeltable_cli.types import ServiceState
+
+        instance = Mock(state=ServiceState.STOPPED)
+        manager = Mock()
+        manager.get.return_value = instance
+        with patch('pixeltable.serving.service.get_manager', return_value=manager):
+            ops = service_stop(['pxt://acme:main/ingest'])
+        instance.stop.assert_not_called()
+        with patch.object(service_cmd, 'post_request', return_value=[op.model_dump() for op in ops]):
+            service_cmd.run(['stop', 'pxt://acme:main/ingest', *(['--json'] if as_json else [])])
+        output = capsys.readouterr().out
+        if as_json:
+            [op] = json.loads(output)
+            assert op['status'] == 'skipped'
+            assert op['details']['reason'] == 'already stopped'
+        else:
+            assert 'skipped' in output and 'already stopped' in output

@@ -45,15 +45,20 @@ To skip endpoints, see [Self-hosting](/howto/deployment/overview) for the insert
   </Card>
 </Columns>
 
-To run the same starter app on Pixeltable Cloud, create the hosted database, then create tables and start services against that `pxt://` URI:
+To run the same starter app on Pixeltable Cloud, sign in with `pxt login`. `pxt org create` provisions `main`. Add this entry to the project file before `pxt db update`. Without it, the command errors. `pxt db update` uploads the project onto that database:
 
-```bash
-pxt db update pxt://org:mydb
-pxt schema update app.py pxt://org:mydb
-pxt service update app.py pxt://org:mydb
+```toml
+[[pixeltable.database]]
+name = 'pxt://org:main'
 ```
 
-[Deploy to Pixeltable Cloud](/howto/deployment/cloud). `pxt service run` starts a service in your terminal and cannot target Cloud; use `pxt service update` for hosted endpoints.
+```bash
+pxt db update pxt://org:main
+pxt schema update app.py pxt://org:main
+pxt service update app.py pxt://org:main
+```
+
+[Pixeltable Cloud](/cloud). `pxt service run` starts a service in your terminal and cannot target Cloud; use `pxt service update` for hosted endpoints.
 
 <CardGroup cols={2}>
   <Card title="AI Skills" icon="robot" href="/resources/ai-skills">

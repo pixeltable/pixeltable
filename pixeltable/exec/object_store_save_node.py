@@ -187,10 +187,10 @@ class ObjectStoreSaveNode(ExecNode):
             new_file_url, exc = f.result()
             if exc is not None and not ignore_errors:
                 raise exc
-            assert new_file_url is not None
 
             work_items = self.in_flight_work.pop(work_designator)
             if exc is None:
+                assert new_file_url is not None
                 num_objects += 1
                 num_bytes += work_designator.file_size
                 tbl = work_items[0][1].col.get_tbl()
