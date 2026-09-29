@@ -561,7 +561,7 @@ def service_prune(req: Request) -> types.ServicePlan:
 @router.post('/api/service/stop')
 def service_stop(req: Request) -> list[types.ServiceChangeOp]:
     body = req.body(models.ServiceStopBody)
-    return service.service_stop(body.names)
+    return service.service_stop(body.names, project_root=body.project_root)
 
 
 @router.post('/api/service/restart')
