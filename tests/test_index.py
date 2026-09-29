@@ -293,7 +293,7 @@ class TestIndex:
             return chunks.select(mean=pxtf.mean(sim), mean_sq=pxtf.mean(sim * sim), n=pxtf.count(sim))
 
         res = queries.order_by(queries.query_text).select(r=sim_stats(queries.query_text)).collect()
-        for q, r in zip(query_texts, res['r']):
+        for q, r in zip(query_texts, res['r'], strict=True):
             sim = chunks.text.similarity(string=q)
             expected = chunks.select(mean=pxtf.mean(sim), mean_sq=pxtf.mean(sim * sim), n=pxtf.count(sim)).collect()
             assert r == [expected[0]]
