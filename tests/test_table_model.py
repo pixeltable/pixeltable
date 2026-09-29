@@ -2995,7 +2995,7 @@ class TestTableModel:
                 ]
 
     def test_update_all_altered_computed_column(self, db_root: DatabaseRoot) -> None:
-        """`update_all()` replaces computed column value expressions without recomputing their stored values."""
+        """`update_all()` replaces a computed column's value expression without recomputing its stored values."""
         p = db_root.make_catalog_path
         root = p('')
 
@@ -3111,7 +3111,9 @@ class TestTableModel:
         t.recompute_columns('doubled')
         assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [100, 200]
 
-        # Detect a query UDF body change when its name and call arguments stay unchanged.
+    def test_update_all_altered_query_udf_body(self, db_root: DatabaseRoot) -> None:
+        """`update_all()` alters a computed column whose query UDF keeps its name and arguments but changes its body."""
+        p = db_root.make_catalog_path
         QueryModel = pxt.model_base()
 
         class Docs(QueryModel, name='docs'):

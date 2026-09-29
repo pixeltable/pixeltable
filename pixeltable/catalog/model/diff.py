@@ -59,8 +59,7 @@ class _ColumnProperties:
     def from_spec(cls, spec: ColumnSpec, default_media_validation: str) -> _ColumnProperties:
         """The comparable properties of a column defined by spec, resolved to match a stored column's metadata.
 
-        A computed column's value expression carries ColumnRefByName placeholders, but those render identically to
-        the ColumnRefs in the stored expression, so the display strings are directly comparable. Defaults mirror
+        `value` is the value expression's display string, used only for reporting. Defaults mirror
         Column.create (stored=True, primary_key=False) and a media column's media_validation falls back to
         the table default, as it does on the stored column.
         """
@@ -273,11 +272,6 @@ def _alter_column_change(
 def _value_expr_dict(
     value: Any, tbl_path: catalog.TablePath, *, catalog_dir: str, origin: Literal['base_query', 'model_body']
 ) -> dict[str, Any]:
-    """Return the resolved expression dictionary for a model column value.
-
-    `value` is the model column value, and `tbl_path` is its catalog table. `catalog_dir` provides the directory for
-    binding query templates. `origin` affects which columns are visible.
-    """
     value_expr = exprs.Expr.from_object(value)
     value_expr = bind_query_templates(value_expr.copy(), catalog_dir)
     return resolve_model_value_expr(tbl_path, value_expr, origin).as_dict()
@@ -291,7 +285,6 @@ def _column_value_changed(
     catalog_dir: str,
     origin: Literal['base_query', 'model_body'],
 ) -> bool:
-    """Return whether the model and catalog define different values for a column."""
     model_value = spec.get('value')
     existing_col_md = tbl_path.get_column_md_by_name(col_name)
     assert existing_col_md is not None

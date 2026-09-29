@@ -206,8 +206,8 @@ class TableSchemaChangeSet(TypedDict):
 
     path: catalog.Path
 
-    # name -> (spec, origin). A 'base_query' column comes from the view's base query select() list and resolves
-    # against the base table's columns; a 'model_body' column resolves against the view's own visible columns.
+    # name -> (spec, origin). A 'base_query' column comes from the view's base query select() list and refers to
+    # the base table's columns; a 'model_body' column refers to the view's own visible columns.
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
     # name -> (spec, origin), for existing computed columns whose value expression is being replaced
     altered_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
