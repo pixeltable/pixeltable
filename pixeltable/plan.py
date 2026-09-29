@@ -1109,14 +1109,22 @@ class Planner:
         cls._verify_join_clauses(analyzer)
 
         # materialized with SQL table scans (ie, single-table SELECT statements):
-        # - select list subexprs that aren't aggregates
+        # - select list subexprs that aren't aggregates; in a grouping aggregation, only the args of aggregate and
+        #   window function calls: the rest of the select list is aggregate output, and a scan column is ungrouped
         # - join clause subexprs
         # - subexprs of Where clause conjuncts that can't be run in SQL
         # - all grouping exprs
         # - all stratify exprs
+        select_list_inputs: list[exprs.Expr]
+        if analyzer.group_by_clause is None:
+            select_list_inputs = analyzer.select_list
+        else:
+            select_list_inputs = []
+            for fn_call in analyzer.agg_fn_calls + analyzer.window_fn_calls:
+                select_list_inputs.extend(fn_call.components)
         candidates = list(
             exprs.Expr.list_subexprs(
-                analyzer.select_list,
+                select_list_inputs,
                 filter=lambda e: (
                     sql_elements.contains(e)
                     and not e.contains_(cls=exprs.FunctionCall, filter=lambda e: bool(e.is_agg_fn_call))
@@ -1134,9 +1142,9 @@ class Planner:
         candidates.extend(
             exprs.Expr.list_subexprs(analyzer.stratify_exprs, filter=sql_elements.contains, traverse_matches=False)
         )
-        # Exclude Literals and Variables: if materialized by the scan, they would appear ungrouped in an aggregation's
-        # select list and result in a SQL error.
-        sql_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, (exprs.Literal, exprs.Variable)))
+        # not isinstance(...): we don't want to materialize Literals via a Select (some types, eg arrays,
+        # don't round-trip cleanly through SQL parameter binding)
+        sql_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, exprs.Literal))
 
         # create table scans; each scan produces subexprs of (sql_exprs + join clauses)
         join_exprs = exprs.ExprSet(
