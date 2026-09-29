@@ -152,13 +152,12 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
 
     Should be called outside of a db transaction so that object-store I/O never holds a db connection.
     """
-    refs = proxy_protocol.collect_remote_keys(request.args)
-    if len(refs) == 0:
+    parts = proxy_protocol.collect_remote_keys(request.args)
+    if len(parts) == 0:
         return
     objects: list[str] = []
-    archives: dict[str, list[tuple[str, str]]] = {}  # archive key -> [(ref, member name)]
-    for ref in refs:
-        key, member = proxy_protocol.split_remote_ref(ref)
+    archives: dict[str, list[str]] = {}  # archive key -> member names
+    for key, member in parts:
         # only client uploads may be localized; anything else (e.g. 'pixeltable/data/...' store objects)
         # must not be readable through this daemon
         if not key.startswith('uploads/'):
@@ -166,14 +165,13 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
         if member is None:
             objects.append(key)
         else:
-            archives.setdefault(key, []).append((ref, member))
+            archives.setdefault(key, []).append(member)
     org, db = Env.get().hosted_db(required=True)
     store = ObjectOps.get_store(f'pxtfs://{org}:{db}/home/uploads/', False)
 
     # record every destination before downloading so handle() also cleans up a partial download
-    for ref in refs:
-        _, member = proxy_protocol.split_remote_ref(ref)
-        request._remote_parts[ref] = str(TempStore.create_path(extension=pathlib.Path(member or ref).suffix))
+    for key, member in parts:
+        request._remote_parts[key, member] = str(TempStore.create_path(extension=pathlib.Path(member or key).suffix))
 
     def download(key: str, dest: pathlib.Path) -> None:
         try:
@@ -187,21 +185,22 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
                 f'Uploaded object {key!r} not found (upload expired or incomplete); retry the operation',
             ) from e
 
-    def extract(archive_key: str, members: list[tuple[str, str]]) -> None:
+    def extract(archive_key: str, members: list[str]) -> None:
         archive_path = TempStore.create_path(extension='.tar')
         try:
             download(archive_key, archive_path)
             with tarfile.open(archive_path, 'r:') as tf:
                 infos = {info.name: info for info in tf.getmembers()}
-                for ref, member in members:
+                for member in members:
                     info = infos.get(member)
                     src = tf.extractfile(info) if info is not None and info.isfile() else None
                     if src is None:
                         raise excs.NotFoundError(
-                            excs.ErrorCode.STORAGE_NOT_FOUND, f'Uploaded object {ref!r} is missing from its archive'
+                            excs.ErrorCode.STORAGE_NOT_FOUND,
+                            f'Uploaded archive {archive_key!r} is missing member {member!r}',
                         )
-                    # a member name never reaches the filesystem: each ref extracts to its own temp path
-                    with src, open(request._remote_parts[ref], 'wb') as dest:
+                    # a member name never reaches the filesystem: each part extracts to its own temp path
+                    with src, open(request._remote_parts[archive_key, member], 'wb') as dest:
                         shutil.copyfileobj(src, dest)
         except tarfile.TarError as e:
             raise excs.RequestError(
@@ -213,7 +212,7 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
     # concurrent downloads are safe: boto3 clients are thread-safe
     if len(objects) > 0:
         with ThreadPoolExecutor(max_workers=min(16, len(objects))) as executor:
-            list(executor.map(lambda key: download(key, pathlib.Path(request._remote_parts[key])), objects))
+            list(executor.map(lambda key: download(key, pathlib.Path(request._remote_parts[key, None])), objects))
     if len(archives) > 0:
         with ThreadPoolExecutor(max_workers=min(_MAX_ARCHIVE_DOWNLOADS, len(archives))) as executor:
             list(executor.map(lambda item: extract(*item), archives.items()))

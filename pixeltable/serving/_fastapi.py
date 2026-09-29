@@ -354,6 +354,7 @@ class _ResponseMedia:
         if self._sink is None:
             return f'{self._media_url_base}{urllib.parse.quote(rel_path, safe="/")}'
         key = self._sink.add_media_file(str(self._home_dir / rel_path))
+        assert isinstance(key, str)  # PxtStorePartSink uploads every part as an object of its own
         # signed for an hour, so a client has time to fetch the media after reading the response
         return ObjectOps.presigned_url(f'{self._home_uri_prefix}{key}', expiration_seconds=3600)
 
