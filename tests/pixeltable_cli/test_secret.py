@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from ..utils import CLOUD_DB_ROOT_URIS, cloud_env_configured
+from ..utils import CLOUD_DB_ROOT_URIS
 from .conftest import PxtResult, PxtRunner
 
 _RUN_TIMEOUT_SECS = 180.0
@@ -221,8 +221,7 @@ class TestSecret:
             assert 'URI must be pxt://org or pxt://org:db' in r.stderr, r.stderr
         assert sent() == []
 
-    # TODO use hosted_environment when https://github.com/pixeltable/pixeltable/pull/1671 is merged
-    @pytest.mark.skipif(not cloud_env_configured(), reason='needs a Pixeltable cloud environment')
+    @pytest.mark.usefixtures('hosted_environment')
     def test_cloud_list(self, session_cli: PxtRunner) -> None:
         db_uri = CLOUD_DB_ROOT_URIS['cloud-cli']
         other_db_uri = CLOUD_DB_ROOT_URIS['cloud']
