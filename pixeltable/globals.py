@@ -555,6 +555,7 @@ def create_snapshot(
     )
 
 
+@telemetry.spanned('pixeltable.get_table', set_current=True)
 def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None:
     """Get a handle to an existing table, view, or snapshot.
 
@@ -591,6 +592,7 @@ def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') ->
     """
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     path_obj = catalog.Path.parse(path, allow_versioned_path=True)
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
     tbl = get_runtime().get_catalog(path_obj).get_table(path_obj, if_not_exists_)
     return tbl
 

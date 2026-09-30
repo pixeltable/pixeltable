@@ -404,8 +404,8 @@ class TestBridge:
             # 4 calls on insert + 4 on update (both columns depend on 'a')
             assert point('pixeltable.udf.calls', udf='casefold').value == 8
             assert point('pixeltable.udf.calls', udf='mock_llm').value == 8
-            # 4 attempts on insert, 1 failed; not recomputed by the update ('checked' depends on 'b')
-            assert point('pixeltable.udf.calls', udf='fail_on_marker').value == 3
+            # 4 calls on insert, 1 of them failed; not recomputed by the update ('checked' depends on 'b')
+            assert point('pixeltable.udf.calls', udf='fail_on_marker').value == 4
 
             latency = point('pixeltable.udf.latency', udf='casefold')
             assert latency.count == 8
@@ -417,17 +417,25 @@ class TestBridge:
         # record_token_usage() is called by the instrumented provider UDFs (openai/anthropic/gemini)
         # with their response's usage dict; exercised directly here to avoid a remote API call
         telemetry_schemas.record_token_usage(
-            'chat_completions', {'prompt_tokens': 7, 'completion_tokens': 3}, 'prompt_tokens', 'completion_tokens'
+            'pixeltable.functions.openai.chat_completions',
+            'gpt-4o-mini',
+            {'prompt_tokens': 7, 'completion_tokens': 3},
+            'prompt_tokens',
+            'completion_tokens',
         )
         in_point = self._metric(metric_reader, 'pixeltable.udf.input_tokens').data.data_points[0]
         out_point = self._metric(metric_reader, 'pixeltable.udf.output_tokens').data.data_points[0]
         assert in_point.value == 7
         assert out_point.value == 3
-        assert dict(in_point.attributes) == {'pxt.udf': 'chat_completions'}
+        assert dict(in_point.attributes) == {
+            'pxt.udf': 'chat_completions',
+            'pxt.udf_path': 'pixeltable.functions.openai.chat_completions',
+            'pxt.model': 'gpt-4o-mini',
+        }
 
     def test_cell_error_event(self, span_exporter: Any) -> None:
         # at DEBUG, cell.error events attach to the per-row spans; at INFO (no row spans) they fall
-        # back to the ambient operation span
+        # back to the ambient span, the insert's pixeltable.store.insert_rows
         telemetry.set_span_level(telemetry.DEBUG)
         pxt.create_dir('otel_event_smoke', if_exists='replace_force')
         try:
@@ -448,8 +456,8 @@ class TestBridge:
             status = t.insert([{'b': 'fail'}], on_error='ignore')
             assert status.num_excs > 0
             spans = span_exporter.get_finished_spans()
-            info_insert = [s for s in spans if s.name == 'pixeltable.insert'][-1]
-            (event,) = info_insert.events
+            info_insert_rows = [s for s in spans if s.name == 'pixeltable.store.insert_rows'][-1]
+            (event,) = info_insert_rows.events
             assert event.name == 'pixeltable.cell.error'
             assert event.attributes['pxt.column'] == 'checked'
         finally:

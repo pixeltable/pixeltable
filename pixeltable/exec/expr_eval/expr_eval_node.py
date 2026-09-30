@@ -374,7 +374,7 @@ class ExprEvalNode(ExecNode):
         if isinstance(evaluator, FnCallEvaluator):
             # a failed batched call arrives here once with the whole batch's rows, but is a single invocation
             num_calls = 1 if evaluator.batch_size is not None else len(rows)
-            telemetry_schemas.udf_errors.add(num_calls, udf=evaluator.fn.display_name)
+            telemetry_schemas.udf_errors.add(num_calls, udf=evaluator.fn.display_name, udf_path=evaluator.fn.self_path)
         tbl = self.row_builder.tbl
         telemetry_schemas.cells_errors.add(
             len(rows), table=tbl.name if tbl is not None else None, table_id=str(tbl.id) if tbl is not None else None
@@ -393,7 +393,7 @@ class ExprEvalNode(ExecNode):
             assert row.has_exc(slot_with_exc)
             exc = row.get_exc(slot_with_exc)
             telemetry.emit(
-                # rows only carry spans at DEBUG; at INFO the event attaches to the ambient operation span
+                # rows only carry spans at DEBUG; at INFO the event attaches to the ambient span
                 row.span if row.span is not None else telemetry.current_span(),
                 'pixeltable.cell.error',
                 **telemetry_schemas.CellErrorAttrs(column=self.col_names.get(slot_with_exc), error=type(exc).__name__),

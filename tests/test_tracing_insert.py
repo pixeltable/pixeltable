@@ -1,13 +1,17 @@
+import uuid
+from typing import Any, Callable
+
 import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import telemetry
 from pixeltable.func import Batch
+from pixeltable.functions import huggingface
 from pixeltable.telemetry import SubscriberRegistry
 
 from .test_telemetry import RecordingSubscriber
-from .utils import pxt_raises
+from .utils import dummy_embedding, get_image_files, pxt_raises, skip_test_if_not_installed
 
 
 @pxt.udf
@@ -46,15 +50,18 @@ class TestInsertTracing:
             assert op['end_attrs']['pxt.table_id'] == str(t._id)
             assert op['end_attrs']['pxt.num_rows'] == 5
             assert op['end_attrs']['pxt.num_excs'] == 0
+            insert_rows = sub.find('pixeltable.store.insert_rows')
+            assert insert_rows['parent_id'] == op['id']
             rows = [s for s in sub.spans if s['name'] == 'pixeltable.row']
             assert len(rows) == 5
-            assert all(r['parent_id'] == op['id'] for r in rows)
+            assert all(r['parent_id'] == insert_rows['id'] for r in rows)
             row_ids = {r['id'] for r in rows}
             udfs = [s for s in sub.spans if s['name'] == 'pixeltable.udf.abs']
             assert len(udfs) == 5
             assert all(u['parent_id'] in row_ids for u in udfs)
             assert all(u['set_current'] for u in udfs)  # provider instrumentors must nest under the UDF span
             assert all(u['attrs']['pxt.column'] == 'inc' for u in udfs)
+            assert all(u['attrs']['pxt.udf_path'] == 'pixeltable.functions.math.abs' for u in udfs)
             xacts = [
                 s for s in sub.spans if s['name'] == 'pixeltable.catalog.begin_xact' and s['parent_id'] == op['id']
             ]
@@ -149,6 +156,9 @@ class TestInsertTracing:
     def test_collect_and_yield_rows_spans(self, uses_db: None) -> None:
         t = self._make_table()
         t.insert([{'c': i} for i in range(3)])
+        sim = pxt.create_table('tracing_sim', {'s': pxt.String})
+        sim.add_embedding_index('s', embedding=dummy_embedding.using(n=4))
+        sim.insert([{'s': 'zero'}, {'s': 'one'}])
 
         sub = RecordingSubscriber()
         SubscriberRegistry.get().subscribe(sub)
@@ -171,6 +181,14 @@ class TestInsertTracing:
             udfs = [s for s in sub.spans if s['name'] == 'pixeltable.udf.fail_on_three']
             assert len(udfs) == 3
             assert all(udf['parent_id'] in row_ids for udf in udfs)
+            assert sub.find('pixeltable.sa.select')['parent_id'] == yield_rows['id']
+
+            # a similarity query computes its query embedding in a UDF call span under yield_rows
+            _ = sim.order_by(sim.s.similarity(string='zero'), asc=False).limit(1).collect()
+            sim_yield_rows = [s for s in sub.spans if s['name'] == 'pixeltable.result_cursor.yield_rows'][-1]
+            embed = sub.find('pixeltable.udf.dummy_embedding')
+            assert embed['parent_id'] == sim_yield_rows['id']
+            assert embed['attrs']['pxt.udf_path'] == 'tests.utils.dummy_embedding'
             assert all(s['ended'] for s in sub.spans)
         finally:
             SubscriberRegistry.get().unsubscribe(sub)
@@ -268,9 +286,97 @@ class TestInsertTracing:
             assert op['end_attrs']['pxt.table'] == 'tracing_test'
             assert op['end_attrs']['pxt.version'] == 3  # v0 create, v1 add_computed_column, v2 insert, v3 update
             assert op['end_attrs']['pxt.num_rows'] == 3
+            insert_rows = sub.find('pixeltable.store.insert_rows')
+            assert insert_rows['parent_id'] == op['id']
             sa_spans = [s for s in sub.spans if s['name'] == 'pixeltable.sa.insert_rows']
             assert len(sa_spans) > 0
-            assert all(s['parent_id'] == op['id'] for s in sa_spans)
+            assert all(s['parent_id'] == insert_rows['id'] for s in sa_spans)
             assert sum(s['attrs']['pxt.rows'] for s in sa_spans) == 3
+        finally:
+            SubscriberRegistry.get().unsubscribe(sub)
+
+    def test_store_write_spans(self, uses_db: None) -> None:
+        """The store write spans contain the execution pipeline that feeds them."""
+        t = self._make_table()
+        t.insert([{'c': i} for i in range(3)])
+        pxt.create_view('tracing_view', t)
+        img_t = pxt.create_table('tracing_img', {'img': pxt.Image})
+        img_t.add_computed_column(thumb=img_t.img.resize((8, 8)))
+
+        sub = RecordingSubscriber()
+        SubscriberRegistry.get().subscribe(sub)
+        telemetry.set_span_level(telemetry.DEBUG)
+        try:
+            # a backfill: the rows computed for the new column nest under store.write_column
+            t.add_computed_column(inc2=fail_on_three(t.c))
+            write_column = sub.find('pixeltable.store.write_column')
+            rows = [s for s in sub.spans if s['name'] == 'pixeltable.row']
+            assert len(rows) == 3
+            assert all(r['parent_id'] == write_column['id'] for r in rows)
+
+            # an insert into a table with a view: num_rows counts the table's own rows, and the view load writes
+            # through a store.insert_rows of its own
+            num_spans = len(sub.spans)
+            t.insert([{'c': 5}, {'c': 6}])
+            spans = sub.spans[num_spans:]
+            op = next(s for s in spans if s['name'] == 'pixeltable.insert')
+            assert op['end_attrs']['pxt.num_rows'] == 2
+            view_load = next(s for s in spans if s['name'] == 'pixeltable.view_load')
+            assert any(s['name'] == 'pixeltable.store.insert_rows' and s['parent_id'] == view_load['id'] for s in spans)
+
+            # an insert that generates media: each generated file's encoding nests under store.insert_rows
+            num_spans = len(sub.spans)
+            img_t.insert([{'img': path} for path in get_image_files()[:2]])
+            spans = sub.spans[num_spans:]
+            insert_rows = next(s for s in spans if s['name'] == 'pixeltable.store.insert_rows')
+            encodes = [s for s in spans if s['name'] == 'pixeltable.media.encode']
+            assert len(encodes) == 2
+            assert all(s['parent_id'] == insert_rows['id'] for s in encodes)
+            assert all(s['ended'] for s in sub.spans)
+        finally:
+            SubscriberRegistry.get().unsubscribe(sub)
+            telemetry.set_span_level(telemetry.INFO)
+
+    def test_model_load_span(self) -> None:
+        """A model loaded outside any operation (eg, by `.using()`) still gets a span, as a root."""
+        skip_test_if_not_installed('torch')
+        sub = RecordingSubscriber()
+        SubscriberRegistry.get().subscribe(sub)
+        try:
+            model_id = f'tracing-model-{uuid.uuid4().hex}'
+            huggingface._lookup_model(model_id, lambda _: object())
+            load = sub.find('pixeltable.model.load')
+            assert load['parent_id'] is None and load['ended']
+            assert load['attrs']['pxt.model_id'] == model_id
+        finally:
+            SubscriberRegistry.get().unsubscribe(sub)
+
+    def test_op_spans(self, uses_db: None) -> None:
+        t = pxt.create_table('tracing_ops', {'c': pxt.Int | None, 's': pxt.String})
+        t.add_computed_column(inc=pxtf.math.abs(t.c))
+
+        sub = RecordingSubscriber()
+        SubscriberRegistry.get().subscribe(sub)
+        try:
+            cases: list[tuple[str, Callable[[], Any]]] = [
+                ('pixeltable.get_table', lambda: pxt.get_table('tracing_ops')),
+                ('pixeltable.insert', lambda: t.insert([{'c': 1, 's': 'a'}, {'c': 2, 's': 'b'}])),
+                ('pixeltable.update', lambda: t.update({'c': t.c + 1})),
+                ('pixeltable.compute', lambda: t.compute([{'c': 5, 's': 'c'}])),
+                ('pixeltable.delete', lambda: t.delete(t.c > 2)),
+                ('pixeltable.add_columns', lambda: t.add_column(z=pxt.Int | None)),
+                ('pixeltable.alter_computed_column', lambda: t.alter_computed_column(inc=pxtf.math.abs(t.c + 1))),
+                ('pixeltable.alter_column', lambda: t.alter_column('s', type_=pxt.String | None)),
+                ('pixeltable.add_btree_index', lambda: t.add_btree_index('z', idx_name='z_idx')),
+                ('pixeltable.drop_index', lambda: t.drop_index(idx_name='z_idx')),
+                ('pixeltable.describe', t.describe),
+            ]
+            # each public operation emits exactly one root span, named after it
+            for name, op in cases:
+                num_spans = len(sub.spans)
+                op()
+                roots = [s['name'] for s in sub.spans[num_spans:] if s['parent_id'] is None]
+                assert roots == [name], f'{name}: got roots {roots}'
+            assert all(s['ended'] for s in sub.spans)
         finally:
             SubscriberRegistry.get().unsubscribe(sub)

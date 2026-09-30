@@ -14,12 +14,15 @@ mutually exclusive execution sites, so a call is counted once). The token counte
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypedDict as Attrs
+import contextlib
+import time
+from typing import TYPE_CHECKING, Any, Iterator, TypedDict as Attrs
 
 from pixeltable import telemetry
 
 if TYPE_CHECKING:
     from pixeltable.catalog.update_status import UpdateStatus
+    from pixeltable.func import Function
 
 
 class OpAttrs(Attrs, total=False):
@@ -46,7 +49,7 @@ class OpAttrs(Attrs, total=False):
 def op_attrs_from_update_status(status: UpdateStatus) -> OpAttrs:
     """The OpAttrs end attributes carried by an operation's UpdateStatus."""
     return OpAttrs(
-        num_rows=status.num_rows,
+        num_rows=status.row_count_stats.num_rows,
         num_computed_values=status.num_computed_values,
         num_excs=status.num_excs,
         updated_cols=status.updated_cols,
@@ -105,9 +108,11 @@ class UdfCallAttrs(Attrs, total=False):
 
     Each site sets the subset that applies: `column` when the call materializes a named table column,
     `batch_size` for batched calls. `resource_pool` and `retries` are only meaningful for calls executed
-    under a resource-pool scheduler: the pool name and the number of retries the call needed.
+    under a resource-pool scheduler: the pool name and the number of retries the call needed. `udf_path` is
+    the UDF's fully qualified name, which tells apart UDFs of the same name in different modules.
     """
 
+    udf_path: str | None
     column: str | None
     batch_size: int | None
     resource_pool: str
@@ -202,17 +207,31 @@ media_fetched_bytes = telemetry.counter('pixeltable.media.fetched_bytes', 'By')
 media_saved_bytes = telemetry.counter('pixeltable.media.saved_bytes', 'By')
 
 
-def record_token_usage(udf: str, usage: Any, input_key: str, output_key: str) -> None:
-    """Record a provider response's token usage into the udf_input_tokens/udf_output_tokens counters.
+@contextlib.contextmanager
+def udf_call(fn: Function) -> Iterator[None]:
+    """Count one call of fn into udf_calls and record its latency into udf_latency, whether or not it raises."""
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        udf_calls.add(1, udf=fn.display_name, udf_path=fn.self_path)
+        udf_latency.record(time.perf_counter() - start, udf=fn.display_name, udf_path=fn.self_path)
+
+
+def record_token_usage(udf_path: str, model: str, usage: Any, input_key: str, output_key: str) -> None:
+    """Record a provider response's token usage into the udf_input_tokens/udf_output_tokens counters, and as a
+    `pixeltable.udf.tokens` event on the ambient span, which at DEBUG is the UDF call span.
 
     `usage` is the usage dict of the provider's response (untyped at this point, hence tolerant:
-    a missing/non-dict usage or a non-int count records nothing).
+    a missing/non-dict usage records nothing, and a non-int count stays out of the counters).
     """
     if not isinstance(usage, dict):
         return
+    dims = {'udf': udf_path.rsplit('.', 1)[-1], 'udf_path': udf_path, 'model': model}
     n_in = usage.get(input_key)
     n_out = usage.get(output_key)
     if isinstance(n_in, int):
-        udf_input_tokens.add(n_in, udf=udf)
+        udf_input_tokens.add(n_in, **dims)
     if isinstance(n_out, int):
-        udf_output_tokens.add(n_out, udf=udf)
+        udf_output_tokens.add(n_out, **dims)
+    telemetry.emit(telemetry.current_span(), 'pixeltable.udf.tokens', input_tokens=n_in, output_tokens=n_out, **dims)

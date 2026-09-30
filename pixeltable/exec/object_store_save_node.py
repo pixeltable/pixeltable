@@ -232,7 +232,8 @@ class ObjectStoreSaveNode(ExecNode):
             col, index = info
             # we may need to store this imagehave yet to store this image
             if row.prepare_col_val_for_save(index, col):
-                row.file_urls[index] = row.save_media_to_temp(index, col)
+                with telemetry.span('pixeltable.media.encode', level=telemetry.DEBUG):
+                    row.file_urls[index] = row.save_media_to_temp(index, col)
 
             url = row.file_urls[index]
             if url is None:

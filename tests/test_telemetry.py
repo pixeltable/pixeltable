@@ -4,6 +4,7 @@ from typing import Any, Iterator
 
 import pytest
 
+import pixeltable.functions as pxtf
 from pixeltable import telemetry, telemetry_schemas
 from pixeltable.telemetry import SubscriberRegistry
 
@@ -143,21 +144,46 @@ class TestHooks:
         assert sub.histogram_records == [(h, 0.25, {'pxt.udf': 'f'})]
 
     def test_record_token_usage(self, sub: RecordingSubscriber) -> None:
-        # both counts present: one add per token counter, with the udf dimension
+        # both counts present: one add per token counter, with the udf and model dimensions
+        path = 'pixeltable.functions.anthropic.messages'
         telemetry_schemas.record_token_usage(
-            'messages', {'input_tokens': 7, 'output_tokens': 3}, 'input_tokens', 'output_tokens'
+            path, 'claude', {'input_tokens': 7, 'output_tokens': 3}, 'input_tokens', 'output_tokens'
         )
+        dims = {'pxt.udf': 'messages', 'pxt.udf_path': path, 'pxt.model': 'claude'}
         assert sub.counter_adds == [
-            (telemetry_schemas.udf_input_tokens, 7, {'pxt.udf': 'messages'}),
-            (telemetry_schemas.udf_output_tokens, 3, {'pxt.udf': 'messages'}),
+            (telemetry_schemas.udf_input_tokens, 7, dims),
+            (telemetry_schemas.udf_output_tokens, 3, dims),
         ]
         # one count present: only that counter records
-        telemetry_schemas.record_token_usage('messages', {'input_tokens': 5}, 'input_tokens', 'output_tokens')
+        telemetry_schemas.record_token_usage(path, 'claude', {'input_tokens': 5}, 'input_tokens', 'output_tokens')
         assert len(sub.counter_adds) == 3
         # non-dict usage and non-int counts record nothing
-        telemetry_schemas.record_token_usage('messages', None, 'input_tokens', 'output_tokens')
-        telemetry_schemas.record_token_usage('messages', {'input_tokens': 'x'}, 'input_tokens', 'output_tokens')
+        telemetry_schemas.record_token_usage(path, 'claude', None, 'input_tokens', 'output_tokens')
+        telemetry_schemas.record_token_usage(path, 'claude', {'input_tokens': 'x'}, 'input_tokens', 'output_tokens')
         assert len(sub.counter_adds) == 3
+        # with no ambient span there is nothing to attach the event to
+        assert sub.events == []
+        # inside a span: the token usage also lands on it as a pixeltable.udf.tokens event
+        with telemetry.span('op', set_current=True):
+            telemetry_schemas.record_token_usage(
+                path, 'claude', {'input_tokens': 7, 'output_tokens': 3}, 'input_tokens', 'output_tokens'
+            )
+        assert sub.events == [
+            (sub.find('op'), 'pixeltable.udf.tokens', {**dims, 'pxt.input_tokens': 7, 'pxt.output_tokens': 3})
+        ]
+
+    def test_udf_call(self, sub: RecordingSubscriber) -> None:
+        fn = pxtf.string.upper
+        dims = {'pxt.udf': 'upper', 'pxt.udf_path': 'pixeltable.functions.string.upper'}
+        # a successful call: one call counted, one latency recorded
+        with telemetry_schemas.udf_call(fn):
+            pass
+        # a raising call counts and records the same way
+        with pytest.raises(ValueError, match='boom'), telemetry_schemas.udf_call(fn):
+            raise ValueError('boom')
+        assert sub.counter_adds == [(telemetry_schemas.udf_calls, 1, dims)] * 2
+        assert [(h, attrs) for h, _, attrs in sub.histogram_records] == [(telemetry_schemas.udf_latency, dims)] * 2
+        assert all(value >= 0 for _, value, _ in sub.histogram_records)
 
     def test_metrics_inactive_noop(self) -> None:
         assert not telemetry.active()
@@ -359,6 +385,22 @@ class TestHooks:
         telemetry.span_end(op)
         assert sub.find('node')['parent_id'] == sub.find('op')['id']
         assert sub.find('inner')['parent_id'] == sub.find('op')['id']
+
+        @telemetry.spanned('nesting', nest_children=True)
+        def nesting_fn() -> None:
+            inner = telemetry.span_start('nested_inner')
+            telemetry.span_end(inner)
+
+        # nest_children=True inside an op span: spans started inside the function nest under it
+        op = telemetry.span_start('op2', set_current=True)
+        nesting_fn()
+        telemetry.span_end(op)
+        assert sub.find('nesting')['parent_id'] == sub.find('op2')['id']
+        assert sub.find('nested_inner')['parent_id'] == sub.find('nesting')['id']
+        # nest_children=True outside any op span: the function's span is suppressed rather than becoming a root
+        num_spans = len(sub.spans)
+        nesting_fn()
+        assert len(sub.spans) == num_spans
 
     def test_spanned_func_span(self, sub: RecordingSubscriber) -> None:
         assert telemetry.func_span() is None

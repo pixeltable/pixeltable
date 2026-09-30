@@ -2226,8 +2226,11 @@ def _lookup_model(
     key = cache_key if cache_key is not None else (model_id, create, device, tuple(sorted(kwargs.items())))
     with _cache_lock:
         if key not in _model_cache:
+            # set_current: a model loaded outside any operation (eg, by `.using()`) still gets a span
             with telemetry.span(
-                'pixeltable.model.load', **telemetry_schemas.ModelLoadAttrs(model_id=model_id, device=device)
+                'pixeltable.model.load',
+                set_current=True,
+                **telemetry_schemas.ModelLoadAttrs(model_id=model_id, device=device),
             ) as load_span:
                 if pass_device_to_create:
                     model = create(model_id, device=device, **kwargs)

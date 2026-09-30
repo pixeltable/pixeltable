@@ -186,7 +186,11 @@ async def generate_content(
                     img.load()
                     blob['data'] = img
         telemetry_schemas.record_token_usage(
-            'generate_content', result.get('usage_metadata'), 'prompt_token_count', 'candidates_token_count'
+            f'{__name__}.generate_content',
+            model,
+            result.get('usage_metadata'),
+            'prompt_token_count',
+            'candidates_token_count',
         )
         return result
 

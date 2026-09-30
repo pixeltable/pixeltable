@@ -245,7 +245,9 @@ async def messages(
     )
 
     result_dict = json.loads(await result.text())
-    telemetry_schemas.record_token_usage('messages', result_dict.get('usage'), 'input_tokens', 'output_tokens')
+    telemetry_schemas.record_token_usage(
+        f'{__name__}.messages', model, result_dict.get('usage'), 'input_tokens', 'output_tokens'
+    )
     return result_dict
 
 

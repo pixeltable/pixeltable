@@ -649,7 +649,7 @@ async def chat_completions(
 
     result_dict = json.loads(result.text)
     telemetry_schemas.record_token_usage(
-        'chat_completions', result_dict.get('usage'), 'prompt_tokens', 'completion_tokens'
+        f'{__name__}.chat_completions', model, result_dict.get('usage'), 'prompt_tokens', 'completion_tokens'
     )
     return result_dict
 
@@ -778,7 +778,9 @@ async def responses(
     rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
     result_dict = json.loads(result.text)
-    telemetry_schemas.record_token_usage('responses', result_dict.get('usage'), 'input_tokens', 'output_tokens')
+    telemetry_schemas.record_token_usage(
+        f'{__name__}.responses', model, result_dict.get('usage'), 'input_tokens', 'output_tokens'
+    )
     return result_dict
 
 

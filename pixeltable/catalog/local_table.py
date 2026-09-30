@@ -427,7 +427,9 @@ class LocalTable(Table):
                 pd_rows.append(row)
         return pd.DataFrame(pd_rows)
 
+    @telemetry.spanned('pixeltable.describe', set_current=True)
     def describe(self) -> None:
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
         if getattr(builtins, '__IPYTHON__', False):
             from IPython.display import Markdown, display
 
@@ -730,10 +732,12 @@ class LocalTable(Table):
             self._check_mutable('rename columns of')
             self._tbl_version.get().rename_column(old_name, new_name)
 
+    @telemetry.spanned('pixeltable.alter_column', set_current=True)
     def alter_column(self, column: str | ColumnRef, *, type_: TypeForm) -> None:
         from pixeltable.catalog import retry_loop
 
         new_col_type = ts.ColumnType.normalize_type(type_, allow_builtin_types=False)
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
 
         @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_alter_column() -> None:
@@ -776,6 +780,7 @@ class LocalTable(Table):
 
         do_alter_column()
 
+    @telemetry.spanned('pixeltable.alter_computed_column', set_current=True)
     def alter_computed_column(
         self, *, recompute: bool = True, cascade: bool = True, **kwargs: 'exprs.Expr'
     ) -> UpdateStatus:
@@ -819,12 +824,17 @@ class LocalTable(Table):
             FileCache.get().emit_eviction_warnings()
             return result
 
-        return do_alter_computed_column()
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        result = do_alter_computed_column()
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(result))
+        return result
 
+    @telemetry.spanned('pixeltable.add_btree_index', set_current=True)
     def add_btree_index(
         self, column: str | ColumnRef, *, idx_name: str | None = None, if_exists: Literal['error', 'ignore'] = 'error'
     ) -> None:
         self._check_mutable('add an index to')
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
         # A B-tree index is parameterless, so replacing one with another achieves nothing; only 'error' and
         # 'ignore' are meaningful.
         if if_exists not in ('error', 'ignore'):
@@ -1003,6 +1013,7 @@ class LocalTable(Table):
             raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, f'Invalid column parameter type: {type(column)}')
         return col
 
+    @telemetry.spanned('pixeltable.drop_index', set_current=True)
     def drop_index(
         self,
         *,
@@ -1015,6 +1026,7 @@ class LocalTable(Table):
                 excs.ErrorCode.MISSING_REQUIRED, "Exactly one of 'column' or 'idx_name' must be provided"
             )
 
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):

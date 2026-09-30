@@ -390,11 +390,14 @@ def func_span() -> SpanHandle | None:
     return _func_span.get()
 
 
-def spanned(name: str, *, level: int = INFO, set_current: bool = False) -> Callable[[F], F]:
+def spanned(
+    name: str, *, level: int = INFO, set_current: bool = False, nest_children: bool = False
+) -> Callable[[F], F]:
     """Decorator form of span() for a function whose entire body is one span.
 
     The span's handle isn't lexically available inside the function; use `add_attrs(func_span(), ...)` to
-    attach attributes to it.
+    attach attributes to it. nest_children=True makes spans started inside the function nest under this span,
+    but only inside an operation span, so that this span never becomes a root.
     """
 
     def decorator(fn: F) -> F:
@@ -405,7 +408,8 @@ def spanned(name: str, *, level: int = INFO, set_current: bool = False) -> Calla
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             if not SubscriberRegistry.get()._subscribers:
                 return fn(*args, **kwargs)
-            with span(name, level=level, set_current=set_current) as handle:
+            is_current = set_current or (nest_children and current_span() is not None)
+            with span(name, level=level, set_current=is_current) as handle:
                 token = _func_span.set(handle)
                 try:
                     return fn(*args, **kwargs)

@@ -444,7 +444,7 @@ class StoreBase:
         log_stmt(_logger, stmt)
         get_runtime().conn.execute(stmt)
 
-    @telemetry.spanned('pixeltable.store.write_column')
+    @telemetry.spanned('pixeltable.store.write_column', nest_children=True)
     def write_column(self, col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int:
         """Populate store column of a computed column with values produced by an execution plan
 
@@ -537,6 +537,7 @@ class StoreBase:
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.StoreAttrs(rows=num_rows))
         return num_excs
 
+    @telemetry.spanned('pixeltable.store.insert_rows', nest_children=True)
     def insert_rows(
         self,
         exec_plan: ExecNode,

@@ -79,7 +79,7 @@ def generate(
         options=options,
     ).dict()  # type: ignore[call-overload]
     # ollama reports token counts at the top level of the response, not in a nested usage dict
-    telemetry_schemas.record_token_usage('generate', result, 'prompt_eval_count', 'eval_count')
+    telemetry_schemas.record_token_usage(f'{__name__}.generate', model, result, 'prompt_eval_count', 'eval_count')
     return result
 
 
@@ -110,7 +110,7 @@ def chat(
 
     client = _ollama_client() or ollama
     result = client.chat(model=model, messages=messages, tools=tools, format=format, options=options).dict()  # type: ignore[call-overload]
-    telemetry_schemas.record_token_usage('chat', result, 'prompt_eval_count', 'eval_count')
+    telemetry_schemas.record_token_usage(f'{__name__}.chat', model, result, 'prompt_eval_count', 'eval_count')
     return result
 
 
