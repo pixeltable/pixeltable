@@ -841,6 +841,8 @@ def _scoped_to_only_org(api_url: str, granted: session_cache.Session) -> tuple[s
     try:
         org_id = _only_org_id(management_client.api_call(ListOrgsRequest(), credential=sent))
         if org_id == '':
+            # TODO(pierrebrunelle): a member of several organizations stays unscoped, and needs an API key from one.
+            # Scope each command to the organization in its pxt:// URI once such members exist.
             return granted, ''
         return auth.rescope(api_url, org_id, expected=granted), ''
     except (excs.Error, OSError) as e:
