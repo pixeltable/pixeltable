@@ -25,7 +25,7 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     pxt org list
     ```
 
-    `pxt login` shows a code to confirm in your browser. `pxt org list` prints each organization as `NAME  id=...`. Use that name in place of `org` in the `pxt://org:main` commands below.
+    `pxt login` shows a code to confirm in your browser. `pxt org list` prints each organization as `NAME  id=...`. Use that name in place of `org` in the `pxt://org:main` commands below. If `pxt whoami` prints `No organization yet` while `pxt org list` shows one, upgrade with `pip install -U 'pixeltable[serve]'` and run `pxt login` again.
 
     If `pxt org list` prints `No orgs.`, create one. The name is unique across Pixeltable: lowercase letters, digits, and hyphens, starting and ending with a letter or digit, at most 29 characters.
 
@@ -43,6 +43,8 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     pxt init
     pxt service example --out app.py
     ```
+
+    In a notebook, `!cd` does not carry over to the next command. Use `%cd cloud-app` instead, so that `pxt init` makes that directory the project root.
 
     `pxt service example` writes a working `app.py` with a `Docs` table and an `ingest` HTTP service. If you already completed the Quickstart, use that `app.py` instead.
 
