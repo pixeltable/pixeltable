@@ -710,7 +710,15 @@ class TestSchema:
         full = out_file.read_text()
         assert all(
             construct in full
-            for construct in ('pxt.Column(', 'pxt.EmbeddingIndex(', 'iterator=', 'base=', 'pxt.Document', '@pxt.udf')
+            for construct in (
+                'pxt.Column(',
+                'pxt.EmbeddingIndex(',
+                'iterator=',
+                'base=',
+                'pxt.Document',
+                '@pxt.udf',
+                '(TypedDict)',
+            )
         )
         # it has to be a file the daemon can import and plan, media types and embedding index included
         full_target = p('full_example')
@@ -977,6 +985,20 @@ class TestSchema:
         r = cli('schema', 'update', str(broken), p('app'), check=False)
         assert r.returncode == 1
         assert 'error loading' in r.stderr
+        assert 'RuntimeError: boom' in r.stderr
+
+        # an exception with an empty message still names its type
+        broken.write_text('assert False\n')
+        r = cli('schema', 'update', str(broken), p('app'), check=False)
+        assert r.returncode == 1
+        assert 'AssertionError' in r.stderr
+
+        # a Pixeltable error keeps its own message, without its class name
+        broken.write_text(SCHEMA_SRC + "\n\nclass Bad(TableModel, name='bad'):\n    x = object()\n")
+        r = cli('schema', 'update', str(broken), p('app'), check=False)
+        assert r.returncode == 1
+        assert "Column 'x': invalid value" in r.stderr
+        assert 'RequestError' not in r.stderr
 
         # one that defines a udf before it fails: the udf is registered by the time the failure happens,
         # and the fixed file redefines it, so a load that keeps it would refuse the second one

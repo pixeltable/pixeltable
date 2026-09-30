@@ -11,7 +11,7 @@
 [**Quickstart**](https://docs.pixeltable.com/overview/quick-start) |
 [**Documentation**](https://docs.pixeltable.com/) |
 [**CLI**](https://docs.pixeltable.com/platform/cli) |
-[**Cloud**](https://docs.pixeltable.com/howto/deployment/cloud) |
+[**Cloud**](https://docs.pixeltable.com/cloud) |
 [**Discord**](https://discord.gg/QPyqFYx2UN)
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -46,6 +46,7 @@ pxt service update app.py my_app
 
 `pxt schema update` creates the catalog `my_app` and its tables; it does not start HTTP.
 `pxt service update` starts HTTP; it does not create tables.
+Generate TypeScript types from a service's OpenAPI schema and call it from a Next.js backend using the [HTTP serving guide](https://docs.pixeltable.com/howto/deployment/serving).
 
 `pxt service example` writes this application file.
 
@@ -94,15 +95,20 @@ curl -X POST "$URL/docs" \
 # {"id":"...","title_upper":"HELLO","summary":"Hello"}
 ```
 
-The same file runs on Pixeltable Cloud. Create an API key in the [Cloud dashboard](https://docs.pixeltable.com/howto/deployment/cloud#get-an-api-key), set `PIXELTABLE_API_KEY`, name the database in `pixeltable.toml`, then target it by URI. `pxt db update` creates or updates the hosted database; it does not insert rows. `pxt service run` is local only and cannot target Cloud.
+The same file runs on [Pixeltable Cloud](https://docs.pixeltable.com/cloud). Sign in with `pxt login`. If `pxt org list` shows no organization, `pxt org create NAME` makes one and provisions its database, `main`. Add this entry to the project file, with your organization's name in place of `org`:
 
-```bash
-pxt db update pxt://org:mydb
-pxt schema update app.py pxt://org:mydb
-pxt service update app.py pxt://org:mydb
+```toml
+[[pixeltable.database]]
+name = 'pxt://org:main'
 ```
 
-A `@pxt.udf` in that same `app.py` is in the image `pxt db update` builds.
+```bash
+pxt db update pxt://org:main
+pxt schema update app.py pxt://org:main
+pxt service update app.py pxt://org:main
+```
+
+The [Cloud guide](https://docs.pixeltable.com/cloud) covers the first deployment step by step, API keys, secrets, and what to run after a change.
 
 ## Chat agent or video search
 
@@ -139,6 +145,6 @@ Apache 2.0. [Contributing](https://github.com/pixeltable/pixeltable/blob/main/CO
 [cursor-badge]: https://img.shields.io/badge/Open_in-Cursor-000000
 [claude-badge]: https://img.shields.io/badge/Open_in-Claude-D97757
 [chatgpt-badge]: https://img.shields.io/badge/Open_in-ChatGPT-10A37F
-[cursor-prompt]: https://cursor.com/link/prompt?text=Build+a+multimodal+AI+data+app+with+Pixeltable.+First+follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md+%28install+pxt%2C+the+Pixeltable+Skill%2C+and+MCP%29.+Then+%60pip+install+%27pixeltable%5Bserve%5D%27%60%2C+%60pxt+init%60%2C+and+%60pxt+service+example+--out+app.py%60.+Declare+tables%2C+computed+columns%2C+embeddings%2C+and+FastAPIRouter+routes+in+that+one+Python+file.+Apply+with+%60pxt+schema+update+app.py+my_app%60%2C+serve+locally+with+%60pxt+service+update+app.py+my_app%60.+Same+file+on+Cloud%3A+set+PIXELTABLE_API_KEY%2C+add+%60%5B%5Bpixeltable.database%5D%5D%60+with+%60name+%3D+%27pxt%3A%2F%2Forg%3Adb%27%60%2C+then+%60pxt+db+update+pxt%3A%2F%2Forg%3Adb%60%2C+%60pxt+schema+update+app.py+pxt%3A%2F%2Forg%3Adb%60%2C+%60pxt+service+update+app.py+pxt%3A%2F%2Forg%3Adb%60.+%60pxt+service+run%60+is+local+only.+Read+https%3A%2F%2Fpixeltable.com%2Fllms.txt+and+https%3A%2F%2Fdocs.pixeltable.com.
-[claude-prompt]: https://claude.ai/new?q=Build+a+multimodal+AI+data+app+with+Pixeltable.+First+follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md+%28install+pxt%2C+the+Pixeltable+Skill%2C+and+MCP%29.+Then+%60pip+install+%27pixeltable%5Bserve%5D%27%60%2C+%60pxt+init%60%2C+and+%60pxt+service+example+--out+app.py%60.+Declare+tables%2C+computed+columns%2C+embeddings%2C+and+FastAPIRouter+routes+in+that+one+Python+file.+Apply+with+%60pxt+schema+update+app.py+my_app%60%2C+serve+locally+with+%60pxt+service+update+app.py+my_app%60.+Same+file+on+Cloud%3A+set+PIXELTABLE_API_KEY%2C+add+%60%5B%5Bpixeltable.database%5D%5D%60+with+%60name+%3D+%27pxt%3A%2F%2Forg%3Adb%27%60%2C+then+%60pxt+db+update+pxt%3A%2F%2Forg%3Adb%60%2C+%60pxt+schema+update+app.py+pxt%3A%2F%2Forg%3Adb%60%2C+%60pxt+service+update+app.py+pxt%3A%2F%2Forg%3Adb%60.+%60pxt+service+run%60+is+local+only.+Read+https%3A%2F%2Fpixeltable.com%2Fllms.txt+and+https%3A%2F%2Fdocs.pixeltable.com.
-[chatgpt-prompt]: https://chatgpt.com/?prompt=Build+a+multimodal+AI+data+app+with+Pixeltable.+First+follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md+%28install+pxt%2C+the+Pixeltable+Skill%2C+and+MCP%29.+Then+%60pip+install+%27pixeltable%5Bserve%5D%27%60%2C+%60pxt+init%60%2C+and+%60pxt+service+example+--out+app.py%60.+Declare+tables%2C+computed+columns%2C+embeddings%2C+and+FastAPIRouter+routes+in+that+one+Python+file.+Apply+with+%60pxt+schema+update+app.py+my_app%60%2C+serve+locally+with+%60pxt+service+update+app.py+my_app%60.+Same+file+on+Cloud%3A+set+PIXELTABLE_API_KEY%2C+add+%60%5B%5Bpixeltable.database%5D%5D%60+with+%60name+%3D+%27pxt%3A%2F%2Forg%3Adb%27%60%2C+then+%60pxt+db+update+pxt%3A%2F%2Forg%3Adb%60%2C+%60pxt+schema+update+app.py+pxt%3A%2F%2Forg%3Adb%60%2C+%60pxt+service+update+app.py+pxt%3A%2F%2Forg%3Adb%60.+%60pxt+service+run%60+is+local+only.+Read+https%3A%2F%2Fpixeltable.com%2Fllms.txt+and+https%3A%2F%2Fdocs.pixeltable.com.
+[cursor-prompt]: https://cursor.com/link/prompt?text=Build+a+multimodal+AI+data+app+with+Pixeltable.+Follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md.
+[claude-prompt]: https://claude.ai/new?q=Build+a+multimodal+AI+data+app+with+Pixeltable.+Follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md.
+[chatgpt-prompt]: https://chatgpt.com/?prompt=Build+a+multimodal+AI+data+app+with+Pixeltable.+Follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md.

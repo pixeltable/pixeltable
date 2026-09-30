@@ -9,16 +9,19 @@ new method is "register a handler + make sure its arg/return types serialize" --
 from __future__ import annotations
 
 import abc
+import contextlib
 import dataclasses
 import datetime
 import io
 import json
 import math
+import os
 import pathlib
 import shutil
 import struct
-from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Callable, Generic, TypedDict, TypeVar
+import tarfile
+from concurrent.futures import FIRST_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
+from typing import IO, TYPE_CHECKING, Any, Callable, Generic, TypedDict, TypeVar
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -75,7 +78,7 @@ class PartSink(abc.ABC, Generic[T]):
 
     @abc.abstractmethod
     def add_media_file(self, path: str) -> T:
-        """Add a file-backed media value; returns a part index (inline) or an object key (out of band)."""
+        """Add a file-backed media value; returns a part index (inline), an object key, or an ArchiveMember."""
 
     @abc.abstractmethod
     def add_scalar_bytes(self, data: bytes, extension: str) -> T:
@@ -87,6 +90,9 @@ class PartSink(abc.ABC, Generic[T]):
 
     def flush(self) -> None:
         """Complete any work the sink deferred while serializing."""
+
+    def abort(self) -> None:
+        """Discard the sink's deferred work; called when serialization or flush() fails."""
 
 
 class InlinePartSink(PartSink[int]):
@@ -105,7 +111,15 @@ class InlinePartSink(PartSink[int]):
         return self.add_inline(data)
 
 
-class PxtStorePartSink(PartSink[int | str]):
+@dataclasses.dataclass(frozen=True)
+class ArchiveMember:
+    """A reference to a binary part stored as a member of an uploaded archive."""
+
+    key: str  # the archive's object key
+    name: str
+
+
+class PxtStorePartSink(PartSink[int | str | ArchiveMember]):
     """PartSink that uploads binary parts to the hosted db's home bucket. The parts will be deposited in the
     uploads/ folder of the db's home bucket, in a per-request subfolder uploads/<request-uuid>.
 
@@ -146,27 +160,39 @@ class PxtStorePartSink(PartSink[int | str]):
             self._store = ObjectOps.get_store(f'pxtfs://{self._org}:{self._db}/home/{self._key_prefix}', False)
         return self._store
 
-    def add_media_bytes(self, data: bytes, extension: str) -> str:
+    def add_media_bytes(self, data: bytes, extension: str) -> str | ArchiveMember:
         # stage to a temp file so all uploads go through the file path (boto3's transfer manager); flush()
         # removes the staged file once it has been uploaded
         tmp_path = TempStore.create_path(extension=extension)
         tmp_path.write_bytes(data)
         return self._add_pending(tmp_path, remove_after_upload=True)
 
-    def add_media_file(self, path: str) -> str:
+    def add_media_file(self, path: str) -> str | ArchiveMember:
         return self._add_pending(pathlib.Path(path), remove_after_upload=False)
 
-    def add_scalar_bytes(self, data: bytes, extension: str) -> int | str:
+    def add_scalar_bytes(self, data: bytes, extension: str) -> int | str | ArchiveMember:
         if len(data) < self._MIN_OUT_OF_BAND_SIZE:
             return self.add_inline(data)
         return self.add_media_bytes(data, extension)
 
+    def _next_part_name(self, suffix: str) -> str:
+        name = f'{self._num_parts}{suffix}'
+        self._num_parts += 1
+        return name
+
     def _add_pending(self, path: pathlib.Path, *, remove_after_upload: bool) -> str:
         """Mint this part's object key and queue its upload for flush()."""
-        key = f'{self._key_prefix}{self._num_parts}{path.suffix}'
-        self._num_parts += 1
+        key = f'{self._key_prefix}{self._next_part_name(path.suffix)}'
         self._pending.append((path, key, remove_after_upload))
         return key
+
+    def _upload_one(self, store: ObjectStoreBase, path: pathlib.Path, key: str, remove_after_upload: bool) -> None:
+        try:
+            url = f'pxtfs://{self._org}:{self._db}/home/{key}'
+            store.copy_local_file(path, FileDestination(url=url, remote_key=key))
+        finally:
+            if remove_after_upload:
+                path.unlink(missing_ok=True)
 
     def flush(self) -> None:
         """Upload the queued parts concurrently.
@@ -176,22 +202,153 @@ class PxtStorePartSink(PartSink[int | str]):
         """
         if len(self._pending) == 0:
             return
-        pending, self._pending = self._pending, []
         # fetch credentials and build the store once, here: the boto3 client it holds is bound to it at
         # construction (see S3Store.client()), so the upload threads share that one client, as boto3 permits
         store = self._get_store()
-
-        def upload(item: tuple[pathlib.Path, str, bool]) -> None:
-            path, key, remove_after_upload = item
-            try:
-                url = f'pxtfs://{self._org}:{self._db}/home/{key}'
-                store.copy_local_file(path, FileDestination(url=url, remote_key=key))
-            finally:
-                if remove_after_upload:
+        pending, self._pending = self._pending, []
+        executor = ThreadPoolExecutor(
+            max_workers=min(self._MAX_UPLOAD_THREADS, len(pending)), thread_name_prefix='pxt-part-upload'
+        )
+        uploads: list[Future[None]] = []
+        try:
+            for item in pending:
+                uploads.append(executor.submit(self._upload_one, store, *item))
+            for upload in wait(uploads, return_when=FIRST_EXCEPTION).done:
+                upload.result()
+        finally:
+            # waiting for a running upload would hold up a Ctrl+C; each one removes its own staged file
+            executor.shutdown(wait=False, cancel_futures=True)
+            for i, (path, _, remove_after_upload) in enumerate(pending):
+                if remove_after_upload and (i >= len(uploads) or uploads[i].cancelled()):
                     path.unlink(missing_ok=True)
 
-        with ThreadPoolExecutor(max_workers=min(self._MAX_UPLOAD_THREADS, len(pending))) as executor:
-            list(executor.map(upload, pending))
+    def abort(self) -> None:
+        pending, self._pending = self._pending, []
+        for path, _, remove_after_upload in pending:
+            if remove_after_upload:
+                path.unlink(missing_ok=True)
+
+
+class PxtArchivePartSink(PxtStorePartSink):
+    """PartSink that packs a request's out-of-band parts into tar archives under uploads/<request-uuid>/.
+
+    Each part is appended to an open, uncompressed tar in TempStore as it is serialized. An archive that
+    reaches _ARCHIVE_TARGET_SIZE is closed and uploaded on a background pool, so uploads overlap
+    serialization. A part's reference is an ArchiveMember, which _serialize() writes to the tag's 'v' and
+    'member' fields; proxy_dispatch._prefetch_remote_parts() downloads each archive once and extracts the
+    referenced members.
+
+    A part of _MAX_ARCHIVE_MEMBER_SIZE or more is uploaded as an object of its own, as PxtStorePartSink does:
+    an archive saves it no round trip and would cost a local copy.
+    """
+
+    _ARCHIVE_TARGET_SIZE = 100 * 1024 * 1024
+    _MAX_ARCHIVE_MEMBER_SIZE = 32 * 1024 * 1024
+    _MAX_ARCHIVE_UPLOADS = 4
+    # closed archives awaiting upload; bounds the temp disk used when serialization outruns the uploads
+    _MAX_PENDING_ARCHIVES = 8
+
+    _tar: tarfile.TarFile | None
+    _tar_path: pathlib.Path | None
+    _tar_key: str | None
+    _num_archives: int
+    _executor: ThreadPoolExecutor | None
+    _uploads: list[tuple[Future[None], pathlib.Path]]  # (upload, local archive file)
+
+    def __init__(self, org: str, db: str) -> None:
+        super().__init__(org, db)
+        self._tar = None
+        self._tar_path = None
+        self._tar_key = None
+        self._num_archives = 0
+        self._executor = None
+        self._uploads = []
+
+    def add_media_bytes(self, data: bytes, extension: str) -> str | ArchiveMember:
+        if len(data) >= self._MAX_ARCHIVE_MEMBER_SIZE:
+            return super().add_media_bytes(data, extension)
+        return self._add_member(extension, len(data), io.BytesIO(data))
+
+    def add_media_file(self, path: str) -> str | ArchiveMember:
+        with open(path, 'rb') as f:
+            size = os.fstat(f.fileno()).st_size
+            if size < self._MAX_ARCHIVE_MEMBER_SIZE:
+                return self._add_member(pathlib.Path(path).suffix, size, f)
+        return super().add_media_file(path)
+
+    def _add_member(self, suffix: str, size: int, fileobj: IO[bytes]) -> ArchiveMember:
+        if self._tar is None:
+            self._open_archive()
+        assert self._tar is not None and self._tar_key is not None
+        name = self._next_part_name(suffix)
+        info = tarfile.TarInfo(name)
+        info.size = size
+        self._tar.addfile(info, fileobj)
+        ref = ArchiveMember(self._tar_key, name)
+        if self._tar.offset >= self._ARCHIVE_TARGET_SIZE:
+            self._close_archive()
+        return ref
+
+    def _open_archive(self) -> None:
+        # surface a failed upload now rather than after the rest of the request is serialized
+        for upload, _ in self._uploads:
+            if upload.done():
+                upload.result()
+        in_flight = [upload for upload, _ in self._uploads if not upload.done()]
+        if len(in_flight) >= self._MAX_PENDING_ARCHIVES:
+            wait(in_flight, return_when=FIRST_COMPLETED)
+        self._tar_path = TempStore.create_path(extension='.tar')
+        self._tar_key = f'{self._key_prefix}tar{self._num_archives}.tar'
+        self._num_archives += 1
+        self._tar = tarfile.open(self._tar_path, 'w', format=tarfile.PAX_FORMAT)  # noqa: SIM115
+
+    def _close_archive(self) -> None:
+        """Close the open archive and queue its upload."""
+        assert self._tar is not None and self._tar_path is not None and self._tar_key is not None
+        self._tar.close()
+        # built on this thread, so the upload threads never race to construct it
+        store = self._get_store()
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(
+                max_workers=self._MAX_ARCHIVE_UPLOADS, thread_name_prefix='pxt-archive-upload'
+            )
+        upload = self._executor.submit(self._upload_one, store, self._tar_path, self._tar_key, True)
+        self._uploads.append((upload, self._tar_path))
+        self._tar, self._tar_path, self._tar_key = None, None, None
+
+    def _shut_down(self) -> None:
+        """Remove the archive not yet queued for upload and the archives of the cancelled uploads.
+
+        Waiting for a running upload would hold up a Ctrl+C, so it is left to finish and remove its own archive.
+        """
+        if self._tar is not None:
+            with contextlib.suppress(OSError):
+                self._tar.close()
+        if self._tar_path is not None:
+            self._tar_path.unlink(missing_ok=True)
+        self._tar, self._tar_path, self._tar_key = None, None, None
+        if self._executor is not None:
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            self._executor = None
+        uploads, self._uploads = self._uploads, []
+        for upload, path in uploads:
+            if not upload.running():
+                path.unlink(missing_ok=True)
+
+    def flush(self) -> None:
+        """Upload the open archive, then wait for every upload; re-raises the first failure."""
+        try:
+            if self._tar is not None:
+                self._close_archive()
+            for upload in wait([upload for upload, _ in self._uploads], return_when=FIRST_EXCEPTION).done:
+                upload.result()
+            super().flush()
+        finally:
+            self._shut_down()
+
+    def abort(self) -> None:
+        self._shut_down()
+        super().abort()
 
 
 @dataclasses.dataclass
@@ -229,9 +386,9 @@ class ProxyRequest(BaseModel):
     # temp path -> the client's original filename; needed for informative error messages
     _uploaded_names: dict[str, str] = PrivateAttr(default_factory=dict)
 
-    # object key -> local temp path, for media parts the client uploaded out of band; populated by the
-    # server before dispatch (see proxy_dispatch._prefetch_remote_parts)
-    _remote_parts: dict[str, str] = PrivateAttr(default_factory=dict)
+    # (object key, member name) -> local temp path, for the client's out-of-band parts; populated by the server
+    # before dispatch (see proxy_dispatch._prefetch_remote_parts)
+    _remote_parts: dict[tuple[str, str | None], str] = PrivateAttr(default_factory=dict)
 
 
 class ProxyResponse(TypedDict, total=False):
@@ -245,6 +402,13 @@ class ProxyResponse(TypedDict, total=False):
     current_md: list[TableVersionMd] | list[dict[str, Any]]
 
     is_stale_md: bool  # True if the request's snapshot_path_key was behind the current schema version
+
+
+def _ref_fields(ref: int | str | ArchiveMember) -> dict[str, Any]:
+    """The tag fields that reference a binary part."""
+    if isinstance(ref, ArchiveMember):
+        return {'v': ref.key, 'member': ref.name}
+    return {'v': ref}
 
 
 def _serialize(obj: Any, sink: PartSink) -> Any:
@@ -336,21 +500,21 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
         return str(obj)  # filesystem paths travel as strings
     if isinstance(obj, bytes):
         # a Binary cell, or an array column's stored byte form as returned by compute()
-        return {_TAG: 'bytes', 'v': sink.add_scalar_bytes(obj, '.bin')}
+        return {_TAG: 'bytes', **_ref_fields(sink.add_scalar_bytes(obj, '.bin'))}
     if isinstance(obj, np.ndarray):
         buf = io.BytesIO()
         np.save(buf, obj, allow_pickle=False)  # .npy carries dtype and shape
-        return {_TAG: 'ndarray', 'v': sink.add_scalar_bytes(buf.getvalue(), '.npy')}
+        return {_TAG: 'ndarray', **_ref_fields(sink.add_scalar_bytes(buf.getvalue(), '.npy'))}
     if isinstance(obj, PIL.Image.Image):
         # an in-memory image; file-backed media travels as a path
         buf = io.BytesIO()
         fmt = obj.format or 'PNG'
         obj.save(buf, format=fmt)
-        return {_TAG: 'image', 'format': fmt, 'v': sink.add_media_bytes(buf.getvalue(), f'.{fmt.lower()}')}
+        return {_TAG: 'image', 'format': fmt, **_ref_fields(sink.add_media_bytes(buf.getvalue(), f'.{fmt.lower()}'))}
     if isinstance(obj, LocalFile):
         # carry the original file name so the receiver can restore it in error messages (its temp copy uses an
         # opaque name) and preserve the extension for media-type detection
-        return {_TAG: 'file', 'name': pathlib.Path(obj.path).name, 'v': sink.add_media_file(obj.path)}
+        return {_TAG: 'file', 'name': pathlib.Path(obj.path).name, **_ref_fields(sink.add_media_file(obj.path))}
     if isinstance(obj, MediaPath):
         return {_TAG: 'mediapath', 'v': obj.path}
     if isinstance(obj, list):
@@ -407,11 +571,11 @@ def _deserialize(
     obj: Any,
     binary_parts: list[bytes],
     uploaded_names: dict[str, str] | None = None,
-    remote_parts: dict[str, str] | None = None,
+    remote_parts: dict[tuple[str, str | None], str] | None = None,
 ) -> Any:
     """Inverse of _serialize(). When uploaded_names is provided, each 'file' arg maps its temp path to the
-    original filename in it. remote_parts maps each out-of-band media part's object key to a pre-downloaded
-    local temp path.
+    original filename in it. remote_parts maps each out-of-band part's (object key, member name) to a
+    pre-downloaded local temp path.
 
     A container whose values all come back unchanged is returned as it was, so a large result that holds no
     encoded value is walked rather than rebuilt."""
@@ -452,25 +616,25 @@ def _deserialize(
         if tag == 'bytes':
             # a str v is an object key of an out-of-band part, resolved to a pre-downloaded local path
             if isinstance(v, str):
-                with open(_remote_part_path(v, remote_parts), 'rb') as f:
+                with open(_remote_part_path(obj, remote_parts), 'rb') as f:
                     return f.read()
             return binary_parts[v]
         if tag == 'ndarray':
             buf: str | io.BytesIO = (
-                _remote_part_path(v, remote_parts) if isinstance(v, str) else io.BytesIO(binary_parts[v])
+                _remote_part_path(obj, remote_parts) if isinstance(v, str) else io.BytesIO(binary_parts[v])
             )
             return np.load(buf, allow_pickle=False)
         if tag == 'image':
             # a str v is an object key of an out-of-band media part, resolved to a pre-downloaded local path
             img = PIL.Image.open(
-                _remote_part_path(v, remote_parts) if isinstance(v, str) else io.BytesIO(binary_parts[v])
+                _remote_part_path(obj, remote_parts) if isinstance(v, str) else io.BytesIO(binary_parts[v])
             )
             img.load()  # read pixels now so the result doesn't depend on the transient buffer/file
             return img
         if tag == 'file':
             if isinstance(v, str):
                 # an object key of an out-of-band media part; return its pre-downloaded local path
-                dest_str = _remote_part_path(v, remote_parts)
+                dest_str = _remote_part_path(obj, remote_parts)
             else:
                 # write the sent bytes to an opaque temp path (extension preserved for media-type detection);
                 # an inlining sink serves the local daemon and every response, so this branch stays
@@ -556,29 +720,32 @@ def _deserialize(
     return obj
 
 
-def _remote_part_path(key: str, remote_parts: dict[str, str] | None) -> str:
-    """Resolve an out-of-band part's object key to its pre-downloaded local path."""
+def _remote_part_path(tag: dict[str, Any], remote_parts: dict[tuple[str, str | None], str] | None) -> str:
+    """Resolve an out-of-band part's tag to its pre-downloaded local path."""
+    key, member = tag['v'], tag.get('member')
+    label = repr(key) if member is None else f'{key!r} (member {member!r})'
     if remote_parts is None:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            f'Cannot localize uploaded object {key!r}: this receiver has no access to uploaded objects',
+            f'Cannot localize uploaded object {label}: this receiver has no access to uploaded objects',
         )
-    if key not in remote_parts:
+    path = remote_parts.get((key, member))
+    if path is None:
         raise excs.NotFoundError(
             excs.ErrorCode.STORAGE_NOT_FOUND,
-            f'Cannot localize uploaded object {key!r}: object was not prefetched on this receiver',
+            f'Cannot localize uploaded object {label}: object was not prefetched on this receiver',
         )
-    return remote_parts[key]
+    return path
 
 
 # the tags whose 'v' is an object key when the value went out of band, and a part index when it did not
 _BINARY_TAGS = ('file', 'image', 'bytes', 'ndarray')
 
 
-def collect_remote_keys(args: Any) -> list[str]:
-    """Return the object keys of all out-of-band binary parts in serialized args, deduplicated in encounter
-    order."""
-    keys: dict[str, None] = {}
+def collect_remote_keys(args: Any) -> list[tuple[str, str | None]]:
+    """Return the (object key, member name) of every out-of-band binary part in serialized args, deduplicated
+    in encounter order. The member name is None for a part uploaded as an object of its own."""
+    keys: dict[tuple[str, str | None], None] = {}
 
     def walk(obj: Any) -> None:
         if isinstance(obj, list):
@@ -586,7 +753,13 @@ def collect_remote_keys(args: Any) -> list[str]:
                 walk(item)
         elif isinstance(obj, dict):
             if obj.get(_TAG) in _BINARY_TAGS and isinstance(obj.get('v'), str):
-                keys[obj['v']] = None
+                member = obj.get('member')
+                if member is not None and not isinstance(member, str):
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_ARGUMENT,
+                        f'Invalid archive member name: expected a string, got {type(member).__name__}',
+                    )
+                keys[obj['v'], member] = None
             else:
                 for value in obj.values():
                     walk(value)
@@ -597,9 +770,13 @@ def collect_remote_keys(args: Any) -> list[str]:
 
 def serialize_args(args: dict[str, Any], sink: PartSink) -> dict[str, Any]:
     """Encode a request's args for the wire; binary values go to sink (see _serialize())."""
-    wire_args = _serialize(args, sink)
-    assert isinstance(wire_args, dict)
-    sink.flush()  # an out-of-band sink defers its transfers to here, where they can run concurrently
+    try:
+        wire_args = _serialize(args, sink)
+        assert isinstance(wire_args, dict)
+        sink.flush()  # an out-of-band sink defers its transfers to here, where they can run concurrently
+    except BaseException:
+        sink.abort()
+        raise
     return wire_args
 
 

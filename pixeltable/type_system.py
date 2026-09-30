@@ -483,8 +483,21 @@ class ColumnType:
     @classmethod
     def __from_typed_dict(cls, t: type) -> JsonType:
         # It's a subclass of `TypedDict`.
+        try:
+            field_types = typing.get_type_hints(t, include_extras=True)
+        except NameError as e:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_TYPE, f'Cannot resolve the field types of TypedDict `{t.__name__}`: {e}'
+            ) from e
         type_spec: dict[str, ColumnType] = {}
-        for key, value in t.__annotations__.items():
+        optional_keys = set(getattr(t, '__optional_keys__', frozenset()))
+        for key, value in field_types.items():
+            # under `from __future__ import annotations`, __optional_keys__ ignores NotRequired and Required
+            qualifier = typing.get_origin(value)
+            if qualifier is typing.NotRequired:
+                optional_keys.add(key)
+            elif qualifier is typing.Required:
+                optional_keys.discard(key)
             col_type = cls.from_python_type(value)
             if col_type is None:
                 raise excs.RequestError(
@@ -493,7 +506,7 @@ class ColumnType:
                 )
             type_spec[key] = col_type
         return JsonType(
-            JsonType.TypeSchema(type_spec=type_spec, optional_keys=getattr(t, '__optional_keys__', frozenset())),
+            JsonType.TypeSchema(type_spec=type_spec, optional_keys=frozenset(optional_keys)),
             nullable=False,
             pretty_print_name=t.__name__,
         )
