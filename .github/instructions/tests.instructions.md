@@ -2,18 +2,22 @@
 applyTo: "tests/**"
 ---
 
-- New features need tests here; the tree mirrors `pixeltable/`.
-- A test that runs against every catalog mode takes `db_root: DatabaseRoot` and builds paths with `db_root.make_catalog_path(...)`. Prefer this for new tests.
-- A test limited to the in-process catalog, such as one that monkeypatches in-process state, takes `uses_db` and uses plain catalog paths. Do not flag its catalog paths.
-- A test using `uses_db` needs `@pytest.mark.db_roots('local', reason='...')`; `tests/conftest.py` raises a `UsageError` at collection without it. The reason states why the test cannot run on the other catalog modes, or is `TODO: convert` for a test not yet converted to `db_root`.
-- Any test for `pxt.Error` or a subclass uses `pxt_raises()`, not `pytest.raises()`. Both always take `match=` to verify error text.
-- Assert on user-visible behavior through the public API, not `col.stored`, `ColumnRef`, or `TableVersion` internals. Use `Table.get_metadata()`, `t.describe()`, or queries.
-- Avoid using the internal API as much as possible. Only use it to test behaviors that are very difficult or impossible to reproduce using only the public API.
-- AI provider tests go in `tests/functions/test_<provider>.py`, marked `remote_api`. Anything hitting a third-party model or service also needs `very_expensive`.
-- Never dodge one backend with a bare `@pytest.mark.skip`. Scope it with `db_roots`. Register any new marker in `pyproject.toml`.
-- No `http://` or `https://` literals. Use the `sample_file_server` fixture, which serves the repo tree over localhost and still exercises the download path.
-- A `skipif`/`xfail` on a test parametrized over catalog mode disables every variant. Gate inside the test body when the reason names one parametrization.
-- Prefer extending an existing parametrized test over adding a bespoke one beside it.
-- Test names must be specific enough for `pytest -k`. Prefer `pytest.parametrize` over duplication.
-- Use the shared utilities (`validate_update_status()`, `skip_test_if_not_installed()`, `ReloadTester`) and extend shared fixtures rather than duplicating setup.
-- Put markers on the class or method, not in a module-level `pytestmark`.
+# Test review
+
+- Cover changed behavior through public SDK/CLI/HTTP results, metadata or errors. Use internal APIs only
+  when the behavior is impractical to exercise publicly. Require regression coverage for concrete risks,
+  not implementation-mirroring tests for every edit.
+- Prefer `db_root: DatabaseRoot` and `db_root.make_catalog_path()` for portable catalog tests.
+  `uses_db` and plain paths are valid for in-process tests; they require
+  `@pytest.mark.db_roots('local', reason='...')`. The reason explains the restriction or is `TODO: convert`.
+- Use `pxt_raises(..., match=...)` for Pixeltable errors, and `pytest.raises(..., match=...)` for other
+  exceptions. Verify meaningful error text.
+- New tests making live third-party model/service calls need `remote_api` and `very_expensive`; mocked
+  calls need neither. Register new markers in `pyproject.toml`; put new markers on classes/methods.
+- Scope backend restrictions with `db_roots`; gate a single parametrization inside the test instead of
+  applying `skipif`/`xfail` to every variant.
+- For catalog-parametrized media tests, use `sample_file_server.url(path, db_root)` so hosted modes get
+  reachable URLs. Explicit HTTP URLs remain valid for protocol fixtures and URL-handling tests.
+  Isolate auth/config state from the developer's credentials.
+- Keep database-dump `-info.toml` metadata consistent with its matching `.dump.gz` fixture.
+- Extend shared fixtures/utilities and parametrized tests where practical; keep names useful for `pytest -k`.

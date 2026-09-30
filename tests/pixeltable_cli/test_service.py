@@ -426,6 +426,14 @@ class TestService:
         target = db_root.make_catalog_path('app')
         app_file = pathlib.Path(apps('basic.py')).parent / 'source_change_app.py'
         shutil.copy(apps('basic.py'), app_file)
+        app_file.write_text(
+            app_file.read_text(encoding='utf-8').replace(
+                'from apps.udfs import excerpt',
+                '@pxt.udf\ndef excerpt(text: str, n: int = 12) -> str:\n'
+                "    return text if len(text) <= n else f'{text[:n]}...'",
+            ),
+            encoding='utf-8',
+        )
         _db_update(cli, db_root)
         deploy(cli, str(app_file), target)
 
@@ -1238,6 +1246,9 @@ class TestServiceStop:
         other.mkdir()
         (other / 'pixeltable.toml').write_text('')
         shutil.copyfile(app, other / 'app.py')
+        other_apps = other / 'apps'
+        other_apps.mkdir()
+        shutil.copyfile(pathlib.Path(app).parent / 'udfs.py', other_apps / 'udfs.py')
         deploy(session_cli, app, 'one')
         session_cli('schema', 'update', 'app.py', other_target, cwd=other)
         session_cli('service', 'update', 'app.py', other_target, '-f', cwd=other)

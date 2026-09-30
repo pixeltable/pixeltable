@@ -742,10 +742,10 @@ set. Unlike a sign-in, it does not expire. `pxt whoami` says which one your comm
 send.
 </Note>
 
-Signing in proves who you are; it does not give you an organization. A brand-new account belongs
-to no organization, and every hosted command needs one, so `pxt login` and `pxt whoami` print "No organization yet" with
-the command that creates one, `pxt org create NAME`, rather than letting the next command fail as an
-authorization error.
+Signing in proves who you are. If you belong to exactly one organization, `pxt login` also selects
+it. A brand-new account belongs to no organization, and every hosted command needs one, so `pxt login`
+and `pxt whoami` print "No organization yet" with the command that creates one, `pxt org create NAME`,
+rather than letting the next command fail as an authorization error.
 
 ### Organizations
 
@@ -1045,7 +1045,7 @@ pxt db list --json
 pxt db status pxt://myorg:mydb
 ```
 
-Prints current state, endpoint, location, and timestamps.
+Prints the state, the resources, the project, and the pods, and marks what a pending update would change.
 
 #### `pxt db start`
 

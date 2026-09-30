@@ -179,14 +179,17 @@ def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) ->
     )
 
 
-def api_call(request: Any) -> dict[str, Any]:
-    """Forward one request to the cloud management API and return the raw response dict."""
+def api_call(request: Any, credential: Credential | None = None) -> dict[str, Any]:
+    """Forward one request to the cloud management API and return the raw response dict.
+
+    A given credential is sent instead of the configured one.
+    """
     op = getattr(request, 'operation_type', None)
     op_str = op.value if hasattr(op, 'value') else str(op) if op else ''
     timeout = 180 if op_str in _LONG_OPS else 30
     # by_alias: a field the control plane names differently declares that name as its alias
     body = request.model_dump_json(by_alias=True)
-    sent = resolve('reach Pixeltable Cloud')
+    sent = resolve('reach Pixeltable Cloud') if credential is None else credential
     headers = {'Content-Type': 'application/json', **sent.header()}
     try:
         resp = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
