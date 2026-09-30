@@ -5,7 +5,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable import telemetry
+from pixeltable import telemetry, telemetry_schemas
 from pixeltable.func import Batch
 from pixeltable.functions import huggingface
 from pixeltable.telemetry import SubscriberRegistry
@@ -183,12 +183,14 @@ class TestInsertTracing:
             assert all(udf['parent_id'] in row_ids for udf in udfs)
             assert sub.find('pixeltable.sa.select')['parent_id'] == yield_rows['id']
 
-            # a similarity query computes its query embedding in a UDF call span under yield_rows
+            # a similarity query computes its query embedding in a UDF call span under yield_rows, and counts the call
             _ = sim.order_by(sim.s.similarity(string='zero'), asc=False).limit(1).collect()
             sim_yield_rows = [s for s in sub.spans if s['name'] == 'pixeltable.result_cursor.yield_rows'][-1]
             embed = sub.find('pixeltable.udf.dummy_embedding')
             assert embed['parent_id'] == sim_yield_rows['id']
             assert embed['attrs']['pxt.udf_path'] == 'tests.utils.dummy_embedding'
+            embed_dims = {'pxt.udf': 'dummy_embedding', 'pxt.udf_path': 'tests.utils.dummy_embedding'}
+            assert (telemetry_schemas.udf_calls, 1, embed_dims) in sub.counter_adds
             assert all(s['ended'] for s in sub.spans)
         finally:
             SubscriberRegistry.get().unsubscribe(sub)

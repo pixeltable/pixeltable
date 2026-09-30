@@ -231,14 +231,17 @@ def _setup(
                 excs.ErrorCode.INVALID_CONFIGURATION,
                 f'span_dump requires a TracerProvider that accepts span processors; got {type(tp).__name__}',
             )
+        try:
+            dump_file = open(cfg_span_dump, 'a', encoding='utf-8')  # noqa: SIM115
+        except OSError as e:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION, f'Cannot open the span_dump file {cfg_span_dump!r}: {e.strerror}'
+            ) from e
         # append + SimpleSpanProcessor: each span is written on end, so the file survives a crashed
         # process and repeated runs (distinguishable by trace id) never destroy earlier dumps
         tp.add_span_processor(
             SimpleSpanProcessor(
-                ConsoleSpanExporter(
-                    out=open(cfg_span_dump, 'a', encoding='utf-8'),  # noqa: SIM115
-                    formatter=lambda span: span.to_json(indent=None) + '\n',
-                )
+                ConsoleSpanExporter(out=dump_file, formatter=lambda span: span.to_json(indent=None) + '\n')
             )
         )
 

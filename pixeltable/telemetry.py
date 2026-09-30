@@ -401,8 +401,10 @@ def spanned(
     """
 
     def decorator(fn: F) -> F:
-        # a generator/coroutine function returns immediately, which would end the span before any work runs
-        assert not inspect.iscoroutinefunction(fn) and not inspect.isgeneratorfunction(fn)
+        # generator, coroutine, and async generator functions return immediately, ending the span before any work runs
+        assert not (
+            inspect.iscoroutinefunction(fn) or inspect.isgeneratorfunction(fn) or inspect.isasyncgenfunction(fn)
+        )
 
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:

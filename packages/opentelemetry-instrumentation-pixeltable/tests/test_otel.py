@@ -187,20 +187,22 @@ def test_span_level_kwarg_overrides_config(tmp_path: Path) -> None:
     )
 
 
-def check_invalid_span_level_leaves_init_retryable() -> None:
-    try:
-        pxt_otel.init(span_level='verbose')  # type: ignore[arg-type]
-        raise AssertionError('expected init() to raise')
-    except pxt.exceptions.RequestError as e:
-        assert e.error_code is pxt.exceptions.ErrorCode.INVALID_CONFIGURATION
-    assert not _sdk._state.initialized
+def check_invalid_config_leaves_init_retryable() -> None:
+    # an unknown span level, and a span_dump file that cannot be opened
+    for invalid in ({'span_level': 'verbose'}, {'span_dump': '/nonexistent-dir/spans.jsonl'}):
+        try:
+            pxt_otel.init(**invalid)  # type: ignore[arg-type]
+            raise AssertionError('expected init() to raise')
+        except pxt.exceptions.RequestError as e:
+            assert e.error_code is pxt.exceptions.ErrorCode.INVALID_CONFIGURATION
+        assert not _sdk._state.initialized
     pxt_otel.init(span_level='debug')
     assert _sdk._state.initialized
     assert SubscriberRegistry.get()._span_level == telemetry.DEBUG
 
 
-def test_invalid_span_level_leaves_init_retryable(tmp_path: Path) -> None:
-    _run_isolated(check_invalid_span_level_leaves_init_retryable, {'OTEL_EXPORTER_OTLP_TIMEOUT': '1'}, tmp_path)
+def test_invalid_config_leaves_init_retryable(tmp_path: Path) -> None:
+    _run_isolated(check_invalid_config_leaves_init_retryable, {'OTEL_EXPORTER_OTLP_TIMEOUT': '1'}, tmp_path)
 
 
 def check_protocol_grpc() -> None:

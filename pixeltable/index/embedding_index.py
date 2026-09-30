@@ -235,13 +235,16 @@ class EmbeddingIndex(IndexBase):
             return val
         assert val_type._type in self.embeddings
         embed_fn = self.embeddings[val_type._type]
-        # a `.using()` embedding is a template that calls the underlying UDF, whose path identifies it
+        # a `.using()` embedding is a template that calls the underlying UDF, which identifies it
         call = embed_fn.templates[0].expr if isinstance(embed_fn, func.ExprTemplateFunction) else None
-        udf_path = call.fn.self_path if isinstance(call, exprs.FunctionCall) else embed_fn.self_path
-        with telemetry.span(
-            f'pixeltable.udf.{embed_fn.display_name}',
-            level=telemetry.DEBUG,
-            **telemetry_schemas.UdfCallAttrs(udf_path=udf_path),
+        udf = call.fn if isinstance(call, exprs.FunctionCall) else embed_fn
+        with (
+            telemetry.span(
+                f'pixeltable.udf.{udf.display_name}',
+                level=telemetry.DEBUG,
+                **telemetry_schemas.UdfCallAttrs(udf_path=udf.self_path),
+            ),
+            telemetry_schemas.udf_call(udf),
         ):
             embedding = embed_fn.exec([val], {})
         assert isinstance(embedding, np.ndarray)
