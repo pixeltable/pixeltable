@@ -815,24 +815,44 @@ def login_poll(req: Request) -> models.LoginPollResponse:
             _issued_device_codes.pop(body.device_code, None)
     if isinstance(answer, auth.TokenErrorResponse):
         return models.LoginPollResponse(status=answer.code, detail=answer.description)
-    session = _scoped_to_only_org(answer)
+    url = management_client.api_url()
+    session, failure = _scoped_to_only_org(url, answer)
+    # A rejected switch deletes the session, and another sign-in can replace it, so the cache decides the answer.
+    cached = session_cache.load(url)
+    if cached is None:
+        detail = failure or f'This sign-in was signed out before it finished. {auth.SIGN_IN_AGAIN}'
+        return models.LoginPollResponse(status='signed_out', detail=detail)
+    if cached.refresh_token != session.refresh_token:
+        return models.LoginPollResponse(
+            status='superseded',
+            detail='Another sign-in on this machine replaced this one. '
+            'Run `pxt whoami` to see which account is in use.',
+        )
     return models.LoginPollResponse(status='granted', email=session.email, organization_id=session.organization_id)
 
 
-def _scoped_to_only_org(session: session_cache.Session) -> session_cache.Session:
-    # The sign-in service attaches an organization to a device sign-in only sometimes,
-    # and most hosted commands require one.
+def _scoped_to_only_org(api_url: str, granted: session_cache.Session) -> tuple[session_cache.Session, str]:
+    """The session, and why the lookup or the switch failed: empty when neither did."""
     cred = management_client.configured_credential()
-    # an API key outranks the session, so list_orgs would not use the session
-    if session.organization_id != '' or cred is None or cred.kind != 'session':
-        return session
+    # an API key outranks the session, so commands would not send a switched session
+    if granted.organization_id != '' or cred is None or cred.kind != 'session':
+        return granted, ''
+    sent = management_client.Credential('session', granted.access_token, f'your `pxt login` session for {api_url}')
     try:
-        orgs = management_client.api_call(ListOrgsRequest()).get('orgs', [])
-        org_id = str(orgs[0].get('org_id') or '') if len(orgs) == 1 else ''
-        return auth.rescope(management_client.api_url(), org_id) if org_id != '' else session
-    except (excs.Error, OSError):
-        # the sign-in has already succeeded
-        return session
+        org_id = _only_org_id(management_client.api_call(ListOrgsRequest(), credential=sent))
+        if org_id == '':
+            return granted, ''
+        return auth.rescope(api_url, org_id, expected=granted), ''
+    except (excs.Error, OSError) as e:
+        return granted, e.message if isinstance(e, excs.Error) else e.strerror or type(e).__name__
+
+
+def _only_org_id(answer: Any) -> str:
+    orgs = answer.get('orgs') if isinstance(answer, dict) else None
+    if not isinstance(orgs, list) or len(orgs) != 1 or not isinstance(orgs[0], dict):
+        return ''
+    org_id = orgs[0].get('org_id')
+    return org_id if isinstance(org_id, str) else ''
 
 
 @router.get('/api/whoami')

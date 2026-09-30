@@ -326,7 +326,8 @@ class LoginPollBody(BaseModel):
 
 
 class LoginPollResponse(BaseModel):
-    # 'granted', or the OAuth error code the sign-in service answered with
+    # 'granted'; the sign-in service's OAuth error code; or, after a grant, 'signed_out' or 'superseded' when
+    # the cache no longer has the granted session
     status: str
     email: str = ''
     organization_id: str = ''
