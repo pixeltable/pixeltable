@@ -32,10 +32,13 @@ def _queried_models(col_spec: ColumnSpec) -> set[TableModelMeta]:
     if not isinstance(value, exprs.Expr):
         return set()
     result: set[TableModelMeta] = set()
-    for fn_call in value.subexprs(exprs.FunctionCall):
-        fn = fn_call.fn
-        if isinstance(fn, func.QueryTemplateFunction) and isinstance(fn.template_query, ModelQuery):
-            result.add(fn.template_query.model_cls)
+    pending = [value]
+    while len(pending) > 0:
+        for fn_call in pending.pop().subexprs(exprs.FunctionCall):
+            fn = fn_call.fn
+            if isinstance(fn, func.QueryTemplateFunction) and isinstance(fn.template_query, ModelQuery):
+                result.add(fn.template_query.model_cls)
+                pending.extend(fn.template_query._component_exprs())
     return result
 
 
