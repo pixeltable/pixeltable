@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import datetime
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterator
 
 import numpy as np
 import sqlalchemy as sql
@@ -103,7 +103,13 @@ class Literal(Expr):
             encoded_val = self.val.tolist()
         else:
             encoded_val = self.val
-        return {'val': encoded_val, 'col_type': self.col_type.as_dict(), **super()._as_dict()}
+        d = {'val': encoded_val, 'col_type': self.col_type.as_dict(), **super()._as_dict()}
+        if self.col_type.is_json_type():
+            # Postgres JSONB does not preserve dict key order
+            key_orders = _dict_key_orders(self.val)
+            if len(key_orders) > 0:
+                d['key_orders'] = key_orders
+        return d
 
     def as_literal(self) -> Literal | None:
         return self
@@ -135,5 +141,37 @@ class Literal(Expr):
             dtype = col_type.dtype  # possibly None
             array = np.array(val, dtype=dtype)
             return cls(array, col_type=col_type)
+        if col_type.is_json_type() and 'key_orders' in d:
+            key_orders = iter(d['key_orders'])
+            val = _apply_key_orders(val, key_orders)
+            assert next(key_orders, None) is None
         # For all other types, val should already be in the right format
         return cls(val, col_type)
+
+
+def _dict_key_orders(val: Any) -> list[list[str]]:
+    """Returns the key list of every dict nested in val, in depth-first order."""
+    key_orders: list[list[str]] = []
+
+    def visit(v: Any) -> None:
+        if isinstance(v, dict):
+            key_orders.append(list(v.keys()))
+            for item in v.values():
+                visit(item)
+        elif isinstance(v, (list, tuple)):
+            for item in v:
+                visit(item)
+
+    visit(val)
+    return key_orders
+
+
+def _apply_key_orders(val: Any, key_orders: Iterator[list[str]]) -> Any:
+    """Rebuilds every dict nested in val with its key list from key_orders, the output of _dict_key_orders()."""
+    if isinstance(val, dict):
+        keys = next(key_orders)
+        assert set(keys) == val.keys(), (keys, val)
+        return {key: _apply_key_orders(val[key], key_orders) for key in keys}
+    if isinstance(val, list):
+        return [_apply_key_orders(item, key_orders) for item in val]
+    return val
