@@ -382,62 +382,65 @@ def create_view(
         ...     'my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force'
         ... )
     """
-    if is_snapshot and has_default_idxs is True:
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot create default indexes on a snapshot')
-    tbl_path: TablePath
-    select_list: list[tuple[exprs.Expr, str | None]] | None = None
-    where: exprs.Expr | None = None
-    if isinstance(base, catalog.Table):
-        tbl_path = base._tbl_path
-        sample_clause = None
-    elif isinstance(base, Query):
-        catalog.View.validate_view_query(base, is_snapshot=is_snapshot)
-        tbl_path = base._from_clause.tbls[0]
-        where = base.where_clause
-        sample_clause = base.sample_clause
-        select_list = base.select_list
-    else:
-        raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, '`base` must be an instance of `Table` or `Query`')
-    assert isinstance(base, (catalog.Table, Query))
-
-    assert tbl_path.is_data_versioned(), 'TODO: implement for operational tables [PXT-1101]'
-
-    path_obj = catalog.Path.parse(path)
-    if tbl_path.catalog_uri != path_obj.catalog_uri:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'A view must be created in the same database as its base table {tbl_path.tbl_name()!r}.',
-        )
-    if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-    media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
-
-    additional_columns = catalog.normalize_schema(additional_columns or {})
-    # additional columns should not be in the base table
-    base_col_names = {col_md.name for col_md in tbl_path.column_md()}
-    shadowed = next((name for name in additional_columns if name in base_col_names), None)
-    if shadowed is not None:
-        raise excs.AlreadyExistsError(
-            excs.ErrorCode.COLUMN_ALREADY_EXISTS,
-            f'Column {shadowed!r} already exists in the base table {tbl_path.tbl_name()!r}.',
-        )
-
-    if iterator is not None and not isinstance(iterator, func.GeneratingFunctionCall):
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_EXPRESSION, 'The specified `iterator` is not a valid Pixeltable iterator'
-        )
-
-    if comment is not None and not isinstance(comment, str):
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`comment` must be a string or None')
-    elif comment == '':
-        comment = None
-
-    try:
-        json.dumps(custom_metadata)
-    except (TypeError, ValueError) as err:
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
-
     span_name = 'pixeltable.create_snapshot' if is_snapshot else 'pixeltable.create_view'
-    with telemetry.span(span_name, set_current=True, **telemetry_schemas.OpAttrs(path=str(path_obj))) as op_span:
+    with telemetry.span(span_name, set_current=True) as op_span:
+        if is_snapshot and has_default_idxs is True:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot create default indexes on a snapshot')
+        tbl_path: TablePath
+        select_list: list[tuple[exprs.Expr, str | None]] | None = None
+        where: exprs.Expr | None = None
+        if isinstance(base, catalog.Table):
+            tbl_path = base._tbl_path
+            sample_clause = None
+        elif isinstance(base, Query):
+            catalog.View.validate_view_query(base, is_snapshot=is_snapshot)
+            tbl_path = base._from_clause.tbls[0]
+            where = base.where_clause
+            sample_clause = base.sample_clause
+            select_list = base.select_list
+        else:
+            raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, '`base` must be an instance of `Table` or `Query`')
+        assert isinstance(base, (catalog.Table, Query))
+
+        assert tbl_path.is_data_versioned(), 'TODO: implement for operational tables [PXT-1101]'
+
+        path_obj = catalog.Path.parse(path)
+        telemetry.add_attrs(op_span, **telemetry_schemas.OpAttrs(path=str(path_obj)))
+        if tbl_path.catalog_uri != path_obj.catalog_uri:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'A view must be created in the same database as its base table {tbl_path.tbl_name()!r}.',
+            )
+        if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
+        media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
+
+        additional_columns = catalog.normalize_schema(additional_columns or {})
+        # additional columns should not be in the base table
+        base_col_names = {col_md.name for col_md in tbl_path.column_md()}
+        shadowed = next((name for name in additional_columns if name in base_col_names), None)
+        if shadowed is not None:
+            raise excs.AlreadyExistsError(
+                excs.ErrorCode.COLUMN_ALREADY_EXISTS,
+                f'Column {shadowed!r} already exists in the base table {tbl_path.tbl_name()!r}.',
+            )
+
+        if iterator is not None and not isinstance(iterator, func.GeneratingFunctionCall):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION, 'The specified `iterator` is not a valid Pixeltable iterator'
+            )
+
+        if comment is not None and not isinstance(comment, str):
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`comment` must be a string or None')
+        elif comment == '':
+            comment = None
+
+        try:
+            json.dumps(custom_metadata)
+        except (TypeError, ValueError) as err:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable'
+            ) from err
+
         view, was_created = (
             get_runtime()
             .get_catalog(path_obj)

@@ -10,7 +10,7 @@ from typing import Any, Callable, Iterator
 
 import opentelemetry.instrumentation.pixeltable as pxt_otel
 import pytest
-from opentelemetry import trace
+from opentelemetry import metrics as otel_metrics, trace
 from opentelemetry.instrumentation.pixeltable import PixeltableInstrumentor, _sdk
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
@@ -144,6 +144,20 @@ def check_respects_existing_sdk() -> None:
 
 def test_respects_existing_sdk(tmp_path: Path) -> None:
     _run_isolated(check_respects_existing_sdk, {}, tmp_path)
+
+
+def check_metrics_off_skips_app_meter_provider() -> None:
+    reader = InMemoryMetricReader()
+    otel_metrics.set_meter_provider(MeterProvider(metric_readers=[reader]))
+    pxt_otel.init(metrics=False)
+    telemetry_schemas.rows_written.add(1, table='t')
+    metrics_data = reader.get_metrics_data()
+    assert metrics_data is None or metrics_data.resource_metrics == []
+
+
+def test_metrics_off_skips_app_meter_provider(tmp_path: Path) -> None:
+    # init(metrics=False) records nothing, even into a meter provider the application installed
+    _run_isolated(check_metrics_off_skips_app_meter_provider, {}, tmp_path)
 
 
 def check_double_init_raises() -> None:

@@ -82,10 +82,6 @@ class AggregationNode(ExecNode):
                 input_vals = [row[d.slot_idx] for d in fn_call.dependencies()]
                 raise excs.ExprEvalError(fn_call, expr_msg, exc, exc_tb, input_vals, row_num) from exc
 
-    @property
-    def _agg_name(self) -> str:
-        return self.agg_fn_calls[0].fn.display_name if len(self.agg_fn_calls) > 0 else 'agg'
-
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         limit = self._resolve_positive_int(self.limit, 'limit') if self.limit is not None else None
         if limit == 0:
@@ -106,7 +102,7 @@ class AggregationNode(ExecNode):
 
                 if group != current_group:
                     # we're entering a new group, emit a row for the previous one
-                    with telemetry.span(f'pixeltable.agg.{self._agg_name}', level=telemetry.DEBUG):
+                    with telemetry.span('pixeltable.agg.finalize', level=telemetry.DEBUG):
                         self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
                     self.output_batch.add_row(prev_row)
                     num_output_rows += 1
@@ -120,7 +116,7 @@ class AggregationNode(ExecNode):
 
         if prev_row is not None:
             # emit the last group
-            with telemetry.span(f'pixeltable.agg.{self._agg_name}', level=telemetry.DEBUG):
+            with telemetry.span('pixeltable.agg.finalize', level=telemetry.DEBUG):
                 self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
             self.output_batch.add_row(prev_row)
 

@@ -72,8 +72,9 @@ def init(
             `otel.service_name` / `OTEL_SERVICE_NAME`.
         headers: OTLP headers as comma-separated `key=value` pairs; resolves from
             `otel.exporter_otlp_headers` / `OTEL_EXPORTER_OTLP_HEADERS`.
-        span_level: span emission threshold: `info` (default; operation-level spans only), `debug`
-            (adds per-row and per-UDF spans), or `trace`.
+        span_level: span emission threshold: `info` (default; operation spans plus their catalog, store, and
+            SQL work spans), `debug` (adds per-row, per-UDF, per-file, and finer-grained catalog and store spans),
+            or `trace` (adds a span per iterator step).
         span_dump: path of a file to append every finished span to, one JSON object per line; resolves
             from `otel.span_dump` / `OTEL_SPAN_DUMP`. Spans are written synchronously, so the file is
             complete even if the process dies. Works with or without an OTLP endpoint.
@@ -245,7 +246,10 @@ def _setup(
     export_metrics = metrics is True or (metrics is not False and cfg_endpoint is not None)
     owns_mp = False
     mp = meter_provider
-    if mp is None and export_metrics:
+    if metrics is False:
+        # a None provider would bind the process-global one, which may be the application's
+        mp = otel_metrics.NoOpMeterProvider()
+    elif mp is None and export_metrics:
         existing_mp = otel_metrics.get_meter_provider()
         if 'Proxy' not in type(existing_mp).__name__:
             mp = existing_mp

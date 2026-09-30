@@ -555,6 +555,16 @@
           <outline text="func|pixeltable.telemetry.span_end" />
           <outline text="func|pixeltable.telemetry.span" />
           <outline text="func|pixeltable.telemetry.emit" />
+          <outline text="func|pixeltable.telemetry.spanned" />
+          <outline text="func|pixeltable.telemetry.func_span" />
+          <outline text="func|pixeltable.telemetry.counter" />
+          <outline text="func|pixeltable.telemetry.histogram" />
+          <outline text="class|pixeltable.telemetry.Counter">
+            <outline text="method|pixeltable.telemetry.Counter.add" />
+          </outline>
+          <outline text="class|pixeltable.telemetry.Histogram">
+            <outline text="method|pixeltable.telemetry.Histogram.record" />
+          </outline>
         </outline>
         <outline text="module|opentelemetry.instrumentation.pixeltable">
           <outline text="func|opentelemetry.instrumentation.pixeltable.init" />
