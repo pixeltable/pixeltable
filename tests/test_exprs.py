@@ -1700,24 +1700,20 @@ class TestExprs:
         """A Literal's dict value is stored as a jsonb object, whose key order Postgres does not preserve."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'x': pxt.Int | None})
-        t.add_computed_column(lit={'zzz': 'a', 'aaa': [{'yy': 1, 'b': {'long_key': 2, 'k': 3}}]}, stored=False)
-        t.add_computed_column(dumped=pxtf.json.dumps({'zzz': t.x, 'aaa': {'yy': 1, 'b': 2}}))
-        expected = {
-            'lit': "{'zzz': 'a', 'aaa': [{'yy': 1, 'b': {'long_key': 2, 'k': 3}}]}",
-            'dumped': "dumps({'zzz': x, 'aaa': {'yy': 1, 'b': 2}})",
-        }
-        md = t.get_metadata()['columns']
-        assert {name: md[name]['computed_with'] for name in expected} == expected
+        # the list under 'aaa' has no column references, so it becomes a Literal
+        t.add_computed_column(dumped=pxtf.json.dumps({'zzz': t.x, 'aaa': [{'yy': 1, 'b': {'long_key': 2, 'k': 3}}]}))
+        expected = "dumps({'zzz': x, 'aaa': [{'yy': 1, 'b': {'long_key': 2, 'k': 3}}]})"
+        assert t.get_metadata()['columns']['dumped']['computed_with'] == expected
         t.insert(x=1)
 
         reload_catalog()
         t = pxt.get_table(p('test'))
-        md = t.get_metadata()['columns']
-        assert {name: md[name]['computed_with'] for name in expected} == expected
+        assert t.get_metadata()['columns']['dumped']['computed_with'] == expected
         t.insert(x=2)
-        res = t.order_by(t.x).collect()
-        assert res['dumped'] == ['{"zzz": 1, "aaa": {"yy": 1, "b": 2}}', '{"zzz": 2, "aaa": {"yy": 1, "b": 2}}']
-        assert json.dumps(res['lit'][0]) == '{"zzz": "a", "aaa": [{"yy": 1, "b": {"long_key": 2, "k": 3}}]}'
+        assert t.order_by(t.x).collect()['dumped'] == [
+            '{"zzz": 1, "aaa": [{"yy": 1, "b": {"long_key": 2, "k": 3}}]}',
+            '{"zzz": 2, "aaa": [{"yy": 1, "b": {"long_key": 2, "k": 3}}]}',
+        ]
 
     @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_print(

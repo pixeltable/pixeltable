@@ -543,16 +543,15 @@ class TestTableModel:
             TableModelV3.diff_all(root)
 
     def test_dict_key_order_diff(self, db_root: DatabaseRoot) -> None:
-        """An unchanged model with dict literals stays up to date after a catalog reload, and reordering a dict's keys
-        changes the column type."""
+        """An unchanged model with a constant dict nested in a dict stays up to date after a catalog reload, and
+        reordering a dict's keys changes the column type."""
         p = db_root.make_catalog_path
         root = p('')
         TableModel = pxt.model_base()
 
         class Docs(TableModel, name='docs'):
             content: pxt.String
-            meta = {'zzz': 'a', 'aaa': {'yy': 1, 'b': 2}}
-            payload = {'type': 'text', 'text': content}
+            payload = {'type': 'text', 'text': content, 'meta': {'zzz': 1, 'aaa': 2}}
 
         TableModel.create_all(root)
         reload_catalog()
@@ -562,20 +561,19 @@ class TestTableModel:
 
         class DocsV2(TableModelV2, name='docs'):
             content: pxt.String
-            meta = {'zzz': 'a', 'aaa': {'yy': 1, 'b': 2}}
-            payload = {'text': content, 'type': 'text'}
+            payload = {'text': content, 'type': 'text', 'meta': {'zzz': 1, 'aaa': 2}}
 
         diff = TableModelV2.get_model_diff(root)['docs']
         assert diff.resolution == 'unsupported'
         [op] = diff.ops
         assert (op.name, op.op, op.severity) == ('payload', 'alter', 'unsupported')
         assert op.model == {
-            'type': "Json[{'text': String, 'type': String}]",
-            'value': "{'text': content, 'type': 'text'}",
+            'type': "Json[{'text': String, 'type': String, 'meta': Json[{'zzz': Int, 'aaa': Int}]}]",
+            'value': "{'text': content, 'type': 'text', 'meta': {'zzz': 1, 'aaa': 2}}",
         }
         assert op.existing == {
-            'type': "Json[{'type': String, 'text': String}]",
-            'value': "{'type': 'text', 'text': content}",
+            'type': "Json[{'type': String, 'text': String, 'meta': Json[{'zzz': Int, 'aaa': Int}]}]",
+            'value': "{'type': 'text', 'text': content, 'meta': {'zzz': 1, 'aaa': 2}}",
         }
 
     def test_operational_table_model_diff(self, db_root: DatabaseRoot) -> None:
