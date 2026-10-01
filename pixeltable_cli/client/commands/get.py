@@ -15,8 +15,10 @@ Examples:
   pxt get my_dir/my_table 01a092a5-d30a-779b-96b2-c8eaecac1657   # single-column PK, uuid value
 
 Notes:
-  pxt parses each PK value according to its column type: a string column takes '42' as a
-  string, an int column as the number 42. A value that does not parse produces an error.
+  pxt parses each PK value by its column type: a string column takes '42' as the
+  string '42', an int column as the number 42. For an int, float, or uuid column, a
+  value that does not parse produces an error. Lookup by a PK of another type, such as
+  a date or timestamp, is not supported yet and finds no row.
   Use 'pxt describe <table>' to see the primary_key columns and their order.
   Unstored computed columns are skipped by default; pass them explicitly via --cols to
   include them.
@@ -39,8 +41,6 @@ def run(argv: list[str]) -> None:
         ap.error('PK values must not be empty or whitespace-only')
     cols = parse_cols(args.cols, ap)
     cols_csv = ','.join(cols) if cols is not None else None
-    # PK coercion (numeric strings -> int/float) happens on the server side; the URL only
-    # carries strings.
     resp = models.GetResponse.model_validate(
         get_request('/api/tables/row', params={'path': validate_path_arg(args.path), 'pk': args.pk, 'cols': cols_csv})
     )

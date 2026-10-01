@@ -11,7 +11,7 @@ from pixeltable._query_base import QueryBase
 from pixeltable.exprs import ColumnRefByName
 from pixeltable.query_clauses import FromClause
 
-from .definition import MODEL_BY_DEFINED_TBL_ID, TableModelMeta
+from .definition import MODEL_BY_DEFINED_TBL_ID, TableModelMeta, bind_query_templates
 
 
 class ModelQuery(QueryBase):
@@ -99,7 +99,7 @@ class ModelQuery(QueryBase):
         for col_md in defined_path.column_md():
             if col_md.name is not None:
                 subst[ColumnRefByName(col_md.name)] = exprs.ColumnRef(col_md)
-        return self._substituted(defined_path, subst)
+        return self._substituted(defined_path, subst, None)
 
     def bind(self, catalog_dir: str) -> pxt.Query:
         """The equivalent query over the table this query's model resolves to under catalog_dir."""
@@ -110,9 +110,11 @@ class ModelQuery(QueryBase):
         subst: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
         for col_name in tbl.columns():
             subst[ColumnRefByName(col_name)] = getattr(tbl, col_name)
-        return self._substituted(tbl._tbl_path, subst)
+        return self._substituted(tbl._tbl_path, subst, catalog_dir)
 
-    def _substituted(self, path: catalog.TablePath, subst: exprs.ExprDict[exprs.Expr]) -> pxt.Query:
+    def _substituted(
+        self, path: catalog.TablePath, subst: exprs.ExprDict[exprs.Expr], catalog_dir: str | None
+    ) -> pxt.Query:
         """A plain Query over path, with this query's clauses rewritten by subst."""
         # a similarity expression names its indexed column and the table version holding the index, neither of
         # which a substitution by column name reaches
@@ -137,7 +139,7 @@ class ModelQuery(QueryBase):
             )
 
         def rebound(e: exprs.Expr) -> exprs.Expr:
-            return e.copy().substitute(subst)
+            return bind_query_templates(e.copy().substitute(subst), catalog_dir)
 
         return pxt.Query(
             from_clause=FromClause(tbls=[path]),

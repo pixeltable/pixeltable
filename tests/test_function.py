@@ -592,6 +592,44 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'offset'"):
             neg.add_computed_column(c=skipped(neg.n), on_error='abort')
 
+    def test_query_param_in_aggregate(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'x': pxt.Int})
+        t.insert({'x': i} for i in range(4))
+        params = pxt.create_table(p('params'), {'k': pxt.Int})
+        params.insert([{'k': 1}, {'k': 2}])
+
+        @pxt.query(return_scalar=True)
+        def shifted_sum(k: int) -> pxt.Query:
+            return t.select(s=pxtf.sum(t.x + k))
+
+        res = params.order_by(params.k).select(r=shifted_sum(params.k)).collect()
+        assert res['r'] == [[10], [14]]
+
+        @pxt.query
+        def sum_with_param(k: int) -> pxt.Query:
+            return t.select(s=pxtf.sum(t.x), k=k)
+
+        res = params.order_by(params.k).select(r=sum_with_param(params.k)).collect()
+        assert res['r'] == [[{'s': 6, 'k': 1}], [{'s': 6, 'k': 2}]]
+
+        @pxt.query
+        def sum_with_param_expr(k: int) -> pxt.Query:
+            return t.select(s=pxtf.sum(t.x), adjusted=k + 1)
+
+        res = params.order_by(params.k).select(r=sum_with_param_expr(params.k)).collect()
+        assert res['r'] == [[{'s': 6, 'adjusted': 2}], [{'s': 6, 'adjusted': 3}]]
+
+        @pxt.query
+        def grouped_sum_with_param_expr(k: int) -> pxt.Query:
+            return t.group_by(t.x % 2).select(g=t.x % 2, s=pxtf.sum(t.x), scaled=k * 10).order_by(t.x % 2)
+
+        res = params.order_by(params.k).select(r=grouped_sum_with_param_expr(params.k)).collect()
+        assert res['r'] == [
+            [{'g': 0, 's': 2, 'scaled': 10}, {'g': 1, 's': 4, 'scaled': 10}],
+            [{'g': 0, 's': 2, 'scaled': 20}, {'g': 1, 's': 4, 'scaled': 20}],
+        ]
+
     def test_query2(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         schema: dict[str, Any] = {'query_text': pxt.String | None, 'i': pxt.Int | None}

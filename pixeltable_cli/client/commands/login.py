@@ -83,6 +83,8 @@ def _await_approval(start: dict[str, Any]) -> dict[str, Any]:
             _fail('the sign-in was refused in the browser')
         if status == 'expired_token':
             _fail(_EXPIRED)
+        if status in ('signed_out', 'superseded'):
+            _fail(answer['detail'])
         detail = f': {answer["detail"]}' if answer['detail'] != '' else ''
         _fail(f'the sign-in failed ({status}{detail})')
 

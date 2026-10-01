@@ -39,6 +39,7 @@ from pixeltable.service.management_protocol import CreateKeyRequest, ListOrgsReq
 from pixeltable.utils import cloud_utils
 from pixeltable_cli import utils as cli_utils
 from pixeltable_cli.client.commands import login
+from pixeltable_cli.models import LoginPollResponse
 from pixeltable_cli.server import routes
 from pixeltable_cli.server.router import Request
 
@@ -568,6 +569,17 @@ class TestKey:
 
         assert 'No keys.' in cloud_cli('key', 'list').stdout
 
+    def test_key_list_no_credential(self, cloud_cli: PxtRunner) -> None:
+        """A command run without a credential says what to run, rather than what to type in Python."""
+        cloud_cli('logout')
+
+        r = cloud_cli('key', 'list', check=False)
+
+        assert r.returncode != 0, r.stdout
+        assert 'os.environ' not in r.stderr, r.stderr
+        assert 'pxt login' in r.stderr, r.stderr
+        assert 'PIXELTABLE_API_KEY' in r.stderr, r.stderr
+
     def test_key_create_repeated_grants(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         """Repeated and comma-joined flags both flatten, and a duplicate is sent once."""
         control_plane.answers['create_key'] = {'key': _key('app')}
@@ -803,6 +815,16 @@ class TestOrgCreate:
         assert fresh_plane.token_seen == []
 
 
+_ONLY_ORG = {'org_id': 'org_01ONLY', 'org': 'only'}
+
+
+def _login_in_process() -> LoginPollResponse:
+    """Sign in through this process's routes, as the daemon does for `pxt login`."""
+    start = routes.login_start(Request(query={}, body_bytes=b'{}'))
+    body = {'client_id': start.client_id, 'device_code': start.device_code}
+    return routes.login_poll(Request(query={}, body_bytes=json.dumps(body).encode()))
+
+
 class TestLogin:
     """`pxt login` end to end: the client polls, the daemon exchanges, the session lands in its cache."""
 
@@ -927,6 +949,107 @@ class TestLogin:
         r = cloud_cli('login')
 
         assert 'No organization yet: create one with `pxt org create NAME`' in r.stdout
+
+    @pytest.mark.parametrize(
+        ('orgs', 'status', 'org_line', 'switched_to'),
+        [
+            ({'orgs': [_ONLY_ORG]}, 200, 'Organization: org_01ONLY', ['org_01ONLY']),
+            ({'orgs': [_ONLY_ORG]}, 500, 'No organization yet', []),
+            ({'orgs': [_ONLY_ORG, {'org_id': 'org_01OTHER', 'org': 'other'}]}, 200, 'No organization yet', []),
+            ({'orgs': None}, 200, 'No organization yet', []),
+        ],
+        ids=['one-org', 'lookup-fails', 'two-orgs', 'malformed'],
+    )
+    def test_login_switches_to_the_only_organization(
+        self,
+        cloud_cli: PxtRunner,
+        control_plane: ControlPlane,
+        monkeypatch: pytest.MonkeyPatch,
+        orgs: dict[str, Any],
+        status: int,
+        org_line: str,
+        switched_to: list[str],
+    ) -> None:
+        """A sign-in without an organization is switched to the caller's only organization.
+
+        With several organizations, a failed lookup, or a malformed answer, it still signs in, without one.
+        """
+        monkeypatch.setitem(control_plane.answers, 'list_orgs', orgs)
+        monkeypatch.setattr(control_plane, 'status', status)
+        control_plane.tokens[:] = [
+            (200, control_plane.grant(organization_id='')),
+            (200, control_plane.grant(organization_id='org_01ONLY', refresh_token='refresh-2')),
+        ]
+
+        r = cloud_cli('login')
+
+        assert org_line in r.stdout
+        assert [t['organization_id'] for t in control_plane.token_seen if 'organization_id' in t] == switched_to
+
+    def test_login_rejected_switch(
+        self, cloud_cli: PxtRunner, control_plane: ControlPlane, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A switch refused with invalid_grant deletes the session, so the sign-in fails rather than claim one."""
+        monkeypatch.setitem(control_plane.answers, 'list_orgs', {'orgs': [_ONLY_ORG]})
+        control_plane.tokens[:] = [(200, control_plane.grant(organization_id='')), _REJECTED]
+
+        r = cloud_cli('login', check=False)
+
+        assert r.returncode == 1
+        assert 'Signed in' not in r.stdout
+        assert 'invalid_grant' in r.stderr
+        assert 'Run `pxt login` again' in r.stderr
+        assert cloud_cli('whoami', check=False).returncode == 1
+
+    def test_login_with_api_key_skips_the_lookup(
+        self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Commands send the API key rather than the session, so the sign-in looks up no organization."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
+        fresh_plane.answers['list_orgs'] = {'orgs': [_ONLY_ORG]}
+        fresh_plane.tokens[:] = [(200, fresh_plane.grant(organization_id=''))]
+
+        answer = _login_in_process()
+
+        assert (answer.status, answer.organization_id) == ('granted', '')
+        assert fresh_plane.seen == []
+
+    def test_login_switch_is_bound_to_its_grant(
+        self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A sign-in that lands between the lookup and the switch is neither switched nor reported as this one."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        fresh_plane.answers['list_orgs'] = {'orgs': [_ONLY_ORG]}
+        alice = _claims(sid='session_01ALICE', exp=time.time() + 3600)
+        fresh_plane.tokens[:] = [
+            (200, fresh_plane.grant(access_token=alice, organization_id='', user={'email': 'alice@example.com'}))
+        ]
+        expires_at = time.time() + 3600
+        bob = session_cache.Session(
+            access_token=_claims(sid='session_01BOB', exp=expires_at),
+            expires_at=expires_at,
+            refresh_token='refresh-bob',
+            client_id=fresh_plane.client_id,
+            email='bob@example.com',
+        )
+        lookup = management_client.api_call
+
+        def lookup_then_bob_signs_in(
+            request: Any, credential: management_client.Credential | None = None
+        ) -> dict[str, Any]:
+            answer = lookup(request, credential)
+            session_cache.save(fresh_plane.url, bob)
+            return answer
+
+        monkeypatch.setattr(management_client, 'api_call', lookup_then_bob_signs_in)
+
+        answer = _login_in_process()
+
+        assert (answer.status, answer.email) == ('superseded', '')
+        assert fresh_plane.credentials_seen == [{'authorization': f'Bearer {alice}'}]
+        assert [t['grant_type'] for t in fresh_plane.token_seen] == ['urn:ietf:params:oauth:grant-type:device_code']
+        assert session_cache.load(fresh_plane.url) == bob
 
     def test_login_json(self, cloud_cli: PxtRunner) -> None:
         """The code and the link are progress, so a caller parsing stdout must not see them."""
