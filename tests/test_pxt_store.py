@@ -3,12 +3,14 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+from pixeltable.service.pxtfs_protocol import GetBucketCredentialsResponse
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath
 
 from .utils import (
@@ -29,6 +31,19 @@ def _pxt_dest_uri() -> str:
     if not cloud_env_configured():
         pytest.skip('the cloud environment is unconfigured')
     return f'{home_bucket_uri(CLOUD_DB_ROOT_URIS["cloud"])}/pytest'
+
+
+def _bucket_credentials(no_space_left: bool = False) -> GetBucketCredentialsResponse:
+    """Stand-in credentials for patching get_bucket_credentials."""
+    return GetBucketCredentialsResponse(
+        access_key_id='key',
+        secret_access_key='secret',
+        session_token='token',
+        endpoint_url='https://r2.example.com',
+        resolved_bucket_name='physical-home',
+        ttl_seconds=3600,
+        no_space_left=no_space_left,
+    )
 
 
 class TestPxtStore:
@@ -115,9 +130,18 @@ class TestPxtStore:
             endpoint_url=real_entry.endpoint_url,
             storage_provider=real_entry.storage_provider,
             no_space_left=True,
+            no_space_warned=True,
         )
+        # a rejected write checks the quota again, so that check must also report no space left
+        real_get_bucket_credentials = pxt_store.get_bucket_credentials
 
-        with patch.object(pxt_store, '_get_or_create_pxt_store_entry', return_value=quota_entry):
+        def no_space(*args: Any) -> GetBucketCredentialsResponse:
+            return real_get_bucket_credentials(*args).model_copy(update={'no_space_left': True})
+
+        with (
+            patch.object(pxt_store, '_get_or_create_pxt_store_entry', return_value=quota_entry),
+            patch.object(pxt_store, 'get_bucket_credentials', side_effect=no_space),
+        ):
             with pxt_raises(excs.ErrorCode.STORE_UNAVAILABLE, match='No space left'):
                 t.insert([{'img': img}])
 
@@ -131,23 +155,14 @@ class TestPxtStore:
         """Reading objects from many directories of a home bucket fetches credentials and builds a boto3 session
         once, rather than once per directory: media files are stored in random shard directories."""
         skip_test_if_not_installed('boto3')
-        from pixeltable.service.pxtfs_protocol import GetBucketCredentialsResponse
         from pixeltable.utils import pxt_store
         from pixeltable.utils.s3_store import S3Store
 
-        creds = GetBucketCredentialsResponse(
-            access_key_id='key',
-            secret_access_key='secret',
-            session_token='token',
-            endpoint_url='https://r2.example.com',
-            resolved_bucket_name='physical-home',
-            ttl_seconds=3600,
-        )
         # a database no other test has used, so its entry is not cached yet
         db = f'db_{uuid.uuid4().hex}'
         home = f'pxtfs://org1:{db}/home'
         with (
-            patch.object(pxt_store, 'get_bucket_credentials', return_value=creds) as get_credentials,
+            patch.object(pxt_store, 'get_bucket_credentials', return_value=_bucket_credentials()) as get_credentials,
             patch.object(S3Store, 'copy_object_to_local_file') as download,
         ):
             store = ObjectOps.get_store(home, False)
@@ -160,6 +175,33 @@ class TestPxtStore:
         assert len({url.rsplit('/', 1)[0] for url in urls}) > 90
         assert download.call_count == len(urls)
         get_credentials.assert_called_once_with('org1', db, 'home')
+
+    def test_write_after_quota_restored(self, init_env: None, tmp_path: Path) -> None:
+        """A write rejected for lack of space checks the quota again, so once space is freed the next write succeeds,
+        even though the bucket's cached entry recorded no space left."""
+        skip_test_if_not_installed('boto3')
+        from pixeltable.utils import pxt_store
+        from pixeltable.utils.s3_store import S3Store
+
+        home = f'pxtfs://org1:db_{uuid.uuid4().hex}/home'
+        src = tmp_path / 'obj.jpg'
+        src.write_bytes(b'data')
+        full, freed = _bucket_credentials(no_space_left=True), _bucket_credentials()
+        with (
+            # building the entry, then one check for each of the two writes
+            patch.object(pxt_store, 'get_bucket_credentials', side_effect=[full, full, freed]) as get_credentials,
+            patch.object(S3Store, 'copy_local_file', side_effect=lambda src_path, dest: dest.url) as upload,
+        ):
+            with pytest.warns(excs.PixeltableWarning, match='has no space left'):
+                store = ObjectOps.get_store(home, False)
+            dest = store.resolve_destination(uuid.uuid4(), 0, 1, ext='.jpg')
+            with pxt_raises(excs.ErrorCode.STORE_UNAVAILABLE, match='No space left'):
+                store.copy_local_file(src, dest)
+            # a later request reuses the cached entry
+            assert ObjectOps.get_store(home, False).copy_local_file(src, dest) == dest.url
+
+        assert get_credentials.call_count == 3
+        upload.assert_called_once()
 
     def test_same_prefix_shares_credentials(self, uses_db: None) -> None:
         """Verify that two columns with the same pxtfs:// destination share a single cached credential entry."""

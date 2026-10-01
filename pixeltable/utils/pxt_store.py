@@ -171,7 +171,8 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str) -> _PxtStoreCacheEntr
 
 def _get_or_create_pxt_store_entry(org: str, db: str, bucket: str) -> _PxtStoreCacheEntry:
     """Return the cached entry for org:db:bucket"""
-    # not keyed by prefix: media files sit in random shard directories, so that would build a session per read
+    # one session per bucket, with credentials for the whole bucket: media files sit in random shard directories,
+    # so a session per prefix would mean one per read
     cache_key = f'{org}:{db}:{bucket}'
     pxt_store_client_dict = Env.get().object_store_clients(StorageTarget.PIXELTABLE_STORE)
     with _pxt_store_entries_lock:
@@ -267,7 +268,12 @@ class PxtStore(ObjectStoreBase):
         return FileDestination(url=self._to_logical_uri(inner.url), remote_key=inner.remote_key)
 
     def copy_local_file(self, src_path: Path, dest: FileDestination) -> str:
-        if self._pxt_store_entry.no_space_left:
+        entry = self._pxt_store_entry
+        if entry.no_space_left:
+            # the flag otherwise updates only when botocore refreshes the credentials, which a rejected write never
+            # triggers; check again so a restored quota takes effect
+            _refresh_credentials(self.soa.account, self.soa.account_extension, self.soa.container, entry)
+        if entry.no_space_left:
             raise excs.ServiceUnavailableError(
                 ErrorCode.STORE_UNAVAILABLE,
                 'No space left in Pixeltable store. Only read and delete operations are allowed.',
