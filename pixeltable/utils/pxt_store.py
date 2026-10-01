@@ -38,13 +38,14 @@ _PXTFS_URI_PATTERN = re.compile(r'^pxtfs://[^/]+/([^/?#]+)(.*)$')
 
 @dataclass
 class _PxtStoreCacheEntry:
-    """Cached boto3 client/resource and quota state for a bucket."""
+    """Boto3 client/resource and quota state for a bucket, or for a prefix within it."""
 
     client: BaseClient | None  # populated after boto3 session is built
     resource: ServiceResource | None  # populated after boto3 session is built
     physical_bucket_name: str
     endpoint_url: str
     storage_provider: str
+    prefix: str | None = None  # the credentials' scope; None for the whole bucket
     no_space_left: bool = False
     no_space_warned: bool = False  # tracks whether warning has been issued for no space left in pixeltable store
 
@@ -84,7 +85,7 @@ def _handle_no_space_warning(no_space_left: bool, entry: _PxtStoreCacheEntry, or
 
 def _refresh_credentials(org: str, db: str, bucket: str, entry: _PxtStoreCacheEntry) -> dict[str, str]:
     """Fetch fresh credentials and update the cache entry"""
-    creds = get_bucket_credentials(org, db, bucket)
+    creds = get_bucket_credentials(org, db, bucket, entry.prefix)
     expiry_time = datetime.now(tz=timezone.utc) + timedelta(seconds=creds.ttl_seconds)
 
     entry.no_space_left = creds.no_space_left
@@ -108,9 +109,9 @@ def _refresh_credentials(org: str, db: str, bucket: str, entry: _PxtStoreCacheEn
     }
 
 
-def _build_pxt_store_entry(org: str, db: str, bucket: str) -> _PxtStoreCacheEntry:
-    """Fetch credentials and build a boto3 session for the bucket."""
-    creds = get_bucket_credentials(org, db, bucket)
+def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str | None = None) -> _PxtStoreCacheEntry:
+    """Fetch credentials and build a boto3 session for the bucket, or for `prefix` within it."""
+    creds = get_bucket_credentials(org, db, bucket, prefix)
 
     entry = _PxtStoreCacheEntry(
         client=None,
@@ -119,6 +120,7 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str) -> _PxtStoreCacheEntr
         endpoint_url=creds.endpoint_url,
         no_space_left=creds.no_space_left,
         storage_provider=creds.storage_provider,
+        prefix=prefix,
     )
 
     _handle_no_space_warning(creds.no_space_left, entry, org, db, bucket)
@@ -165,7 +167,7 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str) -> _PxtStoreCacheEntr
     )
     entry.resource = boto3_session.resource('s3', endpoint_url=creds.endpoint_url, region_name='auto')
 
-    _logger.info(f'Initialized session for pxtfs://{org}:{db}/{bucket}')
+    _logger.info(f'Initialized session for pxtfs://{org}:{db}/{bucket}/{prefix or ""}')
     return entry
 
 
@@ -190,11 +192,20 @@ class PxtStore(ObjectStoreBase):
     _pxt_store_entry: _PxtStoreCacheEntry
     _store: ObjectStoreBase  # underlying provider store (S3Store, AzureBlobStore, GCSStore, etc.)
 
-    def __init__(self, soa: StorageObjectAddress) -> None:
+    def __init__(self, soa: StorageObjectAddress, *, scope_credentials: bool = False) -> None:
+        """
+        Args:
+            scope_credentials: If True, the store gets credentials limited to `soa.prefix`, in a session of its own
+                that is not cached: such a prefix, like `uploads/<request>/`, is not reused.
+        """
         assert soa.storage_target == StorageTarget.PIXELTABLE_STORE
 
         self.soa = soa
-        self._pxt_store_entry = _get_or_create_pxt_store_entry(soa.account, soa.account_extension, soa.container)
+        org, db, bucket = soa.account, soa.account_extension, soa.container
+        if scope_credentials:
+            self._pxt_store_entry = _build_pxt_store_entry(org, db, bucket, soa.prefix)
+        else:
+            self._pxt_store_entry = _get_or_create_pxt_store_entry(org, db, bucket)
         physical_soa = soa._replace(container=self._pxt_store_entry.physical_bucket_name)
         self._store = self._build_store(physical_soa)
 

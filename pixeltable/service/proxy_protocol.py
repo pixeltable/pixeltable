@@ -156,8 +156,10 @@ class PxtStorePartSink(PartSink[int | str | ArchiveMember]):
 
     def _get_store(self) -> ObjectStoreBase:
         if self._store is None:
-            # the prefix places this request's uploads; the store's credentials cover the whole bucket
-            self._store = ObjectOps.get_store(f'pxtfs://{self._org}:{self._db}/home/{self._key_prefix}', False)
+            # a client holds these credentials, so limit them to this request's uploads
+            self._store = ObjectOps.get_store(
+                f'pxtfs://{self._org}:{self._db}/home/{self._key_prefix}', False, scope_credentials=True
+            )
         return self._store
 
     def add_media_bytes(self, data: bytes, extension: str) -> str | ArchiveMember:

@@ -4,14 +4,15 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+from pixeltable.env import Env
 from pixeltable.service.pxtfs_protocol import GetBucketCredentialsResponse
-from pixeltable.utils.object_stores import ObjectOps, ObjectPath
+from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
 from .utils import (
     CLOUD_DB_ROOT_URIS,
@@ -174,7 +175,7 @@ class TestPxtStore:
 
         assert len({url.rsplit('/', 1)[0] for url in urls}) > 90
         assert download.call_count == len(urls)
-        get_credentials.assert_called_once_with('org1', db, 'home')
+        get_credentials.assert_called_once_with('org1', db, 'home', None)
 
     def test_write_after_quota_restored(self, init_env: None, tmp_path: Path) -> None:
         """A write rejected for lack of space checks the quota again, so once space is freed the next write succeeds,
@@ -202,6 +203,22 @@ class TestPxtStore:
 
         assert get_credentials.call_count == 3
         upload.assert_called_once()
+
+    def test_scoped_credentials(self, init_env: None) -> None:
+        """A store with scope_credentials fetches credentials for its prefix only, in a session that is not cached:
+        an upload sink's prefix belongs to one request and is never reused."""
+        skip_test_if_not_installed('boto3')
+        from pixeltable.utils import pxt_store
+
+        db = f'db_{uuid.uuid4().hex}'
+        prefixes = [f'uploads/{uuid.uuid4().hex}/' for _ in range(3)]
+        with patch.object(pxt_store, 'get_bucket_credentials', return_value=_bucket_credentials()) as get_credentials:
+            for prefix in prefixes:
+                ObjectOps.get_store(f'pxtfs://org1:{db}/home/{prefix}', False, scope_credentials=True)
+
+        assert get_credentials.call_args_list == [call('org1', db, 'home', prefix) for prefix in prefixes]
+        cached = Env.get().object_store_clients(StorageTarget.PIXELTABLE_STORE).clients
+        assert not any(db in key for key in cached)
 
     def test_same_prefix_shares_credentials(self, uses_db: None) -> None:
         """Verify that two columns with the same pxtfs:// destination share a single cached credential entry."""
