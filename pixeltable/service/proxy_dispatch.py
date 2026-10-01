@@ -23,6 +23,7 @@ import sqlalchemy as sql
 from pixeltable import exceptions as excs
 from pixeltable._query import Query
 from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_loop
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.row import RowBatch
@@ -50,9 +51,17 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
     t0 = time.monotonic()
     try:
         if request.protocol_version != PROTOCOL_VERSION:
+            config = Config.get()
+            org = config.get_string_value('org', section='pxtcloud')
+            db = config.get_string_value('db', section='pxtcloud')
+            catalog_uri = (
+                Path(org=org, db=db)
+                if org and db
+                else Path(org='local', db=config.get_string_value('db') or 'pixeltable')
+            )
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                protocol_mismatch_message(request.protocol_version, PROTOCOL_VERSION),
+                protocol_mismatch_message(request.protocol_version, PROTOCOL_VERSION, catalog_uri),
             )
         key = (request.class_name, request.method)
         table_handler = _TABLE_HANDLERS.get(key)

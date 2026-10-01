@@ -53,13 +53,19 @@ PROTOCOL_VERSION = 6
 _PROTOCOL_MISMATCH_RE = re.compile(r'^Unsupported proxy protocol version: (\d+) \(server expects (\d+)\)')
 
 
-def protocol_mismatch_message(client_version: int, server_version: int) -> str:
+def protocol_mismatch_message(client_version: int, server_version: int, catalog_uri: Path) -> str:
     """The error a caller sees when its proxy protocol version does not match the database."""
     stated = f'Unsupported proxy protocol version: {client_version} (server expects {server_version})'
     if client_version > server_version:
+        if catalog_uri.org == 'local':
+            db = catalog_uri.db or '<db>'
+            return (
+                f'{stated}. This Pixeltable is newer than the local proxy. Restart it with this Python '
+                f'environment by running: pxt localproxy stop {db}, then pxt localproxy start {db}.'
+            )
         return (
             f'{stated}. This Pixeltable is newer than the database. Rebuild its image from the project '
-            'by running: pxt db build-image pxt://org:db. The image installs the Pixeltable the project '
+            f'by running: pxt db build-image {catalog_uri.uri_str}. The image installs the Pixeltable the project '
             'resolves, so upgrade a lockfile pin first. With no lockfile, that build installs the current '
             'PyPI release. Running pxt db restart does not change the image.'
         )
@@ -71,12 +77,12 @@ def protocol_mismatch_message(client_version: int, server_version: int) -> str:
     return stated
 
 
-def explain_protocol_mismatch(message: str) -> str:
+def explain_protocol_mismatch(message: str, catalog_uri: Path) -> str:
     """Expand a protocol-mismatch error, including one from a database that predates this wording."""
-    match = _PROTOCOL_MISMATCH_RE.match(message)
+    match = _PROTOCOL_MISMATCH_RE.fullmatch(message)
     if match is None:
         return message
-    return protocol_mismatch_message(int(match.group(1)), int(match.group(2)))
+    return protocol_mismatch_message(int(match.group(1)), int(match.group(2)), catalog_uri)
 
 
 # Reserved key marking a type-tagged value: {_TAG: <type-name>, 'v': <payload>}.

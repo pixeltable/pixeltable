@@ -32,6 +32,7 @@ from tenacity import (
 )
 
 from pixeltable import exceptions as excs
+from pixeltable.catalog.path import Path as CatalogPath
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.row import RowBatch
 from pixeltable.utils.filecache import FileCache
@@ -347,15 +348,10 @@ class TunnelTransport(Transport):
         self._pool.close()
 
 
-def _error_from_response(error: dict[str, Any]) -> excs.Error:
-    """Rebuild a server error, expanding a protocol mismatch a database from before this wording still sends."""
-    err = excs.Error.from_dict(error)
-    message = proxy_protocol.explain_protocol_mismatch(err.message)
-    if message == err.message:
-        return err
-    rewritten = type(err)(err.error_code, message)
-    rewritten.detail = err.detail
-    return rewritten
+def _error_from_response(error: dict[str, Any], catalog_uri: CatalogPath) -> excs.Error:
+    """Rebuild a server error, expanding only the legacy protocol-mismatch sentence."""
+    message = proxy_protocol.explain_protocol_mismatch(error.get('message', ''), catalog_uri)
+    return excs.Error.from_dict(error | {'message': message})
 
 
 class ProxyClient:
@@ -366,18 +362,19 @@ class ProxyClient:
 
     _transport: Transport
 
-    def __init__(self, transport: Transport):
+    def __init__(self, transport: Transport, catalog_uri: CatalogPath):
         self._transport = transport
+        self._catalog_uri = catalog_uri
 
     @classmethod
-    def local(cls, endpoint: str) -> ProxyClient:
+    def local(cls, endpoint: str, db: str | None = None) -> ProxyClient:
         """Connect to a proxy daemon reachable directly over HTTP at endpoint."""
-        return cls(HttpTransport(endpoint))
+        return cls(HttpTransport(endpoint), CatalogPath(org='local', db=db))
 
     @classmethod
     def remote(cls, org: str, db: str, credential_cb: Callable[[], str], host: str, port: int) -> ProxyClient:
         """Connect to the Pixeltable cloud service's proxy daemon over an authenticated TLS tunnel."""
-        return cls(TunnelTransport(org, db, credential_cb, host=host, port=port))
+        return cls(TunnelTransport(org, db, credential_cb, host=host, port=port), CatalogPath(org=org, db=db))
 
     def _prepare(self, args: dict[str, Any]) -> tuple[dict[str, Any], list[bytes]]:
         """Serialize args for the wire, exactly once per logical request (media files are read, and for a
@@ -425,7 +422,7 @@ class ProxyClient:
         response, parts = self.send(class_name, method, args)
         error = response.get('error')
         if error is not None:
-            raise _error_from_response(error)
+            raise _error_from_response(error, self._catalog_uri)
         return self._localize_media(proxy_protocol.deserialize_value(response.get('result'), parts))
 
     def dispatch_table_method(
@@ -449,7 +446,7 @@ class ProxyClient:
                 refresh(proxy_protocol.deserialize_value(current_md, resp_parts))
             error = response.get('error')
             if error is not None:
-                raise _error_from_response(error)
+                raise _error_from_response(error, self._catalog_uri)
             if response.get('is_stale_md', False):
                 continue  # server withheld a stale mutation; retry against the refreshed schema
             return self._localize_media(proxy_protocol.deserialize_value(response.get('result'), resp_parts))
