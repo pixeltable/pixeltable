@@ -763,6 +763,41 @@ class TestProxyDaemon:
         for path_str in request._remote_parts.values():
             pathlib.Path(path_str).unlink()
 
+    def test_protocol_mismatch_tells_a_newer_client_to_rebuild(self) -> None:
+        message = self._protocol_error(proxy_protocol.PROTOCOL_VERSION + 1)
+        assert 'pxt db build-image pxt://org:db' in message
+        assert 'upgrade a lockfile pin first' in message
+        assert 'pxt db restart does not change the image' in message
+        assert 'pip install --upgrade pixeltable' not in message
+
+    def test_protocol_mismatch_tells_an_older_client_to_upgrade(self) -> None:
+        message = self._protocol_error(proxy_protocol.PROTOCOL_VERSION - 1)
+        assert message.endswith('pip install --upgrade pixeltable')
+        assert 'pxt db build-image' not in message
+
+    def test_client_expands_a_legacy_protocol_mismatch(self) -> None:
+        client_version = proxy_protocol.PROTOCOL_VERSION
+        server_version = proxy_protocol.PROTOCOL_VERSION - 1
+        legacy = f'Unsupported proxy protocol version: {client_version} (server expects {server_version})'
+        expanded = proxy_protocol.explain_protocol_mismatch(legacy)
+        assert expanded == proxy_protocol.protocol_mismatch_message(client_version, server_version)
+        assert proxy_protocol.explain_protocol_mismatch(expanded) == expanded
+        assert proxy_protocol.explain_protocol_mismatch('something else') == 'something else'
+
+        err = proxy_client._error_from_response(
+            {'error_code': 'UNSUPPORTED_OPERATION', 'message': legacy, 'retryable': False}
+        )
+        assert err.message == expanded
+
+    def _protocol_error(self, client_version: int) -> str:
+        request = proxy_protocol.ProxyRequest(
+            class_name='Catalog', method='list_dirs', args={}, protocol_version=client_version
+        )
+        head, _parts = proxy_protocol.decode_body(proxy_dispatch.handle(request.model_dump_json(), []))
+        error = json.loads(head)['error']
+        assert error['error_code'] == 'UNSUPPORTED_OPERATION'
+        return error['message']
+
 
 class _ScriptedResponse:
     def __init__(self, status: int, body: bytes) -> None:

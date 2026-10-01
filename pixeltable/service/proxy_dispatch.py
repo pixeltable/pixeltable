@@ -31,7 +31,7 @@ from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
 from . import proxy_protocol
-from .proxy_protocol import PROTOCOL_VERSION, ProxyRequest
+from .proxy_protocol import PROTOCOL_VERSION, ProxyRequest, protocol_mismatch_message
 
 _logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
         if request.protocol_version != PROTOCOL_VERSION:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Unsupported proxy protocol version: {request.protocol_version} (server expects {PROTOCOL_VERSION})',
+                protocol_mismatch_message(request.protocol_version, PROTOCOL_VERSION),
             )
         key = (request.class_name, request.method)
         table_handler = _TABLE_HANDLERS.get(key)

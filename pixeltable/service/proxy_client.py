@@ -347,6 +347,17 @@ class TunnelTransport(Transport):
         self._pool.close()
 
 
+def _error_from_response(error: dict[str, Any]) -> excs.Error:
+    """Rebuild a server error, expanding a protocol mismatch a database from before this wording still sends."""
+    err = excs.Error.from_dict(error)
+    message = proxy_protocol.explain_protocol_mismatch(err.message)
+    if message == err.message:
+        return err
+    rewritten = type(err)(err.error_code, message)
+    rewritten.detail = err.detail
+    return rewritten
+
+
 class ProxyClient:
     """Talks to a proxy daemon: POSTs requests to its /rpc endpoint and localizes media results.
 
@@ -414,7 +425,7 @@ class ProxyClient:
         response, parts = self.send(class_name, method, args)
         error = response.get('error')
         if error is not None:
-            raise excs.Error.from_dict(error)
+            raise _error_from_response(error)
         return self._localize_media(proxy_protocol.deserialize_value(response.get('result'), parts))
 
     def dispatch_table_method(
@@ -438,7 +449,7 @@ class ProxyClient:
                 refresh(proxy_protocol.deserialize_value(current_md, resp_parts))
             error = response.get('error')
             if error is not None:
-                raise excs.Error.from_dict(error)
+                raise _error_from_response(error)
             if response.get('is_stale_md', False):
                 continue  # server withheld a stale mutation; retry against the refreshed schema
             return self._localize_media(proxy_protocol.deserialize_value(response.get('result'), resp_parts))
