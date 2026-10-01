@@ -5,9 +5,10 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import time
 import uuid
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -35,6 +36,9 @@ _logger = logging.getLogger(__name__)
 
 _PXTFS_URI_PATTERN = re.compile(r'^pxtfs://[^/]+/([^/?#]+)(.*)$')
 
+# how often a write rejected for lack of space checks the quota again
+_QUOTA_RECHECK_INTERVAL_S = 60.0
+
 
 @dataclass
 class _PxtStoreCacheEntry:
@@ -48,6 +52,7 @@ class _PxtStoreCacheEntry:
     prefix: str | None = None  # the credentials' scope; None for the whole bucket
     no_space_left: bool = False
     no_space_warned: bool = False  # tracks whether warning has been issued for no space left in pixeltable store
+    quota_checked_at: float = field(default_factory=time.monotonic)  # when no_space_left was last fetched
 
 
 # guards the check-then-insert on the cached pxt_store entries: building one fetches credentials from the cloud,
@@ -89,6 +94,7 @@ def _refresh_credentials(org: str, db: str, bucket: str, entry: _PxtStoreCacheEn
     expiry_time = datetime.now(tz=timezone.utc) + timedelta(seconds=creds.ttl_seconds)
 
     entry.no_space_left = creds.no_space_left
+    entry.quota_checked_at = time.monotonic()
     if creds.resolved_bucket_name:
         entry.physical_bucket_name = creds.resolved_bucket_name
 
@@ -280,10 +286,15 @@ class PxtStore(ObjectStoreBase):
 
     def copy_local_file(self, src_path: Path, dest: FileDestination) -> str:
         entry = self._pxt_store_entry
-        if entry.no_space_left:
+        now = time.monotonic()
+        if entry.no_space_left and now - entry.quota_checked_at >= _QUOTA_RECHECK_INTERVAL_S:
             # the flag otherwise updates only when botocore refreshes the credentials, which a rejected write never
-            # triggers; check again so a restored quota takes effect
-            _refresh_credentials(self.soa.account, self.soa.account_extension, self.soa.container, entry)
+            # triggers; the window starts before the call, so a failed check also waits it out
+            entry.quota_checked_at = now
+            try:
+                _refresh_credentials(self.soa.account, self.soa.account_extension, self.soa.container, entry)
+            except excs.ExternalServiceError as e:
+                _logger.warning('Could not check the quota of %s: %s', self.soa.prefix_free_uri, e)
         if entry.no_space_left:
             raise excs.ServiceUnavailableError(
                 ErrorCode.STORE_UNAVAILABLE,

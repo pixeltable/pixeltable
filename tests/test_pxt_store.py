@@ -3,7 +3,6 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
 from unittest.mock import call, patch
 
 import pytest
@@ -131,18 +130,9 @@ class TestPxtStore:
             endpoint_url=real_entry.endpoint_url,
             storage_provider=real_entry.storage_provider,
             no_space_left=True,
-            no_space_warned=True,
         )
-        # a rejected write checks the quota again, so that check must also report no space left
-        real_get_bucket_credentials = pxt_store.get_bucket_credentials
 
-        def no_space(*args: Any) -> GetBucketCredentialsResponse:
-            return real_get_bucket_credentials(*args).model_copy(update={'no_space_left': True})
-
-        with (
-            patch.object(pxt_store, '_get_or_create_pxt_store_entry', return_value=quota_entry),
-            patch.object(pxt_store, 'get_bucket_credentials', side_effect=no_space),
-        ):
+        with patch.object(pxt_store, '_get_or_create_pxt_store_entry', return_value=quota_entry):
             with pxt_raises(excs.ErrorCode.STORE_UNAVAILABLE, match='No space left'):
                 t.insert([{'img': img}])
 
@@ -177,9 +167,9 @@ class TestPxtStore:
         assert download.call_count == len(urls)
         get_credentials.assert_called_once_with('org1', db, 'home', None)
 
-    def test_write_after_quota_restored(self, init_env: None, tmp_path: Path) -> None:
-        """A write rejected for lack of space checks the quota again, so once space is freed the next write succeeds,
-        even though the bucket's cached entry recorded no space left."""
+    def test_quota_recheck(self, init_env: None, tmp_path: Path) -> None:
+        """A write rejected for lack of space checks the quota again at most once per interval, and keeps the cached
+        state if the check fails; once space is freed, the next check lets writes through."""
         skip_test_if_not_installed('boto3')
         from pixeltable.utils import pxt_store
         from pixeltable.utils.s3_store import S3Store
@@ -187,21 +177,46 @@ class TestPxtStore:
         home = f'pxtfs://org1:db_{uuid.uuid4().hex}/home'
         src = tmp_path / 'obj.jpg'
         src.write_bytes(b'data')
-        full, freed = _bucket_credentials(no_space_left=True), _bucket_credentials()
+        full = _bucket_credentials(no_space_left=True)
         with (
-            # building the entry, then one check for each of the two writes
-            patch.object(pxt_store, 'get_bucket_credentials', side_effect=[full, full, freed]) as get_credentials,
+            patch.object(pxt_store, 'get_bucket_credentials', return_value=full) as get_credentials,
             patch.object(S3Store, 'copy_local_file', side_effect=lambda src_path, dest: dest.url) as upload,
         ):
             with pytest.warns(excs.PixeltableWarning, match='has no space left'):
                 store = ObjectOps.get_store(home, False)
+            assert isinstance(store, pxt_store.PxtStore)
+            entry = store._pxt_store_entry
             dest = store.resolve_destination(uuid.uuid4(), 0, 1, ext='.jpg')
-            with pxt_raises(excs.ErrorCode.STORE_UNAVAILABLE, match='No space left'):
-                store.copy_local_file(src, dest)
-            # a later request reuses the cached entry
-            assert ObjectOps.get_store(home, False).copy_local_file(src, dest) == dest.url
 
-        assert get_credentials.call_count == 3
+            def write() -> str:
+                # each write's store reuses the cached entry, as a later request's would
+                return ObjectOps.get_store(home, False).copy_local_file(src, dest)
+
+            def let_interval_pass() -> None:
+                entry.quota_checked_at -= pxt_store._QUOTA_RECHECK_INTERVAL_S
+
+            # within the interval, the cached state rejects the write without a check
+            with pxt_raises(excs.ErrorCode.STORE_UNAVAILABLE, match='No space left'):
+                write()
+            assert get_credentials.call_count == 1
+
+            # a failed check keeps the cached state and starts a new interval
+            let_interval_pass()
+            get_credentials.side_effect = excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR, 'unreachable', provider='pixeltable_cloud'
+            )
+            for _ in range(2):
+                with pxt_raises(excs.ErrorCode.STORE_UNAVAILABLE, match='No space left'):
+                    write()
+            assert get_credentials.call_count == 2
+
+            # once space is freed, the next check lets the write through
+            let_interval_pass()
+            get_credentials.side_effect = None
+            get_credentials.return_value = _bucket_credentials()
+            assert write() == dest.url
+            assert get_credentials.call_count == 3
+
         upload.assert_called_once()
 
     def test_scoped_credentials(self, init_env: None) -> None:
