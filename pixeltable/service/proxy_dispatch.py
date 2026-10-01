@@ -10,6 +10,8 @@ import dataclasses
 import logging
 import pathlib
 import shutil
+import tarfile
+import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -138,41 +140,95 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
                 pass
 
 
+# each archive being localized occupies temp disk twice: the archive itself and its extracted members
+_MAX_ARCHIVE_DOWNLOADS = 4
+# shared by all requests, so the bound holds across concurrent inserts
+_archive_download_slots = threading.BoundedSemaphore(_MAX_ARCHIVE_DOWNLOADS)
+
+
 def _prefetch_remote_parts(request: ProxyRequest) -> None:
     """Localize the request's out-of-band binary parts (object store keys) into TempStore before dispatch.
     Updates request._remote_parts with the temp paths of the localized files.
 
+    A part is either an object of its own or a member of an archive (see PxtArchivePartSink). Each archive is
+    downloaded once, and only the members referenced by the request are extracted from it.
+
     Should be called outside of a db transaction so that object-store I/O never holds a db connection.
     """
-    keys = proxy_protocol.collect_remote_keys(request.args)
-    if len(keys) == 0:
+    parts = proxy_protocol.collect_remote_keys(request.args)
+    if len(parts) == 0:
         return
-    for remote_key in keys:
+    objects: list[str] = []
+    archives: dict[str, list[str]] = {}  # archive key -> member names
+    for key, member in parts:
         # only client uploads may be localized; anything else (e.g. 'pixeltable/data/...' store objects)
         # must not be readable through this daemon
-        if not remote_key.startswith('uploads/'):
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'Invalid uploaded object key: {remote_key!r}')
+        if not key.startswith('uploads/'):
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'Invalid uploaded object key: {key!r}')
+        if member is None:
+            objects.append(key)
+        else:
+            archives.setdefault(key, []).append(member)
     org, db = Env.get().hosted_db(required=True)
     store = ObjectOps.get_store(f'pxtfs://{org}:{db}/home/uploads/', False)
 
-    def download(remote_key: str) -> None:
-        dest = TempStore.create_path(extension=pathlib.Path(remote_key).suffix)
-        # record before downloading so handle() also cleans up a partial download
-        request._remote_parts[remote_key] = str(dest)
+    # record every destination before downloading so handle() also cleans up a partial download
+    for key, member in parts:
+        request._remote_parts[key, member] = str(TempStore.create_path(extension=pathlib.Path(member or key).suffix))
+
+    def download(key: str, dest: pathlib.Path) -> None:
         try:
             # the store re-prepends its 'uploads/' prefix to the given path
-            store.copy_object_to_local_file(remote_key[len('uploads/') :], dest)
+            store.copy_object_to_local_file(key[len('uploads/') :], dest)
         except excs.NotFoundError as e:
             # the stock 404 message blames the bucket, which is wrong here: the bucket exists, the object is
             # gone (expired via the uploads/ lifecycle rule) or was never fully uploaded
             raise excs.NotFoundError(
                 excs.ErrorCode.STORAGE_NOT_FOUND,
-                f'Uploaded object {remote_key!r} not found (upload expired or incomplete); retry the operation',
+                f'Uploaded object {key!r} not found (upload expired or incomplete); retry the operation',
             ) from e
 
+    def extract(archive_key: str, members: list[str]) -> None:
+        archive_path = TempStore.create_path(extension='.tar')
+        try:
+            with _archive_download_slots:
+                download(archive_key, archive_path)
+                with tarfile.open(archive_path, 'r:') as tf:
+                    infos = {info.name: info for info in tf.getmembers()}
+                    for member in members:
+                        info = infos.get(member)
+                        if info is None:
+                            raise excs.NotFoundError(
+                                excs.ErrorCode.STORAGE_NOT_FOUND,
+                                f'Uploaded archive {archive_key!r} is missing member {member!r}',
+                            )
+                        # a sparse member extracts to more bytes than the archive stores
+                        src = tf.extractfile(info) if info.isfile() and not info.issparse() else None
+                        if src is None:
+                            raise excs.RequestError(
+                                excs.ErrorCode.INVALID_DATA_FORMAT,
+                                f'Uploaded archive {archive_key!r}: member {member!r} is not a regular, '
+                                'non-sparse file',
+                            )
+                        # a member name never reaches the filesystem: each part extracts to its own temp path
+                        with src, open(request._remote_parts[archive_key, member], 'wb') as dest:
+                            shutil.copyfileobj(src, dest)
+        except tarfile.TarError as e:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_DATA_FORMAT, f'Uploaded archive {archive_key!r} is not a valid tar file'
+            ) from e
+        finally:
+            archive_path.unlink(missing_ok=True)
+
     # concurrent downloads are safe: boto3 clients are thread-safe
-    with ThreadPoolExecutor(max_workers=min(16, len(keys))) as executor:
-        list(executor.map(download, keys))
+    if len(objects) > 0:
+        with ThreadPoolExecutor(max_workers=min(16, len(objects)), thread_name_prefix='pxt-part-download') as executor:
+            list(executor.map(lambda key: download(key, pathlib.Path(request._remote_parts[key, None])), objects))
+    if len(archives) > 0:
+        with ThreadPoolExecutor(
+            max_workers=min(_MAX_ARCHIVE_DOWNLOADS, len(archives)), thread_name_prefix='pxt-archive-download'
+        ) as executor:
+            list(executor.map(lambda item: extract(*item), archives.items()))
 
 
 def _convert_result(key: tuple[str, str], result: Any) -> Any:
@@ -399,7 +455,7 @@ def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 def _compute(request: ProxyRequest, tbl: LocalTable) -> Any:
     kwargs = _deserialize_args(request)
-    return tbl.compute(kwargs['rows'], on_error=kwargs['on_error'])
+    return tbl.compute(kwargs['rows'], outputs=kwargs['outputs'], on_error=kwargs['on_error'])
 
 
 def _update(request: ProxyRequest, tbl: LocalTable) -> Any:

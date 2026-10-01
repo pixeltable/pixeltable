@@ -263,6 +263,59 @@ class TestFastAPIModels:
         assert client.post('/half', json={'note_id': 3, 'val': 20}).json() == {'half': 10.0, 'plus': 11.0}
         assert client.post('/half', json={'note_id': 4, 'val': 5}).json() is None
 
+    def test_query_udf_column_target(self, db_root: DatabaseRoot) -> None:
+        """Routes can be declared against a model whose computed column calls a @pxt.query over another model."""
+        p = db_root.make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        TableModel = pxt.model_base()  # noqa: N806
+
+        class Docs(TableModel, name='docs'):
+            body: pxt.String
+
+        @pxt.query
+        def find(q: str) -> pxt.Query:
+            return Docs.where(Docs.body == q).select(Docs.body)  # type: ignore[arg-type]
+
+        class Asks(TableModel, name='asks'):
+            question = pxt.Column(type=pxt.String, primary_key=True)
+            hits = find(question)
+
+        @pxt.query
+        def asked(question: str) -> pxt.Query:
+            return Asks.where(Asks.question == question).select(Asks.hits)  # type: ignore[arg-type]
+
+        router = FastAPIRouter()
+        router.add_insert_route(
+            Asks,
+            path='/ins',
+            inputs=[Asks.question],  # type: ignore[arg-type]
+            outputs=[Asks.hits],  # type: ignore[arg-type]
+        )
+        router.add_compute_route(
+            Asks,
+            path='/comp',
+            inputs=[Asks.question],  # type: ignore[arg-type]
+            outputs=[Asks.hits],  # type: ignore[arg-type]
+        )
+        router.add_delete_route(
+            Asks,
+            path='/del',
+            match_columns=[Asks.question],  # type: ignore[arg-type]
+        )
+        router.add_query_route(path='/asked', query=asked)
+        client = make_test_client(router)
+
+        TableModel.create_all(p(''))
+        router.bind(p(''))
+        Docs.table.insert([{'body': 'alpha'}, {'body': 'beta'}])
+
+        assert client.post('/ins', json={'question': 'alpha'}).json() == {'hits': [{'body': 'alpha'}]}
+        assert client.post('/comp', json={'question': 'beta'}).json() == {'hits': [{'body': 'beta'}]}
+        assert client.post('/asked', json={'question': 'alpha'}).json() == {'rows': [{'hits': [{'body': 'alpha'}]}]}
+        assert client.post('/del', json={'question': 'alpha'}).json() == {'num_rows': 1}
+
     def test_bind(self, db_root: DatabaseRoot) -> None:
         """bind() resolves model targets, refuses what the tables cannot serve, and rejects a second target."""
         p = db_root.make_catalog_path

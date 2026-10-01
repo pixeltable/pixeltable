@@ -129,6 +129,17 @@ class ServiceManager(ServiceManagerBase):
     def get(self, name: str, base_path: str = '') -> ServiceInstance | None:
         return self._read(self._record_file(name, base_path))
 
+    def find_in_project(self, name: str, project_root: Path) -> list[ServiceInstance]:
+        root = project_root.resolve()
+        instances: list[ServiceInstance] = []
+        for path in sorted(self._dir().rglob(f'{name}.json')):
+            record = self._parse_record(path)
+            if record is None or Path(record.project_root).resolve() != root:
+                continue
+            if self._is_live(record):
+                instances.append(ServiceInstance(record, self))
+        return instances
+
     def list(self, base_path: str = '', recursive: bool = False) -> list[ServiceInstance]:
         path = self._dir(base_path)
         if not path.is_dir():
@@ -223,8 +234,11 @@ class ServiceManager(ServiceManagerBase):
         otel: bool = False,
     ) -> LocalServiceInstanceRecord:
         """Write the record of the instance this process serves."""
+        project_root = Config.get().project_root
+        assert project_root is not None
         record = LocalServiceInstanceRecord(
             service_name=service_name,
+            project_root=str(project_root.resolve()),
             base_path=base_path,
             endpoint=f'http://127.0.0.1:{port}',
             port=port,

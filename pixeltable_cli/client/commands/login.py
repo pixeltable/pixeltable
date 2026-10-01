@@ -50,15 +50,8 @@ def run(argv: list[str]) -> None:
     if not webbrowser.open(start['verification_uri']):
         print('Could not open a browser; open the link above.', file=sys.stderr)
 
-    granted = _await_approval(start)
+    granted = _await_approval(start, json_output=args.json_output)
     replaced = granted['replaced_trial']
-    if replaced is not None and not replaced['expired']:
-        # the claim link was on this machine only in the trial's record
-        print(
-            f'pxt login: warning: this machine no longer uses the trial pxt://{replaced["org"]}:{replaced["db"]}. '
-            f'{trial_fate(replaced, replaced["claim_url"])}',
-            file=sys.stderr,
-        )
     if args.json_output:
         # the replaced trial, claim link included: it was on this machine only in the trial's record
         document = {
@@ -72,7 +65,7 @@ def run(argv: list[str]) -> None:
     print(_org_line(granted['organization_id']))
 
 
-def _await_approval(start: dict[str, Any]) -> dict[str, Any]:
+def _await_approval(start: dict[str, Any], *, json_output: bool = False) -> dict[str, Any]:
     """Poll until the browser is done, and exit with what stopped it when it did not finish.
 
     The interval and the deadline are the sign-in service's own, and `slow_down` asks for five
@@ -87,6 +80,14 @@ def _await_approval(start: dict[str, Any]) -> dict[str, Any]:
             _fail(_EXPIRED)
         answer = post_request('/api/login/poll', poll)
         status = answer['status']
+        replaced = answer.get('replaced_trial')
+        if replaced is not None and not replaced['expired']:
+            # The trial's record was its claim link's only copy, even if organization selection then failed.
+            print(
+                f'pxt login: warning: this machine no longer uses the trial pxt://{replaced["org"]}:{replaced["db"]}. '
+                f'{trial_fate(replaced, replaced["claim_url"])}',
+                file=sys.stderr,
+            )
         if status == 'granted':
             return answer
         if status == 'authorization_pending':
@@ -98,6 +99,10 @@ def _await_approval(start: dict[str, Any]) -> dict[str, Any]:
             _fail('the sign-in was refused in the browser')
         if status == 'expired_token':
             _fail(_EXPIRED)
+        if status in ('signed_out', 'superseded'):
+            if json_output and replaced is not None:
+                print(json.dumps({'status': status, 'detail': answer['detail'], 'replaced_trial': replaced}))
+            _fail(answer['detail'])
         detail = f': {answer["detail"]}' if answer['detail'] != '' else ''
         _fail(f'the sign-in failed ({status}{detail})')
 

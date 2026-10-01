@@ -21,9 +21,9 @@ Examples:
   pxt whoami                    # the trial and its expiry
   pxt logout                    # remove the trial's key from this machine; `pxt new` then creates another
 
-A trial is an organization with one database (main), at most two services and 1 GiB of storage.
-Unclaimed, it is deleted 72 hours after it was created. Whoever opens the claim link signs in or
-signs up, and becomes the organization's admin.
+A trial is an organization with one database (main), at most two services and 50 GB of media storage.
+The server sets its expiry, normally 48 hours after creation. Unless claimed, it is deleted at that
+time. Whoever opens the claim link signs in or signs up, and becomes the organization's admin.
 `pxt new` prints the link only when it creates the trial, and `pxt logout` prints it once more.
 
 The trial's API key is cached in your Pixeltable home directory for the control plane that commands

@@ -15,7 +15,7 @@ from typing import Any, Iterator
 import pytest
 
 from pixeltable.service import proxy_daemon
-from tests.utils import DatabaseRoot, new_db_uri, skip_test_if_no_config
+from tests.utils import DatabaseRoot, new_db_uri
 
 from .conftest import (
     APPLY_TIMEOUT,
@@ -50,12 +50,6 @@ def _list_dbs(cli: PxtRunner, project: pathlib.Path) -> set[str]:
 def get_target_ops(plan: dict[str, Any], target: str) -> list[dict[str, Any]]:
     """The plan's operations against one target: image, archive, capacity or secret."""
     return [op for op in plan['ops'] if op['target'] == target]
-
-
-@pytest.fixture
-def hosted_environment() -> None:
-    """Skip the test unless a control plane is configured to create the database against."""
-    skip_test_if_no_config('api_key')
 
 
 @pytest.fixture(scope='module')

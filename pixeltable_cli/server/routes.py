@@ -27,10 +27,10 @@ from pixeltable.service.management_protocol import (
     GetDbRequest,
     GetLogsRequest,
     GetLogsResponse,
+    ListAllSecretsRequest,
     ListDbRequest,
     ListKeysRequest,
     ListOrgsRequest,
-    ListSecretsRequest,
     RestartDbRequest,
     SetSecretRequest,
     StartDbRequest,
@@ -561,7 +561,7 @@ def service_prune(req: Request) -> types.ServicePlan:
 @router.post('/api/service/stop')
 def service_stop(req: Request) -> list[types.ServiceChangeOp]:
     body = req.body(models.ServiceStopBody)
-    return service.service_stop(body.names)
+    return service.service_stop(body.names, project_root=body.project_root)
 
 
 @router.post('/api/service/restart')
@@ -818,12 +818,49 @@ def login_poll(req: Request) -> models.LoginPollResponse:
             _issued_device_codes.pop(body.device_code, None)
     if isinstance(answer, auth.TokenErrorResponse):
         return models.LoginPollResponse(status=answer.code, detail=answer.description)
+    removed = None if replaced is None else _removed_trial(replaced)
+    session, failure = _scoped_to_only_org(url, answer)
+    # A rejected switch deletes the session, and another sign-in can replace it, so the cache decides the answer.
+    cached = session_cache.load(url)
+    if cached is None:
+        detail = failure or f'This sign-in was signed out before it finished. {auth.SIGN_IN_AGAIN}'
+        return models.LoginPollResponse(status='signed_out', detail=detail, replaced_trial=removed)
+    if cached.refresh_token != session.refresh_token:
+        return models.LoginPollResponse(
+            status='superseded',
+            replaced_trial=removed,
+            detail='Another sign-in on this machine replaced this one. '
+            'Run `pxt whoami` to see which account is in use.',
+        )
     return models.LoginPollResponse(
-        status='granted',
-        email=answer.email,
-        organization_id=answer.organization_id,
-        replaced_trial=None if replaced is None else _removed_trial(replaced),
+        status='granted', email=session.email, organization_id=session.organization_id, replaced_trial=removed
     )
+
+
+def _scoped_to_only_org(api_url: str, granted: session_cache.Session) -> tuple[session_cache.Session, str]:
+    """The session, and why the lookup or the switch failed: empty when neither did."""
+    cred = management_client.configured_credential()
+    # an API key outranks the session, so commands would not send a switched session
+    if granted.organization_id != '' or cred is None or cred.kind != 'session':
+        return granted, ''
+    sent = management_client.Credential('session', granted.access_token, f'your `pxt login` session for {api_url}')
+    try:
+        org_id = _only_org_id(management_client.api_call(ListOrgsRequest(), credential=sent))
+        if org_id == '':
+            # TODO(pierrebrunelle): a member of several organizations stays unscoped, and needs an API key from one.
+            # Scope each command to the organization in its pxt:// URI once such members exist.
+            return granted, ''
+        return auth.rescope(api_url, org_id, expected=granted), ''
+    except (excs.Error, OSError) as e:
+        return granted, e.message if isinstance(e, excs.Error) else e.strerror or type(e).__name__
+
+
+def _only_org_id(answer: Any) -> str:
+    orgs = answer.get('orgs') if isinstance(answer, dict) else None
+    if not isinstance(orgs, list) or len(orgs) != 1 or not isinstance(orgs[0], dict):
+        return ''
+    org_id = orgs[0].get('org_id')
+    return org_id if isinstance(org_id, str) else ''
 
 
 def _trial_org(cached: session_cache.Trial) -> models.TrialOrg:
@@ -989,7 +1026,7 @@ def list_dbs(req: Request) -> dict[str, Any]:
 
 @router.get('/api/secrets')
 def list_secrets(req: Request) -> dict[str, Any]:
-    return management_client.api_call(ListSecretsRequest(org=req.query_str('org'), db=req.query_str('db')))
+    return management_client.api_call(ListAllSecretsRequest(org=req.query_str('org'), db=req.query_str('db')))
 
 
 @router.post('/api/secrets')

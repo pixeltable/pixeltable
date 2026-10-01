@@ -132,7 +132,7 @@ pxt db logs   pxt://myorg:mydb   # what the database's pod logged
 
 # cloud -- secrets
 pxt secret set  pxt://myorg OPENAI_API_KEY=sk-...
-pxt secret list                  # the org your credential reaches
+pxt secret list                  # every secret in your org and its databases
 
 # cloud -- keys
 pxt key create ci                # a key that acts as you
@@ -267,7 +267,7 @@ pxt rows my_dir/my_table --cols id,text,score
 
 ### `pxt get`
 
-Look up a single row by primary key. A numeric-looking PK token is coerced to int or float; everything else stays a string. There is no quoting escape for a string-typed PK whose value looks numeric -- if your PK column is a string but the value is `42`, the server will reject the type mismatch. The table must declare a primary key. Unstored computed columns are skipped unless requested explicitly via `--cols` (consistent with `rows`).
+Look up a single row by primary key. An `Int`, `Float`, or `UUID` PK column parses its value and rejects one that does not parse. A `String` PK column keeps the value as typed, so `007` stays `007`. Lookup by a PK of any other type, such as `Date` or `Timestamp`, is not supported yet and finds no row. The table must declare a primary key. Unstored computed columns are skipped unless requested explicitly via `--cols` (consistent with `rows`).
 
 | Flag | Description |
 |---|---|
@@ -743,10 +743,10 @@ set. Unlike a sign-in, it does not expire. `pxt whoami` says which one your comm
 send.
 </Note>
 
-Signing in proves who you are; it does not give you an organization. A brand-new account belongs
-to no organization, and every hosted command needs one, so `pxt login` and `pxt whoami` print "No organization yet" with
-the command that creates one, `pxt org create NAME`, rather than letting the next command fail as an
-authorization error.
+Signing in proves who you are. If you belong to exactly one organization, `pxt login` also selects
+it. A brand-new account belongs to no organization, and every hosted command needs one, so `pxt login`
+and `pxt whoami` print "No organization yet" with the command that creates one, `pxt org create NAME`,
+rather than letting the next command fail as an authorization error.
 
 ### Trial databases
 
@@ -760,8 +760,8 @@ key. It prints the database's URI, the `[[pixeltable.database]]` entry for `pixe
 next commands, and a claim link. It never prints the key, and neither does `pxt new --json`.
 
 Until it is claimed, the organization has 1 database and at most 2 services, each on 1 worker with up
-to 1 cpu, 2048 MB and 10 GB of disk, and about 1 GiB of storage: past that, uploads stop. It is deleted
-72 hours after it was created. Its pods reach the internet on ports 80, 443 and 5432 only, and one
+to 1 cpu, 2048 MB and 10 GB of disk, and 50 GB of media storage: past that, uploads stop. The server sets
+its expiry, normally 48 hours after creation. Its pods reach the internet on ports 80, 443 and 5432 only, and one
 network holds at most 10 unclaimed trials at once. Whoever opens the claim link signs in or signs up and
 becomes the organization's admin, so keep the link out of shared logs.
 
@@ -848,13 +848,30 @@ calling process, so it is local by definition. Two verbs differ in meaning again
 a stopped service keeps its registration: `stop` stops it and leaves it there to be started again, while
 `prune` forgets it.
 
+`pxt service stop` accepts a service address in several forms. A bare name matches the services of the
+current project, or every local service when the working directory is outside a project. `my_dir/NAME`
+stops the service under `my_dir`, including one in another project, and `/NAME` stops the service at the
+catalog root. A bare name that matches more than one service is refused, and the error lists the
+qualified path of each match.
+
+```bash
+pxt service stop ingest                  # the service named ingest in the current project
+pxt service stop my_dir/ingest           # the service of that name under my_dir
+pxt service stop /ingest                 # the service of that name at the catalog root
+pxt service stop pxt://acme:main/ingest  # the one in a hosted database
+```
+
+A name that matches no service, or matches one that is already stopped, is reported as `skipped` with
+the reason (`not found` or `already stopped`), so stopping a set of services can be repeated safely.
+
 `pxt service restart` cycles a service's pods onto the database's current image and project, keeping the
-service's registration and endpoint, and accepts the same service addresses as `stop`. Use it after
+service's registration and endpoint, and accepts the same service addresses as `stop`, except that a
+bare name matches every local service of that name, whatever its project. Use it after
 `pxt db update` to move a running service onto the new project, and to pick up the current values of its
 referenced secrets. Against a local target it stops the process and starts it again on the same
 port, so callers keep their address.
 
-`pxt service logs` reads a service's log and accepts the same service addresses as `stop`. `pxt db logs` reads
+`pxt service logs` reads a service's log and accepts the same service addresses as `restart`. `pxt db logs` reads
 the log of a hosted database's pod:
 
 ```bash
@@ -879,7 +896,7 @@ local file instead, and `pxt service logs` reports the path of that file.
 | `pxt service update APP my_app` | Start the services declared by `APP`, and restart the ones whose declaration changed |
 | `pxt service run APP my_app [SERVICE]` | Serve one of them from this process instead, until interrupted |
 | `pxt service prune APP my_app` | Stop and forget the services under the last argument that `APP` does not declare |
-| `pxt service stop NAME...` | Stop the named services |
+| `pxt service stop NAME...` | Stop the named services; a bare name matches within the current project |
 | `pxt service list [my_app]` | What is running at a local or hosted catalog, and where |
 | `pxt service logs NAME` | What the named service logged. Pass `my_app/NAME` or a `pxt://` path to disambiguate |
 | `pxt service check APP` | Validate the application file on its own. No catalog argument, and it reads no catalog |
@@ -1056,7 +1073,7 @@ pxt db list --json
 pxt db status pxt://myorg:mydb
 ```
 
-Prints current state, endpoint, location, and timestamps.
+Prints the state, the resources, the project, and the pods, and marks what a pending update would change.
 
 #### `pxt db start`
 
@@ -1166,7 +1183,7 @@ between two keys. Any member of the organization can delete any key.
 ### `pxt secret`
 
 ```bash
-pxt secret list                    # the org your credential reaches
+pxt secret list                    # every secret in your org and its databases
 pxt secret list   pxt://myorg
 pxt secret list   pxt://myorg:mydb
 pxt secret set    pxt://myorg OPENAI_API_KEY=sk-...
@@ -1174,6 +1191,19 @@ pxt secret delete pxt://myorg:mydb OLD_KEY
 ```
 
 An org secret applies to every database in the org. A database secret applies to that database and wins on a key collision. `list` prints names, never values.
+
+`list` prints one table for the org and its databases. Without a URI it covers your credential's org; `pxt://myorg:mydb` narrows it to the org and that database. A database secret with the same name as an org secret is marked `overrides an organization secret`, and the org row stays in the table:
+
+```
+KEY                    SCOPE             NOTE
+OPENAI_API_KEY         pxt://myorg
+AWS_SECRET_ACCESS_KEY  pxt://myorg:mydb
+OPENAI_API_KEY         pxt://myorg:mydb  overrides an organization secret
+```
+
+With `--json`, each row is an object with `key` and `scope`, plus `"overrides_org": true` on a database secret that overrides an org secret. With nothing set, `list` prints `No secrets for pxt://myorg.` (or the database's URI), and `list --json` prints `[]`.
+
+`set` and `delete` print the keys they changed as the same `KEY` and `SCOPE` rows, without `NOTE`; with `--json`, as `key` and `scope` objects. Earlier releases printed bare key names, and `--json` printed an array of strings.
 
 A running database uses the values from its startup. `pxt db restart`, or `pxt service restart` for one service, picks up a change; a database or service started afterwards reads the current value at startup.
 

@@ -45,7 +45,7 @@ from .proxy_protocol import (
     PartSink,
     ProxyRequest,
     ProxyResponse,
-    PxtStorePartSink,
+    PxtArchivePartSink,
     decode_body,
     encode_body,
 )
@@ -328,7 +328,7 @@ class TunnelTransport(Transport):
         return self._request('POST', '/rpc', body=body, content_type='application/octet-stream')
 
     def new_part_sink(self) -> PartSink:
-        return PxtStorePartSink(self._org, self._db)
+        return PxtArchivePartSink(self._org, self._db)
 
     def media_url(self, media_path: str) -> str:
         return f'{self._endpoint}/media/{media_path}'
