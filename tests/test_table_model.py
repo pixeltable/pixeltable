@@ -2661,6 +2661,126 @@ class TestTableModel:
         rows = probe.order_by(probe.cutoff).select(probe.matches).collect()
         assert [r['matches'] for r in rows] == [[{'title': 'beta'}], [{'title': 'beta'}]]
 
+    def test_view_over_query_udf_model(self, db_root: DatabaseRoot) -> None:
+        """A view model can be based on a model whose computed columns call a query udf over another model."""
+        from pixeltable.functions import anthropic
+
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            doc_id: pxt.Int
+            title: pxt.String
+
+        @pxt.query
+        def titles_after(cutoff: int) -> pxt.Query:
+            return Docs.where(Docs.doc_id > cutoff).order_by(Docs.doc_id).select(Docs.title)  # type: ignore[arg-type]
+
+        class Probe(TableModel, name='probe'):
+            cutoff: pxt.Int
+            response: pxt.Json
+            matches = titles_after(cutoff)
+            tool_matches = anthropic.invoke_tools(pxt.tools(titles_after), response)
+
+        class ProbeView(TableModel, name='probe_view', base=Probe.where(Probe.cutoff > 0)):
+            match_count = pxtf.json.len(Probe.matches)
+
+        target = db_root.make_catalog_path('qudf_view')
+        pxt.create_dir(target, parents=True)
+        TableModel.create_all(target)
+        pxt.get_table(f'{target}/docs').insert([{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 5, 'title': 'beta'}])
+        tool_use = {'type': 'tool_use', 'name': 'titles_after', 'input': {'cutoff': 1}}
+        pxt.get_table(f'{target}/probe').insert(
+            [{'cutoff': 0, 'response': {'content': [tool_use]}}, {'cutoff': 1, 'response': {'content': [tool_use]}}]
+        )
+
+        view = pxt.get_table(f'{target}/probe_view')
+        rows = view.select(view.matches, view.tool_matches, view.match_count).collect()
+        assert list(rows) == [
+            {'matches': [{'title': 'beta'}], 'tool_matches': {'titles_after': [[{'title': 'beta'}]]}, 'match_count': 1}
+        ]
+
+    def test_nested_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
+        """A query udf over a model can select a query udf over another model."""
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            topic: pxt.String
+            title: pxt.String
+
+        @pxt.query
+        def titles_for(topic: str) -> pxt.Query:
+            return Docs.where(Docs.topic == topic).order_by(Docs.title).select(Docs.title)  # type: ignore[arg-type]
+
+        class Topics(TableModel, name='topics'):
+            topic: pxt.String
+
+        @pxt.query
+        def topics_like(prefix: str) -> pxt.Query:
+            matching = Topics.where(Topics.topic.startswith(prefix))  # type: ignore[arg-type]
+            return matching.order_by(Topics.topic).select(Topics.topic, titles=titles_for(Topics.topic))  # type: ignore[arg-type]
+
+        class Probe(TableModel, name='probe'):
+            prefix: pxt.String
+            matches = topics_like(prefix)
+
+        class ProbeView(TableModel, name='probe_view', base=Probe.where(Probe.prefix != '')):
+            pass
+
+        target = db_root.make_catalog_path('qudf_nested')
+        pxt.create_dir(target, parents=True)
+        TableModel.create_all(target)
+        pxt.get_table(f'{target}/docs').insert(
+            [{'topic': 'cats', 'title': 'b'}, {'topic': 'cats', 'title': 'a'}, {'topic': 'dogs', 'title': 'c'}]
+        )
+        pxt.get_table(f'{target}/topics').insert([{'topic': 'cats'}, {'topic': 'cows'}, {'topic': 'dogs'}])
+        pxt.get_table(f'{target}/probe').insert([{'prefix': 'c'}, {'prefix': ''}])
+
+        view = pxt.get_table(f'{target}/probe_view')
+        assert view.select(view.matches).collect()['matches'] == [
+            [{'topic': 'cats', 'titles': [{'title': 'a'}, {'title': 'b'}]}, {'topic': 'cows', 'titles': []}]
+        ]
+
+    def test_update_all_nested_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
+        """`update_all()` creates every model a new column queries, including through a nested query udf."""
+        TableModel = pxt.model_base()
+
+        class Probe(TableModel, name='probe'):
+            topic: pxt.String
+
+        target = db_root.make_catalog_path('qudf_nested_update')
+        pxt.create_dir(target, parents=True)
+        TableModel.create_all(target)
+        pxt.get_table(f'{target}/probe').insert([{'topic': 'cats'}])
+
+        reload_catalog()
+        TableModelV2 = pxt.model_base()
+
+        class Docs(TableModelV2, name='docs'):
+            topic: pxt.String
+            title: pxt.String
+
+        @pxt.query
+        def titles_for(topic: str) -> pxt.Query:
+            return Docs.where(Docs.topic == topic).select(Docs.title)  # type: ignore[arg-type]
+
+        class Topics(TableModelV2, name='topics'):
+            topic: pxt.String
+
+        @pxt.query
+        def topic_titles(topic: str) -> pxt.Query:
+            return Topics.where(Topics.topic == topic).select(titles=titles_for(Topics.topic))  # type: ignore[arg-type]
+
+        class ProbeV2(TableModelV2, name='probe'):
+            topic: pxt.String
+            matches = topic_titles(topic)
+
+        TableModelV2.update_all(target)
+        pxt.get_table(f'{target}/docs').insert([{'topic': 'cats', 'title': 'a'}])
+        pxt.get_table(f'{target}/topics').insert([{'topic': 'cats'}])
+        probe = pxt.get_table(f'{target}/probe')
+        probe.recompute_columns('matches')
+        assert probe.select(probe.matches).collect()['matches'] == [[{'titles': [{'title': 'a'}]}]]
+
     def test_table_model_validation_errors(self, db_root: DatabaseRoot) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
         p = db_root.make_catalog_path

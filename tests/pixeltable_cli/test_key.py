@@ -11,17 +11,9 @@ from typing import Iterator
 
 import pytest
 
-from tests.utils import skip_test_if_no_config
-
 from .conftest import PxtRunner
 
 _ORG_URI = 'pxt://{org}:main'
-
-
-@pytest.fixture
-def hosted_environment() -> None:
-    """Skip unless a control plane is configured to create keys against."""
-    skip_test_if_no_config('api_key')
 
 
 @pytest.fixture

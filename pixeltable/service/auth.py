@@ -320,17 +320,33 @@ def access_token(api_url: str) -> str | None:
     return None if session is None else session.access_token
 
 
-def rescope(api_url: str, organization_id: str) -> Session:
+def rescope(api_url: str, organization_id: str, expected: Session | None = None) -> Session:
     """Renew the session for organization_id, and return the renewed session.
 
     This renews a usable token too: one issued before the organization existed is scoped to no organization.
+    With expected, only that session is renewed: a session that replaced it in the cache is left alone.
     """
-    renewed = session_cache.renew(api_url, lambda _s: True, lambda s: _refresh(api_url, s, organization_id))
-    if renewed is None:
+    renewed: list[Session] = []
+
+    def refresh(session: Session) -> Session:
+        renewed.append(_refresh(api_url, session, organization_id))
+        return renewed[0]
+
+    # renew() calls this under the cache lock, so no sign-in can replace the session between the check and the refresh
+    def is_expected(session: Session) -> bool:
+        return expected is None or session.refresh_token == expected.refresh_token
+
+    current = session_cache.renew(api_url, is_expected, refresh)
+    if current is None:
         raise excs.AuthorizationError(
             excs.ErrorCode.MISSING_CREDENTIALS, f'There is no Pixeltable session to switch. {SIGN_IN_AGAIN}'
         )
-    return renewed
+    if len(renewed) == 0:
+        raise excs.AuthorizationError(
+            excs.ErrorCode.MISSING_CREDENTIALS,
+            'Another sign-in replaced this Pixeltable session, so it was not switched.',
+        )
+    return current
 
 
 def browser_logout_url(api_url: str, session: Session) -> str:

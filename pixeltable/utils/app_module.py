@@ -85,8 +85,11 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, _prohibited_write_msg(str(path), subject, e)
         ) from e
-    except Exception as e:
+    except excs.Error as e:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'error loading {file}: {e}') from e
+    except Exception as e:
+        reason = f'{type(e).__name__}: {e}' if str(e) else type(e).__name__
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'error loading {file}: {reason}') from e
 
 
 def _no_root_msg(path: Path, subject: str, root: Path | None) -> str:

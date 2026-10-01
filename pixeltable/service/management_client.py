@@ -40,7 +40,6 @@ _READ_OPS = frozenset(
         ManagementOperationType.LIST_ALL_SECRETS,
         ManagementOperationType.LIST_ORGS,
         ManagementOperationType.LIST_KEYS,
-        ManagementOperationType.LIST_SECRETS,
         ManagementOperationType.LIST_DBS,
         ManagementOperationType.GET_DB,
         ManagementOperationType.LIST_SERVICE_INSTANCES,
@@ -73,7 +72,7 @@ _PURPOSES = {
     ManagementOperationType.LIST_ORGS.value: 'list organizations',
     ManagementOperationType.SET_SECRET.value: 'set secrets',
     ManagementOperationType.DELETE_SECRET.value: 'delete secrets',
-    ManagementOperationType.LIST_SECRETS.value: 'list secrets',
+    ManagementOperationType.LIST_ALL_SECRETS.value: 'list secrets',
     ManagementOperationType.CREATE_KEY.value: 'create keys',
     ManagementOperationType.LIST_KEYS.value: 'list keys',
     ManagementOperationType.UPDATE_KEY.value: 'update keys',
@@ -116,10 +115,10 @@ def configured_credential() -> Credential | None:
 def _no_credential(purpose: str) -> excs.Error:
     return excs.AuthorizationError(
         excs.ErrorCode.MISSING_CREDENTIALS,
-        f'A Pixeltable API key or sign-in is required to {purpose}. Run `pxt login`, or set an '
-        'API key with `os.environ["PIXELTABLE_API_KEY"] = "your-key"` or `api_key = "your-key"` '
-        'in the `[pixeltable]` section of the Pixeltable config file.\n'
-        'For details, see https://docs.pixeltable.com/platform/configuration',
+        f'A Pixeltable API key or sign-in is required to {purpose}.\n'
+        'Either run `pxt login`; or set the `PIXELTABLE_API_KEY` environment variable to an existing key; '
+        'or put `api_key` in the `pixeltable` section of your user configuration file.\n'
+        'For details, see: https://docs.pixeltable.com/platform/configuration',
     )
 
 
@@ -180,14 +179,17 @@ def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) ->
     )
 
 
-def api_call(request: Any) -> dict[str, Any]:
-    """Forward one request to the cloud management API and return the raw response dict."""
+def api_call(request: Any, credential: Credential | None = None) -> dict[str, Any]:
+    """Forward one request to the cloud management API and return the raw response dict.
+
+    A given credential is sent instead of the configured one.
+    """
     op = getattr(request, 'operation_type', None)
     op_str = op.value if hasattr(op, 'value') else str(op) if op else ''
     timeout = 180 if op_str in _LONG_OPS else 30
     # by_alias: a field the control plane names differently declares that name as its alias
     body = request.model_dump_json(by_alias=True)
-    sent = resolve('reach Pixeltable Cloud')
+    sent = resolve('reach Pixeltable Cloud') if credential is None else credential
     headers = {'Content-Type': 'application/json', **sent.header()}
     try:
         resp = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)

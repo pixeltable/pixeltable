@@ -325,6 +325,7 @@ class TableProxy(Table):
         source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],
         /,
         *,
+        outputs: Sequence[str | ColumnRef] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
     ) -> RowBatch:
         # str/bytes are technically Sequences; reject them explicitly (with a clear message) rather than letting
@@ -339,8 +340,10 @@ class TableProxy(Table):
                 excs.ErrorCode.UNSUPPORTED_OPERATION, 'compute() requires a sequence of dicts or pydantic models'
             )
         self._validate_compute()
+        output_md = self._resolve_compute_outputs(outputs)
         rows = self._convert_local_paths(self._prepare_rows(list(source)))
-        return self._dispatch('compute', {'rows': rows, 'on_error': on_error})
+        output_names = None if output_md is None else [md.name for md in output_md]
+        return self._dispatch('compute', {'rows': rows, 'outputs': output_names, 'on_error': on_error})
 
     def _media_column_names(self) -> set[str]:
         return {
@@ -376,11 +379,11 @@ class TableProxy(Table):
         """
         Validate and normalize a non-empty list of dict/pydantic source rows for the hosted catalog:
         - pydantic models are validated and converted to dicts on the client (the model classes aren't
-          importable on the server)
+          importable on the server); the server's compute plan checks for required columns
         - plain dicts are sent as-is
         """
         if isinstance(source[0], pydantic.BaseModel):
-            source = self._pydantic_to_rows(source)
+            source = self._pydantic_to_rows(source, check_required=False)
         rows: list[dict[str, Any]] = []
         for source_row in source:
             if not isinstance(source_row, dict):
@@ -390,12 +393,14 @@ class TableProxy(Table):
             rows.append(source_row)
         return rows
 
-    def _pydantic_to_rows(self, models: list[Any]) -> list[dict[str, Any]]:
+    def _pydantic_to_rows(self, models: list[Any], *, check_required: bool = True) -> list[dict[str, Any]]:
         """Validate pydantic models against this table's schema and convert them to insertable dicts."""
         from pixeltable.io.table_data_conduit import PydanticTableDataConduit
 
         converter = PydanticTableDataConduit(models)
         converter.add_table_info(self)
+        if not check_required:
+            converter.reqd_col_names.clear()
         converter.prepare_for_insert_into_table()
         return converter.pxt_rows
 
