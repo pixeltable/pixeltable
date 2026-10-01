@@ -59,10 +59,17 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
                 if org and db
                 else Path(org='local', db=config.get_string_value('db') or 'pixeltable')
             )
-            raise excs.RequestError(
+            mismatch = excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 protocol_mismatch_message(request.protocol_version, PROTOCOL_VERSION, catalog_uri),
             )
+            # The request already carries protocol_version. These two ints are the mismatch, so a client
+            # does not read them out of the sentence. A daemon from before this leaves them off.
+            error_dict = mismatch.to_dict()
+            error_dict['client_protocol_version'] = request.protocol_version
+            error_dict['server_protocol_version'] = PROTOCOL_VERSION
+            _logger.info('%s.%s error (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
+            return proxy_protocol.encode_response({'error': error_dict})
         key = (request.class_name, request.method)
         table_handler = _TABLE_HANDLERS.get(key)
         if table_handler is not None:

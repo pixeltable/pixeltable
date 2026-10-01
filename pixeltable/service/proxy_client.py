@@ -11,6 +11,7 @@ import abc
 import http.client
 import json
 import logging
+import re
 import selectors
 import socket
 import ssl
@@ -348,10 +349,8 @@ class TunnelTransport(Transport):
         self._pool.close()
 
 
-def _error_from_response(error: dict[str, Any], catalog_uri: CatalogPath) -> excs.Error:
-    """Rebuild a server error, expanding only the legacy protocol-mismatch sentence."""
-    message = proxy_protocol.explain_protocol_mismatch(error.get('message', ''), catalog_uri)
-    return excs.Error.from_dict(error | {'message': message})
+# Daemons from before the version fields put both numbers only in this sentence.
+_LEGACY_PROTOCOL_MISMATCH_RE = re.compile(r'Unsupported proxy protocol version: (\d+) \(server expects (\d+)\)\Z')
 
 
 class ProxyClient:
@@ -417,12 +416,35 @@ class ProxyClient:
         wire_args, parts = self._prepare(args)
         return self._post(class_name, method, wire_args, parts, path_key=path_key, snapshot_key=snapshot_key)
 
+    def _validate_response(self, response: ProxyResponse) -> None:
+        """Raise the server error. Fill in a short protocol-mismatch sentence from the version fields.
+
+        A daemon from before those fields leaves the two numbers only in the sentence.
+        """
+        error = response.get('error')
+        if not isinstance(error, dict):
+            if error is not None:
+                raise excs.Error.from_dict(error)
+            return
+        message = error.get('message')
+        legacy = _LEGACY_PROTOCOL_MISMATCH_RE.fullmatch(message) if isinstance(message, str) else None
+        client_version = error.get('client_protocol_version')
+        server_version = error.get('server_protocol_version')
+        versions: tuple[int, int] | None
+        if type(client_version) is int and type(server_version) is int:
+            versions = (client_version, server_version)
+        elif legacy is not None:
+            versions = (int(legacy.group(1)), int(legacy.group(2)))
+        else:
+            versions = None
+        if versions is not None and legacy is not None:
+            error |= {'message': proxy_protocol.protocol_mismatch_message(*versions, self._catalog_uri)}
+        raise excs.Error.from_dict(error)
+
     def send_request(self, class_name: str, method: str, args: dict[str, Any]) -> Any:
         """Run a (path-less) catalog method and return its (deserialized) result."""
         response, parts = self.send(class_name, method, args)
-        error = response.get('error')
-        if error is not None:
-            raise _error_from_response(error, self._catalog_uri)
+        self._validate_response(response)
         return self._localize_media(proxy_protocol.deserialize_value(response.get('result'), parts))
 
     def dispatch_table_method(
@@ -444,9 +466,7 @@ class ProxyClient:
             current_md = response.get('current_md')
             if current_md is not None:
                 refresh(proxy_protocol.deserialize_value(current_md, resp_parts))
-            error = response.get('error')
-            if error is not None:
-                raise _error_from_response(error, self._catalog_uri)
+            self._validate_response(response)
             if response.get('is_stale_md', False):
                 continue  # server withheld a stale mutation; retry against the refreshed schema
             return self._localize_media(proxy_protocol.deserialize_value(response.get('result'), resp_parts))

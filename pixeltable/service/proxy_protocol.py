@@ -17,7 +17,6 @@ import json
 import math
 import os
 import pathlib
-import re
 import shutil
 import struct
 import tarfile
@@ -50,8 +49,6 @@ if TYPE_CHECKING:
 
 PROTOCOL_VERSION = 6
 
-_PROTOCOL_MISMATCH_RE = re.compile(r'^Unsupported proxy protocol version: (\d+) \(server expects (\d+)\)')
-
 
 def protocol_mismatch_message(client_version: int, server_version: int, catalog_uri: Path) -> str:
     """The error a caller sees when its proxy protocol version does not match the database."""
@@ -75,14 +72,6 @@ def protocol_mismatch_message(client_version: int, server_version: int, catalog_
             'version by running: pip install --upgrade pixeltable'
         )
     return stated
-
-
-def explain_protocol_mismatch(message: str, catalog_uri: Path) -> str:
-    """Expand a protocol-mismatch error, including one from a database that predates this wording."""
-    match = _PROTOCOL_MISMATCH_RE.fullmatch(message)
-    if match is None:
-        return message
-    return protocol_mismatch_message(int(match.group(1)), int(match.group(2)), catalog_uri)
 
 
 # Reserved key marking a type-tagged value: {_TAG: <type-name>, 'v': <payload>}.

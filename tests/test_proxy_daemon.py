@@ -844,13 +844,46 @@ class TestProxyDaemon:
         message = f'Unsupported proxy protocol version: 6 (server expects 7){suffix}'
         client = ProxyClient.local('http://127.0.0.1:1', db='db1')
         response = proxy_protocol.encode_response(
-            {'error': {'error_code': 'UNSUPPORTED_OPERATION', 'message': message, 'retryable': False}}
+            {
+                'error': {
+                    'error_code': 'UNSUPPORTED_OPERATION',
+                    'message': message,
+                    'retryable': False,
+                    'client_protocol_version': 6,
+                    'server_protocol_version': 4,
+                }
+            }
         )
         monkeypatch.setattr(client._transport, 'post', lambda body: response)
         try:
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Unsupported proxy protocol version') as err:
                 self._client_call(client, table_method)
             assert err.value.message == message
+        finally:
+            client.close()
+
+    @pytest.mark.parametrize('table_method', [False, True])
+    def test_client_trusts_protocol_version_fields(self, table_method: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The sentence says the database is newer. The fields say this client is, and they win."""
+        sentence = 'Unsupported proxy protocol version: 1 (server expects 2)'
+        client = ProxyClient.remote('org1', 'db1', lambda: 'test-key', host='h', port=443)
+        response = proxy_protocol.encode_response(
+            {
+                'error': {
+                    'error_code': 'UNSUPPORTED_OPERATION',
+                    'message': sentence,
+                    'retryable': False,
+                    'client_protocol_version': proxy_protocol.PROTOCOL_VERSION,
+                    'server_protocol_version': proxy_protocol.PROTOCOL_VERSION - 1,
+                }
+            }
+        )
+        monkeypatch.setattr(client._transport, 'post', lambda body: response)
+        try:
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Unsupported proxy protocol version') as err:
+                self._client_call(client, table_method)
+            assert 'pxt db build-image pxt://org1:db1' in err.value.message
+            assert 'pip install --upgrade pixeltable' not in err.value.message
         finally:
             client.close()
 
@@ -879,6 +912,8 @@ class TestProxyDaemon:
         head, _parts = proxy_protocol.decode_body(proxy_dispatch.handle(request.model_dump_json(), []))
         error = json.loads(head)['error']
         assert error['error_code'] == 'UNSUPPORTED_OPERATION'
+        assert error['client_protocol_version'] == client_version
+        assert error['server_protocol_version'] == proxy_protocol.PROTOCOL_VERSION
         return error['message']
 
 
