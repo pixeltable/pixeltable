@@ -254,6 +254,7 @@ class LocalTable(Table):
         source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],
         /,
         *,
+        outputs: Sequence[str | ColumnRef] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
     ) -> RowBatch:
         from pixeltable.io.table_data_conduit import PydanticTableDataConduit, RowDataTableDataConduit, TableDataConduit
@@ -280,13 +281,21 @@ class LocalTable(Table):
         self._validate_compute()
         try:
             with get_runtime().catalog.begin_xact(read_tbl_ids=path.tbl_ids):
+                output_md = self._resolve_compute_outputs(outputs)
                 # input rows supply values for the base table's columns
                 base_tbl = self._get_base_tables()[-1] if path.is_view() else self
                 data_source.add_table_info(base_tbl)
+                # the compute plan checks for the required columns that the outputs read
+                data_source.reqd_col_names.clear()
                 data_source.prepare_for_insert_into_table()
                 input_rows = [row for batch in data_source.valid_row_batch() for row in batch]
 
-                plan = Planner.create_compute_plan(path, input_rows, ignore_errors=not fail_on_exc)
+                output_cols = path.columns()
+                if output_md is not None:
+                    output_qids = {md.qcolid for md in output_md}
+                    output_cols = [c for c in output_cols if c.qid in output_qids]
+
+                plan = Planner.create_compute_plan(path, input_rows, ignore_errors=not fail_on_exc, outputs=output_md)
                 data_rows: list[exprs.DataRow] = []
                 with plan:
                     # TODO: fix progress reporter
@@ -297,7 +306,7 @@ class LocalTable(Table):
                                 if row.has_exc():
                                     raise row.get_first_exc()
                         data_rows.extend(row_batch.rows)
-                result = plan.row_builder.create_row_batch(data_rows, output_cols=path.columns())
+                result = plan.row_builder.create_row_batch(data_rows, output_cols=output_cols)
         except excs.ExprEvalError as e:
             excs.raise_from_expr_eval_err(e)
 

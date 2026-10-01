@@ -49,7 +49,7 @@ ingest.add_insert_route(
     inputs=[Docs.doc_id, Docs.title, Docs.body, Docs.published],  # type: ignore[arg-type]
     outputs=[Docs.title_upper, Docs.summary],  # type: ignore[arg-type]
 )
-# a compute route builds a row without storing it, so it too has to be given every required column
+# a compute route builds a row without storing it; inputs beyond what its outputs need are accepted and ignored
 ingest.add_compute_route(
     Docs,
     path='/preview',
