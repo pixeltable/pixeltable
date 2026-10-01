@@ -344,7 +344,7 @@ class TestProxyDaemon:
         assert all(k.startswith(sink._key_prefix) for k in keys)
 
         sink.flush()
-        # one store (one credential fetch) for the whole request, scoped to its own prefix
+        # one store for the whole request, rooted at its own prefix
         assert store_uris == [f'pxtfs://org1:db1/home/{sink._key_prefix}']
         assert set(uploaded) == set(keys)
         assert uploaded[keys[0]][1] == uploaded[keys[1]][1] == src.read_bytes()

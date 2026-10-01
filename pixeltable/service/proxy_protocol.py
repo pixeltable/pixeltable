@@ -156,7 +156,6 @@ class PxtStorePartSink(PartSink[int | str | ArchiveMember]):
 
     def _get_store(self) -> ObjectStoreBase:
         if self._store is None:
-            # the prefix in the URI scopes the store's temp credentials to this request's uploads
             self._store = ObjectOps.get_store(f'pxtfs://{self._org}:{self._db}/home/{self._key_prefix}', False)
         return self._store
 

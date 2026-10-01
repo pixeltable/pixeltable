@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -105,9 +107,7 @@ class TestPxtStore:
         validate_update_status(t.insert([{'img': img}]), expected_rows=1)
 
         soa = ObjectPath.parse_object_storage_addr(dest_uri, allow_obj_name=False)
-        real_entry = pxt_store._get_or_create_pxt_store_entry(
-            soa.account, soa.account_extension, soa.container, soa.prefix
-        )
+        real_entry = pxt_store._get_or_create_pxt_store_entry(soa.account, soa.account_extension, soa.container)
         quota_entry = pxt_store._PxtStoreCacheEntry(
             client=real_entry.client,
             resource=real_entry.resource,
@@ -127,22 +127,39 @@ class TestPxtStore:
         validate_update_status(t.insert([{'img': img}]), expected_rows=1)
         assert ObjectOps.count(t._id, dest=dest_uri) == 2
 
-    def test_separate_prefixes_get_separate_credentials(self, uses_db: None) -> None:
-        """Verify that two columns with different prefixes under the same org:db get separate credentials."""
+    def test_reads_share_credentials(self, init_env: None, tmp_path: Path) -> None:
+        """Reading objects from many directories of a home bucket fetches credentials and builds a boto3 session
+        once, rather than once per directory: media files are stored in random shard directories."""
         skip_test_if_not_installed('boto3')
-        skip_test_if_no_pxt_credentials()
-        from pixeltable.utils.pxt_store import PxtStore
+        from pixeltable.service.pxtfs_protocol import GetBucketCredentialsResponse
+        from pixeltable.utils import pxt_store
         from pixeltable.utils.s3_store import S3Store
 
-        soa1 = ObjectPath.parse_object_storage_addr(f'{_pxt_dest_uri()}/dir1', allow_obj_name=False)
-        soa2 = ObjectPath.parse_object_storage_addr(f'{_pxt_dest_uri()}/dir2', allow_obj_name=False)
+        creds = GetBucketCredentialsResponse(
+            access_key_id='key',
+            secret_access_key='secret',
+            session_token='token',
+            endpoint_url='https://r2.example.com',
+            resolved_bucket_name='physical-home',
+            ttl_seconds=3600,
+        )
+        # a database no other test has used, so its entry is not cached yet
+        db = f'db_{uuid.uuid4().hex}'
+        home = f'pxtfs://org1:{db}/home'
+        with (
+            patch.object(pxt_store, 'get_bucket_credentials', return_value=creds) as get_credentials,
+            patch.object(S3Store, 'copy_object_to_local_file') as download,
+        ):
+            store = ObjectOps.get_store(home, False)
+            tbl_id = uuid.uuid4()
+            urls = [store.resolve_destination(tbl_id, 0, 1, ext='.jpg').url for _ in range(100)]
+            urls.append(f'{home}/uploads/{uuid.uuid4().hex}/0.jpg')
+            for url in urls:
+                ObjectOps.copy_object_to_local_file(url, tmp_path / 'obj')
 
-        store1 = PxtStore(soa1)
-        store2 = PxtStore(soa2)
-        assert store1._pxt_store_entry is not store2._pxt_store_entry
-        assert isinstance(store1._store, S3Store)
-        assert isinstance(store2._store, S3Store)
-        assert store1._store.client() is not store2._store.client()
+        assert len({url.rsplit('/', 1)[0] for url in urls}) > 90
+        assert download.call_count == len(urls)
+        get_credentials.assert_called_once_with('org1', db, 'home')
 
     def test_same_prefix_shares_credentials(self, uses_db: None) -> None:
         """Verify that two columns with the same pxtfs:// destination share a single cached credential entry."""

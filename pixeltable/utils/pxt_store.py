@@ -82,9 +82,9 @@ def _handle_no_space_warning(no_space_left: bool, entry: _PxtStoreCacheEntry, or
         entry.no_space_warned = False
 
 
-def _refresh_credentials(org: str, db: str, bucket: str, prefix: str, entry: _PxtStoreCacheEntry) -> dict[str, str]:
+def _refresh_credentials(org: str, db: str, bucket: str, entry: _PxtStoreCacheEntry) -> dict[str, str]:
     """Fetch fresh credentials and update the cache entry"""
-    creds = get_bucket_credentials(org, db, bucket, prefix)
+    creds = get_bucket_credentials(org, db, bucket)
     expiry_time = datetime.now(tz=timezone.utc) + timedelta(seconds=creds.ttl_seconds)
 
     entry.no_space_left = creds.no_space_left
@@ -108,9 +108,9 @@ def _refresh_credentials(org: str, db: str, bucket: str, prefix: str, entry: _Px
     }
 
 
-def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) -> _PxtStoreCacheEntry:
+def _build_pxt_store_entry(org: str, db: str, bucket: str) -> _PxtStoreCacheEntry:
     """Fetch credentials and build a boto3 session for the bucket."""
-    creds = get_bucket_credentials(org, db, bucket, prefix)
+    creds = get_bucket_credentials(org, db, bucket)
 
     entry = _PxtStoreCacheEntry(
         client=None,
@@ -136,7 +136,7 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) -> _PxtS
     # keeps credentials fresh without triggering botocore's immediate-refresh behavior.
     refreshable_creds = RefreshableCredentials.create_from_metadata(
         metadata=initial_metadata,
-        refresh_using=lambda: _refresh_credentials(org, db, bucket, prefix, entry),
+        refresh_using=lambda: _refresh_credentials(org, db, bucket, entry),
         method='pxt-store',
         advisory_timeout=60,  # start refreshing 60s before expiry (non-blocking, best-effort)
         mandatory_timeout=30,  # block and force refresh if credentials expire within 30s
@@ -169,14 +169,15 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) -> _PxtS
     return entry
 
 
-def _get_or_create_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) -> _PxtStoreCacheEntry:
-    """Return the cached entry for org:db:bucket:prefix"""
-    cache_key = f'{org}:{db}:{bucket}:{prefix}'
+def _get_or_create_pxt_store_entry(org: str, db: str, bucket: str) -> _PxtStoreCacheEntry:
+    """Return the cached entry for org:db:bucket"""
+    # not keyed by prefix: media files sit in random shard directories, so that would build a session per read
+    cache_key = f'{org}:{db}:{bucket}'
     pxt_store_client_dict = Env.get().object_store_clients(StorageTarget.PIXELTABLE_STORE)
     with _pxt_store_entries_lock:
         entry = pxt_store_client_dict.clients.get(cache_key)
         if entry is None:
-            entry = _build_pxt_store_entry(org, db, bucket, prefix)
+            entry = _build_pxt_store_entry(org, db, bucket)
             pxt_store_client_dict.clients[cache_key] = entry
     return entry
 
@@ -192,8 +193,7 @@ class PxtStore(ObjectStoreBase):
         assert soa.storage_target == StorageTarget.PIXELTABLE_STORE
 
         self.soa = soa
-        org, db, bucket, path = soa.account, soa.account_extension, soa.container, soa.prefix
-        self._pxt_store_entry = _get_or_create_pxt_store_entry(org, db, bucket, path)
+        self._pxt_store_entry = _get_or_create_pxt_store_entry(soa.account, soa.account_extension, soa.container)
         physical_soa = soa._replace(container=self._pxt_store_entry.physical_bucket_name)
         self._store = self._build_store(physical_soa)
 
@@ -239,7 +239,7 @@ class PxtStore(ObjectStoreBase):
         return f'pxtfs://{org_db}/{logical}{path}'
 
     def validate(self, error_col_name: str) -> str | None:
-        """Probe the temp-credential-scoped prefix and return the logical base URI on success."""
+        """Probe the store's prefix and return the logical base URI on success."""
         assert isinstance(self._store, S3Store)
 
         try:
