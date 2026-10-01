@@ -899,8 +899,8 @@ class Table(SchemaObject):
         Materialize the computed columns of this table for the given input rows and return the resulting rows
         without persisting them.
 
-        Computes only the requested `outputs` and the columns they use. An input row must supply each stored required
-        column used by `outputs`.
+        If `outputs` is specified, will compute only those columns and the dependent columns that they use. An input
+        row then needs to supply only the stored required columns used by `outputs`.
 
         If this table is a view, the input rows are applied to the view's insertable base table (i.e., the root of the
         view hierarchy) and the output rows are the resulting rows of the view, as if the input had been inserted into
@@ -937,7 +937,7 @@ class Table(SchemaObject):
 
                 - The table is a snapshot, a view of a snapshot, or a view defined with a sample clause.
                 - The table has been dropped.
-                - `outputs` is empty or names a column that is not in the table.
+                - `outputs` is empty or contains a column that is not in the table.
                 - One of the input rows does not conform to the base table schema.
                 - An error occurs during processing of computed columns, and `on_error='abort'`.
 

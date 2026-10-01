@@ -1549,6 +1549,11 @@ class TestTable:
         assert out.column_names == ['s', 'double']
         assert out == [{'s': 'b', 'double': 4}]
 
+        # select-list columns as requested outputs, with the view's filter still applied
+        out = sl.compute([{'id': 0, 's': 'a'}, {'id': 2, 's': 'b'}], outputs=['double'])
+        assert out.column_names == ['double']
+        assert out == [{'double': 4}]
+
         # snapshots don't support compute()
         snap = pxt.create_snapshot(p('test_compute_view_snap'), t)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not supported for snapshots'):

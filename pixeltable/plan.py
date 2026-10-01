@@ -325,16 +325,17 @@ class Planner:
         visible in `path`.
         """
         expr_dicts: list[dict[str, Any]] = []
-        level: catalog.TablePath | None = path
-        while level is not None:
-            view_md = level.view_md()
+        # Walk the path from the view down to the base table and collect each view's filter and iterator arguments.
+        cur_path: catalog.TablePath | None = path
+        while cur_path is not None:
+            view_md = cur_path.view_md()
             if view_md is not None:
                 if view_md.predicate is not None:
                     expr_dicts.append(view_md.predicate)
                 if view_md.iterator_call is not None:
                     expr_dicts.extend(view_md.iterator_call['args'])
                     expr_dicts.extend(view_md.iterator_call['kwargs'].values())
-            level = level.base
+            cur_path = cur_path.base
         refd_qcolids = sorted(
             {qcolid for d in expr_dicts for qcolid in exprs.Expr.get_refd_column_ids(d)},
             key=lambda qcolid: (qcolid.tbl_id, qcolid.col_id),
