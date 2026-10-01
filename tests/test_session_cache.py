@@ -4,7 +4,9 @@ import json
 import os
 import pathlib
 import stat
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pytest
@@ -28,6 +30,30 @@ def _home(private_home: pathlib.Path) -> pathlib.Path:
 def _session(**kw: Any) -> session_cache.Session:
     base = {'access_token': 'at', 'expires_at': time.time() + 3600, 'refresh_token': 'rt', 'client_id': 'client_01TEST'}
     return session_cache.Session(**{**base, **kw})
+
+
+def _trial(**kw: Any) -> session_cache.Trial:
+    base = {
+        'api_key': 'sk-trial',
+        'org': 'trial-org',
+        'org_id': 'org_01TRIAL',
+        'db': 'main',
+        'claim_url': 'https://pixeltable.com/claim?org=trial-org&token=t',
+        'expires_at': time.time() + 3600,
+    }
+    return session_cache.Trial(**{**base, **kw})
+
+
+# a valid trial record, which each invalid one in TestTrial differs from
+_TRIAL_RECORD = {
+    'kind': 'trial',
+    'api_key': 'sk',
+    'org': 'o',
+    'org_id': 'id',
+    'db': 'main',
+    'claim_url': 'u',
+    'expires_at': 0,
+}
 
 
 def _cache_file() -> pathlib.Path:
@@ -66,6 +92,143 @@ class TestRoundTrip:
         session_cache.save(_PROD, _session(access_token='second'))
 
         assert session_cache.load(_PROD).access_token == 'second'
+
+
+class TestTrial:
+    """A `pxt new` trial is the other credential a control plane's record can have."""
+
+    def test_round_trip(self) -> None:
+        trial = _trial()
+        session_cache.save(_PROD, trial)
+
+        assert session_cache.load_credential(_PROD) == trial
+        # load() and load_for_sign_out() are for sessions
+        assert session_cache.load(_PROD) is None
+        assert session_cache.load_for_sign_out(_PROD) is None
+
+    def test_record(self) -> None:
+        """A trial's record says so under 'kind'; a session's record has none, as earlier versions wrote it."""
+        session_cache.save(_PROD, _trial())
+        session_cache.save(_DEV, _session())
+
+        records = json.loads(_cache_file().read_text())
+        assert records[_PROD]['kind'] == 'trial'
+        assert 'kind' not in records[_DEV]
+
+    def test_expiry(self) -> None:
+        assert not _trial().is_expired()
+        assert _trial(expires_at=time.time() - 1).is_expired()
+
+    @pytest.mark.parametrize(
+        'record',
+        [
+            {'kind': 'trial'},
+            {k: v for k, v in _TRIAL_RECORD.items() if k != 'expires_at'},
+            {**_TRIAL_RECORD, 'api_key': 7},
+            {**_TRIAL_RECORD, 'expires_at': 'soon'},
+            {**_TRIAL_RECORD, 'expires_at': True},
+            {**_TRIAL_RECORD, 'kind': 'workload'},
+            {'kind': None, 'access_token': 'at', 'expires_at': 0},
+        ],
+    )
+    def test_invalid_record(self, record: Any) -> None:
+        """A record that is neither a session nor a trial is refused like an unreadable one.
+
+        Signing out removes it.
+        """
+        _write_cache_file(json.dumps({_PROD: record, _DEV: {'access_token': 'dev', 'expires_at': 0}}).encode())
+
+        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='is unreadable'):
+            session_cache.load_credential(_PROD)
+        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='is unreadable'):
+            session_cache.reuse_or_create_trial(_PROD, _trial)
+        assert session_cache.load(_DEV).access_token == 'dev'
+
+        assert session_cache.clear(_PROD) is True
+        assert session_cache.load_credential(_PROD) is None
+
+    def test_not_renewed(self) -> None:
+        """renew() is for sessions: a trial in the record is never passed to refresh()."""
+        trial = _trial()
+        session_cache.save(_PROD, trial)
+
+        assert session_cache.renew(_PROD, lambda _s: True, lambda _s: pytest.fail('refreshed a trial')) is None
+        assert session_cache.load_credential(_PROD) == trial
+
+    def test_reuse_or_create(self) -> None:
+        """A session or an unexpired trial is returned as it is; create() replaces only an expired trial, or none.
+
+        The expired trial it replaces is returned too: once claimed, its organization outlives the expiry.
+        """
+        created = _trial(api_key='sk-created')
+
+        assert session_cache.reuse_or_create_trial(_PROD, lambda: created) == (created, True, None)
+        assert session_cache.reuse_or_create_trial(_PROD, lambda: pytest.fail('created twice')) == (
+            created,
+            False,
+            None,
+        )
+
+        expired = _trial(org='expired-org', expires_at=time.time() - 1)
+        session_cache.save(_PROD, expired)
+        assert session_cache.reuse_or_create_trial(_PROD, lambda: created) == (created, True, expired)
+        assert session_cache.load_credential(_PROD) == created
+
+        session = _session()
+        session_cache.save(_DEV, session)
+        assert session_cache.reuse_or_create_trial(_DEV, lambda: pytest.fail('replaced a session')) == (
+            session,
+            False,
+            None,
+        )
+
+    def test_create_holds_no_cache_lock(self) -> None:
+        """create() waits on the network, so a sign-in meanwhile does not wait for it, and is not replaced by it."""
+        session = _session()
+
+        def create() -> session_cache.Trial:
+            signing_in = threading.Thread(target=session_cache.save, args=(_PROD, session))
+            signing_in.start()
+            signing_in.join(timeout=10)
+            assert not signing_in.is_alive(), 'the sign-in waited for create()'
+            return _trial()
+
+        assert session_cache.reuse_or_create_trial(_PROD, create) == (session, False, None)
+        assert session_cache.load_credential(_PROD) == session
+
+    def test_concurrent_callers_create_one_trial(self) -> None:
+        """The site hands out a trial's API key once, so a second trial would replace the first one's record."""
+        callers = 4
+        barrier = threading.Barrier(callers)
+        created: list[session_cache.Trial] = []
+
+        def create() -> session_cache.Trial:
+            # long enough for every caller to arrive while the first creation is in flight
+            time.sleep(0.3)
+            created.append(_trial(api_key=f'sk-{len(created)}'))
+            return created[-1]
+
+        def call(_i: int) -> session_cache.Session | session_cache.Trial:
+            barrier.wait(timeout=10)
+            return session_cache.reuse_or_create_trial(_PROD, create)[0]
+
+        with ThreadPoolExecutor(max_workers=callers) as pool:
+            answers = list(pool.map(call, range(callers)))
+
+        assert len(created) == 1
+        assert answers == created * callers
+
+    def test_create_fails(self) -> None:
+        """A failed create() leaves the cache as it was."""
+        expired = _trial(expires_at=time.time() - 1)
+        session_cache.save(_PROD, expired)
+
+        def create() -> session_cache.Trial:
+            raise excs.ExternalServiceError(excs.ErrorCode.RATE_LIMITED, 'none left')
+
+        with pxt_raises(excs.ErrorCode.RATE_LIMITED, match='none left'):
+            session_cache.reuse_or_create_trial(_PROD, create)
+        assert session_cache.load_credential(_PROD) == expired
 
 
 class TestExpiry:
@@ -296,6 +459,24 @@ class TestCredentialChoice:
         ):
             management_client.resolve('reach Pixeltable Cloud')
 
+    def test_trial_without_key(self) -> None:
+        session_cache.save(management_client.api_url(), _trial(api_key='sk-trial'))
+
+        cred = management_client.configured_credential()
+
+        assert cred is not None
+        assert (cred.kind, cred.value, cred.header()) == ('trial', 'sk-trial', {'X-api-key': 'sk-trial'})
+        assert cred.source == f'your `pxt new` trial for {management_client.api_url()}'
+
+    def test_api_key_outranks_trial(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv('PIXELTABLE_API_KEY', 'sk-test')
+        session_cache.save(management_client.api_url(), _trial())
+
+        cred = management_client.configured_credential()
+
+        assert cred is not None
+        assert (cred.kind, cred.value) == ('api_key', 'sk-test')
+
     def test_neither(self) -> None:
         assert management_client.configured_credential() is None
 
@@ -307,6 +488,6 @@ class TestCredentialChoice:
             management_client.resolve('reach the home bucket')
         message = info.value.message
         assert str(Config.get().home) not in message, message
-        for way_out in ('pxt login', 'PIXELTABLE_API_KEY', 'api_key'):
+        for way_out in ('pxt login', 'pxt new', 'PIXELTABLE_API_KEY', 'api_key'):
             assert way_out in message, message
         assert 'os.environ' not in message, message

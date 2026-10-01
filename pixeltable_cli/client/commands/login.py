@@ -19,12 +19,13 @@ from typing import Any, NoReturn
 
 from ..parser import Parser
 from ..utils import get_request, post_request
+from .new import trial_fate
 
 EPILOG = """\
 Examples:
   pxt login                     # sign in, or create an account, in a browser
   pxt whoami                    # who this machine is signed in as, and whether Pixeltable Cloud recognizes it
-  pxt logout                    # forget this device's cached session
+  pxt logout                    # forget this device's cached session, or its `pxt new` trial
 
 The session is cached in your Pixeltable home directory. When its token expires, the next command
 that needs a token renews the session, for as long as Pixeltable Cloud honors it. An API key, if
@@ -49,15 +50,22 @@ def run(argv: list[str]) -> None:
     if not webbrowser.open(start['verification_uri']):
         print('Could not open a browser; open the link above.', file=sys.stderr)
 
-    granted = _await_approval(start)
+    granted = _await_approval(start, json_output=args.json_output)
+    replaced = granted['replaced_trial']
     if args.json_output:
-        print(json.dumps({'email': granted['email'], 'organization_id': granted['organization_id']}))
+        # the replaced trial, claim link included: it was on this machine only in the trial's record
+        document = {
+            'email': granted['email'],
+            'organization_id': granted['organization_id'],
+            'replaced_trial': replaced,
+        }
+        print(json.dumps(document))
         return
     print(f'Signed in as {granted["email"] or "(unknown)"}.')
     print(_org_line(granted['organization_id']))
 
 
-def _await_approval(start: dict[str, Any]) -> dict[str, Any]:
+def _await_approval(start: dict[str, Any], *, json_output: bool = False) -> dict[str, Any]:
     """Poll until the browser is done, and exit with what stopped it when it did not finish.
 
     The interval and the deadline are the sign-in service's own, and `slow_down` asks for five
@@ -72,6 +80,14 @@ def _await_approval(start: dict[str, Any]) -> dict[str, Any]:
             _fail(_EXPIRED)
         answer = post_request('/api/login/poll', poll)
         status = answer['status']
+        replaced = answer.get('replaced_trial')
+        if replaced is not None and not replaced['expired']:
+            # The trial's record was its claim link's only copy, even if organization selection then failed.
+            print(
+                f'pxt login: warning: this machine no longer uses the trial pxt://{replaced["org"]}:{replaced["db"]}. '
+                f'{trial_fate(replaced, replaced["claim_url"])}',
+                file=sys.stderr,
+            )
         if status == 'granted':
             return answer
         if status == 'authorization_pending':
@@ -84,6 +100,8 @@ def _await_approval(start: dict[str, Any]) -> dict[str, Any]:
         if status == 'expired_token':
             _fail(_EXPIRED)
         if status in ('signed_out', 'superseded'):
+            if json_output and replaced is not None:
+                print(json.dumps({'status': status, 'detail': answer['detail'], 'replaced_trial': replaced}))
             _fail(answer['detail'])
         detail = f': {answer["detail"]}' if answer['detail'] != '' else ''
         _fail(f'the sign-in failed ({status}{detail})')
@@ -98,11 +116,18 @@ def _fail(reason: str) -> NoReturn:
 
 
 def run_logout(argv: list[str]) -> None:
-    parser = Parser(prog='pxt logout', description="forget this device's cached session")
+    parser = Parser(prog='pxt logout', description="forget this device's cached session, or its `pxt new` trial")
     parser.parse_args(argv)
 
     answer = post_request('/api/logout', {})
-    print('Signed out.' if answer['signed_out'] else 'Not signed in.')
+    trial = answer['trial']
+    if trial is None:
+        print('Signed out.' if answer['signed_out'] else 'Not signed in.')
+    else:
+        print(f'Removed the trial pxt://{trial["org"]}:{trial["db"]} from this machine.')
+        if not trial['expired']:
+            print('Its API key is not revoked: it works until the organization is claimed or expires.')
+        print(trial_fate(trial, trial['claim_url']))
     if answer['warning'] != '':
         print(f'pxt logout: warning: {answer["warning"]}', file=sys.stderr)
 
@@ -131,12 +156,20 @@ def run_whoami(argv: list[str]) -> None:
         sys.exit(0 if answer['accepted'] else 1)
 
     if answer['using'] == 'none':
-        print(f'Not signed in to {answer["api_url"]}. Run `pxt login`.', file=sys.stderr)
+        print(
+            f'Not signed in to {answer["api_url"]}. '
+            'Run `pxt login`, or, with no account, `pxt new` for a trial database.',
+            file=sys.stderr,
+        )
         sys.exit(1)
 
+    trial = answer['trial']
     if answer['using'] == 'session':
         print(f'{answer["email"] or "(unknown)"} on {answer["api_url"]}')
         print(_org_line(answer['organization_id']))
+    elif trial is not None:
+        print(f'Trial pxt://{trial["org"]}:{trial["db"]} on {answer["api_url"]}')
+        print(trial_fate(trial))
     else:
         print(f'API key on {answer["api_url"]}')
     # a rejection or a note already says which credential was sent
