@@ -20,12 +20,14 @@ from pixeltable import exceptions as excs, metadata
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config
 from pixeltable.service import management_client, receipts
-from pixeltable.service.db import db_build_image, db_diff, db_update
+from pixeltable.service.db import db_build_image, db_change_lifecycle, db_diff, db_update
 from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.service.management_protocol import (
     BlobUpload,
     DatabaseReport,
     DatabaseTarget,
+    DbReceiptResponse,
+    DeleteDbRequest,
     ExpectedGenerations,
     GetDbRequest,
     GetDbResponse,
@@ -70,6 +72,7 @@ class _ControlPlane:
         self.uploads: list[dict[str, str]] = []
         self.submissions: list[SubmitUpdateRequest] = []
         self.receipt_reads = 0
+        self.deleting = False
 
     def api_call(self, request: Any, credential: Any = None) -> dict[str, Any]:
         if isinstance(request, PrepareUpdateRequest):
@@ -94,7 +97,13 @@ class _ControlPlane:
             return SubmitUpdateResponse(receipts=[accepted]).model_dump(mode='json')
         if isinstance(request, GetReceiptsRequest):
             self.receipt_reads += 1
+            if getattr(request, 'db', None) is not None and self.deleting:
+                raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, 'no database main', status_code=404)
             return GetReceiptsResponse(receipts=[self.settled]).model_dump(mode='json')
+        if isinstance(request, DeleteDbRequest):
+            self.deleting = True
+            accepted = self.settled.model_copy(update={'outcome': None, 'phase': ResourcePhase.DELETING})
+            return DbReceiptResponse(receipt=accepted).model_dump(mode='json')
         if isinstance(request, GetDbRequest):
             return GetDbResponse(report=self._report()).model_dump(mode='json')
         raise AssertionError(f'unexpected request {request.operation_type}')
@@ -177,6 +186,13 @@ class TestDbSubmission:
             db_update(_DB_URI)
         assert len(attempts) == 2
         assert control_plane.submissions == []
+
+    def test_delete(self, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A deletion is waited on by receipt id, so its released name does not fail the wait."""
+        observed = _receipt(outcome=ReceiptOutcome.OBSERVED, phase=ResourcePhase.DELETED)
+        _serve(monkeypatch, _ControlPlane(generation=7, settled=observed))
+
+        assert db_change_lifecycle(_DB_URI, 'delete').observed
 
     def test_no_wait(self, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         control_plane = _ControlPlane(generation=7, settled=_receipt(outcome=ReceiptOutcome.OBSERVED))
