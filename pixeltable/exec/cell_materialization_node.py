@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import dataclasses
 import io
 import os
+from collections import deque
+from concurrent import futures
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -13,7 +16,8 @@ import pixeltable.type_system as ts
 import pixeltable.utils.image as image_utils
 from pixeltable import catalog, exprs
 from pixeltable.env import Env
-from pixeltable.utils.local_store import LocalStore
+from pixeltable.utils.local_store import LocalStore, TempStore
+from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectStoreBase
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -28,16 +32,22 @@ class CellMaterializationNode(ExecNode):
 
     Array values:
     - Arrays < MAX_DB_ARRAY_SIZE are stored inline in the db column
-    - Larger arrays are written to inlined_obj_files
+    - Larger arrays are written to chunks
     - Bool arrays are stored as packed bits (uint8)
     - cell_md: holds the url of the file, plus start and end offsets, plus bool flag and shape for bool arrays
       (this allows us to query cell_md to get the total external storage size of an array column)
 
     Json values:
-    - Inlined images and arrays are written to inlined_obj_files and replaced with a dict containing the object
-      location
+    - Inlined images and arrays are written to chunks and replaced with a dict containing the object location
     - Bool arrays are also stored as packed bits; the dict also contains the shape and bool flag
     - cell_md contains the list of urls for the inlined objects.
+
+    Chunks:
+    - Without Env.cell_materialization_dest, chunks are written in place in the local media dir. Otherwise, they are
+      written to the TempStore and uploaded once complete; their urls are known up front, so rows are passed on
+      before their uploads finish, and the iteration only ends once all uploads have succeeded.
+    - A value of at least MIN_FILE_SIZE gets a chunk of its own, so that reading a small value never requires fetching
+      a large one.
 
     TODO:
     - execute file IO via asyncio Tasks in a thread pool?
@@ -45,14 +55,25 @@ class CellMaterializationNode(ExecNode):
     - subsume all cell materialization
     """
 
+    @dataclasses.dataclass
+    class Chunk:
+        url: str  # recorded in cell_md
+        path: Path  # local file being written
+        dest: FileDestination | None  # if not None, path is in the TempStore and gets uploaded to dest
+
     output_col_info: dict[catalog.Column, int]  # value: slot idx
+    dest: str | None  # destination of the chunks; None: the local media dir
+    store: ObjectStoreBase | None  # store for dest, created when the first chunk is opened
 
     # execution state
-    inlined_obj_files: list[Path]  # only [-1] is open for writing
-    buffered_writer: io.BufferedWriter | None  # BufferedWriter for inlined_obj_files[-1]
+    chunks: list[Chunk]  # chunks referenced by the current cell; only [-1] can be open for writing
+    buffered_writer: io.BufferedWriter | None  # BufferedWriter for chunks[-1]
+    executor: futures.ThreadPoolExecutor | None
+    uploads: deque[futures.Future]  # oldest first
 
     MIN_FILE_SIZE = 8 * 2**20  # 8MB
     MAX_DB_BINARY_SIZE = 512  # max size of binary data stored in table column; in bytes
+    MAX_PENDING_UPLOADS = 4  # each pending upload holds a chunk in the TempStore
 
     def __init__(self, input: ExecNode):
         super().__init__(input.row_builder, [], [], input)
@@ -61,11 +82,15 @@ class CellMaterializationNode(ExecNode):
             for col, slot_idx in input.row_builder.table_columns.items()
             if slot_idx is not None and col.col_type.needs_cell_materialization()
         }
+        self.dest = Env.get().cell_materialization_dest
+        self.store = None
         self._init_exec_state()
 
     def _init_exec_state(self) -> None:
-        self.inlined_obj_files = []
+        self.chunks = []
         self.buffered_writer = None
+        self.executor = None
+        self.uploads = deque()
 
     def _open(self) -> None:
         self._init_exec_state()
@@ -97,28 +122,40 @@ class CellMaterializationNode(ExecNode):
                         assert isinstance(val, bytes)
                         self._materialize_binary_cell(row, col, val)
 
-                    # continue with only the currently open file
-                    self.inlined_obj_files = self.inlined_obj_files[-1:]
+                    # continue with only the currently open chunk
+                    self.chunks = self.chunks[-1:] if self.buffered_writer is not None else []
 
             yield batch
 
         self._flush_buffer(finalize=True)
+        # the rows reference the chunks' urls, so they can't be committed before all uploads have succeeded
+        while len(self.uploads) > 0:
+            self.uploads.popleft().result()
 
-    def init_writer(self) -> None:
+    def init_writer(self, size: int) -> None:
+        """Prepare chunks[-1] for writing a value of approximately `size` bytes."""
+        if self.buffered_writer is not None and size >= self.MIN_FILE_SIZE and self.buffered_writer.tell() > 0:
+            self._close_chunk()
         if self.buffered_writer is None:
-            self._reset_buffer()
+            self._open_chunk()
             assert self.buffered_writer is not None
 
     def _close(self) -> None:
         if self.buffered_writer is not None:
-            # there must have been an error, otherwise _flush_full_buffer(finalize=True) would have set this to None
+            # there must have been an error, otherwise _flush_buffer(finalize=True) would have set this to None
             self.buffered_writer.close()
             self.buffered_writer = None
+            if self.chunks[-1].dest is not None:
+                TempStore.delete_media_file(self.chunks[-1].path)
+        if self.executor is not None:
+            # each upload deletes its TempStore file
+            self.executor.shutdown(wait=True)
+            self.executor = None
 
     def _materialize_json_cell(self, row: exprs.DataRow, col: catalog.Column, val: Any) -> None:
         if self._json_has_inlined_objs(val):
             row.cell_vals[col.id] = self._rewrite_json(val)
-            row.cell_md[col.id] = exprs.CellMd(file_urls=[local_path.as_uri() for local_path in self.inlined_obj_files])
+            row.cell_md[col.id] = exprs.CellMd(file_urls=[chunk.url for chunk in self.chunks])
         else:
             row.cell_vals[col.id] = val
             row.cell_md[col.id] = None
@@ -142,14 +179,12 @@ class CellMaterializationNode(ExecNode):
                 ar = np.packbits(val)
             else:
                 ar = val
-            self.init_writer()
+            self.init_writer(ar.nbytes)
             start = self.buffered_writer.tell()
             np.save(self.buffered_writer, ar, allow_pickle=False)
             end = self.buffered_writer.tell()
             row.cell_vals[col.id] = None
-            cell_md = exprs.CellMd(
-                file_urls=[self.inlined_obj_files[-1].as_uri()], array_md=exprs.ArrayMd(start=start, end=end)
-            )
+            cell_md = exprs.CellMd(file_urls=[self.chunks[-1].url], array_md=exprs.ArrayMd(start=start, end=end))
             if np.issubdtype(val.dtype, np.bool_):
                 cell_md.array_md.is_bool = True
                 cell_md.array_md.shape = val.shape
@@ -164,14 +199,12 @@ class CellMaterializationNode(ExecNode):
             row.cell_vals[col.id] = val
             row.cell_md[col.id] = None
         else:
-            self.init_writer()
+            self.init_writer(len(val))
             start = self.buffered_writer.tell()
             self.buffered_writer.write(val)
             end = self.buffered_writer.tell()
             row.cell_vals[col.id] = None
-            cell_md = exprs.CellMd(
-                file_urls=[self.inlined_obj_files[-1].as_uri()], binary_md=exprs.BinaryMd(start=start, end=end)
-            )
+            cell_md = exprs.CellMd(file_urls=[self.chunks[-1].url], binary_md=exprs.BinaryMd(start=start, end=end))
             row.cell_md[col.id] = cell_md
             self._flush_buffer()
 
@@ -203,9 +236,6 @@ class CellMaterializationNode(ExecNode):
 
     def _write_inlined_array(self, ar: np.ndarray) -> InlinedObjectMd:
         """Write an ndarray to buffered_writer and return its metadata."""
-        self.init_writer()
-        url_idx = len(self.inlined_obj_files) - 1
-        start = self.buffered_writer.tell()
         shape: tuple[int, ...] | None
         is_bool_array: bool
         if np.issubdtype(ar.dtype, np.bool_):
@@ -215,6 +245,9 @@ class CellMaterializationNode(ExecNode):
         else:
             shape = None
             is_bool_array = False
+        self.init_writer(ar.nbytes)
+        url_idx = len(self.chunks) - 1
+        start = self.buffered_writer.tell()
         np.save(self.buffered_writer, ar, allow_pickle=False)
         end = self.buffered_writer.tell()
         self._flush_buffer()
@@ -225,9 +258,10 @@ class CellMaterializationNode(ExecNode):
         )
 
     def _write_inlined_image(self, img: PIL.Image.Image) -> InlinedObjectMd:
-        """Write a PIL image to buffered_writer and return: index into inlined_obj_files, start offset, end offset"""
-        self.init_writer()
-        url_idx = len(self.inlined_obj_files) - 1
+        """Write a PIL image to buffered_writer and return: index into chunks, start offset, end offset"""
+        # the encoded size isn't known up front; the uncompressed size approximates it
+        self.init_writer(img.width * img.height * len(img.getbands()))
+        url_idx = len(self.chunks) - 1
         start = self.buffered_writer.tell()
         img.save(self.buffered_writer, format=image_utils.default_format(img))
         end = self.buffered_writer.tell()
@@ -235,9 +269,9 @@ class CellMaterializationNode(ExecNode):
         return InlinedObjectMd(type=ts.ColumnType.Type.IMAGE.name, url_idx=url_idx, img_start=start, img_end=end)
 
     def _write_inlined_bytes(self, data: bytes) -> InlinedObjectMd:
-        """Write raw bytes to buffered_writer and return: index into inlined_obj_files, start offset, end offset"""
-        self.init_writer()
-        url_idx = len(self.inlined_obj_files) - 1
+        """Write raw bytes to buffered_writer and return: index into chunks, start offset, end offset"""
+        self.init_writer(len(data))
+        url_idx = len(self.chunks) - 1
         start = self.buffered_writer.tell()
         self.buffered_writer.write(data)
         end = self.buffered_writer.tell()
@@ -246,25 +280,43 @@ class CellMaterializationNode(ExecNode):
             type=ts.ColumnType.Type.BINARY.name, url_idx=url_idx, binary_md=exprs.BinaryMd(start, end)
         )
 
-    def _reset_buffer(self) -> None:
-        local_path = LocalStore(Env.get().media_dir)._prepare_path_raw(
-            self.row_builder.tbl.id, 0, self.row_builder.tbl.version
-        )
-        self.inlined_obj_files.append(local_path)
-        fh = open(local_path, 'wb', buffering=self.MIN_FILE_SIZE * 2)  # noqa: SIM115
+    def _open_chunk(self) -> None:
+        tbl = self.row_builder.tbl
+        if self.dest is None:
+            local_path = LocalStore(Env.get().media_dir)._prepare_path_raw(tbl.id, 0, tbl.version)
+            chunk = self.Chunk(url=local_path.as_uri(), path=local_path, dest=None)
+        else:
+            if self.store is None:
+                self.store = ObjectOps.get_store(self.dest, False)
+            file_dest = self.store.resolve_destination(tbl.id, 0, tbl.version)
+            chunk = self.Chunk(url=file_dest.url, path=TempStore.create_path(), dest=file_dest)
+        self.chunks.append(chunk)
+        fh = open(chunk.path, 'wb', buffering=self.MIN_FILE_SIZE * 2)  # noqa: SIM115
         assert isinstance(fh, io.BufferedWriter)
         self.buffered_writer = fh
 
+    def _close_chunk(self) -> None:
+        assert self.buffered_writer is not None
+        self.buffered_writer.flush()
+        os.fsync(self.buffered_writer.fileno())  # needed to force bytes cached by OS to storage
+        self.buffered_writer.close()
+        self.buffered_writer = None
+        chunk = self.chunks[-1]
+        if chunk.dest is None:
+            return
+        if self.executor is None:
+            self.executor = futures.ThreadPoolExecutor(
+                max_workers=self.MAX_PENDING_UPLOADS, thread_name_prefix='pxt-chunk-upload'
+            )
+        # submit before waiting, so that this chunk's TempStore file gets deleted even if an earlier upload failed
+        self.uploads.append(self.executor.submit(ObjectOps.put_file_resolved, self.store, chunk.path, chunk.dest, True))
+        if len(self.uploads) > self.MAX_PENDING_UPLOADS:
+            self.uploads.popleft().result()
+
     def _flush_buffer(self, finalize: bool = False) -> None:
-        """Flush buffered_writer to storage if it exceeds its minimum size or finalize is True."""
+        """Close chunks[-1] if it exceeds its minimum size or finalize is True."""
         if self.buffered_writer is None:
             return
         if self.buffered_writer.tell() < self.MIN_FILE_SIZE and not finalize:
             return
-        self.buffered_writer.flush()
-        os.fsync(self.buffered_writer.fileno())  # needed to force bytes cached by OS to storage
-        self.buffered_writer.close()
-        if finalize:
-            self.buffered_writer = None
-        else:
-            self._reset_buffer()
+        self._close_chunk()

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-from pathlib import Path
 from types import NoneType
 from typing import Any, AsyncIterator
 
@@ -9,8 +8,10 @@ import numpy as np
 import PIL.Image
 
 import pixeltable.type_system as ts
-from pixeltable import exprs
+from pixeltable import catalog, exprs
 from pixeltable.utils import parse_local_file_path
+from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.http import fetch_url
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -28,18 +29,31 @@ def json_has_inlined_objs(element: Any) -> bool:
     return False
 
 
-def reconstruct_json(element: Any, urls: list[str], file_handles: dict[Path, io.BufferedReader]) -> Any:
+def open_cell_file(url: str, col: catalog.Column, file_handles: dict[str, io.BufferedReader]) -> io.BufferedReader:
+    """Returns a handle for a file written by CellMaterializationNode; a remote file is fetched into the file cache."""
+    fp = file_handles.get(url)
+    if fp is None:
+        local_path = parse_local_file_path(url)
+        if local_path is None:
+            file_cache = FileCache.get()
+            local_path = file_cache.lookup(url)
+            if local_path is None:
+                local_path = file_cache.add(col.get_tbl().id, col.id, url, fetch_url(url))
+        fp = open(local_path, 'rb')  # noqa: SIM115
+        file_handles[url] = fp
+    return fp
+
+
+def reconstruct_json(
+    element: Any, urls: list[str], col: catalog.Column, file_handles: dict[str, io.BufferedReader]
+) -> Any:
     """Recursively reconstructs inlined objects in a json structure."""
     if isinstance(element, list):
-        return [reconstruct_json(v, urls, file_handles) for v in element]
+        return [reconstruct_json(v, urls, col, file_handles) for v in element]
     if isinstance(element, dict):
         if INLINED_OBJECT_MD_KEY in element:
             obj_md = InlinedObjectMd.from_dict(element[INLINED_OBJECT_MD_KEY])
-            url = urls[obj_md.url_idx]
-            local_path = parse_local_file_path(url)
-            if local_path not in file_handles:
-                file_handles[local_path] = open(local_path, 'rb')  # noqa: SIM115
-            fp = file_handles[local_path]
+            fp = open_cell_file(urls[obj_md.url_idx], col, file_handles)
 
             if obj_md.type == ts.ColumnType.Type.ARRAY.name:
                 fp.seek(obj_md.array_md.start)
@@ -64,7 +78,7 @@ def reconstruct_json(element: Any, urls: list[str], file_handles: dict[Path, io.
                 )
                 return data
         else:
-            return {k: reconstruct_json(v, urls, file_handles) for k, v in element.items()}
+            return {k: reconstruct_json(v, urls, col, file_handles) for k, v in element.items()}
     return element
 
 
@@ -89,7 +103,7 @@ class CellReconstructionNode(ExecNode):
     json_refs: exprs.ExprSet[exprs.ColumnRef]
     array_refs: exprs.ExprSet[exprs.ColumnRef]
     binary_refs: exprs.ExprSet[exprs.ColumnRef]
-    file_handles: dict[Path, io.BufferedReader]  # key: file path
+    file_handles: dict[str, io.BufferedReader]  # key: file url
 
     def __init__(
         self,
@@ -121,13 +135,13 @@ class CellReconstructionNode(ExecNode):
                     cell_md = row.slot_md.get(col_ref.slot_idx)
                     if cell_md is None or cell_md.file_urls is None or not json_has_inlined_objs(row[col_ref.slot_idx]):
                         continue
-                    row[col_ref.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.file_handles)
+                    row[col_ref.slot_idx] = reconstruct_json(val, cell_md.file_urls, col_ref.col, self.file_handles)
 
                 for col_ref in self.array_refs:
                     cell_md = row.slot_md.get(col_ref.slot_idx)
                     if cell_md is not None and cell_md.array_md is not None:
                         assert row[col_ref.slot_idx] is None
-                        row[col_ref.slot_idx] = self._reconstruct_array(cell_md)
+                        row[col_ref.slot_idx] = self._reconstruct_array(cell_md, col_ref.col)
                     else:
                         assert isinstance(row[col_ref.slot_idx], (NoneType, np.ndarray))
 
@@ -135,7 +149,7 @@ class CellReconstructionNode(ExecNode):
                     cell_md = row.slot_md.get(col_ref.slot_idx)
                     if cell_md is not None and cell_md.binary_md is not None:
                         assert row[col_ref.slot_idx] is None
-                        row[col_ref.slot_idx] = self._reconstruct_binary(cell_md)
+                        row[col_ref.slot_idx] = self._reconstruct_binary(cell_md, col_ref.col)
                     else:
                         assert isinstance(row[col_ref.slot_idx], (NoneType, bytes))
 
@@ -145,27 +159,20 @@ class CellReconstructionNode(ExecNode):
         for fp in self.file_handles.values():
             fp.close()
 
-    def _reconstruct_array(self, cell_md: exprs.CellMd) -> np.ndarray:
+    def _reconstruct_array(self, cell_md: exprs.CellMd, col: catalog.Column) -> np.ndarray:
         assert cell_md.array_md is not None
         assert cell_md.file_urls is not None and len(cell_md.file_urls) == 1
-        fp = self.__get_file_pointer(cell_md.file_urls[0])
+        fp = open_cell_file(cell_md.file_urls[0], col, self.file_handles)
         ar = load_array(
             fp, cell_md.array_md.start, cell_md.array_md.end, bool(cell_md.array_md.is_bool), cell_md.array_md.shape
         )
         return ar
 
-    def _reconstruct_binary(self, cell_md: exprs.CellMd) -> bytes:
+    def _reconstruct_binary(self, cell_md: exprs.CellMd, col: catalog.Column) -> bytes:
         assert cell_md.binary_md is not None
         assert cell_md.file_urls is not None and len(cell_md.file_urls) == 1
-        fp = self.__get_file_pointer(cell_md.file_urls[0])
+        fp = open_cell_file(cell_md.file_urls[0], col, self.file_handles)
         fp.seek(cell_md.binary_md.start)
         data = fp.read(cell_md.binary_md.end - cell_md.binary_md.start)
         assert fp.tell() == cell_md.binary_md.end
         return data
-
-    def __get_file_pointer(self, file_url: str) -> io.BufferedReader:
-        local_path = parse_local_file_path(file_url)
-        assert local_path is not None
-        if local_path not in self.file_handles:
-            self.file_handles[local_path] = open(str(local_path), 'rb')  # noqa: SIM115
-        return self.file_handles[local_path]

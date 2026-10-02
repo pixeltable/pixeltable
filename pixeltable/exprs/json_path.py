@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 import random
-from pathlib import Path
 from typing import Any
 
 import sqlalchemy as sql
@@ -29,7 +28,7 @@ class JsonPath(Expr):
     path_elements: list[str | int | slice]
     root_type: ts.ColumnType | None
     _relative_path_root_id: int | None  # explicitly assigned id of a relative path root; None otherwise
-    file_handles: dict[Path, io.BufferedReader]  # key: file path
+    file_handles: dict[str, io.BufferedReader]  # key: file url
 
     def __init__(
         self,
@@ -400,4 +399,4 @@ class JsonPath(Expr):
             # val doesn't contain inlined objects
             return
 
-        row.vals[self.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.file_handles)
+        row.vals[self.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.anchor.col, self.file_handles)
