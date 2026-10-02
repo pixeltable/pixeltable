@@ -8,7 +8,7 @@ import logging
 import sys
 from typing import Any, Callable, Iterator, cast
 
-from pixeltable import exceptions as excs, exprs, func, telemetry
+from pixeltable import exceptions as excs, exprs, func, telemetry, telemetry_schemas
 
 from .globals import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
 
@@ -115,6 +115,9 @@ class FnCallEvaluator(Evaluator):
             level=telemetry.DEBUG,
             parent=row.span,
             set_current=telemetry.current_span() is not None,
+            **telemetry_schemas.UdfCallAttrs(
+                udf_path=self.fn.self_path, column=self.dispatcher.col_names.get(self.fn_call.slot_idx)
+            ),
         )
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
@@ -207,11 +210,18 @@ class FnCallEvaluator(Evaluator):
         try:
             # Batched calls process many rows in one invocation, so they can't nest under a single row
             # span. Make the batch span current only when an operation span is active.
-            with telemetry.span(
-                f'pixeltable.udf.{self.fn.display_name}',
-                level=telemetry.DEBUG,
-                set_current=telemetry.current_span() is not None,
-                batch_size=len(batched_call_args.rows),
+            with (
+                telemetry.span(
+                    f'pixeltable.udf.{self.fn.display_name}',
+                    level=telemetry.DEBUG,
+                    set_current=telemetry.current_span() is not None,
+                    **telemetry_schemas.UdfCallAttrs(
+                        udf_path=self.fn.self_path,
+                        column=self.dispatcher.col_names.get(self.fn_call.slot_idx),
+                        batch_size=len(batched_call_args.rows),
+                    ),
+                ),
+                telemetry_schemas.udf_call(self.fn),
             ):
                 if self.fn.is_async:
                     result_batch = await self.fn.aexec_batch(
@@ -241,7 +251,7 @@ class FnCallEvaluator(Evaluator):
         try:
             start_ts = datetime.datetime.now()
             _logger.debug(f'Start evaluating slot {self.fn_call.slot_idx}')
-            with self._cell_span(call_args.row):
+            with self._cell_span(call_args.row), telemetry_schemas.udf_call(self.fn):
                 call_args.row[self.fn_call.slot_idx] = await self.fn.aexec(*call_args.args, **call_args.kwargs)
             end_ts = datetime.datetime.now()
             _logger.debug(f'Evaluated slot {self.fn_call.slot_idx} in {end_ts - start_ts}')
@@ -261,7 +271,7 @@ class FnCallEvaluator(Evaluator):
             if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
                 return
             try:
-                with self._cell_span(item.row):
+                with self._cell_span(item.row), telemetry_schemas.udf_call(self.fn):
                     item.row[self.fn_call.slot_idx] = self.scalar_py_fn(*item.args, **item.kwargs)
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
