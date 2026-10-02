@@ -153,7 +153,11 @@ class LocalTable(Table):
             if isinstance(info.idx, index.EmbeddingIndex):
                 indexed_col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
                 col_ref = ColumnRef(indexed_col_md)
-                embedding_fncall = info.idx.embeddings[info.col.col_type._type](col_ref)
+                if info.col.col_type.is_array_type():
+                    embedding_str = str(col_ref)
+                else:
+                    embedding_fncall = info.idx.embeddings[info.col.col_type._type](col_ref)
+                    embedding_str = str(embedding_fncall)
                 index_info[info.name] = IndexMetadata(
                     name=info.name,
                     columns=[info.col.name],
@@ -161,7 +165,7 @@ class LocalTable(Table):
                     parameters=EmbeddingIndexParams(
                         metric=info.idx.metric.name.lower(),  # type: ignore[typeddict-item]
                         precision=info.idx.precision.name.lower(),  # type: ignore[typeddict-item]
-                        embedding=str(embedding_fncall),
+                        embedding=embedding_str,
                         embedding_functions=[str(fn) for fn in info.idx.embeddings.values()],
                     ),
                 )
@@ -424,12 +428,15 @@ class LocalTable(Table):
             if isinstance(info.idx, index.EmbeddingIndex) and (columns is None or info.col.name in columns):
                 col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
                 col_ref = ColumnRef(col_md)
-                embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
+                if info.col.col_type.is_array_type():
+                    embedding_str = str(col_ref)
+                else:
+                    embedding_str = str(info.idx.embeddings[info.col.col_type._type](col_ref))
                 row = {
                     'Index Name': name,
                     'Column': info.col.name,
                     'Metric': str(info.idx.metric.name.lower()),
-                    'Embedding': str(embedding),
+                    'Embedding': embedding_str,
                 }
                 pd_rows.append(row)
         return pd.DataFrame(pd_rows)
