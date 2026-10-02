@@ -18,6 +18,8 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.catalog import TablePathKey, TableVersionKey
+from pixeltable.config import Config
 from pixeltable.service import proxy_client, proxy_daemon, proxy_dispatch, proxy_protocol
 from pixeltable.service.proxy_client import HttpTransport, ProxyClient, TunnelTransport
 from pixeltable.service.proxy_protocol import ArchiveMember, PxtArchivePartSink, PxtStorePartSink
@@ -768,6 +770,157 @@ class TestProxyDaemon:
         assert pathlib.Path(row['small']).read_bytes() == small.read_bytes()
         for path_str in request._remote_parts.values():
             pathlib.Path(path_str).unlink()
+
+    def test_protocol_mismatch_tells_a_newer_client_to_rebuild(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        message = self._protocol_error(proxy_protocol.PROTOCOL_VERSION + 1, 'org1', monkeypatch)
+        assert 'pxt db build-image pxt://org1:db1' in message
+        assert 'upgrade a lockfile pin first' in message
+        assert 'pxt db restart does not change the image' in message
+        assert 'pip install --upgrade pixeltable' not in message
+        assert 'pxt localproxy' not in message
+
+    def test_protocol_mismatch_tells_a_newer_client_to_restart_local_proxy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        message = self._protocol_error(proxy_protocol.PROTOCOL_VERSION + 1, 'local', monkeypatch)
+        assert 'pxt localproxy stop db1, then pxt localproxy start db1' in message
+        assert 'pxt db build-image' not in message
+        assert 'pip install --upgrade pixeltable' not in message
+
+    @pytest.mark.parametrize('org', ['org1', 'local'])
+    def test_protocol_mismatch_tells_an_older_client_to_upgrade(
+        self, org: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        message = self._protocol_error(proxy_protocol.PROTOCOL_VERSION - 1, org, monkeypatch)
+        assert message.endswith('pip install --upgrade pixeltable')
+        assert 'pxt db build-image' not in message
+        assert 'pxt localproxy' not in message
+
+    @pytest.mark.parametrize('org', ['org1', 'local'])
+    @pytest.mark.parametrize('table_method', [False, True])
+    @pytest.mark.parametrize(
+        'server_version', [proxy_protocol.PROTOCOL_VERSION - 1, proxy_protocol.PROTOCOL_VERSION + 1]
+    )
+    def test_client_expands_a_legacy_protocol_mismatch(
+        self, org: str, table_method: bool, server_version: int, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client_version = proxy_protocol.PROTOCOL_VERSION
+        legacy = f'Unsupported proxy protocol version: {client_version} (server expects {server_version})'
+        client = (
+            ProxyClient.local('http://127.0.0.1:1', db='db1')
+            if org == 'local'
+            else ProxyClient.remote(org, 'db1', lambda: 'test-key', host='h', port=443)
+        )
+        response = proxy_protocol.encode_response(
+            {
+                'error': {
+                    'error_code': 'UNSUPPORTED_OPERATION',
+                    'message': legacy,
+                    'retryable': False,
+                    'retry_after': 3.0,
+                    'detail': 'test-only diagnostic',
+                }
+            }
+        )
+        monkeypatch.setattr(client._transport, 'post', lambda body: response)
+        try:
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Unsupported proxy protocol version') as err:
+                self._client_call(client, table_method)
+            message = err.value.message
+            assert err.value.retry_after == 3.0
+            assert err.value.detail == 'test-only diagnostic'
+            if server_version > client_version:
+                assert message.endswith('pip install --upgrade pixeltable')
+            elif org == 'local':
+                assert 'pxt localproxy stop db1, then pxt localproxy start db1' in message
+                assert 'pxt db build-image' not in message
+            else:
+                assert 'pxt db build-image pxt://org1:db1' in message
+                assert 'pxt localproxy' not in message
+        finally:
+            client.close()
+
+    @pytest.mark.parametrize('table_method', [False, True])
+    @pytest.mark.parametrize(
+        'suffix', ['. Follow the newer server recovery instructions.', '\nNew recovery instructions.']
+    )
+    def test_client_preserves_enriched_protocol_mismatch(
+        self, table_method: bool, suffix: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        message = f'Unsupported proxy protocol version: 6 (server expects 7){suffix}'
+        client = ProxyClient.local('http://127.0.0.1:1', db='db1')
+        response = proxy_protocol.encode_response(
+            {
+                'error': {
+                    'error_code': 'UNSUPPORTED_OPERATION',
+                    'message': message,
+                    'retryable': False,
+                    'client_protocol_version': 6,
+                    'server_protocol_version': 4,
+                }
+            }
+        )
+        monkeypatch.setattr(client._transport, 'post', lambda body: response)
+        try:
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Unsupported proxy protocol version') as err:
+                self._client_call(client, table_method)
+            assert err.value.message == message
+        finally:
+            client.close()
+
+    @pytest.mark.parametrize('table_method', [False, True])
+    def test_client_trusts_protocol_version_fields(self, table_method: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The sentence says the database is newer. The fields say this client is, and they win."""
+        sentence = 'Unsupported proxy protocol version: 1 (server expects 2)'
+        client = ProxyClient.remote('org1', 'db1', lambda: 'test-key', host='h', port=443)
+        response = proxy_protocol.encode_response(
+            {
+                'error': {
+                    'error_code': 'UNSUPPORTED_OPERATION',
+                    'message': sentence,
+                    'retryable': False,
+                    'client_protocol_version': proxy_protocol.PROTOCOL_VERSION,
+                    'server_protocol_version': proxy_protocol.PROTOCOL_VERSION - 1,
+                }
+            }
+        )
+        monkeypatch.setattr(client._transport, 'post', lambda body: response)
+        try:
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Unsupported proxy protocol version') as err:
+                self._client_call(client, table_method)
+            assert 'pxt db build-image pxt://org1:db1' in err.value.message
+            assert 'pip install --upgrade pixeltable' not in err.value.message
+        finally:
+            client.close()
+
+    @staticmethod
+    def _client_call(client: ProxyClient, table_method: bool) -> None:
+        if table_method:
+            key = TablePathKey((TableVersionKey(uuid.uuid4(), None),))
+            client.dispatch_table_method(
+                'insert', {'rows': []}, path_key=key, get_snapshot_key=lambda: key, refresh=lambda md: None
+            )
+        else:
+            client.send_request('Catalog', 'list_dirs', {})
+
+    def _protocol_error(self, client_version: int, org: str, monkeypatch: pytest.MonkeyPatch) -> str:
+        values = {
+            ('pxtcloud', 'org'): org if org != 'local' else None,
+            ('pxtcloud', 'db'): 'db1',
+            ('pixeltable', 'db'): 'db1',
+        }
+        monkeypatch.setattr(
+            Config.get(), 'get_string_value', lambda key, section='pixeltable': values.get((section, key))
+        )
+        request = proxy_protocol.ProxyRequest(
+            class_name='Catalog', method='list_dirs', args={}, protocol_version=client_version
+        )
+        head, _parts = proxy_protocol.decode_body(proxy_dispatch.handle(request.model_dump_json(), []))
+        error = json.loads(head)['error']
+        assert error['error_code'] == 'UNSUPPORTED_OPERATION'
+        assert error['client_protocol_version'] == client_version
+        assert error['server_protocol_version'] == proxy_protocol.PROTOCOL_VERSION
+        return error['message']
 
 
 class _ScriptedResponse:

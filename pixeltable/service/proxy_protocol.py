@@ -49,6 +49,31 @@ if TYPE_CHECKING:
 
 PROTOCOL_VERSION = 6
 
+
+def protocol_mismatch_message(client_version: int, server_version: int, catalog_uri: Path) -> str:
+    """The error a caller sees when its proxy protocol version does not match the database."""
+    stated = f'Unsupported proxy protocol version: {client_version} (server expects {server_version})'
+    if client_version > server_version:
+        if catalog_uri.org == 'local':
+            db = catalog_uri.db or '<db>'
+            return (
+                f'{stated}. This Pixeltable is newer than the local proxy. Restart it with this Python '
+                f'environment by running: pxt localproxy stop {db}, then pxt localproxy start {db}.'
+            )
+        return (
+            f'{stated}. This Pixeltable is newer than the database. Rebuild its image from the project '
+            f'by running: pxt db build-image {catalog_uri.uri_str}. The image installs the Pixeltable the project '
+            'resolves, so upgrade a lockfile pin first. With no lockfile, that build installs the current '
+            'PyPI release. Running pxt db restart does not change the image.'
+        )
+    if client_version < server_version:
+        return (
+            f'{stated}. This Pixeltable is older than the database. Please update to the latest Pixeltable '
+            'version by running: pip install --upgrade pixeltable'
+        )
+    return stated
+
+
 # Reserved key marking a type-tagged value: {_TAG: <type-name>, 'v': <payload>}.
 _TAG = '$pxt'
 
