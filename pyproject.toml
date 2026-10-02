@@ -321,7 +321,7 @@ include = ['pixeltable/_version.py']
 exclude = ['docs/**']
 system_dependencies = ["libiconv", "ffmpeg==6.1.1=gpl*"]
 memory_mb = 6144
-workers = 3
+workers = 1
 cpu = 2.0
 disk_gb = 40
 uv_options = "--no-dev --group cloud-dev"
