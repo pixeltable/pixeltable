@@ -99,7 +99,7 @@ def await_receipts(db_path: catalog.Path, receipts: Sequence[GenerationReceipt])
 
 def read_receipts(db_path: catalog.Path, receipts: Sequence[GenerationReceipt]) -> list[GenerationReceipt]:
     response = management_client.api_call(
-        GetReceiptsRequest(org=db_path.org, db=_db(db_path), receipts=[ReceiptRef.of(r) for r in receipts])
+        GetReceiptsRequest(org=db_path.org, receipts=[ReceiptRef.of(r) for r in receipts])
     )
     read = GetReceiptsResponse.model_validate(response).receipts
     if [ReceiptRef.of(r) for r in read] != [ReceiptRef.of(r) for r in receipts]:

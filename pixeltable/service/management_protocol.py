@@ -305,9 +305,13 @@ class ReceiptRef(BaseModel):
 
 
 class GetReceiptsRequest(BaseModel):
+    """Read receipts by their resource ids, within the org.
+
+    No database name: a deletion releases the name before its receipt is observed, and a new database may reuse it.
+    """
+
     operation_type: Literal[ManagementOperationType.GET_RECEIPTS] = ManagementOperationType.GET_RECEIPTS
     org: str | None = None
-    db: str
     receipts: list[ReceiptRef]
 
 
