@@ -15,7 +15,12 @@ from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config, DatabaseConfig
 from pixeltable.service.db import db_update
-from pixeltable.service.management_protocol import ArtifactUpload, DatabaseReport, UpdateDbResponse
+from pixeltable.service.management_protocol import (
+    DatabaseReport,
+    ExpectedGenerations,
+    PrepareUpdateRequest,
+    PrepareUpdateResponse,
+)
 from pixeltable.utils.project import (
     create_image_context,
     create_project_archive,
@@ -329,8 +334,13 @@ class TestProjectArchive:
             '[[package]]\nname = "app"\nsource = { editable = "." }\n'
             '[[package]]\nname = "outside"\nsource = { directory = "../elsewhere" }\n'
         )
+        # a virtual environment inside the package is no part of it
+        (pkg / '.venv' / 'lib').mkdir(parents=True)
+        (pkg / '.venv' / 'pyvenv.cfg').write_text('home = /usr/bin\n')
+        (pkg / '.venv' / 'lib' / 'site.py').write_text('Y = 2\n')
         files = package_image_context(tmp_path).files
         assert sorted(files) == ['packages/helper/pyproject.toml', 'packages/helper/src/helper.py', 'uv.lock']
+        assert not any('.venv' in path for path in package_project_archive(tmp_path).files)
 
     def test_executable_bit(self, tmp_path: Path) -> None:
         """A mode change leaves the project alone: a pod imports its files and runs none of them.
@@ -392,8 +402,30 @@ class TestProjectArchive:
         (unpacked / 'link.txt').unlink()
         assert unpacked_digest(unpacked) != with_link, 'the archive named this link too'
 
+    def test_reproducible(self, tmp_path: Path) -> None:
+        """Packaging the same files again writes the same bytes, whatever their timestamps and owners say."""
+        (tmp_path / 'app.py').write_text('x = 1\n')
+        (tmp_path / 'run.sh').write_text('echo hi\n')
+        (tmp_path / 'run.sh').chmod(0o755)
+        first = package_project_archive(tmp_path).path.read_bytes()
+
+        os.utime(tmp_path / 'app.py', (1_000_000, 1_000_000))
+        (tmp_path / 'run.sh').chmod(0o775)
+        assert package_project_archive(tmp_path).path.read_bytes() == first
+
+    def test_image_inputs_survive_exclude(self, tmp_path: Path) -> None:
+        """The archive carries what the image build installs from, even where the entry excludes it."""
+        (tmp_path / 'dist').mkdir()
+        (tmp_path / 'dist' / 'dep.whl').write_bytes(b'wheel bytes')
+        (tmp_path / 'requirements.txt').write_text('dist/dep.whl\n')
+        (tmp_path / 'pixeltable.toml').write_text('[[pixeltable.database]]\nexclude = ["dist/*"]\n')
+        Config.init(reinit=True, project_root=tmp_path)
+
+        with tarfile.open(create_project_archive(tmp_path, local_entry()), 'r:bz2') as tar:
+            assert 'project/dist/dep.whl' in tar.getnames()
+
     def test_manifest_drift(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The manifests go into both artifacts, so each one is compared against its own half."""
+        """A file rewritten while it is packaged is caught before anything is uploaded or submitted."""
         (tmp_path / 'pixeltable.toml').write_text(
             '[[pixeltable.database]]\nname = "pxt://acme:main"\n', encoding='utf-8'
         )
@@ -401,23 +433,22 @@ class TestProjectArchive:
         (tmp_path / 'requirements.txt').write_text('pandas\n')
         Config.init(reinit=True, project_root=tmp_path)
 
-        # the archive caught the rewrite; the context read the file after the writer restored it
+        # the archive caught the rewrite; the fingerprint read the file after the writer restored it
         drifted = package_project_archive(tmp_path, local_entry())
         drifted.files['requirements.txt'] = 'rewritten-while-packaging'
         monkeypatch.setattr('pixeltable.service.db.package_project_archive', lambda *a, **k: drifted)
         monkeypatch.setattr(
-            'urllib.request.urlopen', lambda *a, **k: pytest.fail('an artifact was uploaded before validation')
+            'urllib.request.urlopen', lambda *a, **k: pytest.fail('an archive was uploaded before validation')
         )
 
         plan = DbPlan(db_uri='pxt://acme:main', exists=True, state='AVAILABLE', resolution='update_additive')
-        uploads = [
-            ArtifactUpload(artifact='archive', url='https://example.com/a'),
-            ArtifactUpload(artifact='image_context', url='https://example.com/i'),
-        ]
 
         def api_call(request: Any) -> dict[str, Any]:
-            asked = [] if request.dry_run else uploads
-            return UpdateDbResponse(plan=plan, report=DatabaseReport(), uploads=asked).model_dump(mode='json')
+            assert isinstance(request, PrepareUpdateRequest), f'{request.operation_type} was sent before validation'
+            assert request.blob is None, 'an archive was offered before validation'
+            return PrepareUpdateResponse(
+                generations=ExpectedGenerations(database=1), report=DatabaseReport(), plan=plan
+            ).model_dump(mode='json')
 
         monkeypatch.setattr('pixeltable.service.db.management_client.api_call', api_call)
 

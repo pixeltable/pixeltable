@@ -58,7 +58,7 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     Keep the local database entry that `pxt init` wrote. If your project has a `pyproject.toml`, `pxt init` adds its entry there instead. Use `[[tool.pixeltable.database]]` for the hosted entry.
   </Step>
   <Step title="Upload the project, create tables, and start the service">
-    A new database is ready when `pxt db status pxt://org:main` shows `AVAILABLE`. Until then, `pxt db update` is refused. Run these commands from the project directory, in order:
+    Run these commands from the project directory, in order:
 
     ```bash
     pxt db update pxt://org:main
@@ -67,7 +67,7 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     pxt service list pxt://org:main
     ```
 
-    `pxt db update` and `pxt service update` ask for confirmation. Without a terminal to answer, as in a notebook or a script, add `-f`. The first `pxt db update` builds the image, which takes several minutes, and returns when the database is ready.
+    `pxt db update` and `pxt service update` ask for confirmation. Without a terminal to answer, as in a notebook or a script, add `-f`. The first `pxt db update` builds the image, which takes several minutes, and returns when the database is ready. If you interrupt it after it uploads the project, Pixeltable Cloud finishes the update anyway: `pxt db status pxt://org:main` shows its progress, and running `pxt db update` again reports it rather than starting another.
 
     `pxt org create` already provisioned `main`. `pxt db update` uploads the project onto that database and updates its image and size. It does not insert rows and does not start app endpoints. `pxt schema update` creates the tables. It does not start the endpoints. `pxt service update` starts hosted endpoints. Do not use `pxt service run` for Cloud. That command only starts endpoints in your local terminal.
 
@@ -155,7 +155,7 @@ The image gets its packages from `uv.lock` or `requirements.txt`. Without either
 | A dependency, the Python version, a system package | `pxt db update pxt://org:main`: the image rebuilds |
 | `cpu`, `memory_mb`, `disk_gb`, or `workers` | `pxt db update pxt://org:main`: one resize, pods restart once |
 | A secret | `pxt secret set pxt://org:main KEY=...`, then `pxt db restart pxt://org:main` and `pxt service restart pxt://org:main/ingest` |
-| Nothing, but the last build failed | `pxt db build-image pxt://org:main` forces a rebuild |
+| Nothing, but the last update failed | `pxt db retry pxt://org:main` tries it again; `pxt db build-image pxt://org:main` forces a rebuild |
 
 `pxt db diff pxt://org:main` prints what `update` would do without doing it.
 

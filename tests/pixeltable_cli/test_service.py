@@ -13,16 +13,23 @@ import httpx
 import pytest
 
 import pixeltable as pxt
-from pixeltable import catalog
 from pixeltable.config import Config
-from pixeltable.service import management_client
+from pixeltable.service import management_client, receipts
 from pixeltable.service.management_protocol import (
+    DatabaseReport,
+    ExpectedGenerations,
+    GetReceiptsRequest,
+    GetReceiptsResponse,
     ListServiceInstancesRequest,
-    StartServiceInstanceRequest,
-    StopServiceInstanceRequest,
-    UpdateServiceInstanceRequest,
+    PrepareUpdateRequest,
+    PrepareUpdateResponse,
+    RestartServiceInstanceRequest,
+    ServiceGeneration,
+    ServiceMutation,
+    SubmitUpdateRequest,
+    SubmitUpdateResponse,
 )
-from pixeltable.service.service_md import LocalServiceInstanceRecord, ServiceInstanceRecord
+from pixeltable.service.service_md import LocalServiceInstanceRecord, ServiceInstanceRecord, ServiceResources
 from pixeltable.serving import service as serving_service
 from pixeltable.serving.service_instance import ServiceInstance
 from pixeltable.serving.service_manager import ServiceManager
@@ -30,7 +37,17 @@ from pixeltable.serving.service_manager_proxy import ServiceManagerProxy
 from pixeltable.utils.app_module import module_name
 from pixeltable.utils.project import ProjectFingerprint
 from pixeltable_cli.client.commands import service as service_cmd
-from pixeltable_cli.types import ServiceChangeOp, ServiceDiff, ServicePlan, ServiceSpec, ServiceState
+from pixeltable_cli.types import (
+    GenerationReceipt,
+    ReceiptError,
+    ReceiptOutcome,
+    ResourcePhase,
+    ServiceChangeOp,
+    ServiceDiff,
+    ServicePlan,
+    ServiceSpec,
+    ServiceState,
+)
 from pixeltable_cli.utils import PxtPath
 
 from ..conftest import SampleFileServer
@@ -1222,67 +1239,74 @@ class TestHostedService:
         assert not service_diff(cli, project, app_file, current_db)['in_agreement']
 
 
-# what the control plane records on an instance whose new pods did not come up while its old ones kept serving
-_ROLL_FAILED = 'rollout failed, still serving the previous version: pod did not become ready within 300s'
-# what it records on an instance whose roll it marked FAILED
-_ROLL_TIMED_OUT = 'pod did not become ready within 300s'
-
-
 class _ControlPlane:
     """The management API of a hosted database holding one service instance.
 
-    It keeps every request but the listings, and each one settles at once, so that ServiceManagerProxy's polls read
-    the state it leaves the instance in on their first try. It answers an update or a restart as the control plane
-    answers one of an instance the gateway routes with UPDATING, and one of a stopped instance with STARTING.
+    A submission or a restart is accepted as the next generation of the instance, and its receipt settles on the
+    first read, failed with error or else observed, so that ServiceManagerProxy's wait ends on its first poll. The
+    instance's desired resources (4 cpus, 8 GiB) differ from the ones it was last observed with, as during a resize.
     """
 
     record: ServiceInstanceRecord
     sent: list[Any]
-    # False: an update or restart rolls no pod, so the instance keeps its state and error
-    rolls: bool
-    # the state a roll settles in
-    roll_state: ServiceState
-    # the error a roll leaves when its new pods do not come up; None: they do, which clears an earlier roll's error
-    roll_error: str | None
 
-    def __init__(
-        self,
-        record: ServiceInstanceRecord,
-        *,
-        rolls: bool = True,
-        roll_state: ServiceState = ServiceState.AVAILABLE,
-        roll_error: str | None = None,
-    ) -> None:
+    def __init__(self, record: ServiceInstanceRecord, *, error: ReceiptError | None = None) -> None:
         self.record = record
         self.sent = []
-        self.rolls = rolls
-        self.roll_state = roll_state
-        self.roll_error = roll_error
+        self.generation = 3
+        self.error = error
+
+    def _receipt(self) -> GenerationReceipt:
+        return GenerationReceipt(
+            kind='service',
+            resource_id='svc-uuid',
+            generation=self.generation,
+            db='main',
+            service_name=self.record.service_name,
+            base_path=self.record.base_path,
+        )
 
     def api_call(self, request: Any) -> dict[str, Any]:
         if isinstance(request, ListServiceInstancesRequest):
             return {'instances': [self.record.model_dump(mode='json')]}
         self.sent.append(request)
-        changes: dict[str, Any] = {}
-        if isinstance(request, UpdateServiceInstanceRequest):
-            changes.update(spec=request.spec, app_module=request.app_module, otel=request.otel)
-        answered = self.record.model_copy(update=changes)
-        if isinstance(request, StopServiceInstanceRequest):
-            changes.update(state=ServiceState.STOPPED)
-        elif isinstance(request, StartServiceInstanceRequest):
-            changes.update(state=ServiceState.AVAILABLE)
-        elif self.rolls:
-            rolling_state = (
-                ServiceState.STARTING if self.record.state is ServiceState.STOPPED else ServiceState.UPDATING
+        if isinstance(request, PrepareUpdateRequest):
+            generations = ExpectedGenerations(
+                services=[ServiceGeneration(service_name=self.record.service_name, generation=self.generation)]
             )
-            answered = answered.model_copy(update={'state': rolling_state})
-            changes.update(state=self.roll_state, error=self.roll_error)
-        self.record = self.record.model_copy(update=changes)
-        return {'instance': answered.model_dump(mode='json')}
+            desired = ServiceMutation(
+                service_name=self.record.service_name,
+                spec=self.record.spec,
+                app_module=self.record.app_module,
+                cpu=4.0,
+                memory_mb=8192,
+                description='resized',
+            )
+            return PrepareUpdateResponse(
+                generations=generations, report=DatabaseReport(db='main'), services=[desired]
+            ).model_dump(mode='json')
+        if isinstance(request, GetReceiptsRequest):
+            settled = self._receipt().model_copy(
+                update={'outcome': None if self.error is not None else ReceiptOutcome.OBSERVED, 'error': self.error}
+            )
+            if self.error is None:
+                self.record = self.record.model_copy(update={'state': ServiceState.AVAILABLE})
+            return GetReceiptsResponse(receipts=[settled]).model_dump(mode='json')
+        self.generation += 1
+        if isinstance(request, SubmitUpdateRequest):
+            (mutation,) = request.service_mutations
+            self.record = self.record.model_copy(
+                update={'spec': mutation.spec, 'app_module': mutation.app_module, 'otel': mutation.otel}
+            )
+            return SubmitUpdateResponse(receipts=[self._receipt()]).model_dump(mode='json')
+        assert isinstance(request, RestartServiceInstanceRequest), type(request).__name__
+        return {'instance': self.record.model_dump(mode='json'), 'receipt': self._receipt().model_dump(mode='json')}
 
 
-def _plan(app_file: str, target: str, state: ServiceState, *ops: ServiceChangeOp) -> ServicePlan:
-    """What service_diff reports for an instance of 'ingest' in state, with ops pending."""
+def _plan(
+    app_file: str, target: str, state: ServiceState, *ops: ServiceChangeOp, generation: int | None = None
+) -> ServicePlan:
+    """What service_diff reports for an instance of 'ingest' in state, with ops pending, planned at generation."""
     return ServicePlan(
         app_file=app_file,
         target=PxtPath(target),
@@ -1290,6 +1314,7 @@ def _plan(app_file: str, target: str, state: ServiceState, *ops: ServiceChangeOp
             ServiceDiff(
                 name='ingest',
                 exists=True,
+                generation=generation,
                 state=state,
                 endpoint=None,
                 catalog_path=PxtPath(target),
@@ -1306,8 +1331,8 @@ def _plan(app_file: str, target: str, state: ServiceState, *ops: ServiceChangeOp
 
 @pytest.mark.db_roots('local', reason='the service managers are faked, so no catalog serves anything')
 class TestServiceUpdateRunning:
-    """What `pxt service update` does to a registered instance: a hosted one is replaced in place, so that it keeps
-    serving, and a local one is stopped and started again."""
+    """What `pxt service update` does to a registered instance: a hosted one is submitted again, so that the control
+    plane replaces it in place and it keeps serving, and a local one is stopped and started again."""
 
     @pytest.fixture
     def app_file(self, project_dir: pathlib.Path) -> str:
@@ -1324,14 +1349,13 @@ class TestServiceUpdateRunning:
         app_file: str,
         state: ServiceState,
         *ops: ServiceChangeOp,
-        error: str | None = None,
-        rolls: bool = True,
-        roll_state: ServiceState = ServiceState.AVAILABLE,
-        roll_error: str | None = None,
+        error: ReceiptError | None = None,
+        generation: int | None = None,
     ) -> _ControlPlane:
         """Fake a hosted instance in state that serves app_file's 'ingest' as the file defines it, with ops pending.
 
-        error: what an earlier roll left on the instance. rolls, roll_state, roll_error: how the control plane rolls it.
+        error: why the generation a change is accepted as fails; None: it takes effect.
+        generation: the instance's generation as the plan read it.
         """
         record = ServiceInstanceRecord(
             service_name='ingest',
@@ -1340,76 +1364,95 @@ class TestServiceUpdateRunning:
             app_module=module_name(app_file, subject='application file'),
             spec=ServiceSpec(name='ingest'),
             state=state,
-            error=error,
+            resources=ServiceResources(cpu=2.0, memory_mb=4096),
         )
-        control_plane = _ControlPlane(record, rolls=rolls, roll_state=roll_state, roll_error=roll_error)
+        control_plane = _ControlPlane(record, error=error)
         monkeypatch.setattr(management_client, 'api_call', control_plane.api_call)
+        monkeypatch.setattr(receipts, 'POLL_INTERVAL', 0.0)
         # no pod answers behind the endpoint
         monkeypatch.setattr(ServiceManagerProxy, '_wait_for_endpoint', lambda self, instance: None)
-        plan = _plan(app_file, 'pxt://acme:main', state, *ops)
+        plan = _plan(app_file, 'pxt://acme:main', state, *ops, generation=generation)
         monkeypatch.setattr(serving_service, 'service_diff', lambda *args, **kwargs: plan)
         return control_plane
 
-    def _update_hosted(
+    @pytest.mark.parametrize(
+        ('state', 'op', 'otel'),
+        [
+            (ServiceState.AVAILABLE, ServiceChangeOp.otel(False, True), True),
+            (ServiceState.AVAILABLE, ServiceChangeOp.fingerprint_changed(['app.py changed']), False),
+            (ServiceState.STOPPED, None, False),
+        ],
+        ids=['changed', 'redeployed', 'stopped'],
+    )
+    def test_hosted(
         self,
         monkeypatch: pytest.MonkeyPatch,
         app_file: str,
         state: ServiceState,
-        *ops: ServiceChangeOp,
-        otel: bool = False,
-        error: str | None = None,
-        rolls: bool = True,
-    ) -> list[Any]:
-        """Update a hosted instance faked by _hosted(), whose roll comes up if one starts.
-
-        Returns the requests the control plane received.
-        """
-        control_plane = self._hosted(monkeypatch, app_file, state, *ops, error=error, rolls=rolls)
+        op: ServiceChangeOp | None,
+        otel: bool,
+    ) -> None:
+        """Whatever changed, the instance's full spec is submitted to run the database's current release."""
+        ops = [] if op is None else [op]
+        control_plane = self._hosted(monkeypatch, app_file, state, *ops)
         [diff] = serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=otel).services
         endpoint = control_plane.record.endpoint
         assert (diff.status, diff.state, diff.endpoint, diff.exists) == ('applied', 'AVAILABLE', endpoint, True)
         assert [op.status for op in diff.ops] == ['applied'] * len(ops)
-        return control_plane.sent
 
-    def test_hosted_changed(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
-        """A running hosted instance whose definition changed is updated, without being stopped first."""
-        sent = self._update_hosted(
-            monkeypatch, app_file, ServiceState.AVAILABLE, ServiceChangeOp.otel(False, True), otel=True
+        prepared, submitted, _ = control_plane.sent
+        assert [type(r).__name__ for r in control_plane.sent] == [
+            'PrepareUpdateRequest',
+            'SubmitUpdateRequest',
+            'GetReceiptsRequest',
+        ]
+        assert submitted.expected_generations.service('ingest') == 3
+        (mutation,) = submitted.service_mutations
+        assert prepared.service_mutations[0].spec == mutation.spec
+        assert prepared.service_mutations[0].pin == mutation.pin, 'prepared as it is submitted'
+        assert (mutation.lifecycle, mutation.pin, mutation.otel) == ('RUNNING', 'latest', otel)
+        assert (mutation.cpu, mutation.memory_mb, mutation.description) == (4.0, 8192, 'resized'), (
+            'the desired resources, not the observed ones, so that a resize under way is not undone'
         )
-        assert [type(r).__name__ for r in sent] == ['UpdateServiceInstanceRequest']
-        assert sent[0].otel
 
-    def test_hosted_redeployed(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
-        """One whose definition is unchanged but whose project is not the database's is restarted onto it."""
-        changed = ServiceChangeOp.fingerprint_changed(['app.py changed'])
-        sent = self._update_hosted(monkeypatch, app_file, ServiceState.AVAILABLE, changed)
-        assert [type(r).__name__ for r in sent] == ['RestartServiceInstanceRequest']
+    def test_hosted_plan_generation(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """A change is submitted against the generation of a plan, the caller's or else its own, not a fresh read."""
+        changed = ServiceChangeOp.otel(False, True)
+        control_plane = self._hosted(monkeypatch, app_file, ServiceState.AVAILABLE, changed, generation=1)
+        target = PxtPath('pxt://acme:main')
+        serving_service.service_update(app_file, target, otel=True, expected_generations={'ingest': 2})
+        serving_service.service_update(app_file, target, otel=True)
+        submitted = [r for r in control_plane.sent if isinstance(r, SubmitUpdateRequest)]
+        assert [r.expected_generations.service('ingest') for r in submitted] == [2, 1]
 
-    def test_hosted_stopped(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
-        """A stopped hosted instance is started."""
-        sent = self._update_hosted(monkeypatch, app_file, ServiceState.STOPPED)
-        assert [type(r).__name__ for r in sent] == ['StartServiceInstanceRequest']
+    def test_hosted_created_since_plan(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """A service planned as absent that exists by the time of the submission is refused, not overwritten."""
+        control_plane = self._hosted(monkeypatch, app_file, ServiceState.AVAILABLE, ServiceChangeOp.otel(False, True))
+        with pxt_raises(pxt.ErrorCode.CONCURRENT_MODIFICATION, match="Service 'ingest' was created"):
+            serving_service.service_update(
+                app_file, PxtPath('pxt://acme:main'), otel=True, expected_generations={'ingest': 0}
+            )
+        assert not any(isinstance(r, SubmitUpdateRequest) for r in control_plane.sent)
 
-    def test_hosted_stopped_changed(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
-        sent = self._update_hosted(
-            monkeypatch, app_file, ServiceState.STOPPED, ServiceChangeOp.otel(False, True), otel=True
-        )
-        assert [type(r).__name__ for r in sent] == ['UpdateServiceInstanceRequest']
+    def test_hosted_deleted_since_plan(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """A service planned as existing that is gone by the time of the submission is refused, not recreated."""
+        control_plane = self._hosted(monkeypatch, app_file, ServiceState.AVAILABLE, ServiceChangeOp.otel(False, True))
+        control_plane.generation = 0
+        with pxt_raises(pxt.ErrorCode.CONCURRENT_MODIFICATION, match="Service 'ingest' was deleted"):
+            serving_service.service_update(
+                app_file, PxtPath('pxt://acme:main'), otel=True, expected_generations={'ingest': 3}
+            )
+        assert not any(isinstance(r, SubmitUpdateRequest) for r in control_plane.sent)
 
-    def test_hosted_failed_otel_retry(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+    def _hosted_diff(self, app_file: str, keep_release: bool = False, **record_fields: Any) -> ServiceDiff:
+        """The diff of a hosted instance of 'ingest' that serves app_file's definition and project, as recorded."""
         record = ServiceInstanceRecord(
             service_name='ingest',
             base_path='',
-            endpoint='https://acme-main.example.com/ingest',
             app_module=module_name(app_file, subject='application file'),
             spec=ServiceSpec(name='ingest'),
-            state=ServiceState.AVAILABLE,
+            **record_fields,
         )
-        control_plane = _ControlPlane(record, roll_error=_ROLL_FAILED)
-        monkeypatch.setattr(management_client, 'api_call', control_plane.api_call)
-        monkeypatch.setattr(ServiceManagerProxy, '_wait_for_endpoint', lambda self, instance: None)
-        manager = ServiceManagerProxy(catalog.Path.parse('pxt://acme:main', allow_empty_path=True))
-        monkeypatch.setattr(serving_service, 'get_manager', lambda target: manager)
         fingerprint = ProjectFingerprint(
             files={}, python_version='3.11', system_dependencies=[], pixeltable_version='test', vars={}
         )
@@ -1421,83 +1464,84 @@ class TestServiceUpdateRunning:
             target_db_fingerprint=fingerprint,
             local_fingerprint=fingerprint,
         )
-        monkeypatch.setattr(serving_service, '_get_app_info', lambda app_file, target: app_info)
+        return serving_service._service_diff(
+            'ingest',
+            app_info.services['ingest'],
+            ServiceInstance(record, Mock(spec=ServiceManagerProxy)),
+            app_info,
+            PxtPath('pxt://acme:main'),
+            otel=False,
+            keep_release=keep_release,
+        )
 
-        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=f"Service 'ingest' was not updated: {_ROLL_FAILED}"):
-            serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=True)
-        assert control_plane.record.otel
-        assert control_plane.record.error == _ROLL_FAILED
+    @pytest.mark.parametrize('keep_release', [False, True])
+    def test_hosted_kept_older_project(self, app_file: str, keep_release: bool) -> None:
+        """An instance kept on an older release runs an older project, which --keep-release does not count as drift."""
+        older = ProjectFingerprint(
+            files={'app.py': 'old'}, python_version='3.11', system_dependencies=[], pixeltable_version='test', vars={}
+        )
+        diff = self._hosted_diff(app_file, keep_release, fingerprint=older)
+        assert [op.target for op in diff.ops] == ([] if keep_release else ['project'])
+        assert diff.resolution == ('up_to_date' if keep_release else 'update_additive')
 
-        control_plane.roll_error = None
-        [diff] = serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=True).services
-        assert diff.status == 'applied'
-        assert control_plane.record.error is None
-        assert [type(request).__name__ for request in control_plane.sent] == [
-            'UpdateServiceInstanceRequest',
-            'RestartServiceInstanceRequest',
-        ]
-
-    def test_hosted_changed_roll_failed(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
-        """An update whose new pods do not come up is reported as not updated, although the old ones keep serving."""
-        changed = ServiceChangeOp.otel(False, True)
-        control_plane = self._hosted(monkeypatch, app_file, ServiceState.AVAILABLE, changed, roll_error=_ROLL_FAILED)
-        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=f"Service 'ingest' was not updated: {_ROLL_FAILED}"):
-            serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=True)
-        # nor started over the pods that still serve
-        assert [type(r).__name__ for r in control_plane.sent] == ['UpdateServiceInstanceRequest']
-
-    def test_hosted_redeployed_roll_failed(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
-        """So is a restart, whether `pxt service update` or `pxt service restart` sends it."""
-        changed = ServiceChangeOp.fingerprint_changed(['app.py changed'])
-        control_plane = self._hosted(monkeypatch, app_file, ServiceState.AVAILABLE, changed, roll_error=_ROLL_FAILED)
-        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=f"Service 'ingest' was not updated: {_ROLL_FAILED}"):
-            serving_service.service_update(app_file, PxtPath('pxt://acme:main'))
-        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=f"Service 'ingest' was not updated: {_ROLL_FAILED}"):
-            serving_service.service_restart(['pxt://acme:main/ingest'])
-        assert [type(r).__name__ for r in control_plane.sent] == ['RestartServiceInstanceRequest'] * 2
+    @pytest.mark.parametrize('keep_release', [False, True])
+    def test_hosted_newer_release(self, app_file: str, keep_release: bool) -> None:
+        """A database release the instance does not run yet, such as a rebuilt image, is an update."""
+        diff = self._hosted_diff(app_file, keep_release, update_pending=True)
+        assert [op.name for op in diff.ops] == ([] if keep_release else ['release'])
+        assert diff.resolution == ('up_to_date' if keep_release else 'update_additive')
 
     @pytest.mark.parametrize(
-        ('op', 'otel', 'rolled_by'),
+        ('fields', 'description'),
         [
-            (ServiceChangeOp.otel(False, True), True, 'UpdateServiceInstanceRequest'),
-            (ServiceChangeOp.fingerprint_changed(['app.py changed']), False, 'RestartServiceInstanceRequest'),
+            ({'phase': ResourcePhase.PENDING}, 'has not taken effect yet (PENDING); update waits for it'),
+            (
+                {'error': ReceiptError(message='pod crashed', retryable=False)},
+                'failed: pod crashed; update tries it again',
+            ),
+            ({'outcome': ReceiptOutcome.OBSERVED}, None),
         ],
-        ids=['update', 'restart'],
+        ids=['pending', 'failed', 'observed'],
     )
-    def test_hosted_roll_ended_failed(
-        self, monkeypatch: pytest.MonkeyPatch, app_file: str, op: ServiceChangeOp, otel: bool, rolled_by: str
-    ) -> None:
-        """An update or a restart whose roll ends FAILED raises with the instance's error and sends no Start, which
-        would run the failed release again."""
-        control_plane = self._hosted(
-            monkeypatch,
-            app_file,
-            ServiceState.AVAILABLE,
-            op,
-            roll_state=ServiceState.FAILED,
-            roll_error=_ROLL_TIMED_OUT,
+    def test_hosted_unsettled_generation(self, app_file: str, fields: dict, description: str | None) -> None:
+        """A current generation that has not taken effect is no agreement, though the instance serves its spec."""
+        receipt = GenerationReceipt(
+            kind='service', resource_id='svc-uuid', generation=5, db='main', service_name='ingest', **fields
         )
-        with pxt_raises(
-            pxt.ErrorCode.INTERNAL_ERROR, match=f"Service 'ingest' did not come back; it is FAILED: {_ROLL_TIMED_OUT}"
-        ):
-            serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=otel)
-        assert [type(r).__name__ for r in control_plane.sent] == [rolled_by]
+        diff = self._hosted_diff(app_file, receipt=receipt)
+        if description is None:
+            assert (diff.ops, diff.resolution) == ([], 'up_to_date')
+        else:
+            assert [op.description for op in diff.ops] == [f'generation 5 {description}']
+            assert diff.resolution == 'update_additive'
+            assert diff.generation == 5
 
-    def test_hosted_no_roll(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
-        """An update that rolls no pod succeeds, whatever error an earlier roll left on the instance."""
+    def test_hosted_keep_release_no_wait(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """--keep-release keeps the instance's code, and without waiting the change carries its receipt."""
         changed = ServiceChangeOp.otel(False, True)
-        sent = self._update_hosted(
-            monkeypatch, app_file, ServiceState.AVAILABLE, changed, otel=True, error=_ROLL_FAILED, rolls=False
-        )
-        assert [type(r).__name__ for r in sent] == ['UpdateServiceInstanceRequest']
+        control_plane = self._hosted(monkeypatch, app_file, ServiceState.AVAILABLE, changed)
+        [diff] = serving_service.service_update(
+            app_file, PxtPath('pxt://acme:main'), otel=True, keep_release=True, wait=False
+        ).services
+        assert diff.status == 'accepted'
+        assert diff.receipt is not None and diff.receipt.generation == 4
+        assert [type(r).__name__ for r in control_plane.sent] == ['PrepareUpdateRequest', 'SubmitUpdateRequest']
+        assert control_plane.sent[1].service_mutations[0].pin == 'keep'
 
-    def test_hosted_rolled_after_failure(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
-        """A roll that comes up succeeds, although the control plane answered it with an earlier roll's error."""
+    def test_hosted_failed(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """A generation that fails raises with how to try it again, and a restart waits on its own receipt."""
+        error = ReceiptError(message='pod did not become ready within 300s', retryable=False)
         changed = ServiceChangeOp.otel(False, True)
-        sent = self._update_hosted(
-            monkeypatch, app_file, ServiceState.AVAILABLE, changed, otel=True, error=_ROLL_FAILED
-        )
-        assert [type(r).__name__ for r in sent] == ['UpdateServiceInstanceRequest']
+        control_plane = self._hosted(monkeypatch, app_file, ServiceState.AVAILABLE, changed, error=error)
+        match = r'pod did not become ready within 300s\nRun `pxt service retry pxt://acme:main/ingest`'
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match=match):
+            serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=True)
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match=match):
+            serving_service.service_restart(['pxt://acme:main/ingest'])
+        assert [type(r).__name__ for r in control_plane.sent][-2:] == [
+            'RestartServiceInstanceRequest',
+            'GetReceiptsRequest',
+        ]
 
     def test_local(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A running local instance is stopped and started again on its port: binding happens once per process."""
