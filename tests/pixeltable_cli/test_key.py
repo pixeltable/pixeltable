@@ -37,11 +37,9 @@ def _org(cli: PxtRunner) -> str:
     return str(orgs[0]['org'])
 
 
-@pytest.mark.remote_api
-@pytest.mark.expensive
 @pytest.mark.db_roots('local', reason='pxt key acts on an organization, never on a catalog')
 @pytest.mark.usefixtures('hosted_environment')
-class TestKey:
+class TestCloudKey:
     def test_whoami_api_key(self, cli: PxtRunner) -> None:
         """What whoami reports where an API key is configured: the key, and no session identity."""
         answer = cli('whoami', '--json').json
