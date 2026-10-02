@@ -28,6 +28,7 @@
 Install into your agent: [Agent Skill](https://github.com/pixeltable/pixeltable-skill) ·
 [MCP server](https://github.com/pixeltable/mcp-server-pixeltable-developer) ·
 [Cursor plugin](https://cursor.directory/plugins/pixeltable) ·
+[Claude plugin](https://claude.com/marketplace/plugins/pixeltable) ·
 [ChatGPT plugin](https://chatgpt.com/plugins/plugins_6aa9bce6481c81918d73be74740eed28)
 
 Reading this as an agent? Start at [get-started.md](https://www.pixeltable.com/get-started.md), then
@@ -128,7 +129,9 @@ To mount the routes on an existing FastAPI app, `app.include_router(...)`. [HTTP
 
 ## Coding agents
 
-The links above install the skill and MCP. How the skill writes `app.py`: [AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms).
+The links above offer the Skill, plugin, and MCP setup options. How the Skill writes `app.py`: [AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms).
+
+The [Pixeltable plugin](https://github.com/pixeltable/pixeltable-skill) packages the Skill for Claude, Cursor, and ChatGPT. [Docs MCP](https://docs.pixeltable.com/mcp) searches public documentation; the site also offers a remote HTTP [Site MCP](https://www.pixeltable.com/mcp) for docs search and integration listing. [Hosted Cloud MCP](https://www.pixeltable.com/mcp/cloud) reads your signed-in Cloud organization through OAuth. The [local developer MCP](https://github.com/pixeltable/mcp-server-pixeltable-developer) runs on your machine with catalog, query, and REPL tools. Hosted Cloud MCP does not deploy or change resources; use the `pxt` CLI for that.
 
 ```bash
 npx skills add pixeltable/pixeltable-skill

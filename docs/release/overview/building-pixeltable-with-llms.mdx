@@ -66,21 +66,22 @@ pxt schema update app.py my_app
 
 After the schema exists, open the table with `t = pxt.get_table('my_app.articles')` and insert rows, or serve the same file over [HTTP](/howto/deployment/serving). To run that file on Pixeltable Cloud, sign in with `pxt login` and run `pxt db update`, then `pxt schema update`, then `pxt service update`, against `pxt://org:main`: [Pixeltable Cloud](/cloud).
 
-## Docs search and catalog CLI
+## Choose a Pixeltable MCP server
 
-Hosted docs MCP for the editor:
+The [Pixeltable plugin](https://github.com/pixeltable/pixeltable-skill) packages the Skill for Claude, Cursor, and ChatGPT. Neither the plugin nor the Skill configures an MCP server; add the one the job needs.
 
-```
-https://docs.pixeltable.com/mcp
-```
+| Server | Connect to | Access |
+|---|---|---|
+| [Docs MCP](https://docs.pixeltable.com/mcp) | `https://docs.pixeltable.com/mcp` | Public documentation search. The page menu can install it in Cursor or VS Code. |
+| [Site MCP](https://www.pixeltable.com/mcp) | `https://www.pixeltable.com/mcp` (remote HTTP) | Public documentation search and integration listing. This URL accepts MCP JSON-RPC requests; the site's in-browser WebMCP tools are separate. |
+| [Cloud MCP](https://pixeltable.com/developers/mcp-cloud) | `https://www.pixeltable.com/mcp/cloud` | Read-only access to the Cloud organization selected during WorkOS AuthKit sign-in: databases, services, catalog entries, schemas, and bounded table rows. Connect it as a remote HTTP server in Claude Code, Cursor, or another MCP client. |
+| [Developer MCP](https://github.com/pixeltable/mcp-server-pixeltable-developer) | Local stdio command | Catalog inspection, queries, and REPL tools against a local or Cloud database. Install and run it on your machine; it has broader capabilities than the hosted Cloud MCP. |
 
-The page menu copies that URL and installs the server in Cursor or VS Code.
+For Cloud changes and deployment, use the `pxt` CLI after `pxt login`. The hosted Cloud MCP only reads.
 
 Catalog inspection without importing Python: `pxt ls --json`, `pxt describe --json`, `pxt errors`. The `pxt` CLI (v0.7.4+) exposes `--json` on inspection and query commands. See the [CLI](/platform/cli).
 
 To call remote MCP tools from a table column, use `pxt.mcp_udfs(url)` (see [Agents as tables](/use-cases/agentic-workflows)).
-
-Experimental local catalog MCP: [mcp-server-pixeltable-developer](https://github.com/pixeltable/mcp-server-pixeltable-developer).
 
 ## Next
 
