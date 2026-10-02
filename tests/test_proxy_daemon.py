@@ -313,7 +313,7 @@ class TestProxyDaemon:
 
         _ResponseMedia uses this per-object sink, since it presigns a url for each key."""
         uploaded: dict[str, tuple[pathlib.Path, bytes]] = {}
-        store_uris: list[str] = []
+        stores: list[tuple[str, bool]] = []
 
         class FakeStore:
             def copy_local_file(self, src_path: pathlib.Path, dest: FileDestination) -> str:
@@ -321,8 +321,10 @@ class TestProxyDaemon:
                 uploaded[dest.remote_key] = (src_path, src_path.read_bytes())
                 return dest.url
 
-        def fake_get_store(dest: Any, allow_obj_name: bool, col_name: Any = None) -> Any:
-            store_uris.append(dest)
+        def fake_get_store(
+            dest: Any, allow_obj_name: bool, col_name: Any = None, scope_credentials: bool = False
+        ) -> Any:
+            stores.append((dest, scope_credentials))
             return FakeStore()
 
         monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(fake_get_store))
@@ -338,14 +340,14 @@ class TestProxyDaemon:
 
         # nothing has been uploaded yet, and no credentials have been fetched
         assert uploaded == {}
-        assert store_uris == []
+        assert stores == []
         # repeated references to one path get distinct keys (the daemon consumes each localized file)
         assert len(set(keys)) == 3
         assert all(k.startswith(sink._key_prefix) for k in keys)
 
         sink.flush()
-        # one store (one credential fetch) for the whole request, scoped to its own prefix
-        assert store_uris == [f'pxtfs://org1:db1/home/{sink._key_prefix}']
+        # one store for the whole request, with credentials for its own prefix
+        assert stores == [(f'pxtfs://org1:db1/home/{sink._key_prefix}', True)]
         assert set(uploaded) == set(keys)
         assert uploaded[keys[0]][1] == uploaded[keys[1]][1] == src.read_bytes()
         assert uploaded[keys[2]][1] == b'raw'
@@ -358,15 +360,15 @@ class TestProxyDaemon:
         assert src.exists()
 
         # flush() drained the queue, so a second call uploads nothing
-        store_uris.clear()
+        stores.clear()
         sink.flush()
-        assert store_uris == []
+        assert stores == []
 
     @staticmethod
     def _install_fake_upload_store(
         monkeypatch: pytest.MonkeyPatch,
         objects: dict[str, bytes],
-        store_uris: list[str],
+        stores: list[tuple[str, bool]],
         downloads: list[str] | None = None,
     ) -> None:
         """Route ObjectOps.get_store to a fake store serving objects (keyed store-relative, i.e. without the
@@ -387,8 +389,10 @@ class TestProxyDaemon:
                     raise excs.NotFoundError(excs.ErrorCode.STORAGE_NOT_FOUND, "Bucket 'b' not found")
                 dest_path.write_bytes(objects[src_path])
 
-        def fake_get_store(dest: Any, allow_obj_name: bool, col_name: Any = None) -> Any:
-            store_uris.append(dest)
+        def fake_get_store(
+            dest: Any, allow_obj_name: bool, col_name: Any = None, scope_credentials: bool = False
+        ) -> Any:
+            stores.append((dest, scope_credentials))
             return FakeStore()
 
         monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(fake_get_store))
@@ -408,13 +412,13 @@ class TestProxyDaemon:
 
     def test_prefetch_remote_parts(self, hosted_identity: None, monkeypatch: pytest.MonkeyPatch) -> None:
         objects = {'req/0.png': b'png-bytes', 'req/1.jpg': b'jpg-bytes'}
-        store_uris: list[str] = []
-        self._install_fake_upload_store(monkeypatch, objects, store_uris)
+        stores: list[tuple[str, bool]] = []
+        self._install_fake_upload_store(monkeypatch, objects, stores)
 
         # happy path: keys download into TempStore, preserving each key's extension
         request = self._remote_file_request('uploads/req/0.png', 'uploads/req/1.jpg')
         proxy_dispatch._prefetch_remote_parts(request)
-        assert store_uris == ['pxtfs://org1:db1/home/uploads/']
+        assert stores == [('pxtfs://org1:db1/home/uploads/', False)]
         assert set(request._remote_parts) == {('uploads/req/0.png', None), ('uploads/req/1.jpg', None)}
         for (key, _), path_str in request._remote_parts.items():
             path = pathlib.Path(path_str)
@@ -424,11 +428,11 @@ class TestProxyDaemon:
             path.unlink()
 
         # a request without remote keys makes no store (and thus no control-plane) call
-        store_uris.clear()
+        stores.clear()
         proxy_dispatch._prefetch_remote_parts(
             proxy_protocol.ProxyRequest(class_name='CatalogBase', method='echo_test', args={'rows': []})
         )
-        assert store_uris == []
+        assert stores == []
 
         # keys outside uploads/ (e.g. persisted store objects) are rejected before any download
         with pxt_raises(
@@ -492,8 +496,8 @@ class TestProxyDaemon:
         """PxtArchivePartSink packs parts into archives that roll over at the target size; a large part is
         uploaded as an object of its own."""
         objects: dict[str, bytes] = {}
-        store_uris: list[str] = []
-        self._install_fake_upload_store(monkeypatch, objects, store_uris)
+        stores: list[tuple[str, bool]] = []
+        self._install_fake_upload_store(monkeypatch, objects, stores)
         monkeypatch.setattr(PxtArchivePartSink, '_ARCHIVE_TARGET_SIZE', 4096)
         monkeypatch.setattr(PxtArchivePartSink, '_MAX_ARCHIVE_MEMBER_SIZE', 2048)
         small = tmp_path / 'small.png'
@@ -507,7 +511,7 @@ class TestProxyDaemon:
         refs: list[int | str | ArchiveMember] = [sink.add_media_file(str(small)), sink.add_media_file(str(small))]
         # the open archive is below its target size, so nothing is uploaded and no credentials are fetched
         assert objects == {}
-        assert store_uris == []
+        assert stores == []
         # this member takes the archive past 4096 bytes, which closes it
         refs.append(sink.add_media_bytes(b'b' * 1500, '.jpg'))
         refs.append(sink.add_media_file(str(large)))
@@ -524,7 +528,7 @@ class TestProxyDaemon:
             ArchiveMember(f'{prefix}tar1.tar', '4.bin'),
             0,
         ]
-        assert store_uris == [f'pxtfs://org1:db1/home/{prefix}']
+        assert stores == [(f'pxtfs://org1:db1/home/{prefix}', True)]
         rel_prefix = prefix.removeprefix('uploads/')
         assert set(objects) == {f'{rel_prefix}tar0.tar', f'{rel_prefix}tar1.tar', f'{rel_prefix}3.mp4'}
         assert _tar_members(objects[f'{rel_prefix}tar0.tar']) == {
@@ -612,7 +616,9 @@ class TestProxyDaemon:
     def test_sinks_clean_up_after_failed_store_setup(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         """A credential fetch that fails in flush() leaves nothing in TempStore."""
 
-        def failing_get_store(dest: Any, allow_obj_name: bool, col_name: Any = None) -> Any:
+        def failing_get_store(
+            dest: Any, allow_obj_name: bool, col_name: Any = None, scope_credentials: bool = False
+        ) -> Any:
             raise RuntimeError('credential fetch failed')
 
         monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(failing_get_store))
@@ -642,9 +648,9 @@ class TestProxyDaemon:
             'req/bad.tar': b'not a tar file',
             'req/sparse.tar': _sparse_tar_bytes('0.bin', 50 * 1024 * 1024),
         }
-        store_uris: list[str] = []
+        stores: list[tuple[str, bool]] = []
         downloads: list[str] = []
-        self._install_fake_upload_store(monkeypatch, objects, store_uris, downloads)
+        self._install_fake_upload_store(monkeypatch, objects, stores, downloads)
         tmp_count = TempStore.count()
 
         request = self._remote_file_request(
@@ -657,7 +663,7 @@ class TestProxyDaemon:
         proxy_dispatch._prefetch_remote_parts(request)
         # one download per archive, however many of its members are referenced
         assert sorted(downloads) == ['req/3.bin', 'req/tar0.tar', 'req/tar1.tar']
-        assert store_uris == ['pxtfs://org1:db1/home/uploads/']
+        assert stores == [('pxtfs://org1:db1/home/uploads/', False)]
         expected = {
             ('uploads/req/tar0.tar', '0.png'): b'a',
             ('uploads/req/tar0.tar', '1.png'): b'b',
