@@ -123,8 +123,9 @@ async def _upload_file(file_path: str | Path) -> str:
             pxt.ErrorCode.INVALID_ARGUMENT,
             f'Unsupported file format: {ext}. Supported formats: {", ".join(sorted(_SUPPORTED_EXTENSIONS))}',
         )
+    client = _vlmrun_sync_client()
     try:
-        uploaded = await asyncio.to_thread(lambda: _vlmrun_sync_client().files.upload(file=fp))
+        uploaded = await asyncio.to_thread(lambda: client.files.upload(file=fp))
     except Exception as exc:
         raise pxt.ExternalServiceError(
             pxt.ErrorCode.PROVIDER_ERROR, f'File upload to VLM Run failed for {fp.name}: {exc}', provider='vlmrun'
@@ -266,6 +267,11 @@ def _parse_artifact_ref(raw: dict[str, Any], key: str) -> str:
         ) from exc
 
 
+# An artifact can lag the completion that references it, so a 404 is retried for this long
+# before it is treated as a bad id.
+_ARTIFACT_NOT_FOUND_GRACE = 60.0
+
+
 async def _download_artifact(object_id: str, session_id: str, *, timeout: float = 600.0) -> bytes:
     """Download an artifact's raw bytes, polling with exponential backoff until ready or *timeout*.
 
@@ -282,7 +288,8 @@ async def _download_artifact(object_id: str, session_id: str, *, timeout: float 
         url = f'{client.base_url}/artifacts'
         headers = {'Authorization': f'Bearer {client.api_key}'}
         params = {'object_id': object_id, 'session_id': session_id}
-        deadline = time.monotonic() + timeout
+        start = time.monotonic()
+        deadline = start + timeout
         delay = 0.25
         attempt = 0
         while True:
@@ -291,14 +298,21 @@ async def _download_artifact(object_id: str, session_id: str, *, timeout: float 
                 resp = requests.get(url, params=params, headers=headers, timeout=120)
                 if resp.status_code == 200:
                     data = resp.content
-                    # For url_ artifacts the body is a signed URL — follow it
+                    # For url_ artifacts the body is a signed URL; follow it
                     if data.startswith(b'http'):
                         actual = requests.get(data.decode('utf-8').strip(), timeout=120)
                         actual.raise_for_status()
                         return actual.content
                     return data
-                if resp.status_code in (401, 403):
-                    # auth failures won't resolve by polling
+                if resp.status_code == 404 and time.monotonic() - start >= _ARTIFACT_NOT_FOUND_GRACE:
+                    raise pxt.ExternalServiceError(
+                        pxt.ErrorCode.PROVIDER_ERROR,
+                        f'Artifact {object_id} not found after {_ARTIFACT_NOT_FOUND_GRACE:.0f}s: {resp.text}',
+                        provider='vlmrun',
+                        status_code=resp.status_code,
+                    )
+                if 400 <= resp.status_code < 500 and resp.status_code not in (404, 429):
+                    # client errors (bad id, auth) won't resolve by polling
                     raise pxt.ExternalServiceError(
                         pxt.ErrorCode.PROVIDER_ERROR,
                         f'Artifact request for {object_id} failed with status {resp.status_code}: {resp.text}',
@@ -371,7 +385,7 @@ async def _poll_redirect(location: str, *, timeout: float) -> dict[str, Any]:
                 resp = await http.get(url, headers=headers)
             except (httpx.TimeoutException, httpx.TransportError):
                 # the result URL long-polls, holding the connection while the job runs;
-                # a timeout just means "not done yet" — reconnect until the deadline
+                # a timeout just means "not done yet", so reconnect until the deadline
                 if time.monotonic() >= deadline:
                     raise pxt.ExternalServiceError(
                         pxt.ErrorCode.PROVIDER_TIMEOUT,
@@ -383,13 +397,21 @@ async def _poll_redirect(location: str, *, timeout: float) -> dict[str, Any]:
                 # spin the loop
                 await asyncio.sleep(min(2.0, max(0.0, deadline - time.monotonic())))
                 continue
-            if resp.status_code in (200, 201) and resp.content:  # completion body is ready
-                return resp.json()
-            if resp.status_code in (202, 204, 303) or resp.status_code >= 500:
-                # 202/204/303: result not ready yet (204 = No Content is returned repeatedly
-                # while the job runs, and an empty body would break resp.json()). 5xx: the
-                # polling endpoint intermittently errors while the job is still running;
-                # tolerate a bounded number in a row.
+            if resp.status_code in (200, 201) and resp.content.strip():  # completion body is ready
+                try:
+                    return resp.json()
+                except json.JSONDecodeError as exc:
+                    raise pxt.ExternalServiceError(
+                        pxt.ErrorCode.PROVIDER_ERROR,
+                        f'Long-running request returned a non-JSON body: {resp.text[:500]}',
+                        provider='vlmrun',
+                        status_code=resp.status_code,
+                    ) from exc
+            if resp.status_code in (200, 201, 202, 204, 303) or resp.status_code >= 500:
+                # 200/201 with an empty body, 202/204/303: result not ready yet (204 = No Content
+                # is returned repeatedly while the job runs). 5xx: the polling endpoint
+                # intermittently errors while the job is still running; tolerate a bounded number
+                # in a row.
                 if resp.status_code >= 500:
                     consecutive_5xx += 1
                     if consecutive_5xx > 5:
@@ -449,6 +471,22 @@ async def _chat_create(messages: list, model: str, kwargs: dict[str, Any], *, ti
         ) from exc
 
 
+def _generation_kwargs(model_kwargs: dict[str, Any] | None) -> dict[str, Any]:
+    """Copy `model_kwargs` for a generation UDF, rejecting keys that the UDF sets itself."""
+    kwargs = copy.deepcopy(model_kwargs) if model_kwargs else {}
+    if 'response_format' in kwargs:
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            '`response_format` cannot be set in `model_kwargs`: this function sets its own response schema',
+        )
+    if isinstance(kwargs.get('extra_body'), dict) and 'toolsets' in kwargs['extra_body']:
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            '`extra_body.toolsets` cannot be set in `model_kwargs`: this function selects its own toolset',
+        )
+    return kwargs
+
+
 async def _generate_image_impl(
     prompt: str,
     image: PIL.Image.Image | None,
@@ -465,7 +503,7 @@ async def _generate_image_impl(
         content.append({'type': 'input_file', 'file_id': await _upload_image(image)})
     messages: list = [{'role': 'system', 'content': system_message}, {'role': 'user', 'content': content}]
 
-    kwargs = dict(model_kwargs) if model_kwargs else {}
+    kwargs = _generation_kwargs(model_kwargs)
     kwargs['response_format'] = {'type': 'json_schema', 'schema': json.loads(_image_response_schema())}
     extra_body = kwargs.pop('extra_body', {})
     extra_body['toolsets'] = [toolset]
@@ -474,15 +512,17 @@ async def _generate_image_impl(
     raw = await _chat_create(messages, model, kwargs, timeout=timeout)
 
     session_id = raw.get('session_id')
-    if not session_id:
-        raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR,
-            'VLM Run did not return a session_id for artifact retrieval',
-            provider='vlmrun',
-        )
-    artifact_id = _parse_artifact_ref(raw, 'image')
-
-    data = await _download_artifact(artifact_id, session_id, timeout=timeout)
+    ref_kind, ref = _classify_media_ref(_parse_artifact_ref(raw, 'image'))
+    if ref_kind == 'artifact':
+        if not session_id:
+            raise pxt.ExternalServiceError(
+                pxt.ErrorCode.PROVIDER_ERROR,
+                'VLM Run did not return a session_id for artifact retrieval',
+                provider='vlmrun',
+            )
+        data = await _download_artifact(ref, session_id, timeout=timeout)
+    else:
+        data = await _download_url(ref, timeout=timeout)
     img = PIL.Image.open(io.BytesIO(data))
     img.load()
     return img
@@ -605,7 +645,8 @@ async def generate_image(
         prompt: Text prompt describing the image to generate or the edit to apply.
         image: Optional input image to edit. Omit for text-to-image generation.
         model: The model to use. Defaults to `'vlmrun-orion-2:auto'`.
-        model_kwargs: Additional keyword args for the VLM Run API.
+        model_kwargs: Additional keyword args for the VLM Run API. `response_format` and
+            `extra_body.toolsets` are set by this function and cannot be passed.
         timeout: Maximum seconds to wait for the artifact. Defaults to 600.
 
     Returns:
@@ -661,7 +702,8 @@ async def annotate_image(
             boxes around all people'`).
         image: The input image to annotate.
         model: The model to use. Defaults to `'vlmrun-orion-2:auto'`.
-        model_kwargs: Additional keyword args for the VLM Run API.
+        model_kwargs: Additional keyword args for the VLM Run API. `response_format` and
+            `extra_body.toolsets` are set by this function and cannot be passed.
         timeout: Maximum seconds to wait for the artifact. Defaults to 600.
 
     Returns:
@@ -715,7 +757,8 @@ async def generate_video(
         image: Optional input image to use as a starting point.
         video: Optional input video to use as a starting point.
         model: The model to use. Defaults to `'vlmrun-orion-2:auto'`.
-        model_kwargs: Additional keyword args for the VLM Run API.
+        model_kwargs: Additional keyword args for the VLM Run API. `response_format` and
+            `extra_body.toolsets` are set by this function and cannot be passed.
         timeout: Maximum seconds to wait for the artifact. Defaults to 600.
 
     Returns:
@@ -739,7 +782,7 @@ async def generate_video(
         {'role': 'user', 'content': content},
     ]
 
-    kwargs = dict(model_kwargs) if model_kwargs else {}
+    kwargs = _generation_kwargs(model_kwargs)
     kwargs['response_format'] = {'type': 'json_schema', 'schema': json.loads(_video_response_schema())}
     extra_body = kwargs.pop('extra_body', {})
     extra_body['toolsets'] = ['video']
@@ -752,7 +795,7 @@ async def generate_video(
     ref_kind, ref = _classify_media_ref(video_ref)
 
     if ref_kind == 'artifact':
-        # Artifact reference — resolve via the artifacts endpoint
+        # Artifact reference: resolve via the artifacts endpoint
         if not session_id:
             raise pxt.ExternalServiceError(
                 pxt.ErrorCode.PROVIDER_ERROR,
@@ -761,7 +804,7 @@ async def generate_video(
             )
         data = await _download_artifact(ref, session_id, timeout=timeout)
     else:
-        # Direct URL — download the video
+        # Direct URL: download the video
         data = await _download_url(ref, timeout=timeout)
     path = TempStore.create_path(extension='.mp4')
     path.write_bytes(data)
@@ -781,8 +824,8 @@ async def generate_document(
     Transforms a document and returns the edited document (e.g. redaction).
 
     Uses VLM Run's `document` toolset to produce a new document from an input
-    document according to the text prompt — for example, redacting PII or
-    removing specific content.
+    document according to the text prompt (for example, redacting PII or
+    removing specific content).
 
     For additional details, see: <https://docs.vlm.run/>
 
@@ -795,7 +838,8 @@ async def generate_document(
             personally identifiable information'`).
         document: The input document to transform.
         model: The model to use. Defaults to `'vlmrun-orion-2:auto'`.
-        model_kwargs: Additional keyword args for the VLM Run API.
+        model_kwargs: Additional keyword args for the VLM Run API. `response_format` and
+            `extra_body.toolsets` are set by this function and cannot be passed.
         timeout: Maximum seconds to wait for the artifact. Defaults to 600.
 
     Returns:
@@ -822,7 +866,7 @@ async def generate_document(
         {'role': 'user', 'content': content},
     ]
 
-    kwargs = dict(model_kwargs) if model_kwargs else {}
+    kwargs = _generation_kwargs(model_kwargs)
     kwargs['response_format'] = {'type': 'json_schema', 'schema': json.loads(_document_response_schema())}
     extra_body = kwargs.pop('extra_body', {})
     extra_body['toolsets'] = ['document']
@@ -835,7 +879,7 @@ async def generate_document(
     ref_kind, ref = _classify_media_ref(doc_ref)
 
     if ref_kind == 'artifact':
-        # Artifact reference — resolve via the artifacts endpoint
+        # Artifact reference: resolve via the artifacts endpoint
         if not session_id:
             raise pxt.ExternalServiceError(
                 pxt.ErrorCode.PROVIDER_ERROR,
@@ -844,7 +888,7 @@ async def generate_document(
             )
         data = await _download_artifact(ref, session_id, timeout=timeout)
     else:
-        # Direct URL — download the document
+        # Direct URL: download the document
         data = await _download_url(ref, timeout=timeout)
     path = TempStore.create_path(extension='.pdf')
     path.write_bytes(data)

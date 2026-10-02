@@ -1,8 +1,14 @@
 import asyncio
 import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
 
+import httpx
 import PIL.Image
 import pytest
+import requests
 
 import pixeltable as pxt
 
@@ -16,7 +22,7 @@ from ..utils import (
     validate_update_status,
 )
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 class TestVLMRunMessageResolution:
@@ -125,6 +131,30 @@ class TestVLMRunMessageResolution:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='Unsupported file format'):
             asyncio.run(_upload_file('/tmp/audio.mp3'))
 
+    def test_upload_missing_credentials(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pixeltable.functions.vlmrun import _upload_file
+        from pixeltable.runtime import get_runtime
+
+        monkeypatch.delenv('VLMRUN_API_KEY', raising=False)
+        monkeypatch.delitem(get_runtime()._clients, 'vlmrun', raising=False)
+        with pxt_raises(pxt.ErrorCode.MISSING_CREDENTIALS):
+            asyncio.run(_upload_file(next(d for d in get_documents() if d.endswith('.pdf'))))
+
+    def test_generation_kwargs_rejects_reserved_keys(self) -> None:
+        from pixeltable.functions.vlmrun import _generation_kwargs
+
+        assert _generation_kwargs(None) == {}
+        extra_body: dict[str, Any] = {'foo': 1}
+        model_kwargs = {'temperature': 0.2, 'extra_body': extra_body}
+        kwargs = _generation_kwargs(model_kwargs)
+        assert kwargs == model_kwargs
+        kwargs['extra_body']['toolsets'] = ['image-gen']
+        assert 'toolsets' not in extra_body  # caller's dict is not mutated
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`response_format` cannot be set'):
+            _generation_kwargs({'response_format': {'type': 'json_object'}})
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`extra_body.toolsets` cannot be set'):
+            _generation_kwargs({'extra_body': {'toolsets': ['video']}})
+
     def test_classify_media_ref(self) -> None:
         from pixeltable.functions.vlmrun import _classify_media_ref
 
@@ -135,6 +165,124 @@ class TestVLMRunMessageResolution:
         assert _classify_media_ref(' https://cdn.example.com/v.mp4 ') == ('url', 'https://cdn.example.com/v.mp4')
         with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='unrecognized media reference'):
             _classify_media_ref('not-a-ref.mp4')
+
+
+class _FakeResponse(requests.Response):
+    def __init__(self, status_code: int, content: bytes = b'') -> None:
+        super().__init__()
+        self.status_code = status_code
+        self._content = content
+
+
+class TestVLMRunArtifactDownload:
+    """Credential-free tests for `_download_artifact()` status handling."""
+
+    @pytest.fixture
+    def fake_get(self, monkeypatch: pytest.MonkeyPatch) -> list[_FakeResponse]:
+        from pixeltable.functions import vlmrun as vlmrun_mod
+
+        class FakeClient:
+            base_url = 'https://agent.vlm.run/v1'
+            api_key = 'test-key'
+
+        responses: list[_FakeResponse] = []
+
+        def get(*args: Any, **kwargs: Any) -> _FakeResponse:
+            return responses.pop(0)
+
+        monkeypatch.setattr(vlmrun_mod, '_vlmrun_sync_client', FakeClient)
+        monkeypatch.setattr(requests, 'get', get)
+        monkeypatch.setattr(vlmrun_mod.time, 'sleep', lambda _: None)
+        return responses
+
+    def test_ready_after_not_found(self, fake_get: list[_FakeResponse]) -> None:
+        from pixeltable.functions.vlmrun import _download_artifact
+
+        fake_get.extend([_FakeResponse(404), _FakeResponse(429), _FakeResponse(200, b'bytes')])
+        assert asyncio.run(_download_artifact('img_a1b2c3', 'sess')) == b'bytes'
+
+    @pytest.mark.parametrize('status_code', [400, 401, 403, 422])
+    def test_client_error_fails_fast(self, fake_get: list[_FakeResponse], status_code: int) -> None:
+        from pixeltable.functions.vlmrun import _download_artifact
+
+        fake_get.append(_FakeResponse(status_code, b'bad request'))
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match=f'failed with status {status_code}'):
+            asyncio.run(_download_artifact('img_a1b2c3', 'sess'))
+        assert fake_get == []  # no retry
+
+    def test_not_found_fails_after_grace(self, fake_get: list[_FakeResponse], monkeypatch: pytest.MonkeyPatch) -> None:
+        from pixeltable.functions import vlmrun as vlmrun_mod
+
+        monkeypatch.setattr(vlmrun_mod, '_ARTIFACT_NOT_FOUND_GRACE', 0.0)
+        fake_get.append(_FakeResponse(404, b'not found'))
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='not found after'):
+            asyncio.run(vlmrun_mod._download_artifact('img_a1b2c3', 'sess'))
+
+
+class TestVLMRunPollRedirect:
+    """Credential-free tests for `_poll_redirect()` response handling."""
+
+    @pytest.fixture
+    def fake_poll(self, monkeypatch: pytest.MonkeyPatch) -> list[httpx.Response]:
+        from pixeltable.functions import vlmrun as vlmrun_mod
+
+        class FakeClient:
+            api_key = 'test-key'
+
+        responses: list[httpx.Response] = []
+        real_async_client = httpx.AsyncClient
+        real_sleep = asyncio.sleep
+
+        def make_client(**kwargs: Any) -> httpx.AsyncClient:
+            transport = httpx.MockTransport(lambda _: responses.pop(0))
+            return real_async_client(transport=transport, **kwargs)
+
+        async def no_sleep(_: float) -> None:
+            await real_sleep(0)
+
+        monkeypatch.setattr(vlmrun_mod, '_vlmrun_client', FakeClient)
+        monkeypatch.setattr(httpx, 'AsyncClient', make_client)
+        monkeypatch.setattr(vlmrun_mod.asyncio, 'sleep', no_sleep)
+        return responses
+
+    def test_empty_body_is_not_ready(self, fake_poll: list[httpx.Response]) -> None:
+        from pixeltable.functions.vlmrun import _poll_redirect
+
+        fake_poll.extend(
+            [
+                httpx.Response(200, content=b''),
+                httpx.Response(201, content=b'  '),
+                httpx.Response(200, json={'id': 'x'}),
+            ]
+        )
+        assert asyncio.run(_poll_redirect('/v1/result/1', timeout=60)) == {'id': 'x'}
+
+    def test_non_json_body_raises(self, fake_poll: list[httpx.Response]) -> None:
+        from pixeltable.functions.vlmrun import _poll_redirect
+
+        fake_poll.append(httpx.Response(200, content=b'<html>gateway</html>'))
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='non-JSON body'):
+            asyncio.run(_poll_redirect('/v1/result/1', timeout=60))
+
+
+def test_vlmrun_config_section(tmp_path: Path) -> None:
+    """A `[vlmrun]` section in the config file is accepted and its values are readable."""
+    config_file = tmp_path / 'config.toml'
+    config_file.write_text('[vlmrun]\napi_key = "test-key"\nrate_limit = 30\n', encoding='utf-8')
+    cmd = (
+        'from pixeltable.config import Config\n'
+        'assert Config.get().get_string_value("api_key", section="vlmrun") == "test-key"\n'
+        'assert Config.get().get_int_value("rate_limit", section="vlmrun") == 30\n'
+    )
+    # environment variables take precedence over the config file
+    env = {k: v for k, v in os.environ.items() if not k.startswith('VLMRUN_')}
+    result = subprocess.run(
+        (sys.executable, '-c', cmd),
+        capture_output=True,
+        check=False,
+        env={**env, 'PIXELTABLE_CONFIG': str(config_file)},
+    )
+    assert result.returncode == 0, result.stderr.decode('utf-8')
 
 
 @pytest.mark.remote_api
