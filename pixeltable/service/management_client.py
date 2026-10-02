@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 import http.client
+import time
 from pathlib import Path
 from typing import Any, Literal
 
@@ -33,8 +34,9 @@ _LONG_OPS = frozenset(
     for op in (ManagementOperationType.UPDATE_DB, ManagementOperationType.DELETE_DB, ManagementOperationType.GET_LOGS)
 )
 
-# operations that don't change server state; can be sent multiple times
-_READ_OPS = frozenset(
+# operations whose second delivery changes nothing the first did not: reads, and a submission, whose repeat
+# returns the receipts the first was accepted as
+_IDEMPOTENT_OPS = frozenset(
     op.value
     for op in (
         ManagementOperationType.LIST_ALL_SECRETS,
@@ -45,8 +47,14 @@ _READ_OPS = frozenset(
         ManagementOperationType.LIST_SERVICE_INSTANCES,
         ManagementOperationType.GET_SERVICE_INSTANCE,
         ManagementOperationType.GET_LOGS,
+        ManagementOperationType.PREPARE_UPDATE,
+        ManagementOperationType.SUBMIT_UPDATE,
+        ManagementOperationType.GET_RECEIPTS,
     )
 )
+
+_IDEMPOTENT_ATTEMPTS = 3
+_IDEMPOTENT_BACKOFF = 2.0
 
 # what a 403 says the credential is not permitted to do
 _PURPOSES = {
@@ -66,6 +74,10 @@ _PURPOSES = {
     ManagementOperationType.STOP_DB.value: 'stop a database',
     ManagementOperationType.RESTART_DB.value: 'restart a database',
     ManagementOperationType.UPDATE_DB.value: 'create or update a database',
+    ManagementOperationType.PREPARE_UPDATE.value: 'read a database',
+    ManagementOperationType.SUBMIT_UPDATE.value: 'create or update a database or its services',
+    ManagementOperationType.GET_RECEIPTS.value: 'read a database',
+    ManagementOperationType.RETRY.value: 'retry a failed update',
     ManagementOperationType.GET_ARCHIVE.value: "download a database's project",
     ManagementOperationType.GET_LOGS.value: 'read logs',
     ManagementOperationType.CREATE_ORG.value: 'create an organization',
@@ -156,6 +168,10 @@ def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) ->
     if not 400 <= resp.status_code < 500 or resp.status_code == 429:
         return
     reason = _reason(resp)
+    if resp.status_code == 409:
+        raise excs.ConcurrencyError(
+            excs.ErrorCode.CONCURRENT_MODIFICATION, f'Pixeltable Cloud refused this request: {reason}.'
+        )
     if resp.status_code not in (401, 403):
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_BAD_REQUEST,
@@ -199,15 +215,22 @@ def api_call(request: Any, credential: Credential | None = None) -> dict[str, An
     body = request.model_dump_json(by_alias=True)
     sent = resolve('reach Pixeltable Cloud') if credential is None else credential
     headers = {'Content-Type': 'application/json', **sent.header()}
-    try:
-        resp = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
-    except requests.exceptions.ConnectionError:
-        # a pooled connection closed by the peer while idle fails the call that next picks it up.
-        # Retrying gets a new connection, but is only safe for operations that a second delivery
-        # cannot change.
-        if op_str not in _READ_OPS:
-            raise
-        resp = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
+    attempts = _IDEMPOTENT_ATTEMPTS if op_str in _IDEMPOTENT_OPS else 1
+    for attempt in range(1, attempts + 1):
+        try:
+            resp = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            # a pooled connection closed by the peer while idle fails the call that next picks it up, and a
+            # lost response leaves the outcome unknown; only a request whose second delivery changes nothing
+            # is sent again
+            if attempt == attempts:
+                raise
+            time.sleep(_IDEMPOTENT_BACKOFF * attempt)
+            continue
+        if resp.status_code in (502, 503, 504) and attempt < attempts:
+            time.sleep(_IDEMPOTENT_BACKOFF * attempt)
+            continue
+        break
     raise_if_refused(resp, sent, _PURPOSES.get(op_str, 'do this'))
     if resp.status_code not in (200, 201):
         raise excs.ExternalServiceError(

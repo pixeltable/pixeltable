@@ -1,8 +1,8 @@
 """The service instances of a hosted database, managed through the cloud's management API.
 
-The control plane owns their lifetime: this asks it to create, update, start, stop and delete an instance,
-and reports the state it comes back with. Every mutation is followed by polling until the state settles,
-since the control plane returns as soon as it has accepted the request.
+The control plane owns their lifetime: this submits an instance's desired spec, or asks it to start, stop,
+restart or delete one. It accepts each request as a generation of the instance and carries it out on its own;
+this waits on the generation's receipt until it settles.
 """
 
 from __future__ import annotations
@@ -13,23 +13,28 @@ from typing import Sequence
 import httpx
 
 from pixeltable import catalog, exceptions as excs
-from pixeltable.service import management_client
+from pixeltable.service import management_client, receipts
 from pixeltable.service.management_protocol import (
-    CreateServiceInstanceRequest,
     DeleteServiceInstanceRequest,
+    DeleteServiceInstanceResponse,
+    ExpectedGenerations,
     GetLogsRequest,
     GetLogsResponse,
     ListServiceInstancesRequest,
     ListServiceInstancesResponse,
     LogRecord,
+    PrepareUpdateRequest,
+    PrepareUpdateResponse,
     RestartServiceInstanceRequest,
     RestartServiceInstanceResponse,
-    StartServiceInstanceRequest,
+    ServiceGeneration,
+    ServiceMutation,
     StopServiceInstanceRequest,
-    UpdateServiceInstanceRequest,
-    UpdateServiceInstanceResponse,
+    StopServiceInstanceResponse,
+    SubmitUpdateRequest,
 )
 from pixeltable.utils.app_module import load_app_module, module_name, module_routers, service_spec, services_by_name
+from pixeltable_cli.types import GenerationReceipt
 
 from .service_instance import ServiceInstance, ServiceInstanceRecord, ServiceState
 from .service_manager import ServiceManagerBase
@@ -39,7 +44,6 @@ class ServiceManagerProxy(ServiceManagerBase):
     """The manager of service instances of one hosted database."""
 
     _POLL_INTERVAL = 5.0
-    _POLL_TIMEOUT = 300.0
     _ENDPOINT_TIMEOUT = 60.0
     _ENDPOINT_PROBE_TIMEOUT = 10.0
 
@@ -78,13 +82,23 @@ class ServiceManagerProxy(ServiceManagerBase):
         *,
         otel: bool = False,
         port: int | None = None,
-        restart: bool = False,
+        keep_release: bool = False,
+        expected_generation: int | None = None,
+        wait: bool = True,
     ) -> ServiceInstance:
-        """Make the named service in app_file serve base_path, and return its instance.
+        """Submit the named service in app_file as the desired spec of its instance at base_path.
 
-        An available instance is not stopped: an update replaces its pods in place when its definition changed.
-        restart: replace them with a restart when it did not, which moves them onto the database's current project.
-        A replacement whose new pods do not come up raises, also when the old ones keep serving.
+        A new instance runs the release of the database's current desired generation, and so does an existing one
+        unless keep_release, which keeps the release it is pinned to. An available instance is not stopped: the
+        control plane replaces its pods in place, and keeps the old ones serving until the new ones are ready.
+
+        The file sets the routes, the module and tracing; resources and description are kept from the instance's
+        desired spec, as read with the generation the submission is made against.
+
+        expected_generation: the generation of the instance the caller's plan was computed against, 0 for an absent
+            one; a submission against an older one is refused. None submits against the generation read here.
+        wait: wait for the generation to take effect, and raise if it fails or is replaced before it does.
+            Otherwise the returned instance carries the receipt the generation was accepted as.
         """
         if port is not None:
             raise excs.RequestError(
@@ -98,67 +112,78 @@ class ServiceManagerProxy(ServiceManagerBase):
             raise excs.NotFoundError(
                 excs.ErrorCode.SERVICE_NOT_FOUND, f'{app_file} defines no service named {name!r}; it defines: {defined}'
             )
-        spec = service_spec(name, services[name], module_routers(module))
-        app_module = module_name(app_file, subject='application file')
-        instance = self.get(name, base_path)
-
-        if instance is None:
-            management_client.api_call(
-                CreateServiceInstanceRequest(
-                    org=self._org,
-                    db=self._db,
-                    service_name=name,
-                    base_path=base_path,
-                    spec=spec,
-                    app_module=app_module,
-                    otel=otel,
-                )
+        exists = self.get(name, base_path) is not None if expected_generation is None else expected_generation > 0
+        mutation = ServiceMutation(
+            service_name=name,
+            base_path=base_path,
+            spec=service_spec(name, services[name], module_routers(module)),
+            app_module=module_name(app_file, subject='application file'),
+            otel=otel,
+            pin=('keep' if keep_release else 'latest') if exists else None,
+        )
+        prepared = PrepareUpdateResponse.model_validate(
+            management_client.api_call(PrepareUpdateRequest(org=self._org, db=self._db, service_mutations=[mutation]))
+        )
+        generation = prepared.generations.service(name, base_path)
+        if (generation > 0) != exists:
+            raise excs.ConcurrencyError(
+                excs.ErrorCode.CONCURRENT_MODIFICATION,
+                f'Service {name!r} was {"created" if generation > 0 else "deleted"} in '
+                f'{self.catalog_uri.uri_str} since this command read it; run the command again',
             )
-        else:
-            if (instance.spec, instance.record.app_module, instance.otel) != (spec, app_module, otel):
-                updated = UpdateServiceInstanceResponse.model_validate(
-                    management_client.api_call(
-                        UpdateServiceInstanceRequest(
-                            org=self._org,
-                            db=self._db,
-                            service_name=name,
-                            base_path=base_path,
-                            spec=spec,
-                            app_module=app_module,
-                            otel=otel,
-                        )
-                    )
-                )
-                instance = self._wait_for_roll(name, base_path, updated.instance)
-            elif restart and instance.state is ServiceState.AVAILABLE:
-                self.restart(instance)
-            if instance.state is ServiceState.AVAILABLE:
-                self._wait_for_endpoint(instance)
-                return instance
-            # only an instance found not serving gets here: a roll above came back or raised, because a Start after
-            # a failed roll would run the failed release again
-            management_client.api_call(
-                StartServiceInstanceRequest(org=self._org, db=self._db, service_name=name, base_path=base_path)
-            )
-
-        started = self._wait_for_state(name, base_path, ServiceState.AVAILABLE)
-        if started.state is not ServiceState.AVAILABLE:
-            detail = '' if started.record.error is None else f': {started.record.error}'
+        desired = next((m for m in prepared.services if (m.service_name, m.base_path) == (name, base_path)), None)
+        if generation > 0 and desired is None:
             raise excs.InternalError(
-                excs.ErrorCode.INTERNAL_ERROR, f'Service {name!r} did not start; it is {started.state.value}{detail}'
+                excs.ErrorCode.INTERNAL_ERROR,
+                f'Pixeltable Cloud reported service {name!r} at generation {generation} without its desired spec',
             )
-        self._wait_for_endpoint(started)
-        return started
+        if desired is not None:
+            mutation = mutation.model_copy(
+                update={
+                    'workers': desired.workers,
+                    'cpu': desired.cpu,
+                    'memory_mb': desired.memory_mb,
+                    'disk_gb': desired.disk_gb,
+                    'description': desired.description,
+                }
+            )
+        expected = ServiceGeneration(
+            service_name=name,
+            base_path=base_path,
+            generation=generation if expected_generation is None else expected_generation,
+        )
+        request = SubmitUpdateRequest(
+            org=self._org,
+            db=self._db,
+            service_mutations=[mutation],
+            expected_generations=ExpectedGenerations(services=[expected]),
+        )
+        accepted = receipts.submit(self.catalog_uri, request)
+        if wait:
+            return self._settle(name, base_path, accepted)
+        submitted = self.get(name, base_path)
+        if submitted is None:
+            raise excs.InternalError(
+                excs.ErrorCode.INTERNAL_ERROR,
+                f'Service {name!r} is not in {self.catalog_uri.uri_str} after its submission',
+            )
+        submitted.record = submitted.record.model_copy(
+            update={'receipt': self._required(name, next(iter(accepted), None))}
+        )
+        return submitted
 
     def stop(self, instance: ServiceInstance) -> None:
-        management_client.api_call(
-            StopServiceInstanceRequest(
-                org=self._org, db=self._db, service_name=instance.service_name, base_path=instance.base_path
+        stopped = StopServiceInstanceResponse.model_validate(
+            management_client.api_call(
+                StopServiceInstanceRequest(
+                    org=self._org, db=self._db, service_name=instance.service_name, base_path=instance.base_path
+                )
             )
         )
-        self._wait_for_state(instance.service_name, instance.base_path, ServiceState.STOPPED)
+        self._await([self._required(instance.service_name, stopped.receipt)])
 
     def restart(self, instance: ServiceInstance) -> None:
+        """Cycle instance's pods onto the release it is pinned to."""
         restarting = RestartServiceInstanceResponse.model_validate(
             management_client.api_call(
                 RestartServiceInstanceRequest(
@@ -166,16 +191,34 @@ class ServiceManagerProxy(ServiceManagerBase):
                 )
             )
         )
-        restarted = self._wait_for_roll(instance.service_name, instance.base_path, restarting.instance)
-        self._wait_for_endpoint(restarted)
+        receipt = self._required(instance.service_name, restarting.receipt)
+        self._settle(instance.service_name, instance.base_path, [receipt])
+
+    def retry(self, instance: ServiceInstance) -> ServiceInstance | None:
+        """Start a new attempt of instance's current generation, which has to have failed.
+
+        Returns the instance it left, or None if the generation was a deletion.
+        """
+        receipt = instance.record.receipt
+        if receipt is None or not receipt.failed:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE,
+                f'the current generation of service {instance.service_name!r} has not failed; nothing to retry',
+            )
+        settled = self._await([receipts.retry(self.catalog_uri, receipt)])
+        if self.get(instance.service_name, instance.base_path) is None:
+            return None
+        return self._settle(instance.service_name, instance.base_path, settled)
 
     def delete(self, instance: ServiceInstance) -> None:
-        management_client.api_call(
-            DeleteServiceInstanceRequest(
-                org=self._org, db=self._db, service_name=instance.service_name, base_path=instance.base_path
+        deleted = DeleteServiceInstanceResponse.model_validate(
+            management_client.api_call(
+                DeleteServiceInstanceRequest(
+                    org=self._org, db=self._db, service_name=instance.service_name, base_path=instance.base_path
+                )
             )
         )
-        self._wait_for_deleted(instance.service_name, instance.base_path)
+        self._await([self._required(instance.service_name, deleted.receipt)])
 
     def logs(
         self, instance: ServiceInstance, *, since_seconds: int, limit: int, include_health: bool
@@ -200,53 +243,28 @@ class ServiceManagerProxy(ServiceManagerBase):
             return True
         return recursive and (base_path == '' or record.base_path.startswith(f'{base_path}/'))
 
-    def _wait_for_state(self, name: str, base_path: str, expected: ServiceState) -> ServiceInstance:
-        """Poll the named instance until it reaches expected or fails, and return it."""
-        deadline = time.monotonic() + self._POLL_TIMEOUT
-        while True:
-            instance = self.get(name, base_path)
-            if instance is None:
-                raise excs.InternalError(
-                    excs.ErrorCode.INTERNAL_ERROR, f'Service {name!r} is no longer in {self.catalog_uri.uri_str}'
-                )
-            if instance.state in (expected, ServiceState.FAILED):
-                return instance
-            if time.monotonic() >= deadline:
-                raise excs.InternalError(
-                    excs.ErrorCode.INTERNAL_ERROR,
-                    f'Service {name!r} is {instance.state.value} rather than {expected.value} '
-                    f'after {self._POLL_TIMEOUT:.0f}s',
-                )
-            time.sleep(self._POLL_INTERVAL)
-
-    def _wait_for_roll(self, name: str, base_path: str, answered: ServiceInstanceRecord) -> ServiceInstance:
-        """Poll the named instance until the roll that an update or a restart started settles, and return it.
-
-        answered: the instance as the control plane answered that request. A roll that ends FAILED raises with the
-        instance's error, and so does one that ended back on the old pods (see _raise_if_not_updated).
-        """
-        rolled = self._wait_for_state(name, base_path, ServiceState.AVAILABLE)
-        if rolled.state is not ServiceState.AVAILABLE:
-            detail = '' if rolled.record.error is None else f': {rolled.record.error}'
-            raise excs.InternalError(
-                excs.ErrorCode.INTERNAL_ERROR, f'Service {name!r} did not come back; it is {rolled.state.value}{detail}'
-            )
-        self._raise_if_not_updated(answered, rolled)
-        return rolled
-
-    def _raise_if_not_updated(self, answered: ServiceInstanceRecord, settled: ServiceInstance) -> None:
-        """Raise if the roll a request started ended back on the pods that served before it.
-
-        answered: the instance as the control plane answered the request. A roll of an instance it routes (UPDATING)
-        whose new pods do not come up leaves the old ones serving, AVAILABLE with error saying so. A request that
-        started no roll leaves an earlier roll's error in place, so error is not read then.
-        """
-        rolled = answered.state is ServiceState.UPDATING
-        if rolled and settled.state is ServiceState.AVAILABLE and settled.record.error is not None:
+    def _required(self, name: str, receipt: GenerationReceipt | None) -> GenerationReceipt:
+        if receipt is None:
             raise excs.InternalError(
                 excs.ErrorCode.INTERNAL_ERROR,
-                f'Service {settled.service_name!r} was not updated: {settled.record.error}',
+                f'Pixeltable Cloud accepted a change to service {name!r} without a receipt',
             )
+        return receipt
+
+    def _await(self, accepted: Sequence[GenerationReceipt]) -> Sequence[GenerationReceipt]:
+        return receipts.await_receipts(self.catalog_uri, accepted)
+
+    def _settle(self, name: str, base_path: str, accepted: Sequence[GenerationReceipt]) -> ServiceInstance:
+        """Wait on the receipts a change to the named instance was accepted as, and return the instance it left."""
+        self._await(accepted)
+        instance = self.get(name, base_path)
+        if instance is None:
+            raise excs.InternalError(
+                excs.ErrorCode.INTERNAL_ERROR, f'Service {name!r} is no longer in {self.catalog_uri.uri_str}'
+            )
+        if instance.state is ServiceState.AVAILABLE:
+            self._wait_for_endpoint(instance)
+        return instance
 
     def _wait_for_endpoint(self, instance: ServiceInstance) -> None:
         """Poll an available instance's endpoint until a request reaches the pod behind it.
@@ -272,16 +290,5 @@ class ServiceManagerProxy(ServiceManagerBase):
                     excs.ErrorCode.INTERNAL_ERROR,
                     f'Service {instance.service_name!r} is available, but {endpoint} did not answer within '
                     f'{self._ENDPOINT_TIMEOUT:.0f}s',
-                )
-            time.sleep(self._POLL_INTERVAL)
-
-    def _wait_for_deleted(self, name: str, base_path: str) -> None:
-        """Poll the named instance until it's gone."""
-        deadline = time.monotonic() + self._POLL_TIMEOUT
-        while self.get(name, base_path) is not None:
-            if time.monotonic() >= deadline:
-                raise excs.InternalError(
-                    excs.ErrorCode.INTERNAL_ERROR,
-                    f'Service {name!r} is still in {self.catalog_uri.uri_str} after {self._POLL_TIMEOUT:.0f}s',
                 )
             time.sleep(self._POLL_INTERVAL)

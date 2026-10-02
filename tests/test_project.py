@@ -130,10 +130,10 @@ class TestProject:
         assert after.compare(before) == {IMAGE, ARCHIVE}
         assert after.image_digest() != before.image_digest()
 
-        # an image build installs the wheel whatever the archive holds, so the digest tracks it under exclude
+        # the cloud builds the image from the archive, so the archive holds the wheel even under exclude
         excluded = DatabaseConfig(exclude=['wheels/**'])
         before = project_fingerprint(project, excluded)
-        assert 'wheels/dep-1.0-py3-none-any.whl' not in self._names(project, excluded)
+        assert 'wheels/dep-1.0-py3-none-any.whl' in self._names(project, excluded)
         (project / 'wheels' / 'dep-1.0-py3-none-any.whl').write_bytes(b'third build')
         assert project_fingerprint(project, excluded).image_digest() != before.image_digest()
 

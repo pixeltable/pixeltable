@@ -23,6 +23,7 @@ from pixeltable.utils.app_module import (
 from pixeltable.utils.project import ProjectFingerprint, project_fingerprint
 from pixeltable_cli.types import (
     CheckReport,
+    OpStatus,
     Resolution,
     RouteComparison,
     RouteSpec,
@@ -47,7 +48,9 @@ def _base_path(target: PxtPath) -> str:
     return '/'.join(catalog.Path.parse(target, allow_empty_path=True).components)
 
 
-def service_diff(app_file: str, target: PxtPath, *, service_name: str | None = None, otel: bool = False) -> ServicePlan:
+def service_diff(
+    app_file: str, target: PxtPath, *, service_name: str | None = None, otel: bool = False, keep_release: bool = False
+) -> ServicePlan:
     """The plan to reconcile the services at target with what's in app_file.
 
     service_name narrows the plan to that one service; the file has to define it.
@@ -66,7 +69,7 @@ def service_diff(app_file: str, target: PxtPath, *, service_name: str | None = N
         app_file=app_file,
         target=target,
         services=[
-            _service_diff(name, service, running.get(name), app_info, target, otel)
+            _service_diff(name, service, running.get(name), app_info, target, otel, keep_release)
             for name, service in sorted(app_info.services.items())
             if service_name is None or name == service_name
         ],
@@ -83,6 +86,9 @@ def service_update(
     allow_destructive: bool = False,
     otel: bool = False,
     port: int | None = None,
+    keep_release: bool = False,
+    expected_generations: dict[str, int] | None = None,
+    wait: bool = True,
 ) -> ServicePlan:
     """Reconcile the services at target with what's in app_file.
 
@@ -101,9 +107,15 @@ def service_update(
         allow_destructive: whether to apply changes that stop serving a route callers may be using.
         port: the loopback port to serve on. None keeps a restarted service on its current port, and asks the
             OS for one when starting a service that was not running.
+        keep_release: keep a hosted service on the release it is pinned to, rather than move it onto the
+            database's current release.
+        expected_generations: by service name, the generation of each hosted service the caller's plan was
+            computed against; a change against an older one is refused.
+        wait: wait for a hosted service's change to take effect. Otherwise each applied service carries the
+            receipt its change was accepted as.
     """
     manager = get_manager(target)
-    plan = service_diff(app_file, target, service_name=service_name, otel=otel)
+    plan = service_diff(app_file, target, service_name=service_name, otel=otel, keep_release=keep_release)
     destructive = [d.name for d in plan.services if d.resolution == 'update_destructive']
     if len(destructive) > 0 and not allow_destructive:
         names = ', '.join(repr(name) for name in destructive)
@@ -125,7 +137,17 @@ def service_update(
         if isinstance(manager, ServiceManagerProxy):
             # a hosted instance is replaced in place rather than stopped, so that the control plane can keep its
             # old pods serving until the new ones are ready
-            started = manager.start(app_file, diff.name, _base_path(target), otel=otel, port=port, restart=True)
+            started = manager.start(
+                app_file,
+                diff.name,
+                _base_path(target),
+                otel=otel,
+                port=port,
+                keep_release=keep_release,
+                expected_generation=(expected_generations or {}).get(diff.name, diff.generation),
+                wait=wait,
+            )
+            diff.receipt = started.record.receipt
         else:
             instance = running.get(diff.name)
             # a restart keeps the service's port, so that its callers are not redirected
@@ -136,12 +158,13 @@ def service_update(
                 # the running service serves the old definition; binding happens once per process, so it is replaced
                 instance.stop()
             started = manager.start(app_file, diff.name, _base_path(target), otel=otel, port=service_port)
-        diff.status = 'applied'
+        status: OpStatus = 'accepted' if isinstance(manager, ServiceManagerProxy) and not wait else 'applied'
+        diff.status = status
         diff.state = started.state
         diff.endpoint = started.endpoint
         diff.exists = True
         for op in diff.ops:
-            op.status = 'skipped' if op.severity == 'blocked' else 'applied'
+            op.status = 'skipped' if op.severity == 'blocked' else status
     return plan
 
 
@@ -198,6 +221,21 @@ def service_restart(names: list[str]) -> list[ServiceChangeOp]:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} is ambiguous; it names {found_at}')
         found[0].restart()
         ops.append(ServiceChangeOp.restart_service(name, found[0].endpoint, 'applied'))
+    return ops
+
+
+def service_retry(names: list[str]) -> list[ServiceChangeOp]:
+    """Start a new attempt of the failed current generation of each named hosted instance."""
+    ops: list[ServiceChangeOp] = []
+    for name in names:
+        found = _resolve_service_instances(name)
+        if len(found) == 0:
+            raise excs.NotFoundError(excs.ErrorCode.SERVICE_NOT_FOUND, f'No service {name!r} is running')
+        if len(found) > 1:
+            found_at = ', '.join(sorted(f'{i.base_path}/{i.service_name}'.lstrip('/') for i in found))
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} is ambiguous; it names {found_at}')
+        retried = found[0].retry()
+        ops.append(ServiceChangeOp.restart_service(name, None if retried is None else retried.endpoint, 'applied'))
     return ops
 
 
@@ -309,7 +347,7 @@ def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
         },
         model_mismatch_reason=validate_models(needed, target),
         db_uri=catalog_path.uri_str,
-        target_db_fingerprint=db_fingerprint(catalog_path),
+        target_db_fingerprint=db_fingerprint(catalog_path, desired=True),
         local_fingerprint=project_fingerprint(project_root, db_config),
     )
 
@@ -321,6 +359,7 @@ def _service_diff(
     app_info: _AppInfo,
     target: PxtPath,
     otel: bool,
+    keep_release: bool = False,
 ) -> ServiceDiff:
     """How the instance of one service at target differs from what's reflected in app_info."""
     ops: list[ServiceChangeOp] = []
@@ -353,7 +392,11 @@ def _service_diff(
                 command=f'pxt db update {app_info.db_uri}',
             )
         )
-    elif running is not None and running.record.fingerprint is not None:
+    elif (
+        running is not None
+        and running.record.fingerprint is not None
+        and (isinstance(running.record, LocalServiceInstanceRecord) or not keep_release)
+    ):
         # a hosted instance reports none until its pod loads one; there is nothing to compare against yet
         stale = app_info.local_fingerprint.compare(running.record.fingerprint)
         if len(stale) > 0:
@@ -362,6 +405,19 @@ def _service_diff(
                     app_info.local_fingerprint.changes(running.record.fingerprint, stale)
                 )
             )
+
+    hosted = running is not None and not isinstance(running.record, LocalServiceInstanceRecord)
+    receipt = None if running is None else running.record.receipt
+    if hosted and receipt is not None and not receipt.observed:
+        ops.append(ServiceChangeOp.unsettled_generation(receipt))
+    if (
+        hosted
+        and running is not None
+        and running.record.update_pending
+        and not keep_release
+        and not any(op.target == 'project' for op in ops)
+    ):
+        ops.append(ServiceChangeOp.release_changed())
 
     if app_info.model_mismatch_reason is not None:
         command = f'pxt schema update {app_info.app_file}' + ('' if target == '' else f' {target}')
@@ -385,9 +441,13 @@ def _service_diff(
     else:
         resolution = 'up_to_date'
 
+    generation: int | None = None
+    if app_info.db_uri != '':
+        generation = 0 if running is None else None if receipt is None else receipt.generation
     return ServiceDiff(
         name=name,
         exists=running is not None,
+        generation=generation,
         state=None if running is None else running.state,
         endpoint=None if running is None else running.endpoint,
         catalog_path=target,

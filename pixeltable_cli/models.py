@@ -3,6 +3,7 @@ from typing import Annotated, Any, Literal
 from pydantic import AfterValidator, BaseModel, Field
 
 from pixeltable_cli import utils
+from pixeltable_cli.types import DbChangeOp, GenerationReceipt
 
 
 def _validate_pxt_path(v: str | None) -> str | None:
@@ -259,6 +260,7 @@ class ServiceDiffBody(BaseModel):
     target: PxtPath  # the catalog directory the services' models bind against
     service_name: str | None = None  # the only service to compare; None compares all of them
     otel: bool = False  # compares the instances against this tracing setting
+    keep_release: bool = False
 
 
 class ServicePruneBody(BaseModel):
@@ -274,6 +276,9 @@ class ServiceUpdateBody(BaseModel):
     allow_destructive: bool = False
     otel: bool = False
     port: int | None = None  # the loopback port to serve on; None keeps the one a restarted service had
+    keep_release: bool = False
+    expected_generations: dict[str, int] | None = None
+    wait: bool = True
 
 
 class DbDiffBody(BaseModel):
@@ -283,10 +288,38 @@ class DbDiffBody(BaseModel):
 class DbUpdateBody(BaseModel):
     db_uri: DbUri
     allow_destructive: bool = False
+    expected_generation: int | None = None
+    wait: bool = True
 
 
 class DbBuildImageBody(BaseModel):
     db_uri: DbUri
+    wait: bool = True
+
+
+class DbBuildImageResponse(BaseModel):
+    ops: list[DbChangeOp]
+    receipts: list[GenerationReceipt] = Field(default_factory=list)
+
+
+class ReceiptsBody(BaseModel):
+    db_uri: DbUri
+    receipts: list[GenerationReceipt]
+
+
+class ReceiptsResponse(BaseModel):
+    receipts: list[GenerationReceipt]
+
+
+class DbLifecycleBody(BaseModel):
+    db_uri: DbUri
+    wait: bool = True
+
+
+class DbLifecycleResponse(BaseModel):
+    receipt: GenerationReceipt
+    report: dict[str, Any] = Field(default_factory=dict)
+    worker_status: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ServiceStopBody(BaseModel):
