@@ -9,8 +9,9 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
+import numpy as np
 import PIL.Image
 import pytest
 import requests
@@ -18,8 +19,10 @@ import requests
 import pixeltable as pxt
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.exec import CellMaterializationNode
 from pixeltable.functions.net import presigned_url
 from pixeltable.functions.video import extract_frame
+from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectPath, StorageTarget
 
@@ -592,6 +595,81 @@ class TestDestination:
         pxt.drop_table(t)
         assert ObjectOps.count(save_id, dest=home) == 0
         assert ObjectOps.count(save_id, dest=elsewhere) == 0
+
+    CELL_FILES_SCHEMA: ClassVar[dict[str, Any]] = {
+        'id': pxt.Int,
+        'ar': pxt.Array | None,
+        'bin': pxt.Binary | None,
+        'j': pxt.Json | None,
+    }
+
+    @classmethod
+    def check_cell_files(cls, t: pxt.Table, dest: str) -> None:
+        """Insert array, binary and json values too large for the db column, and check that dest stores them."""
+        rng = np.random.default_rng(0)
+
+        def small_row(i: int) -> dict[str, Any]:
+            return {
+                'id': i,
+                'ar': rng.random(1000, dtype=np.float32),
+                'bin': rng.bytes(2**10),
+                'j': {
+                    'img': PIL.Image.new('RGB', (16, 8), color=(i, 2, 3)),
+                    'ar': rng.random(100),
+                    'bin': rng.bytes(600),
+                },
+            }
+
+        large_ar = rng.random(CellMaterializationNode.MIN_FILE_SIZE // 4, dtype=np.float32)
+        rows = [small_row(0), {'id': 1, 'ar': large_ar}, small_row(2)]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+        # the large array gets a file of its own, between those of its neighbors
+        assert ObjectOps.count(t._id, dest=dest) == 3
+
+        # read the files back from dest rather than from a cached copy
+        FileCache.get().clear()
+        res = t.order_by(t.id).collect()
+        for row, expected in zip(res, rows):
+            assert np.array_equal(row['ar'], expected['ar'])
+            assert row['bin'] == expected.get('bin')
+            if expected.get('j') is None:
+                assert row['j'] is None
+                continue
+            assert np.array_equal(row['j']['ar'], expected['j']['ar'])
+            assert row['j']['bin'] == expected['j']['bin']
+            assert isinstance(row['j']['img'], PIL.Image.Image) and row['j']['img'].size == (16, 8)
+        # a json path reconstructs the objects it selects
+        res = t.where(t.id != 1).order_by(t.id).select(ar=t.j.ar, img=t.j.img).collect()
+        assert all(np.array_equal(row['ar'], expected['j']['ar']) for row, expected in zip(res, rows[::2]))
+        assert all(isinstance(row['img'], PIL.Image.Image) for row in res)
+
+    @pytest.mark.db_roots('cloud', reason='the home bucket default applies to a hosted database only')
+    def test_home_bucket_cell_files(self, db_root: DatabaseRoot) -> None:
+        """A hosted database keeps large array, binary and json values in its home bucket, not on its pod's disk."""
+        home = home_bucket_uri(db_root.base_uri)
+        t = pxt.create_table(db_root.make_catalog_path('home_cell_files'), self.CELL_FILES_SCHEMA)
+        self.check_cell_files(t, home)
+
+        tbl_id = t._id
+        pxt.drop_table(t)
+        assert ObjectOps.count(tbl_id, dest=home) == 0
+
+    @pytest.mark.db_roots('local', reason='sets the cell materialization destination in-process')
+    @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS.values())
+    def test_cell_materialization_dest(
+        self, monkeypatch: pytest.MonkeyPatch, uses_db: None, dest_id: StorageTarget
+    ) -> None:
+        """Large array, binary and json values go to Env.cell_materialization_dest, as they do for a hosted database."""
+        dest = self.resolve_destination_uri(dest_id)
+        assert dest is not None
+        monkeypatch.setattr(Env.get(), '_cell_materialization_dest', dest)
+        t = pxt.create_table('cell_files', self.CELL_FILES_SCHEMA)
+        self.check_cell_files(t, dest)
+        assert LocalStore(Env.get().media_dir).count(t._id) == 0
+
+        tbl_id = t._id
+        pxt.drop_table(t)
+        assert ObjectOps.count(tbl_id, dest=dest) == 0
 
     @pytest.mark.db_roots('local', reason='media destination/object-store internals')
     @pytest.mark.very_expensive
