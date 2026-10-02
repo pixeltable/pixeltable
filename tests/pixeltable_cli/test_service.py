@@ -68,14 +68,14 @@ from .hosted import (
     service_update,
 )
 
-__all__ = ['current_db', 'project']  # fixtures TestHostedService reaches, directly or through another
+__all__ = ['current_db', 'project']  # fixtures TestCloudService reaches, directly or through another
 
 _REQUEST_TIMEOUT = 30.0
 
 
 @pytest.fixture(scope='module')
 def hosted_db(session_cli: PxtRunner, session_project: pathlib.Path) -> Iterator[str]:
-    """A database for TestHostedService alone.
+    """A database for TestCloudService alone.
 
     Its scenarios publish their own project with `pxt db update`, which replaces what the database serves,
     so no other test can use it. Creating one runs CodeBuild, hence the module scope.
@@ -1164,11 +1164,9 @@ class TestService:
         assert updated == {'id': created['id'], 'title_upper': 'RENAMED'}
 
 
-@pytest.mark.remote_api
-@pytest.mark.expensive
 @pytest.mark.db_roots('local', reason='pxt service acts on a hosted database, not on the catalog a test runs against')
 @pytest.mark.usefixtures('hosted_environment')
-class TestHostedService:
+class TestCloudService:
     """`pxt service` against a hosted database."""
 
     def test_service_lifecycle(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:

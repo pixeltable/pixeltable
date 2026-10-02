@@ -22,14 +22,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator
 from uuid import UUID
 
 import httpx
-from tenacity import (
-    before_sleep_log,
-    retry,
-    retry_if_exception_type,
-    retry_if_not_exception_type,
-    stop_after_delay,
-    wait_exponential_jitter,
-)
+from tenacity import before_sleep_log, retry, retry_if_exception_type, stop_after_delay, wait_exponential_jitter
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog.update_status import UpdateStatus
@@ -39,6 +32,7 @@ from pixeltable.utils.http import fetch_url
 from pixeltable.utils.local_store import TempStore
 
 from . import proxy_protocol
+from .management_client import Credential, is_refusal, refusal
 from .proxy_protocol import (
     InlinePartSink,
     MediaPath,
@@ -219,14 +213,14 @@ class TunnelTransport(Transport):
     _db: str
 
     # needed per handshake; not static
-    _credential_cb: Callable[[], str]
+    _credential_cb: Callable[[], Credential]
 
     _host: str
     _port: int
     _endpoint: str
     _pool: _TunnelPool
 
-    def __init__(self, org: str, db: str, credential_cb: Callable[[], str], host: str, port: int):
+    def __init__(self, org: str, db: str, credential_cb: Callable[[], Credential], host: str, port: int):
         self._org = org
         self._db = db
         self._credential_cb = credential_cb
@@ -258,7 +252,7 @@ class TunnelTransport(Transport):
 
             # the sidecar authenticates the credential and routes the tunnel to org/db, then relays to the
             # proxy daemon's HTTP server; it answers 'PXT/1.0 200' on success (checked below)
-            frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {credential}\r\n\r\n'
+            frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {credential.value}\r\n\r\n'
             ssl_sock.sendall(frame.encode())
 
             buf = b''
@@ -270,7 +264,7 @@ class TunnelTransport(Transport):
 
             first_line = buf.split(b'\r\n')[0].decode()
             if not first_line.startswith('PXT/1.0 200'):
-                raise PermissionError(f'PXT/1.0 handshake rejected: {first_line}')
+                raise self._handshake_error(first_line, credential)
 
             # Switch from the connect-phase timeout to the RPC timeout now that the handshake is done;
             # otherwise the socket would time out on any request that takes longer than _CONNECT_TIMEOUT.
@@ -280,11 +274,19 @@ class TunnelTransport(Transport):
             (ssl_sock or raw_sock).close()
             raise
 
+    def _handshake_error(self, status_line: str, sent: Credential) -> Exception:
+        """A refusal reads as the control plane's does, naming the credential; any other status is retried."""
+        _, _, status = status_line.partition(' ')
+        code, _, reason = status.partition(' ')
+        if code.isdigit() and is_refusal(int(code)):
+            return refusal(int(code), reason or f'HTTP {code}', sent, f'connect to pxt://{self._org}:{self._db}')
+        return ConnectionError(f'PXT/1.0 handshake failed: {status_line}')
+
     def _request(self, method: str, path: str, body: bytes | None = None, content_type: str | None = None) -> bytes:
         """Borrow a tunnel connection, issue one request, return the raw body.
 
         A failure that leaves the request undelivered (connect, handshake, writing it) is retried with
-        backoff on a fresh connection, as is a 5xx; auth rejection (PermissionError) and non-5xx HTTP errors
+        backoff on a fresh connection, as is a 5xx; a refused credential and non-5xx HTTP errors
         are not.
 
         A connection that fails *after* the daemon has received the request is treated as a server crash and is
@@ -293,7 +295,7 @@ class TunnelTransport(Transport):
         headers = {'Content-Type': content_type} if content_type else {}
 
         @retry(
-            retry=retry_if_exception_type(_TUNNEL_TRANSIENT_EXC) & retry_if_not_exception_type(PermissionError),
+            retry=retry_if_exception_type(_TUNNEL_TRANSIENT_EXC),
             wait=wait_exponential_jitter(initial=0.5, max=5.0),
             stop=stop_after_delay(_TUNNEL_RETRY_MAX_DELAY),
             before_sleep=before_sleep_log(_logger, logging.DEBUG),
@@ -364,7 +366,7 @@ class ProxyClient:
         return cls(HttpTransport(endpoint))
 
     @classmethod
-    def remote(cls, org: str, db: str, credential_cb: Callable[[], str], host: str, port: int) -> ProxyClient:
+    def remote(cls, org: str, db: str, credential_cb: Callable[[], Credential], host: str, port: int) -> ProxyClient:
         """Connect to the Pixeltable cloud service's proxy daemon over an authenticated TLS tunnel."""
         return cls(TunnelTransport(org, db, credential_cb, host=host, port=port))
 
