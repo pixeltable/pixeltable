@@ -14,6 +14,7 @@ from typing import Iterator
 
 import pytest
 
+from ..utils import DatabaseRoot
 from .conftest import PxtRunner
 
 _ORG_URI = 'pxt://{org}:main'
@@ -40,6 +41,21 @@ def _org(cli: PxtRunner) -> str:
     return str(orgs[0]['org'])
 
 
+def _with_unknown_key(daemon_port: int, cwd: pathlib.Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Run the CLI with a key nobody issued."""
+    # a daemon of the test's own: the CLI's requests go through its daemon, which reads the key at startup
+    return subprocess.run(
+        ['pxt', *args],
+        env={**os.environ, 'PXT_PORT': str(daemon_port), 'PIXELTABLE_API_KEY': 'sk-pxttest-never-issued'},
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        timeout=180,
+    )
+
+
 @pytest.mark.db_roots('local', reason='pxt key acts on an organization, never on a catalog')
 @pytest.mark.usefixtures('hosted_environment')
 class TestCloudKey:
@@ -55,17 +71,16 @@ class TestCloudKey:
 
     def test_unknown_key_is_rejected(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         """The control plane refuses a key it never issued, and the error names where the key came from."""
-        # a daemon of the test's own: the CLI's requests go through its daemon, which reads the key at startup
-        r = subprocess.run(
-            ['pxt', 'key', 'list'],
-            env={**os.environ, 'PXT_PORT': str(daemon_port), 'PIXELTABLE_API_KEY': 'sk-pxttest-never-issued'},
-            cwd=tmp_path,
-            capture_output=True,
-            text=True,
-            check=False,
-            stdin=subprocess.DEVNULL,
-            timeout=180,
-        )
+        r = _with_unknown_key(daemon_port, tmp_path, 'key', 'list')
+        assert r.returncode == 1, r.stderr
+        assert 'The API key from the PIXELTABLE_API_KEY environment variable was rejected' in r.stderr, r.stderr
+
+    @pytest.mark.db_roots('cloud-cli', reason="only a hosted database's tunnel checks the key")
+    def test_unknown_key_is_rejected_by_tunnel(
+        self, daemon_port: int, tmp_path: pathlib.Path, db_root: DatabaseRoot
+    ) -> None:
+        """The tunnel to a hosted database refuses that key with the same error as the control plane."""
+        r = _with_unknown_key(daemon_port, tmp_path, 'ls', db_root.prefix)
         assert r.returncode == 1, r.stderr
         assert 'The API key from the PIXELTABLE_API_KEY environment variable was rejected' in r.stderr, r.stderr
 
