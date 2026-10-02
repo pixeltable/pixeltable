@@ -6,6 +6,9 @@ drive the same commands against a configured environment and read every result b
 list`, so a write that is reported but never stored fails here.
 """
 
+import os
+import pathlib
+import subprocess
 import uuid
 from typing import Iterator
 
@@ -49,6 +52,22 @@ class TestCloudKey:
         assert answer['accepted']
         # the identity fields describe a session, so an API key leaves them empty
         assert answer['email'] == ''
+
+    def test_unknown_key_is_rejected(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """The control plane refuses a key it never issued, and the error names where the key came from."""
+        # a daemon of the test's own: the CLI's requests go through its daemon, which reads the key at startup
+        r = subprocess.run(
+            ['pxt', 'key', 'list'],
+            env={**os.environ, 'PXT_PORT': str(daemon_port), 'PIXELTABLE_API_KEY': 'sk-pxttest-never-issued'},
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            timeout=180,
+        )
+        assert r.returncode == 1, r.stderr
+        assert 'The API key from the PIXELTABLE_API_KEY environment variable was rejected' in r.stderr, r.stderr
 
     def test_key_create(self, cli: PxtRunner, key_name: str) -> None:
         """A key with no grants acts as its creator, and its secret is shown once."""
