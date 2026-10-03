@@ -1,15 +1,28 @@
-"""`pxt db {diff,update,list,status,logs,start,stop,build-image,delete}` - manage hosted databases."""
+"""`pxt db {diff,update,list,status,logs,start,stop,restart,retry,build-image,delete}` - manage hosted databases."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+from typing import Any
 
 import pydantic
 
-from ...types import DbChangeOp, DbPlan, DbState, Resolution
-from ..hosted import add_logs_args, exit_unless_reached, poll_db, print_db, print_logs, resolve_db_uri, spinner
+from ...models import DbBuildImageResponse, DbLifecycleResponse
+from ...types import DbPlan, GenerationReceipt, Resolution, ResourcePhase
+from ..hosted import (
+    add_logs_args,
+    await_receipts,
+    describe_receipt,
+    exit_unless_observed,
+    parse_db_uri,
+    print_db,
+    print_logs,
+    print_receipt,
+    resolve_db_uri,
+    spinner,
+)
 from ..parser import Parser
 from ..utils import (
     EXIT_CHANGES_PENDING,
@@ -26,6 +39,7 @@ Examples:
   pxt db diff pxt://org:db     # what update would change; exit 2 if anything is pending
   pxt db diff --json-schema    # the schema of the --json output, on its own
   pxt db update pxt://org:db   # apply it: the artifacts, then capacity
+  pxt db update pxt://org:db --no-wait   # submit it and return; Pixeltable Cloud carries it out
   pxt db list
   pxt db status pxt://org:db
   pxt db status --json-schema  # the schema of its --json output, on its own
@@ -34,6 +48,7 @@ Examples:
   pxt db start pxt://org:db
   pxt db stop pxt://org:db
   pxt db restart pxt://org:db   # cycle its pods onto the image and project it runs
+  pxt db retry pxt://org:db     # try a failed update again
   pxt db build-image pxt://org:db   # build an image without comparing first
   pxt db delete pxt://org:db -f   # no confirmation
 
@@ -46,6 +61,11 @@ The entry says which of the project's files the database gets (include/exclude),
 the image (system_dependencies, python_version), and what the database runs on (cpu, memory_mb,
 disk_gb, workers). 'diff' compares the entry against the database; 'update' applies the difference.
 Secrets are set separately, with 'pxt secret'.
+
+An update, start, stop, restart, retry, image build or delete is accepted before it takes effect, and
+Pixeltable Cloud carries it out whether or not the command waits for it: interrupting the command leaves it
+running, and --no-wait returns as soon as it is accepted. Running the same update again reports the one
+already accepted, and retries it if it failed.
 
 Exit status of diff and update: 0 in agreement, 2 changes pending, 3 refused, 1 error.
 """
@@ -79,6 +99,7 @@ def run(argv: list[str]) -> None:
                 dest='allow_destructive',
                 help='permit changes that take capacity away',
             )
+            _add_no_wait(p)
 
     p = sub.add_parser('list', help='list hosted databases')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
@@ -91,26 +112,27 @@ def run(argv: list[str]) -> None:
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     add_logs_args(p)
 
-    p = sub.add_parser('start', help='start (wake) a stopped hosted database')
-    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
-    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
-
-    p = sub.add_parser('stop', help='stop (sleep) a running hosted database')
-    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
-    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
-
-    p = sub.add_parser('restart', help='restart a hosted database')
-    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
-    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+    for verb, help_text in (
+        ('start', 'start (wake) a stopped hosted database'),
+        ('stop', 'stop (sleep) a running hosted database'),
+        ('restart', 'restart a hosted database'),
+        ('retry', 'try the failed current update of a hosted database again'),
+    ):
+        p = sub.add_parser(verb, help=help_text)
+        p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
+        p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+        _add_no_wait(p)
 
     p = sub.add_parser('build-image', help='build the image a hosted database runs on, from a project')
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+    _add_no_wait(p)
 
     p = sub.add_parser('delete', help='delete a hosted database')
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('-f', '--force', action='store_true', help='skip confirmation')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+    _add_no_wait(p)
 
     args = parser.parse_args(argv)
 
@@ -124,12 +146,8 @@ def run(argv: list[str]) -> None:
         _status(args)
     elif args.action == 'logs':
         _logs(args)
-    elif args.action == 'start':
-        _start(args)
-    elif args.action == 'stop':
-        _stop(args)
-    elif args.action == 'restart':
-        _restart(args)
+    elif args.action in ('start', 'stop', 'restart', 'retry'):
+        _change_lifecycle(args)
     elif args.action == 'build-image':
         _build_image(args)
     elif args.action == 'delete':
@@ -163,37 +181,35 @@ def _logs(args: argparse.Namespace) -> None:
     print_logs({'org': org, 'db': db}, args)
 
 
-def _start(args: argparse.Namespace) -> None:
-    org, db = resolve_db_uri(args.db_uri, prog='pxt db start')
-    post_request('/api/db/start', {'org': org, 'db': db})
-    result = poll_db(org, db, f"Database '{db}' is starting...")
+def _add_no_wait(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        '--no-wait',
+        action='store_false',
+        dest='wait',
+        help='return once Pixeltable Cloud has accepted the change, without waiting for it to take effect',
+    )
+
+
+def _change_lifecycle(args: argparse.Namespace) -> None:
+    db_uri = _db_uri(args, f'pxt db {args.action}')
+    with spinner(None if args.json_output else f'Submitting the {args.action} of {db_uri} ...'):
+        accepted = DbLifecycleResponse.model_validate(
+            post_request(f'/api/db/{args.action}', {'db_uri': db_uri, 'wait': False})
+        )
+    settled = _await(db_uri, [accepted.receipt], args)
+    if args.wait and settled[0].observed and settled[0].phase == ResourcePhase.DELETED:
+        if args.json_output:
+            print(json.dumps({'deleted': db_uri, 'receipt': settled[0].model_dump(mode='json')}))
+        else:
+            print(f'Deleted {db_uri}.')
+        return
+    report, workers = (accepted.report, accepted.worker_status) if not args.wait else _db_report(db_uri)
     if args.json_output:
-        print(json.dumps(result.get('report', {})))
+        print(json.dumps(report))
     else:
-        print_db(result.get('report') or {}, result.get('worker_status'))
-    exit_unless_reached(result, DbState.AVAILABLE, f'starting database {db!r}')
-
-
-def _stop(args: argparse.Namespace) -> None:
-    org, db = resolve_db_uri(args.db_uri, prog='pxt db stop')
-    post_request('/api/db/stop', {'org': org, 'db': db})
-    result = poll_db(org, db, f"Database '{db}' is stopping...")
-    if args.json_output:
-        print(json.dumps(result.get('report', {})))
-    else:
-        print_db(result.get('report') or {}, result.get('worker_status'))
-    exit_unless_reached(result, DbState.STOPPED, f'stopping database {db!r}')
-
-
-def _restart(args: argparse.Namespace) -> None:
-    org, db = resolve_db_uri(args.db_uri, prog='pxt db restart')
-    post_request('/api/db/restart', {'org': org, 'db': db})
-    result = poll_db(org, db, f"Database '{db}' is restarting...")
-    if args.json_output:
-        print(json.dumps(result.get('report', {})))
-    else:
-        print_db(result.get('report') or {}, result.get('worker_status'))
-    exit_unless_reached(result, DbState.AVAILABLE, f'restarting database {db!r}')
+        print_db(report, workers)
+        _print_receipts(db_uri, settled, waited=args.wait)
+    exit_unless_observed(settled, retry_command=f'pxt db retry {db_uri}')
 
 
 def _db_uri(args: argparse.Namespace, prog: str) -> str:
@@ -209,7 +225,7 @@ def _diff(args: argparse.Namespace) -> None:
 
 
 def _update(args: argparse.Namespace) -> None:
-    body = {'db_uri': _db_uri(args, 'pxt db update')}
+    body: dict[str, Any] = {'db_uri': _db_uri(args, 'pxt db update')}
     plan = DbPlan.model_validate(post_request('/api/db/diff', body))
     if plan.in_agreement:
         _print_plan(plan, as_json=args.json_output)
@@ -230,15 +246,46 @@ def _update(args: argparse.Namespace) -> None:
         on_refusal=lambda: _print_plan(plan, as_json=args.json_output),
     )
 
-    label = None if args.json_output else f'Updating {plan.db_uri} ...'
-    with spinner(label):
-        applied = DbPlan.model_validate(
-            post_request('/api/db/update', {**body, 'allow_destructive': args.allow_destructive})
-        )
+    update = {
+        **body,
+        'allow_destructive': args.allow_destructive,
+        'expected_generation': plan.generation,
+        'wait': False,
+    }
+    with spinner(None if args.json_output else f'Submitting the update of {plan.db_uri} ...'):
+        applied = DbPlan.model_validate(post_request('/api/db/update', update))
+    applied.receipts = _await(plan.db_uri, applied.receipts, args)
+    if args.wait and all(r.observed for r in applied.receipts):
+        for op in applied.ops:
+            op.status = 'applied'
+        applied.status = 'applied'
+        applied.resolution = 'up_to_date'
+        applied.state = (_db_report(plan.db_uri)[0].get('current') or {}).get('state')
     _print_plan(applied, as_json=args.json_output, applied=True)
-    if not applied.in_agreement:
-        # an operation nothing applies, such as a placement change, leaves the database out of agreement
-        sys.exit(EXIT_CHANGES_PENDING)
+    if not args.json_output:
+        _print_receipts(plan.db_uri, applied.receipts, waited=args.wait)
+    exit_unless_observed(applied.receipts, retry_command=f'pxt db retry {plan.db_uri}')
+
+
+def _print_receipts(db_uri: str, receipts: list[GenerationReceipt], *, waited: bool) -> None:
+    for receipt in receipts:
+        print_receipt(receipt)
+    if not waited and len(receipts) > 0:
+        print(f'\nPixeltable Cloud carries it out without this command; `pxt db status {db_uri}` shows its progress.')
+
+
+def _await(db_uri: str, receipts: list[GenerationReceipt], args: argparse.Namespace) -> list[GenerationReceipt]:
+    """The receipts once settled, or as accepted under --no-wait."""
+    if not args.wait:
+        return receipts
+    return await_receipts(db_uri, receipts, show=not args.json_output, status_command=f'pxt db status {db_uri}')
+
+
+def _db_report(db_uri: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """The database's report and its pods."""
+    org, db = parse_db_uri(db_uri)
+    resp = get_request('/api/db', {'org': org, 'db': db})
+    return resp.get('report') or {}, resp.get('worker_status') or []
 
 
 _MARKERS: dict[Resolution, str] = {
@@ -266,6 +313,9 @@ def _print_plan(plan: DbPlan, *, as_json: bool, applied: bool = False) -> None:
     print(f'{_MARKERS[resolution]} {plan.db_uri:<28s} {state}  {plan.state or "absent"}')
     for op in plan.ops:
         print(f'    {op.description}  [{op.severity}]')
+    if not applied and not any(op.target == 'generation' for op in plan.ops):
+        for receipt in plan.receipts:
+            print(f'    the current generation {describe_receipt(receipt)}; this update replaces it')
     s = plan.summary
     print()
     print(f'Plan: {s.ops} change(s), {s.destructive} destructive')
@@ -273,19 +323,34 @@ def _print_plan(plan: DbPlan, *, as_json: bool, applied: bool = False) -> None:
 
 def _delete(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db delete')
-    confirm_or_exit(f'delete pxt://{org}:{db}? This is irreversible.', args.force, refused_exit_code=EXIT_REFUSED)
-    post_request('/api/db/delete', {'org': org, 'db': db})
+    db_uri = f'pxt://{org}:{db}'
+    confirm_or_exit(f'delete {db_uri}? This is irreversible.', args.force, refused_exit_code=EXIT_REFUSED)
+    with spinner(None if args.json_output else f'Submitting the deletion of {db_uri} ...'):
+        accepted = DbLifecycleResponse.model_validate(post_request('/api/db/delete', {'db_uri': db_uri, 'wait': False}))
+    settled = _await(db_uri, [accepted.receipt], args)
+    exit_unless_observed(settled, retry_command=f'pxt db retry {db_uri}')
+    deleted = settled[0].observed
     if args.json_output:
-        print(json.dumps({'deleted': db}))
-    else:
+        print(json.dumps({'deleted' if deleted else 'deleting': db, 'receipt': settled[0].model_dump(mode='json')}))
+    elif deleted:
         print(f"Deleted database '{db}'.")
+    else:
+        print(f"Deleting database '{db}'; its name stays taken until its teardown finishes.")
+        _print_receipts(db_uri, settled, waited=args.wait)
 
 
 def _build_image(args: argparse.Namespace) -> None:
     db_uri = _db_uri(args, 'pxt db build-image')
-    label = None if args.json_output else 'Building the image (this may take 10 minutes or longer) ...'
-    with spinner(label):
-        ops = [DbChangeOp.model_validate(op) for op in post_request('/api/db/build-image', {'db_uri': db_uri})]
+    with spinner(None if args.json_output else f'Submitting an image build for {db_uri} ...'):
+        resp = DbBuildImageResponse.model_validate(
+            post_request('/api/db/build-image', {'db_uri': db_uri, 'wait': False})
+        )
+    settled = _await(db_uri, resp.receipts, args)
+    ops = resp.ops
+    if args.wait and all(r.observed for r in settled):
+        for op in ops:
+            if op.target == 'image':
+                op.status = 'applied'
     if args.json_output:
         print(json.dumps([op.model_dump(mode='json') for op in ops]))
     else:
@@ -293,5 +358,8 @@ def _build_image(args: argparse.Namespace) -> None:
         archive = (
             'uploaded the project files' if statuses.get('archive') == 'applied' else 'reused the existing archive'
         )
-        image = 'rebuilt its image' if statuses.get('image') == 'applied' else 'reused the existing image'
+        image = {'applied': 'rebuilt its image', 'accepted': 'is rebuilding its image'}.get(
+            statuses.get('image') or '', 'reused the existing image'
+        )
         print(f'{db_uri}: {archive}, {image}.')
+    exit_unless_observed(settled, retry_command=f'pxt db retry {db_uri}')

@@ -40,7 +40,7 @@ class TestFetchArchive:
         source.mkdir()
         (source / 'app.py').write_text('x = 1\n', encoding='utf-8')
 
-        def _unpack(db_uri: str, dest: Path) -> mock.Mock:
+        def _unpack(db_uri: str, dest: Path, **pin: str | None) -> mock.Mock:
             dest.mkdir(parents=True)
             (dest / 'app.py').write_text('x = 1\n', encoding='utf-8')
             return _served(source)
@@ -84,7 +84,7 @@ class TestFetchArchive:
 
         attempts = 0
 
-        def _unpack(db_uri: str, dest: Path) -> mock.Mock:
+        def _unpack(db_uri: str, dest: Path, **pin: str | None) -> mock.Mock:
             nonlocal attempts
             attempts += 1
             if attempts < 3:
@@ -106,7 +106,7 @@ class TestFetchArchive:
         fetch_archive.fingerprint_path(archive_dir).parent.mkdir(parents=True)
         fetch_archive.fingerprint_path(archive_dir).write_text('{}', encoding='utf-8')
 
-        def _unpack(db_uri: str, dest: Path) -> mock.Mock:
+        def _unpack(db_uri: str, dest: Path, **pin: str | None) -> mock.Mock:
             dest.mkdir(parents=True, exist_ok=True)
             return mock.Mock(fingerprint=None)
 
@@ -127,6 +127,20 @@ class TestFetchArchive:
         ):
             fetch_archive.fetch(_DB_URI, archive_dir)
         assert unpack.call_count == 1  # not retried
+
+    def test_pinned_release(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A pod pinned to a release asks for that release's archive, and fails if it is never found."""
+        monkeypatch.setenv('PXTCLOUD_ARCHIVE_DIGEST', 'digest-7')
+        monkeypatch.setenv('PXTCLOUD_BUILD_ID', 'build-7')
+        archive_dir = tmp_path / 'archive'
+        with (
+            mock.patch.object(fetch_archive, 'unpack_project_archive', side_effect=_not_found()) as unpack,
+            mock.patch.object(fetch_archive.time, 'sleep'),
+            pxt_raises(excs.ErrorCode.PROVIDER_ERROR, match='no archive for the release this pod runs'),
+        ):
+            fetch_archive.fetch(_DB_URI, archive_dir)
+        assert unpack.call_count == len(fetch_archive._PINNED_FETCH_DELAYS)
+        assert unpack.call_args.kwargs == {'archive_digest': 'digest-7', 'build_id': 'build-7'}
 
 
 class TestUnpack:
