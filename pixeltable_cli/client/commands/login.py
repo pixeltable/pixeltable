@@ -174,7 +174,10 @@ def run_whoami(argv: list[str]) -> None:
         print(f'API key on {answer["api_url"]}')
     # a rejection or a note already says which credential was sent
     if not answer['accepted']:
-        sys.stdout.flush()  # keep the identity line ahead of the rejection on non-pty output
+        try:
+            sys.stdout.flush()  # keep the identity line ahead of the rejection on non-pty output
+        except OSError:
+            pass  # the identity line is already lost; the rejection still matters
         print(answer['rejection'], file=sys.stderr)
         sys.exit(1)
     if answer['note'] != '':
