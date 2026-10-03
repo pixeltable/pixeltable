@@ -10,10 +10,11 @@ from typing import Any
 import pydantic
 
 from ...models import DbBuildImageResponse, DbLifecycleResponse
-from ...types import DbPlan, GenerationReceipt, Resolution
+from ...types import DbPlan, GenerationReceipt, Resolution, ResourcePhase
 from ..hosted import (
     add_logs_args,
     await_receipts,
+    describe_receipt,
     exit_unless_observed,
     parse_db_uri,
     print_db,
@@ -196,6 +197,12 @@ def _change_lifecycle(args: argparse.Namespace) -> None:
             post_request(f'/api/db/{args.action}', {'db_uri': db_uri, 'wait': False})
         )
     settled = _await(db_uri, [accepted.receipt], args)
+    if args.wait and settled[0].observed and settled[0].phase == ResourcePhase.DELETED:
+        if args.json_output:
+            print(json.dumps({'deleted': db_uri, 'receipt': settled[0].model_dump(mode='json')}))
+        else:
+            print(f'Deleted {db_uri}.')
+        return
     report, workers = (accepted.report, accepted.worker_status) if not args.wait else _db_report(db_uri)
     if args.json_output:
         print(json.dumps(report))
@@ -306,6 +313,9 @@ def _print_plan(plan: DbPlan, *, as_json: bool, applied: bool = False) -> None:
     print(f'{_MARKERS[resolution]} {plan.db_uri:<28s} {state}  {plan.state or "absent"}')
     for op in plan.ops:
         print(f'    {op.description}  [{op.severity}]')
+    if not applied and not any(op.target == 'generation' for op in plan.ops):
+        for receipt in plan.receipts:
+            print(f'    the current generation {describe_receipt(receipt)}; this update replaces it')
     s = plan.summary
     print()
     print(f'Plan: {s.ops} change(s), {s.destructive} destructive')

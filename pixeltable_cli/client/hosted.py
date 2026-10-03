@@ -258,6 +258,8 @@ def describe_receipt(receipt: GenerationReceipt) -> str:
         state = 'replaced by a newer one'
     elif receipt.failed:
         state = f'FAILED: {receipt.failure_reason}'
+    elif receipt.outcome is not None:
+        state = f'ended as {receipt.outcome}, which this version of Pixeltable does not know'
     elif receipt.error is not None:
         state = f'retrying after: {receipt.error.message}'
     else:

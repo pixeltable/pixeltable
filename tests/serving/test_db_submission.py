@@ -20,7 +20,7 @@ from pixeltable import exceptions as excs, metadata
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config
 from pixeltable.service import management_client, receipts
-from pixeltable.service.db import db_build_image, db_change_lifecycle, db_diff, db_update
+from pixeltable.service.db import db_build_image, db_change_lifecycle, db_diff, db_retry, db_update
 from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.service.management_protocol import (
     BlobUpload,
@@ -35,6 +35,8 @@ from pixeltable.service.management_protocol import (
     GetReceiptsResponse,
     PrepareUpdateRequest,
     PrepareUpdateResponse,
+    RetryRequest,
+    RetryResponse,
     SetSecretRequest,
     SubmitUpdateRequest,
     SubmitUpdateResponse,
@@ -73,6 +75,7 @@ class _ControlPlane:
         self.submissions: list[SubmitUpdateRequest] = []
         self.receipt_reads = 0
         self.deleting = False
+        self.retries: list[RetryRequest] = []
 
     def api_call(self, request: Any, credential: Any = None) -> dict[str, Any]:
         if isinstance(request, PrepareUpdateRequest):
@@ -100,6 +103,10 @@ class _ControlPlane:
             if getattr(request, 'db', None) is not None and self.deleting:
                 raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, 'no database main', status_code=404)
             return GetReceiptsResponse(receipts=[self.settled]).model_dump(mode='json')
+        if isinstance(request, RetryRequest):
+            self.retries.append(request)
+            accepted = self.settled.model_copy(update={'outcome': None, 'error': None, 'phase': 'PENDING'})
+            return RetryResponse(receipt=accepted).model_dump(mode='json')
         if isinstance(request, DeleteDbRequest):
             self.deleting = True
             accepted = self.settled.model_copy(update={'outcome': None, 'phase': ResourcePhase.DELETING})
@@ -186,6 +193,31 @@ class TestDbSubmission:
             db_update(_DB_URI)
         assert len(attempts) == 2
         assert control_plane.submissions == []
+
+    def test_retry(self, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A failed current generation is retried as such; one that has not failed is refused."""
+        failed = _receipt(error=ReceiptError(message='the image build failed', retryable=False))
+        control_plane = _ControlPlane(generation=8, settled=_receipt(outcome=ReceiptOutcome.OBSERVED), current=failed)
+        _serve(monkeypatch, control_plane)
+
+        assert db_retry(_DB_URI).observed
+        (retried,) = control_plane.retries
+        assert (retried.kind, retried.generation) == ('database', 8)
+
+        control_plane.current = _receipt(phase=ResourcePhase.PENDING)
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match='has not failed'):
+            db_retry(_DB_URI)
+
+    def test_unsettled_generation_with_changes(self, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """With other changes pending, the plan still reports the current generation, which the update replaces."""
+        pending = _receipt(phase=ResourcePhase.PENDING)
+        _serve(
+            monkeypatch, _ControlPlane(generation=8, settled=_receipt(outcome=ReceiptOutcome.OBSERVED), current=pending)
+        )
+
+        plan = db_diff(_DB_URI)
+        assert plan.receipts == [pending]
+        assert not any(op.target == 'generation' for op in plan.ops)
 
     def test_delete(self, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A deletion is waited on by receipt id, so its released name does not fail the wait."""
