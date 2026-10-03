@@ -1657,7 +1657,6 @@ class TestIndex:
         t = pxt.create_table(p('array_emb_tbl'), {'vec': pxt.Array[(10,), pxt.Float]})
         t.add_embedding_index('vec', idx_name='vec_idx', metric='cosine')
 
-        # get_metadata() should not raise KeyError
         md = t.get_metadata()
         assert 'vec_idx' in md['indexes']
         idx_md = md['indexes']['vec_idx']
@@ -1667,20 +1666,18 @@ class TestIndex:
         assert idx_md['parameters']['embedding_functions'] == []
         assert idx_md['parameters']['metric'] == 'cosine'
 
-        # describe() / _index_descriptor() should not raise KeyError
         desc = t._index_descriptor()
         assert len(desc) == 1
         assert desc.iloc[0]['Index Name'] == 'vec_idx'
         assert desc.iloc[0]['Column'] == 'vec'
         assert desc.iloc[0]['Embedding'] == 'vec'
 
-        # TableModel as_fn_call should return the column reference for array columns
         table_model = pxt.model_base()
 
         class ArrayModel(table_model, name='array_model'):
             id: pxt.Int
             vec: pxt.Array[(10,), pxt.Float]
-            __indexes__ = [pxt.EmbeddingIndex(vec, name='vec_idx', metric='cosine')]  # ruff: ignore[mutable-class-default, undefined-name]
+            __indexes__ = [pxt.EmbeddingIndex(vec, name='vec_idx', metric='cosine')]  # noqa: F821, RUF012
 
         idx_def = ArrayModel.__indexes__[0]
         assert str(idx_def.as_fn_call()) == 'vec'
