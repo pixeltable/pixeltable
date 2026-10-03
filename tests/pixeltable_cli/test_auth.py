@@ -331,11 +331,18 @@ def cloud_cli(
             stdin=subprocess.DEVNULL,
         )
 
-    def run(*args: str, check: bool = True, timeout: float = 120.0) -> PxtResult:
+    def run(*args: str, check: bool = True, timeout: float = 120.0, stderr_to_stdout: bool = False) -> PxtResult:
         r = subprocess.run(
-            ['pxt', *args], capture_output=True, text=True, env=env, cwd=session_project, timeout=timeout, check=False
+            ['pxt', *args],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT if stderr_to_stdout else subprocess.PIPE,
+            text=True,
+            env=env,
+            cwd=session_project,
+            timeout=timeout,
+            check=False,
         )
-        result = PxtResult(returncode=r.returncode, stdout=r.stdout, stderr=r.stderr)
+        result = PxtResult(returncode=r.returncode, stdout=r.stdout, stderr=r.stderr or '')
         assert not check or r.returncode == 0, f'pxt {" ".join(args)} failed ({r.returncode}): {r.stderr}'
         return result
 
@@ -440,6 +447,19 @@ class TestWhoami:
 
         assert r.returncode == 1
         assert 'Your Pixeltable session was rejected' in r.stderr
+
+    def test_whoami_rejected_order(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """stdout is buffered off a terminal: without a flush first, the rejection outruns the
+        identity lines on a stream both are written to."""
+        control_plane.status = 401
+        try:
+            r = cloud_cli('whoami', check=False, stderr_to_stdout=True)
+        finally:
+            control_plane.status = 200
+
+        assert r.stdout.index(f'you@example.com on {control_plane.url}') < r.stdout.index(
+            'Your Pixeltable session was rejected'
+        )
 
     def test_whoami_offline(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         """--offline reports the cached session without asking, for a machine with no network."""
