@@ -244,10 +244,11 @@ def _plan(db_path: catalog.Path, target: DatabaseTarget) -> tuple[DbPlan, Prepar
         )
     plan.generation = prepared.generations.database or 0
     receipt = prepared.report.receipt
-    if plan.resolution == 'up_to_date' and receipt is not None and not receipt.observed:
-        plan.ops.append(DbChangeOp.unsettled_generation(receipt))
-        plan.resolution = 'update_additive'
+    if receipt is not None and not receipt.observed:
         plan.receipts = [receipt]
+        if plan.resolution == 'up_to_date':
+            plan.ops.append(DbChangeOp.unsettled_generation(receipt))
+            plan.resolution = 'update_additive'
     return plan, prepared
 
 

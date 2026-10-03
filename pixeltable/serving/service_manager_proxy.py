@@ -206,9 +206,7 @@ class ServiceManagerProxy(ServiceManagerBase):
                 f'the current generation of service {instance.service_name!r} has not failed; nothing to retry',
             )
         settled = self._await([receipts.retry(self.catalog_uri, receipt)])
-        if self.get(instance.service_name, instance.base_path) is None:
-            return None
-        return self._settle(instance.service_name, instance.base_path, settled)
+        return self._instance_after(instance.service_name, instance.base_path, settled)
 
     def delete(self, instance: ServiceInstance) -> None:
         deleted = DeleteServiceInstanceResponse.model_validate(
@@ -256,12 +254,25 @@ class ServiceManagerProxy(ServiceManagerBase):
 
     def _settle(self, name: str, base_path: str, accepted: Sequence[GenerationReceipt]) -> ServiceInstance:
         """Wait on the receipts a change to the named instance was accepted as, and return the instance it left."""
-        self._await(accepted)
-        instance = self.get(name, base_path)
+        instance = self._instance_after(name, base_path, self._await(accepted))
         if instance is None:
             raise excs.InternalError(
                 excs.ErrorCode.INTERNAL_ERROR, f'Service {name!r} is no longer in {self.catalog_uri.uri_str}'
             )
+        return instance
+
+    def _instance_after(
+        self, name: str, base_path: str, settled: Sequence[GenerationReceipt]
+    ) -> ServiceInstance | None:
+        """The named instance as a settled change left it, carrying that change's receipt; None if it is gone.
+
+        The listing may already carry a later generation's receipt, which is not this change's.
+        """
+        instance = self.get(name, base_path)
+        if instance is None:
+            return None
+        if len(settled) == 1:
+            instance.record = instance.record.model_copy(update={'receipt': settled[0]})
         if instance.state is ServiceState.AVAILABLE:
             self._wait_for_endpoint(instance)
         return instance

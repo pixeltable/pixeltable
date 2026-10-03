@@ -1411,6 +1411,7 @@ class TestServiceUpdateRunning:
         assert prepared.service_mutations[0].spec == mutation.spec
         assert prepared.service_mutations[0].pin == mutation.pin, 'prepared as it is submitted'
         assert (mutation.lifecycle, mutation.pin, mutation.otel) == ('RUNNING', 'latest', otel)
+        assert diff.receipt is not None and diff.receipt.observed, 'the receipt of this change, as it settled'
         assert (mutation.cpu, mutation.memory_mb, mutation.description) == (4.0, 8192, 'resized'), (
             'the desired resources, not the observed ones, so that a resize under way is not undone'
         )
@@ -1444,8 +1445,17 @@ class TestServiceUpdateRunning:
             )
         assert not any(isinstance(r, SubmitUpdateRequest) for r in control_plane.sent)
 
-    def _hosted_diff(self, app_file: str, keep_release: bool = False, **record_fields: Any) -> ServiceDiff:
-        """The diff of a hosted instance of 'ingest' that serves app_file's definition and project, as recorded."""
+    def _hosted_diff(
+        self,
+        app_file: str,
+        keep_release: bool = False,
+        database_fingerprint: ProjectFingerprint | None = None,
+        **record_fields: Any,
+    ) -> ServiceDiff:
+        """The diff of a hosted instance of 'ingest' that serves app_file's definition and project, as recorded.
+
+        database_fingerprint: the database's desired project; by default the local one.
+        """
         record = ServiceInstanceRecord(
             service_name='ingest',
             base_path='',
@@ -1461,7 +1471,7 @@ class TestServiceUpdateRunning:
             services={'ingest': serving_service._ServiceInfo(spec=record.spec, kind='declarative')},
             model_mismatch_reason=None,
             db_uri='pxt://acme:main',
-            target_db_fingerprint=fingerprint,
+            target_db_fingerprint=fingerprint if database_fingerprint is None else database_fingerprint,
             local_fingerprint=fingerprint,
         )
         return serving_service._service_diff(
@@ -1483,6 +1493,15 @@ class TestServiceUpdateRunning:
         diff = self._hosted_diff(app_file, keep_release, fingerprint=older)
         assert [op.target for op in diff.ops] == ([] if keep_release else ['project'])
         assert diff.resolution == ('up_to_date' if keep_release else 'update_additive')
+
+    @pytest.mark.parametrize('keep_release', [False, True])
+    def test_hosted_kept_release_newer_database(self, app_file: str, keep_release: bool) -> None:
+        """A database whose project moved on blocks an update, unless the instance keeps its release."""
+        newer = ProjectFingerprint(
+            files={'app.py': 'new'}, python_version='3.11', system_dependencies=[], pixeltable_version='test', vars={}
+        )
+        diff = self._hosted_diff(app_file, keep_release, database_fingerprint=newer)
+        assert diff.resolution == ('up_to_date' if keep_release else 'blocked')
 
     @pytest.mark.parametrize('keep_release', [False, True])
     def test_hosted_newer_release(self, app_file: str, keep_release: bool) -> None:

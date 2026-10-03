@@ -379,8 +379,10 @@ def _service_diff(
         if running.otel != otel:
             ops.append(ServiceChangeOp.otel(running.otel, otel))
 
-    target_db_fingerprint = app_info.target_db_fingerprint
-    if target_db_fingerprint is None and app_info.db_uri != '':
+    hosted = running is not None and not isinstance(running.record, LocalServiceInstanceRecord)
+    keeping = hosted and keep_release
+    target_db_fingerprint = None if keeping else app_info.target_db_fingerprint
+    if target_db_fingerprint is None and app_info.db_uri != '' and not keeping:
         ops.append(ServiceChangeOp.needs_db_update(command=f'pxt db update {app_info.db_uri}'))
     # a local target's services read the project files in place, so nothing has to be uploaded for them
     changed = set() if target_db_fingerprint is None else app_info.local_fingerprint.compare(target_db_fingerprint)
@@ -392,11 +394,7 @@ def _service_diff(
                 command=f'pxt db update {app_info.db_uri}',
             )
         )
-    elif (
-        running is not None
-        and running.record.fingerprint is not None
-        and (isinstance(running.record, LocalServiceInstanceRecord) or not keep_release)
-    ):
+    elif running is not None and running.record.fingerprint is not None and not keeping:
         # a hosted instance reports none until its pod loads one; there is nothing to compare against yet
         stale = app_info.local_fingerprint.compare(running.record.fingerprint)
         if len(stale) > 0:
@@ -406,10 +404,7 @@ def _service_diff(
                 )
             )
 
-    hosted = running is not None and not isinstance(running.record, LocalServiceInstanceRecord)
     receipt = None if running is None else running.record.receipt
-    if hosted and receipt is not None and not receipt.observed:
-        ops.append(ServiceChangeOp.unsettled_generation(receipt))
     if (
         hosted
         and running is not None
@@ -422,6 +417,9 @@ def _service_diff(
     if app_info.model_mismatch_reason is not None:
         command = f'pxt schema update {app_info.app_file}' + ('' if target == '' else f' {target}')
         ops.append(ServiceChangeOp.blocked_schema(name, app_info.model_mismatch_reason, command))
+
+    if hosted and receipt is not None and not receipt.observed and len(ops) == 0:
+        ops.append(ServiceChangeOp.unsettled_generation(receipt))
 
     resolution: Resolution
     if any(op.severity == 'blocked' for op in ops):
