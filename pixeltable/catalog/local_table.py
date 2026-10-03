@@ -1142,12 +1142,18 @@ class LocalTable(Table):
         ):
             self._check_mutable('update')
             rows = list(rows)
-
+            if len(rows) == 0:
+                return UpdateStatus(rows=[] if return_rows else None)
             row_updates: list[dict[Column, exprs.Expr]] = []
             pk_col_names = {c.name for c in self._tbl_version.get().primary_key_columns()}
 
             # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
             has_rowid = _ROWID_COLUMN_NAME in rows[0]
+            if not self._tbl_version.get().is_data_versioned and any(_ROWID_COLUMN_NAME in row for row in rows):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'batch_update(): {_ROWID_COLUMN_NAME} is not supported for operational tables',
+                )
             rowids: list[tuple[int, ...]] = []
             if len(pk_col_names) == 0 and not has_rowid:
                 raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'Table must have primary key for batch update')

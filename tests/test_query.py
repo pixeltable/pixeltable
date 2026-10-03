@@ -682,7 +682,7 @@ class TestQuery:
         opurl_img = urllib.request.urlopen(url=thumb)
         PIL.Image.open(opurl_img)
 
-    def test_update_delete_where(self, test_tbl: pxt.Table) -> None:
+    def test_update_delete_where(self, test_tbl: pxt.Table, is_data_versioned: bool) -> None:
         t = test_tbl
 
         # Update with where
