@@ -1651,3 +1651,34 @@ class TestIndex:
             pxt.ErrorCode.CONSTRAINT_VIOLATION, match="Value too large for the btree index on column 'c_str'"
         ):
             tbl.add_btree_index('c_str')
+
+    def test_array_embedding_index_metadata(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('array_emb_tbl'), {'vec': pxt.Array[(10,), pxt.Float]})
+        t.add_embedding_index('vec', idx_name='vec_idx', metric='cosine')
+
+        md = t.get_metadata()
+        assert 'vec_idx' in md['indexes']
+        idx_md = md['indexes']['vec_idx']
+        assert idx_md['index_type'] == 'embedding'
+        assert idx_md['columns'] == ['vec']
+        assert idx_md['parameters']['embedding'] == 'vec'
+        assert idx_md['parameters']['embedding_functions'] == []
+        assert idx_md['parameters']['metric'] == 'cosine'
+
+        desc = t._index_descriptor()
+        assert len(desc) == 1
+        assert desc.iloc[0]['Index Name'] == 'vec_idx'
+        assert desc.iloc[0]['Column'] == 'vec'
+        assert desc.iloc[0]['Embedding'] == 'vec'
+
+        table_model = pxt.model_base()
+
+        class ArrayModel(table_model, name='array_model'):
+            id: pxt.Int
+            vec: pxt.Array[(10,), pxt.Float]
+            __indexes__ = [pxt.EmbeddingIndex(vec, name='vec_idx', metric='cosine')]  # noqa: F821, RUF012
+
+        idx_def = ArrayModel.__indexes__[0]
+        assert str(idx_def.as_fn_call()) == 'vec'
+        assert idx_def.resolved_embedding_fns() == []
