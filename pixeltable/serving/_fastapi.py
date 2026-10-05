@@ -7,6 +7,7 @@ import mimetypes
 import os
 import shutil
 import threading
+import time
 import urllib.parse
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -131,6 +132,10 @@ _EMBEDDED_OBJECT_TYPES: tuple[type, ...] = (np.ndarray, np.generic, PIL.Image.Im
 
 # how many background requests a router runs at a time
 _N_BACKGROUND_WORKERS = 16
+
+_JOB_RETENTION_SECS = 3600.0
+
+_JOB_COUNT_WARNING_THRESHOLD = 10_000
 
 
 @dataclasses.dataclass(frozen=True)
@@ -439,8 +444,7 @@ class PxtEndpoint:
                     raise ValueError('PIXELTABLE_PUBLIC_ORIGIN must be an HTTPS origin')
                 job_url = f'{public_origin}{urllib.parse.urlsplit(job_url).path}'
             fut = self.router._executor.submit(_run_endpoint_op, self.endpoint_op, kwargs, tmp_paths, media)
-            with self.router._jobs_lock:
-                self.router._jobs[job_id] = fut
+            self.router._add_job(job_id, fut)
             return BackgroundJobResponse(id=job_id, job_url=job_url)
         else:
             return _run_endpoint_op(self.endpoint_op, kwargs, tmp_paths, media)
@@ -457,6 +461,7 @@ class FastAPIRouter(fastapi.APIRouter):
 
     _executor: ThreadPoolExecutor
     _jobs: dict[str, Future]  # holds background requests; key: job id (uuid4().hex)
+    _finished_jobs: dict[str, float]  # key: job id; value: finish time; in finish order, oldest first
     _jobs_lock: threading.Lock
     _is_shut_down: bool
     _home_dir: Path
@@ -489,6 +494,7 @@ class FastAPIRouter(fastapi.APIRouter):
             max_workers=_N_BACKGROUND_WORKERS, thread_name_prefix='pxt-serve-background'
         )
         self._jobs = {}
+        self._finished_jobs = {}
         self._jobs_lock = threading.Lock()
         self._is_shut_down = False
         self._home_dir = Config.get().home.resolve()
@@ -737,13 +743,14 @@ class FastAPIRouter(fastapi.APIRouter):
         if self._is_shut_down:
             return
         self._is_shut_down = True
-        if len(self._jobs) > 0:
-            # cancel what we can, to speed up close_threadpool_runtimes()
-            for job in list(self._jobs.values()):
-                job.cancel()
-            # a background job ran, so a worker thread has a runtime to close; the calls queue behind the
-            # in-flight requests, so that the loops and clients are closed only after workers stop using them
-            close_threadpool_runtimes(self._executor, _N_BACKGROUND_WORKERS)
+        # cancel what we can, to speed up close_threadpool_runtimes()
+        with self._jobs_lock:
+            jobs = list(self._jobs.values())
+        for job in jobs:
+            job.cancel()
+        # the calls queue behind the in-flight requests, so that the loops and clients are closed only after
+        # workers stop using them
+        close_threadpool_runtimes(self._executor, _N_BACKGROUND_WORKERS)
         # wait until in-flight requests are done and won't access _engine_cache
         self._executor.shutdown(wait=True, cancel_futures=True)
         for eng in self._engine_cache.values():
@@ -2671,9 +2678,39 @@ class FastAPIRouter(fastapi.APIRouter):
             include_in_schema=False,
         )
 
+    def _add_job(self, job_id: str, fut: Future) -> None:
+        with self._jobs_lock:
+            self._evict_finished_jobs()
+            assert job_id not in self._jobs
+            self._jobs[job_id] = fut
+            n_jobs = len(self._jobs)
+        fut.add_done_callback(lambda _: self._job_finished(job_id))
+        # To avoid flooding the log, warn only upon reaching the threshold
+        if n_jobs == _JOB_COUNT_WARNING_THRESHOLD:
+            _logger.warning(
+                f'{n_jobs} background jobs are pending or finished within the last {_JOB_RETENTION_SECS:.0f}s; '
+                'the results of finished jobs stay in memory until then'
+            )
+
+    def _job_finished(self, job_id: str) -> None:
+        with self._jobs_lock:
+            assert job_id in self._jobs
+            self._finished_jobs[job_id] = time.monotonic()
+
+    def _evict_finished_jobs(self) -> None:
+        assert self._jobs_lock.locked()
+        cutoff = time.monotonic() - _JOB_RETENTION_SECS
+        while len(self._finished_jobs) > 0:
+            job_id, finished_at = next(iter(self._finished_jobs.items()))
+            if finished_at > cutoff:
+                break
+            del self._finished_jobs[job_id]
+            del self._jobs[job_id]
+
     def _register_jobs_route(self) -> None:
         def get_job_status(job_id: str) -> JobStatusResponse:
             with self._jobs_lock:
+                self._evict_finished_jobs()
                 fut = self._jobs.get(job_id)
             if fut is None:
                 raise HTTPException(status_code=404, detail='unknown job id')
