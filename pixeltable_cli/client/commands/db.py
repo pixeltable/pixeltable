@@ -10,7 +10,7 @@ from typing import Any
 import pydantic
 
 from ...models import DbBuildImageResponse, DbLifecycleResponse
-from ...types import DbPlan, GenerationReceipt, Resolution, ResourcePhase
+from ...types import DbPlan, GenerationReceipt, Resolution
 from ..hosted import (
     add_logs_args,
     await_receipts,
@@ -197,13 +197,13 @@ def _change_lifecycle(args: argparse.Namespace) -> None:
             post_request(f'/api/db/{args.action}', {'db_uri': db_uri, 'wait': False})
         )
     settled = _await(db_uri, [accepted.receipt], args)
-    if args.wait and settled[0].observed and settled[0].phase == ResourcePhase.DELETED:
+    report, workers = (accepted.report, accepted.worker_status) if not args.wait else _db_report(db_uri)
+    if args.wait and settled[0].observed and len(report) == 0:
         if args.json_output:
             print(json.dumps({'deleted': db_uri, 'receipt': settled[0].model_dump(mode='json')}))
         else:
             print(f'Deleted {db_uri}.')
         return
-    report, workers = (accepted.report, accepted.worker_status) if not args.wait else _db_report(db_uri)
     if args.json_output:
         print(json.dumps(report))
     else:
@@ -282,9 +282,9 @@ def _await(db_uri: str, receipts: list[GenerationReceipt], args: argparse.Namesp
 
 
 def _db_report(db_uri: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """The database's report and its pods."""
+    """The database's report and its pods; an empty report once the database is gone, as after a deletion."""
     org, db = parse_db_uri(db_uri)
-    resp = get_request('/api/db', {'org': org, 'db': db})
+    resp = get_request('/api/db', {'org': org, 'db': db, 'missing_ok': True})
     return resp.get('report') or {}, resp.get('worker_status') or []
 
 

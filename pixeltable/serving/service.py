@@ -446,6 +446,7 @@ def _service_diff(
         name=name,
         exists=running is not None,
         generation=generation,
+        receipt=receipt if hosted and receipt is not None and not receipt.observed else None,
         state=None if running is None else running.state,
         endpoint=None if running is None else running.endpoint,
         catalog_path=target,

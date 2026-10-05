@@ -705,7 +705,9 @@ class ServiceDiff(pydantic.BaseModel):
 
     status: OpStatus | None = None
     receipt: GenerationReceipt | None = pydantic.Field(
-        default=None, description='the generation an update of a hosted service was accepted as'
+        default=None,
+        description='for an update of a hosted service, the generation the update was accepted as; for a diff, the '
+        'current generation if it has not taken effect',
     )
 
     @pydantic.computed_field  # type: ignore[prop-decorator]

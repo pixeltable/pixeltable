@@ -492,7 +492,7 @@ def _update(
         _await_hosted(applied, db_uri, as_json=as_json)
     _print_plan(applied, as_json=as_json, applied=True)
     for d in applied.services:
-        if db_uri is not None and d.receipt is not None:
+        if db_uri is not None and d.receipt is not None and d.status in ('accepted', 'applied'):
             exit_unless_observed([d.receipt], retry_command=f'pxt service retry {_service_uri(db_uri, d.receipt)}')
     if applied.summary.blocked > 0:
         # the database has to change before these services can serve, and this command does not change it
@@ -511,7 +511,7 @@ def _service_uri(db_uri: str, receipt: GenerationReceipt) -> str:
 
 def _await_hosted(plan: ServicePlan, db_uri: str, *, as_json: bool) -> None:
     """Wait on the receipts the plan's hosted services were accepted as, and until their endpoints answer."""
-    accepted = [d.receipt for d in plan.services if d.receipt is not None]
+    accepted = [d.receipt for d in plan.services if d.receipt is not None and d.status == 'accepted']
     if len(accepted) == 0:
         return
     settled = {
@@ -520,7 +520,7 @@ def _await_hosted(plan: ServicePlan, db_uri: str, *, as_json: bool) -> None:
     }
     running = {(str(i.catalog_path), i.name): i for i in _running(db_uri)}
     for d in plan.services:
-        if d.receipt is None:
+        if d.receipt is None or d.status != 'accepted':
             continue
         d.receipt = settled[d.receipt.resource_id, d.receipt.generation]
         catalog_path = '/'.join(part for part in (db_uri, d.receipt.base_path) if part)
@@ -671,10 +671,12 @@ def _print_plan(plan: ServicePlan, *, as_json: bool, applied: bool = False) -> N
             print(f'    {op.description}  [{op.severity}]')
         if service.route_detail is not None and resolution == 'blocked':
             print(f'    {service.route_detail}')
-        if service.receipt is not None:
+        if service.receipt is not None and applied:
             print(f'    generation {describe_receipt(service.receipt)}')
             for warning in service.receipt.warnings:
                 print(f'    warning: {warning}')
+        elif service.receipt is not None and not any(op.name == 'generation' for op in service.ops):
+            print(f'    the current generation {describe_receipt(service.receipt)}; this update replaces it')
     for name in plan.extras:
         print(f'! {name:<24s} extra (not defined); stop it with prune')
 

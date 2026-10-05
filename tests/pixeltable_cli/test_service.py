@@ -1494,6 +1494,16 @@ class TestServiceUpdateRunning:
         assert [op.target for op in diff.ops] == ([] if keep_release else ['project'])
         assert diff.resolution == ('up_to_date' if keep_release else 'update_additive')
 
+    def test_hosted_unsettled_generation_beside_changes(self, app_file: str) -> None:
+        """A failed generation stays in a plan that also changes something else, which replaces it."""
+        error = ReceiptError(message='pod crashed', retryable=False)
+        receipt = GenerationReceipt(
+            kind='service', resource_id='svc-uuid', generation=5, db='main', service_name='ingest', error=error
+        )
+        diff = self._hosted_diff(app_file, receipt=receipt, update_pending=True)
+        assert [op.name for op in diff.ops] == ['release']
+        assert diff.receipt == receipt
+
     @pytest.mark.parametrize('keep_release', [False, True])
     def test_hosted_kept_release_newer_database(self, app_file: str, keep_release: bool) -> None:
         """A database whose project moved on blocks an update, unless the instance keeps its release."""

@@ -1070,7 +1070,14 @@ def delete_key(req: Request) -> dict[str, Any]:
 
 @router.get('/api/db')
 def get_db(req: Request) -> dict[str, Any]:
-    return management_client.api_call(GetDbRequest(org=req.required_query_str('org'), db=req.required_query_str('db')))
+    """The database's report; with missing_ok, an empty one for a database that does not exist."""
+    request = GetDbRequest(org=req.required_query_str('org'), db=req.required_query_str('db'))
+    try:
+        return management_client.api_call(request)
+    except excs.ExternalServiceError as exc:
+        if exc.provider_http_status_code != 404 or not req.query_bool('missing_ok'):
+            raise
+        return {'report': {}, 'worker_status': []}
 
 
 def _lifecycle_response(db_uri: str, receipt: types.GenerationReceipt) -> models.DbLifecycleResponse:
