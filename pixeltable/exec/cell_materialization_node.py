@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import io
 import os
@@ -73,7 +74,8 @@ class CellMaterializationNode(ExecNode):
 
     MIN_FILE_SIZE = 8 * 2**20  # 8MB
     MAX_DB_BINARY_SIZE = 512  # max size of binary data stored in table column; in bytes
-    MAX_PENDING_UPLOADS = 4  # each pending upload holds a chunk in the TempStore
+    # each pending upload holds a chunk in the TempStore; checked between rows, so a row's own chunks can exceed it
+    MAX_PENDING_UPLOADS = 4
 
     def __init__(self, input: ExecNode):
         super().__init__(input.row_builder, [], [], input)
@@ -125,12 +127,18 @@ class CellMaterializationNode(ExecNode):
                     # continue with only the currently open chunk
                     self.chunks = self.chunks[-1:] if self.buffered_writer is not None else []
 
+                await self._wait_for_uploads(self.MAX_PENDING_UPLOADS)
+
             yield batch
 
         self._flush_buffer(finalize=True)
         # the rows reference the chunks' urls, so they can't be committed before all uploads have succeeded
-        while len(self.uploads) > 0:
-            self.uploads.popleft().result()
+        await self._wait_for_uploads(0)
+
+    async def _wait_for_uploads(self, max_pending: int) -> None:
+        """Waits until at most max_pending uploads are in flight; raises the exception of a failed upload."""
+        while len(self.uploads) > max_pending:
+            await asyncio.wrap_future(self.uploads.popleft())
 
     def init_writer(self, size: int) -> None:
         """Prepare chunks[-1] for writing a value of approximately `size` bytes."""
@@ -308,10 +316,7 @@ class CellMaterializationNode(ExecNode):
             self.executor = futures.ThreadPoolExecutor(
                 max_workers=self.MAX_PENDING_UPLOADS, thread_name_prefix='pxt-chunk-upload'
             )
-        # submit before waiting, so that this chunk's TempStore file gets deleted even if an earlier upload failed
         self.uploads.append(self.executor.submit(ObjectOps.put_file_resolved, self.store, chunk.path, chunk.dest, True))
-        if len(self.uploads) > self.MAX_PENDING_UPLOADS:
-            self.uploads.popleft().result()
 
     def _flush_buffer(self, finalize: bool = False) -> None:
         """Close chunks[-1] if it exceeds its minimum size or finalize is True."""

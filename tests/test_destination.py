@@ -4,6 +4,8 @@ import errno
 import io
 import os
 import re
+import shutil
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -19,7 +21,7 @@ import requests
 import pixeltable as pxt
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.exec import CellMaterializationNode
+from pixeltable.exec import CellMaterializationNode, cell_reconstruction_node
 from pixeltable.functions.net import presigned_url
 from pixeltable.functions.video import extract_frame
 from pixeltable.utils.filecache import FileCache
@@ -626,8 +628,6 @@ class TestDestination:
         # the large array gets a file of its own, between those of its neighbors
         assert ObjectOps.count(t._id, dest=dest) == 3
 
-        # read the files back from dest rather than from a cached copy
-        FileCache.get().clear()
         res = t.order_by(t.id).collect()
         for row, expected in zip(res, rows):
             assert np.array_equal(row['ar'], expected['ar'])
@@ -663,13 +663,51 @@ class TestDestination:
         dest = self.resolve_destination_uri(dest_id)
         assert dest is not None
         monkeypatch.setattr(Env.get(), '_cell_materialization_dest', dest)
+        # reading a chunk doesn't depend on the file cache, which is smaller than the large array's chunk
+        FileCache.get().set_capacity(2**20)
+        num_tmp_files = TempStore.count()
         t = pxt.create_table('cell_files', self.CELL_FILES_SCHEMA)
         self.check_cell_files(t, dest)
         assert LocalStore(Env.get().media_dir).count(t._id) == 0
+        # neither the uploads nor the downloads leave files behind
+        assert TempStore.count() == num_tmp_files
 
         tbl_id = t._id
         pxt.drop_table(t)
         assert ObjectOps.count(tbl_id, dest=dest) == 0
+
+    @pytest.mark.db_roots('local', reason='treats a local destination as remote in-process')
+    def test_cell_files_remote_reads(self, monkeypatch: pytest.MonkeyPatch, uses_db: None) -> None:
+        """Queries download the chunks in a remote destination, and delete the downloads when done with them."""
+        dest = self.resolve_destination_uri(StorageTarget.LOCAL_STORE)
+        assert dest is not None
+        monkeypatch.setattr(Env.get(), '_cell_materialization_dest', dest)
+
+        # treat the chunks in dest as remote: reads download them instead of opening them in place
+        parse_local_file_path = cell_reconstruction_node.parse_local_file_path
+        download_threads: list[str] = []
+
+        def parse_unless_dest(url: str) -> Path | None:
+            return None if url.startswith(dest) else parse_local_file_path(url)
+
+        def download(src_uri: str, dest_path: Path) -> None:
+            src_path = parse_local_file_path(src_uri)
+            assert src_path is not None
+            shutil.copyfile(src_path, dest_path)
+            download_threads.append(threading.current_thread().name)
+
+        monkeypatch.setattr(cell_reconstruction_node, 'parse_local_file_path', parse_unless_dest)
+        monkeypatch.setattr(ObjectOps, 'copy_object_to_local_file', staticmethod(download))
+        FileCache.get().set_capacity(2**20)
+        num_tmp_files = TempStore.count()
+
+        t = pxt.create_table('cell_files', self.CELL_FILES_SCHEMA)
+        self.check_cell_files(t, dest)
+        # every download, including those for json paths, ran concurrently off the event loop
+        assert len(download_threads) > 0
+        assert all(name.startswith('pxt-chunk-download') for name in download_threads), download_threads
+        assert TempStore.count() == num_tmp_files
+        pxt.drop_table(t)
 
     @pytest.mark.db_roots('local', reason='media destination/object-store internals')
     @pytest.mark.very_expensive

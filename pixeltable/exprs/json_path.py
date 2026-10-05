@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import io
 import random
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sql
 
@@ -17,6 +16,9 @@ from .object_ref import ObjectRef
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
+if TYPE_CHECKING:
+    from pixeltable.exec.cell_reconstruction_node import CellFileReader
+
 
 class JsonPath(Expr):
     """
@@ -28,7 +30,8 @@ class JsonPath(Expr):
     path_elements: list[str | int | slice]
     root_type: ts.ColumnType | None
     _relative_path_root_id: int | None  # explicitly assigned id of a relative path root; None otherwise
-    file_handles: dict[str, io.BufferedReader]  # key: file url
+    # reads the chunks of inlined objects that CellReconstructionNode didn't load; created on first use
+    cell_files: CellFileReader | None
 
     def __init__(
         self,
@@ -59,7 +62,7 @@ class JsonPath(Expr):
         self._relative_path_root_id = random.getrandbits(63) if anchor is None else None
 
         self.id = self._create_id()
-        self.file_handles = {}
+        self.cell_files = None
 
     @classmethod
     def create_relative_path_root(cls, root_type: ts.ColumnType | None = None) -> 'JsonPath':
@@ -175,9 +178,9 @@ class JsonPath(Expr):
         )
 
     def release(self) -> None:
-        for fh in self.file_handles.values():
-            fh.close()
-        self.file_handles.clear()
+        if self.cell_files is not None:
+            self.cell_files.close()
+            self.cell_files = None
 
     def __repr__(self) -> str:
         from .object_ref import ObjectRef
@@ -392,11 +395,13 @@ class JsonPath(Expr):
             return
 
         # defer import until it's needed
-        from pixeltable.exec.cell_reconstruction_node import json_has_inlined_objs, reconstruct_json
+        from pixeltable.exec.cell_reconstruction_node import CellFileReader, json_has_inlined_objs, reconstruct_json
 
         cell_md = row.slot_md[self.anchor.slot_idx]
         if cell_md is None or cell_md.file_urls is None or not json_has_inlined_objs(val):
             # val doesn't contain inlined objects
             return
 
-        row.vals[self.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.anchor.col, self.file_handles)
+        if self.cell_files is None:
+            self.cell_files = CellFileReader()
+        row.vals[self.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.cell_files)
