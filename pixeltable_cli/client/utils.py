@@ -505,6 +505,8 @@ def confirm_or_exit(
     if not stdin_is_a_tty():
         if on_refusal is not None:
             on_refusal()
+        # stdout is block-buffered on a pipe; flush it before stderr emits the refusal line
+        sys.stdout.flush()
         print(f'pxt: refusing to proceed without --force/-f (no TTY for confirmation): {prompt}', file=sys.stderr)
         sys.exit(refused_exit_code)
     sys.stderr.write(f'{prompt} [y/N] ')

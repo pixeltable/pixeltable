@@ -4,6 +4,9 @@ The diff answer is faked at `post_request`, so these exercise only what the clie
 """
 
 import json
+import os
+import sys
+from typing import BinaryIO, TextIO
 
 import pytest
 
@@ -32,20 +35,46 @@ def _pending_plan() -> dict:
     return plan.model_dump(mode='json')
 
 
+def _open_joined_pipe(monkeypatch: pytest.MonkeyPatch) -> tuple[BinaryIO, TextIO, TextIO]:
+    """Stdout and stderr writing one pipe, buffered the way a non-tty pipe is.
+
+    Stdout is block-buffered. Stderr is line-buffered, so a refusal line reaches the pipe
+    while a plan print is still sitting in the stdout buffer.
+    """
+    read_fd, write_fd = os.pipe()
+    out_fp = os.fdopen(write_fd, 'w', buffering=8192)
+    err_fp = os.fdopen(os.dup(out_fp.fileno()), 'w', buffering=1)
+    monkeypatch.setattr(sys, 'stdout', out_fp)
+    monkeypatch.setattr(sys, 'stderr', err_fp)
+    return os.fdopen(read_fd, 'rb'), out_fp, err_fp
+
+
+def _read_joined(read_fp: BinaryIO, out_fp: TextIO, err_fp: TextIO) -> str:
+    """Flush the buffers shutdown would flush, then read the one pipe."""
+    err_fp.flush()
+    out_fp.flush()
+    err_fp.close()
+    out_fp.close()
+    merged = read_fp.read().decode()
+    read_fp.close()
+    return merged
+
+
 class TestUpdateRefusal:
-    def test_refusal_prints_plan_once(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """A non-tty run refuses; the pending plan printed before the prompt is not printed again."""
+    def test_refusal_prints_plan_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A non-tty pipe shows the pending plan once, and that plan precedes the refusal line."""
         monkeypatch.setattr(db_cmd, 'post_request', lambda _path, _body: _pending_plan())
         monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: False)
+        read_fp, out_fp, err_fp = _open_joined_pipe(monkeypatch)
 
-        with pytest.raises(SystemExit, match=f'^{EXIT_REFUSED}$'):
-            db_cmd.run(['update', 'pxt://acme:main'])
+        try:
+            with pytest.raises(SystemExit, match=f'^{EXIT_REFUSED}$'):
+                db_cmd.run(['update', 'pxt://acme:main'])
+        finally:
+            merged = _read_joined(read_fp, out_fp, err_fp)
 
-        out, err = capsys.readouterr()
-        assert out.count('Plan:') == 1, out
-        assert 'refusing to proceed' in err
+        assert merged.count('Plan:') == 1, merged
+        assert merged.index('Plan:') < merged.index('refusing to proceed'), merged
 
     def test_refusal_json_prints_pending_plan(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
