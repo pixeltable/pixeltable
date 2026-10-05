@@ -157,7 +157,7 @@ class Runtime:
                     excs.ErrorCode.SERVICE_NOT_FOUND,
                     f'No local proxy is running for {db!r}. Start it with: pxt localproxy start {db}',
                 )
-            return CatalogProxy(catalog_uri, ProxyClient.local(f'http://127.0.0.1:{info["port"]}'))
+            return CatalogProxy(catalog_uri, ProxyClient.local(f'http://127.0.0.1:{info["port"]}', db=catalog_uri.db))
 
         # Remote database: connect via TLS to the proxy endpoint.
         # Either kind works: the sidecar picks its validation path by the credential's shape. Passed

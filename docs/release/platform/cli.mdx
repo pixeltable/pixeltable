@@ -1126,6 +1126,8 @@ pxt db build-image pxt://myorg:mydb
 
 Builds the image from the project environment without comparing anything first, which is how you force a rebuild after a failed one; `pxt db update` rebuilds only when that environment changed. The project files are uploaded with it, unless the database already has that exact archive. Polls until the build completes or fails; the pods restart on the new image and the new sources.
 
+When a command reports an unsupported proxy protocol version and this Pixeltable is newer than the hosted database, run this rebuild against the database URI from the failed command. What that image installs is described in [What to run after a change](/cloud#what-to-run-after-a-change).
+
 #### `pxt db delete`
 
 ```bash

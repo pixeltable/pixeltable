@@ -11,6 +11,7 @@ import abc
 import http.client
 import json
 import logging
+import re
 import selectors
 import socket
 import ssl
@@ -25,6 +26,7 @@ import httpx
 from tenacity import before_sleep_log, retry, retry_if_exception_type, stop_after_delay, wait_exponential_jitter
 
 from pixeltable import exceptions as excs
+from pixeltable.catalog.path import Path as CatalogPath
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.row import RowBatch
 from pixeltable.utils.filecache import FileCache
@@ -349,6 +351,10 @@ class TunnelTransport(Transport):
         self._pool.close()
 
 
+# Daemons from before the version fields put both numbers only in this sentence.
+_LEGACY_PROTOCOL_MISMATCH_RE = re.compile(r'Unsupported proxy protocol version: (\d+) \(server expects (\d+)\)\Z')
+
+
 class ProxyClient:
     """Talks to a proxy daemon: POSTs requests to its /rpc endpoint and localizes media results.
 
@@ -357,18 +363,19 @@ class ProxyClient:
 
     _transport: Transport
 
-    def __init__(self, transport: Transport):
+    def __init__(self, transport: Transport, catalog_uri: CatalogPath):
         self._transport = transport
+        self._catalog_uri = catalog_uri
 
     @classmethod
-    def local(cls, endpoint: str) -> ProxyClient:
+    def local(cls, endpoint: str, db: str | None = None) -> ProxyClient:
         """Connect to a proxy daemon reachable directly over HTTP at endpoint."""
-        return cls(HttpTransport(endpoint))
+        return cls(HttpTransport(endpoint), CatalogPath(org='local', db=db))
 
     @classmethod
     def remote(cls, org: str, db: str, credential_cb: Callable[[], Credential], host: str, port: int) -> ProxyClient:
         """Connect to the Pixeltable cloud service's proxy daemon over an authenticated TLS tunnel."""
-        return cls(TunnelTransport(org, db, credential_cb, host=host, port=port))
+        return cls(TunnelTransport(org, db, credential_cb, host=host, port=port), CatalogPath(org=org, db=db))
 
     def _prepare(self, args: dict[str, Any]) -> tuple[dict[str, Any], list[bytes]]:
         """Serialize args for the wire, exactly once per logical request (media files are read, and for a
@@ -411,12 +418,35 @@ class ProxyClient:
         wire_args, parts = self._prepare(args)
         return self._post(class_name, method, wire_args, parts, path_key=path_key, snapshot_key=snapshot_key)
 
+    def _validate_response(self, response: ProxyResponse) -> None:
+        """Raise the server error. Fill in a short protocol-mismatch sentence from the version fields.
+
+        A daemon from before those fields leaves the two numbers only in the sentence.
+        """
+        error = response.get('error')
+        if not isinstance(error, dict):
+            if error is not None:
+                raise excs.Error.from_dict(error)
+            return
+        message = error.get('message')
+        legacy = _LEGACY_PROTOCOL_MISMATCH_RE.fullmatch(message) if isinstance(message, str) else None
+        client_version = error.get('client_protocol_version')
+        server_version = error.get('server_protocol_version')
+        versions: tuple[int, int] | None
+        if type(client_version) is int and type(server_version) is int:
+            versions = (client_version, server_version)
+        elif legacy is not None:
+            versions = (int(legacy.group(1)), int(legacy.group(2)))
+        else:
+            versions = None
+        if versions is not None and legacy is not None:
+            error |= {'message': proxy_protocol.protocol_mismatch_message(*versions, self._catalog_uri)}
+        raise excs.Error.from_dict(error)
+
     def send_request(self, class_name: str, method: str, args: dict[str, Any]) -> Any:
         """Run a (path-less) catalog method and return its (deserialized) result."""
         response, parts = self.send(class_name, method, args)
-        error = response.get('error')
-        if error is not None:
-            raise excs.Error.from_dict(error)
+        self._validate_response(response)
         return self._localize_media(proxy_protocol.deserialize_value(response.get('result'), parts))
 
     def dispatch_table_method(
@@ -438,9 +468,7 @@ class ProxyClient:
             current_md = response.get('current_md')
             if current_md is not None:
                 refresh(proxy_protocol.deserialize_value(current_md, resp_parts))
-            error = response.get('error')
-            if error is not None:
-                raise excs.Error.from_dict(error)
+            self._validate_response(response)
             if response.get('is_stale_md', False):
                 continue  # server withheld a stale mutation; retry against the refreshed schema
             return self._localize_media(proxy_protocol.deserialize_value(response.get('result'), resp_parts))

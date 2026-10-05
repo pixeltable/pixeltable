@@ -4,15 +4,10 @@
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+from apps.basic import excerpt
 from pixeltable.serving import FastAPIRouter
 
 TableModel = pxt.model_base()
-
-
-@pxt.udf
-def excerpt(text: str, n: int = 12) -> str:
-    """A udf, so that a computed column is not only an expression over other columns."""
-    return text if len(text) <= n else f'{text[:n]}...'
 
 
 class Docs(TableModel, name='docs'):
@@ -45,14 +40,14 @@ ingest.add_insert_route(
     path='/docs',
     # every column the table requires has to be an input; the nullable ones may be left out
     inputs=[Docs.doc_id, Docs.title, Docs.published],  # type: ignore[arg-type]
-    outputs=[Docs.title_upper, Docs.summary],  # type: ignore[arg-type]
+    outputs=[Docs.title_upper, Docs.summary],
 )
 # a compute route builds a row without storing it; inputs beyond what its outputs need are accepted and ignored
 ingest.add_compute_route(
     Docs,
     path='/preview',
     inputs=[Docs.doc_id, Docs.title, Docs.published],  # type: ignore[arg-type]
-    outputs=[Docs.summary],  # type: ignore[arg-type]
+    outputs=[Docs.summary],
 )
 # the row is identified by its primary key, which the request carries but which is not an input
 ingest.add_update_route(
