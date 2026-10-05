@@ -18,6 +18,8 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.catalog import TablePathKey, TableVersionKey
+from pixeltable.config import Config
 from pixeltable.service import proxy_client, proxy_daemon, proxy_dispatch, proxy_protocol
 from pixeltable.service.proxy_client import HttpTransport, ProxyClient, TunnelTransport
 from pixeltable.service.proxy_protocol import ArchiveMember, PxtArchivePartSink, PxtStorePartSink
@@ -313,7 +315,7 @@ class TestProxyDaemon:
 
         _ResponseMedia uses this per-object sink, since it presigns a url for each key."""
         uploaded: dict[str, tuple[pathlib.Path, bytes]] = {}
-        store_uris: list[str] = []
+        stores: list[tuple[str, bool]] = []
 
         class FakeStore:
             def copy_local_file(self, src_path: pathlib.Path, dest: FileDestination) -> str:
@@ -321,8 +323,10 @@ class TestProxyDaemon:
                 uploaded[dest.remote_key] = (src_path, src_path.read_bytes())
                 return dest.url
 
-        def fake_get_store(dest: Any, allow_obj_name: bool, col_name: Any = None) -> Any:
-            store_uris.append(dest)
+        def fake_get_store(
+            dest: Any, allow_obj_name: bool, col_name: Any = None, scope_credentials: bool = False
+        ) -> Any:
+            stores.append((dest, scope_credentials))
             return FakeStore()
 
         monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(fake_get_store))
@@ -338,14 +342,14 @@ class TestProxyDaemon:
 
         # nothing has been uploaded yet, and no credentials have been fetched
         assert uploaded == {}
-        assert store_uris == []
+        assert stores == []
         # repeated references to one path get distinct keys (the daemon consumes each localized file)
         assert len(set(keys)) == 3
         assert all(k.startswith(sink._key_prefix) for k in keys)
 
         sink.flush()
-        # one store (one credential fetch) for the whole request, scoped to its own prefix
-        assert store_uris == [f'pxtfs://org1:db1/home/{sink._key_prefix}']
+        # one store for the whole request, with credentials for its own prefix
+        assert stores == [(f'pxtfs://org1:db1/home/{sink._key_prefix}', True)]
         assert set(uploaded) == set(keys)
         assert uploaded[keys[0]][1] == uploaded[keys[1]][1] == src.read_bytes()
         assert uploaded[keys[2]][1] == b'raw'
@@ -358,15 +362,15 @@ class TestProxyDaemon:
         assert src.exists()
 
         # flush() drained the queue, so a second call uploads nothing
-        store_uris.clear()
+        stores.clear()
         sink.flush()
-        assert store_uris == []
+        assert stores == []
 
     @staticmethod
     def _install_fake_upload_store(
         monkeypatch: pytest.MonkeyPatch,
         objects: dict[str, bytes],
-        store_uris: list[str],
+        stores: list[tuple[str, bool]],
         downloads: list[str] | None = None,
     ) -> None:
         """Route ObjectOps.get_store to a fake store serving objects (keyed store-relative, i.e. without the
@@ -387,8 +391,10 @@ class TestProxyDaemon:
                     raise excs.NotFoundError(excs.ErrorCode.STORAGE_NOT_FOUND, "Bucket 'b' not found")
                 dest_path.write_bytes(objects[src_path])
 
-        def fake_get_store(dest: Any, allow_obj_name: bool, col_name: Any = None) -> Any:
-            store_uris.append(dest)
+        def fake_get_store(
+            dest: Any, allow_obj_name: bool, col_name: Any = None, scope_credentials: bool = False
+        ) -> Any:
+            stores.append((dest, scope_credentials))
             return FakeStore()
 
         monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(fake_get_store))
@@ -408,13 +414,13 @@ class TestProxyDaemon:
 
     def test_prefetch_remote_parts(self, hosted_identity: None, monkeypatch: pytest.MonkeyPatch) -> None:
         objects = {'req/0.png': b'png-bytes', 'req/1.jpg': b'jpg-bytes'}
-        store_uris: list[str] = []
-        self._install_fake_upload_store(monkeypatch, objects, store_uris)
+        stores: list[tuple[str, bool]] = []
+        self._install_fake_upload_store(monkeypatch, objects, stores)
 
         # happy path: keys download into TempStore, preserving each key's extension
         request = self._remote_file_request('uploads/req/0.png', 'uploads/req/1.jpg')
         proxy_dispatch._prefetch_remote_parts(request)
-        assert store_uris == ['pxtfs://org1:db1/home/uploads/']
+        assert stores == [('pxtfs://org1:db1/home/uploads/', False)]
         assert set(request._remote_parts) == {('uploads/req/0.png', None), ('uploads/req/1.jpg', None)}
         for (key, _), path_str in request._remote_parts.items():
             path = pathlib.Path(path_str)
@@ -424,11 +430,11 @@ class TestProxyDaemon:
             path.unlink()
 
         # a request without remote keys makes no store (and thus no control-plane) call
-        store_uris.clear()
+        stores.clear()
         proxy_dispatch._prefetch_remote_parts(
             proxy_protocol.ProxyRequest(class_name='CatalogBase', method='echo_test', args={'rows': []})
         )
-        assert store_uris == []
+        assert stores == []
 
         # keys outside uploads/ (e.g. persisted store objects) are rejected before any download
         with pxt_raises(
@@ -492,8 +498,8 @@ class TestProxyDaemon:
         """PxtArchivePartSink packs parts into archives that roll over at the target size; a large part is
         uploaded as an object of its own."""
         objects: dict[str, bytes] = {}
-        store_uris: list[str] = []
-        self._install_fake_upload_store(monkeypatch, objects, store_uris)
+        stores: list[tuple[str, bool]] = []
+        self._install_fake_upload_store(monkeypatch, objects, stores)
         monkeypatch.setattr(PxtArchivePartSink, '_ARCHIVE_TARGET_SIZE', 4096)
         monkeypatch.setattr(PxtArchivePartSink, '_MAX_ARCHIVE_MEMBER_SIZE', 2048)
         small = tmp_path / 'small.png'
@@ -507,7 +513,7 @@ class TestProxyDaemon:
         refs: list[int | str | ArchiveMember] = [sink.add_media_file(str(small)), sink.add_media_file(str(small))]
         # the open archive is below its target size, so nothing is uploaded and no credentials are fetched
         assert objects == {}
-        assert store_uris == []
+        assert stores == []
         # this member takes the archive past 4096 bytes, which closes it
         refs.append(sink.add_media_bytes(b'b' * 1500, '.jpg'))
         refs.append(sink.add_media_file(str(large)))
@@ -524,7 +530,7 @@ class TestProxyDaemon:
             ArchiveMember(f'{prefix}tar1.tar', '4.bin'),
             0,
         ]
-        assert store_uris == [f'pxtfs://org1:db1/home/{prefix}']
+        assert stores == [(f'pxtfs://org1:db1/home/{prefix}', True)]
         rel_prefix = prefix.removeprefix('uploads/')
         assert set(objects) == {f'{rel_prefix}tar0.tar', f'{rel_prefix}tar1.tar', f'{rel_prefix}3.mp4'}
         assert _tar_members(objects[f'{rel_prefix}tar0.tar']) == {
@@ -612,7 +618,9 @@ class TestProxyDaemon:
     def test_sinks_clean_up_after_failed_store_setup(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         """A credential fetch that fails in flush() leaves nothing in TempStore."""
 
-        def failing_get_store(dest: Any, allow_obj_name: bool, col_name: Any = None) -> Any:
+        def failing_get_store(
+            dest: Any, allow_obj_name: bool, col_name: Any = None, scope_credentials: bool = False
+        ) -> Any:
             raise RuntimeError('credential fetch failed')
 
         monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(failing_get_store))
@@ -642,9 +650,9 @@ class TestProxyDaemon:
             'req/bad.tar': b'not a tar file',
             'req/sparse.tar': _sparse_tar_bytes('0.bin', 50 * 1024 * 1024),
         }
-        store_uris: list[str] = []
+        stores: list[tuple[str, bool]] = []
         downloads: list[str] = []
-        self._install_fake_upload_store(monkeypatch, objects, store_uris, downloads)
+        self._install_fake_upload_store(monkeypatch, objects, stores, downloads)
         tmp_count = TempStore.count()
 
         request = self._remote_file_request(
@@ -657,7 +665,7 @@ class TestProxyDaemon:
         proxy_dispatch._prefetch_remote_parts(request)
         # one download per archive, however many of its members are referenced
         assert sorted(downloads) == ['req/3.bin', 'req/tar0.tar', 'req/tar1.tar']
-        assert store_uris == ['pxtfs://org1:db1/home/uploads/']
+        assert stores == [('pxtfs://org1:db1/home/uploads/', False)]
         expected = {
             ('uploads/req/tar0.tar', '0.png'): b'a',
             ('uploads/req/tar0.tar', '1.png'): b'b',
@@ -762,6 +770,157 @@ class TestProxyDaemon:
         assert pathlib.Path(row['small']).read_bytes() == small.read_bytes()
         for path_str in request._remote_parts.values():
             pathlib.Path(path_str).unlink()
+
+    def test_protocol_mismatch_tells_a_newer_client_to_rebuild(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        message = self._protocol_error(proxy_protocol.PROTOCOL_VERSION + 1, 'org1', monkeypatch)
+        assert 'pxt db build-image pxt://org1:db1' in message
+        assert 'upgrade a lockfile pin first' in message
+        assert 'pxt db restart does not change the image' in message
+        assert 'pip install --upgrade pixeltable' not in message
+        assert 'pxt localproxy' not in message
+
+    def test_protocol_mismatch_tells_a_newer_client_to_restart_local_proxy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        message = self._protocol_error(proxy_protocol.PROTOCOL_VERSION + 1, 'local', monkeypatch)
+        assert 'pxt localproxy stop db1, then pxt localproxy start db1' in message
+        assert 'pxt db build-image' not in message
+        assert 'pip install --upgrade pixeltable' not in message
+
+    @pytest.mark.parametrize('org', ['org1', 'local'])
+    def test_protocol_mismatch_tells_an_older_client_to_upgrade(
+        self, org: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        message = self._protocol_error(proxy_protocol.PROTOCOL_VERSION - 1, org, monkeypatch)
+        assert message.endswith('pip install --upgrade pixeltable')
+        assert 'pxt db build-image' not in message
+        assert 'pxt localproxy' not in message
+
+    @pytest.mark.parametrize('org', ['org1', 'local'])
+    @pytest.mark.parametrize('table_method', [False, True])
+    @pytest.mark.parametrize(
+        'server_version', [proxy_protocol.PROTOCOL_VERSION - 1, proxy_protocol.PROTOCOL_VERSION + 1]
+    )
+    def test_client_expands_a_legacy_protocol_mismatch(
+        self, org: str, table_method: bool, server_version: int, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client_version = proxy_protocol.PROTOCOL_VERSION
+        legacy = f'Unsupported proxy protocol version: {client_version} (server expects {server_version})'
+        client = (
+            ProxyClient.local('http://127.0.0.1:1', db='db1')
+            if org == 'local'
+            else ProxyClient.remote(org, 'db1', lambda: 'test-key', host='h', port=443)
+        )
+        response = proxy_protocol.encode_response(
+            {
+                'error': {
+                    'error_code': 'UNSUPPORTED_OPERATION',
+                    'message': legacy,
+                    'retryable': False,
+                    'retry_after': 3.0,
+                    'detail': 'test-only diagnostic',
+                }
+            }
+        )
+        monkeypatch.setattr(client._transport, 'post', lambda body: response)
+        try:
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Unsupported proxy protocol version') as err:
+                self._client_call(client, table_method)
+            message = err.value.message
+            assert err.value.retry_after == 3.0
+            assert err.value.detail == 'test-only diagnostic'
+            if server_version > client_version:
+                assert message.endswith('pip install --upgrade pixeltable')
+            elif org == 'local':
+                assert 'pxt localproxy stop db1, then pxt localproxy start db1' in message
+                assert 'pxt db build-image' not in message
+            else:
+                assert 'pxt db build-image pxt://org1:db1' in message
+                assert 'pxt localproxy' not in message
+        finally:
+            client.close()
+
+    @pytest.mark.parametrize('table_method', [False, True])
+    @pytest.mark.parametrize(
+        'suffix', ['. Follow the newer server recovery instructions.', '\nNew recovery instructions.']
+    )
+    def test_client_preserves_enriched_protocol_mismatch(
+        self, table_method: bool, suffix: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        message = f'Unsupported proxy protocol version: 6 (server expects 7){suffix}'
+        client = ProxyClient.local('http://127.0.0.1:1', db='db1')
+        response = proxy_protocol.encode_response(
+            {
+                'error': {
+                    'error_code': 'UNSUPPORTED_OPERATION',
+                    'message': message,
+                    'retryable': False,
+                    'client_protocol_version': 6,
+                    'server_protocol_version': 4,
+                }
+            }
+        )
+        monkeypatch.setattr(client._transport, 'post', lambda body: response)
+        try:
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Unsupported proxy protocol version') as err:
+                self._client_call(client, table_method)
+            assert err.value.message == message
+        finally:
+            client.close()
+
+    @pytest.mark.parametrize('table_method', [False, True])
+    def test_client_trusts_protocol_version_fields(self, table_method: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The sentence says the database is newer. The fields say this client is, and they win."""
+        sentence = 'Unsupported proxy protocol version: 1 (server expects 2)'
+        client = ProxyClient.remote('org1', 'db1', lambda: 'test-key', host='h', port=443)
+        response = proxy_protocol.encode_response(
+            {
+                'error': {
+                    'error_code': 'UNSUPPORTED_OPERATION',
+                    'message': sentence,
+                    'retryable': False,
+                    'client_protocol_version': proxy_protocol.PROTOCOL_VERSION,
+                    'server_protocol_version': proxy_protocol.PROTOCOL_VERSION - 1,
+                }
+            }
+        )
+        monkeypatch.setattr(client._transport, 'post', lambda body: response)
+        try:
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Unsupported proxy protocol version') as err:
+                self._client_call(client, table_method)
+            assert 'pxt db build-image pxt://org1:db1' in err.value.message
+            assert 'pip install --upgrade pixeltable' not in err.value.message
+        finally:
+            client.close()
+
+    @staticmethod
+    def _client_call(client: ProxyClient, table_method: bool) -> None:
+        if table_method:
+            key = TablePathKey((TableVersionKey(uuid.uuid4(), None),))
+            client.dispatch_table_method(
+                'insert', {'rows': []}, path_key=key, get_snapshot_key=lambda: key, refresh=lambda md: None
+            )
+        else:
+            client.send_request('Catalog', 'list_dirs', {})
+
+    def _protocol_error(self, client_version: int, org: str, monkeypatch: pytest.MonkeyPatch) -> str:
+        values = {
+            ('pxtcloud', 'org'): org if org != 'local' else None,
+            ('pxtcloud', 'db'): 'db1',
+            ('pixeltable', 'db'): 'db1',
+        }
+        monkeypatch.setattr(
+            Config.get(), 'get_string_value', lambda key, section='pixeltable': values.get((section, key))
+        )
+        request = proxy_protocol.ProxyRequest(
+            class_name='Catalog', method='list_dirs', args={}, protocol_version=client_version
+        )
+        head, _parts = proxy_protocol.decode_body(proxy_dispatch.handle(request.model_dump_json(), []))
+        error = json.loads(head)['error']
+        assert error['error_code'] == 'UNSUPPORTED_OPERATION'
+        assert error['client_protocol_version'] == client_version
+        assert error['server_protocol_version'] == proxy_protocol.PROTOCOL_VERSION
+        return error['message']
 
 
 class _ScriptedResponse:

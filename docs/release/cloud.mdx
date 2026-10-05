@@ -159,6 +159,10 @@ The image gets its packages from `uv.lock` or `requirements.txt`. Without either
 
 `pxt db diff pxt://org:main` prints what `update` would do without doing it.
 
+A command that reports an unsupported proxy protocol version means this Pixeltable and the database image disagree. When this Pixeltable is newer, run `pxt db build-image pxt://org:main` from the project, using the database URI from the failed command. The image installs the Pixeltable the project resolves: upgrade a lockfile pin first, and with no lockfile the build installs the current PyPI release. `pxt db restart` keeps the image the pods already run. When the database is newer, run `pip install --upgrade pixeltable`.
+
+For an older local proxy at `pxt://local:mydb`, run `pxt localproxy stop mydb`, then `pxt localproxy start mydb` from the updated Python environment. `start` alone keeps a healthy daemon running.
+
 ## Operate it
 
 ```bash
