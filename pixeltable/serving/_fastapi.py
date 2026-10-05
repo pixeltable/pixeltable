@@ -2700,10 +2700,12 @@ class FastAPIRouter(fastapi.APIRouter):
     def _evict_finished_jobs(self) -> None:
         assert self._jobs_lock.locked()
         cutoff = time.monotonic() - _JOB_RETENTION_SECS
-        while len(self._finished_jobs) > 0:
-            job_id, finished_at = next(iter(self._finished_jobs.items()))
+        expired: list[str] = []
+        for job_id, finished_at in self._finished_jobs.items():
             if finished_at > cutoff:
                 break
+            expired.append(job_id)
+        for job_id in expired:
             del self._finished_jobs[job_id]
             del self._jobs[job_id]
 
