@@ -177,7 +177,7 @@ def run_whoami(argv: list[str]) -> None:
         try:
             sys.stdout.flush()  # keep the identity line ahead of the rejection on non-pty output
         except OSError:
-            pass  # the identity line is already lost; the rejection still matters
+            pass
         print(answer['rejection'], file=sys.stderr)
         sys.exit(1)
     if answer['note'] != '':
