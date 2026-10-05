@@ -1071,6 +1071,22 @@ class TestTunnelRetries:
         assert transport.post(b'body') == b'second'
         assert len(opened) == 2
 
+    def test_a_connection_the_os_refuses_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A firewall or sandbox that denies the socket denies it again, so the error comes at once."""
+        attempts = 0
+
+        def deny(*_args: Any, **_kwargs: Any) -> socket.socket:
+            nonlocal attempts
+            attempts += 1
+            raise PermissionError(1, 'Operation not permitted')
+
+        monkeypatch.setattr(socket, 'create_connection', deny)
+        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
+
+        with pytest.raises(PermissionError):
+            transport.post(b'body')
+        assert attempts == 1
+
     def test_a_refused_credential_opens_no_connection(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Renewing a session is a round trip of its own, so the credential is resolved before connecting."""
 

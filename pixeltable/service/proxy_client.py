@@ -23,7 +23,14 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator
 from uuid import UUID
 
 import httpx
-from tenacity import before_sleep_log, retry, retry_if_exception_type, stop_after_delay, wait_exponential_jitter
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception_type,
+    retry_if_not_exception_type,
+    stop_after_delay,
+    wait_exponential_jitter,
+)
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog.path import Path as CatalogPath
@@ -288,8 +295,8 @@ class TunnelTransport(Transport):
         """Borrow a tunnel connection, issue one request, return the raw body.
 
         A failure that leaves the request undelivered (connect, handshake, writing it) is retried with
-        backoff on a fresh connection, as is a 5xx; a refused credential and non-5xx HTTP errors
-        are not.
+        backoff on a fresh connection, as is a 5xx; a refused credential, a connection the OS refuses, and
+        non-5xx HTTP errors are not.
 
         A connection that fails *after* the daemon has received the request is treated as a server crash and is
         not retried; retries in this scenario can inadvertently DOS the pod.
@@ -297,7 +304,8 @@ class TunnelTransport(Transport):
         headers = {'Content-Type': content_type} if content_type else {}
 
         @retry(
-            retry=retry_if_exception_type(_TUNNEL_TRANSIENT_EXC),
+            # an OSError, but a firewall or sandbox that denies the socket denies it again on a retry
+            retry=retry_if_exception_type(_TUNNEL_TRANSIENT_EXC) & retry_if_not_exception_type(PermissionError),
             wait=wait_exponential_jitter(initial=0.5, max=5.0),
             stop=stop_after_delay(_TUNNEL_RETRY_MAX_DELAY),
             before_sleep=before_sleep_log(_logger, logging.DEBUG),
