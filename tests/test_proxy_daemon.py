@@ -29,6 +29,8 @@ from pixeltable.utils.object_stores import FileDestination, ObjectOps
 
 from .utils import pxt_raises, reload_env
 
+_KEY = Credential('api_key', 'key', 'the PIXELTABLE_API_KEY environment variable')
+
 
 @pytest.fixture
 def hosted_identity(init_env: None, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
@@ -810,7 +812,7 @@ class TestProxyDaemon:
         client = (
             ProxyClient.local('http://127.0.0.1:1', db='db1')
             if org == 'local'
-            else ProxyClient.remote(org, 'db1', lambda: 'test-key', host='h', port=443)
+            else ProxyClient.remote(org, 'db1', lambda: _KEY, host='h', port=443)
         )
         response = proxy_protocol.encode_response(
             {
@@ -873,7 +875,7 @@ class TestProxyDaemon:
     def test_client_trusts_protocol_version_fields(self, table_method: bool, monkeypatch: pytest.MonkeyPatch) -> None:
         """The sentence says the database is newer. The fields say this client is, and they win."""
         sentence = 'Unsupported proxy protocol version: 1 (server expects 2)'
-        client = ProxyClient.remote('org1', 'db1', lambda: 'test-key', host='h', port=443)
+        client = ProxyClient.remote('org1', 'db1', lambda: _KEY, host='h', port=443)
         response = proxy_protocol.encode_response(
             {
                 'error': {
@@ -983,9 +985,6 @@ def _header_fields(stream: io.BufferedIOBase) -> dict[str, str]:
         name, _, value = line.partition(':')
         fields[name] = value.strip()
     return fields
-
-
-_KEY = Credential('api_key', 'key', 'the PIXELTABLE_API_KEY environment variable')
 
 
 class _PlainSidecar(socketserver.TCPServer):
