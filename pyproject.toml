@@ -53,6 +53,7 @@ dependencies = [
     "sqlalchemy>=2.0.40",
     "pgvector>=0.4.0",
     "av>=14.1",
+    "boto3>=1.36",
     "beautifulsoup4>=4.10",
     "lxml>=5.1",
     "requests>=2.31.0",
