@@ -265,8 +265,6 @@ class LocalStore(ObjectStoreBase):
         r = []
         for root, _, files in os.walk(self.__base_dir):
             for file in files:
-                if file == self.GITIGNORE:
-                    continue
                 r.append(Path(root, file).as_uri() if return_uri else os.path.join(root, file))
         return r
 
