@@ -6,6 +6,8 @@ from pixeltable.exprs import ArrayMd, BinaryMd
 from pixeltable.utils.misc import non_none_dict_factory
 
 INLINED_OBJECT_MD_KEY = '__pxtinlinedobjmd__'
+# in-memory only: the bytes of an inlined object, added by CellReconstructionNode for objects in remote chunks
+INLINED_OBJECT_BYTES_KEY = '__pxtinlinedobjbytes__'
 
 
 @dataclasses.dataclass

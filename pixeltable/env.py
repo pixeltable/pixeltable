@@ -139,6 +139,7 @@ class Env:
     _file_cache_lease_s: float
     _default_input_media_dest: str | None
     _default_output_media_dest: str | None
+    _cell_materialization_dest: str | None
     _cloud_org: str | None
     _cloud_db: str | None
     _object_store_clients: dict[tuple[StorageTarget, ObjectStoreClientKind], S3CompatClientDict]
@@ -392,6 +393,7 @@ class Env:
         self._cloud_db = config.get_string_value('db', section='pxtcloud')
         self._default_input_media_dest = config.get_string_value('input_media_dest')
         self._default_output_media_dest = config.get_string_value('output_media_dest')
+        self._cell_materialization_dest = None
         hosted_db = self.hosted_db()
         if hosted_db is not None:
             org, db = hosted_db
@@ -400,6 +402,8 @@ class Env:
                 self._default_input_media_dest = home_bucket
             if self._default_output_media_dest is None:
                 self._default_output_media_dest = home_bucket
+            # a hosted pod's local disk does not survive a restart and is not shared with the database's other pods
+            self._cell_materialization_dest = home_bucket
         for mode, uri in (('input', self._default_input_media_dest), ('output', self._default_output_media_dest)):
             if uri is not None:
                 try:
@@ -1013,6 +1017,11 @@ class Env:
     @property
     def default_output_media_dest(self) -> str | None:
         return self._default_output_media_dest
+
+    @property
+    def cell_materialization_dest(self) -> str | None:
+        """Destination of the files that CellMaterializationNode writes; None: the local media dir."""
+        return self._cell_materialization_dest
 
     @property
     def file_cache_dir(self) -> Path:
