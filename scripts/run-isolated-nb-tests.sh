@@ -27,6 +27,7 @@ rm -f "$TEST_PATH"/img-promptable-segmentation.ipynb  # SAM3 video segmentation 
 
 NB_CONDA_ENV=nb-test-env
 FAILURES=0
+CLEANUP_FAILURES=0
 
 for nb in "$TEST_PATH"/*.ipynb; do
     echo "Testing notebook: $nb"
@@ -48,20 +49,21 @@ for nb in "$TEST_PATH"/*.ipynb; do
     echo "Running notebook $nb ..."
     pytest -v -m '' --nbmake --nbmake-timeout=1800 "$nb" || (( FAILURES++ )) || true
 
-    # A notebook that runs `pxt` starts a daemon, which outlives the notebook and stays connected to $PIXELTABLE_DB.
-    # (`pxt daemon stop` fails when no daemon is running, which is the usual case.)
+    # A notebook that runs `pxt` leaves a daemon connected to $PIXELTABLE_DB (stop fails if there is none)
     echo "Stopping the pxt daemon, if any ..."
     pxt daemon stop -f || true
 
-    # Cleanup failures are reported, but must not end the loop and hide the remaining notebooks.
+    # A failed cleanup fails the run, but the remaining notebooks still run
     echo "Cleaning $PIXELTABLE_DB postgres DB ..."
     if POSTGRES_BIN_PATH=$(python -c 'import pixeltable_pgserver; import sys; sys.stdout.write(str(pixeltable_pgserver._commands.POSTGRES_BIN_PATH))'); then
         PIXELTABLE_URL="postgresql://postgres:@/postgres?host=$PIXELTABLE_HOME/pgdata"
-        # WITH (FORCE) ends any session still connected to the database
-        "$POSTGRES_BIN_PATH/psql" "$PIXELTABLE_URL" -U postgres -c "DROP DATABASE IF EXISTS $PIXELTABLE_DB WITH (FORCE);" \
-            || echo "WARNING: could not drop $PIXELTABLE_DB"
+        if ! "$POSTGRES_BIN_PATH/psql" "$PIXELTABLE_URL" -U postgres -c "DROP DATABASE IF EXISTS $PIXELTABLE_DB WITH (FORCE);"; then
+            echo "ERROR: could not drop $PIXELTABLE_DB; later notebooks will see its contents"
+            (( CLEANUP_FAILURES++ )) || true
+        fi
     else
-        echo "WARNING: pixeltable_pgserver is not installed; skipping the DB cleanup"
+        # Without pixeltable the notebook failed, and created no database
+        echo "pixeltable_pgserver is not installed; nothing to clean"
     fi
 
     echo "Cleaning Hugging Face cache ..."
@@ -76,8 +78,8 @@ for nb in "$TEST_PATH"/*.ipynb; do
     echo "Done!"
 done
 
-if [[ "$FAILURES" > 0 ]]; then
-    echo "There were $FAILURES failed notebook(s)."
+if (( FAILURES > 0 || CLEANUP_FAILURES > 0 )); then
+    echo "There were $FAILURES failed notebook(s) and $CLEANUP_FAILURES failed database cleanup(s)."
     exit 1
 else
     echo "All notebooks succeeded."

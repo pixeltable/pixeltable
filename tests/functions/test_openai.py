@@ -949,8 +949,7 @@ class TestOpenaiTypedDictAdherence:
         sdk_fields = self._pydantic_fields(SdkImagesResponse)
 
         overrides = {'data'}  # we re-type and guarantee non-null
-        # newer SDKs (e.g. 3.24) no longer declare size, which older ones (e.g. 3.8) return; a missing key reads
-        # as null, which size allows
+        # openai 3.24 no longer declares size; a missing key reads as null, which size allows
         dropped_by_sdk = {'size'} - set(sdk_fields)
         assert set(ours_fields) - dropped_by_sdk == set(sdk_fields), (
             f'ImagesResponse field set drifted: ours={set(ours_fields)} sdk={set(sdk_fields)}'

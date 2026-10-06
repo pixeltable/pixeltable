@@ -89,7 +89,7 @@ class TestJson:
         assert res['my_str'] == [f'string_{j}' if j < i else None for i in range(50) for j in range(i + 1)]
 
     def test_list_iterator_type_cast(self, uses_db: None) -> None:
-        """Iterator args that cast paths into untyped json, as a transcription's segments need."""
+        """Iterator args that cast paths into untyped json with astype()."""
 
         def transcription(n: int) -> dict:
             return {'segments': [{'start': float(j), 'end': j + 0.5, 'text': f'segment {j}'} for j in range(n)]}

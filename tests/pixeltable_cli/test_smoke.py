@@ -1065,8 +1065,7 @@ class TestMv:
     'local', reason='TODO: run against a hosted database, once a pod can fetch a project it was not built with'
 )
 class TestRecompute:
-    # The daemon resolves the udf from its module path, so the module sits in the project the daemon serves. A
-    # test module is importable there only through a source checkout's editable install, not a released package.
+    # in the served project, so the daemon can import it without an editable install
     UDF_MODULE = dedent(
         """
         import pixeltable as pxt

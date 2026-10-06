@@ -118,8 +118,7 @@ jobs:
         # cmake is needed for certain CI environments where it is not preinstalled.
         run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
       - name: Delete source tree
-        # Ensure we use the pypi packages for testing, not the local source tree
-        run: rm -rf pixeltable pixeltable_cli
+        run: rm -rf pixeltable pixeltable_cli  # Ensure we use pypi packages for testing, not local source tree
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -131,8 +130,6 @@ jobs:
       - name: Run the unit tests
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
-        # Include very_expensive: it also marks the provider integration tests, which are kept off the merge queue
-        # only because they are flaky.
         run: pytest -v -m '' --junitxml=junit-report.xml tests
       - name: Upload test report
         if: always()
