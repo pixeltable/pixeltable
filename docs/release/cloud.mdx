@@ -20,12 +20,19 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     python3 -m venv .venv       # Windows: python -m venv .venv
     source .venv/bin/activate   # Windows: .venv\Scripts\activate
     pip install -U 'pixeltable[serve]'
+    ```
+
+    With no account, run `pxt new` and skip `pxt login`. `pxt new` creates a trial organization and database `main`, and prints the `pxt://` URI, the `pixeltable.toml` entry, and the later commands with that name filled in. Claim the trial at the URL `pxt new` prints, or it is deleted, normally 48 hours after `pxt new`. When this machine is already signed in, `pxt new` creates no trial. Run `pxt logout`, then `pxt new`, to drop a `pxt login` session and start a trial.
+
+    With an account:
+
+    ```bash
     pxt login
     pxt whoami
     pxt org list
     ```
 
-    `pxt login` shows a code to confirm in your browser. With no account, run `pxt new`. It creates a trial organization and database `main`, and prints the `pxt://` URI, the `pixeltable.toml` entry, and the commands in the next steps with that name filled in. Claim the trial at the URL `pxt new` prints, or it is deleted, normally 48 hours after `pxt new`. `pxt org list` prints each organization as `NAME  id=...`. Use that name in place of `org` in the `pxt://org:main` commands below. If `pxt whoami` prints `No organization yet` while `pxt org list` shows one, upgrade with `pip install -U 'pixeltable[serve]'` and run `pxt login` again.
+    `pxt login` shows a code to confirm in your browser. `pxt org list` prints each organization as `NAME  id=...`. Use that name in place of `org` in the `pxt://org:main` commands below. If `pxt whoami` prints `No organization yet` while `pxt org list` shows one, upgrade with `pip install -U 'pixeltable[serve]'` and run `pxt login` again.
 
     If `pxt org list` prints `No orgs.`, create one. The name is unique across Pixeltable: lowercase letters, digits, and hyphens, starting and ending with a letter or digit, at most 29 characters.
 
@@ -48,21 +55,19 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
 
     `pxt service example` writes a working `app.py` with a `Docs` table and an `ingest` HTTP service. If you already completed the Quickstart, use that `app.py` instead.
 
-    Add a hosted database entry for that `main` database to the `pixeltable.toml` that `pxt init` created. The file then holds both entries. Replace `org` with your organization name:
+    Add a hosted database entry for that `main` database to the `pixeltable.toml` that `pxt init` created. Replace `org` with your organization name:
 
     ```toml
-    [[pixeltable.database]]
-
     [[pixeltable.database]]
     name = 'pxt://org:main'
     ```
 
-    `pxt init` writes the first entry, with no `name`. That entry is the local database. Add the second entry for `main`. If your project has a `pyproject.toml`, `pxt init` adds its entry there instead. Use `[[tool.pixeltable.database]]` for the hosted entry.
+    Leave the entry `pxt init` wrote. It has no `name`, and that entry is the local database. A second entry with no `name` fails to load: both are named `local`. If your project has a `pyproject.toml`, `pxt init` adds its entry there instead. Use `[[tool.pixeltable.database]]` for the hosted entry.
   </Step>
   <Step title="Upload the project, create tables, and start the service">
     After `pxt org create` or `pxt new`, wait until `pxt db status pxt://org:main` shows `AVAILABLE`, then run these commands from the project directory, in order. While the database is `PROVISIONING`, `pxt db update` is refused.
 
-    If `pxt db update` stops before the database is `AVAILABLE`, run `pxt db update pxt://org:main` again from the same project and the same Python version. That resumes the update. While `pxt db status` shows `UPDATING`, a `pxt db update` run with a different Python version is refused.
+    If `pxt db update` stops while `pxt db status` shows `UPDATING`, run `pxt db update pxt://org:main` again from the same project. That resumes the update. When the hosted entry omits `python_version`, run it with the same Python version: a different interpreter is a different update, and it is refused while the database is `UPDATING`. When the entry sets `python_version`, that value is the image Python, and another interpreter is the same update. A build that finishes and fails uses `pxt db build-image`, in [What to run after a change](#what-to-run-after-a-change).
 
     ```bash
     pxt db update pxt://org:main
@@ -160,7 +165,7 @@ The image gets its packages from `uv.lock` or `requirements.txt`. Without either
 | `cpu`, `memory_mb`, `disk_gb`, or `workers` | `pxt db update pxt://org:main`: one resize, pods restart once |
 | A secret | `pxt secret set pxt://org:main KEY=...`, then `pxt db restart pxt://org:main` and `pxt service restart pxt://org:main/ingest` |
 | Nothing, but the last build failed | `pxt db build-image pxt://org:main` forces a rebuild |
-| Nothing, but `pxt db update` stopped and `pxt db status` shows `UPDATING` | `pxt db update pxt://org:main` again, from the same project and Python version |
+| Nothing, but `pxt db update` stopped and `pxt db status` shows `UPDATING` | `pxt db update pxt://org:main` again from the same project. With no `python_version` on the hosted entry, use the same Python version |
 
 `pxt db diff pxt://org:main` prints what `update` would do without doing it.
 
