@@ -21,7 +21,7 @@ import shutil
 import struct
 import tarfile
 from concurrent.futures import FIRST_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
-from typing import IO, TYPE_CHECKING, Any, Callable, Generic, TypedDict, TypeVar
+from typing import IO, TYPE_CHECKING, Any, Callable, Generic, Iterator, TypedDict, TypeVar
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -952,3 +952,16 @@ def decode_body(body: bytes) -> tuple[bytes, list[bytes]]:
     if offset != len(view):
         raise ValueError('trailing bytes after framed body')
     return head, binary_parts
+
+
+# On macOS a socket write of more than INT_MAX bytes fails with EINVAL, and neither end reports it: the daemon's event
+# loop closes the connection without a response, and httpx discards the error and waits for a response until it times
+# out. Bodies are therefore written in slices of this size.
+_BODY_CHUNK_SIZE = 16 * 2**20
+
+
+def iter_body_chunks(body: bytes) -> Iterator[memoryview]:
+    """Slice an encoded body, without copying it, for writing to the socket one slice at a time."""
+    view = memoryview(body)
+    for offset in range(0, len(view), _BODY_CHUNK_SIZE):
+        yield view[offset : offset + _BODY_CHUNK_SIZE]

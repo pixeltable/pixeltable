@@ -48,6 +48,7 @@ from .proxy_protocol import (
     PxtArchivePartSink,
     decode_body,
     encode_body,
+    iter_body_chunks,
 )
 
 if TYPE_CHECKING:
@@ -114,7 +115,9 @@ class HttpTransport(Transport):
         self._http = httpx.Client(base_url=endpoint, timeout=httpx.Timeout(120.0))
 
     def post(self, body: bytes) -> bytes:
-        response = self._http.post('/rpc', content=body, headers={'Content-Type': 'application/octet-stream'})
+        # an explicit Content-Length keeps the request unchunked on the wire
+        headers = {'Content-Type': 'application/octet-stream', 'Content-Length': str(len(body))}
+        response = self._http.post('/rpc', content=iter_body_chunks(body), headers=headers)
         response.raise_for_status()
         return response.content
 
