@@ -24,7 +24,7 @@ import pytest
 from pixeltable.config import Config
 from pixeltable_cli.client.utils import is_running
 
-from ..utils import CLOUD_DB_ROOT_URIS, DatabaseRoot, cloud_env_configured, home_bucket_uri, skip_test_if_no_config
+from ..utils import CLOUD_DB_ROOT_URIS, DatabaseRoot, cloud_env_configured, home_bucket_uri
 
 _REPO_ROOT = pathlib.Path(__file__).parents[2]
 _CORPUS_DIR = pathlib.Path(__file__).parent
@@ -248,8 +248,13 @@ def copy_app_corpus(session_project: pathlib.Path) -> pathlib.Path:
 
 @pytest.fixture(scope='session')  # session scope makes it run before the session-scoped pixeltable_wheel
 def hosted_environment() -> None:
-    """Skip unless a control plane is configured."""
-    skip_test_if_no_config('api_key')
+    """Skip unless the cloud environment is configured, as for the cloud catalog roots.
+
+    An API key in the config file is not enough: these tests build images, and create keys and secrets,
+    wherever that key reaches, so a run opts in through the environment variables.
+    """
+    if not cloud_env_configured():
+        pytest.skip('the cloud environment is unconfigured')
 
 
 @pytest.fixture(scope='session')

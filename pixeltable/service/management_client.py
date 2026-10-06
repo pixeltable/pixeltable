@@ -152,21 +152,32 @@ def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) ->
 
     purpose is the verb phrase that completes "is not permitted to", such as 'list organizations'.
     """
+    if is_refusal(resp.status_code):
+        raise refusal(resp.status_code, _reason(resp), sent, purpose)
+
+
+def is_refusal(status_code: int) -> bool:
     # a 429 throttles the request rather than refusing it, so a retry can succeed
-    if not 400 <= resp.status_code < 500 or resp.status_code == 429:
-        return
-    reason = _reason(resp)
-    if resp.status_code not in (401, 403):
-        raise excs.ExternalServiceError(
+    return 400 <= status_code < 500 and status_code != 429
+
+
+def refusal(status_code: int, reason: str, sent: Credential, purpose: str) -> excs.Error:
+    """The error for a refusal status (see is_refusal); for a 401 or a 403, it says which credential was sent.
+
+    reason is a sentence without its final period. Shared with the database tunnel, so that a credential
+    refused there reads the same as one the control plane refused.
+    """
+    if status_code not in (401, 403):
+        return excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_BAD_REQUEST,
             f'Pixeltable Cloud refused this request: {reason}.',
             provider='pixeltable_cloud',
-            status_code=resp.status_code,
+            status_code=status_code,
         )
-    if resp.status_code == 403:
+    if status_code == 403:
         # the control plane accepted the credential and refused the operation, so signing in again cannot help
         holder = 'Your Pixeltable session' if sent.kind == 'session' else f'The API key from {sent.source}'
-        raise excs.AuthorizationError(
+        return excs.AuthorizationError(
             excs.ErrorCode.INSUFFICIENT_PRIVILEGES, f'{holder} is valid but is not permitted to {purpose}: {reason}.'
         )
     if sent.kind == 'session':
@@ -182,8 +193,8 @@ def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) ->
     # PROVIDER_AUTH_ERROR, not PROVIDER_ERROR: a refused credential is not retryable, and retrying
     # one only delays the error. A 401 is always the control plane's own decision -- it answers 503,
     # never 401, when WorkOS is the thing that could not be reached.
-    raise excs.ExternalServiceError(
-        excs.ErrorCode.PROVIDER_AUTH_ERROR, message, provider='pixeltable_cloud', status_code=resp.status_code
+    return excs.ExternalServiceError(
+        excs.ErrorCode.PROVIDER_AUTH_ERROR, message, provider='pixeltable_cloud', status_code=status_code
     )
 
 
