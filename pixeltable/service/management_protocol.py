@@ -174,13 +174,11 @@ class BlobUpload(BaseModel):
 
 
 class DatabaseTarget(DatabaseResources):
-    """What a project asks of its hosted database; the control plane keeps the rest of its desired spec."""
+    """The project-controlled part of a hosted database's desired spec; the control plane owns the rest."""
 
     default_bucket: str | None = Field(default=None, exclude=True)
 
-    force_build_nonce: str | None = Field(
-        default=None, description='changed only to rebuild the image of a project that did not change'
-    )
+    force_build_nonce: str | None = Field(default=None, description='set to a new value to force an image rebuild')
 
 
 ReleasePin = Literal['latest', 'keep', 'submission']
@@ -202,9 +200,9 @@ class ServiceMutation(BaseModel):
     description: str | None = None
     pin: ReleasePin | None = Field(
         default=None,
-        description="the release intent: 'latest' runs the release of the database's current desired generation, "
-        "'keep' the release the service is pinned to, 'submission' the release of the database generation created "
-        'by the same submission; null creates a service on the latest release',
+        description="the release intent. 'latest': the release of the database's current desired generation. "
+        "'keep': the service's current release. 'submission': the release of the database generation created by "
+        "this submission. null: 'latest', for a new service",
     )
 
 
@@ -259,7 +257,7 @@ class PrepareUpdateResponse(BaseModel):
 class SubmitUpdateRequest(BaseModel):
     """Accept the next desired spec of every touched resource, all or none.
 
-    A repeat of an accepted submission returns the receipts it was accepted as, so resending one is safe.
+    Resending an accepted submission returns its original receipts, so resending is safe.
     """
 
     operation_type: Literal[ManagementOperationType.SUBMIT_UPDATE] = ManagementOperationType.SUBMIT_UPDATE
@@ -344,7 +342,7 @@ class RetryResponse(BaseModel):
 
 
 class DbReceiptResponse(BaseModel):
-    """What a database start, stop, restart or delete was accepted as."""
+    """The receipt of a database start, stop, restart or delete."""
 
     model_config = ConfigDict(extra='ignore')
 

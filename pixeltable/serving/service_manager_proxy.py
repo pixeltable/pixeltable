@@ -1,8 +1,8 @@
 """The service instances of a hosted database, managed through the cloud's management API.
 
-The control plane owns their lifetime: this submits an instance's desired spec, or asks it to start, stop,
-restart or delete one. It accepts each request as a generation of the instance and carries it out on its own;
-this waits on the generation's receipt until it settles.
+The control plane owns their lifetime: this module submits an instance's desired spec, or asks the control
+plane to stop, restart or delete one. Each request becomes a generation of the instance, which the control
+plane applies on its own; this module waits on the generation's receipt until it settles.
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ class ServiceManagerProxy(ServiceManagerBase):
         """Submit the named service in app_file as the desired spec of its instance at base_path.
 
         A new instance runs the release of the database's current desired generation, and so does an existing one
-        unless keep_release, which keeps the release it is pinned to. An available instance is not stopped: the
+        unless keep_release is set, which keeps its current release. An available instance is not stopped: the
         control plane replaces its pods in place, and keeps the old ones serving until the new ones are ready.
 
         The file sets the routes, the module and tracing; resources and description are kept from the instance's
@@ -97,8 +97,8 @@ class ServiceManagerProxy(ServiceManagerBase):
 
         expected_generation: the generation of the instance the caller's plan was computed against, 0 for an absent
             one; a submission against an older one is refused. None submits against the generation read here.
-        wait: wait for the generation to take effect, and raise if it fails or is replaced before it does.
-            Otherwise the returned instance carries the receipt the generation was accepted as.
+        wait: wait until the generation finishes, and raise if it fails or is superseded.
+            Otherwise the returned instance carries the generation's receipt.
         """
         if port is not None:
             raise excs.RequestError(
@@ -183,7 +183,7 @@ class ServiceManagerProxy(ServiceManagerBase):
         self._await([self._required(instance.service_name, stopped.receipt)])
 
     def restart(self, instance: ServiceInstance) -> None:
-        """Cycle instance's pods onto the release it is pinned to."""
+        """Restart instance's pods on their current release."""
         restarting = RestartServiceInstanceResponse.model_validate(
             management_client.api_call(
                 RestartServiceInstanceRequest(
@@ -195,9 +195,9 @@ class ServiceManagerProxy(ServiceManagerBase):
         self._settle(instance.service_name, instance.base_path, [receipt])
 
     def retry(self, instance: ServiceInstance) -> ServiceInstance | None:
-        """Start a new attempt of instance's current generation, which has to have failed.
+        """Start a new attempt of instance's current generation, which must have failed.
 
-        Returns the instance it left, or None if the generation was a deletion.
+        Returns the instance afterwards, or None if the generation was a deletion.
         """
         receipt = instance.record.receipt
         if receipt is None or not receipt.failed:
@@ -253,7 +253,7 @@ class ServiceManagerProxy(ServiceManagerBase):
         return receipts.await_receipts(self.catalog_uri, accepted)
 
     def _settle(self, name: str, base_path: str, accepted: Sequence[GenerationReceipt]) -> ServiceInstance:
-        """Wait on the receipts a change to the named instance was accepted as, and return the instance it left."""
+        """Wait on the receipts of a change to the named instance, and return the instance afterwards."""
         instance = self._instance_after(name, base_path, self._await(accepted))
         if instance is None:
             raise excs.InternalError(
@@ -264,7 +264,7 @@ class ServiceManagerProxy(ServiceManagerBase):
     def _instance_after(
         self, name: str, base_path: str, settled: Sequence[GenerationReceipt]
     ) -> ServiceInstance | None:
-        """The named instance as a settled change left it, carrying that change's receipt; None if it is gone.
+        """The named instance after a settled change, carrying that change's receipt; None if it is gone.
 
         The listing may already carry a later generation's receipt, which is not this change's.
         """

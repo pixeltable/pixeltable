@@ -139,9 +139,9 @@ _RESOURCE_ROWS: tuple[tuple[str, str, str], ...] = (
 
 
 def print_db(report: dict[str, Any], workers: list[dict[str, Any]] | None = None) -> None:
-    """Print one database's report: what it serves, what it was last asked for where that differs, and its pods.
+    """Print one database's report: its current resources, the desired ones where they differ, and its pods.
 
-    Whether a change is still under way is the current generation's phase, not a comparison made here.
+    Whether a change is in progress comes from the current generation's phase, not from comparing the two.
     """
     current = report.get('current')
     if current is None:
@@ -251,24 +251,24 @@ def spinner(label: str | None) -> Iterator[Callable[[str], None]]:
 
 
 def describe_receipt(receipt: GenerationReceipt) -> str:
-    """One line saying where a generation stands."""
+    """One-line status of a generation."""
     if receipt.observed:
-        state = 'took effect'
+        state = 'done'
     elif receipt.superseded:
         state = 'replaced by a newer one'
     elif receipt.failed:
         state = f'FAILED: {receipt.failure_reason}'
     elif receipt.outcome is not None:
-        state = f'ended as {receipt.outcome}, which this version of Pixeltable does not know'
+        state = f'unknown outcome {receipt.outcome}; upgrade Pixeltable'
     elif receipt.error is not None:
-        state = f'retrying after: {receipt.error.message}'
+        state = f'retrying after error: {receipt.error.message}'
     else:
         state = receipt.progress
     return f'{receipt.generation}  {state}'
 
 
 def print_receipt(receipt: GenerationReceipt) -> None:
-    """Print where a generation stands, and its warnings."""
+    """Print a generation's status and its warnings."""
     print(f'{receipt.resource} generation {describe_receipt(receipt)}')
     for warning in receipt.warnings:
         print(f'  warning: {warning}')
@@ -277,10 +277,10 @@ def print_receipt(receipt: GenerationReceipt) -> None:
 def await_receipts(
     db_uri: str, receipts: list[GenerationReceipt], *, show: bool, status_command: str
 ) -> list[GenerationReceipt]:
-    """Poll receipts until each settles, showing where the first unsettled one stands, and return them.
+    """Poll receipts until each settles, showing the progress of the first unsettled one, and return them.
 
-    Waiting only reads: Ctrl-C, or a change still unsettled after RECEIPT_WAIT_TIMEOUT, stops the wait and exits,
-    and Pixeltable Cloud carries the change out regardless. The timeout exits EXIT_CHANGES_PENDING.
+    Ctrl-C and RECEIPT_WAIT_TIMEOUT only stop the waiting; the change continues in Pixeltable Cloud. The timeout
+    exits with EXIT_CHANGES_PENDING.
     """
     if len(receipts) == 0:
         print('pxt: Pixeltable Cloud accepted the change without a receipt to wait on', file=sys.stderr)
@@ -303,7 +303,7 @@ def await_receipts(
     if not all(r.settled for r in current) and not any(r.unsuccessful for r in current):
         print(
             f'pxt: still in progress after {RECEIPT_WAIT_TIMEOUT / 3600:.0f}h: {_waiting_label(current).rstrip(" .")}\n'
-            f'Pixeltable Cloud carries the change out regardless; `{status_command}` shows its progress.',
+            f'The change continues in Pixeltable Cloud; run `{status_command}` to check its progress.',
             file=sys.stderr,
         )
         sys.exit(EXIT_CHANGES_PENDING)
@@ -311,7 +311,7 @@ def await_receipts(
 
 
 def exit_unless_observed(receipts: list[GenerationReceipt], *, retry_command: str) -> None:
-    """Exit with EXIT_ERROR, saying why, unless every receipt took effect."""
+    """Exit with EXIT_ERROR and the reason, unless every receipt is observed."""
     for receipt in receipts:
         if receipt.failed:
             print(
@@ -323,14 +323,14 @@ def exit_unless_observed(receipts: list[GenerationReceipt], *, retry_command: st
         if receipt.superseded:
             print(
                 f'pxt: {receipt.resource} generation {receipt.generation} was replaced by a newer update before it '
-                'took effect',
+                'finished',
                 file=sys.stderr,
             )
             sys.exit(EXIT_ERROR)
         if receipt.outcome is not None and not receipt.observed:
             print(
-                f'pxt: {receipt.resource} generation {receipt.generation} ended as {receipt.outcome}, which this '
-                'version of Pixeltable does not know; upgrade it to read the outcome',
+                f'pxt: {receipt.resource} generation {receipt.generation} ended with unknown outcome '
+                f'{receipt.outcome}; upgrade Pixeltable to read it',
                 file=sys.stderr,
             )
             sys.exit(EXIT_ERROR)
@@ -339,8 +339,8 @@ def exit_unless_observed(receipts: list[GenerationReceipt], *, retry_command: st
 def await_endpoint(endpoint: str, *, status_command: str) -> None:
     """Poll a hosted service's endpoint until a request reaches its pod rather than the gateway.
 
-    A service takes effect when its pod is ready, which can be moments before the gateway routes to it; until then
-    the gateway answers 502. Any status the pod itself produced, 404 included, means the route is through. Ctrl-C
+    A service's receipt is observed once its pod is ready, which can be moments before the gateway routes to it;
+    until then the gateway answers 502. Any status from the pod itself, including 404, means the route works. Ctrl-C
     stops the wait as it does in await_receipts().
     """
     deadline = time.monotonic() + _ENDPOINT_TIMEOUT
@@ -364,8 +364,8 @@ def await_endpoint(endpoint: str, *, status_command: str) -> None:
 
 def _exit_stopped_waiting(status_command: str) -> NoReturn:
     print(
-        f'\npxt: stopped waiting; Pixeltable Cloud carries the change out regardless. '
-        f'`{status_command}` shows its progress.',
+        f'\npxt: stopped waiting; the change continues in Pixeltable Cloud. '
+        f'Run `{status_command}` to check its progress.',
         file=sys.stderr,
     )
     sys.exit(EXIT_INTERRUPTED)

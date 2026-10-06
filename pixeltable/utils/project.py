@@ -140,8 +140,8 @@ def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Pa
         if include is not None:
             files |= _resolve_patterns(project_root, include)
 
-    # we always include the lockfile and project config files, both are needed by the pod, and the files the
-    # lockfile installs from, which the cloud reads the image build's inputs from
+    # we always include the lockfile and project config files, which the pod needs, and the project files the
+    # lockfile installs from, which the cloud needs to build the image
     selected = (*LOCK_FILES, *PROJECT_CONFIG_FILES)
     files |= {project_root / name for name in selected if (project_root / name).is_file()}
     files |= set(_installed_from_project(project_root))

@@ -107,12 +107,12 @@ def service_update(
         allow_destructive: whether to apply changes that stop serving a route callers may be using.
         port: the loopback port to serve on. None keeps a restarted service on its current port, and asks the
             OS for one when starting a service that was not running.
-        keep_release: keep a hosted service on the release it is pinned to, rather than move it onto the
+        keep_release: keep a hosted service on its current release instead of moving it onto the
             database's current release.
         expected_generations: by service name, the generation of each hosted service the caller's plan was
             computed against; a change against an older one is refused.
-        wait: wait for a hosted service's change to take effect. Otherwise each applied service carries the
-            receipt its change was accepted as.
+        wait: wait until a hosted service's change finishes. Otherwise each applied service carries the
+            receipt of its change.
     """
     manager = get_manager(target)
     plan = service_diff(app_file, target, service_name=service_name, otel=otel, keep_release=keep_release)

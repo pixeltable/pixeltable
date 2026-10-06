@@ -136,7 +136,7 @@ class TestFetchArchive:
         with (
             mock.patch.object(fetch_archive, 'unpack_project_archive', side_effect=_not_found()) as unpack,
             mock.patch.object(fetch_archive.time, 'sleep'),
-            pxt_raises(excs.ErrorCode.PROVIDER_ERROR, match='no archive for the release this pod runs'),
+            pxt_raises(excs.ErrorCode.PROVIDER_ERROR, match="no archive for this pod's release"),
         ):
             fetch_archive.fetch(_DB_URI, archive_dir)
         assert unpack.call_count == len(fetch_archive._PINNED_FETCH_DELAYS)

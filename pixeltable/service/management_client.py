@@ -34,8 +34,7 @@ _LONG_OPS = frozenset(
     for op in (ManagementOperationType.UPDATE_DB, ManagementOperationType.DELETE_DB, ManagementOperationType.GET_LOGS)
 )
 
-# operations whose second delivery changes nothing the first did not: reads, and a submission, whose repeat
-# returns the receipts the first was accepted as
+# operations that are safe to resend: reads, and submit_update, whose repeat returns the original receipts
 _IDEMPOTENT_OPS = frozenset(
     op.value
     for op in (

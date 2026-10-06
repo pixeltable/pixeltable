@@ -39,7 +39,7 @@ Examples:
   pxt db diff pxt://org:db     # what update would change; exit 2 if anything is pending
   pxt db diff --json-schema    # the schema of the --json output, on its own
   pxt db update pxt://org:db   # apply it: the artifacts, then capacity
-  pxt db update pxt://org:db --no-wait   # submit it and return; Pixeltable Cloud carries it out
+  pxt db update pxt://org:db --no-wait   # submit it and return without waiting
   pxt db list
   pxt db status pxt://org:db
   pxt db status --json-schema  # the schema of its --json output, on its own
@@ -62,10 +62,9 @@ the image (system_dependencies, python_version), and what the database runs on (
 disk_gb, workers). 'diff' compares the entry against the database; 'update' applies the difference.
 Secrets are set separately, with 'pxt secret'.
 
-An update, start, stop, restart, retry, image build or delete is accepted before it takes effect, and
-Pixeltable Cloud carries it out whether or not the command waits for it: interrupting the command leaves it
-running, and --no-wait returns as soon as it is accepted. Running the same update again reports the one
-already accepted, and retries it if it failed.
+Pixeltable Cloud applies an accepted update, start, stop, restart, retry, image build or delete even if the
+command exits early: Ctrl-C only stops the waiting, and --no-wait returns once the change is accepted.
+Rerunning the same update reports the change already accepted, and retries it if it failed.
 
 Exit status of diff and update: 0 in agreement, 2 changes pending, 3 refused, 1 error.
 """
@@ -116,7 +115,7 @@ def run(argv: list[str]) -> None:
         ('start', 'start (wake) a stopped hosted database'),
         ('stop', 'stop (sleep) a running hosted database'),
         ('restart', 'restart a hosted database'),
-        ('retry', 'try the failed current update of a hosted database again'),
+        ('retry', 'retry the failed current update of a hosted database'),
     ):
         p = sub.add_parser(verb, help=help_text)
         p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
@@ -186,7 +185,7 @@ def _add_no_wait(p: argparse.ArgumentParser) -> None:
         '--no-wait',
         action='store_false',
         dest='wait',
-        help='return once Pixeltable Cloud has accepted the change, without waiting for it to take effect',
+        help='return once Pixeltable Cloud accepts the change, without waiting for it to finish',
     )
 
 
@@ -272,7 +271,7 @@ def _print_receipts(db_uri: str, receipts: list[GenerationReceipt], *, waited: b
     for receipt in receipts:
         print_receipt(receipt)
     if not waited and len(receipts) > 0:
-        print(f'\nPixeltable Cloud carries it out without this command; `pxt db status {db_uri}` shows its progress.')
+        print(f'\nThe change continues in Pixeltable Cloud; run `pxt db status {db_uri}` to check its progress.')
 
 
 def _await(db_uri: str, receipts: list[GenerationReceipt], args: argparse.Namespace) -> list[GenerationReceipt]:
@@ -283,7 +282,7 @@ def _await(db_uri: str, receipts: list[GenerationReceipt], args: argparse.Namesp
 
 
 def _db_report(db_uri: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """The database's report and its pods; an empty report once the database is gone, as after a deletion."""
+    """The database's report and its pods; an empty report once the database is deleted."""
     org, db = parse_db_uri(db_uri)
     resp = get_request('/api/db', {'org': org, 'db': db, 'missing_ok': True})
     return resp.get('report') or {}, resp.get('worker_status') or []

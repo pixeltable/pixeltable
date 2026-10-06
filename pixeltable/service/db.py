@@ -65,7 +65,7 @@ def db_diff(db_uri: str) -> DbPlan:
 def db_fingerprint(db_path: catalog.Path, *, desired: bool = False) -> ProjectFingerprint | None:
     """Return the fingerprint of the project deployed to a hosted database; None for a local one.
 
-    desired: return the project of the database's current desired generation, which may not have taken effect yet.
+    desired: return the project of the current desired generation, which may still be in progress.
     """
     if db_path.org is None or db_path.org == 'local' or db_path.db is None:
         return None
@@ -111,16 +111,15 @@ def db_update(
 ) -> DbPlan:
     """Submit the project and capacity that the project configuration declares for the database at db_uri.
 
-    This is the one verb that creates a hosted database. An accepted submission is carried out by the control
-    plane whether or not this call waits for it, and submitting the same project again returns the generation
-    it was accepted as.
+    This is the only way to create a hosted database. The control plane applies an accepted submission whether
+    or not this call waits, and resubmitting the same project returns the receipt of the existing generation.
 
     Args:
         expected_generation: the database generation the caller's plan was computed against; a submission
             against an older one is refused. None submits against the generation this call plans against.
-        wait: wait for the accepted generation to take effect.
+        wait: wait until the accepted generation finishes.
 
-    Returns the plan that was submitted, with the receipt it was accepted as.
+    Returns the submitted plan, with its receipt.
     """
     db_path = _validated_db_uri(db_uri)
     config = _get_db_config(db_path)
@@ -147,7 +146,7 @@ def db_update(
     if wait:
         report = _get_db_report(db_path)
         plan.state = None if report is None or report.current is None else report.current.state
-        # what the plan asked for has taken effect; an operation nothing applies is what is left
+        # the receipt is observed, so every planned operation has been applied
         plan.resolution = 'up_to_date'
     return plan
 
@@ -155,8 +154,8 @@ def db_update(
 def db_build_image(db_uri: str, *, wait: bool = True) -> tuple[list[DbChangeOp], list[GenerationReceipt]]:
     """Store this project's files at db_uri and rebuild its image, whether or not the project changed.
 
-    Returns the operations, each carrying what it did, and the receipts the rebuild was accepted as. The archive
-    is uploaded only where the control plane does not hold it already.
+    Returns the operations, each with its status, and the receipts of the rebuild. The archive is uploaded only
+    if the control plane does not hold it already.
     """
     db_path = _validated_db_uri(db_uri)
     config = _get_db_config(db_path)
@@ -186,7 +185,7 @@ def db_build_image(db_uri: str, *, wait: bool = True) -> tuple[list[DbChangeOp],
 
 
 def db_change_lifecycle(db_uri: str, action: DbAction, *, wait: bool = True) -> GenerationReceipt:
-    """Start, stop, restart or delete the database at db_uri, and return the receipt it was accepted as."""
+    """Start, stop, restart or delete the database at db_uri, and return its receipt."""
     db_path = _validated_db_uri(db_uri)
     request = _LIFECYCLE_REQUESTS[action](org=db_path.org, db=_db_name(db_path))
     receipt = DbReceiptResponse.model_validate(management_client.api_call(request)).receipt
@@ -194,12 +193,12 @@ def db_change_lifecycle(db_uri: str, action: DbAction, *, wait: bool = True) -> 
 
 
 def db_receipts(db_uri: str, accepted: list[GenerationReceipt]) -> list[GenerationReceipt]:
-    """The receipts of the database at db_uri, as they stand now."""
+    """Re-read the given receipts of the database at db_uri."""
     return receipts.read_receipts(_validated_db_uri(db_uri), accepted)
 
 
 def db_retry(db_uri: str, *, wait: bool = True) -> GenerationReceipt:
-    """Start a new attempt of the current generation of the database at db_uri, which has to have failed."""
+    """Start a new attempt of the current generation of the database at db_uri, which must have failed."""
     db_path = _validated_db_uri(db_uri)
     report = _get_db_report(db_path)
     if report is None:
@@ -232,7 +231,7 @@ def _settle(db_path: catalog.Path, accepted: list[GenerationReceipt], *, wait: b
 
 
 def _plan(db_path: catalog.Path, target: DatabaseTarget) -> tuple[DbPlan, PrepareUpdateResponse]:
-    """The plan of submitting target to db_path, and the response it was read from."""
+    """The plan for submitting target to db_path, and the prepare_update response it came from."""
     prepared = _prepare(db_path, target, blob=None)
     plan = prepared.plan
     if plan is None:
@@ -263,7 +262,7 @@ def _submit(
     """Package the project, upload it unless the control plane holds it, and submit target against
     expected_generation, read before the project was packaged.
 
-    Returns the receipts the submission was accepted as, and whether the archive was uploaded.
+    Returns the resulting receipts, and whether the archive was uploaded.
     """
     if target.fingerprint is None:
         raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, 'a project was submitted without a fingerprint')
@@ -313,7 +312,7 @@ def _blob_ref(path: Path) -> BlobRef:
 
 
 def _put_blob(upload: BlobUpload, path: Path, blob: BlobRef) -> None:
-    """Upload the blob at path; an equal blob the store already holds counts as uploaded.
+    """Upload the blob at path; a blob already in the store counts as uploaded.
 
     A network failure is retried once, which If-None-Match makes safe.
     """

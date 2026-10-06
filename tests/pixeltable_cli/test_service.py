@@ -1354,7 +1354,7 @@ class TestServiceUpdateRunning:
     ) -> _ControlPlane:
         """Fake a hosted instance in state that serves app_file's 'ingest' as the file defines it, with ops pending.
 
-        error: why the generation a change is accepted as fails; None: it takes effect.
+        error: why the change's generation fails; None: it succeeds.
         generation: the instance's generation as the plan read it.
         """
         record = ServiceInstanceRecord(
@@ -1523,17 +1523,14 @@ class TestServiceUpdateRunning:
     @pytest.mark.parametrize(
         ('fields', 'description'),
         [
-            ({'phase': ResourcePhase.PENDING}, 'has not taken effect yet (PENDING); update waits for it'),
-            (
-                {'error': ReceiptError(message='pod crashed', retryable=False)},
-                'failed: pod crashed; update tries it again',
-            ),
+            ({'phase': ResourcePhase.PENDING}, 'is still in progress (PENDING); update waits for it'),
+            ({'error': ReceiptError(message='pod crashed', retryable=False)}, 'failed: pod crashed; update retries it'),
             ({'outcome': ReceiptOutcome.OBSERVED}, None),
         ],
         ids=['pending', 'failed', 'observed'],
     )
     def test_hosted_unsettled_generation(self, app_file: str, fields: dict, description: str | None) -> None:
-        """A current generation that has not taken effect is no agreement, though the instance serves its spec."""
+        """An in-progress or failed current generation is a pending change, even if the instance serves its spec."""
         receipt = GenerationReceipt(
             kind='service', resource_id='svc-uuid', generation=5, db='main', service_name='ingest', **fields
         )
@@ -1546,7 +1543,7 @@ class TestServiceUpdateRunning:
             assert diff.generation == 5
 
     def test_hosted_keep_release_no_wait(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
-        """--keep-release keeps the instance's code, and without waiting the change carries its receipt."""
+        """--keep-release keeps the instance's code, and without waiting the change returns its receipt."""
         changed = ServiceChangeOp.otel(False, True)
         control_plane = self._hosted(monkeypatch, app_file, ServiceState.AVAILABLE, changed)
         [diff] = serving_service.service_update(

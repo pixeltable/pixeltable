@@ -334,7 +334,7 @@ class TestProjectArchive:
             '[[package]]\nname = "app"\nsource = { editable = "." }\n'
             '[[package]]\nname = "outside"\nsource = { directory = "../elsewhere" }\n'
         )
-        # a virtual environment inside the package is no part of it
+        # a virtual environment inside the package is not part of the package
         (pkg / '.venv' / 'lib').mkdir(parents=True)
         (pkg / '.venv' / 'pyvenv.cfg').write_text('home = /usr/bin\n')
         (pkg / '.venv' / 'lib' / 'site.py').write_text('Y = 2\n')

@@ -155,7 +155,7 @@ The image gets its packages from `uv.lock` or `requirements.txt`. Without either
 | A dependency, the Python version, a system package | `pxt db update pxt://org:main`: the image rebuilds |
 | `cpu`, `memory_mb`, `disk_gb`, or `workers` | `pxt db update pxt://org:main`: one resize, pods restart once |
 | A secret | `pxt secret set pxt://org:main KEY=...`, then `pxt db restart pxt://org:main` and `pxt service restart pxt://org:main/ingest` |
-| Nothing, but the last update failed | `pxt db retry pxt://org:main` tries it again; `pxt db build-image pxt://org:main` forces a rebuild |
+| Nothing, but the last update failed | `pxt db retry pxt://org:main` retries it; `pxt db build-image pxt://org:main` forces a rebuild |
 
 `pxt db diff pxt://org:main` prints what `update` would do without doing it.
 

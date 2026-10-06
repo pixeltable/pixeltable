@@ -232,7 +232,7 @@ class TestDbSubmission:
 
         accepted = db_update(_DB_URI, wait=False)
         assert accepted.status == 'accepted'
-        assert accepted.resolution == 'update_additive', 'nothing has taken effect yet'
+        assert accepted.resolution == 'update_additive', 'nothing has finished yet'
         assert control_plane.receipt_reads == 0
 
     @pytest.mark.parametrize(
@@ -292,7 +292,7 @@ class TestDbSubmission:
         """An outcome this version does not know is not taken for success."""
         _serve(monkeypatch, _ControlPlane(generation=7, settled=_receipt(outcome='ROLLED_BACK')))
 
-        with pxt_raises(excs.ErrorCode.INTERNAL_ERROR, match='ended as ROLLED_BACK'):
+        with pxt_raises(excs.ErrorCode.INTERNAL_ERROR, match='unknown outcome ROLLED_BACK'):
             db_update(_DB_URI)
 
     def test_build_image_pins_generation(self, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:

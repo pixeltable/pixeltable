@@ -146,12 +146,12 @@ class ServiceChangeOp(ChangeOp):
 
     @classmethod
     def unsettled_generation(cls, receipt: GenerationReceipt) -> ServiceChangeOp:
-        """The hosted instance's current generation has not taken effect; update waits for it, or retries it."""
+        """The hosted instance's current generation is in progress or failed; update waits for it or retries it."""
         if receipt.failed:
-            description = f'generation {receipt.generation} failed: {receipt.failure_reason}; update tries it again'
+            description = f'generation {receipt.generation} failed: {receipt.failure_reason}; update retries it'
         else:
             description = (
-                f'generation {receipt.generation} has not taken effect yet ({receipt.progress}); update waits for it'
+                f'generation {receipt.generation} is still in progress ({receipt.progress}); update waits for it'
             )
         return cls(
             target='service',
@@ -164,13 +164,13 @@ class ServiceChangeOp(ChangeOp):
 
     @classmethod
     def release_changed(cls) -> ServiceChangeOp:
-        """The database serves a newer release than the hosted instance runs, such as a rebuilt image."""
+        """The database has a newer release than the hosted instance runs, such as a rebuilt image."""
         return cls(
             target='project',
             name='release',
             op='alter',
             severity='additive',
-            description="the database's current release is newer than the one the service runs, which restarts it",
+            description='the database has newer code than the service runs; update restarts the service on it',
             requires_restart=True,
         )
 
@@ -396,12 +396,12 @@ class DbChangeOp(ChangeOp):
 
     @classmethod
     def unsettled_generation(cls, receipt: GenerationReceipt) -> DbChangeOp:
-        """The current generation has the declared spec, and has not taken effect."""
+        """The current generation already has the declared spec, but is in progress or failed."""
         if receipt.failed:
-            description = f'generation {receipt.generation} failed: {receipt.failure_reason}; update tries it again'
+            description = f'generation {receipt.generation} failed: {receipt.failure_reason}; update retries it'
         else:
             description = (
-                f'generation {receipt.generation} has not taken effect yet ({receipt.progress}); update waits for it'
+                f'generation {receipt.generation} is still in progress ({receipt.progress}); update waits for it'
             )
         return cls(
             target='generation',
@@ -600,7 +600,7 @@ class GenerationReceipt(pydantic.BaseModel):
 
     @property
     def unsuccessful(self) -> bool:
-        """Settled without taking effect: failed, superseded, or ended in an outcome this version does not know."""
+        """Settled without success: failed, superseded, or ended with an unknown outcome."""
         return self.failed or (self.outcome is not None and not self.observed)
 
     @property
@@ -609,13 +609,13 @@ class GenerationReceipt(pydantic.BaseModel):
 
     @property
     def progress(self) -> str:
-        """Where a generation that has not settled stands."""
+        """The progress of an unsettled generation."""
         phase = 'PENDING' if self.phase is None else str(self.phase)
         return phase if self.waiting_for is None else f'{phase}, waiting for {self.waiting_for}'
 
     @property
     def settled(self) -> bool:
-        """Whether waiting longer cannot change the receipt without a retry or a new submission."""
+        """Whether the receipt is final: only a retry or a new submission can change it."""
         return self.outcome is not None or self.failed
 
 
@@ -706,8 +706,8 @@ class ServiceDiff(pydantic.BaseModel):
     status: OpStatus | None = None
     receipt: GenerationReceipt | None = pydantic.Field(
         default=None,
-        description='for an update of a hosted service, the generation the update was accepted as; for a diff, the '
-        'current generation if it has not taken effect',
+        description='for an update of a hosted service, the receipt of the submitted change; for a diff, the receipt '
+        'of the current generation if it is in progress or failed',
     )
 
     @pydantic.computed_field  # type: ignore[prop-decorator]
@@ -821,8 +821,8 @@ class DbPlan(pydantic.BaseModel):
     )
     receipts: list[GenerationReceipt] = pydantic.Field(
         default_factory=list,
-        description='the generations an update was accepted as; for a diff, the current generation if it has not '
-        'taken effect',
+        description='for an update, the receipts of the submitted change; for a diff, the receipt of the current '
+        'generation if it is in progress or failed',
     )
 
     @classmethod

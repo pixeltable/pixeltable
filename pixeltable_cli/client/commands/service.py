@@ -168,15 +168,15 @@ Examples:
   pxt service restart pxt://acme:main/ingest  # one in a hosted database
   pxt service restart ingest reader
 
-A hosted service restarts onto the code it is pinned to; 'pxt service update' moves it onto the database's
-current code.
+A hosted service restarts on its current code; 'pxt service update' moves it onto the database's latest
+code.
 """
 
 RETRY_EPILOG = """\
 Examples:
-  pxt service retry pxt://acme:main/ingest    # try the failed update of a hosted service again
+  pxt service retry pxt://acme:main/ingest    # retry the failed update of a hosted service
 
-Running the same 'pxt service update' again retries it too.
+Rerunning 'pxt service update' also retries it.
 """
 
 LIST_EPILOG = """\
@@ -245,8 +245,8 @@ def run(argv: list[str]) -> None:
             '  run      serve one of them from this process instead, until interrupted\n'
             '  prune    stop and forget the services at TARGET that APP does not define\n'
             '  stop     stop the named services\n'
-            '  restart  restart the named services onto the code they are pinned to and the current secrets\n'
-            '  retry    try the failed update of the named hosted services again\n'
+            '  restart  restart the named services on their current code, with the current secrets\n'
+            '  retry    retry the failed update of the named hosted services\n'
             '  list     what is running locally, and where\n'
             '  logs     read the log of the named service\n'
             '  check    validate the application file on its own (takes no TARGET)\n'
@@ -350,7 +350,7 @@ def run(argv: list[str]) -> None:
             '--keep-release',
             action='store_true',
             dest='keep_release',
-            help="keep a hosted service on the code it runs, rather than move it onto the database's current code",
+            help="keep a hosted service on its current code instead of moving it onto the database's latest code",
         )
     if verb == 'run':
         ap.add_argument('service', nargs='?', help='the service to serve; required when the file defines more than one')
@@ -510,7 +510,7 @@ def _service_uri(db_uri: str, receipt: GenerationReceipt) -> str:
 
 
 def _await_hosted(plan: ServicePlan, db_uri: str, *, as_json: bool) -> None:
-    """Wait on the receipts the plan's hosted services were accepted as, and until their endpoints answer."""
+    """Wait on the receipts of the plan's hosted services, then until their endpoints answer."""
     accepted = [d.receipt for d in plan.services if d.receipt is not None and d.status == 'accepted']
     if len(accepted) == 0:
         return

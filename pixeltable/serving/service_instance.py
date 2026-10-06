@@ -59,7 +59,7 @@ class ServiceInstance:
         self._manager.restart(self)
 
     def retry(self) -> ServiceInstance | None:
-        """Start a new attempt of this instance's failed current generation, and return the instance it left.
+        """Start a new attempt of this instance's failed current generation, and return the instance afterwards.
 
         None: the generation was a deletion.
         """

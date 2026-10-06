@@ -58,7 +58,7 @@ class ServiceInstanceRecord(pydantic.BaseModel):
     fingerprint: ProjectFingerprint | None = None
 
     # whether its database has moved past the project this instance serves; derived on read, so a stored
-    # one is never read back. A restart keeps the release the instance is pinned to; an update moves it onto
+    # one is never read back. A restart keeps the instance's current release; an update moves it onto
     # the new project.
     update_pending: bool = False
 

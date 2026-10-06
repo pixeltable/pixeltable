@@ -85,14 +85,14 @@ class ServiceManagerBase(abc.ABC):
         """Cycle instance onto what it already runs."""
 
     def retry(self, instance: ServiceInstance) -> ServiceInstance | None:
-        """Start a new attempt of instance's failed current generation, and return the instance it left.
+        """Start a new attempt of instance's failed current generation, and return the instance afterwards.
 
         None: the generation was a deletion.
         """
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'{instance.service_name!r} runs on this machine, where nothing is retried; '
-            'start it again with `pxt service update`',
+            f'{instance.service_name!r} is a local service, and only hosted services can be retried; '
+            'restart it with `pxt service update`',
         )
 
     @abc.abstractmethod

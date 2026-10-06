@@ -1,6 +1,6 @@
-"""Waiting on the generations a hosted database or service was accepted as.
+"""Submitting changes to a hosted database or its services, and waiting on the resulting receipts.
 
-Waiting only reads: the control plane carries an accepted generation to completion whether or not anyone waits.
+Waiting is read-only: the control plane completes an accepted generation whether or not anyone waits.
 """
 
 from __future__ import annotations
@@ -29,9 +29,9 @@ TIMEOUT = 3 * 3600.0
 
 
 def submit(db_path: catalog.Path, request: SubmitUpdateRequest) -> list[GenerationReceipt]:
-    """Submit request and return the receipts it was accepted as.
+    """Submit request and return the resulting receipts.
 
-    A refusal names the generations the resources have now, read again after the refusal.
+    On a refusal, re-read the current generations and raise with the ones that moved.
     """
     try:
         response = management_client.api_call(request)
@@ -55,7 +55,7 @@ def submit(db_path: catalog.Path, request: SubmitUpdateRequest) -> list[Generati
 
 
 def _moved_generations(db_path: catalog.Path, request: SubmitUpdateRequest, current: ExpectedGenerations) -> list[str]:
-    """One line for each resource whose generation is no longer the one request was prepared against."""
+    """One line per resource whose generation changed since request was prepared."""
     expected = request.expected_generations
     lines: list[str] = []
     if request.database_target is not None and current.database != expected.database:
@@ -87,8 +87,8 @@ def await_receipts(db_path: catalog.Path, receipts: Sequence[GenerationReceipt])
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_TIMEOUT,
                 f'{_describe(db_path, pending)} is still {pending.progress} after {int(TIMEOUT)}s. '
-                f'Pixeltable Cloud continues without this command; {_status_hint(db_path, pending)} shows how it '
-                'ends.',
+                f'The change continues in Pixeltable Cloud; run {_status_hint(db_path, pending)} to check its '
+                'progress.',
                 provider='pixeltable_cloud',
             )
         time.sleep(POLL_INTERVAL)
@@ -104,7 +104,7 @@ def read_receipts(db_path: catalog.Path, receipts: Sequence[GenerationReceipt]) 
     read = GetReceiptsResponse.model_validate(response).receipts
     if [ReceiptRef.of(r) for r in read] != [ReceiptRef.of(r) for r in receipts]:
         raise excs.InternalError(
-            excs.ErrorCode.INTERNAL_ERROR, f'{db_path.uri_str} answered other receipts than the ones asked for'
+            excs.ErrorCode.INTERNAL_ERROR, f'{db_path.uri_str} returned receipts that do not match the request'
         )
     return read
 
@@ -121,18 +121,17 @@ def raise_if_unsuccessful(db_path: catalog.Path, receipts: Sequence[GenerationRe
         if r.superseded:
             raise excs.ConcurrencyError(
                 excs.ErrorCode.CONCURRENT_MODIFICATION,
-                f'{_describe(db_path, r)} was replaced by a newer update before it took effect',
+                f'{_describe(db_path, r)} was replaced by a newer update before it finished',
             )
         if r.outcome is not None and not r.observed:
             raise excs.InternalError(
                 excs.ErrorCode.INTERNAL_ERROR,
-                f'{_describe(db_path, r)} ended as {r.outcome}, which this version of Pixeltable does not know; '
-                'upgrade it to read the outcome',
+                f'{_describe(db_path, r)} ended with unknown outcome {r.outcome}; upgrade Pixeltable to read it',
             )
 
 
 def retry(db_path: catalog.Path, receipt: GenerationReceipt) -> GenerationReceipt:
-    """Start a new attempt of receipt's generation, which has to be current and failed."""
+    """Start a new attempt of receipt's generation, which must be current and failed."""
     request = RetryRequest(
         org=db_path.org,
         db=_db(db_path),

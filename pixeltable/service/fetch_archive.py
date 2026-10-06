@@ -15,8 +15,8 @@ The fingerprint is written to disk rather than re-fetched: a pod reports which a
 and a second GetArchive call could return a different one.
 
 A pod whose template names its release (PXTCLOUD_ARCHIVE_DIGEST, PXTCLOUD_BUILD_ID) fetches that release's
-archive rather than the database's current one, so a restarted or scaled-up pod runs its own code on its own
-image. A pinned release always has an archive, so failing to find one fails the pod.
+archive rather than the database's current one, so a restarted or scaled-up pod keeps the code it was deployed
+with. A pinned pod fails if its archive is missing.
 """
 
 from __future__ import annotations
@@ -151,7 +151,7 @@ def fetch(db_uri: str, archive_dir: Path) -> bool:
     if pinned:
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
-            f'{db_uri} has no archive for the release this pod runs (archive {archive_digest}, build {build_id})',
+            f"{db_uri} has no archive for this pod's release (archive {archive_digest}, build {build_id})",
             provider='pixeltable_cloud',
             status_code=404,
         )
