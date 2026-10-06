@@ -6,11 +6,14 @@ import logging
 import os
 import tarfile
 import textwrap
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config, DatabaseConfig
@@ -26,7 +29,7 @@ from pixeltable.utils.project import (
 )
 from pixeltable_cli.types import DbPlan
 
-from ..utils import pxt_raises
+from ..utils import get_image_files, pxt_raises
 
 
 def local_entry() -> DatabaseConfig | None:
@@ -101,6 +104,30 @@ class TestProjectArchive:
             assert 'project/app.py' in members
             assert not any('__pycache__' in m for m in members)
             assert 'project/.env' not in members
+
+    @pytest.mark.db_roots('local', reason='writes media to a local destination inside the project')
+    def test_local_media_excluded(self, tmp_path: Path, uses_db: None) -> None:
+        """Local media directory that happens to be inside the project is excluded from the archive."""
+        (tmp_path / 'app.py').write_text('# app')
+        media = tmp_path / 'media' / 'generated'
+        media.mkdir(parents=True)
+        # User file that sits in the media destination but outside of the table's media directory
+        (media / 'README.md').write_text('generated media\n')
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t.add_computed_column(rot=t.img.rotate(90), destination=media.as_uri())
+        t.insert({'img': img} for img in get_image_files()[:3])
+
+        urls = t.select(url=t.rot.fileurl).collect()['url']
+        media_paths = [Path(urllib.request.url2pathname(urllib.parse.urlparse(url).path)) for url in urls]
+        assert len(media_paths) == 3, media_paths
+        assert all(path.is_file() and path.is_relative_to(media) for path in media_paths), media_paths
+
+        with tarfile.open(create_project_archive(tmp_path), 'r:bz2') as tar:
+            assert sorted(tar.getnames()) == ['project/app.py', 'project/media/generated/README.md']
+        # The user can explicitly include the media directory in the project
+        media_members = {f'project/{path.relative_to(tmp_path).as_posix()}' for path in media_paths}
+        with tarfile.open(create_project_archive(tmp_path, DatabaseConfig(include=['media/**'])), 'r:bz2') as tar:
+            assert media_members <= set(tar.getnames())
 
     def test_uv_lock_included(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """uv.lock in the project dir is included under project/ for server-side uv sync."""

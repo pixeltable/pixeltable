@@ -1,13 +1,11 @@
 """The project's file selection and its fingerprint."""
 
 import pathlib
-import uuid
 
 import pytest
 
 from pixeltable import exceptions as excs
 from pixeltable.config import DatabaseConfig
-from pixeltable.utils.local_store import LocalStore
 from pixeltable.utils.project import (
     ProjectPart,
     _archive_files,
@@ -61,18 +59,6 @@ class TestProject:
             cache.mkdir()
             (cache / 'mod.cpython-311.pyc').write_bytes(b'\x00')
         assert self._names(project) == ['.gitignore', 'app.py', 'pkg/mod.py', 'uv.lock']
-
-    def test_local_media_excluded(self, project: pathlib.Path) -> None:
-        """A local media destination inside the project holds table data, not project files."""
-        media = project / 'media' / 'generated'
-        media.mkdir(parents=True)
-        stored, _ = LocalStore(media).save_media_object(b'\xff\xd8', uuid.uuid4(), 1, 0, 'jpeg')
-        assert [num_files for _, _, num_files, _ in LocalStore(media).stats()] == [1]
-        (media / 'README.md').write_text('generated media\n')
-        assert self._names(project) == ['.gitignore', 'app.py', 'media/generated/README.md', 'uv.lock']
-
-        stored_name = stored.relative_to(project).as_posix()
-        assert stored_name in self._names(project, DatabaseConfig(include=['media/**']))
 
     def test_patterns(self, project: pathlib.Path) -> None:
         assert self._names(project, DatabaseConfig(exclude=['*.py'])) == ['.gitignore', 'uv.lock']
