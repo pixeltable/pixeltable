@@ -17,7 +17,8 @@ from typing import Any, Callable
 import pytest
 
 import pixeltable as pxt
-from pixeltable_cli.client import hosted
+from pixeltable_cli import types
+from pixeltable_cli.client import hosted, utils
 from pixeltable_cli.client.commands import db as db_cmd
 from pixeltable_cli.client.utils import display_path
 from pixeltable_cli.types import GenerationReceipt, ReceiptError, ReceiptOutcome, ResourcePhase
@@ -120,6 +121,33 @@ class TestDbDelete:
                 assert f'delete {uri}? This is irreversible.' in result.stderr
                 assert '--force/-f' in result.stderr
                 assert result.stdout == ''
+
+    def test_update_json_prints_pending_plan(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`--json` skips the pending plan up front, so a refusal still prints that plan as its one document."""
+        plan = types.DbPlan.from_ops(
+            'pxt://acme:main',
+            types.DbState.AVAILABLE,
+            [
+                types.DbChangeOp(
+                    target='archive',
+                    name='project',
+                    op='alter',
+                    severity='additive',
+                    description='the project files will be uploaded: app.py changed',
+                )
+            ],
+        )
+        monkeypatch.setattr(db_cmd, 'post_request', lambda _path, _body: plan.model_dump(mode='json'))
+        monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: False)
+
+        with pytest.raises(SystemExit, match=f'^{utils.EXIT_REFUSED}$'):
+            db_cmd.run(['update', 'pxt://acme:main', '--json'])
+
+        doc = json.loads(capsys.readouterr().out)
+        assert doc['resolution'] == 'update_additive'
+        assert doc['in_agreement'] is False
 
 
 class TestLs:
