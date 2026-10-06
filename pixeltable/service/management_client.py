@@ -7,11 +7,11 @@ from __future__ import annotations
 
 import dataclasses
 import http.client
-import time
 from pathlib import Path
 from typing import Any, Literal
 
 import requests
+from tenacity import Retrying, retry_if_exception_type, retry_if_result, stop_after_attempt, wait_exponential
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
@@ -55,6 +55,7 @@ _IDEMPOTENT_OPS = frozenset(
 
 _IDEMPOTENT_ATTEMPTS = 3
 _IDEMPOTENT_BACKOFF = 2.0
+_RETRIED_STATUS_CODES = frozenset((502, 503, 504))
 
 # what a 403 says the credential is not permitted to do
 _PURPOSES = {
@@ -215,22 +216,14 @@ def api_call(request: Any, credential: Credential | None = None) -> dict[str, An
     body = request.model_dump_json(by_alias=True)
     sent = resolve('reach Pixeltable Cloud') if credential is None else credential
     headers = {'Content-Type': 'application/json', **sent.header()}
-    attempts = _IDEMPOTENT_ATTEMPTS if op_str in _IDEMPOTENT_OPS else 1
-    for attempt in range(1, attempts + 1):
-        try:
-            resp = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-            # a pooled connection closed by the peer while idle fails the call that next picks it up, and a
-            # lost response leaves the outcome unknown; only a request whose second delivery changes nothing
-            # is sent again
-            if attempt == attempts:
-                raise
-            time.sleep(_IDEMPOTENT_BACKOFF * attempt)
-            continue
-        if resp.status_code in (502, 503, 504) and attempt < attempts:
-            time.sleep(_IDEMPOTENT_BACKOFF * attempt)
-            continue
-        break
+    retrying = Retrying(
+        retry=retry_if_exception_type((requests.exceptions.ConnectionError, requests.exceptions.Timeout))
+        | retry_if_result(lambda r: r.status_code in _RETRIED_STATUS_CODES),
+        wait=wait_exponential(multiplier=_IDEMPOTENT_BACKOFF),
+        stop=stop_after_attempt(_IDEMPOTENT_ATTEMPTS if op_str in _IDEMPOTENT_OPS else 1),
+        retry_error_callback=lambda state: state.outcome.result(),
+    )
+    resp: requests.Response = retrying(SESSION.post, api_url(), data=body, headers=headers, timeout=timeout)
     raise_if_refused(resp, sent, _PURPOSES.get(op_str, 'do this'))
     if resp.status_code not in (200, 201):
         raise excs.ExternalServiceError(

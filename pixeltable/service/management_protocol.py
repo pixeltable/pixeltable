@@ -191,7 +191,7 @@ class ServiceMutation(BaseModel):
 
     service_name: str
     base_path: str = ''
-    lifecycle: Literal['RUNNING', 'STOPPED', 'DELETED'] = 'RUNNING'
+    lifecycle: Literal['running', 'stopped', 'deleted'] = 'running'
     spec: ServiceSpec
     app_module: str
     otel: bool = False

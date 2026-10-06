@@ -1410,7 +1410,7 @@ class TestServiceUpdateRunning:
         (mutation,) = submitted.service_mutations
         assert prepared.service_mutations[0].spec == mutation.spec
         assert prepared.service_mutations[0].pin == mutation.pin, 'prepared as it is submitted'
-        assert (mutation.lifecycle, mutation.pin, mutation.otel) == ('RUNNING', 'latest', otel)
+        assert (mutation.lifecycle, mutation.pin, mutation.otel) == ('running', 'latest', otel)
         assert diff.receipt is not None and diff.receipt.observed, 'the receipt of this change, as it settled'
         assert (mutation.cpu, mutation.memory_mb, mutation.description) == (4.0, 8192, 'resized'), (
             'the desired resources, not the observed ones, so that a resize under way is not undone'
