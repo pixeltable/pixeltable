@@ -1,3 +1,4 @@
+import http
 import io
 import json
 import math
@@ -8,6 +9,9 @@ import ssl
 import tarfile
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 from collections.abc import Iterator
 from typing import Any
@@ -15,17 +19,22 @@ from typing import Any
 import numpy as np
 import PIL.Image
 import pytest
+import requests
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import TablePathKey, TableVersionKey
+from pixeltable.catalog.path import Path as CatalogPath
 from pixeltable.config import Config
+from pixeltable.env import Env
 from pixeltable.service import proxy_client, proxy_daemon, proxy_dispatch, proxy_protocol
 from pixeltable.service.management_client import Credential
 from pixeltable.service.proxy_client import HttpTransport, ProxyClient, TunnelTransport
 from pixeltable.service.proxy_protocol import ArchiveMember, PxtArchivePartSink, PxtStorePartSink
+from pixeltable.utils import cloud_utils
+from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import TempStore
-from pixeltable.utils.object_stores import FileDestination, ObjectOps
+from pixeltable.utils.object_stores import FileDestination, ObjectOps, StorageTarget
 
 from .utils import pxt_raises, reload_env
 
@@ -1178,3 +1187,217 @@ class TestTunnelRetries:
             assert conn is live
         assert dead.closed
         assert opened == [live]
+
+
+class _SigningPlane:
+    """The control plane's signing operations: get_presigned_urls answers batch_status (400 is a control plane from
+    before it), and get_presigned_url signs one key. Any other operation, such as a request for bucket credentials,
+    fails the test."""
+
+    def __init__(self) -> None:
+        self.batch_status = 200
+        self.requests: list[dict[str, Any]] = []
+
+    @staticmethod
+    def signed(db: str, key: str) -> str:
+        return f'https://r2.example.com/{db}/{key}?X-Amz-Signature=sig'
+
+    def post(self, url: str, data: str, headers: dict[str, str], timeout: float) -> requests.Response:
+        request = json.loads(data)
+        self.requests.append(request)
+        op, db = request['operation_type'], request['db']
+        response = requests.Response()
+        response.encoding = 'utf-8'
+        response.status_code = 200
+        if op == 'get_presigned_urls' and self.batch_status == 200:
+            body = {'urls': {key: self.signed(db, key) for key in request['keys']}, 'expires_in': request['expires_in']}
+        elif op == 'get_presigned_urls':
+            response.status_code = self.batch_status
+            # the control plane's error body: '<status phrase> : <reason>'
+            response._content = f'{http.HTTPStatus(self.batch_status).phrase} : refused in this test'.encode()
+            return response
+        elif op == 'get_presigned_url':
+            key = request['key']
+            body = {'url': self.signed(db, key), 'key': key, 'expiration': request['expiration']}
+        else:
+            raise AssertionError(f'unexpected control-plane request: {op}')
+        response._content = json.dumps(body).encode()
+        return response
+
+    def operations(self) -> list[str]:
+        return [request['operation_type'] for request in self.requests]
+
+
+class _SignedObjects:
+    """A store that serves each signed URL its path as content, or answers status; records the URLs opened."""
+
+    def __init__(self) -> None:
+        self.status = 200
+        self.opened: list[str] = []
+        self._lock = threading.Lock()
+
+    def urlopen(self, request: urllib.request.Request, timeout: float) -> io.BytesIO:
+        url = request.full_url
+        with self._lock:
+            self.opened.append(url)
+        if self.status != 200:
+            raise urllib.error.HTTPError(url, self.status, 'Forbidden', None, None)
+        parsed = urllib.parse.urlsplit(url)
+        assert parsed.query == 'X-Amz-Signature=sig', url  # the signature reached the store
+        return io.BytesIO(parsed.path.encode())
+
+
+class TestHostedMediaReads:
+    """A client reads home-bucket media through URLs the control plane signs, never with bucket credentials."""
+
+    @pytest.fixture
+    def signing(
+        self, init_env: None, monkeypatch: pytest.MonkeyPatch
+    ) -> Iterator[tuple[_SigningPlane, _SignedObjects]]:
+        plane, objects = _SigningPlane(), _SignedObjects()
+        monkeypatch.setattr(cloud_utils, 'resolve', lambda purpose: _KEY)
+        monkeypatch.setattr(cloud_utils, 'SESSION', plane)
+        monkeypatch.setattr(urllib.request, 'urlopen', objects.urlopen)
+        yield plane, objects
+        FileCache.get().clear(proxy_client._PROXY_MEDIA_TBL_ID)
+
+    @staticmethod
+    def _client(monkeypatch: pytest.MonkeyPatch) -> tuple[ProxyClient, list[str], list[str]]:
+        """A client on a tunnel, with the paths it GETs through the tunnel and the URLs it passes to fetch_url()."""
+        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
+        tunnel_gets: list[str] = []
+        fetched: list[str] = []
+
+        def tunnel_request(method: str, path: str, body: bytes | None = None, content_type: str | None = None) -> bytes:
+            tunnel_gets.append(path)
+            return b'daemon'
+
+        def fetch_url(url: str) -> pathlib.Path:
+            fetched.append(url)
+            path = TempStore.create_path(extension='.png')
+            path.write_bytes(b'remote')
+            return path
+
+        monkeypatch.setattr(transport, '_request', tunnel_request)
+        monkeypatch.setattr(proxy_client, 'fetch_url', fetch_url)
+        return ProxyClient(transport, CatalogPath(org='org1', db='db1')), tunnel_gets, fetched
+
+    def test_signed_in_batches(
+        self, signing: tuple[_SigningPlane, _SignedObjects], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """250 home-bucket URLs, in both spellings, take three signing calls of at most 100 keys, and no request for
+        bucket credentials."""
+        plane, objects = signing
+        client, tunnel_gets, fetched = self._client(monkeypatch)
+        db = f'db_{uuid.uuid4().hex}'
+        keys = [f'media/{i:03d}.jpg' for i in range(250)]
+        urls = [
+            f'pxtfs://org1:{db}/home/{key}' if i % 2 == 0 else f'pxt://org1:{db}/buckets/home/{key}'
+            for i, key in enumerate(keys)
+        ]
+
+        local = client.fetch_media(urls)
+
+        assert plane.operations() == ['get_presigned_urls'] * 3
+        assert [request['keys'] for request in plane.requests] == [keys[:100], keys[100:200], keys[200:]]
+        assert {(r['org'], r['db'], r['bucket_name'], r['expires_in']) for r in plane.requests} == {
+            ('org1', db, 'home', 900)
+        }
+        assert sorted(objects.opened) == sorted(plane.signed(db, key) for key in keys)
+        for url, key in zip(urls, keys):
+            assert local[url].endswith('.jpg')
+            assert pathlib.Path(local[url]).read_bytes() == f'/{db}/{key}'.encode()
+        assert tunnel_gets == [] and fetched == []
+        # no store was built for the bucket, so nothing holds its credentials
+        assert not any(db in key for key in Env.get().object_store_clients(StorageTarget.PIXELTABLE_STORE).clients)
+
+        # the cache keeps the URLs as stored: reading them again signs and downloads nothing
+        assert client.fetch_media(urls) == local
+        assert len(plane.requests) == 3
+        assert len(objects.opened) == 250
+
+    def test_mixed_media(self, signing: tuple[_SigningPlane, _SignedObjects], monkeypatch: pytest.MonkeyPatch) -> None:
+        """Daemon media still comes through the tunnel and other remote media through fetch_url(). Both spellings of
+        an address share a key, and each database is signed on its own."""
+        plane, _ = signing
+        client, tunnel_gets, fetched = self._client(monkeypatch)
+        db1, db2 = f'db_{uuid.uuid4().hex}', f'db_{uuid.uuid4().hex}'
+        daemon_url = 'https://h:443/media/a/b.png'
+        remote_url = 'https://example.com/c.png'
+        pxtfs_url = f'pxtfs://org1:{db1}/home/k/1.png'
+        pxt_url = f'pxt://org1:{db1}/buckets/home/k/1.png'
+        other_db_url = f'pxtfs://org1:{db2}/home/k/2.png'
+
+        local = client.fetch_media([daemon_url, remote_url, pxtfs_url, pxt_url, other_db_url])
+
+        assert tunnel_gets == ['/media/a/b.png']
+        assert fetched == [remote_url]
+        assert sorted((request['db'], request['keys']) for request in plane.requests) == sorted(
+            [(db1, ['k/1.png']), (db2, ['k/2.png'])]
+        )
+        assert pathlib.Path(local[daemon_url]).read_bytes() == b'daemon'
+        assert pathlib.Path(local[remote_url]).read_bytes() == b'remote'
+        assert pathlib.Path(local[pxtfs_url]).read_bytes() == f'/{db1}/k/1.png'.encode()
+        assert pathlib.Path(local[pxt_url]).read_bytes() == f'/{db1}/k/1.png'.encode()
+        assert pathlib.Path(local[other_db_url]).read_bytes() == f'/{db2}/k/2.png'.encode()
+
+    def test_signed_per_file_by_an_older_control_plane(
+        self, signing: tuple[_SigningPlane, _SignedObjects], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A control plane from before get_presigned_urls answers it 400: each key of that batch is then signed with
+        get_presigned_url."""
+        plane, objects = signing
+        plane.batch_status = 400
+        client, _, _ = self._client(monkeypatch)
+        db = f'db_{uuid.uuid4().hex}'
+        keys = [f'k/{i:03d}.jpg' for i in range(150)]
+
+        local = client.fetch_media([f'pxtfs://org1:{db}/home/{key}' for key in keys])
+
+        assert plane.operations() == (
+            ['get_presigned_urls'] + ['get_presigned_url'] * 100 + ['get_presigned_urls'] + ['get_presigned_url'] * 50
+        )
+        per_file = [request for request in plane.requests if request['operation_type'] == 'get_presigned_url']
+        assert [request['key'] for request in per_file] == keys
+        assert all((request['method'], request['expiration']) == ('get', 900) for request in per_file)
+        assert len(objects.opened) == 150
+        assert len(local) == 150
+
+    @pytest.mark.parametrize(
+        ('status', 'code'),
+        [
+            (403, excs.ErrorCode.INSUFFICIENT_PRIVILEGES),
+            (404, excs.ErrorCode.PROVIDER_BAD_REQUEST),
+            (503, excs.ErrorCode.PROVIDER_ERROR),
+        ],
+    )
+    def test_other_signing_errors_are_raised(
+        self,
+        signing: tuple[_SigningPlane, _SignedObjects],
+        monkeypatch: pytest.MonkeyPatch,
+        status: int,
+        code: excs.ErrorCode,
+    ) -> None:
+        """Any other refusal or failure to sign is raised: no key is signed per file and nothing is downloaded."""
+        plane, objects = signing
+        plane.batch_status = status
+        client, _, _ = self._client(monkeypatch)
+
+        with pxt_raises(code):
+            client.fetch_media([f'pxtfs://org1:db_{uuid.uuid4().hex}/home/k/1.jpg'])
+        assert plane.operations() == ['get_presigned_urls']
+        assert objects.opened == []
+
+    def test_a_refused_download_names_the_stored_url(
+        self, signing: tuple[_SigningPlane, _SignedObjects], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The error names the URL as stored, not the signed URL, whose query string is a credential."""
+        _, objects = signing
+        objects.status = 403
+        client, _, _ = self._client(monkeypatch)
+        url = f'pxt://org1:db_{uuid.uuid4().hex}/buckets/home/k/1.jpg'
+
+        with pxt_raises(excs.ErrorCode.PROVIDER_ERROR, match='Failed to download pxt://') as info:
+            client.fetch_media([url])
+        assert str(info.value) == f'Failed to download {url}: HTTP 403'
+        assert len(objects.opened) == 1  # a refusal is not retried
