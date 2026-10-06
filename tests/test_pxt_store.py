@@ -167,6 +167,28 @@ class TestPxtStore:
         assert download.call_count == len(urls)
         get_credentials.assert_called_once_with('org1', db, 'home', None)
 
+    def test_pxt_buckets_destination(self, init_env: None) -> None:
+        """A destination spelled pxt://org:db/buckets/home/... is the store its pxtfs:// spelling names: a new file
+        gets the same object key and the same stored URL."""
+        skip_test_if_not_installed('boto3')
+        from pixeltable.utils import object_stores, pxt_store
+
+        db = f'db_{uuid.uuid4().hex}'
+        tbl_id, file_id = uuid.uuid4(), uuid.uuid4()
+        dests = []
+        with patch.object(pxt_store, 'get_bucket_credentials', return_value=_bucket_credentials()) as get_credentials:
+            for dest_uri in (f'pxtfs://org1:{db}/home/media', f'pxt://org1:{db}/buckets/home/media'):
+                store = ObjectOps.get_store(dest_uri, False)
+                # the file name is random; fix it, so the two destinations can be compared whole
+                with patch.object(object_stores.uuid, 'uuid4', return_value=file_id):
+                    dests.append(store.resolve_destination(tbl_id, 0, 1, ext='.jpg'))
+
+        assert dests[1] == dests[0]
+        assert dests[1].url == f'pxtfs://org1:{db}/home/{dests[1].remote_key}'
+        assert dests[1].remote_key.startswith(f'media/{tbl_id.hex}/')
+        # both spellings share one cached session
+        get_credentials.assert_called_once_with('org1', db, 'home', None)
+
     def test_quota_recheck(self, init_env: None, tmp_path: Path) -> None:
         """A write rejected for lack of space checks the quota again at most once per interval, and keeps the cached
         state if the check fails; once space is freed, the next check lets writes through."""
