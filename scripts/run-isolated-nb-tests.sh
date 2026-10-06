@@ -23,6 +23,7 @@ export PIXELTABLE_DB="isolatednbtests"
 "$SCRIPT_DIR/prepare-nb-tests.sh" --include-very-expensive --include-expensive "$TEST_PATH" docs/release
 rm -f "$TEST_PATH"/audio-transcriptions.ipynb  # temporary workaround
 rm -f "$TEST_PATH"/img-detection-vs-segmentation.ipynb  # failing for unknown reasons (runs fine locally)
+rm -f "$TEST_PATH"/img-promptable-segmentation.ipynb  # SAM3 video segmentation exceeds the cell timeout on CPU
 
 NB_CONDA_ENV=nb-test-env
 FAILURES=0
@@ -47,10 +48,21 @@ for nb in "$TEST_PATH"/*.ipynb; do
     echo "Running notebook $nb ..."
     pytest -v -m '' --nbmake --nbmake-timeout=1800 "$nb" || (( FAILURES++ )) || true
 
+    # A notebook that runs `pxt` starts a daemon, which outlives the notebook and stays connected to $PIXELTABLE_DB.
+    # (`pxt daemon stop` fails when no daemon is running, which is the usual case.)
+    echo "Stopping the pxt daemon, if any ..."
+    pxt daemon stop -f || true
+
+    # Cleanup failures are reported, but must not end the loop and hide the remaining notebooks.
     echo "Cleaning $PIXELTABLE_DB postgres DB ..."
-    POSTGRES_BIN_PATH=$(python -c 'import pixeltable_pgserver; import sys; sys.stdout.write(str(pixeltable_pgserver._commands.POSTGRES_BIN_PATH))')
-    PIXELTABLE_URL="postgresql://postgres:@/postgres?host=$PIXELTABLE_HOME/pgdata"
-    "$POSTGRES_BIN_PATH/psql" "$PIXELTABLE_URL" -U postgres -c "DROP DATABASE IF EXISTS $PIXELTABLE_DB;"
+    if POSTGRES_BIN_PATH=$(python -c 'import pixeltable_pgserver; import sys; sys.stdout.write(str(pixeltable_pgserver._commands.POSTGRES_BIN_PATH))'); then
+        PIXELTABLE_URL="postgresql://postgres:@/postgres?host=$PIXELTABLE_HOME/pgdata"
+        # WITH (FORCE) ends any session still connected to the database
+        "$POSTGRES_BIN_PATH/psql" "$PIXELTABLE_URL" -U postgres -c "DROP DATABASE IF EXISTS $PIXELTABLE_DB WITH (FORCE);" \
+            || echo "WARNING: could not drop $PIXELTABLE_DB"
+    else
+        echo "WARNING: pixeltable_pgserver is not installed; skipping the DB cleanup"
+    fi
 
     echo "Cleaning Hugging Face cache ..."
     rm -rf ~/.cache/huggingface

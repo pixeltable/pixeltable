@@ -88,6 +88,32 @@ class TestJson:
         assert res['my_int'] == [j for i in range(50) for j in range(i + 1)]
         assert res['my_str'] == [f'string_{j}' if j < i else None for i in range(50) for j in range(i + 1)]
 
+    def test_list_iterator_type_cast(self, uses_db: None) -> None:
+        """Iterator args that cast paths into untyped json, as a transcription's segments need."""
+
+        def transcription(n: int) -> dict:
+            return {'segments': [{'start': float(j), 'end': j + 0.5, 'text': f'segment {j}'} for j in range(n)]}
+
+        t = pxt.create_table('test_table', {'id': pxt.Int, 'transcription': pxt.Json})
+        t.insert({'id': i, 'transcription': transcription(i)} for i in range(3))
+        segments = t.transcription.segments['*']
+        v = pxt.create_view(
+            'test_view',
+            t,
+            iterator=pxtf.json.list_iterator(
+                start=segments.start.astype(pxt.Json[[float]]),
+                end=segments.end.astype(pxt.Json[[float]]),
+                text=segments.text.astype(pxt.Json[[str]]),
+            ),
+        )
+        # a base row inserted after the view exists propagates to it
+        t.insert([{'id': 3, 'transcription': transcription(3)}])
+
+        res = v.order_by(v.id, v.pos).collect()
+        assert res['start'] == [float(j) for i in range(4) for j in range(i)]
+        assert res['end'] == [j + 0.5 for i in range(4) for j in range(i)]
+        assert res['text'] == [f'segment {j}' for i in range(4) for j in range(i)]
+
     def test_len_and_is_empty(self, uses_db: None) -> None:
         t = pxt.create_table('json_len', {'id': pxt.Int | None, 'j': pxt.Json | None})
         t.insert(

@@ -248,6 +248,8 @@ class TestVideo:
         base_t.add_computed_column(metadata=base_t.video.get_metadata())
         validate_update_status(base_t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         result = base_t.where(base_t.metadata.size == 2234371).select(base_t.metadata).collect()['metadata'][0]
+        # av 18 no longer reports the stream's vendor_id; earlier versions do
+        assert result['streams'][0]['metadata'].pop('vendor_id', '[0][0][0][0]') == '[0][0][0][0]'
         assert result == {
             'bit_exact': False,
             'bit_rate': 967260,
@@ -273,7 +275,6 @@ class TestVideo:
                     'metadata': {
                         'language': 'und',
                         'handler_name': 'L-SMASH Video Handler',
-                        'vendor_id': '[0][0][0][0]',
                         'encoder': 'Lavc60.31.102 libx264',
                     },
                     'codec_context': {'name': 'h264', 'codec_tag': 'avc1', 'profile': 'High', 'pix_fmt': 'yuv420p'},
