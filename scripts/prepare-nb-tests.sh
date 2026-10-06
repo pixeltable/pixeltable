@@ -2,7 +2,6 @@
 
 # Notebooks that are always skipped
 SKIP_NOTEBOOKS=(
-    audio-podcast-chapters          # Requires whisperx, which is not in the dev env (see pyproject.toml)
     llm-tool-calling                # Relies on the user separately running an MCP server
     working-with-bfl                # [PXT-1111] Out of credits
     working-with-fabric             # [PXT-1113] Requires Microsoft Fabric environment
@@ -110,6 +109,9 @@ if [[ $DO_PIP_INSTALL == true ]]; then
     # TODO(PXT-1427): the instrumentation package is available in the source checkout, but is not yet published
     # on PyPI.
     SKIP_NOTEBOOKS+=(observability)
+else
+    # whisperx is not in the dev env (see pyproject.toml); the notebook gets it only from its %pip cell.
+    SKIP_NOTEBOOKS+=(audio-podcast-chapters)
 fi
 
 echo "Target path: $TARGET_DIR"
