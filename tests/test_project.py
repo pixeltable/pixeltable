@@ -69,12 +69,7 @@ class TestProject:
         (media / 'README.md').write_text('generated media\n')
         stored, _ = LocalStore(media).save_media_object(b'\xff\xd8', uuid.uuid4(), 1, 0, 'jpeg')
         assert self._names(project) == ['.gitignore', 'app.py', 'media/generated/README.md', 'uv.lock']
-
-        # a directory that only looks like a table's directory is project content
-        lookalike = project / uuid.uuid4().hex
-        lookalike.mkdir()
-        (lookalike / 'notes.txt').write_text('mine\n')
-        assert f'{lookalike.name}/notes.txt' in self._names(project)
+        assert set(LocalStore(media).list_objects(return_uri=False)) == {str(media / 'README.md'), str(stored)}
 
         stored_name = stored.relative_to(project).as_posix()
         assert stored_name in self._names(project, DatabaseConfig(include=['media/**']))

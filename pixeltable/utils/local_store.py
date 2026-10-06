@@ -28,7 +28,12 @@ class LocalStore(ObjectStoreBase):
     Media file names are a composite of: table id, column id, tbl_version, new uuid:
     the table id/column id/tbl_version are redundant but useful for identifying all files for a table
     or all files created for a particular version of a table
+
+    Each table's directory holds a .gitignore that ignores the entire directory, so that a destination inside a
+    project stays out of git and out of the archive packaged for a hosted database.
     """
+
+    GITIGNORE = '.gitignore'
 
     __base_dir: Path
 
@@ -120,6 +125,9 @@ class LocalStore(ObjectStoreBase):
         prefix, filename = ObjectPath.create_prefix_raw(tbl_id, col_id, tbl_version, ext)
         parent = self.__base_dir / Path(prefix)
         parent.mkdir(parents=True, exist_ok=True)
+        gitignore = self.__base_dir / ObjectPath.table_prefix(tbl_id) / self.GITIGNORE
+        if not gitignore.exists():
+            gitignore.write_text('*\n')
         return parent / filename
 
     def contains_path(self, file_path: Path) -> bool:
@@ -257,6 +265,8 @@ class LocalStore(ObjectStoreBase):
         r = []
         for root, _, files in os.walk(self.__base_dir):
             for file in files:
+                if file == self.GITIGNORE:
+                    continue
                 r.append(Path(root, file).as_uri() if return_uri else os.path.join(root, file))
         return r
 

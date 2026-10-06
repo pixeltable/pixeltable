@@ -168,14 +168,6 @@ class ObjectPath:
         return prefix, filename
 
     @classmethod
-    def is_local_table_dir(cls, dir_path: Path) -> bool:
-        """Whether dir_path is a table's directory in a local media destination, as laid out by create_prefix_raw()."""
-        name = dir_path.name
-        if re.fullmatch(r'[0-9a-f]{32}', name) is None:
-            return False
-        return next(dir_path.glob(f'[0-9a-f][0-9a-f]/[0-9a-f][0-9a-f][0-9a-f][0-9a-f]/{name}_*'), None) is not None
-
-    @classmethod
     def separate_prefix_object(cls, path_and_object: str, may_contain_object_name: bool) -> tuple[str, str]:
         path = path_and_object
         object_name = ''
