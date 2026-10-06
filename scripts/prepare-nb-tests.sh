@@ -110,7 +110,6 @@ if [[ $DO_PIP_INSTALL == true ]]; then
     # on PyPI.
     SKIP_NOTEBOOKS+=(observability)
 else
-    # pip install cells in the notebooks will be skipped
     # whisperx is not in the dev env; this notebook gets it only from its %pip cell
     SKIP_NOTEBOOKS+=(audio-podcast-chapters)
 fi
