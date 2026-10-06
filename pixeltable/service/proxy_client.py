@@ -74,7 +74,8 @@ _PROXY_MEDIA_COL_ID = 0
 
 # home-bucket media is read through URLs the control plane signs, never with credentials for the bucket
 _SIGN_BATCH_SIZE = 100  # keys per signing call: the control plane's limit
-# every URL of a result is signed before its first download, so each download must start within this
+# every URL of a result is signed before its first download; one that expires before its download starts is signed
+# again (_fetch_signed)
 _SIGNED_URL_TTL_S = 900
 _SIGNED_DOWNLOAD_TIMEOUT_S = 60.0
 
@@ -423,6 +424,17 @@ def _fetch_signed(url: str, signed_url: str) -> Path:
 
     fetch_url() cannot: it drops a URL's query string, which carries the signature.
     """
+    try:
+        return _fetch_signed_once(url, signed_url)
+    except excs.ExternalServiceError as e:
+        # an expired URL is refused like any other; the second refusal is the one raised
+        if e.provider_http_status_code != 403:
+            raise
+    soa = ObjectPath.parse_object_storage_addr(url, allow_obj_name=True)
+    return _fetch_signed_once(url, _sign_keys(soa.account, soa.account_extension, [soa.key])[soa.key])
+
+
+def _fetch_signed_once(url: str, signed_url: str) -> Path:
     path = TempStore.create_path(extension=Path(urllib.parse.urlparse(url).path).suffix)
     try:
         _download(signed_url, path)

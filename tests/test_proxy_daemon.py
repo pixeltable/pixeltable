@@ -1233,6 +1233,7 @@ class _SignedObjects:
 
     def __init__(self) -> None:
         self.status = 200
+        self.expired = 0  # opens refused with 403 before status applies, as R2 refuses an expired URL
         self.opened: list[str] = []
         self._lock = threading.Lock()
 
@@ -1240,8 +1241,10 @@ class _SignedObjects:
         url = request.full_url
         with self._lock:
             self.opened.append(url)
-        if self.status != 200:
-            raise urllib.error.HTTPError(url, self.status, 'Forbidden', None, None)
+            expired = self.expired > 0
+            self.expired -= int(expired)
+        if expired or self.status != 200:
+            raise urllib.error.HTTPError(url, 403 if expired else self.status, 'Forbidden', None, None)
         parsed = urllib.parse.urlsplit(url)
         assert parsed.query == 'X-Amz-Signature=sig', url  # the signature reached the store
         return io.BytesIO(parsed.path.encode())
@@ -1400,4 +1403,21 @@ class TestHostedMediaReads:
         with pxt_raises(excs.ErrorCode.PROVIDER_ERROR, match='Failed to download pxt://') as info:
             client.fetch_media([url])
         assert str(info.value) == f'Failed to download {url}: HTTP 403'
-        assert len(objects.opened) == 1  # a refusal is not retried
+        assert len(objects.opened) == 2  # signed again once, as an expired URL would be, then raised
+
+    def test_an_expired_url_is_signed_again_once(
+        self, signing: tuple[_SigningPlane, _SignedObjects], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A URL signed before a long result's first download can expire before its own starts."""
+        plane, objects = signing
+        objects.expired = 1
+        client, _, _ = self._client(monkeypatch)
+        db = f'db_{uuid.uuid4().hex}'
+        url = f'pxtfs://org1:{db}/home/k/1.jpg'
+
+        local = client.fetch_media([url])
+
+        assert pathlib.Path(local[url]).read_bytes() == f'/{db}/k/1.jpg'.encode()
+        assert plane.operations() == ['get_presigned_urls', 'get_presigned_urls']
+        assert [request['keys'] for request in plane.requests] == [['k/1.jpg'], ['k/1.jpg']]
+        assert len(objects.opened) == 2
