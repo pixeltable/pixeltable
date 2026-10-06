@@ -167,7 +167,6 @@ def _dict_key_orders(val: Any) -> list[list[str]]:
 
 
 def _apply_key_orders(val: Any, key_orders: Iterator[list[str]]) -> Any:
-    """Rebuilds every dict nested in val with its key list from key_orders, the output of _dict_key_orders()."""
     if isinstance(val, dict):
         keys = next(key_orders)
         assert set(keys) == val.keys(), (keys, val)
