@@ -29,7 +29,7 @@ class LocalStore(ObjectStoreBase):
     the table id/column id/tbl_version are redundant but useful for identifying all files for a table
     or all files created for a particular version of a table
 
-    Each table's directory holds a .gitignore that ignores the entire directory, so that a destination inside a
+    Storing a file writes a .gitignore that ignores the entire table directory, so that a destination inside a
     project stays out of git and out of the archive packaged for a hosted database.
     """
 
