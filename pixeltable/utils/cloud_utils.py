@@ -56,7 +56,8 @@ def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str | None = 
     """
     request = GetBucketCredentialsRequest(org=org, db=db, bucket_name=bucket, prefix=prefix)
     try:
-        response = _post(request, timeout=15)
+        # a control plane starting cold takes 17-19 s to answer, outside prod's provisioned instances
+        response = _post(request, timeout=30)
         if response.status_code != 200:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,
