@@ -26,6 +26,7 @@ import pixeltable
 from pixeltable import exceptions as excs
 from pixeltable.config import PROJECT_CONFIG_FILES, PYPROJECT_FILE, DatabaseConfig
 from pixeltable.env import Env
+from pixeltable.utils.object_stores import ObjectPath
 
 _logger = logging.getLogger('pixeltable')
 
@@ -74,7 +75,7 @@ def _is_venv(dir_path: Path) -> bool:
 
 
 def _collect_unignored_files(project_dir: Path) -> set[Path]:
-    """All files under project_dir that git would not ignore, minus any virtual environment.
+    """All files under project_dir that git would not ignore, minus any virtual environment and stored media.
 
     Honors the .gitignore at every level of the tree, not just project_dir's: tools such as ruff, mypy and
     pytest keep their caches out of git by writing a `.gitignore` containing `*` into the cache directory
@@ -87,6 +88,8 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
     .git is skipped here, as git itself does, but only by default: an `include` pattern of `.git/**` still
     reaches it, which a project that derives its version from VCS metadata needs. A virtual environment is
     skipped whether or not a .gitignore covers it, since the pod installs the packages from the lockfile.
+    Likewise for the media files of a local (file://) media destination inside the project: they are table data,
+    which the database holds, not project source.
     __pycache__ is ignored: we don't want to ship bytecode
     """
     files: set[Path] = set()
@@ -101,7 +104,7 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
             is_dir = entry.is_dir() and not entry.is_symlink()
             if _is_gitignored(entry, is_dir, specs):
                 continue
-            if is_dir and _is_venv(entry):
+            if is_dir and (_is_venv(entry) or ObjectPath.is_local_table_dir(entry)):
                 continue
             if is_dir:
                 visit(entry, specs)
@@ -228,7 +231,8 @@ def package_project_archive(
 
     print(f'Packaging {len(files)} files from {project_dir}.')
     print(
-        'By default, all files not ignored by .gitignore are included; '
+        'By default, all files not ignored by .gitignore are included, except virtual environments and '
+        'Pixeltable media files; '
         'you can adjust this behavior with include/exclude in pixeltable.toml.'
     )
 
