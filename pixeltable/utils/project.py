@@ -489,7 +489,9 @@ def _locked_pixeltable(project_dir: Path) -> str | None:
     lock = project_dir / 'uv.lock'
     if lock.is_file():
         packages = toml.load(lock).get('package', [])
-        versions = sorted({str(p.get('version')) for p in packages if p.get('name') == 'pixeltable'})
+        # an entry without a version, such as the editable project itself when the project is pixeltable, is not
+        # installed from the lock, so it pins nothing
+        versions = sorted({str(p['version']) for p in packages if p.get('name') == 'pixeltable' and p.get('version')})
         return ', '.join(versions) if versions else None
     requirements = project_dir / 'requirements.txt'
     if requirements.is_file():

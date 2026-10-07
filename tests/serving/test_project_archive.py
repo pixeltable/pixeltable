@@ -473,8 +473,9 @@ class TestLockedPixeltable:
             ('requirements.txt', 'pixeltable @ git+https://github.com/pixeltable/pixeltable@8b86426f930cb3dd\n'),
             ('requirements.txt', 'pixeltable>=0.7\n'),
             ('requirements.txt', 'numpy\n'),
+            ('uv.lock', '[[package]]\nname = "pixeltable"\nsource = { editable = "." }\n'),
         ],
-        ids=['uv-same', 'git-same-commit', 'unpinned', 'absent'],
+        ids=['uv-same', 'git-same-commit', 'unpinned', 'absent', 'editable-project'],
     )
     def test_accepted(self, tmp_path: Path, name: str, content: str) -> None:
         (tmp_path / name).write_text(content)
