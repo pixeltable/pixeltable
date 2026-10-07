@@ -1715,6 +1715,11 @@ class TestExprs:
             '{"zzz": 2, "aaa": [{"yy": 1, "b": {"long_key": 2, "k": 3}}]}',
         ]
 
+    def test_dict_literal_key_order_in_tuple(self) -> None:
+        """A dict nested in a tuple keeps its key order through as_dict() and from_dict()."""
+        lit = Literal({'zzz': (1, {'yy': 1, 'b': 2}), 'aaa': {'long_key': 1, 'k': 2}})
+        assert json.dumps(Literal.from_dict(lit.as_dict()).val) == json.dumps(lit.val)
+
     @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_print(
         self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]

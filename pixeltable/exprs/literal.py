@@ -171,6 +171,6 @@ def _apply_key_orders(val: Any, key_orders: Iterator[list[str]]) -> Any:
         keys = next(key_orders)
         assert set(keys) == val.keys(), (keys, val)
         return {key: _apply_key_orders(val[key], key_orders) for key in keys}
-    if isinstance(val, list):
+    if isinstance(val, (list, tuple)):
         return [_apply_key_orders(item, key_orders) for item in val]
     return val
