@@ -13,7 +13,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import numpy as np
@@ -1196,6 +1196,7 @@ class _SigningPlane:
 
     def __init__(self) -> None:
         self.batch_status = 200
+        self.batch_body: Callable[[dict[str, Any]], str] = json.dumps  # writes the body of a 200 to get_presigned_urls
         self.requests: list[dict[str, Any]] = []
 
     @staticmethod
@@ -1211,6 +1212,8 @@ class _SigningPlane:
         response.status_code = 200
         if op == 'get_presigned_urls' and self.batch_status == 200:
             body = {'urls': {key: self.signed(db, key) for key in request['keys']}, 'expires_in': request['expires_in']}
+            response._content = self.batch_body(body).encode()
+            return response
         elif op == 'get_presigned_urls':
             response.status_code = self.batch_status
             # the control plane's error body: '<status phrase> : <reason>'
@@ -1248,6 +1251,16 @@ class _SignedObjects:
         parsed = urllib.parse.urlsplit(url)
         assert parsed.query == 'X-Amz-Signature=sig', url  # the signature reached the store
         return io.BytesIO(parsed.path.encode())
+
+
+def _assert_no_signed_url(e: BaseException) -> None:
+    """Neither e nor any exception a traceback prints with it holds a signed URL in its message, args or attributes."""
+    exc: BaseException | None = e
+    while exc is not None:
+        for text in (str(exc), repr(exc.args), repr(vars(exc))):
+            assert 'X-Amz-Signature' not in text, f'{type(exc).__name__} holds a signed URL: {text}'
+        # a traceback prints the cause, or else the context unless it is suppressed
+        exc = exc.__cause__ if exc.__cause__ is not None or exc.__suppress_context__ else exc.__context__
 
 
 class TestHostedMediaReads:
@@ -1344,6 +1357,23 @@ class TestHostedMediaReads:
         assert pathlib.Path(local[pxt_url]).read_bytes() == f'/{db1}/k/1.png'.encode()
         assert pathlib.Path(local[other_db_url]).read_bytes() == f'/{db2}/k/2.png'.encode()
 
+    def test_batches_count_keys_not_spellings(
+        self, signing: tuple[_SigningPlane, _SignedObjects], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """150 keys, each stored in both spellings, take two signing calls of 100 and 50 keys."""
+        plane, objects = signing
+        client, _, _ = self._client(monkeypatch)
+        db = f'db_{uuid.uuid4().hex}'
+        keys = [f'media/{i:03d}.jpg' for i in range(150)]
+        urls = [url for key in keys for url in (f'pxtfs://org1:{db}/home/{key}', f'pxt://org1:{db}/buckets/home/{key}')]
+
+        local = client.fetch_media(urls)
+
+        assert [request['keys'] for request in plane.requests] == [keys[:100], keys[100:]]
+        assert len(objects.opened) == 300
+        for i, url in enumerate(urls):
+            assert pathlib.Path(local[url]).read_bytes() == f'/{db}/{keys[i // 2]}'.encode()
+
     def test_signed_per_file_by_an_older_control_plane(
         self, signing: tuple[_SigningPlane, _SignedObjects], monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1391,6 +1421,31 @@ class TestHostedMediaReads:
         assert plane.operations() == ['get_presigned_urls']
         assert objects.opened == []
 
+    @pytest.mark.parametrize(
+        'batch_body',
+        [
+            pytest.param(lambda body: json.dumps({'urls': body['urls']}), id='no-expires_in'),
+            pytest.param(lambda body: json.dumps(body)[:-1], id='not-json'),
+        ],
+    )
+    def test_a_malformed_signing_answer_quotes_no_url(
+        self,
+        signing: tuple[_SigningPlane, _SignedObjects],
+        monkeypatch: pytest.MonkeyPatch,
+        batch_body: Callable[[dict[str, Any]], str],
+    ) -> None:
+        """A 200 that is not JSON, or not the answer's shape, is raised without its body, whose URLs are credentials."""
+        plane, objects = signing
+        plane.batch_body = batch_body
+        client, _, _ = self._client(monkeypatch)
+
+        with pxt_raises(excs.ErrorCode.PROVIDER_ERROR) as info:
+            client.fetch_media([f'pxtfs://org1:db_{uuid.uuid4().hex}/home/k/1.jpg'])
+        assert str(info.value) == 'Pixeltable Cloud returned a malformed answer to get_presigned_urls'
+        _assert_no_signed_url(info.value)
+        assert plane.operations() == ['get_presigned_urls']
+        assert objects.opened == []
+
     def test_a_refused_download_names_the_stored_url(
         self, signing: tuple[_SigningPlane, _SignedObjects], monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1403,7 +1458,27 @@ class TestHostedMediaReads:
         with pxt_raises(excs.ErrorCode.PROVIDER_ERROR, match='Failed to download pxt://') as info:
             client.fetch_media([url])
         assert str(info.value) == f'Failed to download {url}: HTTP 403'
+        _assert_no_signed_url(info.value)
         assert len(objects.opened) == 2  # signed again once, as an expired URL would be, then raised
+
+    def test_a_failed_download_names_the_stored_url(
+        self, signing: tuple[_SigningPlane, _SignedObjects], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Any other download error is named by its type alone: its message can quote the signed URL, as a ValueError
+        for a malformed URL does."""
+        plane, _ = signing
+        client, _, _ = self._client(monkeypatch)
+        url = f'pxt://org1:db_{uuid.uuid4().hex}/buckets/home/k/1.jpg'
+
+        def urlopen(request: urllib.request.Request, timeout: float) -> io.BytesIO:
+            raise ValueError(request.full_url)
+
+        monkeypatch.setattr(urllib.request, 'urlopen', urlopen)
+        with pxt_raises(excs.ErrorCode.PROVIDER_ERROR) as info:
+            client.fetch_media([url])
+        assert str(info.value) == f'Failed to download {url}: ValueError'
+        _assert_no_signed_url(info.value)
+        assert plane.operations() == ['get_presigned_urls']  # only a 403 is signed again
 
     def test_an_expired_url_is_signed_again_once(
         self, signing: tuple[_SigningPlane, _SignedObjects], monkeypatch: pytest.MonkeyPatch
