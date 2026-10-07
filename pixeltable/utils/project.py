@@ -480,10 +480,52 @@ def _installed_from_project(project_dir: Path) -> list[Path]:
     return [*local_requirements, *_lock_sources(project_dir)]
 
 
+_REQUIREMENT_PIN = re.compile(r'^pixeltable(?:\[[^\]]*\])?\s*==\s*([^\s;#]+)', re.IGNORECASE)
+_REQUIREMENT_GIT = re.compile(r'^pixeltable(?:\[[^\]]*\])?\s*@\s*git\+\S+?@([0-9a-fA-F]{7,40})', re.IGNORECASE)
+
+
+def _locked_pixeltable(project_dir: Path) -> str | None:
+    """The pixeltable the project's lockfile pins, as a version or a git commit; None if it pins none."""
+    lock = project_dir / 'uv.lock'
+    if lock.is_file():
+        packages = toml.load(lock).get('package', [])
+        versions = sorted({str(p.get('version')) for p in packages if p.get('name') == 'pixeltable'})
+        return ', '.join(versions) if versions else None
+    requirements = project_dir / 'requirements.txt'
+    if requirements.is_file():
+        for line in requirements.read_text().splitlines():
+            match = _REQUIREMENT_PIN.match(line.strip()) or _REQUIREMENT_GIT.match(line.strip())
+            if match is not None:
+                return match.group(1)
+    return None
+
+
+def _check_locked_pixeltable(project_dir: Path) -> None:
+    """A hosted image runs the pixeltable this CLI runs: the control plane takes this CLI's metadata version as
+    the release's, and refuses a project whose lockfile pins another pixeltable."""
+    locked = _locked_pixeltable(project_dir)
+    if locked is None:
+        return
+    version = pixeltable.__version__
+    # a git build's local version segment starts with its commit; a dirty tree appends more after it
+    commit_match = re.match(r'[0-9a-f]{7,40}(?![0-9a-z])', version.partition('+')[2].lower())
+    commit = commit_match.group(0) if commit_match else ''
+    pinned_commit = locked.lower() if re.fullmatch(r'[0-9a-fA-F]{7,40}', locked) else ''
+    if locked == version or (
+        commit and pinned_commit and (pinned_commit.startswith(commit) or commit.startswith(pinned_commit))
+    ):
+        return
+    raise excs.RequestError(
+        excs.ErrorCode.INVALID_CONFIGURATION,
+        f'the project locks pixeltable {locked}, but this pxt runs pixeltable {version}; run pxt from the '
+        'project environment, or update the lock to the pixeltable you deploy with',
+    )
+
+
 def image_input_files(project_dir: Path) -> list[Path]:
     """The manifests an image build reads, and the project files they install from.
 
-    Raises if a manifest names something a hosted image build cannot reach.
+    Raises if a manifest names something a hosted image build cannot reach, or pins another pixeltable than this one.
     """
     project_dir = project_dir.resolve()
     files = [project_dir / name for name in IMAGE_INPUT_FILES if (project_dir / name).is_file()]
@@ -509,6 +551,7 @@ def image_input_files(project_dir: Path) -> list[Path]:
             # pip runs in the context, so a requirement naming a path needs that file alongside the manifests
             installed_from_project.extend(_local_requirement_files(project_dir, f))
 
+    _check_locked_pixeltable(project_dir)
     files.extend(installed_from_project)
     return files
 

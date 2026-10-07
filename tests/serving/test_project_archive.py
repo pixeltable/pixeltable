@@ -11,6 +11,8 @@ from typing import Any
 
 import pytest
 
+import pixeltable
+
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config, DatabaseConfig
@@ -23,6 +25,7 @@ from pixeltable.service.management_protocol import (
 )
 from pixeltable.utils.project import (
     create_image_context,
+    image_input_files,
     create_project_archive,
     package_image_context,
     package_project_archive,
@@ -454,3 +457,39 @@ class TestProjectArchive:
 
         with pxt_raises(excs.ErrorCode.INVALID_STATE, match='requirements.txt'):
             db_update('pxt://acme:main')
+
+
+class TestLockedPixeltable:
+    """A hosted image runs the pixeltable of the CLI that deploys it, so a lockfile pinning another is refused."""
+
+    @pytest.fixture(autouse=True)
+    def _version(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(pixeltable, '__version__', '0.7.15.dev12+8b86426f')
+
+    @pytest.mark.parametrize(
+        ('name', 'content'),
+        [
+            ('uv.lock', '[[package]]\nname = "pixeltable"\nversion = "0.7.15.dev12+8b86426f"\n'),
+            ('requirements.txt', 'pixeltable @ git+https://github.com/pixeltable/pixeltable@8b86426f930cb3dd\n'),
+            ('requirements.txt', 'pixeltable>=0.7\n'),
+            ('requirements.txt', 'numpy\n'),
+        ],
+        ids=['uv-same', 'git-same-commit', 'unpinned', 'absent'],
+    )
+    def test_accepted(self, tmp_path: Path, name: str, content: str) -> None:
+        (tmp_path / name).write_text(content)
+        image_input_files(tmp_path)
+
+    @pytest.mark.parametrize(
+        ('name', 'content'),
+        [
+            ('uv.lock', '[[package]]\nname = "pixeltable"\nversion = "0.7.14"\n'),
+            ('requirements.txt', 'pixeltable==0.7.14\n'),
+            ('requirements.txt', 'pixeltable @ git+https://github.com/pixeltable/pixeltable@deadbeef\n'),
+        ],
+        ids=['uv', 'requirements', 'git'],
+    )
+    def test_refused(self, tmp_path: Path, name: str, content: str) -> None:
+        (tmp_path / name).write_text(content)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='locks pixeltable'):
+            image_input_files(tmp_path)
