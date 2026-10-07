@@ -542,6 +542,40 @@ class TestTableModel:
         ):
             TableModelV3.diff_all(root)
 
+    def test_dict_key_order_diff(self, db_root: DatabaseRoot) -> None:
+        """An unchanged model with a constant dict nested in a dict stays up to date after a catalog reload, and
+        reordering a dict's keys changes the column type."""
+        p = db_root.make_catalog_path
+        root = p('')
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            content: pxt.String
+            payload = {'type': 'text', 'text': content, 'meta': {'zzz': 1, 'aaa': 2}}
+
+        TableModel.create_all(root)
+        reload_catalog()
+        assert TableModel.get_model_diff(root)['docs'].resolution == 'up_to_date'
+
+        TableModelV2 = pxt.model_base()
+
+        class DocsV2(TableModelV2, name='docs'):
+            content: pxt.String
+            payload = {'text': content, 'type': 'text', 'meta': {'zzz': 1, 'aaa': 2}}
+
+        diff = TableModelV2.get_model_diff(root)['docs']
+        assert diff.resolution == 'unsupported'
+        [op] = diff.ops
+        assert (op.name, op.op, op.severity) == ('payload', 'alter', 'unsupported')
+        assert op.model == {
+            'type': "Json[{'text': String, 'type': String, 'meta': Json[{'zzz': Int, 'aaa': Int}]}]",
+            'value': "{'text': content, 'type': 'text', 'meta': {'zzz': 1, 'aaa': 2}}",
+        }
+        assert op.existing == {
+            'type': "Json[{'type': String, 'text': String, 'meta': Json[{'zzz': Int, 'aaa': Int}]}]",
+            'value': "{'type': 'text', 'text': content, 'meta': {'zzz': 1, 'aaa': 2}}",
+        }
+
     def test_operational_table_model_diff(self, db_root: DatabaseRoot) -> None:
         """There is no conversion between the two table kinds, so a mismatched model is unsupported."""
         p = db_root.make_catalog_path

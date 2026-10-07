@@ -2,7 +2,6 @@ import json
 import os
 import pathlib
 import shutil
-import socket
 import time
 from textwrap import dedent
 from types import SimpleNamespace
@@ -38,6 +37,7 @@ from ..utils import (
     DatabaseRoot,
     assert_image_bytes,
     fetch_presigned,
+    free_port,
     get_audio_files,
     get_documents,
     get_video_files,
@@ -68,14 +68,14 @@ from .hosted import (
     service_update,
 )
 
-__all__ = ['current_db', 'project']  # fixtures TestHostedService reaches, directly or through another
+__all__ = ['current_db', 'project']  # fixtures TestCloudService reaches, directly or through another
 
 _REQUEST_TIMEOUT = 30.0
 
 
 @pytest.fixture(scope='module')
 def hosted_db(session_cli: PxtRunner, session_project: pathlib.Path) -> Iterator[str]:
-    """A database for TestHostedService alone.
+    """A database for TestCloudService alone.
 
     Its scenarios publish their own project with `pxt db update`, which replaces what the database serves,
     so no other test can use it. Creating one runs CodeBuild, hence the module scope.
@@ -143,10 +143,22 @@ def get_services(cli: PxtRunner, target: str | None = None) -> dict[str, dict[st
     return {s['name']: s for s in cli(*args).json}
 
 
-def deploy(cli: PxtRunner, app: str, target: str) -> None:
-    """Create the tables the models declare, then serve the file's services against them."""
+def deploy(cli: PxtRunner, app: str, target: str, port: int | None = None) -> None:
+    """Create the tables the models declare, then serve the file's services against them.
+
+    port: the port for the file's one service; None lets the OS choose.
+    """
     cli('schema', 'update', app, target)
-    cli('service', 'update', app, target, '-f')
+    cli('service', 'update', app, target, '-f', *([] if port is None else ['--port', str(port)]))
+
+
+def _restart_port(db_root: DatabaseRoot) -> int | None:
+    """The port for a service the test restarts, or None for a hosted service, which takes no port.
+
+    A restart binds the service's port again once the new process has started up, and a port the OS chose can be
+    handed to another socket in the meantime.
+    """
+    return None if db_root.is_cloud else free_port()
 
 
 def _db_update(cli: PxtRunner, db_root: DatabaseRoot) -> None:
@@ -311,7 +323,7 @@ class TestService:
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         app, target = apps('basic.py'), db_root.make_catalog_path('restart')
-        deploy(cli, app, target)
+        deploy(cli, app, target, _restart_port(db_root))
         before = assert_serving(cli, app, target, 'ingest')['ingest']
 
         uri = f'{target}/ingest'.lstrip('/')
@@ -343,7 +355,7 @@ class TestService:
         shutil.copy(apps('basic.py'), app_file)
 
         _db_update(cli, db_root)
-        deploy(cli, str(app_file), target)
+        deploy(cli, str(app_file), target, _restart_port(db_root))
         before = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
 
         # add one route to the file: additive, because what is already served keeps being served
@@ -401,7 +413,7 @@ class TestService:
         shutil.copy(apps('served_app.py'), app_file)
 
         _db_update(cli, db_root)
-        deploy(cli, str(app_file), target)
+        deploy(cli, str(app_file), target, _restart_port(db_root))
 
         running = assert_serving(cli, str(app_file), target, 'notes_app')['notes_app']
         assert running['spec']['app_paths'] == ['/notes', '/notes/count']
@@ -453,7 +465,7 @@ class TestService:
             encoding='utf-8',
         )
         _db_update(cli, db_root)
-        deploy(cli, str(app_file), target)
+        deploy(cli, str(app_file), target, _restart_port(db_root))
 
         # the archive is the whole project, so adding any file needs a db update
         (app_file.parent / f'unimported_{db_root.id}.py').write_text('unused = 1\n', encoding='utf-8')
@@ -1120,24 +1132,22 @@ class TestService:
         assert get_services(cli, target) == {}, 'a refused update started nothing'
 
         # naming one service leaves the other alone, and makes --port unambiguous
-        with socket.socket() as probe:
-            probe.bind(('127.0.0.1', 0))
-            free_port = probe.getsockname()[1]
+        port = free_port()
         if db_root.is_cloud:
             # naming one service leaves only the hosted rule to refuse --port: a hosted service answers
             # on its own hostname
-            r = cli('service', 'update', str(two), target, 'second', '-f', '--port', str(free_port), check=False)
+            r = cli('service', 'update', str(two), target, 'second', '-f', '--port', str(port), check=False)
             assert r.returncode == 1
             assert 'not a port' in r.stderr, r.stderr
 
-        port_args = [] if db_root.is_cloud else ['--port', str(free_port)]
+        port_args = [] if db_root.is_cloud else ['--port', str(port)]
         r = cli('service', 'update', str(two), target, 'second', '-f', *port_args, '--json')
         assert [d['name'] for d in r.json['services']] == ['second'], r.json
         running = get_services(cli, target)
         assert sorted(running) == ['second'], running
         if not db_root.is_cloud:
-            assert running['second']['port'] == free_port
-            assert running['second']['endpoint'].endswith(f':{free_port}')
+            assert running['second']['port'] == port
+            assert running['second']['endpoint'].endswith(f':{port}')
 
         # diff takes the same name, and reports only that service
         r = cli('service', 'diff', str(two), target, 'second', '--json')
@@ -1172,11 +1182,9 @@ class TestService:
         assert updated == {'id': created['id'], 'title_upper': 'RENAMED'}
 
 
-@pytest.mark.remote_api
-@pytest.mark.expensive
 @pytest.mark.db_roots('local', reason='pxt service acts on a hosted database, not on the catalog a test runs against')
 @pytest.mark.usefixtures('hosted_environment')
-class TestHostedService:
+class TestCloudService:
     """`pxt service` against a hosted database."""
 
     def test_service_lifecycle(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:

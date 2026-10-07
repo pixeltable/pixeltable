@@ -2,8 +2,8 @@
 
 Every scenario drives the CLI the way a user does: a project with a [[pixeltable.database]] entry, and the
 `pxt db` verbs reading and applying it. They need a control plane, so the module is skipped unless the cloud
-environment is configured, and it is marked expensive: applying what an entry declares rebuilds an image,
-which takes minutes. They run against the session's hosted database, the one the cloud catalog tests use.
+environment is configured. Applying what an entry declares rebuilds an image, which takes minutes. They run
+against the session's hosted database, the one the cloud catalog tests use.
 """
 
 import pathlib
@@ -63,15 +63,13 @@ def test_db_uri(session_cli: PxtRunner, session_project: pathlib.Path) -> Iterat
         yield uri
 
 
-pytestmark = [
-    pytest.mark.remote_api,
-    pytest.mark.expensive,
-    pytest.mark.db_roots('local', reason='pxt db acts on a hosted database, not on the catalog a test runs against'),
-]
+pytestmark = pytest.mark.db_roots(
+    'local', reason='pxt db acts on a hosted database, not on the catalog a test runs against'
+)
 
 
 @pytest.mark.usefixtures('hosted_environment')
-class TestDb:
+class TestCloudDb:
     def test_create(self, cli: PxtRunner, project: pathlib.Path) -> None:
         db_name = f'pxttest-absent-{uuid.uuid4().hex[:12]}'
         absent = f'pxt://pixeltable:{db_name}'

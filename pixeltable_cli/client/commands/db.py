@@ -227,7 +227,8 @@ def _update(args: argparse.Namespace) -> None:
         f'apply {what} to {plan.db_uri}{minutes}?',
         args.force,
         refused_exit_code=EXIT_REFUSED,
-        on_refusal=lambda: _print_plan(plan, as_json=args.json_output),
+        # text mode printed the pending plan above; --json skipped it, so a refusal still emits it
+        on_refusal=lambda: _print_plan(plan, as_json=True) if args.json_output else None,
     )
 
     label = None if args.json_output else f'Updating {plan.db_uri} ...'

@@ -12,6 +12,7 @@ import os
 import random
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import sysconfig
@@ -108,6 +109,38 @@ def runs_linux_with_gpu() -> bool:
         return sysconfig.get_platform() == 'linux-x86_64' and torch.cuda.is_available()
     except ImportError:
         return False
+
+
+# Below the default ephemeral range of every platform (Linux 32768-60999, macOS and Windows 49152-65535), which
+# bind() to port 0 and connect() draw on, and above the pxt daemon's default port (22089)
+_PORTS = range(23000, 32768)
+_port_cursor: int | None = None
+
+
+def free_port() -> int:
+    """Return a free loopback port for a process that binds it later.
+
+    The OS can hand a port from its ephemeral range to any other socket between this check and that bind. This one is
+    outside that range, in a slice of its own for each xdist worker, and is not returned again until the worker has
+    gone around its slice.
+    """
+    global _port_cursor  # noqa: PLW0603
+    slice_len = len(_PORTS) // int(os.environ.get('PYTEST_XDIST_WORKER_COUNT', '1'))
+    worker = int(os.environ.get('PYTEST_XDIST_WORKER', 'gw0').removeprefix('gw'))
+    first = _PORTS.start + worker * slice_len
+    if _port_cursor is None:
+        # test sessions running side by side on one machine start at different places in the slice
+        _port_cursor = os.getpid() % slice_len
+    for _ in range(slice_len):
+        port = first + _port_cursor
+        _port_cursor = (_port_cursor + 1) % slice_len
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(('127.0.0.1', port))
+            except OSError:
+                continue
+        return port
+    raise RuntimeError(f'No free port in {first}-{first + slice_len - 1}')
 
 
 @pxt.udf
@@ -813,8 +846,6 @@ def skip_test_if_no_pxt_credentials() -> None:
 
 
 def skip_test_if_no_aws_credentials() -> None:
-    skip_test_if_not_installed('boto3')
-
     import boto3
     from botocore.exceptions import NoCredentialsError
 
@@ -830,7 +861,6 @@ _S3_PYTEST_RESOURCES = 's3://pxt-test/pytest-resources'
 
 def ensure_s3_pytest_resources_access() -> None:
     """Skip if s3://pxt-test/pytest-resources is not reachable (no creds or no access)."""
-    skip_test_if_not_installed('boto3')
     try:
         ObjectOps.validate_destination(_S3_PYTEST_RESOURCES)
     except Exception as exc:

@@ -777,6 +777,8 @@ class Planner:
         1) all json-typed ColumnRefs that are not used as part of a JsonPath (the latter does its own reconstruction)
            or as part of a ColumnPropertyRef
         2) all array-typed ColumnRefs that are not used as part of a ColumnPropertyRef
+        The json-typed ColumnRefs that JsonPaths are anchored on also need the node, which loads their objects that are
+        stored in remote chunks.
         """
 
         def json_filter(e: exprs.Expr) -> bool:
@@ -799,13 +801,23 @@ class Planner:
 
         json_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=json_filter, traverse_matches=False))
         json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
+        json_ref_ids = {e.id for e in json_refs}
+        json_path_anchors = [
+            e.anchor
+            for e in json_candidates
+            if isinstance(e, exprs.JsonPath)
+            and isinstance(e.anchor, exprs.ColumnRef)
+            and e.anchor.id not in json_ref_ids
+        ]
         array_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False))
         array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef)]
         binary_refs = list(
             exprs.Expr.list_subexprs(expr_list, exprs.ColumnRef, filter=binary_filter, traverse_matches=False)
         )
-        if len(json_refs) > 0 or len(array_refs) > 0 or len(binary_refs) > 0:
-            return exec.CellReconstructionNode(json_refs, array_refs, binary_refs, input.row_builder, input=input)
+        if len(json_refs) > 0 or len(json_path_anchors) > 0 or len(array_refs) > 0 or len(binary_refs) > 0:
+            return exec.CellReconstructionNode(
+                json_refs, array_refs, binary_refs, json_path_anchors, input.row_builder, input=input
+            )
         else:
             return input
 
