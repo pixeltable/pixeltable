@@ -16,6 +16,7 @@ import selectors
 import socket
 import ssl
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
@@ -137,6 +138,9 @@ class HttpTransport(Transport):
 _CONNECT_TIMEOUT = 30.0
 _RPC_TIMEOUT = 1800.0
 _MAX_POOL_SIZE = 16  # matches the fetch_media download threadpool
+# The proxy daemon's uvicorn closes a connection idle 5 s. Reused while that close is still on its way, the
+# connection drops the request, which then reads as the daemon dying on it; so the pool stops reusing one first.
+_MAX_IDLE_S = 4.0
 
 # Failures that leave the request undelivered (connect, handshake, writing it); retried with backoff.
 _TUNNEL_TRANSIENT_EXC = (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError)
@@ -178,19 +182,21 @@ class _TunnelPool:
         self._connect = connect
         self._max = max_size
         self._lock = threading.Lock()
-        self._idle: list[http.client.HTTPConnection] = []
+        self._idle: list[tuple[http.client.HTTPConnection, float]] = []  # with when each went idle
 
     @contextmanager
     def borrow(self) -> Iterator[http.client.HTTPConnection]:
         conn: http.client.HTTPConnection | None = None
         while conn is None:
             with self._lock:
-                conn = self._idle.pop() if self._idle else None
-            if conn is None:
+                idle = self._idle.pop() if self._idle else None
+            if idle is None:
                 conn = self._connect()
-            elif _is_server_closed(conn):
-                # an idle connection the server has closed says nothing about the next request; dropping it
-                # here lets a broken response mean the server died on the request it was given
+                continue
+            conn, idle_since = idle
+            if time.monotonic() - idle_since > _MAX_IDLE_S or _is_server_closed(conn):
+                # an idle connection the server has closed, or is about to, says nothing about the next request;
+                # dropping it here lets a broken response mean the server died on the request it was given
                 conn.close()
                 conn = None
         try:
@@ -201,13 +207,13 @@ class _TunnelPool:
         else:
             with self._lock:
                 if len(self._idle) < self._max:
-                    self._idle.append(conn)
+                    self._idle.append((conn, time.monotonic()))
                 else:
                     conn.close()
 
     def close(self) -> None:
         with self._lock:
-            for conn in self._idle:
+            for conn, _ in self._idle:
                 try:
                     conn.close()
                 except Exception:

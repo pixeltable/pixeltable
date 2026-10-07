@@ -1173,8 +1173,31 @@ class TestTunnelRetries:
             return live
 
         pool = proxy_client._TunnelPool(connect)  # type: ignore[arg-type]
-        pool._idle.append(dead)  # type: ignore[arg-type]
+        pool._idle.append((dead, time.monotonic()))  # type: ignore[arg-type]
         with pool.borrow() as conn:
             assert conn is live
         assert dead.closed
         assert opened == [live]
+
+    def test_a_connection_idle_nearly_as_long_as_the_daemon_keeps_it_is_not_handed_out(self) -> None:
+        """The daemon closes a connection idle 5 s, and a request sent while that close is on its way is dropped,
+        which reads as the daemon dying on it. Reproduced against uvicorn with the close arriving 50 ms late: every
+        idle gap from 5.00 to 5.05 s failed."""
+        stale, fresh = _ScriptedConn(), _ScriptedConn()
+        opened: list[_ScriptedConn] = []
+
+        def connect() -> object:
+            opened.append(fresh)
+            return fresh
+
+        pool = proxy_client._TunnelPool(connect)  # type: ignore[arg-type]
+        # still open, so only its age can tell the pool not to send on it
+        pool._idle.append((stale, time.monotonic() - proxy_client._MAX_IDLE_S - 0.1))  # type: ignore[arg-type]
+        with pool.borrow() as conn:
+            assert conn is fresh
+        assert stale.closed
+
+        # one that went idle just now is handed out again
+        with pool.borrow() as conn:
+            assert conn is fresh
+        assert opened == [fresh]
