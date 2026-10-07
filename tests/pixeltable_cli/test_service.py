@@ -2,30 +2,48 @@ import json
 import os
 import pathlib
 import shutil
-import socket
 import time
 from textwrap import dedent
 from types import SimpleNamespace
 from typing import Any, Callable, Iterator
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import httpx
 import pytest
 
 import pixeltable as pxt
+from pixeltable import catalog
 from pixeltable.config import Config
+from pixeltable.service import management_client
+from pixeltable.service.management_protocol import (
+    ListServiceInstancesRequest,
+    StartServiceInstanceRequest,
+    StopServiceInstanceRequest,
+    UpdateServiceInstanceRequest,
+)
+from pixeltable.service.service_md import LocalServiceInstanceRecord, ServiceInstanceRecord
+from pixeltable.serving import service as serving_service
+from pixeltable.serving.service_instance import ServiceInstance
+from pixeltable.serving.service_manager import ServiceManager
+from pixeltable.serving.service_manager_proxy import ServiceManagerProxy
+from pixeltable.utils.app_module import module_name
+from pixeltable.utils.project import ProjectFingerprint
 from pixeltable_cli.client.commands import service as service_cmd
+from pixeltable_cli.types import ServiceChangeOp, ServiceDiff, ServicePlan, ServiceSpec, ServiceState
+from pixeltable_cli.utils import PxtPath
 
 from ..conftest import SampleFileServer
 from ..utils import (
     DatabaseRoot,
     assert_image_bytes,
     fetch_presigned,
+    free_port,
     get_audio_files,
     get_documents,
     get_video_files,
     home_bucket_uri,
     new_db_uri,
+    pxt_raises,
     skip_test_if_not_installed,
 )
 from .conftest import (
@@ -50,14 +68,14 @@ from .hosted import (
     service_update,
 )
 
-__all__ = ['current_db', 'project']  # fixtures TestHostedService reaches, directly or through another
+__all__ = ['current_db', 'project']  # fixtures TestCloudService reaches, directly or through another
 
 _REQUEST_TIMEOUT = 30.0
 
 
 @pytest.fixture(scope='module')
 def hosted_db(session_cli: PxtRunner, session_project: pathlib.Path) -> Iterator[str]:
-    """A database for TestHostedService alone.
+    """A database for TestCloudService alone.
 
     Its scenarios publish their own project with `pxt db update`, which replaces what the database serves,
     so no other test can use it. Creating one runs CodeBuild, hence the module scope.
@@ -125,10 +143,22 @@ def get_services(cli: PxtRunner, target: str | None = None) -> dict[str, dict[st
     return {s['name']: s for s in cli(*args).json}
 
 
-def deploy(cli: PxtRunner, app: str, target: str) -> None:
-    """Create the tables the models declare, then serve the file's services against them."""
+def deploy(cli: PxtRunner, app: str, target: str, port: int | None = None) -> None:
+    """Create the tables the models declare, then serve the file's services against them.
+
+    port: the port for the file's one service; None lets the OS choose.
+    """
     cli('schema', 'update', app, target)
-    cli('service', 'update', app, target, '-f')
+    cli('service', 'update', app, target, '-f', *([] if port is None else ['--port', str(port)]))
+
+
+def _restart_port(db_root: DatabaseRoot) -> int | None:
+    """The port for a service the test restarts, or None for a hosted service, which takes no port.
+
+    A restart binds the service's port again once the new process has started up, and a port the OS chose can be
+    handed to another socket in the meantime.
+    """
+    return None if db_root.is_cloud else free_port()
 
 
 def _db_update(cli: PxtRunner, db_root: DatabaseRoot) -> None:
@@ -293,7 +323,7 @@ class TestService:
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         app, target = apps('basic.py'), db_root.make_catalog_path('restart')
-        deploy(cli, app, target)
+        deploy(cli, app, target, _restart_port(db_root))
         before = assert_serving(cli, app, target, 'ingest')['ingest']
 
         uri = f'{target}/ingest'.lstrip('/')
@@ -325,7 +355,7 @@ class TestService:
         shutil.copy(apps('basic.py'), app_file)
 
         _db_update(cli, db_root)
-        deploy(cli, str(app_file), target)
+        deploy(cli, str(app_file), target, _restart_port(db_root))
         before = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
 
         # add one route to the file: additive, because what is already served keeps being served
@@ -383,7 +413,7 @@ class TestService:
         shutil.copy(apps('served_app.py'), app_file)
 
         _db_update(cli, db_root)
-        deploy(cli, str(app_file), target)
+        deploy(cli, str(app_file), target, _restart_port(db_root))
 
         running = assert_serving(cli, str(app_file), target, 'notes_app')['notes_app']
         assert running['spec']['app_paths'] == ['/notes', '/notes/count']
@@ -426,8 +456,16 @@ class TestService:
         target = db_root.make_catalog_path('app')
         app_file = pathlib.Path(apps('basic.py')).parent / 'source_change_app.py'
         shutil.copy(apps('basic.py'), app_file)
+        app_file.write_text(
+            app_file.read_text(encoding='utf-8').replace(
+                'from apps.udfs import excerpt',
+                '@pxt.udf\ndef excerpt(text: str, n: int = 12) -> str:\n'
+                "    return text if len(text) <= n else f'{text[:n]}...'",
+            ),
+            encoding='utf-8',
+        )
         _db_update(cli, db_root)
-        deploy(cli, str(app_file), target)
+        deploy(cli, str(app_file), target, _restart_port(db_root))
 
         # the archive is the whole project, so adding any file needs a db update
         (app_file.parent / f'unimported_{db_root.id}.py').write_text('unused = 1\n', encoding='utf-8')
@@ -1094,24 +1132,22 @@ class TestService:
         assert get_services(cli, target) == {}, 'a refused update started nothing'
 
         # naming one service leaves the other alone, and makes --port unambiguous
-        with socket.socket() as probe:
-            probe.bind(('127.0.0.1', 0))
-            free_port = probe.getsockname()[1]
+        port = free_port()
         if db_root.is_cloud:
             # naming one service leaves only the hosted rule to refuse --port: a hosted service answers
             # on its own hostname
-            r = cli('service', 'update', str(two), target, 'second', '-f', '--port', str(free_port), check=False)
+            r = cli('service', 'update', str(two), target, 'second', '-f', '--port', str(port), check=False)
             assert r.returncode == 1
             assert 'not a port' in r.stderr, r.stderr
 
-        port_args = [] if db_root.is_cloud else ['--port', str(free_port)]
+        port_args = [] if db_root.is_cloud else ['--port', str(port)]
         r = cli('service', 'update', str(two), target, 'second', '-f', *port_args, '--json')
         assert [d['name'] for d in r.json['services']] == ['second'], r.json
         running = get_services(cli, target)
         assert sorted(running) == ['second'], running
         if not db_root.is_cloud:
-            assert running['second']['port'] == free_port
-            assert running['second']['endpoint'].endswith(f':{free_port}')
+            assert running['second']['port'] == port
+            assert running['second']['endpoint'].endswith(f':{port}')
 
         # diff takes the same name, and reports only that service
         r = cli('service', 'diff', str(two), target, 'second', '--json')
@@ -1146,11 +1182,9 @@ class TestService:
         assert updated == {'id': created['id'], 'title_upper': 'RENAMED'}
 
 
-@pytest.mark.remote_api
-@pytest.mark.expensive
 @pytest.mark.db_roots('local', reason='pxt service acts on a hosted database, not on the catalog a test runs against')
 @pytest.mark.usefixtures('hosted_environment')
-class TestHostedService:
+class TestCloudService:
     """`pxt service` against a hosted database."""
 
     def test_service_lifecycle(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
@@ -1196,6 +1230,312 @@ class TestHostedService:
         assert not service_diff(cli, project, app_file, current_db)['in_agreement']
 
 
+# what the control plane records on an instance whose new pods did not come up while its old ones kept serving
+_ROLL_FAILED = 'rollout failed, still serving the previous version: pod did not become ready within 300s'
+# what it records on an instance whose roll it marked FAILED
+_ROLL_TIMED_OUT = 'pod did not become ready within 300s'
+
+
+class _ControlPlane:
+    """The management API of a hosted database holding one service instance.
+
+    It keeps every request but the listings, and each one settles at once, so that ServiceManagerProxy's polls read
+    the state it leaves the instance in on their first try. It answers an update or a restart as the control plane
+    answers one of an instance the gateway routes with UPDATING, and one of a stopped instance with STARTING.
+    """
+
+    record: ServiceInstanceRecord
+    sent: list[Any]
+    # False: an update or restart rolls no pod, so the instance keeps its state and error
+    rolls: bool
+    # the state a roll settles in
+    roll_state: ServiceState
+    # the error a roll leaves when its new pods do not come up; None: they do, which clears an earlier roll's error
+    roll_error: str | None
+
+    def __init__(
+        self,
+        record: ServiceInstanceRecord,
+        *,
+        rolls: bool = True,
+        roll_state: ServiceState = ServiceState.AVAILABLE,
+        roll_error: str | None = None,
+    ) -> None:
+        self.record = record
+        self.sent = []
+        self.rolls = rolls
+        self.roll_state = roll_state
+        self.roll_error = roll_error
+
+    def api_call(self, request: Any) -> dict[str, Any]:
+        if isinstance(request, ListServiceInstancesRequest):
+            return {'instances': [self.record.model_dump(mode='json')]}
+        self.sent.append(request)
+        changes: dict[str, Any] = {}
+        if isinstance(request, UpdateServiceInstanceRequest):
+            changes.update(spec=request.spec, app_module=request.app_module, otel=request.otel)
+        answered = self.record.model_copy(update=changes)
+        if isinstance(request, StopServiceInstanceRequest):
+            changes.update(state=ServiceState.STOPPED)
+        elif isinstance(request, StartServiceInstanceRequest):
+            changes.update(state=ServiceState.AVAILABLE)
+        elif self.rolls:
+            rolling_state = (
+                ServiceState.STARTING if self.record.state is ServiceState.STOPPED else ServiceState.UPDATING
+            )
+            answered = answered.model_copy(update={'state': rolling_state})
+            changes.update(state=self.roll_state, error=self.roll_error)
+        self.record = self.record.model_copy(update=changes)
+        return {'instance': answered.model_dump(mode='json')}
+
+
+def _plan(app_file: str, target: str, state: ServiceState, *ops: ServiceChangeOp) -> ServicePlan:
+    """What service_diff reports for an instance of 'ingest' in state, with ops pending."""
+    return ServicePlan(
+        app_file=app_file,
+        target=PxtPath(target),
+        services=[
+            ServiceDiff(
+                name='ingest',
+                exists=True,
+                state=state,
+                endpoint=None,
+                catalog_path=PxtPath(target),
+                kind='declarative',
+                # a registered instance that is not serving is started, whatever its definition says
+                resolution='update_additive' if state is ServiceState.AVAILABLE else 'create',
+                route_comparison='declarative',
+                route_detail=None,
+                ops=list(ops),
+            )
+        ],
+    )
+
+
+@pytest.mark.db_roots('local', reason='the service managers are faked, so no catalog serves anything')
+class TestServiceUpdateRunning:
+    """What `pxt service update` does to a registered instance: a hosted one is replaced in place, so that it keeps
+    serving, and a local one is stopped and started again."""
+
+    @pytest.fixture
+    def app_file(self, project_dir: pathlib.Path) -> str:
+        skip_test_if_not_installed('fastapi')
+        path = project_dir / 'app.py'
+        path.write_text(
+            "from pixeltable.serving import FastAPIRouter\n\ningest = FastAPIRouter(name='ingest')\n", encoding='utf-8'
+        )
+        return str(path)
+
+    def _hosted(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        app_file: str,
+        state: ServiceState,
+        *ops: ServiceChangeOp,
+        error: str | None = None,
+        rolls: bool = True,
+        roll_state: ServiceState = ServiceState.AVAILABLE,
+        roll_error: str | None = None,
+    ) -> _ControlPlane:
+        """Fake a hosted instance in state that serves app_file's 'ingest' as the file defines it, with ops pending.
+
+        error: what an earlier roll left on the instance. rolls, roll_state, roll_error: how the control plane rolls it.
+        """
+        record = ServiceInstanceRecord(
+            service_name='ingest',
+            base_path='',
+            endpoint='https://acme-main.example.com/ingest',
+            app_module=module_name(app_file, subject='application file'),
+            spec=ServiceSpec(name='ingest'),
+            state=state,
+            error=error,
+        )
+        control_plane = _ControlPlane(record, rolls=rolls, roll_state=roll_state, roll_error=roll_error)
+        monkeypatch.setattr(management_client, 'api_call', control_plane.api_call)
+        # no pod answers behind the endpoint
+        monkeypatch.setattr(ServiceManagerProxy, '_wait_for_endpoint', lambda self, instance: None)
+        plan = _plan(app_file, 'pxt://acme:main', state, *ops)
+        monkeypatch.setattr(serving_service, 'service_diff', lambda *args, **kwargs: plan)
+        return control_plane
+
+    def _update_hosted(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        app_file: str,
+        state: ServiceState,
+        *ops: ServiceChangeOp,
+        otel: bool = False,
+        error: str | None = None,
+        rolls: bool = True,
+    ) -> list[Any]:
+        """Update a hosted instance faked by _hosted(), whose roll comes up if one starts.
+
+        Returns the requests the control plane received.
+        """
+        control_plane = self._hosted(monkeypatch, app_file, state, *ops, error=error, rolls=rolls)
+        [diff] = serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=otel).services
+        endpoint = control_plane.record.endpoint
+        assert (diff.status, diff.state, diff.endpoint, diff.exists) == ('applied', 'AVAILABLE', endpoint, True)
+        assert [op.status for op in diff.ops] == ['applied'] * len(ops)
+        return control_plane.sent
+
+    def test_hosted_changed(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """A running hosted instance whose definition changed is updated, without being stopped first."""
+        sent = self._update_hosted(
+            monkeypatch, app_file, ServiceState.AVAILABLE, ServiceChangeOp.otel(False, True), otel=True
+        )
+        assert [type(r).__name__ for r in sent] == ['UpdateServiceInstanceRequest']
+        assert sent[0].otel
+
+    def test_hosted_redeployed(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """One whose definition is unchanged but whose project is not the database's is restarted onto it."""
+        changed = ServiceChangeOp.fingerprint_changed(['app.py changed'])
+        sent = self._update_hosted(monkeypatch, app_file, ServiceState.AVAILABLE, changed)
+        assert [type(r).__name__ for r in sent] == ['RestartServiceInstanceRequest']
+
+    def test_hosted_stopped(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """A stopped hosted instance is started."""
+        sent = self._update_hosted(monkeypatch, app_file, ServiceState.STOPPED)
+        assert [type(r).__name__ for r in sent] == ['StartServiceInstanceRequest']
+
+    def test_hosted_stopped_changed(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        sent = self._update_hosted(
+            monkeypatch, app_file, ServiceState.STOPPED, ServiceChangeOp.otel(False, True), otel=True
+        )
+        assert [type(r).__name__ for r in sent] == ['UpdateServiceInstanceRequest']
+
+    def test_hosted_failed_otel_retry(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        record = ServiceInstanceRecord(
+            service_name='ingest',
+            base_path='',
+            endpoint='https://acme-main.example.com/ingest',
+            app_module=module_name(app_file, subject='application file'),
+            spec=ServiceSpec(name='ingest'),
+            state=ServiceState.AVAILABLE,
+        )
+        control_plane = _ControlPlane(record, roll_error=_ROLL_FAILED)
+        monkeypatch.setattr(management_client, 'api_call', control_plane.api_call)
+        monkeypatch.setattr(ServiceManagerProxy, '_wait_for_endpoint', lambda self, instance: None)
+        manager = ServiceManagerProxy(catalog.Path.parse('pxt://acme:main', allow_empty_path=True))
+        monkeypatch.setattr(serving_service, 'get_manager', lambda target: manager)
+        fingerprint = ProjectFingerprint(
+            files={}, python_version='3.11', system_dependencies=[], pixeltable_version='test', vars={}
+        )
+        app_info = serving_service._AppInfo(
+            app_file=app_file,
+            services={'ingest': serving_service._ServiceInfo(spec=record.spec, kind='declarative')},
+            model_mismatch_reason=None,
+            db_uri='pxt://acme:main',
+            target_db_fingerprint=fingerprint,
+            local_fingerprint=fingerprint,
+        )
+        monkeypatch.setattr(serving_service, '_get_app_info', lambda app_file, target: app_info)
+
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=f"Service 'ingest' was not updated: {_ROLL_FAILED}"):
+            serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=True)
+        assert control_plane.record.otel
+        assert control_plane.record.error == _ROLL_FAILED
+
+        control_plane.roll_error = None
+        [diff] = serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=True).services
+        assert diff.status == 'applied'
+        assert control_plane.record.error is None
+        assert [type(request).__name__ for request in control_plane.sent] == [
+            'UpdateServiceInstanceRequest',
+            'RestartServiceInstanceRequest',
+        ]
+
+    def test_hosted_changed_roll_failed(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """An update whose new pods do not come up is reported as not updated, although the old ones keep serving."""
+        changed = ServiceChangeOp.otel(False, True)
+        control_plane = self._hosted(monkeypatch, app_file, ServiceState.AVAILABLE, changed, roll_error=_ROLL_FAILED)
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=f"Service 'ingest' was not updated: {_ROLL_FAILED}"):
+            serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=True)
+        # nor started over the pods that still serve
+        assert [type(r).__name__ for r in control_plane.sent] == ['UpdateServiceInstanceRequest']
+
+    def test_hosted_redeployed_roll_failed(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """So is a restart, whether `pxt service update` or `pxt service restart` sends it."""
+        changed = ServiceChangeOp.fingerprint_changed(['app.py changed'])
+        control_plane = self._hosted(monkeypatch, app_file, ServiceState.AVAILABLE, changed, roll_error=_ROLL_FAILED)
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=f"Service 'ingest' was not updated: {_ROLL_FAILED}"):
+            serving_service.service_update(app_file, PxtPath('pxt://acme:main'))
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=f"Service 'ingest' was not updated: {_ROLL_FAILED}"):
+            serving_service.service_restart(['pxt://acme:main/ingest'])
+        assert [type(r).__name__ for r in control_plane.sent] == ['RestartServiceInstanceRequest'] * 2
+
+    @pytest.mark.parametrize(
+        ('op', 'otel', 'rolled_by'),
+        [
+            (ServiceChangeOp.otel(False, True), True, 'UpdateServiceInstanceRequest'),
+            (ServiceChangeOp.fingerprint_changed(['app.py changed']), False, 'RestartServiceInstanceRequest'),
+        ],
+        ids=['update', 'restart'],
+    )
+    def test_hosted_roll_ended_failed(
+        self, monkeypatch: pytest.MonkeyPatch, app_file: str, op: ServiceChangeOp, otel: bool, rolled_by: str
+    ) -> None:
+        """An update or a restart whose roll ends FAILED raises with the instance's error and sends no Start, which
+        would run the failed release again."""
+        control_plane = self._hosted(
+            monkeypatch,
+            app_file,
+            ServiceState.AVAILABLE,
+            op,
+            roll_state=ServiceState.FAILED,
+            roll_error=_ROLL_TIMED_OUT,
+        )
+        with pxt_raises(
+            pxt.ErrorCode.INTERNAL_ERROR, match=f"Service 'ingest' did not come back; it is FAILED: {_ROLL_TIMED_OUT}"
+        ):
+            serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=otel)
+        assert [type(r).__name__ for r in control_plane.sent] == [rolled_by]
+
+    def test_hosted_no_roll(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """An update that rolls no pod succeeds, whatever error an earlier roll left on the instance."""
+        changed = ServiceChangeOp.otel(False, True)
+        sent = self._update_hosted(
+            monkeypatch, app_file, ServiceState.AVAILABLE, changed, otel=True, error=_ROLL_FAILED, rolls=False
+        )
+        assert [type(r).__name__ for r in sent] == ['UpdateServiceInstanceRequest']
+
+    def test_hosted_rolled_after_failure(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """A roll that comes up succeeds, although the control plane answered it with an earlier roll's error."""
+        changed = ServiceChangeOp.otel(False, True)
+        sent = self._update_hosted(
+            monkeypatch, app_file, ServiceState.AVAILABLE, changed, otel=True, error=_ROLL_FAILED
+        )
+        assert [type(r).__name__ for r in sent] == ['UpdateServiceInstanceRequest']
+
+    def test_local(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A running local instance is stopped and started again on its port: binding happens once per process."""
+        manager = Mock(spec=ServiceManager)
+        record = LocalServiceInstanceRecord(
+            service_name='ingest',
+            base_path='',
+            project_root=str(Config.get().project_root),
+            endpoint='http://127.0.0.1:8123',
+            app_module='app',
+            spec=ServiceSpec(name='ingest'),
+            port=8123,
+            pid=1,
+        )
+        running = ServiceInstance(record, manager)
+        manager.list.return_value = [running]
+        manager.start.return_value = ServiceInstance(record.model_copy(update={'pid': 2}), manager)
+        monkeypatch.setattr(serving_service, 'get_manager', lambda target: manager)
+        plan = _plan('app.py', '', ServiceState.AVAILABLE, ServiceChangeOp.fingerprint_changed(['app.py changed']))
+        monkeypatch.setattr(serving_service, 'service_diff', lambda *args, **kwargs: plan)
+
+        [diff] = serving_service.service_update('app.py', PxtPath('')).services
+        assert manager.mock_calls == [
+            call.list(''),
+            call.stop(running),
+            call.start('app.py', 'ingest', '', otel=False, port=8123),
+        ]
+        assert (diff.status, diff.state, diff.endpoint, diff.exists) == ('applied', 'AVAILABLE', record.endpoint, True)
+
+
 class TestServiceOtel:
     @pytest.mark.otel
     @pytest.mark.db_roots('local', reason='run() is patched out, so it reaches no catalog')
@@ -1238,6 +1578,9 @@ class TestServiceStop:
         other.mkdir()
         (other / 'pixeltable.toml').write_text('')
         shutil.copyfile(app, other / 'app.py')
+        other_apps = other / 'apps'
+        other_apps.mkdir()
+        shutil.copyfile(pathlib.Path(app).parent / 'udfs.py', other_apps / 'udfs.py')
         deploy(session_cli, app, 'one')
         session_cli('schema', 'update', 'app.py', other_target, cwd=other)
         session_cli('service', 'update', 'app.py', other_target, '-f', cwd=other)

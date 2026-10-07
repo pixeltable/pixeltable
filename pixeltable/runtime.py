@@ -157,7 +157,7 @@ class Runtime:
                     excs.ErrorCode.SERVICE_NOT_FOUND,
                     f'No local proxy is running for {db!r}. Start it with: pxt localproxy start {db}',
                 )
-            return CatalogProxy(catalog_uri, ProxyClient.local(f'http://127.0.0.1:{info["port"]}'))
+            return CatalogProxy(catalog_uri, ProxyClient.local(f'http://127.0.0.1:{info["port"]}', db=catalog_uri.db))
 
         # Remote database: connect via TLS to the proxy endpoint.
         # Either kind works: the sidecar picks its validation path by the credential's shape. Passed
@@ -165,9 +165,7 @@ class Runtime:
         # would pin a session token that expires long before the process does.
         purpose = f'connect to hosted database {catalog_uri!r}'
         host, port = Env.get().proxy_endpoint(catalog_uri.org, catalog_uri.db)
-        client = ProxyClient.remote(
-            catalog_uri.org, catalog_uri.db, lambda: resolve(purpose).value, host=host, port=port
-        )
+        client = ProxyClient.remote(catalog_uri.org, catalog_uri.db, lambda: resolve(purpose), host=host, port=port)
         return CatalogProxy(catalog_uri, client)
 
     @property

@@ -325,25 +325,54 @@ class LoginPollBody(BaseModel):
     device_code: str
 
 
+class TrialOrg(BaseModel):
+    """A `pxt new` trial organization, without its API key or its claim link."""
+
+    org: str
+    org_id: str
+    db: str
+    expires_at: str  # ISO 8601, UTC; unclaimed, the organization is deleted then
+    expired: bool
+
+
+class TrialOrgWithClaimUrl(TrialOrg):
+    """A trial and its claim link, for a response that removes the trial's record, the link's only copy here."""
+
+    claim_url: str  # anyone who holds it can claim the organization
+
+
 class LoginPollResponse(BaseModel):
-    # 'granted', or the OAuth error code the sign-in service answered with
+    # 'granted'; the sign-in service's OAuth error code; or, after a grant, 'signed_out' or 'superseded' when
+    # the cache no longer has the granted session
     status: str
     email: str = ''
     organization_id: str = ''
     detail: str = ''  # the error_description of that answer
+    # the cached trial, replaced by the granted session
+    replaced_trial: TrialOrgWithClaimUrl | None = None
+
+
+class NewResponse(BaseModel):
+    trial: TrialOrg
+    created: bool  # False when the trial was already cached
+    # only when this request created the trial: anyone who holds it can claim the organization
+    claim_url: str | None = None
+    api_url: str  # where commands send the trial's key
+    warnings: list[str] = Field(default_factory=list)
 
 
 class WhoamiResponse(BaseModel):
     api_url: str
     email: str
     organization_id: str
-    using: str  # 'api_key', 'session' or 'none'
+    using: str  # 'api_key', 'session', 'trial' or 'none'
     credential_source: str
     accepted: bool
     rejection: str = ''
     # the control plane's reason for refusing the check's operation to an accepted credential, such as a
     # key limited by its grants
     note: str = ''
+    trial: TrialOrg | None = None
 
 
 class LogoutResponse(BaseModel):
@@ -351,6 +380,7 @@ class LogoutResponse(BaseModel):
     # where to send a browser to end the sign-in behind the session, empty when there is none
     browser_logout_url: str
     warning: str = ''
+    trial: TrialOrgWithClaimUrl | None = None  # the trial removed from this machine
 
 
 class OrgCreateResponse(BaseModel):

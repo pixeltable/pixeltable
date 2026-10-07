@@ -8,22 +8,39 @@ description: 'Run the same application file against a hosted database'
   Pixeltable Cloud is in Limited Beta. Email [contact@pixeltable.com](mailto:contact@pixeltable.com) if you are interested.
 </Note>
 
-The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same application file creates tables and starts HTTP on a hosted database. A `pxt login` session is enough for the first deployment. You do not need an API key.
+The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same application file creates tables and starts HTTP on a hosted database. A `pxt login` session is enough for the first deployment, or, with no account, a `pxt new` trial ([Trial databases](/platform/cli#trial-databases)). You do not need an API key.
 
 ## First deployment
 
 <Steps>
   <Step title="Install Pixeltable and sign in">
-    `pxt login`, `pxt whoami`, and `pxt key` require Pixeltable 0.7.10 or later.
+    Python 3.11+ on Linux, macOS, or Windows. `pxt login`, `pxt whoami`, and `pxt key` require Pixeltable 0.7.10 or later.
 
     ```bash
+    python -m venv .venv
+    source .venv/bin/activate   # Windows: .venv\Scripts\activate
     pip install -U 'pixeltable[serve]'
+    ```
+
+    With no account, run `pxt new` and skip `pxt login`. `pxt new` creates a trial organization and database `main`, and prints the `pxt://` URI, the `pixeltable.toml` entry, and the later commands with that name filled in. Claim the trial at the URL `pxt new` prints, or it is deleted, normally 48 hours after `pxt new`. When this machine is already signed in, `pxt new` creates no trial. Run `pxt logout`, then `pxt new`, to drop a `pxt login` session and start a trial.
+
+    With an account:
+
+    ```bash
     pxt login
     pxt whoami
     pxt org list
     ```
 
-    `pxt login` shows a code to confirm in your browser. Use the organization name from `pxt org list` in the `pxt://` commands below. If you have no organization, run `pxt org create org` first. It provisions your first database, `main`.
+    `pxt login` shows a code to confirm in your browser. `pxt org list` prints each organization as `NAME  id=...`. Use that name in place of `org` in the `pxt://org:main` commands below. If `pxt whoami` prints `No organization yet` while `pxt org list` shows one, upgrade with `pip install -U 'pixeltable[serve]'` and run `pxt login` again.
+
+    If `pxt org list` prints `No orgs.`, create one. The name is unique across Pixeltable: lowercase letters, digits, and hyphens, starting and ending with a letter or digit, at most 29 characters.
+
+    ```bash
+    pxt org create NAME
+    ```
+
+    `pxt org create` provisions your first database, `main`, and switches your `pxt login` session to the new organization.
   </Step>
   <Step title="Prepare the application and Cloud target">
     In a new directory, run:
@@ -34,6 +51,8 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     pxt service example --out app.py
     ```
 
+    In a notebook, `!cd` does not carry over to the next command. Use `%cd cloud-app` instead, so that `pxt init` makes that directory the project root.
+
     `pxt service example` writes a working `app.py` with a `Docs` table and an `ingest` HTTP service. If you already completed the Quickstart, use that `app.py` instead.
 
     Add a hosted database entry for that `main` database to the `pixeltable.toml` that `pxt init` created. Replace `org` with your organization name:
@@ -43,10 +62,12 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     name = 'pxt://org:main'
     ```
 
-    Keep the local database entry that `pxt init` wrote. If your project has a `pyproject.toml`, `pxt init` adds its entry there instead. Use `[[tool.pixeltable.database]]` for the hosted entry.
+    Leave the entry `pxt init` wrote. It has no `name`, and that entry is the local database. A second entry with no `name` fails to load: both are named `local`. If your project has a `pyproject.toml`, `pxt init` adds its entry there instead. Use `[[tool.pixeltable.database]]` for the hosted entry.
   </Step>
   <Step title="Upload the project, create tables, and start the service">
-    Run these commands from the project directory, in order:
+    After `pxt org create` or `pxt new`, wait until `pxt db status pxt://org:main` shows `AVAILABLE`, then run these commands from the project directory, in order. While the database is `PROVISIONING`, `pxt db update` is refused.
+
+    If `pxt db update` stops while `pxt db status` shows `UPDATING`, run `pxt db update pxt://org:main` again from the same project. That resumes the update. When the hosted entry omits `python_version`, run it with the same Python version: a different interpreter is a different update, and it is refused while the database is `UPDATING`. When the entry sets `python_version`, that value is the image Python, and another interpreter is the same update. A build that finishes and fails uses `pxt db build-image`, in [What to run after a change](#what-to-run-after-a-change).
 
     ```bash
     pxt db update pxt://org:main
@@ -55,12 +76,14 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     pxt service list pxt://org:main
     ```
 
+    `pxt db update` and `pxt service update` ask for confirmation. Without a terminal to answer, as in a notebook or a script, add `-f`. The first `pxt db update` builds the image, which takes several minutes, and returns when the database is ready.
+
     `pxt org create` already provisioned `main`. `pxt db update` uploads the project onto that database and updates its image and size. It does not insert rows and does not start app endpoints. `pxt schema update` creates the tables. It does not start the endpoints. `pxt service update` starts hosted endpoints. Do not use `pxt service run` for Cloud. That command only starts endpoints in your local terminal.
 
     `pxt service list` prints the service URL and its routes. The host looks like `https://{org}-{db}.svc.pxt.run/<service>`. The control plane host is separate. Do not hardcode either hostname.
   </Step>
   <Step title="Insert a row and check the result">
-    The generated `app.py` defines a `docs` table with a computed `title_upper` column. Insert a row from Python, or from the [Cloud dashboard](https://www.pixeltable.com/dashboard):
+    The generated `app.py` defines a `docs` table with a computed `title_upper` column. Insert a row from Python:
 
     ```python
     import pixeltable as pxt
@@ -70,7 +93,7 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     print(docs.select(docs.title, docs.title_upper).collect())
     ```
 
-    The result includes `Hello` and `HELLO`. The insert computes `title_upper` on Cloud. A local file path on a Cloud table uploads the file.
+    The result includes `Hello` and `HELLO`. The insert computes `title_upper` on Cloud. Pixeltable prints `Connected to Pixeltable database at:` for the local database before that result. The insert still runs on the Cloud table. A local file path on a Cloud table uploads the file. The table also appears in the [Cloud dashboard](https://www.pixeltable.com/dashboard).
   </Step>
 </Steps>
 
@@ -123,10 +146,12 @@ The restarts let running table and service processes read the new value. You can
 
 A hosted database runs two things that come from your project, and they move independently.
 
-- **The image** is the Python environment: your dependencies, the Python version, and any system packages. `pxt db update` rebuilds it only when that environment changed, which is the slow step.
+- **The image** is the Python environment: your dependencies, the Python version, and any system packages. `pxt db update` rebuilds it only when that environment changed, which is the slow step. That version comes from the interpreter that runs `pxt db update`, unless the hosted `[[pixeltable.database]]` entry sets `python_version`.
 - **The project files** are your `app.py` and whatever else the entry selects. They are uploaded on their own, without a rebuild.
 
 So editing a UDF costs an upload, while adding a line to `pyproject.toml` costs a build. Both are `pxt db update`. It works out which happened.
+
+The image gets its packages from `uv.lock` or `requirements.txt`. Without either, `pxt db update` warns, and the image has Pixeltable only. That is enough for the generated `app.py`. List anything else `app.py` imports in one of those files.
 
 `[[pixeltable.database]]` in `pixeltable.toml` declares which files are selected, what the image includes, and the CPU, memory, disk, and worker counts. See the [cloud configuration reference](/platform/cli#cloud-configuration-reference).
 
@@ -134,19 +159,24 @@ So editing a UDF costs an upload, while adding a line to `pyproject.toml` costs 
 
 | You changed | Run |
 |---|---|
-| A UDF body, a route, any `.py` the entry selects | `pxt db update`, then `pxt service update` to move running services onto it |
-| A column or a table in `app.py` | `pxt db update`, then `pxt schema update`, then `pxt service update` |
-| A dependency, the Python version, a system package | `pxt db update`: the image rebuilds |
-| `cpu`, `memory_mb`, `disk_gb`, or `workers` | `pxt db update`: one resize, pods restart once |
+| A UDF body, a route, any `.py` the entry selects | `pxt db update pxt://org:main`, then `pxt service update app.py pxt://org:main` to move running services onto it |
+| A column or a table in `app.py` | `pxt db update pxt://org:main`, then `pxt schema update app.py pxt://org:main`, then `pxt service update app.py pxt://org:main` |
+| A dependency, the Python version, a system package | `pxt db update pxt://org:main`: the image rebuilds |
+| `cpu`, `memory_mb`, `disk_gb`, or `workers` | `pxt db update pxt://org:main`: one resize, pods restart once |
 | A secret | `pxt secret set pxt://org:main KEY=...`, then `pxt db restart pxt://org:main` and `pxt service restart pxt://org:main/ingest` |
-| Nothing, but the last build failed | `pxt db build-image` forces a rebuild |
+| Nothing, but the last build failed | `pxt db build-image pxt://org:main` forces a rebuild |
+| Nothing, but `pxt db update` stopped and `pxt db status` shows `UPDATING` | `pxt db update pxt://org:main` again from the same project. With no `python_version` on the hosted entry, use the same Python version |
 
 `pxt db diff pxt://org:main` prints what `update` would do without doing it.
+
+A command that reports an unsupported proxy protocol version means this Pixeltable and the database image disagree. When this Pixeltable is newer, run `pxt db build-image pxt://org:main` from the project, using the database URI from the failed command. The image installs the Pixeltable the project resolves: upgrade a lockfile pin first, and with no lockfile the build installs the current PyPI release. `pxt db restart` keeps the image the pods already run. When the database is newer, run `pip install --upgrade pixeltable`.
+
+For an older local proxy at `pxt://local:mydb`, run `pxt localproxy stop mydb`, then `pxt localproxy start mydb` from the updated Python environment. `start` alone keeps a healthy daemon running.
 
 ## Operate it
 
 ```bash
-pxt db status pxt://org:main     # state, endpoint, location
+pxt db status pxt://org:main     # state, resources, pods
 pxt db logs   pxt://org:main     # the database pod's log
 pxt service list pxt://org:main  # the services running there, and their URLs
 pxt service logs pxt://org:main/ingest
@@ -156,7 +186,7 @@ pxt db start  pxt://org:main     # wake it again
 pxt db list                      # every hosted database you can reach
 ```
 
-Deleting is `pxt db delete pxt://org:main`, and it takes the storage with it. Full reference: [CLI](/platform/cli#cloud).
+`pxt db delete pxt://org:db` deletes a database and its storage. The organization's default database, `main`, cannot be deleted. Full reference: [CLI](/platform/cli#cloud).
 
 ## Media on the home bucket
 
@@ -168,6 +198,11 @@ Set dest only for two cases:
 - **Your own bucket**: store `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (or GCS / Azure names) under **Secrets** or `pxt secret`, then point those dest env vars at `s3://`, `gs://`, or `wasbs://`. A single computed column can also set `destination=`:
 
 ```python
+import pixeltable as pxt
+
+TableModel = pxt.model_base()
+
+
 class Images(TableModel, name='images'):
     photo: pxt.Image
     thumbnail = pxt.Column(
@@ -185,7 +220,7 @@ Or set `db_input_media_dest` / `db_output_media_dest` on the database's `[[pixel
 | Hosted database | not needed | `pxt db update pxt://org:main` |
 | Tables | `pxt schema update app.py my_app` | `pxt schema update app.py pxt://org:main` |
 | HTTP | `pxt service update app.py my_app` | `pxt service update app.py pxt://org:main` |
-| Try a change | insert, `pxt dashboard`, `pxt schema diff app.py my_app` | Cloud dashboard insert, `pxt schema diff app.py pxt://org:main` |
+| Try a change | insert, `pxt dashboard`, `pxt schema diff app.py my_app` | insert from Python, `pxt schema diff app.py pxt://org:main` |
 | Media | local disk | `pxtfs://org:main/home` |
 
 <CardGroup cols={2}>

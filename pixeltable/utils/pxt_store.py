@@ -5,9 +5,10 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import time
 import uuid
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -35,18 +36,23 @@ _logger = logging.getLogger(__name__)
 
 _PXTFS_URI_PATTERN = re.compile(r'^pxtfs://[^/]+/([^/?#]+)(.*)$')
 
+# how often a write rejected for lack of space checks the quota again
+_QUOTA_RECHECK_INTERVAL_S = 60.0
+
 
 @dataclass
 class _PxtStoreCacheEntry:
-    """Cached boto3 client/resource and quota state for a bucket."""
+    """Boto3 client/resource and quota state for a bucket, or for a prefix within it."""
 
     client: BaseClient | None  # populated after boto3 session is built
     resource: ServiceResource | None  # populated after boto3 session is built
     physical_bucket_name: str
     endpoint_url: str
     storage_provider: str
+    prefix: str | None = None  # the credentials' scope; None for the whole bucket
     no_space_left: bool = False
     no_space_warned: bool = False  # tracks whether warning has been issued for no space left in pixeltable store
+    quota_checked_at: float = field(default_factory=time.monotonic)  # when no_space_left was last fetched
 
 
 # guards the check-then-insert on the cached pxt_store entries: building one fetches credentials from the cloud,
@@ -82,12 +88,13 @@ def _handle_no_space_warning(no_space_left: bool, entry: _PxtStoreCacheEntry, or
         entry.no_space_warned = False
 
 
-def _refresh_credentials(org: str, db: str, bucket: str, prefix: str, entry: _PxtStoreCacheEntry) -> dict[str, str]:
+def _refresh_credentials(org: str, db: str, bucket: str, entry: _PxtStoreCacheEntry) -> dict[str, str]:
     """Fetch fresh credentials and update the cache entry"""
-    creds = get_bucket_credentials(org, db, bucket, prefix)
+    creds = get_bucket_credentials(org, db, bucket, entry.prefix)
     expiry_time = datetime.now(tz=timezone.utc) + timedelta(seconds=creds.ttl_seconds)
 
     entry.no_space_left = creds.no_space_left
+    entry.quota_checked_at = time.monotonic()
     if creds.resolved_bucket_name:
         entry.physical_bucket_name = creds.resolved_bucket_name
 
@@ -108,8 +115,8 @@ def _refresh_credentials(org: str, db: str, bucket: str, prefix: str, entry: _Px
     }
 
 
-def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) -> _PxtStoreCacheEntry:
-    """Fetch credentials and build a boto3 session for the bucket."""
+def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str | None = None) -> _PxtStoreCacheEntry:
+    """Fetch credentials and build a boto3 session for the bucket, or for `prefix` within it."""
     creds = get_bucket_credentials(org, db, bucket, prefix)
 
     entry = _PxtStoreCacheEntry(
@@ -119,6 +126,7 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) -> _PxtS
         endpoint_url=creds.endpoint_url,
         no_space_left=creds.no_space_left,
         storage_provider=creds.storage_provider,
+        prefix=prefix,
     )
 
     _handle_no_space_warning(creds.no_space_left, entry, org, db, bucket)
@@ -136,7 +144,7 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) -> _PxtS
     # keeps credentials fresh without triggering botocore's immediate-refresh behavior.
     refreshable_creds = RefreshableCredentials.create_from_metadata(
         metadata=initial_metadata,
-        refresh_using=lambda: _refresh_credentials(org, db, bucket, prefix, entry),
+        refresh_using=lambda: _refresh_credentials(org, db, bucket, entry),
         method='pxt-store',
         advisory_timeout=60,  # start refreshing 60s before expiry (non-blocking, best-effort)
         mandatory_timeout=30,  # block and force refresh if credentials expire within 30s
@@ -165,18 +173,20 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) -> _PxtS
     )
     entry.resource = boto3_session.resource('s3', endpoint_url=creds.endpoint_url, region_name='auto')
 
-    _logger.info(f'Initialized session for pxtfs://{org}:{db}/{bucket}')
+    _logger.info(f'Initialized session for pxtfs://{org}:{db}/{bucket}/{prefix or ""}')
     return entry
 
 
-def _get_or_create_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) -> _PxtStoreCacheEntry:
-    """Return the cached entry for org:db:bucket:prefix"""
-    cache_key = f'{org}:{db}:{bucket}:{prefix}'
+def _get_or_create_pxt_store_entry(org: str, db: str, bucket: str) -> _PxtStoreCacheEntry:
+    """Return the cached entry for org:db:bucket"""
+    # one session per bucket, with credentials for the whole bucket: media files sit in random shard directories,
+    # so a session per prefix would mean one per read
+    cache_key = f'{org}:{db}:{bucket}'
     pxt_store_client_dict = Env.get().object_store_clients(StorageTarget.PIXELTABLE_STORE)
     with _pxt_store_entries_lock:
         entry = pxt_store_client_dict.clients.get(cache_key)
         if entry is None:
-            entry = _build_pxt_store_entry(org, db, bucket, prefix)
+            entry = _build_pxt_store_entry(org, db, bucket)
             pxt_store_client_dict.clients[cache_key] = entry
     return entry
 
@@ -188,12 +198,20 @@ class PxtStore(ObjectStoreBase):
     _pxt_store_entry: _PxtStoreCacheEntry
     _store: ObjectStoreBase  # underlying provider store (S3Store, AzureBlobStore, GCSStore, etc.)
 
-    def __init__(self, soa: StorageObjectAddress) -> None:
+    def __init__(self, soa: StorageObjectAddress, *, scope_credentials: bool = False) -> None:
+        """
+        Args:
+            scope_credentials: If True, the store gets credentials limited to `soa.prefix`, in a session of its own
+                that is not cached: such a prefix, like `uploads/<request>/`, is not reused.
+        """
         assert soa.storage_target == StorageTarget.PIXELTABLE_STORE
 
         self.soa = soa
-        org, db, bucket, path = soa.account, soa.account_extension, soa.container, soa.prefix
-        self._pxt_store_entry = _get_or_create_pxt_store_entry(org, db, bucket, path)
+        org, db, bucket = soa.account, soa.account_extension, soa.container
+        if scope_credentials:
+            self._pxt_store_entry = _build_pxt_store_entry(org, db, bucket, soa.prefix)
+        else:
+            self._pxt_store_entry = _get_or_create_pxt_store_entry(org, db, bucket)
         physical_soa = soa._replace(container=self._pxt_store_entry.physical_bucket_name)
         self._store = self._build_store(physical_soa)
 
@@ -239,7 +257,7 @@ class PxtStore(ObjectStoreBase):
         return f'pxtfs://{org_db}/{logical}{path}'
 
     def validate(self, error_col_name: str) -> str | None:
-        """Probe the temp-credential-scoped prefix and return the logical base URI on success."""
+        """Probe the store's prefix and return the logical base URI on success."""
         assert isinstance(self._store, S3Store)
 
         try:
@@ -267,7 +285,17 @@ class PxtStore(ObjectStoreBase):
         return FileDestination(url=self._to_logical_uri(inner.url), remote_key=inner.remote_key)
 
     def copy_local_file(self, src_path: Path, dest: FileDestination) -> str:
-        if self._pxt_store_entry.no_space_left:
+        entry = self._pxt_store_entry
+        now = time.monotonic()
+        if entry.no_space_left and now - entry.quota_checked_at >= _QUOTA_RECHECK_INTERVAL_S:
+            # the flag otherwise updates only when botocore refreshes the credentials, which a rejected write never
+            # triggers; the window starts before the call, so a failed check also waits it out
+            entry.quota_checked_at = now
+            try:
+                _refresh_credentials(self.soa.account, self.soa.account_extension, self.soa.container, entry)
+            except excs.ExternalServiceError as e:
+                _logger.warning('Could not check the quota of %s: %s', self.soa.prefix_free_uri, e)
+        if entry.no_space_left:
             raise excs.ServiceUnavailableError(
                 ErrorCode.STORE_UNAVAILABLE,
                 'No space left in Pixeltable store. Only read and delete operations are allowed.',

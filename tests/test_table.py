@@ -1384,6 +1384,42 @@ class TestTable:
         out = t.compute(({'id': 1}, {'id': 2}))
         assert out == [{'id': 1, 'plus1': 2}, {'id': 2, 'plus1': 3}]
 
+        # outputs must name existing columns, at least one
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column: nope'):
+            t.compute([{'id': 1}], outputs=['nope'])
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='At least one output column'):
+            t.compute([{'id': 1}], outputs=[])
+
+        # a row must supply the required (non-nullable) columns that the requested outputs read
+        r = pxt.create_table(p('test_compute_required'), {'req': pxt.Int, 'x': pxt.Int | None})
+        r.add_computed_column(y=r.x + 1)
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'Missing required column\(s\) \(req\)'):
+            r.compute([{'x': 1}])
+        assert r.compute([{'x': 1}], outputs=['y']) == [{'y': 2}]
+        # a required column that is itself an output must be supplied
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'\(req\)'):
+            r.compute([{'x': 1}], outputs=['y', 'req'])
+        # values for columns the outputs don't read are validated and ignored
+        assert r.compute([{'x': 1, 'req': 5}], outputs=[r.y, 'x']) == [{'x': 1, 'y': 2}]
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column name nope'):
+            r.compute([{'x': 1, 'nope': 5}], outputs=['y'])
+
+        # a pydantic model only needs the fields the outputs read
+        class XOnly(pydantic.BaseModel):
+            x: int
+
+        assert r.compute([XOnly(x=3)], outputs=['y']) == [{'y': 4}]
+
+        # a view's filter and iterator arguments are always evaluated, so the columns they read are required too
+        rv = pxt.create_view(p('test_compute_required_v'), r.where(r.req > 0))
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'\(req\)'):
+            rv.compute([{'x': 1}], outputs=['y'])
+        assert rv.compute([{'x': 1, 'req': 0}, {'x': 2, 'req': 1}], outputs=['y']) == [{'y': 3}]
+        rcv = pxt.create_view(p('test_compute_required_cv'), r, iterator=DummyIterator(limit=r.req))
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'\(req\)'):
+            rcv.compute([{'x': 1}], outputs=['y'])
+        assert rcv.compute([{'x': 1, 'req': 2}], outputs=['y', 'pos']) == [{'y': 2, 'pos': 0}, {'y': 2, 'pos': 1}]
+
     def test_array_and_media_columns(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         # arrays and in-memory images cross the wire inlined; a file-backed media path is read directly (the
         # daemon shares this client's filesystem and media store)
@@ -1465,6 +1501,11 @@ class TestTable:
         t.insert(input_rows)
         assert out == [dict(r) for r in v.order_by(v.id).collect()]
 
+        # requested outputs only; the view's filter still applies
+        out = v.compute(input_rows, outputs=['double', 'note'])
+        assert out.column_names == ['double', 'note']
+        assert out == [{'double': 4, 'note': None}, {'double': 6, 'note': None}]
+
         # a predicate that rejects every input row yields an empty batch that still carries the view's schema
         out = v.compute([{'id': 0, 's': 'x'}, {'id': -1, 's': 'y'}])
         assert isinstance(out, pxt.RowBatch)
@@ -1508,6 +1549,11 @@ class TestTable:
         assert out.column_names == ['s', 'double']
         assert out == [{'s': 'b', 'double': 4}]
 
+        # select-list columns as requested outputs, with the view's filter still applied
+        out = sl.compute([{'id': 0, 's': 'a'}, {'id': 2, 's': 'b'}], outputs=['double'])
+        assert out.column_names == ['double']
+        assert out == [{'double': 4}]
+
         # snapshots don't support compute()
         snap = pxt.create_snapshot(p('test_compute_view_snap'), t)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not supported for snapshots'):
@@ -1539,6 +1585,9 @@ class TestTable:
         assert sorted((dict(r) for r in out), key=lambda r: (r['id'], r['pos'])) == [
             dict(r) for r in v.order_by(v.id, v.pos).collect()
         ]
+
+        # the iterator still fans out when no iterator column is requested
+        assert v.compute([{'id': 2}], outputs=['o2x2']) == [{'o2x2': 0}, {'o2x2': 2}]
 
         # stacked iterators; the filter between the levels applies to the first level's component rows, and the
         # second level's pos/out1 shadow the first level's, which are no longer visible
@@ -1598,8 +1647,8 @@ class TestTable:
         assert all(out['c1'] == out['i'] + 1 for out in output)
         assert all(TestModel2(**out) == row for out, row in zip(output, rows2))
 
-        # missing required keys in input
-        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match="Missing required column 'en'"):
+        # required fields left at None
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"Error in column 's' \(row 0\): expected non-None"):
             now = datetime.datetime.now()
             rows3 = [TestModel2(i=i, f=i * 1.0, b=i % 2 == 0, t=now) for i in range(100)]
             _ = t.compute(rows3)
@@ -2332,7 +2381,6 @@ class TestTable:
     @rerun_on_network_error()
     def test_validate_external_url(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')
         rows = [
             {'media': 's3://open-images-dataset/validation/doesnotexist.jpg', 'is_bad_media': True},
             {'media': 'https://archive.random.org/download?file=2024-01-28.bin', 'is_bad_media': True},  # 403 error
@@ -2382,7 +2430,6 @@ class TestTable:
     @pytest.mark.db_roots('local', reason='inspects the local file cache via FileCache and tbl._id')
     @rerun_on_network_error()
     def test_create_s3_image_table(self, uses_db: None) -> None:
-        skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test', {'img': pxt.Image | None})
         # this is needed because reload_db() doesn't call TableVersion.drop(), which would
         # clear the file cache
@@ -2447,7 +2494,6 @@ class TestTable:
     @rerun_on_network_error()
     def test_video_url(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')
         schema: dict[str, Any] = {'payload': pxt.Int | None, 'video': pxt.Video | None}
         tbl = pxt.create_table(p('test'), schema)
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
@@ -2468,7 +2514,6 @@ class TestTable:
                 'Skipped on CockroachDB due to: RETRY_SERIALIZABLE - failed preemptive refresh due to'
                 ' encountered recently written committed value...'
             )
-        skip_test_if_not_installed('boto3')
 
         p = db_root.make_catalog_path
         tbl = pxt.create_table(p('test_tbl'), {'payload': pxt.Int | None, 'video': pxt.Video | None})
@@ -2521,7 +2566,6 @@ class TestTable:
     @rerun_on_network_error()
     def test_video_urls(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')
         tbl = pxt.create_table(p('test'), {'video': pxt.Video | None})
 
         # create a list of uris with duplicates, to test the duplicate-handling logic of CachePrefetchNode
@@ -2686,7 +2730,6 @@ class TestTable:
 
     def test_query(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')
         col_names = ['c1', 'c2', 'c3', 'c4', 'c5']
         t = make_tbl(p('test'), col_names, is_data_versioned=is_data_versioned)
         rows = create_table_data(t)

@@ -303,6 +303,8 @@ class TableVersion:
         # Assemble a set of column destinations and delete objects from all of them
         # None is a valid column destination which refers to the default object location
         destinations = {col.destination for col in self.cols_by_id.values() if col.is_stored}
+        # the files that CellMaterializationNode wrote for this table's array, binary and json cells
+        destinations.add(Env.get().cell_materialization_dest)
         counts = [ObjectOps.delete(dest, self.id, tbl_version=tbl_version) for dest in destinations]
         reported_counts = [c for c in counts if c is not None]
         telemetry.add_attrs(

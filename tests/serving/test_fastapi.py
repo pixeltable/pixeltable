@@ -2122,6 +2122,25 @@ class TestFastAPI:
                 export_sql=SqlExport(db_connect=db_connect, table='with_pk', method='update'),
             )
 
+        # inputs and uploadfile_inputs together must cover the required columns: for an insert those of the table,
+        # for a compute those the outputs depend on
+        req = pxt.create_table(p('test_serve/required'), {'doc_id': pxt.Int, 'title': pxt.String, 'image': pxt.Image})
+        req.add_computed_column(title_upper=req.title.upper())
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'required column\(s\) doc_id, image; add them'):
+            add_route_fn(req, path='/req', inputs=['title'])
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'required column\(s\) doc_id; add them'):
+            add_route_fn(req, path='/req', inputs=['title'], uploadfile_inputs=['image'])
+        if route_type == 'insert':
+            with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'required column\(s\) doc_id, image; add them'):
+                add_route_fn(req, path='/req', inputs=['title'], outputs=['title_upper'])
+        else:
+            # the output reads only title, so the request needs only title
+            add_route_fn(req, path='/req', inputs=['title'], outputs=['title_upper'])
+            with make_test_client(router) as client:
+                resp = client.post('/req', json={'title': 'Hello'})
+                assert resp.status_code == 200, resp.text
+                assert resp.json() == {'title_upper': 'HELLO'}
+
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     def test_insert_route(
         self, db_root: DatabaseRoot, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']

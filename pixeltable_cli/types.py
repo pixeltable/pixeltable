@@ -624,7 +624,7 @@ class ServiceInstance(pydantic.BaseModel):
     endpoint: str
     port: int | None  # the loopback port a local instance serves on; None for a hosted one, reached by hostname
     state: str
-    error: str | None  # why a FAILED instance failed, when its manager reports a reason
+    error: str | None  # why it failed or kept serving its previous version after a failed roll
     app_module: str  # dotted module path, relative to the project root
     spec: ServiceSpec  # what it serves
 

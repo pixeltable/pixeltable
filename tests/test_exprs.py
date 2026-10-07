@@ -1696,6 +1696,30 @@ class TestExprs:
         t = pxt.get_table(p('test'))
         assert t.get_metadata()['columns']['y']['computed_with'] == expected
 
+    def test_dict_literal_key_order_after_reload(self, db_root: DatabaseRoot) -> None:
+        """A Literal's dict value is stored as a jsonb object, whose key order Postgres does not preserve."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'x': pxt.Int | None})
+        # the list under 'aaa' has no column references, so it becomes a Literal
+        t.add_computed_column(dumped=pxtf.json.dumps({'zzz': t.x, 'aaa': [{'yy': 1, 'b': {'long_key': 2, 'k': 3}}]}))
+        expected = "dumps({'zzz': x, 'aaa': [{'yy': 1, 'b': {'long_key': 2, 'k': 3}}]})"
+        assert t.get_metadata()['columns']['dumped']['computed_with'] == expected
+        t.insert(x=1)
+
+        reload_catalog()
+        t = pxt.get_table(p('test'))
+        assert t.get_metadata()['columns']['dumped']['computed_with'] == expected
+        t.insert(x=2)
+        assert t.order_by(t.x).collect()['dumped'] == [
+            '{"zzz": 1, "aaa": [{"yy": 1, "b": {"long_key": 2, "k": 3}}]}',
+            '{"zzz": 2, "aaa": [{"yy": 1, "b": {"long_key": 2, "k": 3}}]}',
+        ]
+
+    def test_dict_literal_key_order_in_tuple(self) -> None:
+        """A dict nested in a tuple keeps its key order through as_dict() and from_dict()."""
+        lit = Literal({'zzz': (1, {'yy': 1, 'b': 2}), 'aaa': {'long_key': 1, 'k': 2}})
+        assert json.dumps(Literal.from_dict(lit.as_dict()).val) == json.dumps(lit.val)
+
     @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_print(
         self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]
@@ -1802,6 +1826,18 @@ class TestExprs:
 
         r4 = t.group_by(t.c_bool, t.c_string).select(two='2').collect()
         assert len(r1) == len(r4)
+
+        # an output derived from a grouping expr is computed from the grouped value
+        grouped = t.where(t.c_int != None).group_by(t.c_int)
+        for i, res in enumerate(
+            (
+                grouped.select(t.c_int, succ=t.c_int + 1, out=int_sum).order_by(t.c_int).collect(),
+                grouped.select(t.c_int, succ=t.c_int + 1, out=pxtf.sum(_add_one(t.c_int))).order_by(t.c_int).collect(),
+                grouped.select(t.c_int, succ=t.c_int + 1).order_by(t.c_int).collect(),
+            )
+        ):
+            assert len(res) > 0, i
+            assert res['succ'] == [x + 1 for x in res['c_int']], i
 
         # we correctly apply a limit to the agg output
         r5 = t.group_by(t.c_bool).select(s=pxtf.sum(t.c_int)).collect()['s']

@@ -28,6 +28,7 @@
 Install into your agent: [Agent Skill](https://github.com/pixeltable/pixeltable-skill) ·
 [MCP server](https://github.com/pixeltable/mcp-server-pixeltable-developer) ·
 [Cursor plugin](https://cursor.directory/plugins/pixeltable) ·
+[Claude plugin](https://claude.com/marketplace/plugins/pixeltable) ·
 [ChatGPT plugin](https://chatgpt.com/plugins/plugins_6aa9bce6481c81918d73be74740eed28)
 
 Reading this as an agent? Start at [get-started.md](https://www.pixeltable.com/get-started.md), then
@@ -95,7 +96,7 @@ curl -X POST "$URL/docs" \
 # {"id":"...","title_upper":"HELLO","summary":"Hello"}
 ```
 
-The same file runs on [Pixeltable Cloud](https://docs.pixeltable.com/cloud). Sign in with `pxt login`. `pxt org create` provisions `main`. Add this entry to the project file before `pxt db update`. Without it, the command errors. An [API key](https://docs.pixeltable.com/cloud#get-an-api-key) is optional for CLI automation and required for direct hosted HTTP calls. `PIXELTABLE_API_KEY`, or `api_key` in the config file, takes precedence over a `pxt login` session. `pxt db update` uploads the project onto that database and builds the image. It does not insert rows. `pxt service run` is local only and cannot target Cloud.
+The same file runs on [Pixeltable Cloud](https://docs.pixeltable.com/cloud). Sign in with `pxt login`. If `pxt org list` shows no organization, `pxt org create NAME` makes one and provisions its database, `main`. Add this entry to the project file, with your organization's name in place of `org`:
 
 ```toml
 [[pixeltable.database]]
@@ -108,7 +109,7 @@ pxt schema update app.py pxt://org:main
 pxt service update app.py pxt://org:main
 ```
 
-A `@pxt.udf` in that same `app.py` is in the image `pxt db update` builds.
+The [Cloud guide](https://docs.pixeltable.com/cloud) covers the first deployment step by step, API keys, secrets, and what to run after a change.
 
 ## Chat agent or video search
 
@@ -128,7 +129,9 @@ To mount the routes on an existing FastAPI app, `app.include_router(...)`. [HTTP
 
 ## Coding agents
 
-The links above install the skill and MCP. How the skill writes `app.py`: [AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms).
+The links above offer the Skill, plugin, and MCP setup options. How the Skill writes `app.py`: [AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms).
+
+The [Pixeltable plugin](https://github.com/pixeltable/pixeltable-skill) packages the Skill for Claude, Cursor, and ChatGPT. [Docs MCP](https://docs.pixeltable.com/mcp) searches public documentation; the site also offers a remote HTTP [Site MCP](https://www.pixeltable.com/mcp) for docs search and integration listing. [Hosted Cloud MCP](https://www.pixeltable.com/mcp/cloud) reads your signed-in Cloud organization through OAuth. It also starts and stops databases, restarts services, and sets secrets. The [local developer MCP](https://github.com/pixeltable/mcp-server-pixeltable-developer) runs on your machine with catalog, query, and REPL tools. Hosted Cloud MCP does not deploy or delete; use the `pxt` CLI for that.
 
 ```bash
 npx skills add pixeltable/pixeltable-skill
@@ -145,6 +148,6 @@ Apache 2.0. [Contributing](https://github.com/pixeltable/pixeltable/blob/main/CO
 [cursor-badge]: https://img.shields.io/badge/Open_in-Cursor-000000
 [claude-badge]: https://img.shields.io/badge/Open_in-Claude-D97757
 [chatgpt-badge]: https://img.shields.io/badge/Open_in-ChatGPT-10A37F
-[cursor-prompt]: https://cursor.com/link/prompt?text=Build+a+multimodal+AI+data+app+with+Pixeltable.+First+follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md+%28install+pxt%2C+the+Pixeltable+Skill%2C+and+MCP%29.+Then+%60pip+install+%27pixeltable%5Bserve%5D%27%60%2C+%60pxt+init%60%2C+and+%60pxt+service+example+--out+app.py%60.+Put+tables%2C+computed+columns%2C+embeddings%2C+and+FastAPIRouter+routes+in+that+one+Python+file.+Create+the+tables+with+%60pxt+schema+update+app.py+my_app%60.+Start+HTTP+with+%60pxt+service+update+app.py+my_app%60.+Same+file+on+Cloud%3A+sign+in+with+%60pxt+login%60+first.+%60pxt+org+create%60+provisions+%60main%60.+Add+a+project+entry+%60%5B%5Bpixeltable.database%5D%5D%60+with+%60name+%3D+%27pxt%3A%2F%2Forg%3Amain%27%60%2C+then+%60pxt+db+update+pxt%3A%2F%2Forg%3Amain%60%2C+%60pxt+schema+update+app.py+pxt%3A%2F%2Forg%3Amain%60%2C+and+%60pxt+service+update+app.py+pxt%3A%2F%2Forg%3Amain%60.+An+API+key+is+optional+for+the+CLI+and+required+for+hosted+HTTP.+%60pxt+service+run%60+is+local+only.+Read+https%3A%2F%2Fpixeltable.com%2Fllms.txt+and+https%3A%2F%2Fdocs.pixeltable.com.
-[claude-prompt]: https://claude.ai/new?q=Build+a+multimodal+AI+data+app+with+Pixeltable.+First+follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md+%28install+pxt%2C+the+Pixeltable+Skill%2C+and+MCP%29.+Then+%60pip+install+%27pixeltable%5Bserve%5D%27%60%2C+%60pxt+init%60%2C+and+%60pxt+service+example+--out+app.py%60.+Put+tables%2C+computed+columns%2C+embeddings%2C+and+FastAPIRouter+routes+in+that+one+Python+file.+Create+the+tables+with+%60pxt+schema+update+app.py+my_app%60.+Start+HTTP+with+%60pxt+service+update+app.py+my_app%60.+Same+file+on+Cloud%3A+sign+in+with+%60pxt+login%60+first.+%60pxt+org+create%60+provisions+%60main%60.+Add+a+project+entry+%60%5B%5Bpixeltable.database%5D%5D%60+with+%60name+%3D+%27pxt%3A%2F%2Forg%3Amain%27%60%2C+then+%60pxt+db+update+pxt%3A%2F%2Forg%3Amain%60%2C+%60pxt+schema+update+app.py+pxt%3A%2F%2Forg%3Amain%60%2C+and+%60pxt+service+update+app.py+pxt%3A%2F%2Forg%3Amain%60.+An+API+key+is+optional+for+the+CLI+and+required+for+hosted+HTTP.+%60pxt+service+run%60+is+local+only.+Read+https%3A%2F%2Fpixeltable.com%2Fllms.txt+and+https%3A%2F%2Fdocs.pixeltable.com.
-[chatgpt-prompt]: https://chatgpt.com/?prompt=Build+a+multimodal+AI+data+app+with+Pixeltable.+First+follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md+%28install+pxt%2C+the+Pixeltable+Skill%2C+and+MCP%29.+Then+%60pip+install+%27pixeltable%5Bserve%5D%27%60%2C+%60pxt+init%60%2C+and+%60pxt+service+example+--out+app.py%60.+Put+tables%2C+computed+columns%2C+embeddings%2C+and+FastAPIRouter+routes+in+that+one+Python+file.+Create+the+tables+with+%60pxt+schema+update+app.py+my_app%60.+Start+HTTP+with+%60pxt+service+update+app.py+my_app%60.+Same+file+on+Cloud%3A+sign+in+with+%60pxt+login%60+first.+%60pxt+org+create%60+provisions+%60main%60.+Add+a+project+entry+%60%5B%5Bpixeltable.database%5D%5D%60+with+%60name+%3D+%27pxt%3A%2F%2Forg%3Amain%27%60%2C+then+%60pxt+db+update+pxt%3A%2F%2Forg%3Amain%60%2C+%60pxt+schema+update+app.py+pxt%3A%2F%2Forg%3Amain%60%2C+and+%60pxt+service+update+app.py+pxt%3A%2F%2Forg%3Amain%60.+An+API+key+is+optional+for+the+CLI+and+required+for+hosted+HTTP.+%60pxt+service+run%60+is+local+only.+Read+https%3A%2F%2Fpixeltable.com%2Fllms.txt+and+https%3A%2F%2Fdocs.pixeltable.com.
+[cursor-prompt]: https://cursor.com/link/prompt?text=Build+a+multimodal+AI+data+app+with+Pixeltable.+Follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md.
+[claude-prompt]: https://claude.ai/new?q=Build+a+multimodal+AI+data+app+with+Pixeltable.+Follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md.
+[chatgpt-prompt]: https://chatgpt.com/?prompt=Build+a+multimodal+AI+data+app+with+Pixeltable.+Follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md.

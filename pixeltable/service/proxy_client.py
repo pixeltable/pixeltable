@@ -11,6 +11,7 @@ import abc
 import http.client
 import json
 import logging
+import re
 import selectors
 import socket
 import ssl
@@ -32,6 +33,7 @@ from tenacity import (
 )
 
 from pixeltable import exceptions as excs
+from pixeltable.catalog.path import Path as CatalogPath
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.row import RowBatch
 from pixeltable.utils.filecache import FileCache
@@ -39,15 +41,17 @@ from pixeltable.utils.http import fetch_url
 from pixeltable.utils.local_store import TempStore
 
 from . import proxy_protocol
+from .management_client import Credential, is_refusal, refusal
 from .proxy_protocol import (
     InlinePartSink,
     MediaPath,
     PartSink,
     ProxyRequest,
     ProxyResponse,
-    PxtStorePartSink,
+    PxtArchivePartSink,
     decode_body,
     encode_body,
+    iter_body_chunks,
 )
 
 if TYPE_CHECKING:
@@ -114,7 +118,9 @@ class HttpTransport(Transport):
         self._http = httpx.Client(base_url=endpoint, timeout=httpx.Timeout(120.0))
 
     def post(self, body: bytes) -> bytes:
-        response = self._http.post('/rpc', content=body, headers={'Content-Type': 'application/octet-stream'})
+        # an explicit Content-Length keeps the request unchunked on the wire
+        headers = {'Content-Type': 'application/octet-stream', 'Content-Length': str(len(body))}
+        response = self._http.post('/rpc', content=iter_body_chunks(body), headers=headers)
         response.raise_for_status()
         return response.content
 
@@ -219,14 +225,14 @@ class TunnelTransport(Transport):
     _db: str
 
     # needed per handshake; not static
-    _credential_cb: Callable[[], str]
+    _credential_cb: Callable[[], Credential]
 
     _host: str
     _port: int
     _endpoint: str
     _pool: _TunnelPool
 
-    def __init__(self, org: str, db: str, credential_cb: Callable[[], str], host: str, port: int):
+    def __init__(self, org: str, db: str, credential_cb: Callable[[], Credential], host: str, port: int):
         self._org = org
         self._db = db
         self._credential_cb = credential_cb
@@ -258,7 +264,7 @@ class TunnelTransport(Transport):
 
             # the sidecar authenticates the credential and routes the tunnel to org/db, then relays to the
             # proxy daemon's HTTP server; it answers 'PXT/1.0 200' on success (checked below)
-            frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {credential}\r\n\r\n'
+            frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {credential.value}\r\n\r\n'
             ssl_sock.sendall(frame.encode())
 
             buf = b''
@@ -270,7 +276,7 @@ class TunnelTransport(Transport):
 
             first_line = buf.split(b'\r\n')[0].decode()
             if not first_line.startswith('PXT/1.0 200'):
-                raise PermissionError(f'PXT/1.0 handshake rejected: {first_line}')
+                raise self._handshake_error(first_line, credential)
 
             # Switch from the connect-phase timeout to the RPC timeout now that the handshake is done;
             # otherwise the socket would time out on any request that takes longer than _CONNECT_TIMEOUT.
@@ -280,12 +286,20 @@ class TunnelTransport(Transport):
             (ssl_sock or raw_sock).close()
             raise
 
+    def _handshake_error(self, status_line: str, sent: Credential) -> Exception:
+        """A refusal reads as the control plane's does, naming the credential; any other status is retried."""
+        _, _, status = status_line.partition(' ')
+        code, _, reason = status.partition(' ')
+        if code.isdigit() and is_refusal(int(code)):
+            return refusal(int(code), reason or f'HTTP {code}', sent, f'connect to pxt://{self._org}:{self._db}')
+        return ConnectionError(f'PXT/1.0 handshake failed: {status_line}')
+
     def _request(self, method: str, path: str, body: bytes | None = None, content_type: str | None = None) -> bytes:
         """Borrow a tunnel connection, issue one request, return the raw body.
 
         A failure that leaves the request undelivered (connect, handshake, writing it) is retried with
-        backoff on a fresh connection, as is a 5xx; auth rejection (PermissionError) and non-5xx HTTP errors
-        are not.
+        backoff on a fresh connection, as is a 5xx; a refused credential, a connection the OS refuses, and
+        non-5xx HTTP errors are not.
 
         A connection that fails *after* the daemon has received the request is treated as a server crash and is
         not retried; retries in this scenario can inadvertently DOS the pod.
@@ -293,6 +307,7 @@ class TunnelTransport(Transport):
         headers = {'Content-Type': content_type} if content_type else {}
 
         @retry(
+            # an OSError, but a firewall or sandbox that denies the socket denies it again on a retry
             retry=retry_if_exception_type(_TUNNEL_TRANSIENT_EXC) & retry_if_not_exception_type(PermissionError),
             wait=wait_exponential_jitter(initial=0.5, max=5.0),
             stop=stop_after_delay(_TUNNEL_RETRY_MAX_DELAY),
@@ -328,7 +343,7 @@ class TunnelTransport(Transport):
         return self._request('POST', '/rpc', body=body, content_type='application/octet-stream')
 
     def new_part_sink(self) -> PartSink:
-        return PxtStorePartSink(self._org, self._db)
+        return PxtArchivePartSink(self._org, self._db)
 
     def media_url(self, media_path: str) -> str:
         return f'{self._endpoint}/media/{media_path}'
@@ -347,6 +362,10 @@ class TunnelTransport(Transport):
         self._pool.close()
 
 
+# Daemons from before the version fields put both numbers only in this sentence.
+_LEGACY_PROTOCOL_MISMATCH_RE = re.compile(r'Unsupported proxy protocol version: (\d+) \(server expects (\d+)\)\Z')
+
+
 class ProxyClient:
     """Talks to a proxy daemon: POSTs requests to its /rpc endpoint and localizes media results.
 
@@ -355,18 +374,19 @@ class ProxyClient:
 
     _transport: Transport
 
-    def __init__(self, transport: Transport):
+    def __init__(self, transport: Transport, catalog_uri: CatalogPath):
         self._transport = transport
+        self._catalog_uri = catalog_uri
 
     @classmethod
-    def local(cls, endpoint: str) -> ProxyClient:
+    def local(cls, endpoint: str, db: str | None = None) -> ProxyClient:
         """Connect to a proxy daemon reachable directly over HTTP at endpoint."""
-        return cls(HttpTransport(endpoint))
+        return cls(HttpTransport(endpoint), CatalogPath(org='local', db=db))
 
     @classmethod
-    def remote(cls, org: str, db: str, credential_cb: Callable[[], str], host: str, port: int) -> ProxyClient:
+    def remote(cls, org: str, db: str, credential_cb: Callable[[], Credential], host: str, port: int) -> ProxyClient:
         """Connect to the Pixeltable cloud service's proxy daemon over an authenticated TLS tunnel."""
-        return cls(TunnelTransport(org, db, credential_cb, host=host, port=port))
+        return cls(TunnelTransport(org, db, credential_cb, host=host, port=port), CatalogPath(org=org, db=db))
 
     def _prepare(self, args: dict[str, Any]) -> tuple[dict[str, Any], list[bytes]]:
         """Serialize args for the wire, exactly once per logical request (media files are read, and for a
@@ -409,12 +429,35 @@ class ProxyClient:
         wire_args, parts = self._prepare(args)
         return self._post(class_name, method, wire_args, parts, path_key=path_key, snapshot_key=snapshot_key)
 
+    def _validate_response(self, response: ProxyResponse) -> None:
+        """Raise the server error. Fill in a short protocol-mismatch sentence from the version fields.
+
+        A daemon from before those fields leaves the two numbers only in the sentence.
+        """
+        error = response.get('error')
+        if not isinstance(error, dict):
+            if error is not None:
+                raise excs.Error.from_dict(error)
+            return
+        message = error.get('message')
+        legacy = _LEGACY_PROTOCOL_MISMATCH_RE.fullmatch(message) if isinstance(message, str) else None
+        client_version = error.get('client_protocol_version')
+        server_version = error.get('server_protocol_version')
+        versions: tuple[int, int] | None
+        if type(client_version) is int and type(server_version) is int:
+            versions = (client_version, server_version)
+        elif legacy is not None:
+            versions = (int(legacy.group(1)), int(legacy.group(2)))
+        else:
+            versions = None
+        if versions is not None and legacy is not None:
+            error |= {'message': proxy_protocol.protocol_mismatch_message(*versions, self._catalog_uri)}
+        raise excs.Error.from_dict(error)
+
     def send_request(self, class_name: str, method: str, args: dict[str, Any]) -> Any:
         """Run a (path-less) catalog method and return its (deserialized) result."""
         response, parts = self.send(class_name, method, args)
-        error = response.get('error')
-        if error is not None:
-            raise excs.Error.from_dict(error)
+        self._validate_response(response)
         return self._localize_media(proxy_protocol.deserialize_value(response.get('result'), parts))
 
     def dispatch_table_method(
@@ -436,9 +479,7 @@ class ProxyClient:
             current_md = response.get('current_md')
             if current_md is not None:
                 refresh(proxy_protocol.deserialize_value(current_md, resp_parts))
-            error = response.get('error')
-            if error is not None:
-                raise excs.Error.from_dict(error)
+            self._validate_response(response)
             if response.get('is_stale_md', False):
                 continue  # server withheld a stale mutation; retry against the refreshed schema
             return self._localize_media(proxy_protocol.deserialize_value(response.get('result'), resp_parts))

@@ -199,7 +199,7 @@ class Analyzer:
                 if not is_input:
                     raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid nested aggregates: {e}')
             return True, False
-        elif isinstance(e, exprs.Literal):
+        elif isinstance(e, (exprs.Literal, exprs.Variable)):
             return True, True
         elif isinstance(e, (exprs.ColumnRef, exprs.RowidRef)):
             # we already know that this isn't a grouping expr
@@ -207,11 +207,9 @@ class Analyzer:
         else:
             # an expression such as <grouping expr 1> + <grouping expr 2> can both be the output and input of agg
             assert len(e.components) > 0
-            component_is_output, component_is_input = zip(
-                *[self._determine_agg_status(c, grouping_expr_ids) for c in e.components]
-            )
-            is_output = component_is_output.count(True) == len(e.components)
-            is_input = component_is_input.count(True) == len(e.components)
+            statuses: list[tuple[bool, bool]] = [self._determine_agg_status(c, grouping_expr_ids) for c in e.components]
+            is_output = all(out for out, _ in statuses)
+            is_input = all(inp for _, inp in statuses)
             if not is_output and not is_input:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression, mixes aggregate with non-aggregate: {e}'
@@ -317,10 +315,75 @@ class Planner:
         return plan, batch_size
 
     @classmethod
+    def columns_to_compute(
+        cls, path: catalog.TablePath, outputs: Iterable[catalog.ColumnVersionMd] | None
+    ) -> list[catalog.ColumnVersionMd]:
+        """Return the columns a compute of `outputs` has to materialize.
+
+        These are the outputs themselves, every column their value expressions read, transitively, and the columns
+        read by the filter and iterator arguments of every view in `path`. `outputs` defaults to all columns
+        visible in `path`.
+        """
+        expr_dicts: list[dict[str, Any]] = []
+        # Walk the path from the view down to the base table and collect each view's filter and iterator arguments.
+        cur_path: catalog.TablePath | None = path
+        while cur_path is not None:
+            view_md = cur_path.view_md()
+            if view_md is not None:
+                if view_md.predicate is not None:
+                    expr_dicts.append(view_md.predicate)
+                if view_md.iterator_call is not None:
+                    expr_dicts.extend(view_md.iterator_call['args'])
+                    expr_dicts.extend(view_md.iterator_call['kwargs'].values())
+            cur_path = cur_path.base
+        refd_qcolids = sorted(
+            {qcolid for d in expr_dicts for qcolid in exprs.Expr.get_refd_column_ids(d)},
+            key=lambda qcolid: (qcolid.tbl_id, qcolid.col_id),
+        )
+
+        pending = list(path.column_md() if outputs is None else outputs)
+        pending.extend(path.get_column_md(qcolid) for qcolid in refd_qcolids)
+        result: dict[catalog.QColumnId, catalog.ColumnVersionMd] = {}
+        while len(pending) > 0:
+            col_md = pending.pop(0)
+            if col_md.qcolid in result:
+                continue
+            result[col_md.qcolid] = col_md
+            if col_md.schema_col.value_expr is not None:
+                value_qcolids = sorted(
+                    exprs.Expr.get_refd_column_ids(col_md.schema_col.value_expr),
+                    key=lambda qcolid: (qcolid.tbl_id, qcolid.col_id),
+                )
+                pending.extend(path.get_column_md(qcolid) for qcolid in value_qcolids)
+        return list(result.values())
+
+    @classmethod
+    def required_input_columns(
+        cls, path: catalog.TablePath, outputs: Iterable[catalog.ColumnVersionMd] | None
+    ) -> list[catalog.ColumnVersionMd]:
+        """Return the root table's stored, non-nullable columns that computing `outputs` reads.
+
+        These are the columns an input row must supply; `outputs` defaults to all columns visible in `path`.
+        """
+        root_id = path.root.tbl_id
+        return [
+            col_md
+            for col_md in cls.columns_to_compute(path, outputs)
+            if col_md.qcolid.tbl_id == root_id and not col_md.is_computed and not col_md.col_type.nullable
+        ]
+
+    @classmethod
     def create_compute_plan(
-        cls, path: catalog.TableVersionPath, rows: list[dict[str, Any]], ignore_errors: bool
+        cls,
+        path: catalog.TableVersionPath,
+        rows: list[dict[str, Any]],
+        ignore_errors: bool,
+        outputs: list[catalog.ColumnVersionMd] | None,
     ) -> exec.ExecNode:
         """Creates a plan for LocalTable.compute(): propagation of input rows along the entire view chain.
+
+        The plan materializes 'outputs' (all columns if None) and the columns they read. Values in 'rows' for any
+        other column are ignored.
 
         Plan shape:
         - the input rows are handled identically to insert:
@@ -335,11 +398,21 @@ class Planner:
         base_tv = tvs[0].get()
         assert base_tv.is_insertable
 
+        required_col_names = [md.name for md in cls.required_input_columns(path, outputs)]
+        for row in rows:
+            missing_col_names = [name for name in required_col_names if name not in row]
+            if len(missing_col_names) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.MISSING_REQUIRED,
+                    f'Missing required column(s) ({", ".join(missing_col_names)}) in row {row}',
+                )
+
         # columns to materialize, base to target; each level's columns are computed at that level's stage
+        compute_qids = {md.qcolid for md in cls.columns_to_compute(path, outputs)}
         per_tbl_output_cols: list[list[Column]] = []
         for tvh in tvs:
             tv = tvh.get()
-            cols = cls._compute_output_cols(tv, for_insert=False)
+            cols = [c for c in cls._compute_output_cols(tv, for_insert=False) if c.qid in compute_qids]
             cls.__check_valid_columns(tv, cols, 'computed for')
             cls.__check_valid_iterator(tv, tv.iterator_call, 'computed for')
             per_tbl_output_cols.append(cols)
@@ -363,6 +436,9 @@ class Planner:
             assert result is not None
             return result
 
+        # InMemoryDataNode requires a slot for every value it is given, so drop values for columns the plan doesn't read
+        input_col_names = {e.col_md.name for e in row_builder.input_exprs if isinstance(e, exprs.ColumnRef)}
+        rows = [{name: val for name, val in row.items() if name in input_col_names} for row in rows]
         plan, _ = cls._create_input_plan(base_tv, rows, row_builder, set_pk=True)
         # the plan preserves input row order (all ExprEvalNodes maintain input order), so output rows map
         # positionally to input rows; avail: exprs whose slots are materialized so far
@@ -651,6 +727,8 @@ class Planner:
         1) all json-typed ColumnRefs that are not used as part of a JsonPath (the latter does its own reconstruction)
            or as part of a ColumnPropertyRef
         2) all array-typed ColumnRefs that are not used as part of a ColumnPropertyRef
+        The json-typed ColumnRefs that JsonPaths are anchored on also need the node, which loads their objects that are
+        stored in remote chunks.
         """
 
         def json_filter(e: exprs.Expr) -> bool:
@@ -673,13 +751,23 @@ class Planner:
 
         json_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=json_filter, traverse_matches=False))
         json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
+        json_ref_ids = {e.id for e in json_refs}
+        json_path_anchors = [
+            e.anchor
+            for e in json_candidates
+            if isinstance(e, exprs.JsonPath)
+            and isinstance(e.anchor, exprs.ColumnRef)
+            and e.anchor.id not in json_ref_ids
+        ]
         array_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False))
         array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef)]
         binary_refs = list(
             exprs.Expr.list_subexprs(expr_list, exprs.ColumnRef, filter=binary_filter, traverse_matches=False)
         )
-        if len(json_refs) > 0 or len(array_refs) > 0 or len(binary_refs) > 0:
-            return exec.CellReconstructionNode(json_refs, array_refs, binary_refs, input.row_builder, input=input)
+        if len(json_refs) > 0 or len(json_path_anchors) > 0 or len(array_refs) > 0 or len(binary_refs) > 0:
+            return exec.CellReconstructionNode(
+                json_refs, array_refs, binary_refs, json_path_anchors, input.row_builder, input=input
+            )
         else:
             return input
 
@@ -1111,14 +1199,23 @@ class Planner:
         cls._verify_join_clauses(analyzer)
 
         # materialized with SQL table scans (ie, single-table SELECT statements):
-        # - select list subexprs that aren't aggregates
+        # - Select list subexprs that aren't aggregates. In a grouping aggregation, only the args of aggregate and
+        # window function calls; the rest of the analyzer's select list is aggregate output, which is not allowed to be
+        # materialized in the inner scan.
         # - join clause subexprs
         # - subexprs of Where clause conjuncts that can't be run in SQL
         # - all grouping exprs
         # - all stratify exprs
+        select_list_inputs: list[exprs.Expr]
+        if analyzer.group_by_clause is None:
+            select_list_inputs = analyzer.select_list
+        else:
+            select_list_inputs = []
+            for fn_call in analyzer.agg_fn_calls + analyzer.window_fn_calls:
+                select_list_inputs.extend(fn_call.components)
         candidates = list(
             exprs.Expr.list_subexprs(
-                analyzer.select_list,
+                select_list_inputs,
                 filter=lambda e: (
                     sql_elements.contains(e)
                     and not e.contains_(cls=exprs.FunctionCall, filter=lambda e: bool(e.is_agg_fn_call))

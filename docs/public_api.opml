@@ -510,6 +510,9 @@
           <outline text="udf|pixeltable.functions.yolox.yolox" />
           <outline text="udf|pixeltable.functions.yolox.yolo_to_coco" />
         </outline>
+        <outline text="class|pixeltable.functions.whisper.WhisperSegment" />
+        <outline text="class|pixeltable.functions.whisper.WhisperTranscription" />
+        <outline text="class|pixeltable.functions.whisper.WhisperWord" />
       </outline>
 
       <!-- Serving group -->

@@ -542,6 +542,40 @@ class TestTableModel:
         ):
             TableModelV3.diff_all(root)
 
+    def test_dict_key_order_diff(self, db_root: DatabaseRoot) -> None:
+        """An unchanged model with a constant dict nested in a dict stays up to date after a catalog reload, and
+        reordering a dict's keys changes the column type."""
+        p = db_root.make_catalog_path
+        root = p('')
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            content: pxt.String
+            payload = {'type': 'text', 'text': content, 'meta': {'zzz': 1, 'aaa': 2}}
+
+        TableModel.create_all(root)
+        reload_catalog()
+        assert TableModel.get_model_diff(root)['docs'].resolution == 'up_to_date'
+
+        TableModelV2 = pxt.model_base()
+
+        class DocsV2(TableModelV2, name='docs'):
+            content: pxt.String
+            payload = {'text': content, 'type': 'text', 'meta': {'zzz': 1, 'aaa': 2}}
+
+        diff = TableModelV2.get_model_diff(root)['docs']
+        assert diff.resolution == 'unsupported'
+        [op] = diff.ops
+        assert (op.name, op.op, op.severity) == ('payload', 'alter', 'unsupported')
+        assert op.model == {
+            'type': "Json[{'text': String, 'type': String, 'meta': Json[{'zzz': Int, 'aaa': Int}]}]",
+            'value': "{'text': content, 'type': 'text', 'meta': {'zzz': 1, 'aaa': 2}}",
+        }
+        assert op.existing == {
+            'type': "Json[{'type': String, 'text': String, 'meta': Json[{'zzz': Int, 'aaa': Int}]}]",
+            'value': "{'type': 'text', 'text': content, 'meta': {'zzz': 1, 'aaa': 2}}",
+        }
+
     def test_operational_table_model_diff(self, db_root: DatabaseRoot) -> None:
         """There is no conversion between the two table kinds, so a mismatched model is unsupported."""
         p = db_root.make_catalog_path
@@ -1121,7 +1155,7 @@ class TestTableModel:
         )
 
     def test_update_all_creates_queried_table(self, db_root: DatabaseRoot) -> None:
-        """The table a @pxt.query reads is created by the same update_all() that adds the column calling it."""
+        """The table a @pxt.query reads is created by the same update_all() that adds or alters its calling column."""
         p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
@@ -1152,6 +1186,39 @@ class TestTableModel:
             'question': 'A sample doc body',
             'hits': [{'body': 'A sample doc body that has a bunch of text'}],
         }
+
+        # the existing column's (`asks.hits`) computed expression changes to a query UDF that references a new table
+        # `archive`
+        reload_catalog()
+        TableModel3 = pxt.model_base()
+
+        class Docs3(TableModel3, name='docs'):
+            body: pxt.String
+
+        class Archive(TableModel3, name='archive'):
+            body: pxt.String
+
+        @pxt.query
+        def find_archived(q: str) -> pxt.Query:
+            return Archive.where(Archive.body.startswith(q)).select(body=Archive.body).limit(3)  # type: ignore[arg-type]
+
+        class Asks3(TableModel3, name='asks'):
+            question: pxt.String
+            hits = find_archived(question)
+
+        diffs = TableModel3.get_model_diff(p(''))
+        assert {name: d.resolution for name, d in diffs.items()} == {
+            'docs': 'up_to_date',
+            'archive': 'create',
+            'asks': 'update_additive',
+        }
+        assert [(op.op, op.name) for op in diffs['asks'].ops] == [('alter', 'hits')]
+
+        TableModel3.update_all(p(''))
+        assert all(d.resolution == 'up_to_date' for d in TableModel3.get_model_diff(p('')).values())
+        Archive.insert(body='A sample doc body from the archive')
+        Asks3.table.recompute_columns('hits')
+        assert Asks3.table.select(Asks3.hits).collect()['hits'] == [[{'body': 'A sample doc body from the archive'}]]
 
     def test_update_all_migrates_queried_model(self, db_root: DatabaseRoot) -> None:
         """A @pxt.query reads a model that the same update_all() also migrates."""
@@ -1351,6 +1418,8 @@ class TestTableModel:
               sample mismatch (FATAL):
                 model sample   : sample(n=None, n_per_stratum=None, fraction=0.25, seed=2, [])
                 existing sample: sample(n=None, n_per_stratum=None, fraction=0.5, seed=1, [])
+              the following computed columns have a new value expression, and will be UPDATED:
+                'id_copy': id -> id
               the following columns are new to the model, and will be ADDED:
                 'extra1' = {'value': extra1, 'stored': False}
                 'plustwo' = {'value': id + 2, 'stored': True}
@@ -1621,6 +1690,16 @@ class TestTableModel:
                         "model='sample(n=None, n_per_stratum=None, fraction=0.25, seed=2, [])', "
                         "existing='sample(n=None, n_per_stratum=None, fraction=0.5, seed=1, [])'",
                         'details': {},
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'id_copy',
+                        'op': 'alter',
+                        'severity': 'additive',
+                        'model': {'value': 'id'},
+                        'existing': {'value': 'id'},
+                        'description': "the value expression of computed column 'id_copy' will be updated",
+                        'details': {'type': 'Int', 'value': 'id', 'previous_value': 'id', 'stored': False},
                     },
                     {
                         'target': 'column',
@@ -2661,6 +2740,126 @@ class TestTableModel:
         rows = probe.order_by(probe.cutoff).select(probe.matches).collect()
         assert [r['matches'] for r in rows] == [[{'title': 'beta'}], [{'title': 'beta'}]]
 
+    def test_view_over_query_udf_model(self, db_root: DatabaseRoot) -> None:
+        """A view model can be based on a model whose computed columns call a query udf over another model."""
+        from pixeltable.functions import anthropic
+
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            doc_id: pxt.Int
+            title: pxt.String
+
+        @pxt.query
+        def titles_after(cutoff: int) -> pxt.Query:
+            return Docs.where(Docs.doc_id > cutoff).order_by(Docs.doc_id).select(Docs.title)  # type: ignore[arg-type]
+
+        class Probe(TableModel, name='probe'):
+            cutoff: pxt.Int
+            response: pxt.Json
+            matches = titles_after(cutoff)
+            tool_matches = anthropic.invoke_tools(pxt.tools(titles_after), response)
+
+        class ProbeView(TableModel, name='probe_view', base=Probe.where(Probe.cutoff > 0)):
+            match_count = pxtf.json.len(Probe.matches)
+
+        target = db_root.make_catalog_path('qudf_view')
+        pxt.create_dir(target, parents=True)
+        TableModel.create_all(target)
+        pxt.get_table(f'{target}/docs').insert([{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 5, 'title': 'beta'}])
+        tool_use = {'type': 'tool_use', 'name': 'titles_after', 'input': {'cutoff': 1}}
+        pxt.get_table(f'{target}/probe').insert(
+            [{'cutoff': 0, 'response': {'content': [tool_use]}}, {'cutoff': 1, 'response': {'content': [tool_use]}}]
+        )
+
+        view = pxt.get_table(f'{target}/probe_view')
+        rows = view.select(view.matches, view.tool_matches, view.match_count).collect()
+        assert list(rows) == [
+            {'matches': [{'title': 'beta'}], 'tool_matches': {'titles_after': [[{'title': 'beta'}]]}, 'match_count': 1}
+        ]
+
+    def test_nested_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
+        """A query udf over a model can select a query udf over another model."""
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            topic: pxt.String
+            title: pxt.String
+
+        @pxt.query
+        def titles_for(topic: str) -> pxt.Query:
+            return Docs.where(Docs.topic == topic).order_by(Docs.title).select(Docs.title)  # type: ignore[arg-type]
+
+        class Topics(TableModel, name='topics'):
+            topic: pxt.String
+
+        @pxt.query
+        def topics_like(prefix: str) -> pxt.Query:
+            matching = Topics.where(Topics.topic.startswith(prefix))  # type: ignore[arg-type]
+            return matching.order_by(Topics.topic).select(Topics.topic, titles=titles_for(Topics.topic))  # type: ignore[arg-type]
+
+        class Probe(TableModel, name='probe'):
+            prefix: pxt.String
+            matches = topics_like(prefix)
+
+        class ProbeView(TableModel, name='probe_view', base=Probe.where(Probe.prefix != '')):
+            pass
+
+        target = db_root.make_catalog_path('qudf_nested')
+        pxt.create_dir(target, parents=True)
+        TableModel.create_all(target)
+        pxt.get_table(f'{target}/docs').insert(
+            [{'topic': 'cats', 'title': 'b'}, {'topic': 'cats', 'title': 'a'}, {'topic': 'dogs', 'title': 'c'}]
+        )
+        pxt.get_table(f'{target}/topics').insert([{'topic': 'cats'}, {'topic': 'cows'}, {'topic': 'dogs'}])
+        pxt.get_table(f'{target}/probe').insert([{'prefix': 'c'}, {'prefix': ''}])
+
+        view = pxt.get_table(f'{target}/probe_view')
+        assert view.select(view.matches).collect()['matches'] == [
+            [{'topic': 'cats', 'titles': [{'title': 'a'}, {'title': 'b'}]}, {'topic': 'cows', 'titles': []}]
+        ]
+
+    def test_update_all_nested_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
+        """`update_all()` creates every model a new column queries, including through a nested query udf."""
+        TableModel = pxt.model_base()
+
+        class Probe(TableModel, name='probe'):
+            topic: pxt.String
+
+        target = db_root.make_catalog_path('qudf_nested_update')
+        pxt.create_dir(target, parents=True)
+        TableModel.create_all(target)
+        pxt.get_table(f'{target}/probe').insert([{'topic': 'cats'}])
+
+        reload_catalog()
+        TableModelV2 = pxt.model_base()
+
+        class Docs(TableModelV2, name='docs'):
+            topic: pxt.String
+            title: pxt.String
+
+        @pxt.query
+        def titles_for(topic: str) -> pxt.Query:
+            return Docs.where(Docs.topic == topic).select(Docs.title)  # type: ignore[arg-type]
+
+        class Topics(TableModelV2, name='topics'):
+            topic: pxt.String
+
+        @pxt.query
+        def topic_titles(topic: str) -> pxt.Query:
+            return Topics.where(Topics.topic == topic).select(titles=titles_for(Topics.topic))  # type: ignore[arg-type]
+
+        class ProbeV2(TableModelV2, name='probe'):
+            topic: pxt.String
+            matches = topic_titles(topic)
+
+        TableModelV2.update_all(target)
+        pxt.get_table(f'{target}/docs').insert([{'topic': 'cats', 'title': 'a'}])
+        pxt.get_table(f'{target}/topics').insert([{'topic': 'cats'}])
+        probe = pxt.get_table(f'{target}/probe')
+        probe.recompute_columns('matches')
+        assert probe.select(probe.matches).collect()['matches'] == [[{'titles': [{'title': 'a'}]}]]
+
     def test_table_model_validation_errors(self, db_root: DatabaseRoot) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
         p = db_root.make_catalog_path
@@ -3065,6 +3264,58 @@ class TestTableModel:
         assert all(d.resolution == 'up_to_date' for d in NarrowedModel.get_model_diff(root).values())
         t.recompute_columns('doubled')
         assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [100, 200]
+
+    def test_update_all_altered_query_udf_body(self, db_root: DatabaseRoot) -> None:
+        """`update_all()` alters a computed column whose query UDF keeps its name and arguments but changes its body."""
+        p = db_root.make_catalog_path
+        QueryModel = pxt.model_base()
+
+        class Docs(QueryModel, name='docs'):
+            doc_id: pxt.Int
+            title: pxt.String
+
+        @pxt.query
+        def titles_after(cutoff: int) -> pxt.Query:
+            return Docs.where(Docs.doc_id > cutoff).select(Docs.title)  # type: ignore[arg-type]
+
+        class Probe(QueryModel, name='probe'):
+            cutoff: pxt.Int
+            matches = titles_after(cutoff)
+
+        query_root = p('query_udf')
+        pxt.create_dir(query_root, parents=True)
+        QueryModel.create_all(query_root)
+        pxt.get_table(f'{query_root}/docs').insert([{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 5, 'title': 'beta'}])
+        probe = pxt.get_table(f'{query_root}/probe')
+        probe.insert([{'cutoff': 0}])
+        assert probe.select(probe.matches).collect()['matches'] == [[{'title': 'alpha'}, {'title': 'beta'}]]
+
+        reload_catalog()
+        AlteredQueryModel = pxt.model_base()
+
+        class AlteredDocs(AlteredQueryModel, name='docs'):
+            doc_id: pxt.Int
+            title: pxt.String
+
+        # redefine the query
+        @pxt.query  # type: ignore[no-redef]
+        def titles_after(cutoff: int) -> pxt.Query:
+            return AlteredDocs.where(AlteredDocs.doc_id < cutoff).select(AlteredDocs.title)  # type: ignore[arg-type]
+
+        # Updated model. The only difference is matches' underlying query
+        class AlteredProbe(AlteredQueryModel, name='probe'):
+            cutoff: pxt.Int
+            matches = titles_after(cutoff)
+
+        diff = AlteredQueryModel.get_model_diff(query_root)['probe']
+        assert diff.resolution == 'update_additive'
+        assert [(op.op, op.name) for op in diff.ops] == [('alter', 'matches')]
+
+        AlteredQueryModel.update_all(query_root)
+        assert AlteredQueryModel.get_model_diff(query_root)['probe'].resolution == 'up_to_date'
+        probe = pxt.get_table(f'{query_root}/probe')
+        probe.recompute_columns('matches')
+        assert probe.select(probe.matches).collect()['matches'] == [[]]
 
     def test_update_all_altered_column_unsupported(self, db_root: DatabaseRoot) -> None:
         """Unsupported column changes"""

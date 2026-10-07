@@ -45,7 +45,6 @@ VERY_EXPENSIVE_NOTEBOOKS=(
 
 # Notebooks that are skipped unless --include-expensive is passed: all notebooks that use HF models.
 EXPENSIVE_NOTEBOOKS=(
-    audio-podcast-chapters
     audio-transcriptions
     computed-columns
     data-import-huggingface
@@ -110,6 +109,9 @@ if [[ $DO_PIP_INSTALL == true ]]; then
     # TODO(PXT-1427): the instrumentation package is available in the source checkout, but is not yet published
     # on PyPI.
     SKIP_NOTEBOOKS+=(observability)
+else
+    # whisperx is not in the dev env; this notebook gets it only from its %pip cell
+    SKIP_NOTEBOOKS+=(audio-podcast-chapters)
 fi
 
 echo "Target path: $TARGET_DIR"

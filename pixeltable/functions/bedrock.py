@@ -1,7 +1,7 @@
 """
 Pixeltable UDFs for AWS Bedrock AI models.
 In order to use them, you must
-first `pip install boto3` and configure your AWS credentials, as described in
+first configure your AWS credentials, as described in
 the [Working with Bedrock](https://docs.pixeltable.com/howto/providers/working-with-bedrock) tutorial.
 """
 
@@ -340,10 +340,6 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
     (set environment variable `BEDROCK_TEMP_LOCATION` or add `temp_location` to the `[bedrock]` section of
     your Pixeltable configuration file).
 
-    __Requirements:__
-
-    - `pip install boto3`
-
     Args:
         body: The prompt and inference parameters as a dictionary.
         model_id: The model identifier to invoke.
@@ -514,10 +510,6 @@ async def converse(
     PIL images and media file paths in `messages[*].content[*].(image|video|audio).source.bytes`
     are converted to raw bytes automatically.
 
-    __Requirements:__
-
-    - `pip install boto3`
-
     Args:
         messages: Input messages.
         model_id: The model that will complete your prompt.
@@ -603,10 +595,6 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
     <https://docs.aws.amazon.com/bedrock/latest/userguide/titan-embedding-models.html>
     <https://docs.aws.amazon.com/nova/latest/userguide/modality-embedding.html>
     <https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-embed.html>
-
-    __Requirements:__
-
-    - `pip install boto3`
 
     Args:
         text: Input text to embed.

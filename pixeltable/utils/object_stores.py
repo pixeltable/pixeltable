@@ -433,7 +433,12 @@ class ObjectStoreBase:
 class ObjectOps:
     @classmethod
     def get_store(
-        cls, dest: str | StorageObjectAddress | None, allow_obj_name: bool, col_name: str | None = None
+        cls,
+        dest: str | StorageObjectAddress | None,
+        allow_obj_name: bool,
+        col_name: str | None = None,
+        *,
+        scope_credentials: bool = False,
     ) -> ObjectStoreBase:
         from pixeltable.env import Env
         from pixeltable.utils.local_store import LocalStore
@@ -447,17 +452,15 @@ class ObjectOps:
         if soa.storage_target == StorageTarget.LOCAL_STORE:
             return LocalStore(soa)
         if soa.storage_target == StorageTarget.PIXELTABLE_STORE:
-            env.Env.get().require_package('boto3')
             from pixeltable.utils.pxt_store import PxtStore
 
-            return PxtStore(soa)
+            return PxtStore(soa, scope_credentials=scope_credentials)
         if soa.storage_target in (
             StorageTarget.S3_STORE,
             StorageTarget.R2_STORE,
             StorageTarget.B2_STORE,
             StorageTarget.TIGRIS_STORE,
         ):
-            env.Env.get().require_package('boto3')
             from pixeltable.utils.s3_store import S3Store
 
             return S3Store(soa)

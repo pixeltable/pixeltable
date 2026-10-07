@@ -12,11 +12,16 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from textwrap import dedent
 from typing import Callable
 
 import pytest
 
 import pixeltable as pxt
+import pixeltable_cli.client.commands.db as db_cmd
+from pixeltable.utils.app_module import load_app_module
+from pixeltable_cli import types
+from pixeltable_cli.client import utils
 from pixeltable_cli.client.utils import display_path
 
 from ..utils import DatabaseRoot, get_image_files
@@ -66,6 +71,33 @@ class TestDbDelete:
                 assert f'delete {uri}? This is irreversible.' in result.stderr
                 assert '--force/-f' in result.stderr
                 assert result.stdout == ''
+
+    def test_update_json_prints_pending_plan(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`--json` skips the pending plan up front, so a refusal still prints that plan as its one document."""
+        plan = types.DbPlan.from_ops(
+            'pxt://acme:main',
+            types.DbState.AVAILABLE,
+            [
+                types.DbChangeOp(
+                    target='archive',
+                    name='project',
+                    op='alter',
+                    severity='additive',
+                    description='the project files will be uploaded: app.py changed',
+                )
+            ],
+        )
+        monkeypatch.setattr(db_cmd, 'post_request', lambda _path, _body: plan.model_dump(mode='json'))
+        monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: False)
+
+        with pytest.raises(SystemExit, match=f'^{utils.EXIT_REFUSED}$'):
+            db_cmd.run(['update', 'pxt://acme:main', '--json'])
+
+        doc = json.loads(capsys.readouterr().out)
+        assert doc['resolution'] == 'update_additive'
+        assert doc['in_agreement'] is False
 
 
 class TestLs:
@@ -1033,25 +1065,35 @@ class TestMv:
     'local', reason='TODO: run against a hosted database, once a pod can fetch a project it was not built with'
 )
 class TestRecompute:
-    @pxt.udf
-    @staticmethod
-    def _doubled(a: int) -> int:
-        if a < 0:
-            raise ValueError('negative')
-        return a * 2
+    # in the served project, so the daemon can import it without an editable install
+    UDF_MODULE = dedent(
+        """
+        import pixeltable as pxt
 
-    def _table(self, path: str) -> pxt.Table:
+
+        @pxt.udf
+        def doubled(a: int) -> int:
+            if a < 0:
+                raise ValueError('negative')
+            return a * 2
+        """
+    )
+
+    def _table(self, path: str, project: pathlib.Path) -> pxt.Table:
         """A table with a computed column that fails on one row, and a second column that depends on it."""
+        udf_file = project / 'recompute_udfs.py'
+        udf_file.write_text(self.UDF_MODULE, encoding='utf-8')
+        doubled = load_app_module(str(udf_file), subject='UDF module').doubled
         t = pxt.create_table(path, {'a': pxt.Int | None}, if_exists='replace')
-        t.add_computed_column(doubled=TestRecompute._doubled(t.a), on_error='ignore')
+        t.add_computed_column(doubled=doubled(t.a), on_error='ignore')
         t.add_computed_column(quadrupled=t.doubled * 2)
         t.insert([{'a': 1}, {'a': 2}, {'a': -1}], on_error='ignore')
         return t
 
-    def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot, session_project: pathlib.Path) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_rc'), if_exists='ignore')
-        t = self._table(p('cli_rc/t'))
+        t = self._table(p('cli_rc/t'), session_project)
 
         # dry-run reports the row count it would recompute over, and changes nothing
         v_before = t.get_metadata()['version']
@@ -1084,10 +1126,12 @@ class TestRecompute:
         assert 'recomputed' in text
         assert '2 errors in t.doubled' in text
 
-    def test_cascade_and_errors_only(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    def test_cascade_and_errors_only(
+        self, cli: PxtRunner, db_root: DatabaseRoot, session_project: pathlib.Path
+    ) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_rc2'), if_exists='ignore')
-        t = self._table(p('cli_rc2/t'))
+        t = self._table(p('cli_rc2/t'), session_project)
 
         # --no-cascade leaves the dependent column out of the operation
         out = cli('recompute', p('cli_rc2/t'), 'doubled', '--no-cascade', '-f', '--json').json
@@ -1098,10 +1142,10 @@ class TestRecompute:
         assert out['num_rows'] == 1
         assert t.where(t.a == 2).select(t.doubled).collect()[0]['doubled'] == 4
 
-    def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+    def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot, session_project: pathlib.Path) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_rc_err'), if_exists='ignore')
-        t = self._table(p('cli_rc_err/t'))
+        t = self._table(p('cli_rc_err/t'), session_project)
 
         # client preflight: errors_only takes one column
         r = cli('recompute', p('cli_rc_err/t'), 'doubled', 'quadrupled', '--errors-only', '-f', check=False)
@@ -1422,7 +1466,7 @@ class TestColdStartBudget:
     budget and defeating the daemon split. The `-X importtime` log is authoritative.
     """
 
-    @pytest.mark.parametrize('command', ['ls', 'login', 'logout', 'whoami', 'key', 'org', 'db', 'service'])
+    @pytest.mark.parametrize('command', ['ls', 'new', 'login', 'logout', 'whoami', 'key', 'org', 'db', 'service'])
     def test_pixeltable_not_imported_by_client(
         self, cli: PxtRunner, pxt_daemon: int, session_project: pathlib.Path, command: str
     ) -> None:

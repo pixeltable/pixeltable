@@ -4,13 +4,16 @@ import errno
 import io
 import os
 import re
+import shutil
+import threading
 import time
 import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
+import numpy as np
 import PIL.Image
 import pytest
 import requests
@@ -18,8 +21,10 @@ import requests
 import pixeltable as pxt
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.exec import CellMaterializationNode, cell_reconstruction_node
 from pixeltable.functions.net import presigned_url
 from pixeltable.functions.video import extract_frame
+from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectPath, StorageTarget
 
@@ -129,7 +134,6 @@ class TestDestination:
     @pytest.mark.very_expensive
     def test_invalid_bucket(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')
         t = pxt.create_table(p('test_invalid_dest'), schema={'img': pxt.Image | None})
 
         with pxt_raises(
@@ -241,7 +245,6 @@ class TestDestination:
                 'its media dir or an external store, never a local path'
             )
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils.pxt_store import PxtStore
         from pixeltable.utils.s3_store import S3Store
 
@@ -593,6 +596,117 @@ class TestDestination:
         assert ObjectOps.count(save_id, dest=home) == 0
         assert ObjectOps.count(save_id, dest=elsewhere) == 0
 
+    CELL_FILES_SCHEMA: ClassVar[dict[str, Any]] = {
+        'id': pxt.Int,
+        'ar': pxt.Array | None,
+        'bin': pxt.Binary | None,
+        'j': pxt.Json | None,
+    }
+
+    @classmethod
+    def check_cell_files(cls, t: pxt.Table, dest: str) -> None:
+        """Insert array, binary and json values too large for the db column, and check that dest stores them."""
+        rng = np.random.default_rng(0)
+
+        def small_row(i: int) -> dict[str, Any]:
+            return {
+                'id': i,
+                'ar': rng.random(1000, dtype=np.float32),
+                'bin': rng.bytes(2**10),
+                'j': {
+                    'img': PIL.Image.new('RGB', (16, 8), color=(i, 2, 3)),
+                    'ar': rng.random(100),
+                    'bin': rng.bytes(600),
+                },
+            }
+
+        large_ar = rng.random(CellMaterializationNode.MIN_FILE_SIZE // 4, dtype=np.float32)
+        rows = [small_row(0), {'id': 1, 'ar': large_ar}, small_row(2)]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+        # the large array gets a file of its own, between those of its neighbors
+        assert ObjectOps.count(t._id, dest=dest) == 3
+
+        res = t.order_by(t.id).collect()
+        for row, expected in zip(res, rows):
+            assert np.array_equal(row['ar'], expected['ar'])
+            assert row['bin'] == expected.get('bin')
+            if expected.get('j') is None:
+                assert row['j'] is None
+                continue
+            assert np.array_equal(row['j']['ar'], expected['j']['ar'])
+            assert row['j']['bin'] == expected['j']['bin']
+            assert isinstance(row['j']['img'], PIL.Image.Image) and row['j']['img'].size == (16, 8)
+        # a json path reconstructs the objects it selects
+        res = t.where(t.id != 1).order_by(t.id).select(ar=t.j.ar, img=t.j.img).collect()
+        assert all(np.array_equal(row['ar'], expected['j']['ar']) for row, expected in zip(res, rows[::2]))
+        assert all(isinstance(row['img'], PIL.Image.Image) for row in res)
+
+    @pytest.mark.db_roots('cloud', reason='the home bucket default applies to a hosted database only')
+    def test_home_bucket_cell_files(self, db_root: DatabaseRoot) -> None:
+        """A hosted database keeps large array, binary and json values in its home bucket, not on its pod's disk."""
+        home = home_bucket_uri(db_root.base_uri)
+        t = pxt.create_table(db_root.make_catalog_path('home_cell_files'), self.CELL_FILES_SCHEMA)
+        self.check_cell_files(t, home)
+
+        tbl_id = t._id
+        pxt.drop_table(t)
+        assert ObjectOps.count(tbl_id, dest=home) == 0
+
+    @pytest.mark.db_roots('local', reason='sets the cell materialization destination in-process')
+    @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS.values())
+    def test_cell_materialization_dest(
+        self, monkeypatch: pytest.MonkeyPatch, uses_db: None, dest_id: StorageTarget
+    ) -> None:
+        """Large array, binary and json values go to Env.cell_materialization_dest, as they do for a hosted database."""
+        dest = self.resolve_destination_uri(dest_id)
+        assert dest is not None
+        monkeypatch.setattr(Env.get(), '_cell_materialization_dest', dest)
+        # reading a chunk doesn't depend on the file cache, which is smaller than the large array's chunk
+        FileCache.get().set_capacity(2**20)
+        num_tmp_files = TempStore.count()
+        t = pxt.create_table('cell_files', self.CELL_FILES_SCHEMA)
+        self.check_cell_files(t, dest)
+        assert LocalStore(Env.get().media_dir).count(t._id) == 0
+        # neither the uploads nor the downloads leave files behind
+        assert TempStore.count() == num_tmp_files
+
+        tbl_id = t._id
+        pxt.drop_table(t)
+        assert ObjectOps.count(tbl_id, dest=dest) == 0
+
+    @pytest.mark.db_roots('local', reason='treats a local destination as remote in-process')
+    def test_cell_files_remote_reads(self, monkeypatch: pytest.MonkeyPatch, uses_db: None) -> None:
+        """Queries download the chunks in a remote destination, and delete the downloads when done with them."""
+        dest = self.resolve_destination_uri(StorageTarget.LOCAL_STORE)
+        assert dest is not None
+        monkeypatch.setattr(Env.get(), '_cell_materialization_dest', dest)
+
+        # treat the chunks in dest as remote: reads download them instead of opening them in place
+        parse_local_file_path = cell_reconstruction_node.parse_local_file_path
+        download_threads: list[str] = []
+
+        def parse_unless_dest(url: str) -> Path | None:
+            return None if url.startswith(dest) else parse_local_file_path(url)
+
+        def download(src_uri: str, dest_path: Path) -> None:
+            src_path = parse_local_file_path(src_uri)
+            assert src_path is not None
+            shutil.copyfile(src_path, dest_path)
+            download_threads.append(threading.current_thread().name)
+
+        monkeypatch.setattr(cell_reconstruction_node, 'parse_local_file_path', parse_unless_dest)
+        monkeypatch.setattr(ObjectOps, 'copy_object_to_local_file', staticmethod(download))
+        FileCache.get().set_capacity(2**20)
+        num_tmp_files = TempStore.count()
+
+        t = pxt.create_table('cell_files', self.CELL_FILES_SCHEMA)
+        self.check_cell_files(t, dest)
+        # every download, including those for json paths, ran concurrently off the event loop
+        assert len(download_threads) > 0
+        assert all(name.startswith('pxt-chunk-download') for name in download_threads), download_threads
+        assert TempStore.count() == num_tmp_files
+        pxt.drop_table(t)
+
     @pytest.mark.db_roots('local', reason='media destination/object-store internals')
     @pytest.mark.very_expensive
     def test_presigned_url_all_destinations(self, uses_db: None) -> None:
@@ -701,8 +815,8 @@ class TestDestination:
             print(item)
         assert len(r) > 2
 
-    PUBLIC_TEST_OBJECTS: ClassVar[dict[StorageTarget, tuple[str, str, str]]] = {
-        # StorageTarget -> (module_name, src_base, src_obj)
+    PUBLIC_TEST_OBJECTS: ClassVar[dict[StorageTarget, tuple[str | None, str, str]]] = {
+        # StorageTarget -> (optional module_name, src_base, src_obj)
         StorageTarget.AZURE_STORE: (
             'azure.storage.blob',
             'https://azureopendatastorage.blob.core.windows.net/mnist/',
@@ -713,7 +827,7 @@ class TestDestination:
             'gs://hdrplusdata/',
             '20171106_subset/gallery_20171023/c483_20150901_105412_265.jpg',
         ),
-        StorageTarget.S3_STORE: ('boto3', 's3://open-images-dataset/validation/', '3c02ca9ec9b2b77b.jpg'),
+        StorageTarget.S3_STORE: (None, 's3://open-images-dataset/validation/', '3c02ca9ec9b2b77b.jpg'),
     }
 
     @pytest.mark.db_roots('local', reason='media destination/object-store internals')
@@ -722,7 +836,8 @@ class TestDestination:
     def test_public_download(self, uses_db: None, dest_id: StorageTarget) -> None:
         """Test downloading a media object from a public Store"""
         module_name, src_base, src_obj = self.PUBLIC_TEST_OBJECTS[dest_id]
-        skip_test_if_not_installed(module_name)
+        if module_name is not None:
+            skip_test_if_not_installed(module_name)
         self.__download_object(src_base, src_obj)
 
     def test_http_download_retry(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

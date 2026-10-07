@@ -48,8 +48,6 @@ class ManagementOperationType(str, Enum):
 
     SET_SECRET = 'set_secret'
     DELETE_SECRET = 'delete_secret'
-    # TODO(PXT-1438): delete this when we no longer need to support older pxt cli
-    LIST_SECRETS = 'list_secrets'
     LIST_ALL_SECRETS = 'list_all_secrets'
 
     CREATE_KEY = 'create_key'
@@ -243,16 +241,6 @@ class DeleteSecretRequest(BaseModel):
 
 class DeleteSecretResponse(BaseModel):
     key: str
-
-
-class ListSecretsRequest(BaseModel):
-    operation_type: Literal[ManagementOperationType.LIST_SECRETS] = ManagementOperationType.LIST_SECRETS
-    org: str | None = None
-    db: str | None = None
-
-
-class ListSecretsResponse(BaseModel):
-    keys: list[str]
 
 
 class ListAllSecretsRequest(BaseModel):
