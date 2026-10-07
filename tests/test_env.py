@@ -214,6 +214,31 @@ class TestHostedMediaDefault:
         Config.init(reinit=True, project_root=project_root)
         _reset_env(reinit=False, db_name=None)
 
+    def test_pxtfs_media_dest_warns(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A media destination configured in the pxtfs:// spelling warns, at the line that set up Pixeltable, and
+        still applies. The pxt:// spelling, the home-bucket default and a daemon do not warn."""
+        monkeypatch.delenv('PIXELTABLE_INPUT_MEDIA_DEST', raising=False)
+        monkeypatch.setenv('PXTCLOUD_ORG', 'org1')
+        monkeypatch.setenv('PXTCLOUD_DB', 'db1')
+        monkeypatch.setenv('PIXELTABLE_OUTPUT_MEDIA_DEST', 'pxtfs://org1:db1/home/out')
+        with pytest.warns(excs.PixeltableDeprecationWarning) as record:
+            _reset_env(reinit=False, db_name=None)
+        assert [str(w.message) for w in record] == [
+            "output_media_dest 'pxtfs://org1:db1/home/out' uses the deprecated pxtfs:// spelling; write "
+            "'pxt://org1:db1/buckets/home/out' instead. Values already stored as pxtfs:// keep reading."
+        ]
+        assert record[0].filename == __file__
+        assert Env.get().default_output_media_dest == 'pxtfs://org1:db1/home/out'
+        assert Env.get().default_input_media_dest == 'pxt://org1:db1/buckets/home'
+
+        # the suite turns a Pixeltable warning into an error, so each of these would raise if it warned
+        monkeypatch.setenv('PIXELTABLE_PROXY_DAEMON', '1')
+        _reset_env(reinit=False, db_name=None)
+        monkeypatch.delenv('PIXELTABLE_PROXY_DAEMON')
+        monkeypatch.setenv('PIXELTABLE_OUTPUT_MEDIA_DEST', 'pxt://org1:db1/buckets/home/out')
+        _reset_env(reinit=False, db_name=None)
+        assert Env.get().default_output_media_dest == 'pxt://org1:db1/buckets/home/out'
+
 
 class TestProxyEndpoint:
     @pytest.mark.parametrize(

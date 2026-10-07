@@ -13,6 +13,7 @@ import requests
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+from pixeltable.catalog.table_proxy import TableProxy
 from pixeltable.env import Env
 from pixeltable.service.proxy_protocol import PxtStorePartSink
 from pixeltable.service.pxtfs_protocol import GetBucketCredentialsResponse
@@ -21,9 +22,11 @@ from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectPat
 
 from .utils import (
     CLOUD_DB_ROOT_URIS,
+    DatabaseRoot,
     cloud_env_configured,
     home_bucket_uri,
     pxt_raises,
+    reload_catalog,
     skip_test_if_no_pxt_credentials,
     skip_test_if_not_installed,
     validate_update_status,
@@ -362,6 +365,74 @@ class TestPxtStore:
                     _clips_model(f'clips_{i}', created).create_all()
                 resolutions = [d.resolution for d in _clips_model(f'clips_{i}', declared).get_model_diff().values()]
                 assert resolutions == (['unsupported'] if declared.endswith('/other') else ['up_to_date']), declared
+
+    def test_pxtfs_destination_warns(self, uses_db: None) -> None:
+        """A destination named in the pxtfs:// spelling warns, at the caller's line and once per line, and still
+        works. The pxt:// spelling does not warn, and neither does a column that stored the pxtfs:// one."""
+        skip_test_if_not_installed('boto3')
+        from pixeltable.utils import pxt_store
+        from pixeltable.utils.s3_store import S3Store
+
+        db = f'db_{uuid.uuid4().hex}'
+        old, new = f'pxtfs://org1:{db}/home/media', f'pxt://org1:{db}/buckets/home/media'
+        img_path = 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'
+        with (
+            patch.object(pxt_store, 'get_bucket_credentials', return_value=_bucket_credentials()),
+            patch.object(S3Store, 'list_objects', return_value=[]),
+            patch.object(S3Store, 'copy_local_file', autospec=True, side_effect=lambda store, src, dest: dest.url),
+        ):
+            t = pxt.create_table('pxtfs_warns', {'img': pxt.Image})
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter('default')
+                for _ in range(2):
+                    t.add_computed_column(rot=t.img.rotate(90), destination=old, if_exists='replace')
+            pxt_warnings = [w for w in caught if issubclass(w.category, excs.PixeltableWarning)]
+            assert [(str(w.message), w.category, w.filename) for w in pxt_warnings] == [
+                (
+                    f"Column 'rot': destination {old!r} uses the deprecated pxtfs:// spelling; write {new!r} instead. "
+                    'Values already stored as pxtfs:// keep reading.',
+                    excs.PixeltableDeprecationWarning,
+                    __file__,
+                )
+            ]
+
+            # the suite turns a Pixeltable warning into an error, so each of these would raise if it warned
+            t.add_computed_column(rot2=t.img.rotate(270), destination=new)
+            validate_update_status(t.insert([{'img': img_path}]), expected_rows=1)
+            reload_catalog()
+            t = pxt.get_table('pxtfs_warns')
+            validate_update_status(t.insert([{'img': img_path}]), expected_rows=1)
+            assert t.get_metadata()['columns']['rot']['destination'] == old
+            assert all(url.startswith(f'{new}/') for url in t.select(t.rot.fileurl).collect()['rot_fileurl'])
+
+            # a column spec is checked as a destination= argument is
+            with pytest.warns(excs.PixeltableDeprecationWarning, match="Column 'flip': destination 'pxtfs://"):
+                pxt.create_view(
+                    'pxtfs_view', t, additional_columns={'flip': {'value': t.img.rotate(180), 'destination': old}}
+                )
+
+    @pytest.mark.db_roots('proxy', reason='a hosted catalog validates a new column in its daemon')
+    def test_pxtfs_destination_warns_hosted_client(
+        self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The client of a hosted catalog warns about a pxtfs:// destination itself, before it sends the column to the
+        daemon, where none of the caller's code runs."""
+        t = pxt.create_table(db_root.make_catalog_path('pxtfs_client'), {'img': pxt.Image})
+        sent: list[tuple[str, Any]] = []
+        monkeypatch.setattr(
+            TableProxy, '_dispatch', lambda self, method, args: sent.append((method, args['destination']))
+        )
+        old = 'pxtfs://org1:db1/home/media'
+        with pytest.warns(excs.PixeltableDeprecationWarning) as record:
+            t.add_computed_column(rot=t.img.rotate(90), destination=old)
+        assert [(str(w.message), w.filename) for w in record] == [
+            (
+                f"Column 'rot': destination {old!r} uses the deprecated pxtfs:// spelling; write "
+                "'pxt://org1:db1/buckets/home/media' instead. Values already stored as pxtfs:// keep reading.",
+                __file__,
+            )
+        ]
+        assert sent == [('add_computed_column', old)]
 
     def test_part_sink_writes_pxt_addresses(self, init_env: None, tmp_path: Path) -> None:
         """An upload sink writes each part to uploads/<request>/<part> with credentials for that prefix only, under a

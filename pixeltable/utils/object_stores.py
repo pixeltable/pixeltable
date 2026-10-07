@@ -4,9 +4,11 @@ import dataclasses
 import enum
 import os
 import re
+import sys
 import urllib.parse
 import urllib.request
 import uuid
+import warnings
 from pathlib import Path
 from typing import NamedTuple
 from uuid import UUID
@@ -362,6 +364,40 @@ class ObjectPath:
         if soa.storage_target != StorageTarget.PIXELTABLE_STORE:
             return uri
         return f'{soa.prefix_free_uri}{soa.key}' if len(soa.key) > 0 else soa.prefix_free_uri.rstrip('/')
+
+
+# a warning names the first caller outside these packages
+_PIXELTABLE_PACKAGES = frozenset({'pixeltable', 'pixeltable_cli'})
+
+
+def warn_if_pxtfs(dest: object, setting: str) -> None:
+    """Warn that dest, the value a user chose for setting, spells a home-bucket address the deprecated pxtfs:// way.
+
+    Call it only where a user's configuration or argument enters Pixeltable, never for a stored value. The warning
+    names the user's line that led here, so the warnings registry shows it once per line.
+    """
+    if not isinstance(dest, str) or urllib.parse.urlparse(dest).scheme.lower() != 'pxtfs':
+        return
+    uri = ObjectPath.canonical_uri(dest)
+    if uri == dest:
+        return  # not a home-bucket address; validating the destination reports that
+    warnings.warn(
+        f'{setting} {dest!r} uses the deprecated pxtfs:// spelling; write {uri!r} instead. Values already stored as '
+        'pxtfs:// keep reading.',
+        excs.PixeltableDeprecationWarning,
+        stacklevel=_first_caller_outside_pixeltable(),
+    )
+
+
+def _first_caller_outside_pixeltable() -> int:
+    """The stacklevel for which warnings.warn(), called by this function's caller, names the first frame whose module
+    is not part of Pixeltable, or the outermost frame if every one is."""
+    frame = sys._getframe(1)
+    level = 1
+    while frame.f_back is not None and frame.f_globals.get('__name__', '').partition('.')[0] in _PIXELTABLE_PACKAGES:
+        frame = frame.f_back
+        level += 1
+    return level
 
 
 class ObjectStoreBase:
