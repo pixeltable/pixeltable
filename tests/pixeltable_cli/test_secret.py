@@ -266,10 +266,19 @@ class TestSecret:
         }
         missing = f'PXTTEST_MISSING_{run_id}'
 
-        def rows_at(uri: str) -> list[dict[str, Any]]:
-            """This run's secrets set at exactly uri's scope."""
-            rows = session_cli('secret', 'list', uri, '--json').json
-            return [row for row in rows if run_id in row['key'] and row['scope'] == uri]
+        def wait_for_keys(uri: str, *expected: str) -> None:
+            """Wait until this run's secrets set at exactly uri's scope are the expected ones.
+
+            A WorkOS Vault read can trail a write, so a list can show the secrets as they were before it.
+            """
+            deadline = time.monotonic() + _VAULT_LAG_SECS
+            while True:
+                rows = session_cli('secret', 'list', uri, '--json').json
+                rows = [row for row in rows if run_id in row['key'] and row['scope'] == uri]
+                if rows == [{'key': key, 'scope': uri} for key in expected]:
+                    return
+                assert time.monotonic() < deadline, rows
+                time.sleep(2.0)
 
         try:
             for uri, (doomed, kept) in keys.items():
@@ -278,14 +287,11 @@ class TestSecret:
                 # an overwrite replaces the secret rather than adding a second one; no output shows the value
                 r = session_cli('secret', 'set', uri, f'{doomed}=second-value', '--json')
                 assert r.json == [{'key': doomed, 'scope': uri}]
-                assert rows_at(uri) == [{'key': doomed, 'scope': uri}, {'key': kept, 'scope': uri}]
+                wait_for_keys(uri, doomed, kept)
 
                 r = session_cli('secret', 'delete', uri, doomed, '--json')
                 assert r.json == [{'key': doomed, 'scope': uri}]
-                deadline = time.monotonic() + _VAULT_LAG_SECS
-                while (rows := rows_at(uri)) != [{'key': kept, 'scope': uri}]:
-                    assert time.monotonic() < deadline, rows
-                    time.sleep(2.0)
+                wait_for_keys(uri, kept)
 
                 # a name never set, since the delete's own read of the vault may still find the one just deleted
                 r = session_cli('secret', 'delete', uri, missing, check=False)
