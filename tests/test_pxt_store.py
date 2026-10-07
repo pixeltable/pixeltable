@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import shutil
 import uuid
+import warnings
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -48,6 +50,17 @@ def _bucket_credentials(no_space_left: bool = False) -> GetBucketCredentialsResp
         ttl_seconds=3600,
         no_space_left=no_space_left,
     )
+
+
+def _clips_model(name: str, destination: str) -> Any:
+    """The model base of table `name`, whose one computed column writes to destination."""
+    base = pxt.model_base()
+
+    class Clips(base, name=name):
+        img: pxt.Image | None
+        rot = pxt.Column(value=img.rotate(90), destination=destination)  # noqa: F821  # the model's own column
+
+    return base
 
 
 class TestPxtStore:
@@ -328,6 +341,27 @@ class TestPxtStore:
         tbl_prefix = ObjectPath.table_prefix(t._id)
         assert all(url.startswith(f'pxt://org1:{db}/buckets/home/media/{tbl_prefix}/') for url in res['rot'])
         assert sorted(res['rot']) == sorted(f'pxt://org1:{db}/buckets/home/{key}' for key in uploads)
+
+    def test_model_respelled_destination(self, uses_db: None) -> None:
+        """A model that names its table's home-bucket destination in the other spelling is up to date; one that names
+        another prefix is not."""
+        skip_test_if_not_installed('boto3')
+        from pixeltable.utils import pxt_store
+        from pixeltable.utils.s3_store import S3Store
+
+        db = f'db_{uuid.uuid4().hex}'
+        old, new = f'pxtfs://org1:{db}/home/media', f'pxt://org1:{db}/buckets/home/media'
+        with (
+            patch.object(pxt_store, 'get_bucket_credentials', return_value=_bucket_credentials()),
+            patch.object(S3Store, 'list_objects', return_value=[]),
+        ):
+            for i, (created, declared) in enumerate(((old, new), (new, old), (new, f'{new}/other'))):
+                with warnings.catch_warnings():
+                    # as a release from before the pxt:// spelling stored it, when created is spelled pxtfs://
+                    warnings.simplefilter('ignore', excs.PixeltableDeprecationWarning)
+                    _clips_model(f'clips_{i}', created).create_all()
+                resolutions = [d.resolution for d in _clips_model(f'clips_{i}', declared).get_model_diff().values()]
+                assert resolutions == (['unsupported'] if declared.endswith('/other') else ['up_to_date']), declared
 
     def test_part_sink_writes_pxt_addresses(self, init_env: None, tmp_path: Path) -> None:
         """An upload sink writes each part to uploads/<request>/<part> with credentials for that prefix only, under a

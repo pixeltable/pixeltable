@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pixeltable import catalog, exprs, func
 from pixeltable.types import ColumnSpec
+from pixeltable.utils.object_stores import ObjectPath
 from pixeltable_cli.types import Resolution, SchemaChangeIndexRef, SchemaChangeOp, SchemaChangeOpDetails, TableDiff
 
 from ..globals import col_type_from_spec, fold_mapping_keys
@@ -42,6 +43,11 @@ def _resolution(exists: bool, ops: list[SchemaChangeOp]) -> Resolution:
     return 'update_additive'
 
 
+def _comparable_destination(dest: str | None) -> str | None:
+    """dest, with a home-bucket address in one spelling: a model that respells its destination changes no schema."""
+    return None if dest is None else ObjectPath.canonical_uri(dest)
+
+
 @dataclasses.dataclass
 class _ColumnProperties:
     """The comparable properties of a column, either from a model or from an existing table."""
@@ -67,7 +73,6 @@ class _ColumnProperties:
         value = spec.get('value')
         comment = spec.get('comment')
         dest = spec.get('destination')
-        dest_str = str(dest) if dest is not None else None
         return cls(
             type=repr(col_type),
             value=exprs.Expr.from_object(value).display_str(inline=False) if value is not None else None,
@@ -78,7 +83,7 @@ class _ColumnProperties:
             else None,
             comment=comment if comment else None,
             custom_metadata=spec.get('custom_metadata'),
-            destination=dest_str,
+            destination=_comparable_destination(None if dest is None else str(dest)),
         )
 
     @classmethod
@@ -92,7 +97,7 @@ class _ColumnProperties:
             media_validation=col_md['media_validation'],
             comment=col_md['comment'],
             custom_metadata=col_md['custom_metadata'],
-            destination=col_md['destination'],
+            destination=_comparable_destination(col_md['destination']),
         )
 
 

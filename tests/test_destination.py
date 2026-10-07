@@ -287,6 +287,24 @@ class TestDestination:
                 with pytest.raises(ValueError, match=f'Invalid pxt:// store URI .*{match}'):
                     ObjectPath.parse_object_storage_addr(uri, allow_obj_name)
 
+    def test_canonical_uri(self) -> None:
+        """A home-bucket address in either spelling comes back as pxt://; any other uri comes back as given."""
+        for uri, expected in (
+            ('pxtfs://org:db/home', 'pxt://org:db/buckets/home'),
+            ('pxtfs://org:db/home/', 'pxt://org:db/buckets/home'),
+            ('pxtfs://org:db/home/media/', 'pxt://org:db/buckets/home/media/'),
+            (
+                'PXTFS://org:db/home/9f3a/2026-09-01T10:30:00Z.mp4',
+                'pxt://org:db/buckets/home/9f3a/2026-09-01T10:30:00Z.mp4',
+            ),
+            ('pxt://org:db/buckets/home/media', 'pxt://org:db/buckets/home/media'),
+            ('pxtfs://orgonly/home', 'pxtfs://orgonly/home'),
+            ('pxt://org:db/dir/tbl', 'pxt://org:db/dir/tbl'),
+            ('s3://bucket/media', 's3://bucket/media'),
+            ('$media_dest', '$media_dest'),
+        ):
+            assert ObjectPath.canonical_uri(uri) == expected, uri
+
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS.values())
     def test_destination(self, db_root: DatabaseRoot, dest_id: StorageTarget) -> None:
         """Test various media destinations."""

@@ -349,6 +349,20 @@ class ObjectPath:
         r = soa._replace(prefix=prefix, object_name=object_name)
         return r
 
+    @classmethod
+    def canonical_uri(cls, uri: str) -> str:
+        """uri, with a home-bucket address spelled pxt://<org>:<db>/buckets/home[/<key>], as stored objects are.
+
+        Any other uri, including one the parser refuses, is returned unchanged.
+        """
+        try:
+            soa = cls.parse_object_storage_addr1(uri)
+        except ValueError:
+            return uri
+        if soa.storage_target != StorageTarget.PIXELTABLE_STORE:
+            return uri
+        return f'{soa.prefix_free_uri}{soa.key}' if len(soa.key) > 0 else soa.prefix_free_uri.rstrip('/')
+
 
 class ObjectStoreBase:
     def validate(self, error_prefix: str) -> str | None:
