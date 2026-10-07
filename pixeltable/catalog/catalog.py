@@ -1456,10 +1456,10 @@ class Catalog(CatalogBase):
         """
         if not dir_path.is_root or fold_identifier(name) != _HOSTED_RESERVED_ROOT_NAME:
             return
-        env = Env.get()
-        # paths reach a daemon without their pxt://<org>:<db>, so hosted means the process: a daemon serving
-        # this catalog to clients, or a hosted database's pod
-        if not env.is_proxy_daemon and env.hosted_db() is None:
+        # paths reach a daemon without their pxt://<org>:<db>, so hosted means the process. Cloud gives every pod of
+        # a database, its daemon's included, PXTCLOUD_ORG and PXTCLOUD_DB; is_proxy_daemon is no sign of it, since a
+        # local daemon sets it too and must accept what the in-process catalog accepts
+        if Env.get().hosted_db() is None:
             return
         raise excs.RequestError(
             excs.ErrorCode.INVALID_PATH,
