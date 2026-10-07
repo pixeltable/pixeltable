@@ -129,20 +129,28 @@ def get_presigned_urls_from_cloud(org: str, db: str, keys: list[str], expires_in
     request = _GetPresignedUrlsRequest(org=org, db=db, keys=keys, expires_in=expires_in)
     try:
         response = _post(request, timeout=30)
-        if response.status_code != 200:
-            raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_ERROR,
-                f'Failed to get presigned URLs from Pixeltable Cloud: {response.text}',
-                provider='pixeltable_cloud',
-                status_code=response.status_code,
-            )
-        urls = _GetPresignedUrlsResponse.model_validate(response.json()).urls
     except requests.exceptions.RequestException as e:
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
             f'Failed to get presigned URLs from Pixeltable Cloud: {e}',
             provider='pixeltable_cloud',
         ) from e
+    if response.status_code != 200:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Failed to get presigned URLs from Pixeltable Cloud: {response.text}',
+            provider='pixeltable_cloud',
+            status_code=response.status_code,
+        )
+    try:
+        urls = _GetPresignedUrlsResponse.model_validate(response.json()).urls
+    except ValueError:
+        # a JSON or validation error quotes the answer, whose URLs are credentials
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            'Pixeltable Cloud returned a malformed answer to get_presigned_urls',
+            provider='pixeltable_cloud',
+        ) from None
     missing = [key for key in keys if key not in urls]
     if len(missing) > 0:
         raise excs.ExternalServiceError(

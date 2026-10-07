@@ -377,22 +377,22 @@ class TunnelTransport(Transport):
 
 def _sign_home_bucket_urls(urls: list[str]) -> dict[str, str]:
     """A signed https URL for each of urls that addresses a home bucket, in either spelling."""
-    by_db: defaultdict[tuple[str, str], dict[str, str]] = defaultdict(dict)  # (org, db) -> {url: key}
+    # (org, db) -> {key: [url]}: both spellings of an address name the same key, which is signed once
+    by_db: defaultdict[tuple[str, str], dict[str, list[str]]] = defaultdict(dict)
     for url in urls:
         try:
             soa = ObjectPath.parse_object_storage_addr(url, allow_obj_name=True)
         except ValueError:
             continue  # the transport refuses it, as it did before
         if soa.storage_target == StorageTarget.PIXELTABLE_STORE:
-            by_db[soa.account, soa.account_extension][url] = soa.key
+            by_db[soa.account, soa.account_extension].setdefault(soa.key, []).append(url)
     signed: dict[str, str] = {}
-    for (org, db), key_by_url in by_db.items():
-        items = list(key_by_url.items())
-        for i in range(0, len(items), _SIGN_BATCH_SIZE):
-            chunk = items[i : i + _SIGN_BATCH_SIZE]
-            # both spellings of an address name the same key
-            url_by_key = _sign_keys(org, db, list(dict.fromkeys(key for _, key in chunk)))
-            signed.update((url, url_by_key[key]) for url, key in chunk)
+    for (org, db), urls_by_key in by_db.items():
+        keys = list(urls_by_key)
+        for i in range(0, len(keys), _SIGN_BATCH_SIZE):
+            chunk = keys[i : i + _SIGN_BATCH_SIZE]
+            url_by_key = _sign_keys(org, db, chunk)
+            signed.update((url, url_by_key[key]) for key in chunk for url in urls_by_key[key])
     return signed
 
 
@@ -436,6 +436,8 @@ def _fetch_signed(url: str, signed_url: str) -> Path:
 
 def _fetch_signed_once(url: str, signed_url: str) -> Path:
     path = TempStore.create_path(extension=Path(urllib.parse.urlparse(url).path).suffix)
+    # the signed URL's query string is a credential, which a download error can hold (an HTTPError's url, a
+    # ValueError's message): the error raised names url instead, and chains nothing
     try:
         _download(signed_url, path)
     except urllib.error.HTTPError as e:
@@ -445,7 +447,12 @@ def _fetch_signed_once(url: str, signed_url: str) -> Path:
             f'Failed to download {url}: HTTP {e.code}',
             provider='pixeltable_cloud',
             status_code=e.code,
-        ) from e
+        ) from None
+    except Exception as e:
+        path.unlink(missing_ok=True)
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR, f'Failed to download {url}: {type(e).__name__}', provider='pixeltable_cloud'
+        ) from None
     except BaseException:
         path.unlink(missing_ok=True)
         raise
