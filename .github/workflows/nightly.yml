@@ -10,6 +10,11 @@ on:
         description: 'Enable SSH debugging with tmate'
         required: false
         default: false
+      from_main:
+        type: boolean
+        description: 'Run tests from `main` instead of `release`'
+        required: false
+        default: false
 
 env:
   PXTTEST_IN_CI: 1
@@ -90,7 +95,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: release
+          ref: ${{ inputs.from_main && 'main' || 'release' }}
       - name: Set up tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
         uses: mxschmitt/action-tmate@v3
@@ -118,11 +123,11 @@ jobs:
         # cmake is needed for certain CI environments where it is not preinstalled.
         run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
       - name: Delete source tree
-        run: rm -rf pixeltable pixeltable_cli  # Ensure we use pypi packages for testing, not local source tree
+        run: rm -rf pixeltable pixeltable_cli  # Ensure we use installed packages for testing, not local source tree
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pixeltable ${{ matrix.package-configs }}
+          python -m pip install ${{ inputs.from_main && 'git+https://github.com/pixeltable/pixeltable' || 'pixeltable' }} ${{ matrix.package-configs }}
           python -m pip install filelock pytest pytest-xdist pytest-rerunfailures pytest-benchmark
       - name: Install spaCy model
         if: ${{ contains(matrix.package-configs, 'spacy') }}
@@ -166,7 +171,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: release
+          ref: ${{ inputs.from_main && 'main' || 'release' }}
       - name: Set up tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
         uses: mxschmitt/action-tmate@v3
