@@ -183,7 +183,7 @@ class PxtStorePartSink(PartSink[int | str | ArchiveMember]):
         if self._store is None:
             # a client holds these credentials, so limit them to this request's uploads
             self._store = ObjectOps.get_store(
-                f'pxtfs://{self._org}:{self._db}/home/{self._key_prefix}', False, scope_credentials=True
+                f'pxt://{self._org}:{self._db}/buckets/home/{self._key_prefix}', False, scope_credentials=True
             )
         return self._store
 
@@ -215,7 +215,7 @@ class PxtStorePartSink(PartSink[int | str | ArchiveMember]):
 
     def _upload_one(self, store: ObjectStoreBase, path: pathlib.Path, key: str, remove_after_upload: bool) -> None:
         try:
-            url = f'pxtfs://{self._org}:{self._db}/home/{key}'
+            url = f'pxt://{self._org}:{self._db}/buckets/home/{key}'
             store.copy_local_file(path, FileDestination(url=url, remote_key=key))
         finally:
             if remove_after_upload:

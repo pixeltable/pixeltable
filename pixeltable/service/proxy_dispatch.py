@@ -186,7 +186,7 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
         else:
             archives.setdefault(key, []).append(member)
     org, db = Env.get().hosted_db(required=True)
-    store = ObjectOps.get_store(f'pxtfs://{org}:{db}/home/uploads/', False)
+    store = ObjectOps.get_store(f'pxt://{org}:{db}/buckets/home/uploads/', False)
 
     # record every destination before downloading so handle() also cleans up a partial download
     for key, member in parts:

@@ -82,7 +82,7 @@ class TestDestination:
             case StorageTarget.R2_STORE:
                 uri = 'https://ae60fad96d33636287c3b2e76b88241f.r2.cloudflarestorage.com/pxt-test/pytest'
             case StorageTarget.PIXELTABLE_STORE:
-                uri = 'pxtfs://pixeltable:main/home/pytest'
+                uri = 'pxt://pixeltable:main/buckets/home/pytest'
             case StorageTarget.TIGRIS_STORE:
                 uri = 'https://t3.storage.dev/pxt-test/pytest'
 
@@ -238,7 +238,8 @@ class TestDestination:
             ObjectPath.parse_object_storage_addr('pxtfs://org:db/homebucket', allow_obj_name=False)
 
     def test_dest_parser_pxt_buckets(self) -> None:
-        """pxt://org:db/buckets/home[/key] is the address pxtfs://org:db/home[/key] names, pxtfs scheme included."""
+        """pxt://org:db/buckets/home[/key] is the address pxtfs://org:db/home[/key] names, and both spellings give the
+        pxt:// one."""
         # keys are opaque: an object key may hold colons and dots, which a catalog path would read as a version
         # and a dotted path
         for path in (
@@ -258,11 +259,18 @@ class TestDestination:
             'pxt://org:db/buckets/home/9f3a/2026-09-01T10:30:00Z.mp4', allow_obj_name=True
         )
         assert soa.storage_target == StorageTarget.PIXELTABLE_STORE
-        assert soa.scheme == 'pxtfs'
+        assert soa.scheme == 'pxt'
         assert (soa.account, soa.account_extension, soa.container) == ('org', 'db', 'home')
         assert soa.key == '9f3a/2026-09-01T10:30:00Z.mp4'
         assert soa.prefix == '9f3a/'
         assert soa.object_name == '2026-09-01T10:30:00Z.mp4'
+
+        # the uris a store writes start from the pxt:// spelling, whichever spelling named the store
+        for uri in ('pxtfs://org:db/home/media', 'pxt://org:db/buckets/home/media'):
+            soa = ObjectPath.parse_object_storage_addr(uri, allow_obj_name=False)
+            assert soa.container_free_uri == 'pxt://org:db/buckets/'
+            assert soa.prefix_free_uri == 'pxt://org:db/buckets/home/'
+            assert soa.prefix == 'media/'
 
         # catalog paths share the scheme, so any pxt:// path outside buckets/home is refused
         for uri, match in (

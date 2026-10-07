@@ -327,12 +327,14 @@ class TestProxyDaemon:
 
         _ResponseMedia uses this per-object sink, since it presigns a url for each key."""
         uploaded: dict[str, tuple[pathlib.Path, bytes]] = {}
+        urls: dict[str, str] = {}
         stores: list[tuple[str, bool]] = []
 
         class FakeStore:
             def copy_local_file(self, src_path: pathlib.Path, dest: FileDestination) -> str:
                 assert dest.remote_key is not None
                 uploaded[dest.remote_key] = (src_path, src_path.read_bytes())
+                urls[dest.remote_key] = dest.url
                 return dest.url
 
         def fake_get_store(
@@ -361,8 +363,9 @@ class TestProxyDaemon:
 
         sink.flush()
         # one store for the whole request, with credentials for its own prefix
-        assert stores == [(f'pxtfs://org1:db1/home/{sink._key_prefix}', True)]
+        assert stores == [(f'pxt://org1:db1/buckets/home/{sink._key_prefix}', True)]
         assert set(uploaded) == set(keys)
+        assert urls == {key: f'pxt://org1:db1/buckets/home/{key}' for key in keys}
         assert uploaded[keys[0]][1] == uploaded[keys[1]][1] == src.read_bytes()
         assert uploaded[keys[2]][1] == b'raw'
 
@@ -432,7 +435,7 @@ class TestProxyDaemon:
         # happy path: keys download into TempStore, preserving each key's extension
         request = self._remote_file_request('uploads/req/0.png', 'uploads/req/1.jpg')
         proxy_dispatch._prefetch_remote_parts(request)
-        assert stores == [('pxtfs://org1:db1/home/uploads/', False)]
+        assert stores == [('pxt://org1:db1/buckets/home/uploads/', False)]
         assert set(request._remote_parts) == {('uploads/req/0.png', None), ('uploads/req/1.jpg', None)}
         for (key, _), path_str in request._remote_parts.items():
             path = pathlib.Path(path_str)
@@ -542,7 +545,7 @@ class TestProxyDaemon:
             ArchiveMember(f'{prefix}tar1.tar', '4.bin'),
             0,
         ]
-        assert stores == [(f'pxtfs://org1:db1/home/{prefix}', True)]
+        assert stores == [(f'pxt://org1:db1/buckets/home/{prefix}', True)]
         rel_prefix = prefix.removeprefix('uploads/')
         assert set(objects) == {f'{rel_prefix}tar0.tar', f'{rel_prefix}tar1.tar', f'{rel_prefix}3.mp4'}
         assert _tar_members(objects[f'{rel_prefix}tar0.tar']) == {
@@ -677,7 +680,7 @@ class TestProxyDaemon:
         proxy_dispatch._prefetch_remote_parts(request)
         # one download per archive, however many of its members are referenced
         assert sorted(downloads) == ['req/3.bin', 'req/tar0.tar', 'req/tar1.tar']
-        assert stores == [('pxtfs://org1:db1/home/uploads/', False)]
+        assert stores == [('pxt://org1:db1/buckets/home/uploads/', False)]
         expected = {
             ('uploads/req/tar0.tar', '0.png'): b'a',
             ('uploads/req/tar0.tar', '1.png'): b'b',

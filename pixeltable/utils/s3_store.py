@@ -250,12 +250,11 @@ class S3Store(ObjectStoreBase):
         url = self._prepare_uri_raw(tbl_id, col_id, tbl_version, ext=ext)
         parsed = urllib.parse.urlparse(url)
         key = parsed.path.lstrip('/')
-        if self.soa.storage_target in {
-            StorageTarget.R2_STORE,
-            StorageTarget.B2_STORE,
-            StorageTarget.TIGRIS_STORE,
-            StorageTarget.PIXELTABLE_STORE,
-        }:
+        if self.soa.storage_target == StorageTarget.PIXELTABLE_STORE:
+            # remove 'buckets/<bucket>/' (see StorageObjectAddress.prefix_free_uri): either segment left in place
+            # would become part of the object key
+            key = key.split('/', 2)[-1]
+        elif self.soa.storage_target in {StorageTarget.R2_STORE, StorageTarget.B2_STORE, StorageTarget.TIGRIS_STORE}:
             key = key.split('/', 1)[-1]  # Remove the bucket name from the key for R2/B2
         return FileDestination(url=url, remote_key=key)
 

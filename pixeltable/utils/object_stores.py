@@ -99,7 +99,7 @@ class StorageObjectAddress(NamedTuple):
     def prefix_free_uri(self) -> str:
         """Return the URI without any prefixes."""
         if self.storage_target == StorageTarget.PIXELTABLE_STORE:
-            return f'{self.scheme}://{self.account}:{self.account_extension}/{self.container}/'
+            return f'{self.container_free_uri}{self.container}/'
         if self.is_azure_scheme:
             return f'{self.scheme}://{self.container}@{self.account}.{self.account_extension}/'
         if self.account and self.account_extension:
@@ -113,7 +113,7 @@ class StorageObjectAddress(NamedTuple):
         """Return the URI without any prefixes."""
         assert not self.is_azure_scheme, 'Azure storage requires a container name'
         if self.storage_target == StorageTarget.PIXELTABLE_STORE:
-            return f'{self.scheme}://{self.account}:{self.account_extension}/'
+            return f'{self.scheme}://{self.account}:{self.account_extension}/buckets/'
         if self.account and self.account_extension:
             return f'{self.scheme}://{self.account}.{self.account_extension}/'
         if self.account_extension:
@@ -129,10 +129,7 @@ class StorageObjectAddress(NamedTuple):
     def __str__(self) -> str:
         """A debug aid to override default str representation. Not to be used for any purpose."""
         if self.storage_target == StorageTarget.PIXELTABLE_STORE:
-            return (
-                f'{self.storage_target}..{self.scheme}://{self.account}:{self.account_extension}/'
-                f'{self.container}/{self.prefix}{self.object_name}'
-            )
+            return f'{self.storage_target}..{self.prefix_free_uri}{self.prefix}{self.object_name}'
         return f'{self.storage_target}..{self.scheme}://{self.account}.{self.account_extension}/{self.container}/{self.prefix}{self.object_name}'
 
     def __repr__(self) -> str:
@@ -204,8 +201,8 @@ class ObjectPath:
             https://account.blob.core.windows.net/container/<optional prefix>/<optional object>
             https://account.r2.cloudflarestorage.com/container/<optional prefix>/<optional object>
             https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg
-            pxtfs://org:db/home/<optional prefix>/<optional object>
-            pxt://org:db/buckets/home/<optional prefix>/<optional object> (the same address as pxtfs://)
+            pxt://org:db/buckets/home/<optional prefix>/<optional object>
+            pxtfs://org:db/home/<optional prefix>/<optional object> (the older spelling of the same address)
         """
         parsed = urllib.parse.urlparse(src_addr)
         scheme = parsed.scheme.lower()
@@ -284,7 +281,7 @@ class ObjectPath:
                 account_extension = parsed.netloc
             key = key.lstrip('/')
         elif scheme in ('pxtfs', 'pxt'):
-            # pxtfs://org:db/<bucket>[/optional/prefix], also spelled pxt://org:db/buckets/<bucket>[/optional/prefix]
+            # pxt://org:db/buckets/<bucket>[/optional/prefix], also spelled pxtfs://org:db/<bucket>[/optional/prefix]
             # Currently only 'home' bucket is supported.
             # 'home' is a logical name resolved to a physical R2 bucket name at runtime via the management API.
             storage_target = StorageTarget.PIXELTABLE_STORE
@@ -315,8 +312,8 @@ class ObjectPath:
                     f"got '{container}'"
                 )
             key = path_parts[1] if len(path_parts) > 1 else ''
-            # both spellings give the pxtfs address, so the store, its keys and the URLs it writes are the same
-            scheme = 'pxtfs'
+            # both spellings give the pxt address, so the store, its keys and the URLs it writes are the same
+            scheme = 'pxt'
         else:
             raise ValueError(f'Unsupported URI scheme: {parsed.scheme}')
 
@@ -343,8 +340,8 @@ class ObjectPath:
             https://account.blob.core.windows.net/container/<optional prefix>/<optional object>
             https://account.r2.cloudflarestorage.com/container/<optional prefix>/<optional object>
             https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg
-            pxtfs://org:db/home/<optional prefix>/<optional object>
-            pxt://org:db/buckets/home/<optional prefix>/<optional object> (the same address as pxtfs://)
+            pxt://org:db/buckets/home/<optional prefix>/<optional object>
+            pxtfs://org:db/home/<optional prefix>/<optional object> (the older spelling of the same address)
         """
         soa = cls.parse_object_storage_addr1(src_addr)
         prefix, object_name = cls.separate_prefix_object(soa.key, allow_obj_name)
