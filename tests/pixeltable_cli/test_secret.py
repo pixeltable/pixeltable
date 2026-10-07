@@ -6,6 +6,7 @@ import os
 import pathlib
 import subprocess
 import threading
+import time
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -17,6 +18,9 @@ from ..utils import CLOUD_DB_ROOT_URIS
 from .conftest import PxtResult, PxtRunner
 
 _RUN_TIMEOUT_SECS = 180.0
+
+# how long a WorkOS Vault read can trail a write
+_VAULT_LAG_SECS = 30.0
 
 
 @dataclass
@@ -221,6 +225,8 @@ class TestSecret:
             assert 'URI must be pxt://org or pxt://org:db' in r.stderr, r.stderr
         assert sent() == []
 
+    # the org's secrets are one vault document, rewritten whole on each change, so tests that change it share a worker
+    @pytest.mark.xdist_group('cloud_secrets')
     @pytest.mark.usefixtures('hosted_environment')
     def test_cloud_list(self, session_cli: PxtRunner) -> None:
         db_uri = CLOUD_DB_ROOT_URIS['cloud-cli']
@@ -246,3 +252,55 @@ class TestSecret:
             session_cli('secret', 'delete', org_uri, shared, org_only, check=False)
             session_cli('secret', 'delete', db_uri, shared, db_only, check=False)
             session_cli('secret', 'delete', other_db_uri, other_db_only, check=False)
+
+    @pytest.mark.xdist_group('cloud_secrets')
+    @pytest.mark.usefixtures('hosted_environment')
+    def test_cloud_overwrite_delete(self, session_cli: PxtRunner) -> None:
+        db_uri = CLOUD_DB_ROOT_URIS['cloud-cli']
+        org_uri = db_uri.rsplit(':', maxsplit=1)[0]
+        run_id = uuid.uuid4().hex[:8].upper()
+        # names of each scope's own, so that no database secret of this run overrides an org one
+        keys = {
+            uri: (f'PXTTEST_{scope}_DOOMED_{run_id}', f'PXTTEST_{scope}_KEPT_{run_id}')
+            for uri, scope in ((org_uri, 'ORG'), (db_uri, 'DB'))
+        }
+        missing = f'PXTTEST_MISSING_{run_id}'
+
+        def wait_for_keys(uri: str, *expected: str) -> None:
+            """Wait until this run's secrets set at exactly uri's scope are the expected ones.
+
+            A WorkOS Vault read can trail a write, so a list can show the secrets as they were before it.
+            """
+            deadline = time.monotonic() + _VAULT_LAG_SECS
+            while True:
+                rows = session_cli('secret', 'list', uri, '--json').json
+                rows = [row for row in rows if run_id in row['key'] and row['scope'] == uri]
+                if rows == [{'key': key, 'scope': uri} for key in expected]:
+                    return
+                assert time.monotonic() < deadline, rows
+                time.sleep(2.0)
+
+        try:
+            for uri, (doomed, kept) in keys.items():
+                session_cli('secret', 'set', uri, f'{doomed}=first-value', f'{kept}=kept-value')
+
+                # an overwrite replaces the secret rather than adding a second one; no output shows the value
+                r = session_cli('secret', 'set', uri, f'{doomed}=second-value', '--json')
+                assert r.json == [{'key': doomed, 'scope': uri}]
+                wait_for_keys(uri, doomed, kept)
+
+                r = session_cli('secret', 'delete', uri, doomed, '--json')
+                assert r.json == [{'key': doomed, 'scope': uri}]
+                wait_for_keys(uri, kept)
+
+                # a name never set, since the delete's own read of the vault may still find the one just deleted
+                r = session_cli('secret', 'delete', uri, missing, check=False)
+                assert r.returncode == 1, r.stderr
+                assert f"pxt: 400 Pixeltable Cloud refused this request: Secret '{missing}' not found." in r.stderr, (
+                    r.stderr
+                )
+        finally:
+            # one key per delete: the first key that is not found ends the command
+            for uri, names in keys.items():
+                for name in names:
+                    session_cli('secret', 'delete', uri, name, check=False)
