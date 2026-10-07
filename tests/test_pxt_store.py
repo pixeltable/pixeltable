@@ -110,7 +110,6 @@ class TestPxtStore:
     def test_presigned_url(self, uses_db: None) -> None:
         """A presigned URL for a home-bucket object serves the object, and a byte range of it, which a video player
         asks for to seek."""
-        skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
 
         dest_uri = f'{_pxt_dest_uri()}/presigned'
@@ -189,7 +188,6 @@ class TestPxtStore:
     def test_pxt_buckets_destination(self, init_env: None) -> None:
         """A destination spelled pxt://org:db/buckets/home/... is the store its pxtfs:// spelling names: a new file
         gets the same object key and the same stored URL."""
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils import object_stores, pxt_store
 
         db = f'db_{uuid.uuid4().hex}'
@@ -211,7 +209,6 @@ class TestPxtStore:
     def test_fetch_url_keeps_bucket_credentials(self, init_env: None) -> None:
         """fetch_url(), which pods call, still reads a home bucket, in either spelling, with credentials for the bucket:
         a pod's reads take no control-plane call per file."""
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils import pxt_store
         from pixeltable.utils.s3_store import S3Store
 
