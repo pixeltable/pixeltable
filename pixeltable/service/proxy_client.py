@@ -138,9 +138,7 @@ class HttpTransport(Transport):
 _CONNECT_TIMEOUT = 30.0
 _RPC_TIMEOUT = 1800.0
 _MAX_POOL_SIZE = 16  # matches the fetch_media download threadpool
-# The proxy daemon's uvicorn closes a connection idle 5 s. Reused while that close is still on its way, the
-# connection drops the request, which then reads as the daemon dying on it; so the pool stops reusing one first.
-_MAX_IDLE_S = 4.0
+_MAX_IDLE_S = 4.0  # below the proxy daemon's 5 s keep-alive, so no connection is reused as the daemon closes it
 
 # Failures that leave the request undelivered (connect, handshake, writing it); retried with backoff.
 _TUNNEL_TRANSIENT_EXC = (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError)
