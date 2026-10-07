@@ -2381,7 +2381,6 @@ class TestTable:
     @rerun_on_network_error()
     def test_validate_external_url(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')
         rows = [
             {'media': 's3://open-images-dataset/validation/doesnotexist.jpg', 'is_bad_media': True},
             {'media': 'https://archive.random.org/download?file=2024-01-28.bin', 'is_bad_media': True},  # 403 error
@@ -2431,7 +2430,6 @@ class TestTable:
     @pytest.mark.db_roots('local', reason='inspects the local file cache via FileCache and tbl._id')
     @rerun_on_network_error()
     def test_create_s3_image_table(self, uses_db: None) -> None:
-        skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test', {'img': pxt.Image | None})
         # this is needed because reload_db() doesn't call TableVersion.drop(), which would
         # clear the file cache
@@ -2496,7 +2494,6 @@ class TestTable:
     @rerun_on_network_error()
     def test_video_url(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')
         schema: dict[str, Any] = {'payload': pxt.Int | None, 'video': pxt.Video | None}
         tbl = pxt.create_table(p('test'), schema)
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
@@ -2517,7 +2514,6 @@ class TestTable:
                 'Skipped on CockroachDB due to: RETRY_SERIALIZABLE - failed preemptive refresh due to'
                 ' encountered recently written committed value...'
             )
-        skip_test_if_not_installed('boto3')
 
         p = db_root.make_catalog_path
         tbl = pxt.create_table(p('test_tbl'), {'payload': pxt.Int | None, 'video': pxt.Video | None})
@@ -2570,7 +2566,6 @@ class TestTable:
     @rerun_on_network_error()
     def test_video_urls(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')
         tbl = pxt.create_table(p('test'), {'video': pxt.Video | None})
 
         # create a list of uris with duplicates, to test the duplicate-handling logic of CachePrefetchNode
@@ -2735,7 +2730,6 @@ class TestTable:
 
     def test_query(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')
         col_names = ['c1', 'c2', 'c3', 'c4', 'c5']
         t = make_tbl(p('test'), col_names, is_data_versioned=is_data_versioned)
         rows = create_table_data(t)

@@ -28,7 +28,6 @@ from .utils import (
     pxt_raises,
     reload_catalog,
     skip_test_if_no_pxt_credentials,
-    skip_test_if_not_installed,
     validate_update_status,
 )
 
@@ -71,7 +70,6 @@ class TestPxtStore:
 
     def test_insert_and_select(self, uses_db: None) -> None:
         """Insert a local file with a home-bucket destination, then verify it can be read back."""
-        skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
 
         dest_uri = f'{_pxt_dest_uri()}/bucket1'
@@ -90,7 +88,6 @@ class TestPxtStore:
 
     def test_select_from_pxt_url(self, uses_db: None) -> None:
         """Upload a file to the pxt store, then insert its pxt:// URL into a new table and read it."""
-        skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
 
         dest_uri = f'{_pxt_dest_uri()}/src'
@@ -113,7 +110,6 @@ class TestPxtStore:
 
     def test_delete_on_drop(self, uses_db: None) -> None:
         """Verify objects in pxt store are cleaned up when the table is dropped."""
-        skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
 
         dest_uri = f'{_pxt_dest_uri()}/drop_test'
@@ -132,7 +128,6 @@ class TestPxtStore:
     def test_presigned_url(self, uses_db: None) -> None:
         """A presigned URL for a home-bucket object serves the object, and a byte range of it, which a video player
         asks for to seek."""
-        skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
 
         dest_uri = f'{_pxt_dest_uri()}/presigned'
@@ -153,7 +148,6 @@ class TestPxtStore:
         pxt.drop_table(t)
 
     def test_no_space_left(self, uses_db: None) -> None:
-        skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
         from pixeltable.utils import pxt_store
 
@@ -188,7 +182,6 @@ class TestPxtStore:
     def test_reads_share_credentials(self, init_env: None, tmp_path: Path) -> None:
         """Reading objects from many directories of a home bucket fetches credentials and builds a boto3 session
         once, rather than once per directory: media files are stored in random shard directories."""
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils import pxt_store
         from pixeltable.utils.s3_store import S3Store
 
@@ -213,7 +206,6 @@ class TestPxtStore:
     def test_pxt_buckets_destination(self, init_env: None) -> None:
         """A destination spelled pxtfs://org:db/home/... is the store its pxt:// spelling names: a new file gets the
         same object key and the same stored URL, in the pxt:// spelling."""
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils import object_stores, pxt_store
 
         db = f'db_{uuid.uuid4().hex}'
@@ -235,7 +227,6 @@ class TestPxtStore:
     def test_fetch_url_keeps_bucket_credentials(self, init_env: None) -> None:
         """fetch_url(), which pods call, still reads a home bucket, in either spelling, with credentials for the bucket:
         a pod's reads take no control-plane call per file."""
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils import pxt_store
         from pixeltable.utils.s3_store import S3Store
 
@@ -252,7 +243,6 @@ class TestPxtStore:
 
     def test_writes_pxt_addresses(self, init_env: None) -> None:
         """A store named in either spelling validates, lists and writes pxt://org:db/buckets/home/... addresses."""
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils import pxt_store
         from pixeltable.utils.s3_store import S3Store
 
@@ -273,7 +263,6 @@ class TestPxtStore:
         """Both spellings of a home-bucket address name the same object: a new file gets the key a pxtfs://
         destination gave it before files were written as pxt://, and either spelling of a url reads and signs that
         key."""
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils import object_stores, pxt_store
         from pixeltable.utils.s3_store import S3Store
 
@@ -307,7 +296,6 @@ class TestPxtStore:
     def test_table_writes_pxt_and_reads_pxtfs(self, uses_db: None) -> None:
         """A table stores new media as pxt://org:db/buckets/home/..., and a pxtfs:// url stored as a value is kept as
         is and keeps reading."""
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils import pxt_store
         from pixeltable.utils.s3_store import S3Store
 
@@ -348,7 +336,6 @@ class TestPxtStore:
     def test_model_respelled_destination(self, uses_db: None) -> None:
         """A model that names its table's home-bucket destination in the other spelling is up to date; one that names
         another prefix is not."""
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils import pxt_store
         from pixeltable.utils.s3_store import S3Store
 
@@ -371,7 +358,6 @@ class TestPxtStore:
     def test_pxtfs_destination_warns(self, uses_db: None) -> None:
         """A destination named in the pxtfs:// spelling warns, at the caller's line and once per line, and still
         works. The pxt:// spelling does not warn, and neither does a column that stored the pxtfs:// one."""
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils import pxt_store
         from pixeltable.utils.s3_store import S3Store
 
@@ -459,7 +445,6 @@ class TestPxtStore:
     def test_part_sink_writes_pxt_addresses(self, init_env: None, tmp_path: Path) -> None:
         """An upload sink writes each part to uploads/<request>/<part> with credentials for that prefix only, under a
         pxt://org:db/buckets/home/... url."""
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils import pxt_store
         from pixeltable.utils.s3_store import S3Store
 
@@ -488,7 +473,6 @@ class TestPxtStore:
     def test_quota_recheck(self, init_env: None, tmp_path: Path) -> None:
         """A write rejected for lack of space checks the quota again at most once per interval, and keeps the cached
         state if the check fails; once space is freed, the next check lets writes through."""
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils import pxt_store
         from pixeltable.utils.s3_store import S3Store
 
@@ -540,7 +524,6 @@ class TestPxtStore:
     def test_scoped_credentials(self, init_env: None) -> None:
         """A store with scope_credentials fetches credentials for its prefix only, in a session that is not cached:
         an upload sink's prefix belongs to one request and is never reused."""
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils import pxt_store
 
         db = f'db_{uuid.uuid4().hex}'
@@ -555,7 +538,6 @@ class TestPxtStore:
 
     def test_same_prefix_shares_credentials(self, uses_db: None) -> None:
         """Verify that two columns with the same home-bucket destination share a single cached credential entry."""
-        skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
         from pixeltable.utils.pxt_store import PxtStore
         from pixeltable.utils.s3_store import S3Store
@@ -571,7 +553,6 @@ class TestPxtStore:
 
     def test_credentials_refresh(self, uses_db: None) -> None:
         """Verify that botocore automatically refreshes credentials when they expire."""
-        skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
         from pixeltable.utils.pxt_store import PxtStore
 
