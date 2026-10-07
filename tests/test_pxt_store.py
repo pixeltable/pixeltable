@@ -360,10 +360,12 @@ class TestPxtStore:
         ):
             for i, (created, declared) in enumerate(((old, new), (new, old), (new, f'{new}/other'))):
                 with warnings.catch_warnings():
-                    # as a release from before the pxt:// spelling stored it, when created is spelled pxtfs://
+                    # a model in the pxtfs:// spelling warns (test_pxtfs_destination_warns); a table created in it
+                    # stands for one a release from before the pxt:// spelling made
                     warnings.simplefilter('ignore', excs.PixeltableDeprecationWarning)
                     _clips_model(f'clips_{i}', created).create_all()
-                resolutions = [d.resolution for d in _clips_model(f'clips_{i}', declared).get_model_diff().values()]
+                    diffs = _clips_model(f'clips_{i}', declared).get_model_diff()
+                resolutions = [d.resolution for d in diffs.values()]
                 assert resolutions == (['unsupported'] if declared.endswith('/other') else ['up_to_date']), declared
 
     def test_pxtfs_destination_warns(self, uses_db: None) -> None:
@@ -411,6 +413,19 @@ class TestPxtStore:
                     'pxtfs_view', t, additional_columns={'flip': {'value': t.img.rotate(180), 'destination': old}}
                 )
 
+            # and so is a model's column, once for the line that creates the model's table
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter('default')
+                _clips_model('pxtfs_model', old).create_all()
+            pxt_warnings = [w for w in caught if issubclass(w.category, excs.PixeltableWarning)]
+            assert [(str(w.message), w.filename) for w in pxt_warnings] == [
+                (
+                    f"Column 'rot': destination {old!r} uses the deprecated pxtfs:// spelling; write {new!r} instead. "
+                    'Values already stored as pxtfs:// keep reading.',
+                    __file__,
+                )
+            ]
+
     @pytest.mark.db_roots('proxy', reason='a hosted catalog validates a new column in its daemon')
     def test_pxtfs_destination_warns_hosted_client(
         self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch
@@ -433,6 +448,13 @@ class TestPxtStore:
             )
         ]
         assert sent == [('add_computed_column', old)]
+
+        # a model's column warns on the caller's side as well, when its diff is computed
+        model = _clips_model('pxtfs_model', old)
+        with pytest.warns(excs.PixeltableDeprecationWarning, match="Column 'rot': destination 'pxtfs://") as record:
+            diffs = model.get_model_diff(db_root.base_uri)
+        assert record[0].filename == __file__
+        assert [d.resolution for d in diffs.values()] == ['create']
 
     def test_part_sink_writes_pxt_addresses(self, init_env: None, tmp_path: Path) -> None:
         """An upload sink writes each part to uploads/<request>/<part> with credentials for that prefix only, under a
