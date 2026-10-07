@@ -1451,8 +1451,8 @@ class Catalog(CatalogBase):
     def _check_name_not_reserved(self, dir_path: Path, name: str) -> None:
         """Refuse a new entry `name` in dir_path where a hosted database reserves that name.
 
-        Every creation and move reaches this through _prepare_dir_op(), and so does each directory that
-        create_dir(parents=True) adds.
+        Every creation and move reaches this through _prepare_dir_op(), every replacement through
+        _handle_path_collision(), and each directory that create_dir(parents=True) adds through _create_dir().
         """
         if not dir_path.is_root or fold_identifier(name) != _HOSTED_RESERVED_ROOT_NAME:
             return
@@ -3102,6 +3102,8 @@ class Catalog(CatalogBase):
 
         # IfExistsParam.REPLACE or IfExistsParam.REPLACE_FORCE
         assert if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
+        # the replacement is a new entry: refuse a reserved name before dropping the existing one
+        self._check_name_not_reserved(path.parent, path.name)
 
         # check to ensure that dirs can only be replaced with dirs, and all table subtypes can replace each other
         if expected_obj_type == Dir and not isinstance(obj, Dir):
