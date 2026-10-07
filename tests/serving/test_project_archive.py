@@ -459,6 +459,16 @@ class TestProjectArchive:
             db_update('pxt://acme:main')
 
 
+def _write(project: Path, name: str, content: str) -> None:
+    """Write a manifest, and the wheel a requirements.txt names, which the archive must carry."""
+    (project / name).write_text(content)
+    for line in content.splitlines():
+        if line.endswith('.whl'):
+            wheel = project / line
+            wheel.parent.mkdir(parents=True, exist_ok=True)
+            wheel.write_bytes(b'')
+
+
 class TestLockedPixeltable:
     """A hosted image runs the pixeltable of the CLI that deploys it, so a lockfile pinning another is refused."""
 
@@ -473,12 +483,13 @@ class TestLockedPixeltable:
             ('requirements.txt', 'pixeltable @ git+https://github.com/pixeltable/pixeltable@8b86426f930cb3dd\n'),
             ('requirements.txt', 'pixeltable>=0.7\n'),
             ('requirements.txt', 'numpy\n'),
+            ('requirements.txt', './wheels/pixeltable-0.7.15.dev12+8b86426f-py3-none-any.whl\n'),
             ('uv.lock', '[[package]]\nname = "pixeltable"\nsource = { editable = "." }\n'),
         ],
-        ids=['uv-same', 'git-same-commit', 'unpinned', 'absent', 'editable-project'],
+        ids=['uv-same', 'git-same-commit', 'unpinned', 'absent', 'wheel', 'editable-project'],
     )
     def test_accepted(self, tmp_path: Path, name: str, content: str) -> None:
-        (tmp_path / name).write_text(content)
+        _write(tmp_path, name, content)
         image_input_files(tmp_path)
 
     @pytest.mark.parametrize(
@@ -486,11 +497,12 @@ class TestLockedPixeltable:
         [
             ('uv.lock', '[[package]]\nname = "pixeltable"\nversion = "0.7.14"\n'),
             ('requirements.txt', 'pixeltable==0.7.14\n'),
+            ('requirements.txt', './wheels/pixeltable-0.7.14-py3-none-any.whl\n'),
             ('requirements.txt', 'pixeltable @ git+https://github.com/pixeltable/pixeltable@deadbeef\n'),
         ],
-        ids=['uv', 'requirements', 'git'],
+        ids=['uv', 'requirements', 'wheel', 'git'],
     )
     def test_refused(self, tmp_path: Path, name: str, content: str) -> None:
-        (tmp_path / name).write_text(content)
+        _write(tmp_path, name, content)
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='locks pixeltable'):
             image_input_files(tmp_path)

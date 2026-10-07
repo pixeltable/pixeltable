@@ -482,21 +482,29 @@ def _installed_from_project(project_dir: Path) -> list[Path]:
 
 _REQUIREMENT_PIN = re.compile(r'^pixeltable(?:\[[^\]]*\])?\s*==\s*([^\s;#]+)', re.IGNORECASE)
 _REQUIREMENT_GIT = re.compile(r'^pixeltable(?:\[[^\]]*\])?\s*@\s*git\+\S+?@([0-9a-fA-F]{7,40})', re.IGNORECASE)
+# a wheel the project carries: its filename holds its exact version
+_REQUIREMENT_WHEEL = re.compile(r'^(?:\S*/)?pixeltable-([^-\s]+)-[^\s]*\.whl(?:\s|$|;|#)', re.IGNORECASE)
 
 
 def _locked_pixeltable(project_dir: Path) -> str | None:
-    """The pixeltable the project's lockfile pins, as a version or a git commit; None if it pins none."""
+    """The pixeltable the project's lockfile pins, as a version or a git commit; None if it pins none, or if the
+    project is pixeltable itself, whose own source a hosted image runs."""
     lock = project_dir / 'uv.lock'
     if lock.is_file():
-        packages = toml.load(lock).get('package', [])
-        # an entry without a version, such as the editable project itself when the project is pixeltable, is not
-        # installed from the lock, so it pins nothing
-        versions = sorted({str(p['version']) for p in packages if p.get('name') == 'pixeltable' and p.get('version')})
+        entries = [p for p in toml.load(lock).get('package', []) if p.get('name') == 'pixeltable']
+        if any('.' in (p.get('source') or {}).values() for p in entries):
+            return None
+        versions = sorted({str(p['version']) for p in entries if p.get('version')})
         return ', '.join(versions) if versions else None
     requirements = project_dir / 'requirements.txt'
     if requirements.is_file():
         for line in requirements.read_text().splitlines():
-            match = _REQUIREMENT_PIN.match(line.strip()) or _REQUIREMENT_GIT.match(line.strip())
+            stripped = line.strip()
+            match = (
+                _REQUIREMENT_PIN.match(stripped)
+                or _REQUIREMENT_WHEEL.match(stripped)
+                or _REQUIREMENT_GIT.match(stripped)
+            )
             if match is not None:
                 return match.group(1)
     return None
@@ -513,7 +521,7 @@ def _check_locked_pixeltable(project_dir: Path) -> None:
     commit_match = re.match(r'[0-9a-f]{7,40}(?![0-9a-z])', version.partition('+')[2].lower())
     commit = commit_match.group(0) if commit_match else ''
     pinned_commit = locked.lower() if re.fullmatch(r'[0-9a-fA-F]{7,40}', locked) else ''
-    if locked == version or (
+    if locked.lower() == version.lower() or (
         commit and pinned_commit and (pinned_commit.startswith(commit) or commit.startswith(pinned_commit))
     ):
         return
