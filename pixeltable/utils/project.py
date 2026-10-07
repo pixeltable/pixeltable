@@ -486,27 +486,37 @@ _REQUIREMENT_GIT = re.compile(r'^pixeltable(?:\[[^\]]*\])?\s*@\s*git\+\S+?@([0-9
 _REQUIREMENT_WHEEL = re.compile(r'^(?:\S*/)?pixeltable-([^-\s]+)-[^\s]*\.whl(?:\s|$|;|#)', re.IGNORECASE)
 
 
-def _locked_pixeltable(project_dir: Path) -> str | None:
-    """The pixeltable the project's lockfile pins, as a version or a git commit; None if it pins none, or if the
-    project is pixeltable itself, whose own source a hosted image runs."""
+_REQUIREMENT_NAMED = re.compile(r'^pixeltable(?:\[[^\]]*\])?\s*(?:[<>=!~;@#]|$)', re.IGNORECASE)
+_COMMIT = re.compile(r'[0-9a-f]{7,40}(?![0-9a-z])')
+
+
+def _locked_pixeltable(project_dir: Path) -> tuple[str, str] | None:
+    """How the project's lockfile pins pixeltable, as the control plane reads it: ('version', V), ('git', commit),
+    or ('project', '') when the project is pixeltable itself; None when nothing pins it."""
     lock = project_dir / 'uv.lock'
     if lock.is_file():
         entries = [p for p in toml.load(lock).get('package', []) if p.get('name') == 'pixeltable']
-        if any('.' in (p.get('source') or {}).values() for p in entries):
-            return None
+        sources = [p.get('source') or {} for p in entries]
+        if any('.' in source.values() for source in sources):
+            return 'project', ''
+        # a git source records its commit after '#'; the version uv computed in its own checkout may differ
+        commits = {
+            str(source['git']).rpartition('#')[2].lower() for source in sources if '#' in str(source.get('git', ''))
+        }
+        if len(commits) == 1:
+            return 'git', commits.pop()
         versions = sorted({str(p['version']) for p in entries if p.get('version')})
-        return ', '.join(versions) if versions else None
+        return ('version', ', '.join(versions)) if versions else None
     requirements = project_dir / 'requirements.txt'
     if requirements.is_file():
         for line in requirements.read_text().splitlines():
             stripped = line.strip()
-            match = (
-                _REQUIREMENT_PIN.match(stripped)
-                or _REQUIREMENT_WHEEL.match(stripped)
-                or _REQUIREMENT_GIT.match(stripped)
-            )
-            if match is not None:
-                return match.group(1)
+            if (match := _REQUIREMENT_PIN.match(stripped) or _REQUIREMENT_WHEEL.match(stripped)) is not None:
+                return 'version', match.group(1)
+            if (match := _REQUIREMENT_GIT.match(stripped)) is not None:
+                return 'git', match.group(1).lower()
+            if _REQUIREMENT_NAMED.match(stripped):
+                return None
     return None
 
 
@@ -514,22 +524,38 @@ def _check_locked_pixeltable(project_dir: Path) -> None:
     """A hosted image runs the pixeltable this CLI runs: the control plane takes this CLI's metadata version as
     the release's, and refuses a project whose lockfile pins another pixeltable."""
     locked = _locked_pixeltable(project_dir)
-    if locked is None:
+    if locked is None or locked[0] == 'project':
         return
+    kind, value = locked
     version = pixeltable.__version__
     # a git build's local version segment starts with its commit; a dirty tree appends more after it
-    commit_match = re.match(r'[0-9a-f]{7,40}(?![0-9a-z])', version.partition('+')[2].lower())
+    commit_match = _COMMIT.match(version.partition('+')[2].lower())
     commit = commit_match.group(0) if commit_match else ''
-    pinned_commit = locked.lower() if re.fullmatch(r'[0-9a-fA-F]{7,40}', locked) else ''
-    if locked.lower() == version.lower() or (
-        commit and pinned_commit and (pinned_commit.startswith(commit) or commit.startswith(pinned_commit))
-    ):
-        return
-    raise excs.RequestError(
-        excs.ErrorCode.INVALID_CONFIGURATION,
-        f'the project locks pixeltable {locked}, but this pxt runs pixeltable {version}; run pxt from the '
-        'project environment, or update the lock to the pixeltable you deploy with',
-    )
+    if kind == 'git':
+        matches = bool(commit) and (value.startswith(commit) or commit.startswith(value))
+    else:
+        matches = value.lower() == version.lower()
+    if not matches:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'the project locks pixeltable {value}, but this pxt runs pixeltable {version}; run pxt from the '
+            'project environment, or update the lock to the pixeltable you deploy with',
+        )
+
+
+def check_hosted_pixeltable(project_dir: Path) -> None:
+    """Refuse what the control plane would refuse before anything is uploaded: a lock pinning another pixeltable,
+    or no pin while this pxt is a development build, which a hosted image cannot install."""
+    project_dir = project_dir.resolve()
+    _check_locked_pixeltable(project_dir)
+    version = pixeltable.__version__
+    if _locked_pixeltable(project_dir) is None and '+' in version:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'this pxt runs a development build of pixeltable ({version}), which a hosted image cannot install; '
+            'pin pixeltable in the project to a pushed commit, for example in requirements.txt: '
+            'pixeltable @ git+https://github.com/pixeltable/pixeltable@<full commit hash>',
+        )
 
 
 def image_input_files(project_dir: Path) -> list[Path]:

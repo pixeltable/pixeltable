@@ -33,6 +33,7 @@ from pixeltable.service.management_protocol import (
 from pixeltable.utils.project import (
     ProjectFingerprint,
     ProjectPart,
+    check_hosted_pixeltable,
     image_input_files,
     package_project_archive,
     project_fingerprint,
@@ -268,6 +269,7 @@ def _submit(
         raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, 'a project was submitted without a fingerprint')
     project_root = _validated_project_root()
     image_input_files(project_root)
+    check_hosted_pixeltable(project_root)
     archive = package_project_archive(project_root, config, show_progress=True)
     try:
         changed = {

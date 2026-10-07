@@ -24,6 +24,7 @@ from pixeltable.service.management_protocol import (
     PrepareUpdateResponse,
 )
 from pixeltable.utils.project import (
+    check_hosted_pixeltable,
     create_image_context,
     image_input_files,
     create_project_archive,
@@ -429,6 +430,8 @@ class TestProjectArchive:
 
     def test_manifest_drift(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A file rewritten while it is packaged is caught before anything is uploaded or submitted."""
+        # a released pxt: a development build of an unpinned project is refused before packaging
+        monkeypatch.setattr(pixeltable, '__version__', '0.7.15')
         (tmp_path / 'pixeltable.toml').write_text(
             '[[pixeltable.database]]\nname = "pxt://acme:main"\n', encoding='utf-8'
         )
@@ -506,3 +509,19 @@ class TestLockedPixeltable:
         _write(tmp_path, name, content)
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='locks pixeltable'):
             image_input_files(tmp_path)
+
+    def test_uv_git_pin_compares_by_commit(self, tmp_path: Path) -> None:
+        source = 'source = { git = "https://github.com/pixeltable/pixeltable?rev=8b86426f#8b86426f930cb3dd" }'
+        _write(tmp_path, 'uv.lock', f'[[package]]\nname = "pixeltable"\nversion = "0.7.15.dev9+8b86426f"\n{source}\n')
+        image_input_files(tmp_path)
+
+    def test_development_build_without_a_pin_is_refused_for_hosting(self, tmp_path: Path) -> None:
+        _write(tmp_path, 'requirements.txt', 'numpy\n')
+        image_input_files(tmp_path)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='development build'):
+            check_hosted_pixeltable(tmp_path)
+
+    def test_release_without_a_pin_is_hosted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(pixeltable, '__version__', '0.7.15')
+        _write(tmp_path, 'requirements.txt', 'numpy\n')
+        check_hosted_pixeltable(tmp_path)

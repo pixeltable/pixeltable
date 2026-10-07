@@ -16,6 +16,8 @@ from typing import Any
 import pytest
 import requests
 
+import pixeltable
+
 from pixeltable import exceptions as excs, metadata
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config
@@ -141,6 +143,8 @@ def _receipt(**fields: Any) -> GenerationReceipt:
 
 @pytest.fixture
 def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    # a released pxt: a development build of an unpinned project is refused before packaging
+    monkeypatch.setattr(pixeltable, '__version__', '0.7.15')
     (tmp_path / 'pixeltable.toml').write_text(f'[[pixeltable.database]]\nname = "{_DB_URI}"\n', encoding='utf-8')
     (tmp_path / 'app.py').write_text('x = 1\n')
     (tmp_path / 'requirements.txt').write_text('pandas\n')
