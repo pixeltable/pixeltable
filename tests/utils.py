@@ -114,7 +114,6 @@ def runs_linux_with_gpu() -> bool:
 # Below the default ephemeral range of every platform (Linux 32768-60999, macOS and Windows 49152-65535), which
 # bind() to port 0 and connect() draw on, and above the pxt daemon's default port (22089)
 _PORTS = range(23000, 32768)
-_PORT_SLICES = 32
 _port_cursor: int | None = None
 
 
@@ -126,9 +125,9 @@ def free_port() -> int:
     gone around its slice.
     """
     global _port_cursor  # noqa: PLW0603
-    slice_len = len(_PORTS) // _PORT_SLICES
+    slice_len = len(_PORTS) // int(os.environ.get('PYTEST_XDIST_WORKER_COUNT', '1'))
     worker = int(os.environ.get('PYTEST_XDIST_WORKER', 'gw0').removeprefix('gw'))
-    first = _PORTS.start + (worker % _PORT_SLICES) * slice_len
+    first = _PORTS.start + worker * slice_len
     if _port_cursor is None:
         # test sessions running side by side on one machine start at different places in the slice
         _port_cursor = os.getpid() % slice_len
