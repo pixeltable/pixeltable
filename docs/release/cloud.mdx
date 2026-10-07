@@ -180,7 +180,7 @@ pxt db list                      # every hosted database you can reach
 
 ## Media on the home bucket
 
-Every Cloud database includes a managed Media Store at `pxtfs://org:main/home`. Hosted tables and services write there automatically. No `destination=`, no dest env vars.
+Every Cloud database includes a managed Media Store at `pxt://org:main/buckets/home`. Hosted tables and services write there automatically. No `destination=`, no dest env vars.
 
 Set dest only for two cases:
 
@@ -211,7 +211,7 @@ Or set `db_input_media_dest` / `db_output_media_dest` on the database's `[[pixel
 | Tables | `pxt schema update app.py my_app` | `pxt schema update app.py pxt://org:main` |
 | HTTP | `pxt service update app.py my_app` | `pxt service update app.py pxt://org:main` |
 | Try a change | insert, `pxt dashboard`, `pxt schema diff app.py my_app` | insert from Python, `pxt schema diff app.py pxt://org:main` |
-| Media | local disk | `pxtfs://org:main/home` |
+| Media | local disk | `pxt://org:main/buckets/home` |
 
 <CardGroup cols={2}>
   <Card title="Request an account" icon="envelope" href="mailto:contact@pixeltable.com">
