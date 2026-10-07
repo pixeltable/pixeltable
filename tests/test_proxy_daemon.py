@@ -942,6 +942,8 @@ class _ScriptedConn:
     a live connection, and closing the peer makes it read as one the server has closed.
     """
 
+    responded_at: float | None = None
+
     def __init__(self, on_write: BaseException | None = None, on_read: object = (200, b'ok')) -> None:
         self.sock, self._peer = socket.socketpair()
         self._on_write = on_write
@@ -1173,8 +1175,44 @@ class TestTunnelRetries:
             return live
 
         pool = proxy_client._TunnelPool(connect)  # type: ignore[arg-type]
-        pool._idle.append(dead)  # type: ignore[arg-type]
+        pool._idle.append((dead, time.monotonic()))  # type: ignore[arg-type]
         with pool.borrow() as conn:
             assert conn is live
         assert dead.closed
         assert opened == [live]
+
+    def test_a_connection_idle_nearly_as_long_as_the_daemon_keeps_it_is_not_handed_out(self) -> None:
+        """The daemon closes a connection idle 5 s, and a request sent while that close is on its way is dropped."""
+        stale, fresh = _ScriptedConn(), _ScriptedConn()
+        opened: list[_ScriptedConn] = []
+
+        def connect() -> object:
+            opened.append(fresh)
+            return fresh
+
+        pool = proxy_client._TunnelPool(connect)  # type: ignore[arg-type]
+        # still open, so only its age can tell the pool not to send on it
+        pool._idle.append((stale, time.monotonic() - proxy_client._MAX_IDLE_S - 0.1))  # type: ignore[arg-type]
+        with pool.borrow() as conn:
+            assert conn is fresh
+        assert stale.closed
+
+        # one that went idle just now is handed out again
+        with pool.borrow() as conn:
+            assert conn is fresh
+        assert opened == [fresh]
+
+    def test_a_connection_idle_since_its_response_began_is_not_handed_out(self) -> None:
+        """The daemon's idle timer starts once it has sent a response, which can be long before the client has
+        read all of it: the age runs from when the response's headers arrived, not from when the read ended."""
+        slow, fresh = _ScriptedConn(), _ScriptedConn()
+        conns = iter([slow, fresh])
+        pool = proxy_client._TunnelPool(lambda: next(conns))  # type: ignore[arg-type,return-value]
+        with pool.borrow() as conn:
+            assert conn is slow
+            # its response began arriving long ago and was read only now
+            slow.responded_at = time.monotonic() - proxy_client._MAX_IDLE_S - 0.1
+
+        with pool.borrow() as conn:
+            assert conn is fresh
+        assert slow.closed
