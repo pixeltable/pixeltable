@@ -12,7 +12,6 @@ import os
 import pathlib
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import time
@@ -24,7 +23,14 @@ import pytest
 from pixeltable.config import Config
 from pixeltable_cli.client.utils import is_running
 
-from ..utils import CLOUD_DB_ROOT_URIS, DatabaseRoot, cloud_env_configured, home_bucket_uri, skip_test_if_no_config
+from ..utils import (
+    CLOUD_DB_ROOT_URIS,
+    DatabaseRoot,
+    cloud_env_configured,
+    free_port,
+    home_bucket_uri,
+    skip_test_if_no_config,
+)
 
 _REPO_ROOT = pathlib.Path(__file__).parents[2]
 _CORPUS_DIR = pathlib.Path(__file__).parent
@@ -52,16 +58,10 @@ EXIT_CHANGES_PENDING = 2
 APPLY_TIMEOUT = 2400.0
 
 
-def _pick_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('127.0.0.1', 0))
-        return s.getsockname()[1]
-
-
 @pytest.fixture
 def daemon_port(init_env: None) -> Iterator[int]:
     """A free port for a daemon of the test's own, taken down again when the test ends."""
-    port = _pick_port()
+    port = free_port()
     yield port
     subprocess.run(
         ['pxt', 'daemon', 'stop', '-f'],
@@ -135,7 +135,7 @@ def project_dir(session_project: pathlib.Path, request: pytest.FixtureRequest) -
 def pxt_daemon(
     init_env: None, tmp_path_factory: pytest.TempPathFactory, session_project: pathlib.Path
 ) -> Iterator[int]:
-    port = _pick_port()
+    port = free_port()
     env = {**os.environ, 'PXT_PORT': str(port)}
     log_path = tmp_path_factory.mktemp('pxt-daemon') / 'daemon.log'
     prior_port = os.environ.get('PXT_PORT')
@@ -448,7 +448,7 @@ def cli_bg(
     running: list[BackgroundPxt] = []
 
     def _run(*args: str, port: int | None = None) -> BackgroundPxt:
-        bound = _pick_port() if port is None else port
+        bound = free_port() if port is None else port
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon), 'BROWSER': 'true'}
         proc = subprocess.Popen(
             ['pxt', *args, '--port', str(bound)],

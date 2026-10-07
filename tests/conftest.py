@@ -10,7 +10,7 @@ import sys
 import threading
 import urllib.parse
 import uuid
-from typing import Callable, Iterator, get_args
+from typing import Callable, Generator, Iterator, get_args
 
 import pytest
 import requests
@@ -102,6 +102,22 @@ def pytest_runtest_teardown(item: pytest.Item) -> None:
         _free_disk_space()
     current_test = os.environ.get('PYTEST_CURRENT_TEST')
     _logger.info(f'Finished Pixeltable test: {current_test}')
+
+
+_PHASE_REPORTS = pytest.StashKey[dict[str, pytest.TestReport]]()
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    """Keep each phase's report on the item, for a fixture whose teardown depends on how the test went.
+
+    A wrapper=True hook hands back the report by returning it from the generator.
+    """
+    report = yield
+    item.stash.setdefault(_PHASE_REPORTS, {})[report.when] = report
+    return report  # noqa: B901
 
 
 def _set_up_external_db_schema(worker_id: int | str) -> str:
@@ -439,6 +455,11 @@ def db_root(
             proxy_daemon.reinitialize(db)
             base_uri = f'pxt://local:{db}'
             yield DatabaseRoot('proxy', base_uri, base_uri)
+            reports = request.node.stash.get(_PHASE_REPORTS, {}).values()
+            if any(r.failed or (r.skipped and hasattr(r, 'wasxfail')) for r in reports):
+                # a request the client gave up on keeps running in the daemon, against the database that the next
+                # test's clean_db() truncates; stopping the daemon ends it, and the next proxy test starts another
+                proxy_daemon.stop(db)
 
         case 'cloud' | 'cloud-cli' | 'cloud-serving':
             base_uri = CLOUD_DB_ROOT_URIS.get(db_root_id)

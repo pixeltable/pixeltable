@@ -15,7 +15,6 @@ import json
 import os
 import pathlib
 import re
-import socket
 import subprocess
 import sys
 import threading
@@ -43,7 +42,7 @@ from pixeltable_cli.models import LoginPollResponse
 from pixeltable_cli.server import routes
 from pixeltable_cli.server.router import Request
 
-from ..utils import pxt_raises
+from ..utils import free_port, pxt_raises
 from .conftest import PxtResult, PxtRunner
 
 _API_URL = 'http://127.0.0.1:{port}'
@@ -244,15 +243,9 @@ def _serve(plane: ControlPlane) -> HTTPServer:
     return server
 
 
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('127.0.0.1', 0))
-        return s.getsockname()[1]
-
-
 @pytest.fixture(scope='module')
 def control_plane() -> Iterator[ControlPlane]:
-    plane = ControlPlane(port=_free_port())
+    plane = ControlPlane(port=free_port())
     server = _serve(plane)
     try:
         yield plane
@@ -264,7 +257,7 @@ def control_plane() -> Iterator[ControlPlane]:
 @pytest.fixture
 def fresh_plane() -> Iterator[ControlPlane]:
     """A stub on a port of its own, so its URL misses the process-wide endpoint cache."""
-    plane = ControlPlane(port=_free_port())
+    plane = ControlPlane(port=free_port())
     server = _serve(plane)
     try:
         yield plane
@@ -275,7 +268,7 @@ def fresh_plane() -> Iterator[ControlPlane]:
 
 @pytest.fixture(scope='module')
 def auth_daemon_port() -> int:
-    return _free_port()
+    return free_port()
 
 
 def _post_to_daemon(port: int, path: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
