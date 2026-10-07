@@ -108,7 +108,6 @@ class TestVideo:
     @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
     @rerun_on_network_error()
     def test_query(self, uses_db: None) -> None:
-        skip_test_if_not_installed('boto3')
         video_filepaths = get_video_files()
         base_t, view_t = self.create_tbls()
         # also include an external file, to make sure that prefetching works
