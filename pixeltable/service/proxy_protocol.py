@@ -954,9 +954,7 @@ def decode_body(body: bytes) -> tuple[bytes, list[bytes]]:
     return head, binary_parts
 
 
-# On macOS a socket write of more than INT_MAX bytes fails with EINVAL, and neither end reports it: the daemon's event
-# loop closes the connection without a response, and httpx discards the error and waits for a response until it times
-# out. Bodies are therefore written in slices of this size.
+# On macOS a socket write of more than INT_MAX bytes fails, so bodies are written in slices of this size.
 _BODY_CHUNK_SIZE = 16 * 2**20
 
 
