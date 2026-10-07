@@ -637,9 +637,14 @@ class Planner:
         evaluated_cols: list[Column] = list(update_targets.keys()) + eval_cols
         select_list: list[exprs.Expr] = list(update_targets.values()) + eval_exprs
 
+        # A data-versioned table never modifies a row in place: the update "soft-deletes" the current versions of the
+        # matching rows (sets their v_max to the new table version, which keeps them visible to older versions) and
+        # inserts the plan's output as new row versions. An operational table updates its rows in place, so it needs
+        # no soft-delete predicate and applies `where` in the query plan instead.
         soft_delete_where_clause: sql.ColumnElement[bool] | None = None
         if target.is_data_versioned:
             soft_delete_where_clause = sql.true() if where is None else where.sql_expr(exprs.SqlElementCache())
+            # sql_expr() returns None only for a predicate that needs Python evaluation
             assert soft_delete_where_clause is not None
         plan = cls.create_query_plan(
             FromClause(tbls=[tbl]),
