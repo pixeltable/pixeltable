@@ -134,7 +134,6 @@ class TestDestination:
     @pytest.mark.very_expensive
     def test_invalid_bucket(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')
         t = pxt.create_table(p('test_invalid_dest'), schema={'img': pxt.Image | None})
 
         with pxt_raises(
@@ -288,7 +287,6 @@ class TestDestination:
                 'its media dir or an external store, never a local path'
             )
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils.pxt_store import PxtStore
         from pixeltable.utils.s3_store import S3Store
 
@@ -859,8 +857,8 @@ class TestDestination:
             print(item)
         assert len(r) > 2
 
-    PUBLIC_TEST_OBJECTS: ClassVar[dict[StorageTarget, tuple[str, str, str]]] = {
-        # StorageTarget -> (module_name, src_base, src_obj)
+    PUBLIC_TEST_OBJECTS: ClassVar[dict[StorageTarget, tuple[str | None, str, str]]] = {
+        # StorageTarget -> (optional module_name, src_base, src_obj)
         StorageTarget.AZURE_STORE: (
             'azure.storage.blob',
             'https://azureopendatastorage.blob.core.windows.net/mnist/',
@@ -871,7 +869,7 @@ class TestDestination:
             'gs://hdrplusdata/',
             '20171106_subset/gallery_20171023/c483_20150901_105412_265.jpg',
         ),
-        StorageTarget.S3_STORE: ('boto3', 's3://open-images-dataset/validation/', '3c02ca9ec9b2b77b.jpg'),
+        StorageTarget.S3_STORE: (None, 's3://open-images-dataset/validation/', '3c02ca9ec9b2b77b.jpg'),
     }
 
     @pytest.mark.db_roots('local', reason='media destination/object-store internals')
@@ -880,7 +878,8 @@ class TestDestination:
     def test_public_download(self, uses_db: None, dest_id: StorageTarget) -> None:
         """Test downloading a media object from a public Store"""
         module_name, src_base, src_obj = self.PUBLIC_TEST_OBJECTS[dest_id]
-        skip_test_if_not_installed(module_name)
+        if module_name is not None:
+            skip_test_if_not_installed(module_name)
         self.__download_object(src_base, src_obj)
 
     def test_http_download_retry(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -466,7 +466,6 @@ class ObjectOps:
         if soa.storage_target == StorageTarget.LOCAL_STORE:
             return LocalStore(soa)
         if soa.storage_target == StorageTarget.PIXELTABLE_STORE:
-            env.Env.get().require_package('boto3')
             from pixeltable.utils.pxt_store import PxtStore
 
             return PxtStore(soa, scope_credentials=scope_credentials)
@@ -476,7 +475,6 @@ class ObjectOps:
             StorageTarget.B2_STORE,
             StorageTarget.TIGRIS_STORE,
         ):
-            env.Env.get().require_package('boto3')
             from pixeltable.utils.s3_store import S3Store
 
             return S3Store(soa)
