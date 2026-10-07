@@ -515,7 +515,7 @@ class TestService:
 
     @pytest.mark.db_roots('cloud-serving', reason='cloud-specific behavior')
     def test_db_update_handoff(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """A db update doesn't restart services; an explicit restart does."""
+        """A db update doesn't move services onto its code, nor does a restart; a service update does."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         target = db_root.make_catalog_path('handoff')
@@ -544,9 +544,15 @@ class TestService:
         assert pending['update_pending'] is True, pending
         assert summary() == 'hello', 'the pods still serve their own project'
 
+        # a restart keeps the service's release
         cli('service', 'restart', f'{target}/ingest')
-        restarted = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
-        assert restarted['update_pending'] is False, restarted
+        restarted = get_services(cli, target)['ingest']
+        assert restarted['update_pending'] is True, restarted
+        assert summary() == 'hello'
+
+        cli('service', 'update', str(app_file), target, '-f')
+        updated = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
+        assert updated['update_pending'] is False, updated
         assert summary() == 'HELLO'
 
     def test_prune(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
