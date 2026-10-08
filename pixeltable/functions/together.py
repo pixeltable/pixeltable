@@ -139,6 +139,9 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
     Equivalent to the Together AI `embeddings` API endpoint.
     For additional details, see: <https://docs.together.ai/reference/embeddings-2>
 
+    Together AI serves embedding models only through dedicated endpoints, so `model` must name one that is
+    deployed to an endpoint in your account.
+
     Request throttling:
     Applies the rate limit set in the config (section `together.rate_limits`, key `embeddings`). If no rate
     limit is configured, uses a default of 600 RPM.
