@@ -117,7 +117,7 @@ def _clear_model_caches() -> None:
     for cache in caches:
         cache.clear()
     gc.collect()
-    if sys.platform == 'linux':
+    if platform.libc_ver()[0] == 'glibc':
         # glibc keeps freed memory in the process's heap unless asked to return it
         ctypes.CDLL('libc.so.6').malloc_trim(0)
 
