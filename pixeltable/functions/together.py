@@ -156,16 +156,6 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
 
     Returns:
         An array representing the application of the given embedding to `input`.
-
-    Examples:
-        Add a computed column that applies the model `intfloat/multilingual-e5-large-instruct`
-        to an existing Pixeltable column `tbl.text` of the table `tbl`:
-
-        >>> tbl.add_computed_column(
-        ...     response=embeddings(
-        ...         tbl.text, model='intfloat/multilingual-e5-large-instruct'
-        ...     )
-        ... )
     """
     result = await _together_client().embeddings.create(input=input, model=model)
     return [np.array(data.embedding, dtype=np.float64) for data in result.data]
