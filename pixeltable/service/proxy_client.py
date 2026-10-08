@@ -138,14 +138,19 @@ class HttpTransport(Transport):
         self._http.close()
 
 
-_CONNECT_TIMEOUT = 30.0
+# A TCP connect that times out on every try reads as a network that blocks the port, so the tries must outlast a
+# gateway rollout, in which a load balancer address can drop SYNs for ~20 s. create_connection() gives each address
+# the timeout, and *.pxt.run resolves to two.
+_CONNECT_TIMEOUT = 10.0
+_CONNECT_TRIES = 2
+_HANDSHAKE_TIMEOUT = 30.0  # TLS + PXT/1.0
 _RPC_TIMEOUT = 1800.0
 _MAX_POOL_SIZE = 16  # matches the fetch_media download threadpool
 _MAX_IDLE_S = 4.0  # below the proxy daemon's 5 s keep-alive, so no connection is reused as the daemon closes it
 
 # Failures that leave the request undelivered (connect, handshake, writing it); retried with backoff.
 _TUNNEL_TRANSIENT_EXC = (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError)
-_TUNNEL_RETRY_MAX_DELAY = 90.0  # seconds; > _CONNECT_TIMEOUT so a hung handshake still leaves retry budget
+_TUNNEL_RETRY_MAX_DELAY = 90.0  # seconds; > _HANDSHAKE_TIMEOUT so a hung handshake still leaves retry budget
 
 
 class _TunnelHTTPConnection(http.client.HTTPConnection):
@@ -260,9 +265,10 @@ class TunnelTransport(Transport):
         # before connecting: renewing a session is a round trip of its own, and a refused credential needs no socket
         credential = self._credential_cb()
         ctx = ssl.create_default_context()
-        raw_sock = socket.create_connection((self._host, self._port), timeout=_CONNECT_TIMEOUT)
+        raw_sock = self._open_socket()
         ssl_sock: ssl.SSLSocket | None = None
         try:
+            raw_sock.settimeout(_HANDSHAKE_TIMEOUT)
             raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             for level, option, value in tcp_keepalive_options():
                 raw_sock.setsockopt(level, option, value)
@@ -284,13 +290,33 @@ class TunnelTransport(Transport):
             if not first_line.startswith('PXT/1.0 200'):
                 raise self._handshake_error(first_line, credential)
 
-            # Switch from the connect-phase timeout to the RPC timeout now that the handshake is done;
-            # otherwise the socket would time out on any request that takes longer than _CONNECT_TIMEOUT.
+            # Switch from the handshake timeout to the RPC timeout now that the handshake is done;
+            # otherwise the socket would time out on any request that takes longer than _HANDSHAKE_TIMEOUT.
             ssl_sock.settimeout(_RPC_TIMEOUT)
             return _TunnelHTTPConnection(self._host, ssl_sock, timeout=_RPC_TIMEOUT)
         except Exception:
             (ssl_sock or raw_sock).close()
             raise
+
+    def _open_socket(self) -> socket.socket:
+        """Open the TCP connection, failing without retries when every try times out (see _CONNECT_TRIES).
+
+        Any other error, and any failure after the connection opens, is raised as it is and retried in `_request()`.
+        """
+        timeout: TimeoutError | None = None
+        for _ in range(_CONNECT_TRIES):
+            try:
+                return socket.create_connection((self._host, self._port), timeout=_CONNECT_TIMEOUT)
+            except TimeoutError as e:
+                _logger.debug('TCP connect to %s:%d timed out', self._host, self._port)
+                timeout = e
+        # every tunnel host is <org>-<db>.<domain>, so allowing *.<domain> covers every database
+        domain = self._host.partition('.')[2]
+        raise excs.ServiceUnavailableError(
+            excs.ErrorCode.DATABASE_UNAVAILABLE,
+            f'Cannot reach pxt://{self._org}:{self._db}: the TCP connection to {self._host}:{self._port} timed out.\n'
+            f'If this network blocks outbound ports, allow outbound TCP port {self._port} to *.{domain}.',
+        ) from timeout
 
     def _handshake_error(self, status_line: str, sent: Credential) -> Exception:
         """A refusal reads as the control plane's does, naming the credential; any other status is retried."""
@@ -304,8 +330,8 @@ class TunnelTransport(Transport):
         """Borrow a tunnel connection, issue one request, return the raw body.
 
         A failure that leaves the request undelivered (connect, handshake, writing it) is retried with
-        backoff on a fresh connection, as is a 5xx; a refused credential, a connection the OS refuses, and
-        non-5xx HTTP errors are not.
+        backoff on a fresh connection, as is a 5xx; a refused credential, a connection the OS refuses, a TCP
+        connect that timed out on every try, and non-5xx HTTP errors are not.
 
         A connection that fails *after* the daemon has received the request is treated as a server crash and is
         not retried; retries in this scenario can inadvertently DOS the pod.

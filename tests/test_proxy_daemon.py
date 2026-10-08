@@ -993,7 +993,7 @@ class _PlainSidecar(socketserver.TCPServer):
     """A sidecar on loopback TCP that records the token in each tunnel handshake.
 
     It answers one request per tunnel and then closes it, so the client's next request needs a new
-    handshake. Handshakes get `handshakes` in turn, then 'PXT/1.0 200 OK'.
+    handshake. Handshakes get `handshakes` in turn, then 'PXT/1.0 200 OK'; an empty one gets no answer.
     """
 
     def __init__(self, handshakes: tuple[bytes, ...] = ()) -> None:
@@ -1019,6 +1019,9 @@ class _SidecarHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         self.server.tokens.append(_header_fields(self.rfile)['Authorization'].removeprefix('Bearer '))
         reply = self.server.handshakes.pop(0) if self.server.handshakes else b'PXT/1.0 200 OK'
+        if reply == b'':
+            self.rfile.read()  # until the client gives up and closes the tunnel
+            return
         self.wfile.write(reply + b'\r\n\r\n')
         if not reply.startswith(b'PXT/1.0 200'):
             return
@@ -1066,12 +1069,13 @@ class TestTunnelRetries:
         assert opened[0].closed
 
     def test_a_server_error_is_retried(self) -> None:
-        """A 5xx comes from a daemon that is alive and answering; a rollout can produce one."""
+        """A 5xx comes from a daemon that is alive and answering; a rollout can produce one. It is retried
+        for the whole retry budget, not only as many times as a connect that times out."""
         transport, opened = self._transport(
-            [_ScriptedConn(on_read=(503, b'unavailable')), _ScriptedConn(on_read=(200, b'second'))]
+            [*(_ScriptedConn(on_read=(503, b'unavailable')) for _ in range(2)), _ScriptedConn(on_read=(200, b'third'))]
         )
-        assert transport.post(b'body') == b'second'
-        assert len(opened) == 2
+        assert transport.post(b'body') == b'third'
+        assert len(opened) == 3
 
     def test_a_connection_the_os_refuses_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A firewall or sandbox that denies the socket denies it again, so the error comes at once."""
@@ -1088,6 +1092,48 @@ class TestTunnelRetries:
         with pytest.raises(PermissionError):
             transport.post(b'body')
         assert attempts == 1
+
+    def test_a_connect_that_times_out_names_the_blocked_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A network that allows only outbound 443 drops the connect: two short tries, then an error that says
+        what to allow, rather than retrying for the whole budget and surfacing a bare TimeoutError."""
+        timeouts: list[float | None] = []
+
+        def drop(_address: Any, timeout: float | None = None) -> socket.socket:
+            timeouts.append(timeout)
+            raise TimeoutError('timed out')
+
+        monkeypatch.setattr(socket, 'create_connection', drop)
+        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='org1-db1.pxt.run', port=9000)
+
+        with pxt_raises(
+            excs.ErrorCode.DATABASE_UNAVAILABLE,
+            match=r'Cannot reach pxt://org1:db1: the TCP connection to org1-db1\.pxt\.run:9000 timed out\.\n'
+            r'.*allow outbound TCP port 9000 to \*\.pxt\.run\.',
+        ):
+            transport.post(b'body')
+        assert timeouts == [proxy_client._CONNECT_TIMEOUT] * proxy_client._CONNECT_TRIES
+
+    def test_a_connect_that_timed_out_once_is_tried_again(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        sidecar = _PlainSidecar()
+        connects = 0
+
+        def drop_first(address: Any, timeout: float | None = None) -> socket.socket:
+            nonlocal connects
+            connects += 1
+            if connects == 1:
+                raise TimeoutError('timed out')
+            return sidecar.connect(address, timeout)
+
+        monkeypatch.setattr(socket, 'create_connection', drop_first)
+        monkeypatch.setattr(ssl, 'create_default_context', _PlainTLS)
+        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
+        try:
+            assert transport.post(b'body') == b'ok'
+        finally:
+            transport.close()
+            sidecar.close()
+        assert connects == 2
+        assert sidecar.tokens == ['key']
 
     def test_a_refused_credential_opens_no_connection(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Renewing a session is a round trip of its own, so the credential is resolved before connecting."""
@@ -1150,9 +1196,16 @@ class TestTunnelRetries:
 
     def test_a_handshake_the_sidecar_could_not_complete_is_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A 5xx says nothing about the credential: the sidecar could not reach the daemon yet."""
-        sidecar = _PlainSidecar((b'PXT/1.0 503 Service Unavailable',))
+        sidecar = _PlainSidecar((b'PXT/1.0 503 Service Unavailable',) * 2)
         assert self._post_through(sidecar, monkeypatch) == b'ok'
-        assert sidecar.tokens == ['key', 'key']
+        assert sidecar.tokens == ['key'] * 3
+
+    def test_a_handshake_that_times_out_is_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A timeout after the connection opened is not a blocked port: the gateway or sidecar is slow to answer."""
+        monkeypatch.setattr(proxy_client, '_HANDSHAKE_TIMEOUT', 0.2)
+        sidecar = _PlainSidecar((b'', b''))
+        assert self._post_through(sidecar, monkeypatch) == b'ok'
+        assert sidecar.tokens == ['key'] * 3
 
     def test_a_client_error_is_not_retried(self) -> None:
         transport, opened = self._transport([_ScriptedConn(on_read=(404, b'nope')) for _ in range(2)])
