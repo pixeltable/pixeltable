@@ -213,6 +213,63 @@ class Images(TableModel, name='images'):
 
 Or set `db_input_media_dest` / `db_output_media_dest` on the database's `[[pixeltable.database]]` entry to change the default for inserted or computed media. Details: [Cloud storage](/integrations/cloud-storage#default-destinations).
 
+## Open and share media
+
+The home bucket is private. A query from your machine downloads its media through signed URLs, so no bucket credentials reach the client. A service route returns a media column as a signed URL that lasts an hour. To hand a file to a person, a script, an app or a model:
+
+| Who opens the file | Use | Credential |
+|---|---|---|
+| A teammate in a browser | a link: **Copy link** on a file in **Storage** or the catalog | their Pixeltable sign-in |
+| A script | the same link, with `curl -L` | API key as `Authorization: Bearer` |
+| Your app's pages, a model API | URLs from `/sign` | API key, on your server only |
+
+A file's key is the part of its `fileurl` after `pxtfs://org:main/home/`. Its link is:
+
+```
+https://storage.pixeltable.com/org/main/buckets/home/<key>
+```
+
+The link redirects to a signed URL that lasts an hour, and works for anyone signed in to the organization. A script sends a key:
+
+```bash
+curl -L -o photo.jpg \
+  -H "Authorization: Bearer $PIXELTABLE_API_KEY" \
+  "https://storage.pixeltable.com/org/main/buckets/home/<key>"
+```
+
+A link refuses `X-api-key` with 400: clients forward that header to the host the redirect names.
+
+### Sign URLs for an app
+
+An app backend signs up to 100 keys per call and puts the URLs in its pages:
+
+```python
+import os
+
+import requests
+
+import pixeltable as pxt
+
+t = pxt.get_table('pxt://org:main/images')
+rows = t.select(url=t.photo.fileurl).limit(20).collect()
+keys = [row['url'].split('/home/', 1)[1] for row in rows]
+
+resp = requests.post(
+    'https://storage.pixeltable.com/org/main/sign',
+    headers={'Authorization': f'Bearer {os.environ["PIXELTABLE_API_KEY"]}'},
+    json={'keys': keys, 'expires_in': 3600},
+    timeout=30,
+)
+resp.raise_for_status()
+signed = resp.json()  # {"urls": {key: url}, "expires_at": "2026-10-08T21:00:00.000Z"}
+```
+
+- `/sign` takes the key as `Authorization: Bearer` or `X-api-key`. A key granted `access:pxt://org:main` signs in that database only.
+- `expires_in` is 1 to 604800 seconds (7 days), 3600 by default. Sign again before `expires_at`.
+- A signed URL works for anyone who holds it until it expires. Revoking the key does not revoke URLs already issued, so keep lifetimes as short as the page needs.
+- For a model API, sign right before the call, with `expires_in` near 300, and pass the signed URL. The link would fail there: the model provider has no Pixeltable credential.
+- Images, video, audio, PDF, text and JSON open in the browser. Every other type, HTML and SVG included, downloads.
+
 ## Local vs Cloud
 
 | | Local | Cloud |
