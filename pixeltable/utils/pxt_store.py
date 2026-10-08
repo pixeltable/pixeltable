@@ -27,6 +27,7 @@ from pixeltable import ErrorCode, exceptions as excs
 from pixeltable.env import Env
 from pixeltable.utils.cloud_utils import get_bucket_credentials, get_presigned_url_from_cloud
 from pixeltable.utils.object_stores import (
+    PXT_BUCKETS_DIR,
     S3_COMPATIBLE_TARGETS,
     FileDestination,
     ObjectStoreBase,
@@ -37,7 +38,7 @@ from pixeltable.utils.s3_store import S3Store
 
 _logger = logging.getLogger(__name__)
 
-_PXT_URI_PATTERN = re.compile(r'^pxt://[^/]+/buckets/([^/?#]+)(.*)$')
+_PXT_URI_PATTERN = re.compile(rf'^pxt://[^/]+/{PXT_BUCKETS_DIR}/([^/?#]+)(.*)$')
 
 # how often a write rejected for lack of space checks the quota again
 _QUOTA_RECHECK_INTERVAL_S = 60.0
@@ -256,8 +257,7 @@ class PxtStore(ObjectStoreBase):
         assert bucket == physical, (
             f'Unexpected bucket segment {bucket!r} in {store_object_uri!r} (expected {physical!r} or {logical!r})'
         )
-        org_db = store_object_uri.split('/')[2]
-        return f'pxt://{org_db}/buckets/{logical}{path}'
+        return f'{self.soa.container_free_uri}{logical}{path}'
 
     def validate(self, error_col_name: str) -> str | None:
         """Probe the store's prefix and return the logical base URI on success."""

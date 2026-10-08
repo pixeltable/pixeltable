@@ -338,7 +338,6 @@ class _ResponseMedia:
     _home_dir: Path
     _sink: PxtStorePartSink | None  # one per request, so its uploads share one store client
     _media_url_base: str  # local service: the /media route's url prefix
-    _home_uri_prefix: str  # hosted service: 'pxt://<org>:<db>/buckets/home/'
 
     def __init__(self, request: Request, home_dir: Path) -> None:
         self._home_dir = home_dir
@@ -351,7 +350,6 @@ class _ResponseMedia:
             org, db = hosted
             # its keys fall under uploads/, which the bucket expires
             self._sink = PxtStorePartSink(org, db)
-            self._home_uri_prefix = f'pxt://{org}:{db}/buckets/home/'
 
     def url_for(self, rel_path: str) -> str:
         if self._sink is None:
@@ -359,7 +357,7 @@ class _ResponseMedia:
         # PxtStorePartSink uploads every part as an object of its own
         key = cast(str, self._sink.add_media_file(str(self._home_dir / rel_path)))
         # signed for an hour, so a client has time to fetch the media after reading the response
-        return ObjectOps.presigned_url(f'{self._home_uri_prefix}{key}', expiration_seconds=3600)
+        return ObjectOps.presigned_url(self._sink.object_uri(key), expiration_seconds=3600)
 
     def flush(self) -> None:
         if self._sink is not None:

@@ -55,6 +55,10 @@ S3_COMPATIBLE_TARGETS = frozenset(
     {StorageTarget.S3_STORE, StorageTarget.R2_STORE, StorageTarget.B2_STORE, StorageTarget.TIGRIS_STORE}
 )
 
+# a pxt://<org>:<db> path under this root directory addresses one of the database's storage buckets; any other
+# pxt:// path is a catalog path
+PXT_BUCKETS_DIR = 'buckets'
+
 
 class StorageObjectAddress(NamedTuple):
     """Contains components of an object address.
@@ -115,7 +119,7 @@ class StorageObjectAddress(NamedTuple):
         """Return the URI without any prefixes."""
         assert not self.is_azure_scheme, 'Azure storage requires a container name'
         if self.storage_target == StorageTarget.PIXELTABLE_STORE:
-            return f'{self.scheme}://{self.account}:{self.account_extension}/buckets/'
+            return f'{self.scheme}://{self.account}:{self.account_extension}/{PXT_BUCKETS_DIR}/'
         if self.account and self.account_extension:
             return f'{self.scheme}://{self.account}.{self.account_extension}/'
         if self.account_extension:
@@ -297,10 +301,10 @@ class ObjectPath:
             if scheme == 'pxt':
                 # catalog paths share the scheme; only the buckets/ directory addresses storage
                 buckets_dir, _, raw_path = raw_path.partition('/')
-                if buckets_dir != 'buckets':
+                if buckets_dir != PXT_BUCKETS_DIR:
                     raise ValueError(
                         f"Invalid pxt:// store URI '{src_addr}': a storage address has the form "
-                        "'pxt://<org>:<db>/buckets/home[/<key>]'; other pxt:// paths are catalog paths"
+                        f"'pxt://<org>:<db>/{PXT_BUCKETS_DIR}/home[/<key>]'; other pxt:// paths are catalog paths"
                     )
             path_parts = raw_path.split('/', 1)
             container = path_parts[0]
@@ -364,6 +368,14 @@ class ObjectPath:
         if soa.storage_target != StorageTarget.PIXELTABLE_STORE:
             return uri
         return f'{soa.prefix_free_uri}{soa.key}' if len(soa.key) > 0 else soa.prefix_free_uri.rstrip('/')
+
+
+def home_bucket_uri(org: str, db: str, key: str = '') -> str:
+    """The address of key in the home bucket of hosted database org:db, or of the bucket itself if key is empty."""
+    bucket_uri = StorageObjectAddress(
+        StorageTarget.PIXELTABLE_STORE, 'pxt', account=org, account_extension=db, container='home'
+    ).prefix_free_uri
+    return f'{bucket_uri}{key}' if len(key) > 0 else bucket_uri.rstrip('/')
 
 
 # a warning names the first caller outside these packages

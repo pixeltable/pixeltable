@@ -26,6 +26,7 @@ from pixeltable.types import ColumnSpec
 from pixeltable.utils import fault_injection
 from pixeltable.utils.exception_handler import run_cleanup
 from pixeltable.utils.fault_injection import FaultLocation
+from pixeltable.utils.object_stores import PXT_BUCKETS_DIR
 
 from .catalog_base import CatalogBase
 from .column import Column
@@ -55,7 +56,7 @@ _logger = logging.getLogger(__name__)
 
 # pxt://<org>:<db>/buckets/... addresses a hosted database's storage buckets, so no new entry at the root of its
 # catalog may take this name; an entry created before the reservation keeps working
-_HOSTED_RESERVED_ROOT_NAME = 'buckets'
+_HOSTED_RESERVED_ROOT_NAME = PXT_BUCKETS_DIR
 
 
 def _unpack_row(row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api.DeclarativeBase]]) -> list[Any] | None:
@@ -1494,8 +1495,9 @@ class Catalog(CatalogBase):
             return
         raise excs.RequestError(
             excs.ErrorCode.INVALID_PATH,
-            "'buckets' is reserved at the root of a hosted database: pxt://<org>:<db>/buckets/... addresses the "
-            "database's storage buckets. Choose another name.",
+            f"'{_HOSTED_RESERVED_ROOT_NAME}' is reserved at the root of a hosted database: "
+            f"pxt://<org>:<db>/{_HOSTED_RESERVED_ROOT_NAME}/... addresses the database's storage buckets. "
+            'Choose another name.',
         )
 
     def _get_dir_entry(
