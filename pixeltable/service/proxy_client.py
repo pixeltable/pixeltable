@@ -16,6 +16,7 @@ import selectors
 import socket
 import ssl
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
@@ -140,6 +141,7 @@ class HttpTransport(Transport):
 _CONNECT_TIMEOUT = 30.0
 _RPC_TIMEOUT = 1800.0
 _MAX_POOL_SIZE = 16  # matches the fetch_media download threadpool
+_MAX_IDLE_S = 4.0  # below the proxy daemon's 5 s keep-alive, so no connection is reused as the daemon closes it
 
 # Failures that leave the request undelivered (connect, handshake, writing it); retried with backoff.
 _TUNNEL_TRANSIENT_EXC = (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError)
@@ -149,9 +151,18 @@ _TUNNEL_RETRY_MAX_DELAY = 90.0  # seconds; > _CONNECT_TIMEOUT so a hung handshak
 class _TunnelHTTPConnection(http.client.HTTPConnection):
     """HTTPConnection backed by an already-established socket."""
 
+    # When the last response's headers arrived. The daemon's idle timer starts once it has sent the whole response,
+    # which is after it sent the headers and can be well before the client has read the rest.
+    responded_at: float | None = None
+
     def __init__(self, host: str, sock: ssl.SSLSocket, timeout: float) -> None:
         super().__init__(host, timeout=timeout)
         self.sock = sock
+
+    def getresponse(self) -> http.client.HTTPResponse:
+        response = super().getresponse()
+        self.responded_at = time.monotonic()
+        return response
 
     def connect(self) -> None:
         pass  # socket already set in __init__
@@ -177,23 +188,25 @@ def _is_server_closed(conn: http.client.HTTPConnection) -> bool:
 class _TunnelPool:
     """Thread-safe pool of TLS + PXT/1.0 tunnel connections."""
 
-    def __init__(self, connect: Callable[[], http.client.HTTPConnection], max_size: int = _MAX_POOL_SIZE) -> None:
+    def __init__(self, connect: Callable[[], _TunnelHTTPConnection], max_size: int = _MAX_POOL_SIZE) -> None:
         self._connect = connect
         self._max = max_size
         self._lock = threading.Lock()
-        self._idle: list[http.client.HTTPConnection] = []
+        self._idle: list[tuple[_TunnelHTTPConnection, float]] = []  # with when each one's last response arrived
 
     @contextmanager
-    def borrow(self) -> Iterator[http.client.HTTPConnection]:
-        conn: http.client.HTTPConnection | None = None
+    def borrow(self) -> Iterator[_TunnelHTTPConnection]:
+        conn: _TunnelHTTPConnection | None = None
         while conn is None:
             with self._lock:
-                conn = self._idle.pop() if self._idle else None
-            if conn is None:
+                idle = self._idle.pop() if self._idle else None
+            if idle is None:
                 conn = self._connect()
-            elif _is_server_closed(conn):
-                # an idle connection the server has closed says nothing about the next request; dropping it
-                # here lets a broken response mean the server died on the request it was given
+                continue
+            conn, idle_since = idle
+            if time.monotonic() - idle_since > _MAX_IDLE_S or _is_server_closed(conn):
+                # an idle connection the server has closed, or is about to, says nothing about the next request;
+                # dropping it here lets a broken response mean the server died on the request it was given
                 conn.close()
                 conn = None
         try:
@@ -204,13 +217,13 @@ class _TunnelPool:
         else:
             with self._lock:
                 if len(self._idle) < self._max:
-                    self._idle.append(conn)
+                    self._idle.append((conn, conn.responded_at or time.monotonic()))
                 else:
                     conn.close()
 
     def close(self) -> None:
         with self._lock:
-            for conn in self._idle:
+            for conn, _ in self._idle:
                 try:
                     conn.close()
                 except Exception:
@@ -242,7 +255,7 @@ class TunnelTransport(Transport):
         # media URLs are formed against this endpoint; they are reachable only through the tunnel (see fetch())
         self._endpoint = f'https://{self._host}:{self._port}'
 
-    def _connect_tunnel(self) -> http.client.HTTPConnection:
+    def _connect_tunnel(self) -> _TunnelHTTPConnection:
         """Open one tunnel connection: TCP + TLS + PXT/1.0 CONNECT handshake."""
         # before connecting: renewing a session is a round trip of its own, and a refused credential needs no socket
         credential = self._credential_cb()
