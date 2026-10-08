@@ -1293,8 +1293,8 @@ class TestTunnelRetries:
 
 class _SigningPlane:
     """The control plane's signing operations: get_presigned_urls answers batch_status (400 is a control plane from
-    before it), and get_presigned_url signs one key. Any other operation, such as a request for bucket credentials,
-    fails the test."""
+    before it), and get_presigned_url signs one key. Either names the bucket, which must be 'home'. Any other
+    operation, such as a request for bucket credentials, fails the test."""
 
     def __init__(self) -> None:
         self.batch_status = 200
@@ -1309,6 +1309,7 @@ class _SigningPlane:
         request = json.loads(data)
         self.requests.append(request)
         op, db = request['operation_type'], request['db']
+        assert op not in ('get_presigned_urls', 'get_presigned_url') or request['bucket_name'] == 'home', request
         response = requests.Response()
         response.encoding = 'utf-8'
         response.status_code = 200
@@ -1419,7 +1420,7 @@ class TestHostedMediaReads:
         assert plane.operations() == ['get_presigned_urls'] * 3
         assert [request['keys'] for request in plane.requests] == [keys[:100], keys[100:200], keys[200:]]
         assert {(r['org'], r['db'], r['bucket_name'], r['expires_in']) for r in plane.requests} == {
-            ('org1', db, 'home', 900)
+            ('org1', db, 'home', proxy_client._SIGNED_URL_TTL_S)
         }
         assert sorted(objects.opened) == sorted(plane.signed(db, key) for key in keys)
         for url, key in zip(urls, keys):
@@ -1494,7 +1495,10 @@ class TestHostedMediaReads:
         )
         per_file = [request for request in plane.requests if request['operation_type'] == 'get_presigned_url']
         assert [request['key'] for request in per_file] == keys
-        assert all((request['method'], request['expiration']) == ('get', 900) for request in per_file)
+        assert all(
+            (request['method'], request['expiration']) == ('get', proxy_client._SIGNED_URL_TTL_S)
+            for request in per_file
+        )
         assert len(objects.opened) == 150
         assert len(local) == 150
 
