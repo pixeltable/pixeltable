@@ -264,6 +264,11 @@ async def _embed_av_multi_input(
             'Marengo 3.5 synchronous embeddings do not support start_sec, end_sec, or embedding_option. '
             'Split the media with audio_splitter or video_splitter before embedding it.',
         )
+    b64_str = await asyncio.to_thread(_encode_short_media, file_path, input_type)
+    return await _embed_multi_input(input_type=input_type, b64_str=b64_str)
+
+
+def _encode_short_media(file_path: str, input_type: Literal['audio', 'video']) -> str:
     if os.stat(file_path).st_size > 32 * 2**20:
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_ARGUMENT,
@@ -274,9 +279,7 @@ async def _embed_av_multi_input(
         av_utils.get_audio_duration(file_path) if input_type == 'audio' else av_utils.get_video_duration(file_path)
     )
     if duration is None:
-        raise pxt.RequestError(
-            pxt.ErrorCode.INVALID_DATA_FORMAT, f'Cannot determine {input_type} duration: {file_path}'
-        )
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_DATA_FORMAT, f'Cannot determine {input_type} duration.')
     if duration > 30:
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_ARGUMENT,
@@ -285,8 +288,7 @@ async def _embed_av_multi_input(
             'Split the media with audio_splitter or video_splitter before embedding it.',
         )
     with open(file_path, 'rb') as fp:
-        b64_str = b64encode(fp.read()).decode('utf-8')
-    return await _embed_multi_input(input_type=input_type, b64_str=b64_str)
+        return b64encode(fp.read()).decode('utf-8')
 
 
 async def _embed_av_content(

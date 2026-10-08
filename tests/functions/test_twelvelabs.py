@@ -17,6 +17,7 @@ from ..utils import (
     get_audio_files,
     get_image_files,
     get_video_files,
+    pxt_raises,
     rerun_on_network_error,
     skip_test_if_no_client,
     skip_test_if_not_installed,
@@ -117,9 +118,13 @@ class TestTwelveLabsLocal:
         media = tmp_path / 'media'
         media.write_bytes(b'media')
         monkeypatch.setattr(twelvelabs.av_utils, f'get_{input_type}_duration', lambda _: duration)
-        message = 'at most 30 seconds' if duration is not None else 'Cannot determine'
-        with pytest.raises(pxt.RequestError, match=message):
+        if duration is None:
+            code, message = pxt.ErrorCode.INVALID_DATA_FORMAT, f'Cannot determine {input_type} duration'
+        else:
+            code, message = pxt.ErrorCode.INVALID_ARGUMENT, 'at most 30 seconds'
+        with pxt_raises(code, match=message) as exc_info:
             asyncio.run(twelvelabs.embed.py_fns[2 if input_type == 'audio' else 3](str(media), model_name='marengo3.5'))
+        assert str(tmp_path) not in str(exc_info.value)
         mock_embeddings.assert_not_called()
 
     @pytest.mark.parametrize('input_type', ['audio', 'video'])
@@ -129,7 +134,7 @@ class TestTwelveLabsLocal:
         media = tmp_path / 'media'
         with media.open('wb') as fp:
             fp.truncate(32 * 2**20 + 1)
-        with pytest.raises(pxt.RequestError, match='at most 32 MB'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='at most 32 MB'):
             asyncio.run(twelvelabs.embed.py_fns[2 if input_type == 'audio' else 3](str(media), model_name='marengo3.5'))
         mock_embeddings.assert_not_called()
 
@@ -138,7 +143,7 @@ class TestTwelveLabsLocal:
     def test_unsupported_options(self, mock_embeddings: AsyncMock, input_type: str, options: dict[str, Any]) -> None:
         from pixeltable.functions import twelvelabs
 
-        with pytest.raises(pxt.RequestError, match='do not support start_sec, end_sec, or embedding_option'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='do not support start_sec, end_sec, or embedding_option'):
             asyncio.run(
                 twelvelabs.embed.py_fns[2 if input_type == 'audio' else 3]('unused', model_name='marengo3.5', **options)
             )
@@ -149,7 +154,7 @@ class TestTwelveLabsLocal:
         from pixeltable.functions import twelvelabs
 
         mock_embeddings.return_value = SimpleNamespace(data=[SimpleNamespace(embedding=v) for v in vectors])
-        with pytest.raises(pxt.ExternalServiceError, match='single 512-dimensional embedding'):
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='single 512-dimensional embedding'):
             asyncio.run(twelvelabs.embed.py_fns[0](text='test', model_name='marengo3.5'))
 
     @pytest.mark.parametrize('model_name', ['marengo3.0', 'marengo3.5'])
@@ -158,7 +163,7 @@ class TestTwelveLabsLocal:
 
         audio = get_audio_files()[0]  # 60 seconds
         if model_name == 'marengo3.5':
-            with pytest.raises(pxt.RequestError, match=r'at most 30 seconds; got 60\.00 seconds'):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'at most 30 seconds; got 60\.00 seconds'):
                 asyncio.run(twelvelabs.embed.py_fns[2](audio, model_name=model_name))
             mock_embeddings.assert_not_called()
         else:
@@ -174,7 +179,7 @@ class TestTwelveLabsLocal:
                 raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, 'twelvelabs>=1.3.6 is required')
 
         monkeypatch.setattr(twelvelabs.env.Env, 'require_package', require_package)
-        with pytest.raises(pxt.RequestError, match=r'twelvelabs>=1\.3\.6'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'twelvelabs>=1\.3\.6'):
             asyncio.run(twelvelabs.embed.py_fns[0](text='test', model_name='marengo3.5'))
         mock_embeddings.assert_not_called()
         asyncio.run(twelvelabs.embed.py_fns[0](text='test', model_name='marengo3.0'))
