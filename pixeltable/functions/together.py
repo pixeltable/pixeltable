@@ -104,12 +104,12 @@ async def chat_completions(
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `openai/gpt-oss-20b` to an existing Pixeltable column
+        Add a computed column that applies the model `Qwen/Qwen3.5-9B` to an existing Pixeltable column
         `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(
-        ...     response=chat_completions(messages, model='openai/gpt-oss-20b')
+        ...     response=chat_completions(messages, model='Qwen/Qwen3.5-9B')
         ... )
     """
     if model_kwargs is None:
@@ -139,6 +139,9 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
     Equivalent to the Together AI `embeddings` API endpoint.
     For additional details, see: <https://docs.together.ai/reference/embeddings-2>
 
+    Together AI serves embedding models only through dedicated endpoints, so `model` must name one that is
+    deployed to an endpoint in your account.
+
     Request throttling:
     Applies the rate limit set in the config (section `together.rate_limits`, key `embeddings`). If no rate
     limit is configured, uses a default of 600 RPM.
@@ -153,16 +156,6 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
 
     Returns:
         An array representing the application of the given embedding to `input`.
-
-    Examples:
-        Add a computed column that applies the model `intfloat/multilingual-e5-large-instruct`
-        to an existing Pixeltable column `tbl.text` of the table `tbl`:
-
-        >>> tbl.add_computed_column(
-        ...     response=embeddings(
-        ...         tbl.text, model='intfloat/multilingual-e5-large-instruct'
-        ...     )
-        ... )
     """
     result = await _together_client().embeddings.create(input=input, model=model)
     return [np.array(data.embedding, dtype=np.float64) for data in result.data]

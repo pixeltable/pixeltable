@@ -50,6 +50,7 @@ from .utils import (
     local_embedding,
     new_db_uri,
     reload_catalog,
+    skip_test_if_not_installed,
     validate_async_teardown,
 )
 
@@ -819,6 +820,8 @@ def clip_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:
 )
 def mpnet_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:
     if request.param:
+        # before requesting all_mpnet_embed, whose setup fails without the package
+        skip_test_if_not_installed('sentence_transformers')
         return request.getfixturevalue('all_mpnet_embed'), False
     return local_embedding.using(dim=512), True
 
