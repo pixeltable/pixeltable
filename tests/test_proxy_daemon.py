@@ -16,6 +16,7 @@ import uuid
 from collections.abc import Callable, Iterator
 from typing import Any
 
+import httpx
 import numpy as np
 import PIL.Image
 import pytest
@@ -105,6 +106,18 @@ def _tar_members(data: bytes) -> dict[str, bytes]:
             assert f is not None
             members[info.name] = f.read()
         return members
+
+
+class _RecordingHttpTransport(httpx.BaseTransport):
+    """Records the headers of each request and the pieces its body stream yields, and answers 'ok'."""
+
+    def __init__(self) -> None:
+        self.requests: list[tuple[httpx.Headers, list[bytes]]] = []
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        assert isinstance(request.stream, httpx.SyncByteStream)
+        self.requests.append((request.headers, [bytes(piece) for piece in request.stream]))
+        return httpx.Response(200, content=b'ok')
 
 
 class TestProxyDaemon:
@@ -221,6 +234,54 @@ class TestProxyDaemon:
         assert decoded['reserved'] == result['reserved']
         assert decoded['id'] == tbl_id
         assert decoded['data'] == b'abc'
+
+    def test_iter_body_chunks(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A body is sliced, without copying, into pieces of at most _BODY_CHUNK_SIZE bytes."""
+        monkeypatch.setattr(proxy_protocol, '_BODY_CHUNK_SIZE', 4)
+        for body, sizes in ((b'', []), (b'abcdefgh', [4, 4]), (b'abcdefghij', [4, 4, 2])):
+            chunks = list(proxy_protocol.iter_body_chunks(body))
+            assert [len(chunk) for chunk in chunks] == sizes
+            assert all(chunk.obj is body for chunk in chunks)
+            assert b''.join(chunks) == body
+
+    def test_http_transport_posts_in_slices(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A request body goes to the socket one slice at a time, framed by its full Content-Length."""
+        monkeypatch.setattr(proxy_protocol, '_BODY_CHUNK_SIZE', 4)
+        recorder = _RecordingHttpTransport()
+        transport = HttpTransport('http://daemon')
+        transport._http = httpx.Client(base_url='http://daemon', transport=recorder)
+
+        assert transport.post(b'abcdefghij') == b'ok'
+        [(headers, pieces)] = recorder.requests
+        assert headers['Content-Length'] == '10'
+        assert 'Transfer-Encoding' not in headers
+        assert pieces == [b'abcd', b'efgh', b'ij']
+
+    def test_rpc_response_goes_out_in_slices(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The daemon writes an /rpc response one slice at a time, framed by its full Content-Length."""
+        pytest.importorskip('fastapi')
+        from starlette.testclient import TestClient
+        from starlette.types import Message, Receive, Scope, Send
+
+        monkeypatch.setattr(proxy_protocol, '_BODY_CHUNK_SIZE', 4)
+        monkeypatch.setattr(proxy_dispatch, 'handle', lambda *args, **kwargs: b'abcdefghij')
+        app = proxy_daemon._build_app()
+        pieces: list[bytes] = []
+
+        async def recording_app(scope: Scope, receive: Receive, send: Send) -> None:
+            async def record(message: Message) -> None:
+                # the server makes one socket write per body message
+                if message['type'] == 'http.response.body':
+                    pieces.append(bytes(message['body']))
+                await send(message)
+
+            await app(scope, receive, record)
+
+        response = TestClient(recording_app).post('/rpc', content=proxy_protocol.encode_body(b'{}', []))
+        assert response.headers['Content-Length'] == '10'
+        assert 'Transfer-Encoding' not in response.headers
+        assert response.content == b'abcdefghij'
+        assert pieces == [b'abcd', b'efgh', b'ij', b'']
 
     def test_main_address_args(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The address a cloud pod names on the command line is what the daemon serves on."""
@@ -951,6 +1012,8 @@ class _ScriptedConn:
     a live connection, and closing the peer makes it read as one the server has closed.
     """
 
+    responded_at: float | None = None
+
     def __init__(self, on_write: BaseException | None = None, on_read: object = (200, b'ok')) -> None:
         self.sock, self._peer = socket.socketpair()
         self._on_write = on_write
@@ -1182,11 +1245,47 @@ class TestTunnelRetries:
             return live
 
         pool = proxy_client._TunnelPool(connect)  # type: ignore[arg-type]
-        pool._idle.append(dead)  # type: ignore[arg-type]
+        pool._idle.append((dead, time.monotonic()))  # type: ignore[arg-type]
         with pool.borrow() as conn:
             assert conn is live
         assert dead.closed
         assert opened == [live]
+
+    def test_a_connection_idle_nearly_as_long_as_the_daemon_keeps_it_is_not_handed_out(self) -> None:
+        """The daemon closes a connection idle 5 s, and a request sent while that close is on its way is dropped."""
+        stale, fresh = _ScriptedConn(), _ScriptedConn()
+        opened: list[_ScriptedConn] = []
+
+        def connect() -> object:
+            opened.append(fresh)
+            return fresh
+
+        pool = proxy_client._TunnelPool(connect)  # type: ignore[arg-type]
+        # still open, so only its age can tell the pool not to send on it
+        pool._idle.append((stale, time.monotonic() - proxy_client._MAX_IDLE_S - 0.1))  # type: ignore[arg-type]
+        with pool.borrow() as conn:
+            assert conn is fresh
+        assert stale.closed
+
+        # one that went idle just now is handed out again
+        with pool.borrow() as conn:
+            assert conn is fresh
+        assert opened == [fresh]
+
+    def test_a_connection_idle_since_its_response_began_is_not_handed_out(self) -> None:
+        """The daemon's idle timer starts once it has sent a response, which can be long before the client has
+        read all of it: the age runs from when the response's headers arrived, not from when the read ended."""
+        slow, fresh = _ScriptedConn(), _ScriptedConn()
+        conns = iter([slow, fresh])
+        pool = proxy_client._TunnelPool(lambda: next(conns))  # type: ignore[arg-type,return-value]
+        with pool.borrow() as conn:
+            assert conn is slow
+            # its response began arriving long ago and was read only now
+            slow.responded_at = time.monotonic() - proxy_client._MAX_IDLE_S - 0.1
+
+        with pool.borrow() as conn:
+            assert conn is fresh
+        assert slow.closed
 
 
 class _SigningPlane:

@@ -12,7 +12,7 @@ import pydantic
 from pandas.io.formats.style import Styler
 from typing_extensions import TypeForm
 
-from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_system as ts
+from pixeltable import Query, catalog, exceptions as excs, exprs, func, telemetry, telemetry_schemas, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
 from pixeltable.catalog.globals import OnErrorParam, fold_identifier
 from pixeltable.config import Config
@@ -62,6 +62,7 @@ def init(config_overrides: dict[str, Any] | None = None) -> None:
     _ = get_runtime().catalog
 
 
+@telemetry.spanned('pixeltable.create_table', set_current=True)
 def create_table(
     path: str,
     schema: Mapping[str, TypeForm | ColumnSpec | exprs.Expr] | None = None,
@@ -198,6 +199,7 @@ def create_table(
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
     primary_key: list[str] | None = normalize_primary_key_parameter(primary_key)
 
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
     data_source: TableDataConduit | None = None
     if source is not None:
         data_source = TableDataConduit.create(source, source_format=source_format, extra_fields=extra_args)
@@ -263,6 +265,7 @@ def create_table(
         )
     )
 
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(tbl._id)))
     if was_created:
         _logger.info(f'Created table {tbl._name()!r}; id={tbl._id}')
         Env.get().console_logger.info(f'Created table {tbl._name()!r}.')
@@ -379,88 +382,94 @@ def create_view(
         ...     'my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force'
         ... )
     """
-    if is_snapshot and has_default_idxs is True:
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot create default indexes on a snapshot')
-    tbl_path: TablePath
-    select_list: list[tuple[exprs.Expr, str | None]] | None = None
-    where: exprs.Expr | None = None
-    if isinstance(base, catalog.Table):
-        tbl_path = base._tbl_path
-        sample_clause = None
-    elif isinstance(base, Query):
-        catalog.View.validate_view_query(base, is_snapshot=is_snapshot)
-        tbl_path = base._from_clause.tbls[0]
-        where = base.where_clause
-        sample_clause = base.sample_clause
-        select_list = base.select_list
-    else:
-        raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, '`base` must be an instance of `Table` or `Query`')
-    assert isinstance(base, (catalog.Table, Query))
+    span_name = 'pixeltable.create_snapshot' if is_snapshot else 'pixeltable.create_view'
+    with telemetry.span(span_name, set_current=True) as op_span:
+        if is_snapshot and has_default_idxs is True:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot create default indexes on a snapshot')
+        tbl_path: TablePath
+        select_list: list[tuple[exprs.Expr, str | None]] | None = None
+        where: exprs.Expr | None = None
+        if isinstance(base, catalog.Table):
+            tbl_path = base._tbl_path
+            sample_clause = None
+        elif isinstance(base, Query):
+            catalog.View.validate_view_query(base, is_snapshot=is_snapshot)
+            tbl_path = base._from_clause.tbls[0]
+            where = base.where_clause
+            sample_clause = base.sample_clause
+            select_list = base.select_list
+        else:
+            raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, '`base` must be an instance of `Table` or `Query`')
+        assert isinstance(base, (catalog.Table, Query))
 
-    assert tbl_path.is_data_versioned(), 'TODO: implement for operational tables [PXT-1101]'
+        assert tbl_path.is_data_versioned(), 'TODO: implement for operational tables [PXT-1101]'
 
-    path_obj = catalog.Path.parse(path)
-    if tbl_path.catalog_uri != path_obj.catalog_uri:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'A view must be created in the same database as its base table {tbl_path.tbl_name()!r}.',
+        path_obj = catalog.Path.parse(path)
+        telemetry.add_attrs(op_span, **telemetry_schemas.OpAttrs(path=str(path_obj)))
+        if tbl_path.catalog_uri != path_obj.catalog_uri:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'A view must be created in the same database as its base table {tbl_path.tbl_name()!r}.',
+            )
+        if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
+        media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
+
+        additional_columns = catalog.normalize_schema(additional_columns or {})
+        # additional columns should not be in the base table
+        base_col_names = {col_md.name for col_md in tbl_path.column_md()}
+        shadowed = next((name for name in additional_columns if name in base_col_names), None)
+        if shadowed is not None:
+            raise excs.AlreadyExistsError(
+                excs.ErrorCode.COLUMN_ALREADY_EXISTS,
+                f'Column {shadowed!r} already exists in the base table {tbl_path.tbl_name()!r}.',
+            )
+
+        if iterator is not None and not isinstance(iterator, func.GeneratingFunctionCall):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION, 'The specified `iterator` is not a valid Pixeltable iterator'
+            )
+
+        if comment is not None and not isinstance(comment, str):
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`comment` must be a string or None')
+        elif comment == '':
+            comment = None
+
+        try:
+            json.dumps(custom_metadata)
+        except (TypeError, ValueError) as err:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable'
+            ) from err
+
+        view, was_created = (
+            get_runtime()
+            .get_catalog(path_obj)
+            .create_view(
+                path_obj,
+                tbl_path,
+                select_list=select_list,
+                where=where,
+                sample_clause=sample_clause,
+                additional_columns=additional_columns,
+                is_snapshot=is_snapshot,
+                has_default_idxs=has_default_idxs,
+                iterator=iterator,
+                comment=comment,
+                custom_metadata=custom_metadata,
+                media_validation=media_validation_,
+                if_exists=if_exists_,
+            )
         )
-    if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-    media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
 
-    additional_columns = catalog.normalize_schema(additional_columns or {})
-    # additional columns should not be in the base table
-    base_col_names = {col_md.name for col_md in tbl_path.column_md()}
-    shadowed = next((name for name in additional_columns if name in base_col_names), None)
-    if shadowed is not None:
-        raise excs.AlreadyExistsError(
-            excs.ErrorCode.COLUMN_ALREADY_EXISTS,
-            f'Column {shadowed!r} already exists in the base table {tbl_path.tbl_name()!r}.',
-        )
+        telemetry.add_attrs(op_span, **telemetry_schemas.OpAttrs(table_id=str(view._id)))
+        if was_created:
+            _logger.info(f'Created {view._display_str()}, id={view._id}')
+            Env.get().console_logger.info(f'Created {view._display_str()}.')
+        else:
+            d = view._display_str()
+            Env.get().console_logger.info(f'{d[0].upper()}{d[1:]} already exists.')
 
-    if iterator is not None and not isinstance(iterator, func.GeneratingFunctionCall):
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_EXPRESSION, 'The specified `iterator` is not a valid Pixeltable iterator'
-        )
-
-    if comment is not None and not isinstance(comment, str):
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`comment` must be a string or None')
-    elif comment == '':
-        comment = None
-
-    try:
-        json.dumps(custom_metadata)
-    except (TypeError, ValueError) as err:
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
-
-    view, was_created = (
-        get_runtime()
-        .get_catalog(path_obj)
-        .create_view(
-            path_obj,
-            tbl_path,
-            select_list=select_list,
-            where=where,
-            sample_clause=sample_clause,
-            additional_columns=additional_columns,
-            is_snapshot=is_snapshot,
-            has_default_idxs=has_default_idxs,
-            iterator=iterator,
-            comment=comment,
-            custom_metadata=custom_metadata,
-            media_validation=media_validation_,
-            if_exists=if_exists_,
-        )
-    )
-
-    if was_created:
-        _logger.info(f'Created {view._display_str()}, id={view._id}')
-        Env.get().console_logger.info(f'Created {view._display_str()}.')
-    else:
-        d = view._display_str()
-        Env.get().console_logger.info(f'{d[0].upper()}{d[1:]} already exists.')
-
-    return view
+        return view
 
 
 def create_snapshot(
@@ -549,6 +558,7 @@ def create_snapshot(
     )
 
 
+@telemetry.spanned('pixeltable.get_table', set_current=True)
 def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None:
     """Get a handle to an existing table, view, or snapshot.
 
@@ -585,10 +595,12 @@ def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') ->
     """
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     path_obj = catalog.Path.parse(path, allow_versioned_path=True)
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
     tbl = get_runtime().get_catalog(path_obj).get_table(path_obj, if_not_exists_)
     return tbl
 
 
+@telemetry.spanned('pixeltable.move', set_current=True)
 def move(
     path: str,
     new_path: str,
@@ -633,6 +645,9 @@ def move(
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): source and destination cannot be identical'
         )
+    telemetry.add_attrs(
+        telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj), new_path=str(new_path_obj))
+    )
     if path_obj.catalog_uri != new_path_obj.catalog_uri:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -645,6 +660,7 @@ def move(
     get_runtime().get_catalog(path_obj).move(path_obj, new_path_obj, if_exists_, if_not_exists_)
 
 
+@telemetry.spanned('pixeltable.drop_table', set_current=True)
 def drop_table(
     table: str | catalog.Table, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'
 ) -> None:
@@ -691,6 +707,7 @@ def drop_table(
         path_obj = catalog.Path.parse(table)
 
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
     get_runtime().get_catalog(path_obj).drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
@@ -858,6 +875,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Table)]
 
 
+@telemetry.spanned('pixeltable.create_dir', set_current=True)
 def create_dir(
     path: str, *, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False
 ) -> catalog.Dir | None:
@@ -907,9 +925,11 @@ def create_dir(
     """
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
     return get_runtime().get_catalog(path_obj).create_dir(path_obj, if_exists=if_exists_, parents=parents)
 
 
+@telemetry.spanned('pixeltable.drop_dir', set_current=True)
 def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
     """Remove a directory.
 
@@ -949,6 +969,7 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     """
     path_obj = catalog.Path.parse(path)  # validate format
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
     get_runtime().get_catalog(path_obj).drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
 
 

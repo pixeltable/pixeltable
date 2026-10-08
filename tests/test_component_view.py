@@ -305,6 +305,11 @@ class TestComponentView:
             # malformed _rowid
             view_t.batch_update([{'annotation': {'a': 1}, '_rowid': (1,)}])
 
+        # a view of the component view has the same rowid columns as the component view
+        v = pxt.create_view(p('view_of_view'), view_t, additional_columns={'note': pxt.String | None})
+        validate_update_status(v.batch_update([{'note': 'x', '_rowid': (1, 0)}]), expected_rows=1)
+        assert v.where(v.note == 'x').count() == 1
+
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as excinfo:
             _ = pxt.create_view(
                 p('bad_view'),
