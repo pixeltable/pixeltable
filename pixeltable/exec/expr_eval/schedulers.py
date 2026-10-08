@@ -9,7 +9,7 @@ import sys
 import time
 from typing import Collection
 
-from pixeltable import env, exceptions as excs, func
+from pixeltable import env, exceptions as excs, func, telemetry, telemetry_schemas
 from pixeltable.config import Config
 from pixeltable.utils import fault_injection
 from pixeltable.utils.fault_injection import FaultLocation
@@ -201,18 +201,33 @@ class RateLimitsScheduler(Scheduler):
                 f'start evaluating slot {request.fn_call.slot_idx}, batch_size={len(request.rows)}'
             )
             self.total_requests += 1
-            if request.is_batched:
-                batch_result = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
-                assert len(batch_result) == len(request.rows)
-                for row, result in zip(request.rows, batch_result):
-                    row[request.fn_call.slot_idx] = result
-            else:
-                request_kwargs = request.kwargs
-                if '_runtime_ctx' in pxt_fn.signature.system_parameters:
-                    request_kwargs = {**request_kwargs, '_runtime_ctx': env.RuntimeCtx(is_retry=num_retries > 0)}
-                fault_injection.process_fault(FaultLocation.SCHEDULER_RATE_LIMITS_AEXEC)
-                result = await pxt_fn.aexec(*request.args, **request_kwargs)
-                request.row[request.fn_call.slot_idx] = result
+            with (
+                telemetry.span(
+                    f'pixeltable.udf.{request.fn_call.fn.display_name}',
+                    level=telemetry.DEBUG,
+                    set_current=telemetry.current_span() is not None,
+                    **telemetry_schemas.UdfCallAttrs(
+                        udf_path=pxt_fn.self_path,
+                        column=self.dispatcher.col_names.get(request.fn_call.slot_idx),
+                        batch_size=len(request.rows) if request.is_batched else None,
+                        resource_pool=self.resource_pool,
+                        retries=num_retries,
+                    ),
+                ),
+                telemetry_schemas.udf_call(pxt_fn),
+            ):
+                if request.is_batched:
+                    batch_result = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
+                    assert len(batch_result) == len(request.rows)
+                    for row, result in zip(request.rows, batch_result):
+                        row[request.fn_call.slot_idx] = result
+                else:
+                    request_kwargs = request.kwargs
+                    if '_runtime_ctx' in pxt_fn.signature.system_parameters:
+                        request_kwargs = {**request_kwargs, '_runtime_ctx': env.RuntimeCtx(is_retry=num_retries > 0)}
+                    fault_injection.process_fault(FaultLocation.SCHEDULER_RATE_LIMITS_AEXEC)
+                    result = await pxt_fn.aexec(*request.args, **request_kwargs)
+                    request.row[request.fn_call.slot_idx] = result
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
             _logger.debug(
                 f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} '
@@ -249,6 +264,9 @@ class RateLimitsScheduler(Scheduler):
                             f' attempt {num_retries} based on the information in the error'
                         )
                         await asyncio.sleep(retry_delay)
+                        telemetry_schemas.udf_retries.add(
+                            1, udf=request.fn_call.fn.display_name, udf_path=request.fn_call.fn.self_path
+                        )
                         self.queue.put_nowait(self.QueueItem(request, num_retries + 1, exec_ctx))
                         return
 
@@ -371,14 +389,29 @@ class RequestRateScheduler(Scheduler):
                 f'start evaluating slot {request.fn_call.slot_idx}, batch_size={len(request.rows)}'
             )
             self.total_requests += 1
-            if request.is_batched:
-                batch_result = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
-                assert len(batch_result) == len(request.rows)
-                for row, result in zip(request.rows, batch_result):
-                    row[request.fn_call.slot_idx] = result
-            else:
-                result = await pxt_fn.aexec(*request.args, **request.kwargs)
-                request.row[request.fn_call.slot_idx] = result
+            with (
+                telemetry.span(
+                    f'pixeltable.udf.{request.fn_call.fn.display_name}',
+                    level=telemetry.DEBUG,
+                    set_current=telemetry.current_span() is not None,
+                    **telemetry_schemas.UdfCallAttrs(
+                        udf_path=pxt_fn.self_path,
+                        column=self.dispatcher.col_names.get(request.fn_call.slot_idx),
+                        batch_size=len(request.rows) if request.is_batched else None,
+                        resource_pool=self.resource_pool,
+                        retries=num_retries,
+                    ),
+                ),
+                telemetry_schemas.udf_call(pxt_fn),
+            ):
+                if request.is_batched:
+                    batch_result = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
+                    assert len(batch_result) == len(request.rows)
+                    for row, result in zip(request.rows, batch_result):
+                        row[request.fn_call.slot_idx] = result
+                else:
+                    result = await pxt_fn.aexec(*request.args, **request.kwargs)
+                    request.row[request.fn_call.slot_idx] = result
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
             _logger.debug(
                 f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} '
@@ -397,6 +430,9 @@ class RequestRateScheduler(Scheduler):
                 now = time.monotonic()
                 # put the request back in the queue right away, which prevents new requests from being generated until
                 # this one succeeds or exceeds its retry limit
+                telemetry_schemas.udf_retries.add(
+                    1, udf=request.fn_call.fn.display_name, udf_path=request.fn_call.fn.self_path
+                )
                 self.queue.put_nowait(self.QueueItem(request, num_retries + 1, exec_ctx, retry_after=now + retry_delay))
                 return
 

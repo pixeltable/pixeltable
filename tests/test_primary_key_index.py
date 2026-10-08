@@ -163,13 +163,15 @@ class TestPrimaryKeyIndex:
             with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Primary key value too large for index'):
                 t.insert([row])
 
-    def test_batch_update_with_pk_index(self, db_root: DatabaseRoot) -> None:
-        """batch_update works correctly with the PK index: updates expire the old version."""
+    def test_batch_update_with_pk_index(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        """batch_update works correctly with the PK index."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('test_pk'), {'id': pxt.Int, 'val': pxt.Int | None}, primary_key='id')
+        t = pxt.create_table(
+            p('test_pk'), {'id': pxt.Int, 'val': pxt.Int | None}, primary_key='id', _is_data_versioned=is_data_versioned
+        )
         validate_update_status(t.insert([{'id': 1, 'val': 10}, {'id': 2, 'val': 20}]), expected_rows=2)
 
-        # Update existing row — old version gets v_max set, new version is live
+        # Update an existing row
         validate_update_status(t.batch_update([{'id': 1, 'val': 99}]), expected_rows=1)
         assert t.where(t.id == 1).collect()['val'] == [99]
         assert t.count() == 2

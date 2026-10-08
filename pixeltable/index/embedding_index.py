@@ -13,6 +13,7 @@ import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.func as func
 import pixeltable.type_system as ts
+from pixeltable import telemetry, telemetry_schemas
 from pixeltable.env import Env
 
 from .base import IndexBase
@@ -233,7 +234,19 @@ class EmbeddingIndex(IndexBase):
             self._validate_query_vector(val, val_col_type)
             return val
         assert val_type._type in self.embeddings
-        embedding = self.embeddings[val_type._type].exec([val], {})
+        embed_fn = self.embeddings[val_type._type]
+        # a `.using()` embedding is a template that calls the underlying UDF, which identifies it
+        call = embed_fn.templates[0].expr if isinstance(embed_fn, func.ExprTemplateFunction) else None
+        udf = call.fn if isinstance(call, exprs.FunctionCall) else embed_fn
+        with (
+            telemetry.span(
+                f'pixeltable.udf.{udf.display_name}',
+                level=telemetry.DEBUG,
+                **telemetry_schemas.UdfCallAttrs(udf_path=udf.self_path),
+            ),
+            telemetry_schemas.udf_call(udf),
+        ):
+            embedding = embed_fn.exec([val], {})
         assert isinstance(embedding, np.ndarray)
         return embedding
 

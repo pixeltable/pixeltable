@@ -10,7 +10,7 @@ import numpy as np
 import sqlalchemy as sql
 from pgvector import HalfVector
 
-from pixeltable import catalog, exprs
+from pixeltable import catalog, exprs, telemetry
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.query_clauses import JoinClause, JoinType
@@ -444,7 +444,8 @@ class SqlNode(ExecNode):
                 self._log_explain(stmt)
 
             conn = get_runtime().conn
-            result_cursor = conn.execute(stmt, self.bound_args)
+            with telemetry.span('pixeltable.sa.select'):
+                result_cursor = conn.execute(stmt, self.bound_args)
             for _ in w:
                 pass
 

@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, AsyncIterator
 
 import httpx
 import sqlalchemy as sql
@@ -38,7 +38,7 @@ from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.process import is_pid, pid_alive
 
 from . import proxy_dispatch
-from .proxy_protocol import decode_body
+from .proxy_protocol import decode_body, iter_body_chunks
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -291,7 +291,7 @@ def _build_app(test_mode: bool = False) -> 'FastAPI':
     """
     from fastapi import FastAPI, HTTPException, Request, Response
     from fastapi.concurrency import run_in_threadpool
-    from fastapi.responses import FileResponse
+    from fastapi.responses import FileResponse, StreamingResponse
 
     app = FastAPI()
 
@@ -302,7 +302,16 @@ def _build_app(test_mode: bool = False) -> 'FastAPI':
         body = await run_in_threadpool(
             proxy_dispatch.handle, request_json.decode(), request_parts, include_error_detail=test_mode
         )
-        return Response(content=body, media_type='application/octet-stream')
+
+        # async so that StreamingResponse iterates it on the event loop rather than in a threadpool
+        async def chunks() -> AsyncIterator[memoryview]:  # noqa: RUF029
+            for chunk in iter_body_chunks(body):
+                yield chunk
+
+        # an explicit Content-Length keeps the response unchunked on the wire
+        return StreamingResponse(
+            chunks(), media_type='application/octet-stream', headers={'Content-Length': str(len(body))}
+        )
 
     if test_mode:
 

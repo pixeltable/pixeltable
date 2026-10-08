@@ -20,6 +20,13 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     python -m venv .venv
     source .venv/bin/activate   # Windows: .venv\Scripts\activate
     pip install -U 'pixeltable[serve]'
+    ```
+
+    With no account, run `pxt new` and skip `pxt login`. `pxt new` creates a trial organization and database `main`, and prints the `pxt://` URI, the `pixeltable.toml` entry, and the later commands with that name filled in. Claim the trial at the URL `pxt new` prints, or it is deleted, normally 48 hours after `pxt new`. When this machine is already signed in, `pxt new` creates no trial. Run `pxt logout`, then `pxt new`, to drop a `pxt login` session and start a trial.
+
+    With an account:
+
+    ```bash
     pxt login
     pxt whoami
     pxt org list
@@ -55,10 +62,12 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     name = 'pxt://org:main'
     ```
 
-    Keep the local database entry that `pxt init` wrote. If your project has a `pyproject.toml`, `pxt init` adds its entry there instead. Use `[[tool.pixeltable.database]]` for the hosted entry.
+    Leave the entry `pxt init` wrote. It has no `name`, and that entry is the local database. A second entry with no `name` fails to load: both are named `local`. If your project has a `pyproject.toml`, `pxt init` adds its entry there instead. Use `[[tool.pixeltable.database]]` for the hosted entry.
   </Step>
   <Step title="Upload the project, create tables, and start the service">
-    A new database is ready when `pxt db status pxt://org:main` shows `AVAILABLE`. Until then, `pxt db update` is refused. Run these commands from the project directory, in order:
+    After `pxt org create` or `pxt new`, wait until `pxt db status pxt://org:main` shows `AVAILABLE`, then run these commands from the project directory, in order. While the database is `PROVISIONING`, `pxt db update` is refused.
+
+    If `pxt db update` stops while `pxt db status` shows `UPDATING`, run `pxt db update pxt://org:main` again from the same project. That resumes the update. When the hosted entry omits `python_version`, run it with the same Python version: a different interpreter is a different update, and it is refused while the database is `UPDATING`. When the entry sets `python_version`, that value is the image Python, and another interpreter is the same update. A build that finishes and fails uses `pxt db build-image`, in [What to run after a change](#what-to-run-after-a-change).
 
     ```bash
     pxt db update pxt://org:main
@@ -84,7 +93,7 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     print(docs.select(docs.title, docs.title_upper).collect())
     ```
 
-    The result includes `Hello` and `HELLO`. The insert computes `title_upper` on Cloud. A local file path on a Cloud table uploads the file. The table also appears in the [Cloud dashboard](https://www.pixeltable.com/dashboard).
+    The result includes `Hello` and `HELLO`. The insert computes `title_upper` on Cloud. Pixeltable prints `Connected to Pixeltable database at:` for the local database before that result. The insert still runs on the Cloud table. A local file path on a Cloud table uploads the file. The table also appears in the [Cloud dashboard](https://www.pixeltable.com/dashboard).
   </Step>
 </Steps>
 
@@ -137,7 +146,7 @@ The restarts let running table and service processes read the new value. You can
 
 A hosted database runs two things that come from your project, and they move independently.
 
-- **The image** is the Python environment: your dependencies, the Python version, and any system packages. `pxt db update` rebuilds it only when that environment changed, which is the slow step.
+- **The image** is the Python environment: your dependencies, the Python version, and any system packages. `pxt db update` rebuilds it only when that environment changed, which is the slow step. That version comes from the interpreter that runs `pxt db update`, unless the hosted `[[pixeltable.database]]` entry sets `python_version`.
 - **The project files** are your `app.py` and whatever else the entry selects. They are uploaded on their own, without a rebuild.
 
 So editing a UDF costs an upload, while adding a line to `pyproject.toml` costs a build. Both are `pxt db update`. It works out which happened.
@@ -156,6 +165,7 @@ The image gets its packages from `uv.lock` or `requirements.txt`. Without either
 | `cpu`, `memory_mb`, `disk_gb`, or `workers` | `pxt db update pxt://org:main`: one resize, pods restart once |
 | A secret | `pxt secret set pxt://org:main KEY=...`, then `pxt db restart pxt://org:main` and `pxt service restart pxt://org:main/ingest` |
 | Nothing, but the last build failed | `pxt db build-image pxt://org:main` forces a rebuild |
+| Nothing, but `pxt db update` stopped and `pxt db status` shows `UPDATING` | `pxt db update pxt://org:main` again from the same project. With no `python_version` on the hosted entry, use the same Python version |
 
 `pxt db diff pxt://org:main` prints what `update` would do without doing it.
 
