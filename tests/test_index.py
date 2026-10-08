@@ -1577,8 +1577,6 @@ class TestIndex:
         """Tests various edge cases that involve similarity columns and snapshots"""
 
         embed, is_dummy_model = mpnet_or_local
-        if not is_dummy_model:
-            skip_test_if_not_installed('sentence_transformers')
 
         def check(cond: bool) -> None:
             # text-ordering results depend on real-model semantics; only assert them on the very_expensive tier
