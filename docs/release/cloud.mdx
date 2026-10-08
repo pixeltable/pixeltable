@@ -223,7 +223,7 @@ The home bucket is private. A query from your machine downloads its media throug
 | A script | the same link, with `curl -L` | API key as `Authorization: Bearer` |
 | Your app's pages, a model API | URLs from `/sign` | API key, on your server only |
 
-A file's key is the part of its `fileurl` after `pxtfs://org:main/home/`. Its link is:
+A file's key is the part of its `fileurl` after `pxt://org:main/buckets/home/`, or after `pxtfs://org:main/home/` for media stored by earlier releases. Its link is:
 
 ```
 https://storage.pixeltable.com/org/main/buckets/home/<key>
