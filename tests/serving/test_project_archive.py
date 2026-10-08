@@ -12,7 +12,6 @@ from typing import Any
 import pytest
 
 import pixeltable
-
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config, DatabaseConfig
@@ -26,8 +25,8 @@ from pixeltable.service.management_protocol import (
 from pixeltable.utils.project import (
     check_hosted_pixeltable,
     create_image_context,
-    image_input_files,
     create_project_archive,
+    image_input_files,
     package_image_context,
     package_project_archive,
     project_fingerprint,

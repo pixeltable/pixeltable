@@ -17,7 +17,6 @@ import pytest
 import requests
 
 import pixeltable
-
 from pixeltable import exceptions as excs, metadata
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config
