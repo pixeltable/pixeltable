@@ -38,7 +38,7 @@ from pixeltable.catalog.path import Path as CatalogPath
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.row import RowBatch
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.http import fetch_url
+from pixeltable.utils.http import fetch_url, tcp_keepalive_options
 from pixeltable.utils.local_store import TempStore
 
 from . import proxy_protocol
@@ -264,15 +264,8 @@ class TunnelTransport(Transport):
         ssl_sock: ssl.SSLSocket | None = None
         try:
             raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            raw_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-            # TCP_KEEPIDLE is Linux; macOS uses TCP_KEEPALIVE for the same purpose
-            keepidle = getattr(socket, 'TCP_KEEPIDLE', None) or getattr(socket, 'TCP_KEEPALIVE', None)
-            if keepidle is not None:
-                raw_sock.setsockopt(socket.IPPROTO_TCP, keepidle, 60)
-            if hasattr(socket, 'TCP_KEEPINTVL'):
-                raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 30)
-            if hasattr(socket, 'TCP_KEEPCNT'):
-                raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
+            for level, option, value in tcp_keepalive_options():
+                raw_sock.setsockopt(level, option, value)
             ssl_sock = ctx.wrap_socket(raw_sock, server_hostname=self._host)
 
             # the sidecar authenticates the credential and routes the tunnel to org/db, then relays to the
