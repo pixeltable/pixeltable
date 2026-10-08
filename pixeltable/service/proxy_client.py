@@ -32,7 +32,6 @@ import httpx
 from tenacity import (
     before_sleep_log,
     retry,
-    retry_if_exception,
     retry_if_exception_type,
     retry_if_not_exception_type,
     stop_after_attempt,
@@ -50,7 +49,7 @@ from pixeltable.utils.cloud_utils import (
     get_presigned_urls_from_cloud,
 )
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.http import fetch_url, is_retryable_error
+from pixeltable.utils.http import DOWNLOAD_USER_AGENT, fetch_url, retry_if_retryable_error
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectPath, StorageTarget
 
@@ -427,13 +426,13 @@ def _sign_keys(org: str, db: str, bucket: str, keys: list[str]) -> dict[str, str
 
 
 @retry(
-    retry=retry_if_exception(lambda exc: isinstance(exc, Exception) and is_retryable_error(exc)[0]),
+    retry=retry_if_retryable_error,
     wait=wait_exponential_jitter(initial=0.5, max=5.0),
     stop=stop_after_attempt(3),
     reraise=True,
 )
 def _download(url: str, path: Path) -> None:
-    request = urllib.request.Request(url, headers={'User-Agent': 'Pixeltable/1.0 (https://pixeltable.com)'})
+    request = urllib.request.Request(url, headers={'User-Agent': DOWNLOAD_USER_AGENT})
     with urllib.request.urlopen(request, timeout=_SIGNED_DOWNLOAD_TIMEOUT_S) as r, path.open('wb') as f:
         shutil.copyfileobj(r, f)
 

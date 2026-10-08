@@ -13,10 +13,10 @@ from pathlib import Path
 from typing import NamedTuple
 from uuid import UUID
 
-from tenacity import RetryCallState, retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import env, exceptions as excs
-from pixeltable.utils.http import is_retryable_error
+from pixeltable.utils.http import DOWNLOAD_USER_AGENT, is_retryable_error, retry_if_retryable_error
 
 
 @dataclasses.dataclass(frozen=True)
@@ -733,15 +733,10 @@ class HTTPStore(ObjectStoreBase):
         if not self.base_url.endswith('/'):
             self.base_url += '/'
 
-    @retry(
-        retry=retry_if_exception(lambda exc: isinstance(exc, Exception) and is_retryable_error(exc)[0]),
-        wait=_wait_retry_after,
-        stop=stop_after_attempt(4),
-        reraise=True,
-    )
+    @retry(retry=retry_if_retryable_error, wait=_wait_retry_after, stop=stop_after_attempt(4), reraise=True)
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
         url = self.base_url + src_path
-        req = urllib.request.Request(url, headers={'User-Agent': 'Pixeltable/1.0 (https://pixeltable.com)'})
+        req = urllib.request.Request(url, headers={'User-Agent': DOWNLOAD_USER_AGENT})
         with urllib.request.urlopen(req) as resp, open(dest_path, 'wb') as f:
             data = resp.read()
             f.write(data)

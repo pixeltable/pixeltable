@@ -13,6 +13,7 @@ from typing import Any
 
 import requests
 from requests.adapters import HTTPAdapter, Retry
+from tenacity import retry_if_exception
 
 _logger = logging.getLogger(__name__)
 
@@ -40,6 +41,8 @@ def new_session() -> requests.Session:
 
 
 SESSION = new_session()
+
+DOWNLOAD_USER_AGENT = 'Pixeltable/1.0 (https://pixeltable.com)'
 
 _RETRIABLE_ERROR_INDICATORS = (
     'rate limit',
@@ -106,6 +109,9 @@ def is_retryable_error(exc: Exception) -> tuple[bool, float | None]:
         return True, retry_delay if retry_delay is not None and retry_delay >= 0 else None
 
     return False, None
+
+
+retry_if_retryable_error = retry_if_exception(lambda exc: isinstance(exc, Exception) and is_retryable_error(exc)[0])
 
 
 def _extract_error_metadata(obj: Any) -> tuple[bool, float | None] | None:
