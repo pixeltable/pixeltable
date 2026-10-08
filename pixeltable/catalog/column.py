@@ -18,7 +18,7 @@ from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.type_system import sa_type_as_dict
 from pixeltable.types import ColumnSpec
-from pixeltable.utils.object_stores import ObjectOps, warn_if_pxtfs
+from pixeltable.utils.object_stores import ObjectOps, warn_if_pxtfs_destination
 
 from .globals import MediaValidation, fold_identifier, is_system_column_name, is_valid_identifier
 from .types import ColumnVersionMd, QColumnId
@@ -333,7 +333,7 @@ class Column:
                 excs.ErrorCode.TYPE_MISMATCH,
                 f'Column {name!r}: `destination` must be a string, a path, or a ConfigVar; got {d!r}',
             )
-        warn_if_pxtfs(d, f'Column {name!r}: destination')
+        warn_if_pxtfs_destination(name, d)
 
         if 'custom_metadata' in spec:
             # we require custom_metadata to be JSON-serializable

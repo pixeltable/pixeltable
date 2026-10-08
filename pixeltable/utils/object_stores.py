@@ -401,6 +401,13 @@ def warn_if_pxtfs(dest: object, setting: str) -> None:
     )
 
 
+def warn_if_pxtfs_destination(col_name: str, dest: object) -> None:
+    """warn_if_pxtfs() for dest, the destination a user chose for column col_name."""
+    # one column operation can reach this from more than one caller, and the warnings registry shows the warning once
+    # only because its text is the same
+    warn_if_pxtfs(dest, f'Column {col_name!r}: destination')
+
+
 def _first_caller_outside_pixeltable() -> int:
     """The stacklevel for which warnings.warn(), called by this function's caller, names the first frame whose module
     is not part of Pixeltable, or the outermost frame if every one is."""

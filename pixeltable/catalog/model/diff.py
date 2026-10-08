@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pixeltable import catalog, exprs, func
 from pixeltable.types import ColumnSpec
-from pixeltable.utils.object_stores import ObjectPath, warn_if_pxtfs
+from pixeltable.utils.object_stores import ObjectPath, warn_if_pxtfs_destination
 from pixeltable_cli.types import Resolution, SchemaChangeIndexRef, SchemaChangeOp, SchemaChangeOpDetails, TableDiff
 
 from ..globals import col_type_from_spec, fold_mapping_keys
@@ -336,7 +336,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
             for col_name, spec in user_cols.items():
                 # every model operation passes here on the caller's side; a hosted catalog creates the column in its
                 # daemon, where none of the caller's code runs
-                warn_if_pxtfs(spec.get('destination'), f'Column {col_name!r}: destination')
+                warn_if_pxtfs_destination(col_name, spec.get('destination'))
             base = model.__table_spec__['base']
             model_kind: Literal['table', 'view'] = 'table' if base is None else 'view'
             iterator = model.__table_spec__['iterator']
