@@ -57,7 +57,9 @@ class ComponentIterationNode(ExecNode):
         output_batch = DataRowBatch(self.row_builder)
         async for input_batch in self.input:
             for input_row in input_batch:
-                self.row_builder.eval(input_row, self.iterator_args_ctx)
+                # usually computed by the input plan, which then garbage-collected the intermediates they depend on
+                if not input_row.has_val[self.iterator_args_expr.slot_idx]:
+                    self.row_builder.eval(input_row, self.iterator_args_ctx)
                 iterator_args = input_row[self.iterator_args_expr.slot_idx]
                 assert isinstance(iterator_args, dict)
                 # We need to ensure that all of the required (non-nullable) parameters of the iterator are

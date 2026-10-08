@@ -853,7 +853,6 @@ class Env:
         self.__register_package('accelerate')
         self.__register_package('anthropic')
         self.__register_package('azure.storage.blob', library_name='azure-storage-blob')
-        self.__register_package('boto3')
         self.__register_package('datasets')
         self.__register_package('diffusers')
         self.__register_package('fal_client', library_name='fal-client')

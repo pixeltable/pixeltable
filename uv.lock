@@ -5901,6 +5901,7 @@ dependencies = [
     { name = "av", version = "15.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
     { name = "av", version = "16.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "beautifulsoup4" },
+    { name = "boto3" },
     { name = "cloudpickle" },
     { name = "deprecated" },
     { name = "fasteners" },
@@ -5967,9 +5968,7 @@ dev = [
     { name = "azure-identity" },
     { name = "azure-storage-blob" },
     { name = "black" },
-    { name = "boto3" },
     { name = "boto3-stubs" },
-    { name = "botocore" },
     { name = "datasets" },
     { name = "diffusers" },
     { name = "en-core-web-sm" },
@@ -6049,8 +6048,6 @@ extra-dev = [
     { name = "llama-cpp-python", marker = "sys_platform != 'win32'" },
 ]
 storage-sdks = [
-    { name = "boto3" },
-    { name = "botocore" },
     { name = "google-cloud-storage" },
 ]
 test = [
@@ -6067,6 +6064,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.10" },
     { name = "av", specifier = ">=14.1" },
     { name = "beautifulsoup4", specifier = ">=4.10" },
+    { name = "boto3", specifier = ">=1.36" },
     { name = "cloudpickle", specifier = ">=2.2.1" },
     { name = "deprecated", specifier = ">=1.2.15" },
     { name = "fastapi", extras = ["standard"], marker = "extra == 'serve'", specifier = ">=0.120.0,!=0.137.0,!=0.137.1" },
@@ -6123,9 +6121,7 @@ dev = [
     { name = "azure-identity", specifier = ">=1.16.0" },
     { name = "azure-storage-blob", specifier = ">=12.20.0" },
     { name = "black", specifier = ">=26.3.1" },
-    { name = "boto3", specifier = "==1.36.23" },
     { name = "boto3-stubs", specifier = "==1.36.23" },
-    { name = "botocore", specifier = "==1.36.23" },
     { name = "datasets", specifier = ">=4.8.5" },
     { name = "diffusers", specifier = ">=0.38" },
     { name = "en-core-web-sm", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
@@ -6203,11 +6199,7 @@ dev = [
     { name = "voyageai", marker = "python_full_version < '3.14'", specifier = ">=0.3.7" },
 ]
 extra-dev = [{ name = "llama-cpp-python", marker = "sys_platform != 'win32'", specifier = ">=0.3.18" }]
-storage-sdks = [
-    { name = "boto3", specifier = "==1.36.23" },
-    { name = "botocore", specifier = "==1.36.23" },
-    { name = "google-cloud-storage", specifier = ">=2.18.0" },
-]
+storage-sdks = [{ name = "google-cloud-storage", specifier = ">=2.18.0" }]
 test = [
     { name = "filelock", specifier = ">=3.20.3" },
     { name = "pytest", specifier = ">=9.0.3" },

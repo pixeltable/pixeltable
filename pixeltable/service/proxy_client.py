@@ -16,6 +16,7 @@ import selectors
 import socket
 import ssl
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
@@ -41,6 +42,7 @@ from pixeltable.utils.http import fetch_url
 from pixeltable.utils.local_store import TempStore
 
 from . import proxy_protocol
+from .management_client import Credential, is_refusal, refusal
 from .proxy_protocol import (
     InlinePartSink,
     MediaPath,
@@ -50,6 +52,7 @@ from .proxy_protocol import (
     PxtArchivePartSink,
     decode_body,
     encode_body,
+    iter_body_chunks,
 )
 
 if TYPE_CHECKING:
@@ -116,7 +119,9 @@ class HttpTransport(Transport):
         self._http = httpx.Client(base_url=endpoint, timeout=httpx.Timeout(120.0))
 
     def post(self, body: bytes) -> bytes:
-        response = self._http.post('/rpc', content=body, headers={'Content-Type': 'application/octet-stream'})
+        # an explicit Content-Length keeps the request unchunked on the wire
+        headers = {'Content-Type': 'application/octet-stream', 'Content-Length': str(len(body))}
+        response = self._http.post('/rpc', content=iter_body_chunks(body), headers=headers)
         response.raise_for_status()
         return response.content
 
@@ -136,6 +141,7 @@ class HttpTransport(Transport):
 _CONNECT_TIMEOUT = 30.0
 _RPC_TIMEOUT = 1800.0
 _MAX_POOL_SIZE = 16  # matches the fetch_media download threadpool
+_MAX_IDLE_S = 4.0  # below the proxy daemon's 5 s keep-alive, so no connection is reused as the daemon closes it
 
 # Failures that leave the request undelivered (connect, handshake, writing it); retried with backoff.
 _TUNNEL_TRANSIENT_EXC = (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError)
@@ -145,9 +151,18 @@ _TUNNEL_RETRY_MAX_DELAY = 90.0  # seconds; > _CONNECT_TIMEOUT so a hung handshak
 class _TunnelHTTPConnection(http.client.HTTPConnection):
     """HTTPConnection backed by an already-established socket."""
 
+    # When the last response's headers arrived. The daemon's idle timer starts once it has sent the whole response,
+    # which is after it sent the headers and can be well before the client has read the rest.
+    responded_at: float | None = None
+
     def __init__(self, host: str, sock: ssl.SSLSocket, timeout: float) -> None:
         super().__init__(host, timeout=timeout)
         self.sock = sock
+
+    def getresponse(self) -> http.client.HTTPResponse:
+        response = super().getresponse()
+        self.responded_at = time.monotonic()
+        return response
 
     def connect(self) -> None:
         pass  # socket already set in __init__
@@ -173,23 +188,25 @@ def _is_server_closed(conn: http.client.HTTPConnection) -> bool:
 class _TunnelPool:
     """Thread-safe pool of TLS + PXT/1.0 tunnel connections."""
 
-    def __init__(self, connect: Callable[[], http.client.HTTPConnection], max_size: int = _MAX_POOL_SIZE) -> None:
+    def __init__(self, connect: Callable[[], _TunnelHTTPConnection], max_size: int = _MAX_POOL_SIZE) -> None:
         self._connect = connect
         self._max = max_size
         self._lock = threading.Lock()
-        self._idle: list[http.client.HTTPConnection] = []
+        self._idle: list[tuple[_TunnelHTTPConnection, float]] = []  # with when each one's last response arrived
 
     @contextmanager
-    def borrow(self) -> Iterator[http.client.HTTPConnection]:
-        conn: http.client.HTTPConnection | None = None
+    def borrow(self) -> Iterator[_TunnelHTTPConnection]:
+        conn: _TunnelHTTPConnection | None = None
         while conn is None:
             with self._lock:
-                conn = self._idle.pop() if self._idle else None
-            if conn is None:
+                idle = self._idle.pop() if self._idle else None
+            if idle is None:
                 conn = self._connect()
-            elif _is_server_closed(conn):
-                # an idle connection the server has closed says nothing about the next request; dropping it
-                # here lets a broken response mean the server died on the request it was given
+                continue
+            conn, idle_since = idle
+            if time.monotonic() - idle_since > _MAX_IDLE_S or _is_server_closed(conn):
+                # an idle connection the server has closed, or is about to, says nothing about the next request;
+                # dropping it here lets a broken response mean the server died on the request it was given
                 conn.close()
                 conn = None
         try:
@@ -200,13 +217,13 @@ class _TunnelPool:
         else:
             with self._lock:
                 if len(self._idle) < self._max:
-                    self._idle.append(conn)
+                    self._idle.append((conn, conn.responded_at or time.monotonic()))
                 else:
                     conn.close()
 
     def close(self) -> None:
         with self._lock:
-            for conn in self._idle:
+            for conn, _ in self._idle:
                 try:
                     conn.close()
                 except Exception:
@@ -221,14 +238,14 @@ class TunnelTransport(Transport):
     _db: str
 
     # needed per handshake; not static
-    _credential_cb: Callable[[], str]
+    _credential_cb: Callable[[], Credential]
 
     _host: str
     _port: int
     _endpoint: str
     _pool: _TunnelPool
 
-    def __init__(self, org: str, db: str, credential_cb: Callable[[], str], host: str, port: int):
+    def __init__(self, org: str, db: str, credential_cb: Callable[[], Credential], host: str, port: int):
         self._org = org
         self._db = db
         self._credential_cb = credential_cb
@@ -238,7 +255,7 @@ class TunnelTransport(Transport):
         # media URLs are formed against this endpoint; they are reachable only through the tunnel (see fetch())
         self._endpoint = f'https://{self._host}:{self._port}'
 
-    def _connect_tunnel(self) -> http.client.HTTPConnection:
+    def _connect_tunnel(self) -> _TunnelHTTPConnection:
         """Open one tunnel connection: TCP + TLS + PXT/1.0 CONNECT handshake."""
         # before connecting: renewing a session is a round trip of its own, and a refused credential needs no socket
         credential = self._credential_cb()
@@ -260,7 +277,7 @@ class TunnelTransport(Transport):
 
             # the sidecar authenticates the credential and routes the tunnel to org/db, then relays to the
             # proxy daemon's HTTP server; it answers 'PXT/1.0 200' on success (checked below)
-            frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {credential}\r\n\r\n'
+            frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {credential.value}\r\n\r\n'
             ssl_sock.sendall(frame.encode())
 
             buf = b''
@@ -272,7 +289,7 @@ class TunnelTransport(Transport):
 
             first_line = buf.split(b'\r\n')[0].decode()
             if not first_line.startswith('PXT/1.0 200'):
-                raise PermissionError(f'PXT/1.0 handshake rejected: {first_line}')
+                raise self._handshake_error(first_line, credential)
 
             # Switch from the connect-phase timeout to the RPC timeout now that the handshake is done;
             # otherwise the socket would time out on any request that takes longer than _CONNECT_TIMEOUT.
@@ -282,12 +299,20 @@ class TunnelTransport(Transport):
             (ssl_sock or raw_sock).close()
             raise
 
+    def _handshake_error(self, status_line: str, sent: Credential) -> Exception:
+        """A refusal reads as the control plane's does, naming the credential; any other status is retried."""
+        _, _, status = status_line.partition(' ')
+        code, _, reason = status.partition(' ')
+        if code.isdigit() and is_refusal(int(code)):
+            return refusal(int(code), reason or f'HTTP {code}', sent, f'connect to pxt://{self._org}:{self._db}')
+        return ConnectionError(f'PXT/1.0 handshake failed: {status_line}')
+
     def _request(self, method: str, path: str, body: bytes | None = None, content_type: str | None = None) -> bytes:
         """Borrow a tunnel connection, issue one request, return the raw body.
 
         A failure that leaves the request undelivered (connect, handshake, writing it) is retried with
-        backoff on a fresh connection, as is a 5xx; auth rejection (PermissionError) and non-5xx HTTP errors
-        are not.
+        backoff on a fresh connection, as is a 5xx; a refused credential, a connection the OS refuses, and
+        non-5xx HTTP errors are not.
 
         A connection that fails *after* the daemon has received the request is treated as a server crash and is
         not retried; retries in this scenario can inadvertently DOS the pod.
@@ -295,6 +320,7 @@ class TunnelTransport(Transport):
         headers = {'Content-Type': content_type} if content_type else {}
 
         @retry(
+            # an OSError, but a firewall or sandbox that denies the socket denies it again on a retry
             retry=retry_if_exception_type(_TUNNEL_TRANSIENT_EXC) & retry_if_not_exception_type(PermissionError),
             wait=wait_exponential_jitter(initial=0.5, max=5.0),
             stop=stop_after_delay(_TUNNEL_RETRY_MAX_DELAY),
@@ -371,7 +397,7 @@ class ProxyClient:
         return cls(HttpTransport(endpoint), CatalogPath(org='local', db=db))
 
     @classmethod
-    def remote(cls, org: str, db: str, credential_cb: Callable[[], str], host: str, port: int) -> ProxyClient:
+    def remote(cls, org: str, db: str, credential_cb: Callable[[], Credential], host: str, port: int) -> ProxyClient:
         """Connect to the Pixeltable cloud service's proxy daemon over an authenticated TLS tunnel."""
         return cls(TunnelTransport(org, db, credential_cb, host=host, port=port), CatalogPath(org=org, db=db))
 

@@ -19,7 +19,6 @@ from .utils import (
     home_bucket_uri,
     pxt_raises,
     skip_test_if_no_pxt_credentials,
-    skip_test_if_not_installed,
     validate_update_status,
 )
 
@@ -51,7 +50,6 @@ class TestPxtStore:
 
     def test_insert_and_select(self, uses_db: None) -> None:
         """Insert a local file with a pxtfs:// destination, then verify it can be read back."""
-        skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
 
         dest_uri = f'{_pxt_dest_uri()}/bucket1'
@@ -70,7 +68,6 @@ class TestPxtStore:
 
     def test_select_from_pxt_url(self, uses_db: None) -> None:
         """Upload a file to the pxt store, then insert its pxtfs:// URL into a new table and read it."""
-        skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
 
         dest_uri = f'{_pxt_dest_uri()}/src'
@@ -93,7 +90,6 @@ class TestPxtStore:
 
     def test_delete_on_drop(self, uses_db: None) -> None:
         """Verify objects in pxt store are cleaned up when the table is dropped."""
-        skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
 
         dest_uri = f'{_pxt_dest_uri()}/drop_test'
@@ -110,7 +106,6 @@ class TestPxtStore:
         assert ObjectOps.count(save_id, dest=dest_uri) == 0
 
     def test_no_space_left(self, uses_db: None) -> None:
-        skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
         from pixeltable.utils import pxt_store
 
@@ -145,7 +140,6 @@ class TestPxtStore:
     def test_reads_share_credentials(self, init_env: None, tmp_path: Path) -> None:
         """Reading objects from many directories of a home bucket fetches credentials and builds a boto3 session
         once, rather than once per directory: media files are stored in random shard directories."""
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils import pxt_store
         from pixeltable.utils.s3_store import S3Store
 
@@ -170,7 +164,6 @@ class TestPxtStore:
     def test_quota_recheck(self, init_env: None, tmp_path: Path) -> None:
         """A write rejected for lack of space checks the quota again at most once per interval, and keeps the cached
         state if the check fails; once space is freed, the next check lets writes through."""
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils import pxt_store
         from pixeltable.utils.s3_store import S3Store
 
@@ -222,7 +215,6 @@ class TestPxtStore:
     def test_scoped_credentials(self, init_env: None) -> None:
         """A store with scope_credentials fetches credentials for its prefix only, in a session that is not cached:
         an upload sink's prefix belongs to one request and is never reused."""
-        skip_test_if_not_installed('boto3')
         from pixeltable.utils import pxt_store
 
         db = f'db_{uuid.uuid4().hex}'
@@ -237,7 +229,6 @@ class TestPxtStore:
 
     def test_same_prefix_shares_credentials(self, uses_db: None) -> None:
         """Verify that two columns with the same pxtfs:// destination share a single cached credential entry."""
-        skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
         from pixeltable.utils.pxt_store import PxtStore
         from pixeltable.utils.s3_store import S3Store
@@ -253,7 +244,6 @@ class TestPxtStore:
 
     def test_credentials_refresh(self, uses_db: None) -> None:
         """Verify that botocore automatically refreshes credentials when they expire."""
-        skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
         from pixeltable.utils.pxt_store import PxtStore
 

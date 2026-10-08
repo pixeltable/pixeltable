@@ -21,12 +21,15 @@ from pixeltable import exceptions as excs
 from pixeltable.catalog import TablePathKey, TableVersionKey
 from pixeltable.config import Config
 from pixeltable.service import proxy_client, proxy_daemon, proxy_dispatch, proxy_protocol
+from pixeltable.service.management_client import Credential
 from pixeltable.service.proxy_client import HttpTransport, ProxyClient, TunnelTransport
 from pixeltable.service.proxy_protocol import ArchiveMember, PxtArchivePartSink, PxtStorePartSink
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps
 
 from .utils import pxt_raises, reload_env
+
+_KEY = Credential('api_key', 'key', 'the PIXELTABLE_API_KEY environment variable')
 
 
 @pytest.fixture
@@ -300,7 +303,7 @@ class TestProxyDaemon:
         local_sink = HttpTransport('http://127.0.0.1:1').new_part_sink()
         assert type(local_sink) is proxy_protocol.InlinePartSink
 
-        tunnel = TunnelTransport('org1', 'db1', lambda: 'key', host='h', port=443)
+        tunnel = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
         remote_sink = tunnel.new_part_sink()
         next_sink = tunnel.new_part_sink()
         assert type(remote_sink) is PxtArchivePartSink
@@ -809,7 +812,7 @@ class TestProxyDaemon:
         client = (
             ProxyClient.local('http://127.0.0.1:1', db='db1')
             if org == 'local'
-            else ProxyClient.remote(org, 'db1', lambda: 'test-key', host='h', port=443)
+            else ProxyClient.remote(org, 'db1', lambda: _KEY, host='h', port=443)
         )
         response = proxy_protocol.encode_response(
             {
@@ -872,7 +875,7 @@ class TestProxyDaemon:
     def test_client_trusts_protocol_version_fields(self, table_method: bool, monkeypatch: pytest.MonkeyPatch) -> None:
         """The sentence says the database is newer. The fields say this client is, and they win."""
         sentence = 'Unsupported proxy protocol version: 1 (server expects 2)'
-        client = ProxyClient.remote('org1', 'db1', lambda: 'test-key', host='h', port=443)
+        client = ProxyClient.remote('org1', 'db1', lambda: _KEY, host='h', port=443)
         response = proxy_protocol.encode_response(
             {
                 'error': {
@@ -939,6 +942,8 @@ class _ScriptedConn:
     a live connection, and closing the peer makes it read as one the server has closed.
     """
 
+    responded_at: float | None = None
+
     def __init__(self, on_write: BaseException | None = None, on_read: object = (200, b'ok')) -> None:
         self.sock, self._peer = socket.socketpair()
         self._on_write = on_write
@@ -988,11 +993,12 @@ class _PlainSidecar(socketserver.TCPServer):
     """A sidecar on loopback TCP that records the token in each tunnel handshake.
 
     It answers one request per tunnel and then closes it, so the client's next request needs a new
-    handshake.
+    handshake. Handshakes get `handshakes` in turn, then 'PXT/1.0 200 OK'.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, handshakes: tuple[bytes, ...] = ()) -> None:
         self.tokens: list[str] = []
+        self.handshakes = list(handshakes)
         self._create_connection = socket.create_connection
         super().__init__(('127.0.0.1', 0), _SidecarHandler)
         self._thread = threading.Thread(target=self.serve_forever, daemon=True)
@@ -1012,7 +1018,10 @@ class _SidecarHandler(socketserver.StreamRequestHandler):
 
     def handle(self) -> None:
         self.server.tokens.append(_header_fields(self.rfile)['Authorization'].removeprefix('Bearer '))
-        self.wfile.write(b'PXT/1.0 200 OK\r\n\r\n')
+        reply = self.server.handshakes.pop(0) if self.server.handshakes else b'PXT/1.0 200 OK'
+        self.wfile.write(reply + b'\r\n\r\n')
+        if not reply.startswith(b'PXT/1.0 200'):
+            return
         self.rfile.read(int(_header_fields(self.rfile).get('Content-Length', '0')))
         self.wfile.write(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok')
 
@@ -1023,7 +1032,7 @@ class TestTunnelRetries:
     @staticmethod
     def _transport(conns: list[_ScriptedConn]) -> tuple[TunnelTransport, list[_ScriptedConn]]:
         """A transport that hands out conns in order, and the list of the ones it actually opened."""
-        transport = TunnelTransport('org1', 'db1', lambda: 'key', host='h', port=443)
+        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
         opened: list[_ScriptedConn] = []
         queue = list(conns)
 
@@ -1064,10 +1073,26 @@ class TestTunnelRetries:
         assert transport.post(b'body') == b'second'
         assert len(opened) == 2
 
+    def test_a_connection_the_os_refuses_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A firewall or sandbox that denies the socket denies it again, so the error comes at once."""
+        attempts = 0
+
+        def deny(*_args: Any, **_kwargs: Any) -> socket.socket:
+            nonlocal attempts
+            attempts += 1
+            raise PermissionError(1, 'Operation not permitted')
+
+        monkeypatch.setattr(socket, 'create_connection', deny)
+        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
+
+        with pytest.raises(PermissionError):
+            transport.post(b'body')
+        assert attempts == 1
+
     def test_a_refused_credential_opens_no_connection(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Renewing a session is a round trip of its own, so the credential is resolved before connecting."""
 
-        def refuse() -> str:
+        def refuse() -> Credential:
             raise excs.AuthorizationError(excs.ErrorCode.MISSING_CREDENTIALS, 'no credential in this test')
 
         def connect(*_args: Any, **_kwargs: Any) -> socket.socket:
@@ -1084,7 +1109,7 @@ class TestTunnelRetries:
         sidecar = _PlainSidecar()
         monkeypatch.setattr(socket, 'create_connection', sidecar.connect)
         monkeypatch.setattr(ssl, 'create_default_context', _PlainTLS)
-        credentials = iter(['first-token', 'renewed-token'])
+        credentials = iter([Credential('session', token, 'a test') for token in ('first-token', 'renewed-token')])
         transport = TunnelTransport('org1', 'db1', lambda: next(credentials), host='h', port=443)
         try:
             assert transport.post(b'one') == b'ok'
@@ -1094,6 +1119,40 @@ class TestTunnelRetries:
             sidecar.close()
 
         assert sidecar.tokens == ['first-token', 'renewed-token']
+
+    @staticmethod
+    def _post_through(sidecar: _PlainSidecar, monkeypatch: pytest.MonkeyPatch) -> bytes:
+        monkeypatch.setattr(socket, 'create_connection', sidecar.connect)
+        monkeypatch.setattr(ssl, 'create_default_context', _PlainTLS)
+        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
+        try:
+            return transport.post(b'body')
+        finally:
+            transport.close()
+            sidecar.close()
+
+    def test_a_rejected_key_names_its_source_and_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        sidecar = _PlainSidecar((b'PXT/1.0 401 Unauthorized',))
+        with pxt_raises(
+            excs.ErrorCode.PROVIDER_AUTH_ERROR,
+            match='The API key from the PIXELTABLE_API_KEY environment variable was rejected: Unauthorized',
+        ):
+            self._post_through(sidecar, monkeypatch)
+        assert sidecar.tokens == ['key']
+
+    def test_a_key_without_access_to_the_database_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        sidecar = _PlainSidecar((b'PXT/1.0 403 Forbidden',))
+        with pxt_raises(
+            excs.ErrorCode.INSUFFICIENT_PRIVILEGES, match='is valid but is not permitted to connect to pxt://org1:db1'
+        ):
+            self._post_through(sidecar, monkeypatch)
+        assert sidecar.tokens == ['key']
+
+    def test_a_handshake_the_sidecar_could_not_complete_is_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A 5xx says nothing about the credential: the sidecar could not reach the daemon yet."""
+        sidecar = _PlainSidecar((b'PXT/1.0 503 Service Unavailable',))
+        assert self._post_through(sidecar, monkeypatch) == b'ok'
+        assert sidecar.tokens == ['key', 'key']
 
     def test_a_client_error_is_not_retried(self) -> None:
         transport, opened = self._transport([_ScriptedConn(on_read=(404, b'nope')) for _ in range(2)])
@@ -1116,8 +1175,44 @@ class TestTunnelRetries:
             return live
 
         pool = proxy_client._TunnelPool(connect)  # type: ignore[arg-type]
-        pool._idle.append(dead)  # type: ignore[arg-type]
+        pool._idle.append((dead, time.monotonic()))  # type: ignore[arg-type]
         with pool.borrow() as conn:
             assert conn is live
         assert dead.closed
         assert opened == [live]
+
+    def test_a_connection_idle_nearly_as_long_as_the_daemon_keeps_it_is_not_handed_out(self) -> None:
+        """The daemon closes a connection idle 5 s, and a request sent while that close is on its way is dropped."""
+        stale, fresh = _ScriptedConn(), _ScriptedConn()
+        opened: list[_ScriptedConn] = []
+
+        def connect() -> object:
+            opened.append(fresh)
+            return fresh
+
+        pool = proxy_client._TunnelPool(connect)  # type: ignore[arg-type]
+        # still open, so only its age can tell the pool not to send on it
+        pool._idle.append((stale, time.monotonic() - proxy_client._MAX_IDLE_S - 0.1))  # type: ignore[arg-type]
+        with pool.borrow() as conn:
+            assert conn is fresh
+        assert stale.closed
+
+        # one that went idle just now is handed out again
+        with pool.borrow() as conn:
+            assert conn is fresh
+        assert opened == [fresh]
+
+    def test_a_connection_idle_since_its_response_began_is_not_handed_out(self) -> None:
+        """The daemon's idle timer starts once it has sent a response, which can be long before the client has
+        read all of it: the age runs from when the response's headers arrived, not from when the read ended."""
+        slow, fresh = _ScriptedConn(), _ScriptedConn()
+        conns = iter([slow, fresh])
+        pool = proxy_client._TunnelPool(lambda: next(conns))  # type: ignore[arg-type,return-value]
+        with pool.borrow() as conn:
+            assert conn is slow
+            # its response began arriving long ago and was read only now
+            slow.responded_at = time.monotonic() - proxy_client._MAX_IDLE_S - 0.1
+
+        with pool.borrow() as conn:
+            assert conn is fresh
+        assert slow.closed
