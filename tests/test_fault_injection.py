@@ -22,7 +22,7 @@ class TestFaultInjection:
         manager = get_runtime().fault_manager
         manager.inject_fault(FaultLocation.TEST, fault)
 
-        # a hit the filter rejects leaves the fault armed for a later one
+        # A nonmatching call must leave the fault armed.
         manager.process_location(FaultLocation.TEST, {'n': 1})
         fault.assert_count(0)
 

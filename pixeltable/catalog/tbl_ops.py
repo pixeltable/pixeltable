@@ -135,9 +135,9 @@ class LoadViewOp(TableOp):
 
 @dataclasses.dataclass
 class CreateTableMdOp(TableOp):
-    """Represents a new table metadata write and a store table creation.
+    """Record how to undo creation of a table's metadata and store table.
 
-    The forward flow is inlined in Catalog; this serves as an undo log entry only.
+    Catalog performs the creation directly. This entry is used only to undo it.
     """
 
     needs_tv: ClassVar[bool] = False
@@ -158,7 +158,7 @@ class CreateTableMdOp(TableOp):
 
 @dataclasses.dataclass
 class DeleteTableMdOp(TableOp):
-    """Deletes the table metadata and drops the store table."""
+    """Delete the metadata and store table in the same transaction."""
 
     needs_tv: ClassVar[bool] = False
     needs_xact: ClassVar[bool] = True

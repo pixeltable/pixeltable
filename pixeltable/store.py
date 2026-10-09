@@ -288,8 +288,7 @@ class StoreBase:
         with get_runtime().begin_xact(for_write=True) as conn:
             try:
                 if not Env.get().is_using_cockroachdb:
-                    # Lock the table in the same transaction as 'stmt', to exclude a concurrent process rolling the
-                    # same pending op forward.
+                    # Lock during DDL so concurrent processes cannot execute the same pending operation.
                     # TODO: adapt this for CockroachDB
                     lock_stmt = f'LOCK TABLE {self._storage_name()} IN ACCESS EXCLUSIVE MODE'
                     conn.execute(sql.text(lock_stmt))
@@ -318,9 +317,9 @@ class StoreBase:
             return res == 1
 
     def create(self) -> None:
-        """Create the store table, along with its system and user indexes, in the current transaction.
+        """Create the store table and its system and user indexes in the current transaction.
 
-        Not idempotent: must run in the transaction that creates table metadata.
+        Call once, in the same transaction that inserts the table's metadata.
         """
         conn = get_runtime().conn
         postgres_dialect = sql.dialects.postgresql.dialect()
@@ -333,13 +332,13 @@ class StoreBase:
             _, idx_stmt = self._create_idx_stmt(idx_id)
             conn.execute(sql.text(idx_stmt))
 
-        # Rebuild the sqlalchemy schema to discard the sql.Indexes that _create_idx_stmt() left linked to it; without
-        # this, a retry of the enclosing transaction would emit those CREATE INDEX statements twice.
+        # Index statement generation attaches Index objects to sa_tbl. Discard them so a transaction retry
+        # does not issue duplicate CREATE INDEX statements.
         # TODO(PXT-1271): stop sa_create_stmt() from mutating the store table. That will make this rebuild unnecessary.
         self.create_sa_tbl()
 
     def _create_idx_stmt(self, idx_id: int) -> tuple[catalog.TableVersion.IndexInfo, str]:
-        """Return the index's IndexInfo, along with the DDL statement that creates it."""
+        """Return the index metadata and its CREATE INDEX statement."""
         tv = self.tbl_version.get()
         idx_info = tv.idxs[idx_id]
         assert idx_info.indexed_sa_col.table is self.sa_tbl, idx_info

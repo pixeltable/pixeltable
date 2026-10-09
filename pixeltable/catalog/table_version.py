@@ -315,8 +315,10 @@ class TableVersion:
         )
 
     def drop_ops(self) -> tuple[list[TableOp], bool, UUID | None]:
-        """Returns the drop table ops, whether new table and schema versions were created, and the base table
-        whose view_sn the caller must advance, if any."""
+        """Return the drop operations, whether versions were advanced, and the mutable base id, if any.
+
+        The caller must advance that base's view_sn to record the change in write propagation.
+        """
         new_version = self.is_mutable and self.is_data_versioned
         if new_version:
             self.bump_version(bump_schema_version=True)

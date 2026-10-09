@@ -411,7 +411,7 @@ class SqlNode(ExecNode):
         self.offset = offset
 
     def _check_catalog_locks(self) -> None:
-        """Check that Catalog holds all locks necessary for this query"""
+        """Check that Catalog holds read locks for the tables used by this query."""
         for input in self._cte_inputs:
             input._check_catalog_locks()
         if self.tbl is None:

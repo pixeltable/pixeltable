@@ -320,8 +320,8 @@ class TestSnapshot:
         def verify(s: pxt.Table, v: pxt.Table) -> None:
             assert s.count() == len(rows)
             assert v.count() == len(rows)
-            # get_base_table() opens its own transaction, so it is the call that goes through lock acquisition and
-            # the metadata refresh; describe(), which resolves the base from inside one, does not
+            # get_base_table() opens a transaction and refreshes metadata. describe() resolves the base inside
+            # an existing transaction, so it does not exercise that setup.
             if db_root.id == 'local':  # ViewProxy._get_base_table() is unimplemented
                 assert v.get_base_table()._path() == s._path()
                 assert s.get_base_table()._path() == tbl_path

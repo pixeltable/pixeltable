@@ -53,17 +53,14 @@ class MultiThreadedScenario:
         event: Event | None = None,
         poll_condition: Callable[[], bool] | None = None,
     ) -> 'MultiThreadedScenario':
-        """Append a step that runs `fn` on Thread `thread_id`, gating the next step on `fn` reaching some point.
+        """Run `fn` on the specified thread and start the next step when a condition is met.
 
-        Exactly one of:
-        - event: `fn` sets it from the inside, typically a BlockFault parking at a fault point. The next step is
-          admitted when it is set.
-        - poll_condition: a predicate the scenario evaluates on separate thread, such as a PostgreSQL lock
-          blocking. The next step is admitted as soon as a poll observes it true, so the condition must describe a
-          state that `fn` stays in until a later step releases it. The step fails if `fn` returns before a poll
-          observed the condition.
+        Supply exactly one of:
+        - event: an event set by `fn`, usually when a BlockFault pauses it.
+        - poll_condition: a predicate polled on a separate thread, such as a check for a waiting Postgres lock.
+          The condition must stay true until a later step releases `fn`. Fail if `fn` returns before it is observed.
 
-        Either way the next step is admitted while `fn` is still running, and `fn` runs on past that point.
+        The next step starts while `fn` is still running.
         """
         assert (event is None) != (poll_condition is None), 'pass exactly one of event, poll_condition'
         self._steps.append(_Step(thread_id=thread_id, name=name, fn=fn, next_gate=event, poll_condition=poll_condition))
@@ -124,18 +121,17 @@ class MultiThreadedScenario:
         deadline = time.monotonic() + timeout
 
         def fail(e: BaseException, step: _Step) -> None:
-            """Record an exception and tear the scenario down, releasing anyone parked at a fault point."""
+            """Record the failure, stop the scenario, and release threads paused at fault points."""
             with exc_lock:
                 exceptions.append((step.name, e))
             abort.set()
             self._unblock_all()
 
         def start_poller(step: _Step) -> None:
-            """Start polling `step`'s condition on a dedicated thread. Open `step`'s gate when it holds."""
+            """Poll the condition on a separate thread and release the next step when it is met."""
             assert step.poll_condition is not None
             assert step.next_gate is not None
-            # give up a little before execute() stops joining workers, so that this step's specific failure is
-            # the one reported rather than the generic "scenario timed out"
+            # Report which poll condition timed out before execute() reaches its overall timeout.
             poll_deadline = deadline - 2 * _POLL_INTERVAL
 
             def poll() -> None:

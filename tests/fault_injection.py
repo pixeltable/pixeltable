@@ -11,7 +11,7 @@ be injected in the fault manager:
 - `BlockFault`: pauses the thread at the fault point, letting the test inspect or manipulate shared state before calling
 `unblock()`
 
-A fault can carry a `filter` over the kwargs its call site passes, so that it can be triggered selectively.
+A fault's `filter` selects calls using the context passed by the fault location.
 """
 
 import copy
@@ -28,9 +28,9 @@ _logger = logging.getLogger('pixeltable_test')
 class Fault(ABC):
     """A fault that can be armed at a FaultLocation."""
 
-    # if False, the fault is disarmed by the first hit it applies to
+    # Nonrecurring faults are removed after the first matching call.
     recurring: bool
-    # selects the hits this fault applies to, as a predicate over the call site's kwargs; None means applies to all
+    # Select matching calls by their context; None matches every call.
     _filter: Callable[[dict[str, Any]], bool] | None
 
     def __init__(self, recurring: bool, filter: Callable[[dict[str, Any]], bool] | None) -> None:
@@ -38,9 +38,9 @@ class Fault(ABC):
         self._filter = filter
 
     def applies(self, loc: FaultLocation, kwargs: dict[str, Any]) -> bool:
-        """Whether this fault fires for this hit. A fault that does not apply is left armed for a later one.
+        """Return whether this call should trigger the fault. Nonmatching calls leave it armed.
 
-        Called while the FaultManager lock is held, so an override must not block.
+        FaultManager calls this while holding its lock, so overrides must not block.
         """
         return self._filter is None or self._filter(kwargs)
 

@@ -50,8 +50,7 @@ class QueryBase(ABC):
     offset_val: exprs.Expr | None
     sample_clause: SampleClause | None
 
-    # IDs of all tables referenced by this query (from-clause path + exprs). Computed once on
-    # first access, then cached: the value depends on the static query shape and never changes.
+    # Table-version keys from the query's FROM paths and expressions, cached on first access.
     _referenced_tbl_keys: set[catalog.TableVersionKey] | None
 
     def __init__(
@@ -282,10 +281,9 @@ class QueryBase(ABC):
         )
 
     def referenced_tbl_keys(self) -> set[catalog.TableVersionKey]:
-        """Returns the table versions referenced by this query, the from-clause paths' ancestors included.
+        """Return table-version keys referenced by the query's expressions and FROM paths, including bases.
 
-        Walks the query's static structure (exprs + from-clause path) on first call and caches
-        the result; the value depends on the static query shape and never changes.
+        Cache the result on first access; it depends only on the query's fixed structure.
         """
         if self._referenced_tbl_keys is not None:
             return self._referenced_tbl_keys
