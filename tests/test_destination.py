@@ -94,7 +94,7 @@ class TestDestination:
                 pytest.skip(f'Destination {str(dest_id)!r} not reachable or not configured properly: {exc}')
             return None
 
-    def test_dest_errors(self, db_root: DatabaseRoot) -> None:
+    def test_dest_errors(self, db_root: DatabaseRoot, request: pytest.FixtureRequest) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test_dest_errors'), schema={'img': pxt.Image | None})
 
@@ -111,7 +111,8 @@ class TestDestination:
                 t.add_computed_column(img_rot=t.img.rotate(90), destination='tests/data/')
             return
 
-        valid_dest = 'tests/data/'
+        valid_dest = self.resolve_destination_uri(StorageTarget.LOCAL_STORE)
+        assert valid_dest is not None
         # destination only applies to stored computed columns
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='only applies to stored computed columns'):
             t.add_computed_column(img_rot=t.img.rotate(90), stored=False, destination=valid_dest)
@@ -120,6 +121,14 @@ class TestDestination:
             _ = pxt.create_table(
                 p('test_dest_bad'), schema={'img': {'type': pxt.Image | None, 'destination': f'{valid_dest}'}}
             )
+
+        # a local destination inside the project directory is not allowed
+        project_root: Path = request.getfixturevalue('project_env')
+        in_project = project_root / 'media'
+        in_project.mkdir()
+        for dest in (str(in_project), in_project.as_uri(), project_root.as_uri()):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is inside the project directory'):
+                t.add_computed_column(img_rot=t.img.rotate(90), destination=dest)
 
         # Test destination with a non-existent directory
         with pxt_raises(pxt.ErrorCode.STORAGE_NOT_FOUND, match='does not exist'):

@@ -88,6 +88,10 @@ output_media_dest = "s3://my-bucket/output/"
 Configure these before creating tables. All media columns will automatically use the configured destinations.
 </Tip>
 
+<Warning>
+A local directory used as a media destination, whether a default or a column's `destination`, must be outside the project directory (the one holding `pixeltable.toml` or a `pyproject.toml` with a `[tool.pixeltable]` section).
+</Warning>
+
 ### Per-column destination (computed columns only)
 
 For **computed columns**, you can override the default with a specific destination:
