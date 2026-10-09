@@ -241,7 +241,7 @@ class TestOpenai:
         t.add_computed_column(input_msgs=msgs)
         t.add_computed_column(
             chat_output=chat_completions(
-                model='o3-mini', messages=t.input_msgs, model_kwargs={'reasoning_effort': 'low'}
+                model='gpt-5.6-sol', messages=t.input_msgs, model_kwargs={'reasoning_effort': 'low'}
             )
         )
         validate_update_status(
