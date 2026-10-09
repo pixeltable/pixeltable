@@ -40,7 +40,7 @@ class _GetPresignedUrlsResponse(BaseModel):
 
 
 def _post(
-    request: GetBucketCredentialsRequest | GetPresignedUrlRequest | _GetPresignedUrlsRequest, timeout: float
+    request: GetBucketCredentialsRequest | GetPresignedUrlRequest | _GetPresignedUrlsRequest,
 ) -> requests.Response:
     """Send a home-bucket request with an API key if one is set, otherwise the `pxt login` session.
 
@@ -50,6 +50,8 @@ def _post(
     sent = resolve(purpose)
     headers = {'Content-Type': 'application/json', **sent.header()}
     body = request.model_dump_json()
+    # a control plane starting cold takes 17-19 s to answer, outside prod's provisioned instances
+    timeout = 30
     try:
         response = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
     except requests.exceptions.ConnectionError:
@@ -58,6 +60,13 @@ def _post(
         response = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
     raise_if_refused(response, sent, purpose)
     return response
+
+
+def _cloud_error(failure: str, cause: object, status_code: int | None = None) -> excs.ExternalServiceError:
+    """The error for a request to Pixeltable Cloud that failed: '<failure>: <cause>'."""
+    return excs.ExternalServiceError(
+        excs.ErrorCode.PROVIDER_ERROR, f'{failure}: {cause}', provider='pixeltable_cloud', status_code=status_code
+    )
 
 
 def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str | None = None) -> GetBucketCredentialsResponse:
@@ -75,23 +84,13 @@ def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str | None = 
     """
     request = GetBucketCredentialsRequest(org=org, db=db, bucket_name=bucket, prefix=prefix)
     try:
-        # a control plane starting cold takes 17-19 s to answer, outside prod's provisioned instances
-        response = _post(request, timeout=30)
+        response = _post(request)
         if response.status_code != 200:
-            raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_ERROR,
-                f'Failed to get bucket credentials: {response.text}',
-                provider='pixeltable_cloud',
-                status_code=response.status_code,
-            )
+            raise _cloud_error('Failed to get bucket credentials', response.text, response.status_code)
         data = response.json()
         return GetBucketCredentialsResponse.model_validate(data)
     except requests.exceptions.RequestException as e:
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
-            f'Failed to connect to Pixeltable Cloud for bucket credentials: {e}',
-            provider='pixeltable_cloud',
-        ) from e
+        raise _cloud_error('Failed to connect to Pixeltable Cloud for bucket credentials', e) from e
 
 
 def get_presigned_url_from_cloud(
@@ -102,46 +101,33 @@ def get_presigned_url_from_cloud(
     Uses backend credentials on the cloud so URL expiry is independent of temp credential TTL.
     """
     request = GetPresignedUrlRequest(org=org, db=db, bucket_name=bucket, key=key, method=method, expiration=expiration)
+    failure = 'Failed to get presigned URL from Pixeltable Cloud'
     try:
-        response = _post(request, timeout=30)
+        response = _post(request)
         if response.status_code != 200:
-            raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_ERROR,
-                f'Failed to get presigned URL from Pixeltable Cloud: {response.text}',
-                provider='pixeltable_cloud',
-                status_code=response.status_code,
-            )
+            raise _cloud_error(failure, response.text, response.status_code)
         data = response.json()
         return GetPresignedUrlResponse.model_validate(data).url
     except requests.exceptions.RequestException as e:
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
-            f'Failed to get presigned URL from Pixeltable Cloud: {e}',
-            provider='pixeltable_cloud',
-        ) from e
+        raise _cloud_error(failure, e) from e
 
 
-def get_presigned_urls_from_cloud(org: str, db: str, keys: list[str], expires_in: int = 900) -> dict[str, str]:
+MAX_PRESIGNED_URL_KEYS = 100  # keys per get_presigned_urls call: the control plane's limit
+
+
+def get_presigned_urls_from_cloud(org: str, db: str, bucket: str, keys: list[str], expires_in: int) -> dict[str, str]:
     """
-    Request presigned GET URLs from Pixeltable Cloud for keys in the org/db home bucket, in one call.
-    The control plane signs at most 100 keys a call. Returns each key's URL.
+    Request presigned GET URLs from Pixeltable Cloud for keys in the given bucket of org/db, in one call.
+    The control plane signs at most MAX_PRESIGNED_URL_KEYS keys a call. Returns each key's URL.
     """
-    request = _GetPresignedUrlsRequest(org=org, db=db, keys=keys, expires_in=expires_in)
+    request = _GetPresignedUrlsRequest(org=org, db=db, bucket_name=bucket, keys=keys, expires_in=expires_in)
+    failure = 'Failed to get presigned URLs from Pixeltable Cloud'
     try:
-        response = _post(request, timeout=30)
+        response = _post(request)
     except requests.exceptions.RequestException as e:
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
-            f'Failed to get presigned URLs from Pixeltable Cloud: {e}',
-            provider='pixeltable_cloud',
-        ) from e
+        raise _cloud_error(failure, e) from e
     if response.status_code != 200:
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
-            f'Failed to get presigned URLs from Pixeltable Cloud: {response.text}',
-            provider='pixeltable_cloud',
-            status_code=response.status_code,
-        )
+        raise _cloud_error(failure, response.text, response.status_code)
     try:
         urls = _GetPresignedUrlsResponse.model_validate(response.json()).urls
     except ValueError:

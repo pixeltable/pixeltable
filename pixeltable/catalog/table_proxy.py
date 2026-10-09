@@ -12,6 +12,7 @@ from typing_extensions import TypeForm
 import pixeltable.exceptions as excs
 from pixeltable import type_system as ts
 from pixeltable.utils import parse_local_file_path
+from pixeltable.utils.object_stores import warn_if_pxtfs_destination
 
 from ..exprs import ColumnRef
 from .globals import normalize_schema
@@ -228,6 +229,8 @@ class TableProxy(Table):
         bound_args = self._dispatch_args(locals())
         self._check_single_column_kwarg('add_computed_column', '`col_name=col_type` or `col_name=expression`', kwargs)
         self._check_mutable('add columns to')
+        # the daemon validates the column, where none of the caller's code runs
+        warn_if_pxtfs_destination(next(iter(kwargs)), destination)
         bound_args['columns'] = bound_args.pop('kwargs')
         return self._dispatch('add_computed_column', bound_args)
 

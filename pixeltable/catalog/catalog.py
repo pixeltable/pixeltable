@@ -26,6 +26,7 @@ from pixeltable.types import ColumnSpec
 from pixeltable.utils import fault_injection
 from pixeltable.utils.exception_handler import run_cleanup
 from pixeltable.utils.fault_injection import FaultLocation
+from pixeltable.utils.object_stores import PXT_BUCKETS_DIR
 
 from .catalog_base import CatalogBase
 from .column import Column
@@ -52,6 +53,10 @@ if TYPE_CHECKING:
 
 
 _logger = logging.getLogger(__name__)
+
+# pxt://<org>:<db>/buckets/... addresses a hosted database's storage buckets, so no new entry at the root of its
+# catalog may take this name; an entry created before the reservation keeps working
+_HOSTED_RESERVED_ROOT_NAME = PXT_BUCKETS_DIR
 
 
 def _unpack_row(row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api.DeclarativeBase]]) -> list[Any] | None:
@@ -1456,6 +1461,8 @@ class Catalog(CatalogBase):
             if add_obj is not None and raise_if_exists:
                 add_path = add_dir_path.append(add_name)
                 raise excs.AlreadyExistsError(excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {add_path!r} already exists.')
+            if add_obj is None:
+                self._check_name_not_reserved(add_dir_path, add_name)
 
         drop_obj: SchemaObject | None = None
         if drop_dir is not None:
@@ -1472,6 +1479,26 @@ class Catalog(CatalogBase):
 
         add_dir_obj = Dir(add_dir.id) if add_dir is not None else None
         return add_obj, add_dir_obj, drop_obj
+
+    def _check_name_not_reserved(self, dir_path: Path, name: str) -> None:
+        """Refuse a new entry `name` in dir_path where a hosted database reserves that name.
+
+        Every creation and move reaches this through _prepare_dir_op(), every replacement through
+        _handle_path_collision(), and each directory that create_dir(parents=True) adds through _create_dir().
+        """
+        if not dir_path.is_root or fold_identifier(name) != _HOSTED_RESERVED_ROOT_NAME:
+            return
+        # paths reach a daemon without their pxt://<org>:<db>, so hosted means the process. Cloud gives every pod of
+        # a database, its daemon's included, PXTCLOUD_ORG and PXTCLOUD_DB; is_proxy_daemon is no sign of it, since a
+        # local daemon sets it too and must accept what the in-process catalog accepts
+        if Env.get().hosted_db() is None:
+            return
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_PATH,
+            f"'{_HOSTED_RESERVED_ROOT_NAME}' is reserved at the root of a hosted database: "
+            f"pxt://<org>:<db>/{_HOSTED_RESERVED_ROOT_NAME}/... addresses the database's storage buckets. "
+            'Choose another name.',
+        )
 
     def _get_dir_entry(
         self, dir_id: UUID, name: str, version: int | None = None, lock_entry: bool = False
@@ -2175,6 +2202,8 @@ class Catalog(CatalogBase):
             for ancestor in path.ancestors():
                 ancestor_obj = self._get_schema_object(ancestor, expected=Dir)
                 assert ancestor_obj is not None or last_parent is not None
+                if ancestor_obj is None:
+                    self._check_name_not_reserved(ancestor.parent, ancestor.name)
                 last_parent = Dir._create(last_parent._id, ancestor.name) if ancestor_obj is None else ancestor_obj
             parent = last_parent
         else:
@@ -3128,6 +3157,8 @@ class Catalog(CatalogBase):
 
         # IfExistsParam.REPLACE or IfExistsParam.REPLACE_FORCE
         assert if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
+        # the replacement is a new entry: refuse a reserved name before dropping the existing one
+        self._check_name_not_reserved(path.parent, path.name)
 
         # check to ensure that dirs can only be replaced with dirs, and all table subtypes can replace each other
         if expected_obj_type == Dir and not isinstance(obj, Dir):
