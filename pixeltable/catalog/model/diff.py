@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pixeltable import catalog, exprs, func
 from pixeltable.types import ColumnSpec
+from pixeltable.utils.object_stores import ObjectPath, warn_if_pxtfs_destination
 from pixeltable_cli.types import Resolution, SchemaChangeIndexRef, SchemaChangeOp, SchemaChangeOpDetails, TableDiff
 
 from ..globals import col_type_from_spec, fold_mapping_keys
@@ -42,6 +43,11 @@ def _resolution(exists: bool, ops: list[SchemaChangeOp]) -> Resolution:
     return 'update_additive'
 
 
+def _comparable_destination(dest: str | None) -> str | None:
+    """dest, with a home-bucket address in one spelling: a model that respells its destination changes no schema."""
+    return None if dest is None else ObjectPath.canonical_uri(dest)
+
+
 @dataclasses.dataclass
 class _ColumnProperties:
     """The comparable properties of a column, either from a model or from an existing table."""
@@ -67,7 +73,6 @@ class _ColumnProperties:
         value = spec.get('value')
         comment = spec.get('comment')
         dest = spec.get('destination')
-        dest_str = str(dest) if dest is not None else None
         return cls(
             type=repr(col_type),
             value=exprs.Expr.from_object(value).display_str(inline=False) if value is not None else None,
@@ -78,7 +83,7 @@ class _ColumnProperties:
             else None,
             comment=comment if comment else None,
             custom_metadata=spec.get('custom_metadata'),
-            destination=dest_str,
+            destination=_comparable_destination(None if dest is None else str(dest)),
         )
 
     @classmethod
@@ -92,7 +97,7 @@ class _ColumnProperties:
             media_validation=col_md['media_validation'],
             comment=col_md['comment'],
             custom_metadata=col_md['custom_metadata'],
-            destination=col_md['destination'],
+            destination=_comparable_destination(col_md['destination']),
         )
 
 
@@ -328,6 +333,10 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
         for name, model in registered_models.items():
             user_cols = user_columns(model)
             model_cols = set(user_cols.keys())
+            for col_name, spec in user_cols.items():
+                # every model operation passes here on the caller's side; a hosted catalog creates the column in its
+                # daemon, where none of the caller's code runs
+                warn_if_pxtfs_destination(col_name, spec.get('destination'))
             base = model.__table_spec__['base']
             model_kind: Literal['table', 'view'] = 'table' if base is None else 'view'
             iterator = model.__table_spec__['iterator']

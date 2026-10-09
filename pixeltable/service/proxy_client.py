@@ -32,7 +32,6 @@ import httpx
 from tenacity import (
     before_sleep_log,
     retry,
-    retry_if_exception,
     retry_if_exception_type,
     retry_if_not_exception_type,
     stop_after_attempt,
@@ -44,9 +43,13 @@ from pixeltable import exceptions as excs
 from pixeltable.catalog.path import Path as CatalogPath
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.row import RowBatch
-from pixeltable.utils.cloud_utils import get_presigned_url_from_cloud, get_presigned_urls_from_cloud
+from pixeltable.utils.cloud_utils import (
+    MAX_PRESIGNED_URL_KEYS,
+    get_presigned_url_from_cloud,
+    get_presigned_urls_from_cloud,
+)
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.http import fetch_url, is_retryable_error, tcp_keepalive_options
+from pixeltable.utils.http import DOWNLOAD_USER_AGENT, fetch_url, retry_if_retryable_error, tcp_keepalive_options
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectPath, StorageTarget
 
@@ -75,7 +78,6 @@ _PROXY_MEDIA_TBL_ID = UUID(int=0)
 _PROXY_MEDIA_COL_ID = 0
 
 # home-bucket media is read through URLs the control plane signs, never with credentials for the bucket
-_SIGN_BATCH_SIZE = 100  # keys per signing call: the control plane's limit
 # every URL of a result is signed before its first download; one that expires before its download starts is signed
 # again (_fetch_signed)
 _SIGNED_URL_TTL_S = 900
@@ -386,44 +388,44 @@ class TunnelTransport(Transport):
 
 def _sign_home_bucket_urls(urls: list[str]) -> dict[str, str]:
     """A signed https URL for each of urls that addresses a home bucket, in either spelling."""
-    # (org, db) -> {key: [url]}: both spellings of an address name the same key, which is signed once
-    by_db: defaultdict[tuple[str, str], dict[str, list[str]]] = defaultdict(dict)
+    # (org, db, bucket) -> {key: [url]}: both spellings of an address name the same key, which is signed once
+    by_bucket: defaultdict[tuple[str, str, str], dict[str, list[str]]] = defaultdict(dict)
     for url in urls:
         try:
             soa = ObjectPath.parse_object_storage_addr(url, allow_obj_name=True)
         except ValueError:
             continue  # the transport refuses it, as it did before
         if soa.storage_target == StorageTarget.PIXELTABLE_STORE:
-            by_db[soa.account, soa.account_extension].setdefault(soa.key, []).append(url)
+            by_bucket[soa.account, soa.account_extension, soa.container].setdefault(soa.key, []).append(url)
     signed: dict[str, str] = {}
-    for (org, db), urls_by_key in by_db.items():
+    for (org, db, bucket), urls_by_key in by_bucket.items():
         keys = list(urls_by_key)
-        for i in range(0, len(keys), _SIGN_BATCH_SIZE):
-            chunk = keys[i : i + _SIGN_BATCH_SIZE]
-            url_by_key = _sign_keys(org, db, chunk)
+        for i in range(0, len(keys), MAX_PRESIGNED_URL_KEYS):
+            chunk = keys[i : i + MAX_PRESIGNED_URL_KEYS]
+            url_by_key = _sign_keys(org, db, bucket, chunk)
             signed.update((url, url_by_key[key]) for key in chunk for url in urls_by_key[key])
     return signed
 
 
-def _sign_keys(org: str, db: str, keys: list[str]) -> dict[str, str]:
-    """A signed GET URL for each of at most _SIGN_BATCH_SIZE keys in a home bucket, by key."""
+def _sign_keys(org: str, db: str, bucket: str, keys: list[str]) -> dict[str, str]:
+    """A signed GET URL for each of at most MAX_PRESIGNED_URL_KEYS keys in a bucket of org/db, by key."""
     try:
-        return get_presigned_urls_from_cloud(org, db, keys, expires_in=_SIGNED_URL_TTL_S)
+        return get_presigned_urls_from_cloud(org, db, bucket, keys, expires_in=_SIGNED_URL_TTL_S)
     except excs.ExternalServiceError as e:
         # a control plane from before get_presigned_urls refuses the operation as a bad request
         if e.provider_http_status_code != 400:
             raise
-    return {key: get_presigned_url_from_cloud(org, db, 'home', key, expiration=_SIGNED_URL_TTL_S) for key in keys}
+    return {key: get_presigned_url_from_cloud(org, db, bucket, key, expiration=_SIGNED_URL_TTL_S) for key in keys}
 
 
 @retry(
-    retry=retry_if_exception(lambda exc: isinstance(exc, Exception) and is_retryable_error(exc)[0]),
+    retry=retry_if_retryable_error,
     wait=wait_exponential_jitter(initial=0.5, max=5.0),
     stop=stop_after_attempt(3),
     reraise=True,
 )
 def _download(url: str, path: Path) -> None:
-    request = urllib.request.Request(url, headers={'User-Agent': 'Pixeltable/1.0 (https://pixeltable.com)'})
+    request = urllib.request.Request(url, headers={'User-Agent': DOWNLOAD_USER_AGENT})
     with urllib.request.urlopen(request, timeout=_SIGNED_DOWNLOAD_TIMEOUT_S) as r, path.open('wb') as f:
         shutil.copyfileobj(r, f)
 
@@ -440,7 +442,7 @@ def _fetch_signed(url: str, signed_url: str) -> Path:
         if e.provider_http_status_code != 403:
             raise
     soa = ObjectPath.parse_object_storage_addr(url, allow_obj_name=True)
-    return _fetch_signed_once(url, _sign_keys(soa.account, soa.account_extension, [soa.key])[soa.key])
+    return _fetch_signed_once(url, _sign_keys(soa.account, soa.account_extension, soa.container, [soa.key])[soa.key])
 
 
 def _fetch_signed_once(url: str, signed_url: str) -> Path:
@@ -601,8 +603,8 @@ class ProxyClient:
     def fetch_media(self, urls: list[str]) -> dict[str, str]:
         """Fetch each daemon/remote media URL into the local store, returning {url: local_path}.
 
-        Home-bucket media comes through URLs the control plane signs, a call per 100 keys: the client never holds
-        credentials for a bucket.
+        Home-bucket media comes through URLs the control plane signs, a call per MAX_PRESIGNED_URL_KEYS keys: the
+        client never holds credentials for a bucket.
         """
         cache = FileCache.get()
         resolved: dict[str, str] = {}
