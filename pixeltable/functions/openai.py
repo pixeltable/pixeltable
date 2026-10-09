@@ -462,8 +462,15 @@ async def translations(
 
 
 def _default_max_tokens(model: str) -> int:
-    if _is_model_family(model, 'gpt-4o-realtime') or _is_model_family(model, 'gpt-4o-mini-realtime'):
+    if (
+        _is_model_family(model, 'gpt-4o-realtime')
+        or _is_model_family(model, 'gpt-4o-mini-realtime')
+        or _is_model_family(model, 'gpt-4-turbo')
+        or _is_model_family(model, 'gpt-3.5-turbo')
+    ):
         return 4096
+    if _is_model_family(model, 'gpt-4'):
+        return 8192  # All other gpt-4 models (will not match on gpt-4o models)
     if _is_model_family(model, 'gpt-4o') or _is_model_family(model, 'gpt-4.5-preview'):
         return 16384  # All other gpt-4o / gpt-4.5 models
     if _is_model_family(model, 'o3'):
