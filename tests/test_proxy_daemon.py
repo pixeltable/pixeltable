@@ -388,12 +388,14 @@ class TestProxyDaemon:
 
         _ResponseMedia uses this per-object sink, since it presigns a url for each key."""
         uploaded: dict[str, tuple[pathlib.Path, bytes]] = {}
+        urls: dict[str, str] = {}
         stores: list[tuple[str, bool]] = []
 
         class FakeStore:
             def copy_local_file(self, src_path: pathlib.Path, dest: FileDestination) -> str:
                 assert dest.remote_key is not None
                 uploaded[dest.remote_key] = (src_path, src_path.read_bytes())
+                urls[dest.remote_key] = dest.url
                 return dest.url
 
         def fake_get_store(
@@ -422,8 +424,9 @@ class TestProxyDaemon:
 
         sink.flush()
         # one store for the whole request, with credentials for its own prefix
-        assert stores == [(f'pxtfs://org1:db1/home/{sink._key_prefix}', True)]
+        assert stores == [(f'pxt://org1:db1/buckets/home/{sink._key_prefix}', True)]
         assert set(uploaded) == set(keys)
+        assert urls == {key: f'pxt://org1:db1/buckets/home/{key}' for key in keys}
         assert uploaded[keys[0]][1] == uploaded[keys[1]][1] == src.read_bytes()
         assert uploaded[keys[2]][1] == b'raw'
 
@@ -493,7 +496,7 @@ class TestProxyDaemon:
         # happy path: keys download into TempStore, preserving each key's extension
         request = self._remote_file_request('uploads/req/0.png', 'uploads/req/1.jpg')
         proxy_dispatch._prefetch_remote_parts(request)
-        assert stores == [('pxtfs://org1:db1/home/uploads/', False)]
+        assert stores == [('pxt://org1:db1/buckets/home/uploads/', False)]
         assert set(request._remote_parts) == {('uploads/req/0.png', None), ('uploads/req/1.jpg', None)}
         for (key, _), path_str in request._remote_parts.items():
             path = pathlib.Path(path_str)
@@ -603,7 +606,7 @@ class TestProxyDaemon:
             ArchiveMember(f'{prefix}tar1.tar', '4.bin'),
             0,
         ]
-        assert stores == [(f'pxtfs://org1:db1/home/{prefix}', True)]
+        assert stores == [(f'pxt://org1:db1/buckets/home/{prefix}', True)]
         rel_prefix = prefix.removeprefix('uploads/')
         assert set(objects) == {f'{rel_prefix}tar0.tar', f'{rel_prefix}tar1.tar', f'{rel_prefix}3.mp4'}
         assert _tar_members(objects[f'{rel_prefix}tar0.tar']) == {
@@ -738,7 +741,7 @@ class TestProxyDaemon:
         proxy_dispatch._prefetch_remote_parts(request)
         # one download per archive, however many of its members are referenced
         assert sorted(downloads) == ['req/3.bin', 'req/tar0.tar', 'req/tar1.tar']
-        assert stores == [('pxtfs://org1:db1/home/uploads/', False)]
+        assert stores == [('pxt://org1:db1/buckets/home/uploads/', False)]
         expected = {
             ('uploads/req/tar0.tar', '0.png'): b'a',
             ('uploads/req/tar0.tar', '1.png'): b'b',
@@ -1343,8 +1346,8 @@ class TestTunnelRetries:
 
 class _SigningPlane:
     """The control plane's signing operations: get_presigned_urls answers batch_status (400 is a control plane from
-    before it), and get_presigned_url signs one key. Any other operation, such as a request for bucket credentials,
-    fails the test."""
+    before it), and get_presigned_url signs one key. Either names the bucket, which must be 'home'. Any other
+    operation, such as a request for bucket credentials, fails the test."""
 
     def __init__(self) -> None:
         self.batch_status = 200
@@ -1359,6 +1362,7 @@ class _SigningPlane:
         request = json.loads(data)
         self.requests.append(request)
         op, db = request['operation_type'], request['db']
+        assert op not in ('get_presigned_urls', 'get_presigned_url') or request['bucket_name'] == 'home', request
         response = requests.Response()
         response.encoding = 'utf-8'
         response.status_code = 200
@@ -1469,7 +1473,7 @@ class TestHostedMediaReads:
         assert plane.operations() == ['get_presigned_urls'] * 3
         assert [request['keys'] for request in plane.requests] == [keys[:100], keys[100:200], keys[200:]]
         assert {(r['org'], r['db'], r['bucket_name'], r['expires_in']) for r in plane.requests} == {
-            ('org1', db, 'home', 900)
+            ('org1', db, 'home', proxy_client._SIGNED_URL_TTL_S)
         }
         assert sorted(objects.opened) == sorted(plane.signed(db, key) for key in keys)
         for url, key in zip(urls, keys):
@@ -1544,7 +1548,10 @@ class TestHostedMediaReads:
         )
         per_file = [request for request in plane.requests if request['operation_type'] == 'get_presigned_url']
         assert [request['key'] for request in per_file] == keys
-        assert all((request['method'], request['expiration']) == ('get', 900) for request in per_file)
+        assert all(
+            (request['method'], request['expiration']) == ('get', proxy_client._SIGNED_URL_TTL_S)
+            for request in per_file
+        )
         assert len(objects.opened) == 150
         assert len(local) == 150
 
