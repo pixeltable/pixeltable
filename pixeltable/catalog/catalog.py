@@ -590,7 +590,7 @@ class Catalog(CatalogBase):
     ) -> Iterator[sql.Connection]:
         """A transaction to read table data.
 
-        A read's lock set the target tables plus their ancestors, since a view read reads base data.
+        A read locks the target tables plus their ancestors, since a view read reads base data.
         """
         with self._begin_xact(op_class=_TblOpClass.DATA_READ, read_tvps=tvps, read_tbl_keys=tbl_keys) as conn:
             yield conn
@@ -668,7 +668,7 @@ class Catalog(CatalogBase):
         Return a context manager that yields a connection to the database. Idempotent.
 
         External callers use one of the begin_*_xact() methods above, which simplifies the parameter settings. It is
-        mandatory to go through one of those, not Env.begin_xact(), if the transaction accesses any table data or
+        mandatory to go through one of those, not Runtime.begin_xact(), if the transaction accesses any table data or
         metadata.
 
         Locking protocol (via _acquire_locks()):
@@ -678,7 +678,7 @@ class Catalog(CatalogBase):
           mode and the wait policy follow from op_class and the type of the tables it locks
         - if finalize_pending_ops == True and a PendingTableOpsError is raised, finalizes pending ops and retries
         - this needs to be done in a retry loop, because Postgres can abort the transaction
-          (SerializationFailure, LockNotAvailable)
+          (SerializationFailure, DeadlockDetected), and a guessed lock set can turn out to be stale
         - for that reason, we do all lock acquisition prior to doing any real work (eg, compute column values),
           to minimize the probability of losing that work due to a forced abort
 
@@ -939,7 +939,7 @@ class Catalog(CatalogBase):
         dirs_to_lock: dict[UUID, Path] = {}
 
         # Add the read/write tables to the lock set. For a write table path, only the leaf is locked for a write, and
-        # its based are locked for a read.
+        # its bases are locked for a read.
         for tvp in read_tvps:
             for key in tvp.tbl_keys:
                 tbl_id_to_op_classes[key.tbl_id].add(_TblOpClass.DATA_READ)
@@ -1251,10 +1251,11 @@ class Catalog(CatalogBase):
         write_paths: Collection[Path],
         lock_path_subtree: bool,
     ) -> _LockSet:
-        """The lock set for a transaction with these targets, warming up the metadata cache if it isn't sufficient.
+        """The lock set for a transaction with these targets, built from the metadata cache, or from the store if the
+        cache is insufficient.
 
-        Runs before the transaction opens, which is what keeps the store read out of it. _lock_set() issues no
-        statements, so nothing here pins a snapshot that the locks would then be acquired behind.
+        Runs before the transaction opens, so that the store read cannot pin that transaction's snapshot ahead of its
+        locks.
 
         A metadata-only transaction reads catalog metadata and no table data, so it locks nothing: it may observe a
         schema change in progress, which is preferable to `list_tables()` or `describe()` blocking or failing.
@@ -1269,7 +1270,7 @@ class Catalog(CatalogBase):
         # Attempt to build the lock set from the metadata cache. That is only possible if no write paths are requested,
         # because Catalog does not cache paths or directory structures. Operations with write paths are create/drop
         # table/dir, and move. They always fall back to the store read in a dedicated transaction, which is more
-        # expensive, but shouldn't happen too frequenly.
+        # expensive, but shouldn't happen too frequently.
         if len(write_paths) == 0:
             lock_set = self._lock_set_from_cache(
                 op_class=op_class,
@@ -1332,7 +1333,7 @@ class Catalog(CatalogBase):
         A table's ancestry is immutable, so a lock set built from ancestry alone needs no check.
 
         Raises:
-            StaleLockSetError: the locks do not cover it.
+            _StaleLockSetError: the locks do not cover it.
         """
 
         def validate_targets_locked(targets: Collection[_LockTarget]) -> None:
@@ -1448,8 +1449,8 @@ class Catalog(CatalogBase):
         right within a statement, so run by run is still one global order.
 
         Raises:
-            LockNotAvailableError: blocking=False and a lock is not readily available
-            StaleLockSetError: a store table named in the statement does not exist.
+            _LockNotAvailableError: blocking=False and a lock is not readily available
+            _StaleLockSetError: a store table named in the statement does not exist.
         """
         assert get_runtime().in_xact
         names = [t.store_tbl_name for t in targets]
