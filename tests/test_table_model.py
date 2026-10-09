@@ -1154,6 +1154,8 @@ class TestTableModel:
             view_from_query2.order_by(view_from_query2.id, view_from_query2.pos).collect(),
         )
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_update_all_creates_queried_table(self, db_root: DatabaseRoot) -> None:
         """The table a @pxt.query reads is created by the same update_all() that adds or alters its calling column."""
         p = db_root.make_catalog_path
@@ -1220,6 +1222,8 @@ class TestTableModel:
         Asks3.table.recompute_columns('hits')
         assert Asks3.table.select(Asks3.hits).collect()['hits'] == [[{'body': 'A sample doc body from the archive'}]]
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_update_all_migrates_queried_model(self, db_root: DatabaseRoot) -> None:
         """A @pxt.query reads a model that the same update_all() also migrates."""
         p = db_root.make_catalog_path
@@ -2694,6 +2698,8 @@ class TestTableModel:
         assert [r['from_two'] for r in rows] == [[{'title': 'gamma'}], [{'title': 'gamma'}]]
         assert [r['match_count'] for r in rows] == [3, 1]
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_update_all_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
         """`update_all()` binds query udfs over models in both altered and newly added computed columns."""
         TableModel = pxt.model_base()
@@ -2744,6 +2750,8 @@ class TestTableModel:
         rows = probe.order_by(probe.cutoff).select(probe.matches).collect()
         assert [r['matches'] for r in rows] == [[{'title': 'beta'}], [{'title': 'beta'}]]
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_view_over_query_udf_model(self, db_root: DatabaseRoot) -> None:
         """A view model can be based on a model whose computed columns call a query udf over another model."""
         from pixeltable.functions import anthropic
@@ -2782,6 +2790,8 @@ class TestTableModel:
             {'matches': [{'title': 'beta'}], 'tool_matches': {'titles_after': [[{'title': 'beta'}]]}, 'match_count': 1}
         ]
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_nested_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
         """A query udf over a model can select a query udf over another model."""
         TableModel = pxt.model_base()
@@ -2823,6 +2833,8 @@ class TestTableModel:
             [{'topic': 'cats', 'titles': [{'title': 'a'}, {'title': 'b'}]}, {'topic': 'cows', 'titles': []}]
         ]
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_update_all_nested_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
         """`update_all()` creates every model a new column queries, including through a nested query udf."""
         TableModel = pxt.model_base()
@@ -3269,6 +3281,8 @@ class TestTableModel:
         t.recompute_columns('doubled')
         assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [100, 200]
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_update_all_altered_query_udf_body(self, db_root: DatabaseRoot) -> None:
         """`update_all()` alters a computed column whose query UDF keeps its name and arguments but changes its body."""
         p = db_root.make_catalog_path
