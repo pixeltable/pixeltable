@@ -11,14 +11,22 @@ from typing import Any
 
 import pytest
 
+import pixeltable
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config, DatabaseConfig
 from pixeltable.service.db import db_update
-from pixeltable.service.management_protocol import ArtifactUpload, DatabaseReport, UpdateDbResponse
+from pixeltable.service.management_protocol import (
+    DatabaseReport,
+    ExpectedGenerations,
+    PrepareUpdateRequest,
+    PrepareUpdateResponse,
+)
 from pixeltable.utils.project import (
+    check_hosted_pixeltable,
     create_image_context,
     create_project_archive,
+    image_input_files,
     package_image_context,
     package_project_archive,
     project_fingerprint,
@@ -329,8 +337,13 @@ class TestProjectArchive:
             '[[package]]\nname = "app"\nsource = { editable = "." }\n'
             '[[package]]\nname = "outside"\nsource = { directory = "../elsewhere" }\n'
         )
+        # a virtual environment inside the package is not part of the package
+        (pkg / '.venv' / 'lib').mkdir(parents=True)
+        (pkg / '.venv' / 'pyvenv.cfg').write_text('home = /usr/bin\n')
+        (pkg / '.venv' / 'lib' / 'site.py').write_text('Y = 2\n')
         files = package_image_context(tmp_path).files
         assert sorted(files) == ['packages/helper/pyproject.toml', 'packages/helper/src/helper.py', 'uv.lock']
+        assert not any('.venv' in path for path in package_project_archive(tmp_path).files)
 
     def test_executable_bit(self, tmp_path: Path) -> None:
         """A mode change leaves the project alone: a pod imports its files and runs none of them.
@@ -392,8 +405,32 @@ class TestProjectArchive:
         (unpacked / 'link.txt').unlink()
         assert unpacked_digest(unpacked) != with_link, 'the archive named this link too'
 
+    def test_reproducible(self, tmp_path: Path) -> None:
+        """Packaging the same files again writes the same bytes, whatever their timestamps and owners say."""
+        (tmp_path / 'app.py').write_text('x = 1\n')
+        (tmp_path / 'run.sh').write_text('echo hi\n')
+        (tmp_path / 'run.sh').chmod(0o755)
+        first = package_project_archive(tmp_path).path.read_bytes()
+
+        os.utime(tmp_path / 'app.py', (1_000_000, 1_000_000))
+        (tmp_path / 'run.sh').chmod(0o775)
+        assert package_project_archive(tmp_path).path.read_bytes() == first
+
+    def test_image_inputs_survive_exclude(self, tmp_path: Path) -> None:
+        """The archive carries what the image build installs from, even where the entry excludes it."""
+        (tmp_path / 'dist').mkdir()
+        (tmp_path / 'dist' / 'dep.whl').write_bytes(b'wheel bytes')
+        (tmp_path / 'requirements.txt').write_text('dist/dep.whl\n')
+        (tmp_path / 'pixeltable.toml').write_text('[[pixeltable.database]]\nexclude = ["dist/*"]\n')
+        Config.init(reinit=True, project_root=tmp_path)
+
+        with tarfile.open(create_project_archive(tmp_path, local_entry()), 'r:bz2') as tar:
+            assert 'project/dist/dep.whl' in tar.getnames()
+
     def test_manifest_drift(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The manifests go into both artifacts, so each one is compared against its own half."""
+        """A file rewritten while it is packaged is caught before anything is uploaded or submitted."""
+        # a released pxt: a development build of an unpinned project is refused before packaging
+        monkeypatch.setattr(pixeltable, '__version__', '0.7.15')
         (tmp_path / 'pixeltable.toml').write_text(
             '[[pixeltable.database]]\nname = "pxt://acme:main"\n', encoding='utf-8'
         )
@@ -401,25 +438,89 @@ class TestProjectArchive:
         (tmp_path / 'requirements.txt').write_text('pandas\n')
         Config.init(reinit=True, project_root=tmp_path)
 
-        # the archive caught the rewrite; the context read the file after the writer restored it
+        # the archive caught the rewrite; the fingerprint read the file after the writer restored it
         drifted = package_project_archive(tmp_path, local_entry())
         drifted.files['requirements.txt'] = 'rewritten-while-packaging'
         monkeypatch.setattr('pixeltable.service.db.package_project_archive', lambda *a, **k: drifted)
         monkeypatch.setattr(
-            'urllib.request.urlopen', lambda *a, **k: pytest.fail('an artifact was uploaded before validation')
+            'urllib.request.urlopen', lambda *a, **k: pytest.fail('an archive was uploaded before validation')
         )
 
         plan = DbPlan(db_uri='pxt://acme:main', exists=True, state='AVAILABLE', resolution='update_additive')
-        uploads = [
-            ArtifactUpload(artifact='archive', url='https://example.com/a'),
-            ArtifactUpload(artifact='image_context', url='https://example.com/i'),
-        ]
 
         def api_call(request: Any) -> dict[str, Any]:
-            asked = [] if request.dry_run else uploads
-            return UpdateDbResponse(plan=plan, report=DatabaseReport(), uploads=asked).model_dump(mode='json')
+            assert isinstance(request, PrepareUpdateRequest), f'{request.operation_type} was sent before validation'
+            assert request.blob is None, 'an archive was offered before validation'
+            return PrepareUpdateResponse(
+                generations=ExpectedGenerations(database=1), report=DatabaseReport(), plan=plan
+            ).model_dump(mode='json')
 
         monkeypatch.setattr('pixeltable.service.db.management_client.api_call', api_call)
 
         with pxt_raises(excs.ErrorCode.INVALID_STATE, match='requirements.txt'):
             db_update('pxt://acme:main')
+
+
+def _write(project: Path, name: str, content: str) -> None:
+    """Write a manifest, and the wheel a requirements.txt names, which the archive must carry."""
+    (project / name).write_text(content)
+    for line in content.splitlines():
+        if line.endswith('.whl'):
+            wheel = project / line
+            wheel.parent.mkdir(parents=True, exist_ok=True)
+            wheel.write_bytes(b'')
+
+
+class TestLockedPixeltable:
+    """A hosted image runs the pixeltable of the CLI that deploys it, so a lockfile pinning another is refused."""
+
+    @pytest.fixture(autouse=True)
+    def _version(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(pixeltable, '__version__', '0.7.15.dev12+8b86426f')
+
+    @pytest.mark.parametrize(
+        ('name', 'content'),
+        [
+            ('uv.lock', '[[package]]\nname = "pixeltable"\nversion = "0.7.15.dev12+8b86426f"\n'),
+            ('requirements.txt', 'pixeltable @ git+https://github.com/pixeltable/pixeltable@8b86426f930cb3dd\n'),
+            ('requirements.txt', 'pixeltable>=0.7\n'),
+            ('requirements.txt', 'numpy\n'),
+            ('requirements.txt', './wheels/pixeltable-0.7.15.dev12+8b86426f-py3-none-any.whl\n'),
+            ('uv.lock', '[[package]]\nname = "pixeltable"\nsource = { editable = "." }\n'),
+        ],
+        ids=['uv-same', 'git-same-commit', 'unpinned', 'absent', 'wheel', 'editable-project'],
+    )
+    def test_accepted(self, tmp_path: Path, name: str, content: str) -> None:
+        _write(tmp_path, name, content)
+        image_input_files(tmp_path)
+
+    @pytest.mark.parametrize(
+        ('name', 'content'),
+        [
+            ('uv.lock', '[[package]]\nname = "pixeltable"\nversion = "0.7.14"\n'),
+            ('requirements.txt', 'pixeltable==0.7.14\n'),
+            ('requirements.txt', './wheels/pixeltable-0.7.14-py3-none-any.whl\n'),
+            ('requirements.txt', 'pixeltable @ git+https://github.com/pixeltable/pixeltable@deadbeef\n'),
+        ],
+        ids=['uv', 'requirements', 'wheel', 'git'],
+    )
+    def test_refused(self, tmp_path: Path, name: str, content: str) -> None:
+        _write(tmp_path, name, content)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='locks pixeltable'):
+            image_input_files(tmp_path)
+
+    def test_uv_git_pin_compares_by_commit(self, tmp_path: Path) -> None:
+        source = 'source = { git = "https://github.com/pixeltable/pixeltable?rev=8b86426f#8b86426f930cb3dd" }'
+        _write(tmp_path, 'uv.lock', f'[[package]]\nname = "pixeltable"\nversion = "0.7.15.dev9+8b86426f"\n{source}\n')
+        image_input_files(tmp_path)
+
+    def test_development_build_without_a_pin_is_refused_for_hosting(self, tmp_path: Path) -> None:
+        _write(tmp_path, 'requirements.txt', 'numpy\n')
+        image_input_files(tmp_path)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='development build'):
+            check_hosted_pixeltable(tmp_path)
+
+    def test_release_without_a_pin_is_hosted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(pixeltable, '__version__', '0.7.15')
+        _write(tmp_path, 'requirements.txt', 'numpy\n')
+        check_hosted_pixeltable(tmp_path)

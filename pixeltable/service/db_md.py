@@ -55,3 +55,6 @@ class DatabaseStatus(BaseModel):
     )
     last_build_error: str | None = None
     failure_reason: str | None = Field(default=None, description='why the state is FAILED')
+    md_version: int | None = Field(
+        default=None, description='metadata version of the running database; null if unknown'
+    )

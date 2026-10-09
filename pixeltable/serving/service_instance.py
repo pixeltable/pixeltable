@@ -58,6 +58,13 @@ class ServiceInstance:
         """Cycle the process or pods serving this instance onto what they already run."""
         self._manager.restart(self)
 
+    def retry(self) -> ServiceInstance | None:
+        """Start a new attempt of this instance's failed current generation, and return the instance afterwards.
+
+        None: the generation was a deletion.
+        """
+        return self._manager.retry(self)
+
     def delete(self) -> None:
         """Stop serving and forget this instance."""
         self._manager.delete(self)

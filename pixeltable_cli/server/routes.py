@@ -21,7 +21,6 @@ from pixeltable.service import auth, db, management_client, proxy_daemon, sessio
 from pixeltable.service.management_protocol import (
     CreateKeyRequest,
     CreateOrgRequest,
-    DeleteDbRequest,
     DeleteKeyRequest,
     DeleteSecretRequest,
     GetDbRequest,
@@ -31,10 +30,7 @@ from pixeltable.service.management_protocol import (
     ListDbRequest,
     ListKeysRequest,
     ListOrgsRequest,
-    RestartDbRequest,
     SetSecretRequest,
-    StartDbRequest,
-    StopDbRequest,
     UpdateKeyRequest,
 )
 from pixeltable.serving import service
@@ -534,7 +530,11 @@ def service_check(req: Request) -> types.CheckReport:
 def service_diff(req: Request) -> types.ServicePlan:
     body = req.body(models.ServiceDiffBody)
     return service.service_diff(
-        body.app_file, req.resolve_path(body.target), service_name=body.service_name, otel=body.otel
+        body.app_file,
+        req.resolve_path(body.target),
+        service_name=body.service_name,
+        otel=body.otel,
+        keep_release=body.keep_release,
     )
 
 
@@ -548,6 +548,9 @@ def service_update(req: Request) -> types.ServicePlan:
         allow_destructive=body.allow_destructive,
         otel=body.otel,
         port=body.port,
+        keep_release=body.keep_release,
+        expected_generations=body.expected_generations,
+        wait=body.wait,
     )
     return applied
 
@@ -568,6 +571,12 @@ def service_stop(req: Request) -> list[types.ServiceChangeOp]:
 def service_restart(req: Request) -> list[types.ServiceChangeOp]:
     body = req.body(models.ServiceRestartBody)
     return service.service_restart(body.names)
+
+
+@router.post('/api/service/retry')
+def service_retry(req: Request) -> list[types.ServiceChangeOp]:
+    body = req.body(models.ServiceRestartBody)
+    return service.service_retry(body.names)
 
 
 @router.get('/api/service/list')
@@ -1061,27 +1070,58 @@ def delete_key(req: Request) -> dict[str, Any]:
 
 @router.get('/api/db')
 def get_db(req: Request) -> dict[str, Any]:
-    return management_client.api_call(GetDbRequest(org=req.required_query_str('org'), db=req.required_query_str('db')))
+    """The database's report; with missing_ok, an empty one for a database that does not exist."""
+    request = GetDbRequest(org=req.required_query_str('org'), db=req.required_query_str('db'))
+    try:
+        return management_client.api_call(request)
+    except excs.ExternalServiceError as exc:
+        if exc.provider_http_status_code != 404 or not req.query_bool('missing_ok'):
+            raise
+        return {'report': {}, 'worker_status': []}
+
+
+def _lifecycle_response(db_uri: str, receipt: types.GenerationReceipt) -> models.DbLifecycleResponse:
+    db_path = Path.parse(db_uri, allow_empty_path=True)
+    try:
+        current = management_client.api_call(GetDbRequest(org=db_path.org, db=db_path.db))
+    except excs.ExternalServiceError as exc:
+        if exc.provider_http_status_code != 404:
+            raise
+        return models.DbLifecycleResponse(receipt=receipt)
+    return models.DbLifecycleResponse(
+        receipt=receipt, report=current.get('report') or {}, worker_status=current.get('worker_status') or []
+    )
+
+
+def _change_db_lifecycle(req: Request, action: db.DbAction) -> models.DbLifecycleResponse:
+    body = req.body(models.DbLifecycleBody)
+    return _lifecycle_response(body.db_uri, db.db_change_lifecycle(body.db_uri, action, wait=body.wait))
 
 
 @router.post('/api/db/delete')
-def delete_db(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(DeleteDbRequest))
+def delete_db(req: Request) -> models.DbLifecycleResponse:
+    return _change_db_lifecycle(req, 'delete')
 
 
 @router.post('/api/db/start')
-def start_db(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(StartDbRequest))
+def start_db(req: Request) -> models.DbLifecycleResponse:
+    return _change_db_lifecycle(req, 'start')
 
 
 @router.post('/api/db/stop')
-def stop_db(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(StopDbRequest))
+def stop_db(req: Request) -> models.DbLifecycleResponse:
+    return _change_db_lifecycle(req, 'stop')
 
 
 @router.post('/api/db/restart')
-def restart_db(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(RestartDbRequest))
+def restart_db(req: Request) -> models.DbLifecycleResponse:
+    return _change_db_lifecycle(req, 'restart')
+
+
+@router.post('/api/db/retry')
+def retry_db(req: Request) -> models.DbLifecycleResponse:
+    body = req.body(models.DbLifecycleBody)
+    return _lifecycle_response(body.db_uri, db.db_retry(body.db_uri, wait=body.wait))
 
 
 @router.get('/api/logs')
@@ -1125,9 +1165,22 @@ def db_diff(req: Request) -> types.DbPlan:
 @router.post('/api/db/update')
 def db_update(req: Request) -> types.DbPlan:
     body = req.body(models.DbUpdateBody)
-    return db.db_update(body.db_uri, allow_destructive=body.allow_destructive)
+    return db.db_update(
+        body.db_uri,
+        allow_destructive=body.allow_destructive,
+        expected_generation=body.expected_generation,
+        wait=body.wait,
+    )
 
 
 @router.post('/api/db/build-image')
-def db_build_image(req: Request) -> list[types.DbChangeOp]:
-    return db.db_build_image(req.body(models.DbBuildImageBody).db_uri)
+def db_build_image(req: Request) -> models.DbBuildImageResponse:
+    body = req.body(models.DbBuildImageBody)
+    ops, accepted = db.db_build_image(body.db_uri, wait=body.wait)
+    return models.DbBuildImageResponse(ops=ops, receipts=accepted)
+
+
+@router.post('/api/receipts')
+def receipts(req: Request) -> models.ReceiptsResponse:
+    body = req.body(models.ReceiptsBody)
+    return models.ReceiptsResponse(receipts=db.db_receipts(body.db_uri, body.receipts))

@@ -8,16 +8,17 @@ The pixeltable-cloud repo imports this module, so care must be taken when making
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.service.service_md import ServiceInstanceRecord
 from pixeltable.utils.project import ProjectFingerprint
-from pixeltable_cli.types import DbArtifact, DbPlan, ServiceSpec
+from pixeltable_cli.types import DbArtifact, DbPlan, GenerationReceipt, ServiceSpec
 from pixeltable_cli.utils import hosted_name_error
 
 
@@ -40,6 +41,10 @@ class ManagementOperationType(str, Enum):
     STOP_DB = 'stop_db'
     RESTART_DB = 'restart_db'
     UPDATE_DB = 'update_db'
+    PREPARE_UPDATE = 'prepare_update'
+    SUBMIT_UPDATE = 'submit_update'
+    GET_RECEIPTS = 'get_receipts'
+    RETRY = 'retry'
     GET_ARCHIVE = 'get_archive'
     GET_LOGS = 'get_logs'
 
@@ -79,6 +84,10 @@ class DatabaseReport(BaseModel):
 
     current: DatabaseStatus | None = Field(
         default=None, description='what the database provides now; null when the database does not exist'
+    )
+
+    receipt: GenerationReceipt | None = Field(
+        default=None, description="the receipt of the database's current desired generation"
     )
 
 
@@ -135,6 +144,211 @@ class UpdateDbResponse(BaseModel):
     uploads: list[ArtifactUpload] = Field(default_factory=list)
 
 
+# Submissions
+
+
+_SHA256_HEX = re.compile(r'[0-9a-f]{64}')
+
+
+class BlobRef(BaseModel):
+    """A project archive, named by the SHA-256 and size of its bytes."""
+
+    sha256: str
+    size: int = Field(ge=0)
+
+    @field_validator('sha256')
+    @classmethod
+    def _validate_sha256(cls, value: str) -> str:
+        if _SHA256_HEX.fullmatch(value) is None:
+            raise ValueError(f'sha256 must be 64 lowercase hex digits, got {value!r}')
+        return value
+
+
+class BlobUpload(BaseModel):
+    """Where to put a blob the control plane does not hold, and the headers its url was signed with."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    url: str
+    headers: dict[str, str] = Field(default_factory=dict)
+
+
+class DatabaseTarget(DatabaseResources):
+    """The project-controlled part of a hosted database's desired spec; the control plane owns the rest."""
+
+    default_bucket: str | None = Field(default=None, exclude=True)
+
+    force_build_nonce: str | None = Field(default=None, description='set to a new value to force an image rebuild')
+
+
+ReleasePin = Literal['latest', 'keep', 'submission']
+
+
+class ServiceMutation(BaseModel):
+    """The full desired spec of one service."""
+
+    service_name: str
+    base_path: str = ''
+    lifecycle: Literal['running', 'stopped', 'deleted'] = 'running'
+    spec: ServiceSpec
+    app_module: str
+    otel: bool = False
+    workers: int = 1
+    cpu: float = 0.5
+    memory_mb: int = 512
+    disk_gb: int = 10
+    description: str | None = None
+    pin: ReleasePin | None = Field(
+        default=None,
+        description="the release intent. 'latest': the release of the database's current desired generation. "
+        "'keep': the service's current release. 'submission': the release of the database generation created by "
+        "this submission. null: 'latest', for a new service",
+    )
+
+
+class ServiceGeneration(BaseModel):
+    service_name: str
+    base_path: str = ''
+    generation: int = Field(ge=0)
+
+
+class ExpectedGenerations(BaseModel):
+    """The generations a submission was prepared against: 0 for a resource that does not exist."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    database: int | None = Field(default=None, ge=0)
+    services: list[ServiceGeneration] = Field(default_factory=list)
+
+    def service(self, service_name: str, base_path: str = '') -> int:
+        return next(
+            (s.generation for s in self.services if (s.service_name, s.base_path) == (service_name, base_path)), 0
+        )
+
+
+class PrepareUpdateRequest(BaseModel):
+    """Read the generations a submission would replace, its plan, and where to upload its archive."""
+
+    operation_type: Literal[ManagementOperationType.PREPARE_UPDATE] = ManagementOperationType.PREPARE_UPDATE
+    org: str | None = None
+    db: str
+    database_target: DatabaseTarget | None = None
+    service_mutations: list[ServiceMutation] = Field(default_factory=list)
+    blob: BlobRef | None = None
+
+    @field_validator('db')
+    @classmethod
+    def _validate_db_name(cls, value: str) -> str:
+        return _validate_hosted_name(value, 'Database name')
+
+
+class PrepareUpdateResponse(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
+    generations: ExpectedGenerations
+    report: DatabaseReport
+    plan: DbPlan | None = Field(default=None, description="the database's dry-run plan; null without a target")
+    services: list[ServiceMutation] = Field(
+        default_factory=list, description='the current desired spec of each touched service that exists'
+    )
+    upload: BlobUpload | None = Field(default=None, description='null when the control plane holds the blob')
+
+
+class SubmitUpdateRequest(BaseModel):
+    """Accept the next desired spec of every touched resource, all or none.
+
+    Resending an accepted submission returns its original receipts, so resending is safe.
+    """
+
+    operation_type: Literal[ManagementOperationType.SUBMIT_UPDATE] = ManagementOperationType.SUBMIT_UPDATE
+    org: str | None = None
+    db: str
+    database_target: DatabaseTarget | None = None
+    service_mutations: list[ServiceMutation] = Field(default_factory=list)
+    blob: BlobRef | None = None
+    expected_generations: ExpectedGenerations
+
+    @field_validator('db')
+    @classmethod
+    def _validate_db_name(cls, value: str) -> str:
+        return _validate_hosted_name(value, 'Database name')
+
+    @model_validator(mode='after')
+    def _validate_mutation(self) -> SubmitUpdateRequest:
+        if self.database_target is None and len(self.service_mutations) == 0:
+            raise ValueError('a submission needs a database target or a service mutation')
+        if self.database_target is not None and self.expected_generations.database is None:
+            raise ValueError('a database target needs the expected database generation')
+        if self.database_target is None and any(m.pin == 'submission' for m in self.service_mutations):
+            raise ValueError("a service pinned to 'submission' needs a database target in the same submission")
+        return self
+
+
+class SubmitUpdateResponse(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
+    receipts: list[GenerationReceipt]
+
+
+class ReceiptRef(BaseModel):
+    kind: str
+    resource_id: str
+    generation: int
+
+    @classmethod
+    def of(cls, receipt: GenerationReceipt) -> ReceiptRef:
+        return cls(kind=receipt.kind, resource_id=receipt.resource_id, generation=receipt.generation)
+
+
+class GetReceiptsRequest(BaseModel):
+    """Read receipts by their resource ids, within the org.
+
+    No database name: a deletion releases the name before its receipt is observed, and a new database may reuse it.
+    """
+
+    operation_type: Literal[ManagementOperationType.GET_RECEIPTS] = ManagementOperationType.GET_RECEIPTS
+    org: str | None = None
+    receipts: list[ReceiptRef]
+
+
+class GetReceiptsResponse(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
+    receipts: list[GenerationReceipt]
+
+
+class RetryRequest(BaseModel):
+    """Start a new attempt of a current generation that failed."""
+
+    operation_type: Literal[ManagementOperationType.RETRY] = ManagementOperationType.RETRY
+    org: str | None = None
+    db: str
+    kind: Literal['database', 'service']
+    service_name: str | None = None
+    base_path: str = ''
+    generation: int
+
+    @model_validator(mode='after')
+    def _validate_service(self) -> RetryRequest:
+        if (self.kind == 'service') != (self.service_name is not None):
+            raise ValueError('a service_name is required for a service retry, and only for one')
+        return self
+
+
+class RetryResponse(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
+    receipt: GenerationReceipt
+
+
+class DbReceiptResponse(BaseModel):
+    """The receipt of a database start, stop, restart or delete."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    receipt: GenerationReceipt
+
+
 class DeleteDbRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.DELETE_DB] = ManagementOperationType.DELETE_DB
     org: str | None = None
@@ -162,11 +376,17 @@ class RestartDbRequest(BaseModel):
 
 
 class GetArchiveRequest(BaseModel):
-    """Ask for a url serving the database's current project archive; a pod sends this as it starts."""
+    """Ask for a url serving a project archive of the database; a pod sends this as it starts.
+
+    A pod pinned to a release names its archive digest and build id, and gets that release's archive; without
+    them it gets the archive of the database's current release.
+    """
 
     operation_type: Literal[ManagementOperationType.GET_ARCHIVE] = ManagementOperationType.GET_ARCHIVE
     org: str | None = None
     db: str
+    archive_digest: str | None = None
+    build_id: str | None = None
 
 
 class GetArchiveResponse(BaseModel):
@@ -229,7 +449,10 @@ class SetSecretRequest(BaseModel):
 
 
 class SetSecretResponse(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
     key: str
+    revision: int | None = None
 
 
 class DeleteSecretRequest(BaseModel):
@@ -240,7 +463,10 @@ class DeleteSecretRequest(BaseModel):
 
 
 class DeleteSecretResponse(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
     key: str
+    revision: int | None = None
 
 
 class ListAllSecretsRequest(BaseModel):
@@ -288,7 +514,10 @@ class CreateServiceInstanceRequest(BaseModel):
 
 
 class CreateServiceInstanceResponse(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
     instance: ServiceInstanceRecord
+    receipt: GenerationReceipt | None = None
 
 
 class GetServiceInstanceRequest(BaseModel):
@@ -336,7 +565,10 @@ class UpdateServiceInstanceRequest(BaseModel):
 
 
 class UpdateServiceInstanceResponse(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
     instance: ServiceInstanceRecord
+    receipt: GenerationReceipt | None = None
 
 
 class ReportServiceInstanceRequest(BaseModel):
@@ -367,7 +599,10 @@ class StartServiceInstanceRequest(BaseModel):
 
 
 class StartServiceInstanceResponse(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
     instance: ServiceInstanceRecord
+    receipt: GenerationReceipt | None = None
 
 
 class StopServiceInstanceRequest(BaseModel):
@@ -381,7 +616,10 @@ class StopServiceInstanceRequest(BaseModel):
 
 
 class StopServiceInstanceResponse(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
     instance: ServiceInstanceRecord
+    receipt: GenerationReceipt | None = None
 
 
 class RestartServiceInstanceRequest(BaseModel):
@@ -397,7 +635,10 @@ class RestartServiceInstanceRequest(BaseModel):
 
 
 class RestartServiceInstanceResponse(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
     instance: ServiceInstanceRecord
+    receipt: GenerationReceipt | None = None
 
 
 class DeleteServiceInstanceRequest(BaseModel):
@@ -411,7 +652,10 @@ class DeleteServiceInstanceRequest(BaseModel):
 
 
 class DeleteServiceInstanceResponse(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+
     service_name: str
+    receipt: GenerationReceipt | None = None
 
 
 # Orgs

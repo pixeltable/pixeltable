@@ -864,12 +864,15 @@ pxt service stop pxt://acme:main/ingest  # the one in a hosted database
 A name that matches no service, or matches one that is already stopped, is reported as `skipped` with
 the reason (`not found` or `already stopped`), so stopping a set of services can be repeated safely.
 
-`pxt service restart` cycles a service's pods onto the database's current image and project, keeping the
-service's registration and endpoint, and accepts the same service addresses as `stop`, except that a
-bare name matches every local service of that name, whatever its project. Use it after
-`pxt db update` to move a running service onto the new project, and to pick up the current values of its
-referenced secrets. Against a local target it stops the process and starts it again on the same
-port, so callers keep their address.
+`pxt service restart` restarts a service's pods on their current code, keeping the service's
+registration and endpoint, and accepts the same service addresses as `stop`, except that a bare name
+matches every local service of that name, whatever its project. Use it to pick up the current values of
+its referenced secrets. A hosted service keeps running the code it was last updated to;
+after `pxt db update`, run `pxt service update` to move it onto the new project. Against a local target
+`restart` stops the process and starts it again on the same port, so callers keep their address.
+
+`pxt service retry pxt://acme:main/ingest` retries the failed update of a hosted service. Rerunning the
+same `pxt service update` also retries it.
 
 `pxt service logs` reads a service's log and accepts the same service addresses as `restart`. `pxt db logs` reads
 the log of a hosted database's pod:
@@ -893,10 +896,12 @@ local file instead, and `pxt service logs` reports the path of that file.
 | Command | Description |
 |---|---|
 | `pxt service diff APP my_app` | Report what `update` would change; exit `2` if anything is pending |
-| `pxt service update APP my_app` | Start the services declared by `APP`, and restart the ones whose declaration changed |
+| `pxt service update APP my_app` | Start the services declared by `APP`, including stopped ones, and restart the ones whose declaration changed |
 | `pxt service run APP my_app [SERVICE]` | Serve one of them from this process instead, until interrupted |
 | `pxt service prune APP my_app` | Stop and forget the services under the last argument that `APP` does not declare |
 | `pxt service stop NAME...` | Stop the named services; a bare name matches within the current project |
+| `pxt service restart NAME...` | Restart the named services on their current code, with the current secrets |
+| `pxt service retry NAME...` | Retry the failed update of the named hosted services |
 | `pxt service list [my_app]` | What is running at a local or hosted catalog, and where |
 | `pxt service logs NAME` | What the named service logged. Pass `my_app/NAME` or a `pxt://` path to disambiguate |
 | `pxt service check APP` | Validate the application file on its own. No catalog argument, and it reads no catalog |
@@ -916,6 +921,7 @@ Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreeme
 | `-f`, `--force` | `update`, `prune` | Skip the `[y/N]` prompt |
 | `-n`, `--dry-run` | `update`, `prune` | Print the intended change; do not run `update` or `prune` |
 | `--allow-destructive` | `update` | Permit changes that stop serving a route callers may be using |
+| `--keep-release` | `update` | Keep a hosted service on its current code; without it, `update` moves the service onto the database's latest code, including an image rebuilt by `pxt db build-image` |
 | `--host`, `--port` | `run` | Bind address and port (default `127.0.0.1:8000`) |
 | `--otel` | `run`, `update`, `diff` | Emit OpenTelemetry traces; see [Tracing](#tracing) |
 
@@ -1043,6 +1049,7 @@ pxt db update pxt://myorg:mydb --allow-destructive
 | `-n`, `--dry-run` | Print the plan; do not run `update` |
 | `-f`, `--force` | Skip the confirmation |
 | `--allow-destructive` | Permit taking capacity away |
+| `--no-wait` | Return once Pixeltable Cloud accepts the update, without waiting for it to finish |
 
 `update` creates a hosted database and keeps it current afterwards. Put the database in a `[[pixeltable.database]]` entry, then run `update` against the URI in its `name`:
 
@@ -1060,6 +1067,8 @@ The URI on the command line selects the entry by its `name`: an entry for anothe
 
 `update` applies a new image if dependencies changed, then uploaded project files if sources changed, then one resize for any changed CPU, memory, disk, or worker counts so the pods restart only once. Secrets are set with [`pxt secret`](#pxt-secret) rather than from the project. The media destinations and the OTLP endpoint and protocol travel with the project files, which always include the project configuration.
 
+Pixeltable Cloud applies an accepted update, start, stop, restart, retry, image build or delete even if the command exits early. While the command waits, it shows the current step, what the change is waiting for, and the last error being retried. Ctrl-C only stops the waiting, and `--no-wait` returns once the change is accepted; `pxt db status` shows the progress. After three hours the command stops waiting and exits with status 2. Rerunning the same `update` reports the update already accepted instead of starting another, and retries it if it failed. An update is refused if the database changed after `update` computed its plan; run it again to plan against the new state.
+
 #### `pxt db list`
 
 ```bash
@@ -1073,7 +1082,7 @@ pxt db list --json
 pxt db status pxt://myorg:mydb
 ```
 
-Prints the state, the resources, the project, and the pods, and marks what a pending update would change.
+Prints the state, the resources, the project, its metadata version, the current generation and its progress, and the pods. A resource or project shows its desired value next to the current one while they differ.
 
 #### `pxt db start`
 
@@ -1081,7 +1090,7 @@ Prints the state, the resources, the project, and the pods, and marks what a pen
 pxt db start pxt://myorg:mydb
 ```
 
-Wake a stopped database. Polls until `AVAILABLE`.
+Wake a stopped database. Waits until it is running, unless given `--no-wait`.
 
 #### `pxt db stop`
 
@@ -1098,7 +1107,17 @@ pxt db restart pxt://myorg:mydb
 ```
 
 Cycle the pods onto their current image and project, without rebuilding or uploading anything. Use it
-to pick up a secret set since they started. Polls until `AVAILABLE`; a stopped database is started instead.
+to pick up a secret set since they started. Waits until it is running again, unless given `--no-wait`. A
+stopped database is refused; start it instead.
+
+#### `pxt db retry`
+
+```bash
+pxt db retry pxt://myorg:mydb
+```
+
+Retry the failed current update of a database, without changing it. Rerunning the same `pxt db update`
+also retries it.
 
 #### `pxt db diff`
 
@@ -1124,7 +1143,7 @@ so an edit to a source file is uploaded in seconds, and only a dependency change
 pxt db build-image pxt://myorg:mydb
 ```
 
-Builds the image from the project environment without comparing anything first, which is how you force a rebuild after a failed one; `pxt db update` rebuilds only when that environment changed. The project files are uploaded with it, unless the database already has that exact archive. Polls until the build completes or fails; the pods restart on the new image and the new sources.
+Builds the image from the project environment without comparing anything first, which is how you force a rebuild after a failed one; `pxt db update` rebuilds only when that environment changed. The project files are uploaded with it, unless the database already has that exact archive. Waits until the build completes or fails, unless given `--no-wait`; the pods restart on the new image and the new sources.
 
 When a command reports an unsupported proxy protocol version and this Pixeltable is newer than the hosted database, run this rebuild against the database URI from the failed command. What that image installs is described in [What to run after a change](/cloud#what-to-run-after-a-change).
 

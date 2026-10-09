@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pydantic
 
-from ...types import Resolution, ServiceChangeOp, ServiceInstance, ServicePlan
+from ...types import GenerationReceipt, Resolution, ServiceChangeOp, ServiceInstance, ServicePlan
 from ...utils import PxtPath, project_root, split_pxt_uri
-from ..hosted import add_logs_args, print_logs
+from ..hosted import add_logs_args, await_endpoint, await_receipts, describe_receipt, exit_unless_observed, print_logs
 from ..parser import Parser
 from ..utils import (
     EXIT_CHANGES_PENDING,
@@ -113,7 +113,7 @@ Tracing:
 
 UPDATE_EPILOG = f"""\
 Examples:
-  pxt service update app.py my_dir                       # start what is defined, restart what changed
+  pxt service update app.py my_dir                       # start what is defined, stopped or not; restart what changed
   pxt service update app.py my_dir ingest                # only the named service
   pxt service update app.py my_dir ingest --port 8000    # serve it on port 8000
   pxt service update app.py my_dir --allow-destructive   # also stop serving routes that changed or went away
@@ -167,6 +167,16 @@ Examples:
   pxt service restart my_dir/ingest           # the service of that name under my_dir
   pxt service restart pxt://acme:main/ingest  # one in a hosted database
   pxt service restart ingest reader
+
+A hosted service restarts on its current code; 'pxt service update' moves it onto the database's latest
+code.
+"""
+
+RETRY_EPILOG = """\
+Examples:
+  pxt service retry pxt://acme:main/ingest    # retry the failed update of a hosted service
+
+Rerunning 'pxt service update' also retries it.
 """
 
 LIST_EPILOG = """\
@@ -207,7 +217,7 @@ log a few seconds after it is written. A service running on this machine logs to
 'pxt service logs' reports the path of that file.
 """
 
-VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'restart', 'list', 'logs', 'check', 'example')
+VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'restart', 'retry', 'list', 'logs', 'check', 'example')
 
 
 _MARKERS: dict[Resolution, str] = {
@@ -235,7 +245,8 @@ def run(argv: list[str]) -> None:
             '  run      serve one of them from this process instead, until interrupted\n'
             '  prune    stop and forget the services at TARGET that APP does not define\n'
             '  stop     stop the named services\n'
-            '  restart  restart the named services onto the current project and secrets\n'
+            '  restart  restart the named services on their current code, with the current secrets\n'
+            '  retry    retry the failed update of the named hosted services\n'
             '  list     what is running locally, and where\n'
             '  logs     read the log of the named service\n'
             '  check    validate the application file on its own (takes no TARGET)\n'
@@ -273,12 +284,13 @@ def run(argv: list[str]) -> None:
         _stop(args.names, as_json=args.as_json)
         return
 
-    if verb == 'restart':
-        ap = Parser(prog='pxt service restart', epilog=RESTART_EPILOG, usage_exit_code=EXIT_ERROR)
+    if verb in ('restart', 'retry'):
+        epilog = RESTART_EPILOG if verb == 'restart' else RETRY_EPILOG
+        ap = Parser(prog=f'pxt service {verb}', epilog=epilog, usage_exit_code=EXIT_ERROR)
         ap.add_argument('names', nargs='+', help='service names, or TARGET/NAME to disambiguate')
         ap.add_argument('--json', action='store_true', dest='as_json')
         args = ap.parse_args(argv[1:])
-        _restart(args.names, as_json=args.as_json)
+        _restart(args.names, as_json=args.as_json, verb=verb)
         return
 
     if verb == 'list' and argv[1:] == ['--json-schema']:
@@ -334,6 +346,12 @@ def run(argv: list[str]) -> None:
                 'restarting a running service, the same port is used'
             ),
         )
+        ap.add_argument(
+            '--keep-release',
+            action='store_true',
+            dest='keep_release',
+            help="keep a hosted service on its current code instead of moving it onto the database's latest code",
+        )
     if verb == 'run':
         ap.add_argument('service', nargs='?', help='the service to serve; required when the file defines more than one')
         ap.add_argument('--host', default='127.0.0.1', help='bind address (default: 127.0.0.1)')
@@ -376,6 +394,7 @@ def run(argv: list[str]) -> None:
             allow_destructive=args.allow_destructive,
             otel=args.otel,
             port=args.port,
+            keep_release=args.keep_release,
         )
 
 
@@ -387,12 +406,17 @@ def _example(out: str | None) -> None:
     print(f'wrote {out}')
 
 
-def _service_plan(app_file: str, target: PxtPath, otel: bool = False, service_name: str | None = None) -> ServicePlan:
-    return ServicePlan.model_validate(
-        post_request(
-            '/api/service/diff', {'app_file': app_file, 'target': target, 'service_name': service_name, 'otel': otel}
-        )
-    )
+def _service_plan(
+    app_file: str, target: PxtPath, otel: bool = False, service_name: str | None = None, keep_release: bool = False
+) -> ServicePlan:
+    body = {
+        'app_file': app_file,
+        'target': target,
+        'service_name': service_name,
+        'otel': otel,
+        'keep_release': keep_release,
+    }
+    return ServicePlan.model_validate(post_request('/api/service/diff', body))
 
 
 def _diff(
@@ -414,8 +438,9 @@ def _update(
     allow_destructive: bool,
     otel: bool = False,
     port: int | None = None,
+    keep_release: bool = False,
 ) -> None:
-    plan = _service_plan(app_file, target, otel, service_name=service_name)
+    plan = _service_plan(app_file, target, otel, service_name=service_name, keep_release=keep_release)
     if plan.in_agreement:
         # report the same shape as a run that applied something, so a caller reading --json sees one form
         for service in plan.services:
@@ -456,13 +481,60 @@ def _update(
                 'allow_destructive': allow_destructive,
                 'otel': otel,
                 'port': port,
+                'keep_release': keep_release,
+                'expected_generations': {d.name: d.generation for d in plan.services if d.generation is not None},
+                'wait': False,
             },
         )
     )
+    db_uri = _hosted_db_uri(applied.target)
+    if db_uri is not None:
+        _await_hosted(applied, db_uri, as_json=as_json)
     _print_plan(applied, as_json=as_json, applied=True)
+    for d in applied.services:
+        if db_uri is not None and d.receipt is not None and d.status in ('accepted', 'applied'):
+            exit_unless_observed([d.receipt], retry_command=f'pxt service retry {_service_uri(db_uri, d.receipt)}')
     if applied.summary.blocked > 0:
         # the database has to change before these services can serve, and this command does not change it
         sys.exit(EXIT_ERROR)
+
+
+def _hosted_db_uri(target: str) -> str | None:
+    """pxt://org:db of a hosted target, or None for a local one."""
+    parts = split_pxt_uri(target)
+    return None if parts is None or parts.db is None else f'pxt://{parts.org}:{parts.db}'
+
+
+def _service_uri(db_uri: str, receipt: GenerationReceipt) -> str:
+    return '/'.join(part for part in (db_uri, receipt.base_path, receipt.service_name) if part)
+
+
+def _await_hosted(plan: ServicePlan, db_uri: str, *, as_json: bool) -> None:
+    """Wait on the receipts of the plan's hosted services, then until their endpoints answer."""
+    accepted = [d.receipt for d in plan.services if d.receipt is not None and d.status == 'accepted']
+    if len(accepted) == 0:
+        return
+    settled = {
+        (r.resource_id, r.generation): r
+        for r in await_receipts(db_uri, accepted, show=not as_json, status_command=f'pxt service list {db_uri}')
+    }
+    running = {(str(i.catalog_path), i.name): i for i in _running(db_uri)}
+    for d in plan.services:
+        if d.receipt is None or d.status != 'accepted':
+            continue
+        d.receipt = settled[d.receipt.resource_id, d.receipt.generation]
+        catalog_path = '/'.join(part for part in (db_uri, d.receipt.base_path) if part)
+        instance = running.get((catalog_path, d.name))
+        if instance is not None:
+            d.state, d.endpoint = instance.state, instance.endpoint
+        if not d.receipt.observed:
+            continue
+        d.status = 'applied'
+        for op in d.ops:
+            if op.status == 'accepted':
+                op.status = 'applied'
+        if d.endpoint:
+            await_endpoint(d.endpoint, status_command=f'pxt service list {db_uri}')
 
 
 def _run_foreground(
@@ -547,9 +619,9 @@ def _stop(names: list[str], *, as_json: bool) -> None:
     _print_ops(ops, as_json=as_json, verb='stopped')
 
 
-def _restart(names: list[str], *, as_json: bool) -> None:
-    ops = [ServiceChangeOp.model_validate(op) for op in post_request('/api/service/restart', {'names': names})]
-    _print_ops(ops, as_json=as_json, verb='restarted')
+def _restart(names: list[str], *, as_json: bool, verb: str) -> None:
+    ops = [ServiceChangeOp.model_validate(op) for op in post_request(f'/api/service/{verb}', {'names': names})]
+    _print_ops(ops, as_json=as_json, verb=f'{verb}ed' if verb == 'restart' else 'retried')
 
 
 def _list(target: str | None, *, as_json: bool) -> None:
@@ -569,6 +641,8 @@ def _list(target: str | None, *, as_json: bool) -> None:
         print(f'{where:<{width}s}  {d.endpoint}  {pid_or_state}  {app_file}')
         if d.error is not None:
             print(f'    {d.error}')
+        if d.receipt is not None and not d.receipt.observed:
+            print(f'    generation {describe_receipt(d.receipt)}')
         for route in d.spec.routes:
             served = ', '.join(route.outputs) if len(route.outputs) > 0 else '-'
             accepted = ', '.join([*route.inputs, *(f'{n} (file)' for n in route.uploadfile_inputs)])
@@ -597,6 +671,12 @@ def _print_plan(plan: ServicePlan, *, as_json: bool, applied: bool = False) -> N
             print(f'    {op.description}  [{op.severity}]')
         if service.route_detail is not None and resolution == 'blocked':
             print(f'    {service.route_detail}')
+        if service.receipt is not None and applied:
+            print(f'    generation {describe_receipt(service.receipt)}')
+            for warning in service.receipt.warnings:
+                print(f'    warning: {warning}')
+        elif service.receipt is not None and not any(op.name == 'generation' for op in service.ops):
+            print(f'    the current generation {describe_receipt(service.receipt)}; this update replaces it')
     for name in plan.extras:
         print(f'! {name:<24s} extra (not defined); stop it with prune')
 

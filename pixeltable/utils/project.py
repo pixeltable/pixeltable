@@ -140,9 +140,11 @@ def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Pa
         if include is not None:
             files |= _resolve_patterns(project_root, include)
 
-    # we always include the lockfile and project config files, both are needed by the pod
+    # we always include the lockfile and project config files, which the pod needs, and the project files the
+    # lockfile installs from, which the cloud needs to build the image
     selected = (*LOCK_FILES, *PROJECT_CONFIG_FILES)
     files |= {project_root / name for name in selected if (project_root / name).is_file()}
+    files |= set(_installed_from_project(project_root))
     return sorted(files)
 
 
@@ -184,9 +186,21 @@ def _path_hash(path: Path) -> str:
     return _member_hash(_content_hash(path), symlink=False)
 
 
+def _reproducible(info: tarfile.TarInfo) -> tarfile.TarInfo:
+    """info without the metadata that differs between checkouts of the same files."""
+    info.mtime = 0
+    info.uid = info.gid = 0
+    info.uname = info.gname = ''
+    if info.isfile() or info.islnk():
+        info.mode = 0o755 if info.mode & 0o111 else 0o644
+    elif info.issym():
+        info.mode = 0o777
+    return info
+
+
 def _add_hashed(tf: tarfile.TarFile, path: Path, arcname: str) -> str:
     """Write path into tf and return the hash of the member written."""
-    info = tf.gettarinfo(path, arcname=arcname)
+    info = _reproducible(tf.gettarinfo(path, arcname=arcname))
     if info.issym():
         tf.addfile(info)
         return _member_hash(_digest(info.linkname), symlink=True)
@@ -435,7 +449,15 @@ def _lock_source_files(parsed: dict[str, Any], project_dir: Path) -> list[Path]:
             if path.is_file():
                 files.append(path)
             else:
-                files.extend(f for f in sorted(path.rglob('*')) if f.is_file() and '__pycache__' not in f.parts)
+                files.extend(
+                    f
+                    for f in sorted(path.rglob('*'))
+                    if f.is_file()
+                    and '__pycache__' not in f.parts
+                    and not any(
+                        _is_venv(path / parent) for parent in f.relative_to(path).parents if parent != Path('.')
+                    )
+                )
     return files
 
 
@@ -451,14 +473,96 @@ def _lock_sources(project_dir: Path) -> list[Path]:
     return _lock_source_files(parsed, project_dir)
 
 
-def package_image_context(project_dir: Path | None = None) -> PackagedContext:
-    """Create a tarfile containing the manifests needed for an image build.
+def _installed_from_project(project_dir: Path) -> list[Path]:
+    """The project files that requirements.txt or uv.lock installs from."""
+    requirements = project_dir / 'requirements.txt'
+    local_requirements = _local_requirement_files(project_dir, requirements) if requirements.is_file() else []
+    return [*local_requirements, *_lock_sources(project_dir)]
 
-    The returned hashes are taken from the bytes written, so they describe the context rather than a
-    later reading of the project.
+
+_REQUIREMENT_PIN = re.compile(r'^pixeltable(?:\[[^\]]*\])?\s*==\s*([^\s;#]+)', re.IGNORECASE)
+_REQUIREMENT_GIT = re.compile(r'^pixeltable(?:\[[^\]]*\])?\s*@\s*git\+\S+?@([0-9a-fA-F]{7,40})', re.IGNORECASE)
+# a wheel the project carries: its filename holds its exact version
+_REQUIREMENT_WHEEL = re.compile(r'^(?:\S*/)?pixeltable-([^-\s]+)-[^\s]*\.whl(?:\s|$|;|#)', re.IGNORECASE)
+
+
+_REQUIREMENT_NAMED = re.compile(r'^pixeltable(?:\[[^\]]*\])?\s*(?:[<>=!~;@#]|$)', re.IGNORECASE)
+_COMMIT = re.compile(r'[0-9a-f]{7,40}(?![0-9a-z])')
+
+
+def _locked_pixeltable(project_dir: Path) -> tuple[str, str] | None:
+    """How the project's lockfile pins pixeltable, as the control plane reads it: ('version', V), ('git', commit),
+    or ('project', '') when the project is pixeltable itself; None when nothing pins it."""
+    lock = project_dir / 'uv.lock'
+    if lock.is_file():
+        entries = [p for p in toml.load(lock).get('package', []) if p.get('name') == 'pixeltable']
+        sources = [p.get('source') or {} for p in entries]
+        if any('.' in source.values() for source in sources):
+            return 'project', ''
+        # a git source records its commit after '#'; the version uv computed in its own checkout may differ
+        commits = {
+            str(source['git']).rpartition('#')[2].lower() for source in sources if '#' in str(source.get('git', ''))
+        }
+        if len(commits) == 1:
+            return 'git', commits.pop()
+        versions = sorted({str(p['version']) for p in entries if p.get('version')})
+        return ('version', ', '.join(versions)) if versions else None
+    requirements = project_dir / 'requirements.txt'
+    if requirements.is_file():
+        for line in requirements.read_text().splitlines():
+            stripped = line.strip()
+            if (match := _REQUIREMENT_PIN.match(stripped) or _REQUIREMENT_WHEEL.match(stripped)) is not None:
+                return 'version', match.group(1)
+            if (match := _REQUIREMENT_GIT.match(stripped)) is not None:
+                return 'git', match.group(1).lower()
+            if _REQUIREMENT_NAMED.match(stripped):
+                return None
+    return None
+
+
+def _check_locked_pixeltable(project_dir: Path) -> None:
+    """A hosted image runs the pixeltable this CLI runs: the control plane takes this CLI's metadata version as
+    the release's, and refuses a project whose lockfile pins another pixeltable."""
+    locked = _locked_pixeltable(project_dir)
+    if locked is None or locked[0] == 'project':
+        return
+    kind, value = locked
+    version = pixeltable.__version__
+    # a git build's local version segment starts with its commit; a dirty tree appends more after it
+    commit_match = _COMMIT.match(version.partition('+')[2].lower())
+    commit = commit_match.group(0) if commit_match else ''
+    if kind == 'git':
+        matches = bool(commit) and (value.startswith(commit) or commit.startswith(value))
+    else:
+        matches = value.lower() == version.lower()
+    if not matches:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'the project locks pixeltable {value}, but this pxt runs pixeltable {version}; run pxt from the '
+            'project environment, or update the lock to the pixeltable you deploy with',
+        )
+
+
+def check_hosted_pixeltable(project_dir: Path) -> None:
+    """Refuse what the control plane would refuse before anything is uploaded: a lock pinning another pixeltable,
+    or no pin while this pxt is a development build, which a hosted image cannot install."""
+    project_dir = project_dir.resolve()
+    _check_locked_pixeltable(project_dir)
+    version = pixeltable.__version__
+    if _locked_pixeltable(project_dir) is None and '+' in version:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'this pxt runs a development build of pixeltable ({version}), which a hosted image cannot install; '
+            'pin pixeltable in the project to a pushed commit, for example in requirements.txt: '
+            'pixeltable @ git+https://github.com/pixeltable/pixeltable@<full commit hash>',
+        )
+
+
+def image_input_files(project_dir: Path) -> list[Path]:
+    """The manifests an image build reads, and the project files they install from.
+
+    Raises if a manifest names something a hosted image build cannot reach, or pins another pixeltable than this one.
     """
-    if project_dir is None:
-        project_dir = Path.cwd()
     project_dir = project_dir.resolve()
     files = [project_dir / name for name in IMAGE_INPUT_FILES if (project_dir / name).is_file()]
     installed_from_project: list[Path] = _lock_sources(project_dir)
@@ -483,7 +587,21 @@ def package_image_context(project_dir: Path | None = None) -> PackagedContext:
             # pip runs in the context, so a requirement naming a path needs that file alongside the manifests
             installed_from_project.extend(_local_requirement_files(project_dir, f))
 
+    _check_locked_pixeltable(project_dir)
     files.extend(installed_from_project)
+    return files
+
+
+def package_image_context(project_dir: Path | None = None) -> PackagedContext:
+    """Create a tarfile containing the manifests needed for an image build.
+
+    The returned hashes are taken from the bytes written, so they describe the context rather than a
+    later reading of the project.
+    """
+    if project_dir is None:
+        project_dir = Path.cwd()
+    project_dir = project_dir.resolve()
+    files = image_input_files(project_dir)
 
     fd, name = tempfile.mkstemp(suffix='.tar', prefix='pxt_image_')
     os.close(fd)
@@ -665,11 +783,8 @@ def _content_hash(path: Path) -> str:
 
 
 def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
-    requirements = project_root / 'requirements.txt'
-    local_requirements = _local_requirement_files(project_root, requirements) if requirements.is_file() else []
     from_project = {
-        p.relative_to(project_root).as_posix(): _path_hash(p)
-        for p in (*local_requirements, *_lock_sources(project_root))
+        p.relative_to(project_root).as_posix(): _path_hash(p) for p in _installed_from_project(project_root)
     }
     files = {path.relative_to(project_root).as_posix(): _path_hash(path) for path in files}
     declared_python = config.python_version if config is not None else None
