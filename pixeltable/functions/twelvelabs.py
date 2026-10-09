@@ -78,8 +78,9 @@ async def embed(text: str, image: pxt.Image | None = None, *, model_name: str) -
     with an embedding index. Embeddings from different model versions are incompatible; re-embed existing
     content when changing models.
 
-    Marengo 3.5 uses the synchronous `multi_input` API. Audio and video must be at most 30 seconds and 32 MB.
-    Split longer files with `audio_splitter` or `video_splitter` before embedding them. The `start_sec`,
+    Marengo 3.5 uses the synchronous `multi_input` API. Images, audio, and video must be at most 32 MB.
+    Audio and video must also be at most 30 seconds. Split longer files with `audio_splitter` or
+    `video_splitter` before embedding them. The `start_sec`,
     `end_sec`, and `embedding_option` parameters are supported only with Marengo 3.0.
 
     Equivalent to the TwelveLabs Embed API:
@@ -236,11 +237,18 @@ async def _embed_multi_input(
                 pxt.ErrorCode.INVALID_ARGUMENT, 'Marengo 3.5 synchronous embeddings require media of at most 32 MB.'
             )
         media_sources = [twelvelabs.MultiInputMediaSource(media_type=input_type, base_64_string=b64_str)]
+    # Pass only fields that are set. An explicit None is serialized as JSON null, and the sync schema
+    # marks input_text and media_sources optional, not nullable.
+    request: dict[str, Any] = {}
+    if text is not None:
+        request['input_text'] = text
+    if media_sources is not None:
+        request['media_sources'] = media_sources
     res = await _twelvelabs_client().embed.v_2.create(
         input_type='multi_input',
         model_name='marengo3.5',
         embedding_dimension=512,
-        multi_input=twelvelabs.MultiInputRequest(input_text=text, media_sources=media_sources),
+        multi_input=twelvelabs.MultiInputRequest(**request),
     )
     if not res.data or len(res.data) != 1 or len(res.data[0].embedding) != 512:
         raise pxt.ExternalServiceError(

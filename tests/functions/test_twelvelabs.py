@@ -82,17 +82,23 @@ class TestTwelveLabsLocal:
         if model_name == 'marengo3.5':
             assert request['input_type'] == 'multi_input'
             assert request['embedding_dimension'] == 512
-            multi_input = request['multi_input']
-            assert multi_input.input_text == kwargs.get('text')
+            # .dict() is the body the SDK encodes. An omitted field stays off the wire; an explicit None becomes null.
+            encoded = request['multi_input'].dict()
             if input_type == 'text':
-                assert multi_input.media_sources is None
+                assert encoded == {'input_text': kwargs['text']}
             else:
-                assert len(multi_input.media_sources) == 1
-                source = multi_input.media_sources[0]
-                assert source.media_type == ('image' if input_type == 'text_image' else input_type)
-                assert source.base_64_string
+                sources = encoded['media_sources']
+                assert len(sources) == 1
+                source = sources[0]
+                assert source['media_type'] == ('image' if input_type == 'text_image' else input_type)
+                assert source['base64_string']
+                if input_type == 'text_image':
+                    assert encoded['input_text'] == kwargs['text']
+                    assert set(encoded) == {'input_text', 'media_sources'}
+                else:
+                    assert set(encoded) == {'media_sources'}
                 if input_type in ('audio', 'video'):
-                    assert b64decode(source.base_64_string) == b'media'
+                    assert b64decode(source['base64_string']) == b'media'
         else:
             assert request['input_type'] == input_type
             assert 'embedding_dimension' not in request
