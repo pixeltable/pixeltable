@@ -167,10 +167,12 @@ class EmbeddingIndex:
             self.embedding, self.string_embed, self.image_embed, self.audio_embed, self.video_embed, self.document_embed
         )
 
-    def as_fn_call(self) -> exprs.FunctionCall:
+    def as_fn_call(self) -> exprs.Expr:
         """The embedding call for the indexed column's own type, which is what the index materializes."""
         assert isinstance(self.column, exprs.ColumnRefByName)
         col_type = self.column.col_type
+        if col_type.is_array_type():
+            return self.column
         embeddings = self.resolved_embeddings()
         if col_type._type not in embeddings:
             raise excs.RequestError(
