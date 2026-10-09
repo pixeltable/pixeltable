@@ -35,7 +35,7 @@ from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
-from pixeltable.utils.object_stores import ObjectPath, StorageTarget
+from pixeltable.utils.object_stores import ObjectPath, StorageTarget, home_bucket_uri, warn_if_pxtfs
 from pixeltable.utils.sql import add_option_to_db_url, redact_db_url
 
 if TYPE_CHECKING:
@@ -397,7 +397,7 @@ class Env:
         hosted_db = self.hosted_db()
         if hosted_db is not None:
             org, db = hosted_db
-            home_bucket = f'pxtfs://{org}:{db}/home'
+            home_bucket = home_bucket_uri(org, db)
             if self._default_input_media_dest is None:
                 self._default_input_media_dest = home_bucket
             if self._default_output_media_dest is None:
@@ -412,6 +412,9 @@ class Env:
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid {mode} media destination URI: {uri}'
                     ) from e
+                # the home-bucket default above is spelled pxt://, and a daemon runs none of the user's code
+                if not self.is_proxy_daemon:
+                    warn_if_pxtfs(uri, f'{mode}_media_dest')
 
         # Disable spurious warnings:
         # Suppress tqdm's ipywidgets warning in Jupyter environments
