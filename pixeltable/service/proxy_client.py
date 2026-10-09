@@ -13,10 +13,15 @@ import json
 import logging
 import re
 import selectors
+import shutil
 import socket
 import ssl
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
@@ -27,8 +32,10 @@ import httpx
 from tenacity import (
     before_sleep_log,
     retry,
+    retry_if_exception,
     retry_if_exception_type,
     retry_if_not_exception_type,
+    stop_after_attempt,
     stop_after_delay,
     wait_exponential_jitter,
 )
@@ -37,9 +44,11 @@ from pixeltable import exceptions as excs
 from pixeltable.catalog.path import Path as CatalogPath
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.row import RowBatch
+from pixeltable.utils.cloud_utils import get_presigned_url_from_cloud, get_presigned_urls_from_cloud
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.http import fetch_url
+from pixeltable.utils.http import fetch_url, is_retryable_error
 from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.object_stores import ObjectPath, StorageTarget
 
 from . import proxy_protocol
 from .management_client import Credential, is_refusal, refusal
@@ -64,6 +73,13 @@ _logger = logging.getLogger(__name__)
 # placeholder tbl_id/col_id (the cache key is the daemon media URL, which is stable per file).
 _PROXY_MEDIA_TBL_ID = UUID(int=0)
 _PROXY_MEDIA_COL_ID = 0
+
+# home-bucket media is read through URLs the control plane signs, never with credentials for the bucket
+_SIGN_BATCH_SIZE = 100  # keys per signing call: the control plane's limit
+# every URL of a result is signed before its first download; one that expires before its download starts is signed
+# again (_fetch_signed)
+_SIGNED_URL_TTL_S = 900
+_SIGNED_DOWNLOAD_TIMEOUT_S = 60.0
 
 
 def _replace_media_paths(obj: Any, make_url: Callable[[str], str]) -> Any:
@@ -375,6 +391,90 @@ class TunnelTransport(Transport):
         self._pool.close()
 
 
+def _sign_home_bucket_urls(urls: list[str]) -> dict[str, str]:
+    """A signed https URL for each of urls that addresses a home bucket, in either spelling."""
+    # (org, db) -> {key: [url]}: both spellings of an address name the same key, which is signed once
+    by_db: defaultdict[tuple[str, str], dict[str, list[str]]] = defaultdict(dict)
+    for url in urls:
+        try:
+            soa = ObjectPath.parse_object_storage_addr(url, allow_obj_name=True)
+        except ValueError:
+            continue  # the transport refuses it, as it did before
+        if soa.storage_target == StorageTarget.PIXELTABLE_STORE:
+            by_db[soa.account, soa.account_extension].setdefault(soa.key, []).append(url)
+    signed: dict[str, str] = {}
+    for (org, db), urls_by_key in by_db.items():
+        keys = list(urls_by_key)
+        for i in range(0, len(keys), _SIGN_BATCH_SIZE):
+            chunk = keys[i : i + _SIGN_BATCH_SIZE]
+            url_by_key = _sign_keys(org, db, chunk)
+            signed.update((url, url_by_key[key]) for key in chunk for url in urls_by_key[key])
+    return signed
+
+
+def _sign_keys(org: str, db: str, keys: list[str]) -> dict[str, str]:
+    """A signed GET URL for each of at most _SIGN_BATCH_SIZE keys in a home bucket, by key."""
+    try:
+        return get_presigned_urls_from_cloud(org, db, keys, expires_in=_SIGNED_URL_TTL_S)
+    except excs.ExternalServiceError as e:
+        # a control plane from before get_presigned_urls refuses the operation as a bad request
+        if e.provider_http_status_code != 400:
+            raise
+    return {key: get_presigned_url_from_cloud(org, db, 'home', key, expiration=_SIGNED_URL_TTL_S) for key in keys}
+
+
+@retry(
+    retry=retry_if_exception(lambda exc: isinstance(exc, Exception) and is_retryable_error(exc)[0]),
+    wait=wait_exponential_jitter(initial=0.5, max=5.0),
+    stop=stop_after_attempt(3),
+    reraise=True,
+)
+def _download(url: str, path: Path) -> None:
+    request = urllib.request.Request(url, headers={'User-Agent': 'Pixeltable/1.0 (https://pixeltable.com)'})
+    with urllib.request.urlopen(request, timeout=_SIGNED_DOWNLOAD_TIMEOUT_S) as r, path.open('wb') as f:
+        shutil.copyfileobj(r, f)
+
+
+def _fetch_signed(url: str, signed_url: str) -> Path:
+    """Download the media at url, a home-bucket address, from its signed URL into a temp file.
+
+    fetch_url() cannot: it drops a URL's query string, which carries the signature.
+    """
+    try:
+        return _fetch_signed_once(url, signed_url)
+    except excs.ExternalServiceError as e:
+        # an expired URL is refused like any other; the second refusal is the one raised
+        if e.provider_http_status_code != 403:
+            raise
+    soa = ObjectPath.parse_object_storage_addr(url, allow_obj_name=True)
+    return _fetch_signed_once(url, _sign_keys(soa.account, soa.account_extension, [soa.key])[soa.key])
+
+
+def _fetch_signed_once(url: str, signed_url: str) -> Path:
+    path = TempStore.create_path(extension=Path(urllib.parse.urlparse(url).path).suffix)
+    # the signed URL's query string is a credential, which a download error can hold (an HTTPError's url, a
+    # ValueError's message): the error raised names url instead, and chains nothing
+    try:
+        _download(signed_url, path)
+    except urllib.error.HTTPError as e:
+        path.unlink(missing_ok=True)
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Failed to download {url}: HTTP {e.code}',
+            provider='pixeltable_cloud',
+            status_code=e.code,
+        ) from None
+    except Exception as e:
+        path.unlink(missing_ok=True)
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR, f'Failed to download {url}: {type(e).__name__}', provider='pixeltable_cloud'
+        ) from None
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+    return path
+
+
 # Daemons from before the version fields put both numbers only in this sentence.
 _LEGACY_PROTOCOL_MISMATCH_RE = re.compile(r'Unsupported proxy protocol version: (\d+) \(server expects (\d+)\)\Z')
 
@@ -506,7 +606,11 @@ class ProxyClient:
         return _replace_media_paths(result, self._transport.media_url)
 
     def fetch_media(self, urls: list[str]) -> dict[str, str]:
-        """Fetch each daemon/remote media URL into the local store, returning {url: local_path}."""
+        """Fetch each daemon/remote media URL into the local store, returning {url: local_path}.
+
+        Home-bucket media comes through URLs the control plane signs, a call per 100 keys: the client never holds
+        credentials for a bucket.
+        """
         cache = FileCache.get()
         resolved: dict[str, str] = {}
         to_fetch: list[str] = []
@@ -518,10 +622,16 @@ class ProxyClient:
                 to_fetch.append(url)
 
         if len(to_fetch) > 0:
-            # the transport handles every supported scheme (the daemon's media URLs as well as external s3/http
+            signed = _sign_home_bucket_urls(to_fetch)
+
+            def fetch(url: str) -> Path:
+                signed_url = signed.get(url)
+                return self._transport.fetch(url) if signed_url is None else _fetch_signed(url, signed_url)
+
+            # the transport handles every other supported scheme (the daemon's media URLs as well as external s3/http
             # media); fetch concurrently, but keep FileCache bookkeeping on this thread (not thread-safe)
             with ThreadPoolExecutor(max_workers=min(16, len(to_fetch))) as executor:
-                tmp_paths = list(executor.map(self._transport.fetch, to_fetch))
+                tmp_paths = list(executor.map(fetch, to_fetch))
             for url, tmp in zip(to_fetch, tmp_paths):
                 resolved[url] = str(cache.add(_PROXY_MEDIA_TBL_ID, _PROXY_MEDIA_COL_ID, url, tmp))
 

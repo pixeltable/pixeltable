@@ -6,11 +6,13 @@ from pathlib import Path
 from unittest.mock import call, patch
 
 import pytest
+import requests
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.env import Env
 from pixeltable.service.pxtfs_protocol import GetBucketCredentialsResponse
+from pixeltable.utils.http import fetch_url
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
 from .utils import (
@@ -105,6 +107,28 @@ class TestPxtStore:
         pxt.drop_table(t)
         assert ObjectOps.count(save_id, dest=dest_uri) == 0
 
+    def test_presigned_url(self, uses_db: None) -> None:
+        """A presigned URL for a home-bucket object serves the object, and a byte range of it, which a video player
+        asks for to seek."""
+        skip_test_if_no_pxt_credentials()
+
+        dest_uri = f'{_pxt_dest_uri()}/presigned'
+        t = pxt.create_table('test_pxt_presigned', schema={'img': pxt.Image | None})
+        t.add_computed_column(img_rot=t.img.rotate(90), destination=dest_uri)
+        validate_update_status(
+            t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]), expected_rows=1
+        )
+        url = t.select(t.img_rot.fileurl).collect()['img_rot_fileurl'][0]
+
+        signed_url = ObjectOps.presigned_url(url, expiration_seconds=300)
+        whole = requests.get(signed_url, timeout=30)
+        assert whole.status_code == 200
+        assert len(whole.content) > 5
+        part = requests.get(signed_url, headers={'Range': 'bytes=0-4'}, timeout=30)
+        assert part.status_code == 206
+        assert part.content == whole.content[:5]
+        pxt.drop_table(t)
+
     def test_no_space_left(self, uses_db: None) -> None:
         skip_test_if_no_pxt_credentials()
         from pixeltable.utils import pxt_store
@@ -160,6 +184,44 @@ class TestPxtStore:
         assert len({url.rsplit('/', 1)[0] for url in urls}) > 90
         assert download.call_count == len(urls)
         get_credentials.assert_called_once_with('org1', db, 'home', None)
+
+    def test_pxt_buckets_destination(self, init_env: None) -> None:
+        """A destination spelled pxt://org:db/buckets/home/... is the store its pxtfs:// spelling names: a new file
+        gets the same object key and the same stored URL."""
+        from pixeltable.utils import object_stores, pxt_store
+
+        db = f'db_{uuid.uuid4().hex}'
+        tbl_id, file_id = uuid.uuid4(), uuid.uuid4()
+        dests = []
+        with patch.object(pxt_store, 'get_bucket_credentials', return_value=_bucket_credentials()) as get_credentials:
+            for dest_uri in (f'pxtfs://org1:{db}/home/media', f'pxt://org1:{db}/buckets/home/media'):
+                store = ObjectOps.get_store(dest_uri, False)
+                # the file name is random; fix it, so the two destinations can be compared whole
+                with patch.object(object_stores.uuid, 'uuid4', return_value=file_id):
+                    dests.append(store.resolve_destination(tbl_id, 0, 1, ext='.jpg'))
+
+        assert dests[1] == dests[0]
+        assert dests[1].url == f'pxtfs://org1:{db}/home/{dests[1].remote_key}'
+        assert dests[1].remote_key.startswith(f'media/{tbl_id.hex}/')
+        # both spellings share one cached session
+        get_credentials.assert_called_once_with('org1', db, 'home', None)
+
+    def test_fetch_url_keeps_bucket_credentials(self, init_env: None) -> None:
+        """fetch_url(), which pods call, still reads a home bucket, in either spelling, with credentials for the bucket:
+        a pod's reads take no control-plane call per file."""
+        from pixeltable.utils import pxt_store
+        from pixeltable.utils.s3_store import S3Store
+
+        db = f'db_{uuid.uuid4().hex}'
+        with (
+            patch.object(pxt_store, 'get_bucket_credentials', return_value=_bucket_credentials()) as get_credentials,
+            patch.object(S3Store, 'copy_object_to_local_file') as download,
+        ):
+            fetch_url(f'pxtfs://org1:{db}/home/k/1.jpg')
+            fetch_url(f'pxt://org1:{db}/buckets/home/k/2.jpg')
+
+        get_credentials.assert_called_once_with('org1', db, 'home', None)
+        assert [c.args[0] for c in download.call_args_list] == ['1.jpg', '2.jpg']
 
     def test_quota_recheck(self, init_env: None, tmp_path: Path) -> None:
         """A write rejected for lack of space checks the quota again at most once per interval, and keeps the cached
