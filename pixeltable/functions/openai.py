@@ -83,9 +83,11 @@ def _openai_client() -> 'openai.AsyncOpenAI':
 
 # models that share rate limits; see https://platform.openai.com/settings/organization/limits for details
 _shared_rate_limits = {
+    'gpt-4-turbo': ['gpt-4-turbo', 'gpt-4-turbo-latest', 'gpt-4-turbo-2024-04-09', 'gpt-4-1106-preview'],
     'gpt-4o': [
         'gpt-4o',
         'gpt-4o-latest',
+        'gpt-4o-2024-05-13',
         'gpt-4o-2024-08-06',
         'gpt-4o-2024-11-20',
         'gpt-4o-audio-preview',
