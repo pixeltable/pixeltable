@@ -176,6 +176,8 @@ def _retry_loop(
             cat = get_runtime().catalog
             # a retry loop is reentrant
             if cat._in_retry_loop:
+                # TODO: assert that the enclosing transaction holds the locks this loop's targets need, as the removed
+                # _check_write_locks() did
                 return op(*args, **kwargs)
             num_retries = 0
             while True:
@@ -697,6 +699,8 @@ class Catalog(CatalogBase):
         write_tbl_keys = write_tbl_keys or []
         write_paths = write_paths or []
         if get_runtime().in_xact:
+            # TODO: assert that the enclosing transaction holds the locks these targets need, as the removed
+            # _check_write_locks() did
             yield get_runtime().conn
             return
 
