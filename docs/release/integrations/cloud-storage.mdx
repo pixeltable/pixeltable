@@ -150,12 +150,12 @@ For a key instead of `pxt login`, create it under **API Keys** in the dashboard 
     pxt login
     ```
 
-    Or `export PIXELTABLE_API_KEY='your-key'`. Pixeltable fetches temporary home-bucket credentials from the Cloud API with the key when one is set, and with the `pxt login` session otherwise. Hosted pods already have a worker key; do not copy that into your laptop `config.toml`.
+    Or `export PIXELTABLE_API_KEY='your-key'`. To write there, Pixeltable fetches temporary home-bucket credentials from the Cloud API with the key when one is set, and with the `pxt login` session otherwise. Reading a hosted table's media needs none: it downloads through signed URLs. Hosted pods already have a worker key; do not copy that into your laptop `config.toml`.
   </Tab>
 </Tabs>
 
 <Tip>
-On Cloud, open **Storage** in the database sidebar and browse `home`. Nothing to configure for hosted tables.
+On Cloud, open **Storage** in the database sidebar and browse `home`. Nothing to configure for hosted tables. To link to a file or serve it from an app, see [Open and share media](/cloud#open-and-share-media).
 </Tip>
 
 ```

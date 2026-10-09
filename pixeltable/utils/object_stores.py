@@ -204,6 +204,8 @@ class ObjectPath:
             https://account.blob.core.windows.net/container/<optional prefix>/<optional object>
             https://account.r2.cloudflarestorage.com/container/<optional prefix>/<optional object>
             https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg
+            pxtfs://org:db/home/<optional prefix>/<optional object>
+            pxt://org:db/buckets/home/<optional prefix>/<optional object> (the same address as pxtfs://)
         """
         parsed = urllib.parse.urlparse(src_addr)
         scheme = parsed.scheme.lower()
@@ -281,30 +283,40 @@ class ObjectPath:
             else:
                 account_extension = parsed.netloc
             key = key.lstrip('/')
-        elif scheme == 'pxtfs':
-            # pxtfs://org:db/<bucket>[/optional/prefix]
+        elif scheme in ('pxtfs', 'pxt'):
+            # pxtfs://org:db/<bucket>[/optional/prefix], also spelled pxt://org:db/buckets/<bucket>[/optional/prefix]
             # Currently only 'home' bucket is supported.
             # 'home' is a logical name resolved to a physical R2 bucket name at runtime via the management API.
             storage_target = StorageTarget.PIXELTABLE_STORE
             netloc_parts = parsed.netloc.split(':')
             if len(netloc_parts) != 2 or not netloc_parts[0] or not netloc_parts[1]:
                 raise ValueError(
-                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': netloc must be 'org:db', got '{src_addr}'"
+                    f"Invalid {scheme}:// store URI '{parsed.geturl()}': netloc must be 'org:db', got '{src_addr}'"
                 )
             account_name, account_extension = netloc_parts  # org, db
             raw_path = parsed.path.lstrip('/')
+            if scheme == 'pxt':
+                # catalog paths share the scheme; only the buckets/ directory addresses storage
+                buckets_dir, _, raw_path = raw_path.partition('/')
+                if buckets_dir != 'buckets':
+                    raise ValueError(
+                        f"Invalid pxt:// store URI '{src_addr}': a storage address has the form "
+                        "'pxt://<org>:<db>/buckets/home[/<key>]'; other pxt:// paths are catalog paths"
+                    )
             path_parts = raw_path.split('/', 1)
             container = path_parts[0]
             if not container:
                 raise ValueError(
-                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': bucket segment is required, got '{src_addr}'"
+                    f"Invalid {scheme}:// store URI '{parsed.geturl()}': bucket segment is required, got '{src_addr}'"
                 )
             if container != 'home':
                 raise ValueError(
-                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': only 'home' bucket is supported, "
+                    f"Invalid {scheme}:// store URI '{parsed.geturl()}': only 'home' bucket is supported, "
                     f"got '{container}'"
                 )
             key = path_parts[1] if len(path_parts) > 1 else ''
+            # both spellings give the pxtfs address, so the store, its keys and the URLs it writes are the same
+            scheme = 'pxtfs'
         else:
             raise ValueError(f'Unsupported URI scheme: {parsed.scheme}')
 
@@ -331,6 +343,8 @@ class ObjectPath:
             https://account.blob.core.windows.net/container/<optional prefix>/<optional object>
             https://account.r2.cloudflarestorage.com/container/<optional prefix>/<optional object>
             https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg
+            pxtfs://org:db/home/<optional prefix>/<optional object>
+            pxt://org:db/buckets/home/<optional prefix>/<optional object> (the same address as pxtfs://)
         """
         soa = cls.parse_object_storage_addr1(src_addr)
         prefix, object_name = cls.separate_prefix_object(soa.key, allow_obj_name)
