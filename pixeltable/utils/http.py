@@ -1,6 +1,7 @@
 import http.cookiejar
 import logging
 import re
+import socket
 import threading
 import time
 import urllib.error
@@ -14,6 +15,7 @@ from typing import Any
 import requests
 from requests.adapters import HTTPAdapter, Retry
 from tenacity import retry_if_exception
+from urllib3.connection import HTTPConnection
 
 _logger = logging.getLogger(__name__)
 
@@ -22,6 +24,36 @@ _POOL_MAXSIZE = 16
 # hosts whose pools are kept: the control plane and the sign-in service. With fewer, a call to one
 # evicts the other's pool, and the next call there opens a new connection.
 _POOL_HOSTS = 2
+
+
+def tcp_keepalive_options() -> list[tuple[int, int, int]]:
+    """Socket options that probe an idle connection: first after 60 s, then every 30 s, 5 times.
+
+    NAT gateways and firewalls drop an idle connection without telling either end, and a request then sent on it
+    waits out its read timeout. The probes keep such a connection alive, and fail one whose peer is gone.
+    """
+    options = [(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)]
+    # TCP_KEEPIDLE is Linux; macOS uses TCP_KEEPALIVE for the same purpose
+    keepidle = getattr(socket, 'TCP_KEEPIDLE', None) or getattr(socket, 'TCP_KEEPALIVE', None)
+    if keepidle is not None:
+        options.append((socket.IPPROTO_TCP, keepidle, 60))
+    if hasattr(socket, 'TCP_KEEPINTVL'):
+        options.append((socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 30))
+    if hasattr(socket, 'TCP_KEEPCNT'):
+        options.append((socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5))
+    return options
+
+
+class _KeepaliveAdapter(HTTPAdapter):
+    """Pools whose connections, direct or through a proxy, send keepalive probes (see tcp_keepalive_options)."""
+
+    def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
+        kwargs['socket_options'] = [*HTTPConnection.default_socket_options, *tcp_keepalive_options()]
+        super().init_poolmanager(*args, **kwargs)
+
+    def proxy_manager_for(self, proxy: str, **proxy_kwargs: Any) -> Any:
+        proxy_kwargs.setdefault('socket_options', [*HTTPConnection.default_socket_options, *tcp_keepalive_options()])
+        return super().proxy_manager_for(proxy, **proxy_kwargs)
 
 
 def new_session() -> requests.Session:
@@ -34,7 +66,8 @@ def new_session() -> requests.Session:
     # safe to resend. Nothing that may have reached it is retried, and a Retry-After is not waited out:
     # honoring one would turn a 429 or 503 into a RetryError that hides the answer from the caller.
     retries = Retry(total=2, connect=2, read=0, status=0, other=0, respect_retry_after_header=False, backoff_factor=0.2)
-    adapter = HTTPAdapter(pool_connections=_POOL_HOSTS, pool_maxsize=_POOL_MAXSIZE, max_retries=retries)
+    # the pooled connections sit idle in the long-lived daemon between commands
+    adapter = _KeepaliveAdapter(pool_connections=_POOL_HOSTS, pool_maxsize=_POOL_MAXSIZE, max_retries=retries)
     session.mount('https://', adapter)
     session.mount('http://', adapter)
     return session
