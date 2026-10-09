@@ -109,8 +109,7 @@ def _is_retryable_exc(e: BaseException) -> bool:
     if not isinstance(e, sql_exc.DBAPIError):
         return False
     # connection_invalidated: the connection was terminated by the server (eg, by pg_terminate_backend)
-    # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol, which is
-    # supposed to be deadlock-free.
+    # TODO: investigate DeadlockDetected errors; consistent lock ordering should prevent deadlocks.
     return e.connection_invalidated or isinstance(
         e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.DeadlockDetected)
     )
@@ -125,10 +124,10 @@ def _store_tbl_name(tbl_id: UUID, *, is_view: bool) -> str:
 def retry_read_md_loop(
     *, tbl_keys: Collection[TableVersionKey] | None = None
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """Retry loop for an operation that reads catalog metadata but not table row data.
+    """Retry an operation that reads catalog metadata without reading table rows.
 
-    tbl_keys specifies tables whose metadata the operation reads; their cached state is refreshed, and a table with
-    pending ops is finalized before the operation runs.
+    `tbl_keys` identifies tables to refresh before running the operation. Any pending operations on those tables
+    are finalized first.
     """
     return _retry_loop(op_class=_TblOpClass.MD_READ, read_tbl_keys=tbl_keys)
 
@@ -136,7 +135,7 @@ def retry_read_md_loop(
 def retry_read_loop(
     *, tvps: Collection[TableVersionPath] | None = None, tbl_keys: Collection[TableVersionKey] | None = None
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """Retry loop for an operation that reads table data. Locks every table in the paths for read."""
+    """Retry a data read, taking read locks on every table in the supplied paths and their bases."""
     return _retry_loop(op_class=_TblOpClass.DATA_READ, read_tvps=tvps, read_tbl_keys=tbl_keys)
 
 
@@ -148,7 +147,7 @@ def retry_schema_change_loop(
     paths: Collection[Path] | None = None,
     lock_path_subtree: bool = False,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """Retry loop for an operation that writes table md or runs DDL. It obtains exclusive locks on the targets."""
+    """Retry a metadata write or DDL operation, taking exclusive locks on its targets."""
     return _retry_loop(
         op_class=_TblOpClass.MD_WRITE,
         write_tvps=tvps,
@@ -176,8 +175,7 @@ def _retry_loop(
             cat = get_runtime().catalog
             # a retry loop is reentrant
             if cat._in_retry_loop:
-                # TODO: assert that the enclosing transaction holds the locks this loop's targets need, as the removed
-                # _check_write_locks() did
+                # TODO: restore _check_write_locks()'s check that the enclosing transaction holds all required locks.
                 return op(*args, **kwargs)
             num_retries = 0
             while True:
@@ -232,10 +230,9 @@ def _retry_loop(
 
 
 def retrying_read(op: Callable[[], T], *, read_tvps: Collection[TableVersionPath] | None = None) -> T:
-    """Runs a read-only op, retrying transient failures if no transaction is open yet.
+    """Run a read-only operation, retrying transient failures when it opens its own transaction.
 
-    An op that is already inside a transaction joins it and is not retried, since a retry loop cannot be started
-    within one.
+    Inside an existing transaction, run the operation once. The enclosing transaction handles retries.
     """
     if get_runtime().in_xact:
         return op()
@@ -255,18 +252,17 @@ class PendingTableOpsError(Exception):
 
 
 class _StaleLockSetError(Exception):
-    """Raised during the lock set validation at the start of the transaction, this error indicates that the guessed lock
-    set for an operation is insufficient to cover all affected paths. This typically means that another process created
-    or dropped tables.
+    """The proposed lock set contains a missing table or does not cover all affected tables and directories.
 
-    Catalog needs to refresh its caches and try again."""
+    Catalog clears the relevant cached metadata and retries with a lock set read from the store.
+    """
 
     def __init__(self) -> None:
         super().__init__('lock set does not match the tables this operation touches')
 
 
 class _LockNotAvailableError(Exception):
-    """A lock is taken by another transaction."""
+    """Another transaction holds or is waiting for a conflicting lock."""
 
     def __init__(self) -> None:
         super().__init__('conflicting table lock held by another transaction')
@@ -303,25 +299,22 @@ class _TblLockMode(enum.Enum):
         self._strength = strength
 
     def is_at_least(self, other: '_TblLockMode') -> bool:
-        """True if this mode excludes at least as much as `other`."""
+        """Return whether this mode is at least as strong as `other`."""
         return self._strength >= other._strength
 
     @classmethod
     def strongest_of(cls, modes: Iterable['_TblLockMode']) -> '_TblLockMode':
-        """The mode of `modes` that excludes the most. `modes` must be non-empty."""
+        """Return the strongest mode in the nonempty iterable `modes`."""
         return max(modes, key=lambda mode: mode._strength)
 
 
 def _tbl_lock_mode(op_class: _TblOpClass, is_data_versioned: bool) -> _TblLockMode:
-    """The lock mode required on a table for an operation of `op_class`.
+    """Return the table lock mode required for this operation.
 
-    A data write is the only class whose mode depends on the table type (operational or data-versioned). ROW EXCLUSIVE
-    is self-compatible, so concurrent operational writers share the table; EXCLUSIVE conflicts with itself, which is
-    the write-serialization point a data-versioned table needs. Both are compatible with ACCESS SHARE, so neither
-    blocks readers.
+    Operational writes use ROW EXCLUSIVE, which allows concurrent writers. Data-versioned writes use EXCLUSIVE
+    so writers run one at a time and preserve a linear version history. Both modes allow readers.
 
-    A metadata update and a pending table ops resolution obtain the most exclusive lock preventing any concurrent
-    access.
+    Schema changes and pending-op finalization use ACCESS EXCLUSIVE, which conflicts with all of these modes.
     """
     if op_class is _TblOpClass.DATA_READ:
         return _TblLockMode.ACCESS_SHARE
@@ -332,14 +325,10 @@ def _tbl_lock_mode(op_class: _TblOpClass, is_data_versioned: bool) -> _TblLockMo
 
 
 def _lock_set_blocking(op_class: _TblOpClass, any_data_versioned: bool) -> bool:
-    """Whether a transaction of `op_class` waits for its locks to become available, rather than failing fast.
+    """Return whether to wait for locks. The policy applies to the entire lock set.
 
-    One decision for the entire transaction: a caller either waits for every lock it needs, or for none. Failing
-    fast on reads and writes is what buys an operational table its bounded latency, so only a lock set consisting
-    entirely of them gets it. If any of the tables to be locked is data-versioned, we assume a low performance
-    expectation and wait for the locks rather than failing fast.
-
-    Metadata change and pending ops finalization require a highly exclusive access and always wait.
+    Data reads and writes use NOWAIT when every locked table is operational. If any table is data-versioned,
+    they wait for all required locks. Schema changes and pending-op finalization always wait.
     """
     if op_class in (_TblOpClass.MD_WRITE, _TblOpClass.FINALIZE):
         return True
@@ -352,10 +341,7 @@ def _lock_set_blocking(op_class: _TblOpClass, any_data_versioned: bool) -> bool:
 
 @dataclasses.dataclass(frozen=True)
 class _LockTarget:
-    """A store table of a lock set, and the mode it is to be locked in.
-
-    The mode varies from table to table within a lock set, depending on the table's role in the operation.
-    """
+    """A store table and the lock mode required for its role in the operation."""
 
     store_tbl_name: str
     mode: _TblLockMode
@@ -374,59 +360,33 @@ class _LockSet:
 
 
 class Catalog(CatalogBase):
-    """The functional interface to getting access to catalog objects
+    """Access catalog objects, manage their metadata cache, and coordinate concurrent operations.
 
-    Locking: what follows here is a brief summary; docs/design/catalog-locking.md is a more detailed description.
+    See docs/design/catalog-locking.md for the full locking protocol. Transactions lock store tables in name
+    order, then directory rows in path order. Store table locks must precede any query that establishes the
+    transaction's snapshot, so metadata reads include changes committed while waiting for those locks.
 
-    Concurrent access to a table is synchronized with Postgres table locks (LOCK TABLE) on its store tables. The
-    store table is the lock, and Postgres's conflict matrix is the protocol. Every lock is transaction-scoped.
+    Before opening a transaction, build a tentative lock set from cached metadata or a separate store read.
+    After acquiring the locks, refresh metadata and validate the set. Retry if a table disappeared or the set
+    no longer covers the affected views or catalog paths. Only then run the caller's operation.
 
-    All interface functions must be called in the context of a transaction, started with one of the
-    begin_*_xact() methods or retry_*_loop() decorators. Each of those selects the appropriate level of lock
-    exclusivity, and the wait policy.
+    Use begin_*_xact() when all metadata loads happen before the caller's work, as in insert/update/delete.
+    Transaction setup can then finalize pending operations and retry before yielding the connection. If the
+    operation loads metadata during its work, wrap it in retry_*_loop() so the whole operation can restart.
+    get_tbl_version() handles its own retries when called outside a transaction or retry loop.
 
-    Every transaction that locks anything performs the same five steps:
-    1. guess the lock set from the metadata cache, or read it from the store in a separate transaction on a cache miss
-    2. acquire the locks: store tables first, then `dirs` rows
-    3. read current metadata: tables and dirs, including their mutable trees and path subtrees if necessary
-    4. validate the guess against it, and restart on a mismatch
-    5. finally do the actual work
+    Metadata changes write both the updated metadata and its operation log in one transaction, then call
+    roll_forward() and invalidate the affected TableVersion and TableVersionPath caches.
+    TODO: this is currently only implemented for Table.add_columns().
 
-    When calling functions that involve Table or TableVersion instances, the catalog needs to get a chance to finalize
-    pending ops against those tables. A table with pending ops is not usable, and step 3 is where that is detected.
-    The choice between begin_*_xact() and retry_*_loop() depends on where metadata loads occur relative to the atomic
-    operation:
-    - If all metadata loads happen at the beginning of an atomic operation (eg, insert/update/delete), use a
-      begin_*_xact(). It will finalize pending ops before locking.
-    - If metadata loads happen in the middle of an atomic operation, wrap the entire operation in the matching
-      retry_*_loop(), which handles pending ops and serialization retries.
+    The _tbls and _tbl_versions caches use LRU order. Cache hits move entries to the end; entries beyond
+    _MAX_TBL_CACHE_SIZE are evicted only after a transaction ends. Keep a single TableVersion instance per
+    (id, effective version): separate instances create separate SQLAlchemy Table objects, which can produce
+    duplicate FROM entries and unintended Cartesian products in queries.
 
-    get_tbl_version() manages its own retry loop internally if called outside of a transaction or a retry loop. Callers
-    that don't need to perform multiple of these atomically do not need to wrap the call.
-
-    Metadata changes: all Table operations that change metadata need follow this protocol:
-    - write the metadata changes to the store in a single transaction, including the op log that implements the updates
-    - roll_forward()
-    - invalidate any cached TableVersion instances for the affected table and call TVP.clear_cached_md()
-    TODO: this is currently only implemented for Table.add_columns()
-
-    Caching and invalidation of metadata:
-    - Catalog caches TableVersion instances in order to avoid excessive metadata loading
-    - Any updates to the metadata need to include clearing/invalidating the metadata cache
-    - Both _tbls and _tbl_versions caches maintain LRU order. At the end of the transaction, Catalog can evict entries
-    in excess of _MAX_TBL_CACHE_SIZE from both of them. No eviction during a transaction is possible. To maintain
-    the LRU order, every cache hit should move_to_end(key).
-    - for any specific table version (ie, combination of id and effective version) there can be only a single
-      Tableversion instance in circulation; the reason is that each TV instance has its own store_tbl.sa_tbl, and
-      mixing multiple instances of sqlalchemy Table objects in the same query (for the same underlying table) leads to
-      duplicate references to that table in the From clause (ie, incorrect Cartesian products)
-    - in order to allow multiple concurrent Python processes to perform updates (data and/or schema) against a shared
-      Pixeltable instance, Catalog needs to reload metadata from the store when there are changes
-    - concurrent changes are detected by comparing TableVersion.version/view_sn with the stored current version
-      (TableMd.current_version/view_sn)
-    - cached live TableVersion instances (those with effective_version == None) are validated against the stored
-      metadata on transaction boundaries; this is recorded in TableVersion.is_validated
-    - metadata validation is only needed for live TableVersion instances (snapshot instances are immutable)
+    At transaction boundaries, validate cached live versions against stored metadata. Changes to version or
+    view_sn require a reload. TableVersion.is_validated records whether that check has been done in the current
+    transaction. Snapshot versions are immutable and do not need this check.
     """
 
     # cached TableVersion instances; key: [id, version]
@@ -574,14 +534,13 @@ class Catalog(CatalogBase):
 
     @contextmanager
     def begin_read_md_xact(self, *, tbl_keys: Collection[TableVersionKey] | None = None) -> Iterator[sql.Connection]:
-        """A transaction that reads catalog md and no table data. The transaction itself takes no locks.
+        """Open a transaction that reads catalog metadata without locking store tables.
 
-        Naming no tbl_keys checks nothing, so such a transaction can neither block nor fail: it may observe a schema
-        change in progress and report a schema that is about to change, which is preferable to list_tables() or
-        describe() blocking or failing.
+        Without `tbl_keys`, setup skips table refreshes and pending-op checks. Catalog listings can therefore read
+        metadata during a schema change, though the reported schema may change before the caller uses it.
 
-        tbl_keys name tables whose md is read: their cache entries are refreshed, and a table with pending ops is
-        finalized before the connection is yielded.
+        With `tbl_keys`, refresh those tables and finalize any pending operations before yielding the connection.
+        Finalization uses its own transaction and may wait for a lock.
         """
         with self._begin_xact(op_class=_TblOpClass.MD_READ, read_tbl_keys=tbl_keys) as conn:
             yield conn
@@ -590,9 +549,9 @@ class Catalog(CatalogBase):
     def begin_read_xact(
         self, *, tvps: Collection[TableVersionPath] | None = None, tbl_keys: Collection[TableVersionKey] | None = None
     ) -> Iterator[sql.Connection]:
-        """A transaction to read table data.
+        """Open a data-read transaction, locking the targets and their base tables.
 
-        A read locks the target tables plus their ancestors, since a view read reads base data.
+        Reading a view requires read locks on its bases because the query also reads their rows.
         """
         with self._begin_xact(op_class=_TblOpClass.DATA_READ, read_tvps=tvps, read_tbl_keys=tbl_keys) as conn:
             yield conn
@@ -601,10 +560,10 @@ class Catalog(CatalogBase):
     def begin_write_xact(
         self, *, read_tbl_keys: Collection[TableVersionKey] | None = None, tvps: Collection[TableVersionPath]
     ) -> Iterator[sql.Connection]:
-        """A transaction that inserts, updates or deletes rows of the given tables.
+        """Open a transaction to insert, update, or delete rows.
 
-        The lock set always covers each target's mutable tree, because a data write propagates there.
-        read_tbl_keys specifies the tables to be read, e.g. the source of an insert from a query.
+        Lock each target and all its mutable views, since writes propagate to those views. `read_tbl_keys` identifies
+        additional tables read by the operation, such as the source of an insert from a query.
         """
         with self._begin_xact(
             op_class=_TblOpClass.DATA_WRITE, read_tbl_keys=read_tbl_keys, write_tvps=tvps, lock_mutable_tree=True
@@ -621,13 +580,12 @@ class Catalog(CatalogBase):
         paths: Collection[Path] | None = None,
         lock_path_subtree: bool = False,
     ) -> Iterator[sql.Connection]:
-        """A transaction that writes table md or runs DDL. It obtains exclusive locks on the target tables.
+        """Open a metadata-write or DDL transaction with exclusive locks on its targets.
 
-        - tvps/tbl_keys: the tables whose md this operation writes
-        - lock_mutable_tree: also lock each target's mutable views
-        - paths: catalog paths whose object this operation writes. Each is resolved and locked similarly to tables
-        - lock_path_subtree: also lock the catalog subtree of each path: for a directory its subdirectories
-          and their tables, and for a table its views, including snapshots.
+        - tvps/tbl_keys: tables whose metadata the operation writes.
+        - lock_mutable_tree: also lock each target's mutable views, recursively.
+        - paths: resolve and lock the objects at these catalog paths, along with their parent directories.
+        - lock_path_subtree: also lock each directory's descendants and tables, or each table's views and snapshots.
         """
         with self._begin_xact(
             op_class=_TblOpClass.MD_WRITE,
@@ -641,8 +599,7 @@ class Catalog(CatalogBase):
 
     @contextmanager
     def _begin_finalize_xact(self, tbl_id: UUID) -> Iterator[sql.Connection]:
-        """A transaction of a pending-op finalization. It obtains an exclusive lock on the table, and always waits for
-        the lock to become available."""
+        """Open a pending-op finalization transaction, waiting for ACCESS EXCLUSIVE on the table."""
         with self._begin_xact(
             op_class=_TblOpClass.FINALIZE,
             write_tbl_keys=[TableVersionKey(tbl_id, None)],
@@ -666,25 +623,17 @@ class Catalog(CatalogBase):
         convert_db_excs: bool = True,
         finalize_pending_ops: bool = True,
     ) -> Iterator[sql.Connection]:
-        """
-        Return a context manager that yields a connection to the database. Idempotent.
+        """Open or join a catalog transaction and yield its connection after lock setup.
 
-        External callers use one of the begin_*_xact() methods above, which simplifies the parameter settings. It is
-        mandatory to go through one of those, not Runtime.begin_xact(), if the transaction accesses any table data or
-        metadata.
+        Callers use the public begin_*_xact() methods to select an operation class. Table data and metadata access
+        must go through Catalog transaction setup rather than Runtime.begin_xact() directly.
 
-        Locking protocol (via _acquire_locks()):
-        - the write and read targets determine the store tables to lock; the metadata cache is refreshed for all of
-          them afterwards
-        - store table locks are acquired first, before any statement that would pin the transaction's snapshot; the
-          mode and the wait policy follow from op_class and the type of the tables it locks
-        - if finalize_pending_ops == True and a PendingTableOpsError is raised, finalizes pending ops and retries
-        - this needs to be done in a retry loop, because Postgres can abort the transaction
-          (SerializationFailure, DeadlockDetected), and a guessed lock set can turn out to be stale
-        - for that reason, we do all lock acquisition prior to doing any real work (eg, compute column values),
-          to minimize the probability of losing that work due to a forced abort
+        For a new transaction, build the lock set, acquire locks, refresh metadata, and validate the set before
+        running the caller's work. Retry setup after transient database failures or stale lock sets. When
+        `finalize_pending_ops` is True, complete pending operations outside the failed transaction before retrying.
 
-        If convert_db_excs == True, converts DBAPIErrors into excs.Errors if possible.
+        When `convert_db_excs` is True, translate supported database errors to Pixeltable exceptions. Errors during
+        the caller's work are propagated; use a retry_*_loop() decorator if the whole operation needs to restart.
         """
         for_write = op_class in (_TblOpClass.DATA_WRITE, _TblOpClass.MD_WRITE, _TblOpClass.FINALIZE)
         assert for_write or not (write_tvps or write_tbl_keys or write_paths), (op_class, write_tvps, write_tbl_keys)
@@ -699,8 +648,7 @@ class Catalog(CatalogBase):
         write_tbl_keys = write_tbl_keys or []
         write_paths = write_paths or []
         if get_runtime().in_xact:
-            # TODO: assert that the enclosing transaction holds the locks these targets need, as the removed
-            # _check_write_locks() did
+            # TODO: restore _check_write_locks()'s check that the enclosing transaction holds all required locks.
             yield get_runtime().conn
             return
 
@@ -735,8 +683,7 @@ class Catalog(CatalogBase):
                 continue
 
             if prev_failed_lock_set is not None and attempt_lock_set == prev_failed_lock_set:
-                # The previous lock set was deemed stale, but re-reading the metadata produced the same lock set. This
-                # shouldn't happen, and no progress can be made by retrying.
+                # Rebuilding returned the same failed lock set, so another retry would make no progress.
                 raise excs.Error(
                     excs.ErrorCode.INTERNAL_ERROR, 'Could not determine the tables to lock for this operation'
                 )
@@ -817,8 +764,7 @@ class Catalog(CatalogBase):
 
             except _LockNotAvailableError as e:
                 has_exc = True
-                # A non-blocking lock acquisition was refused. Today, this is only possible if either a schema change
-                # holds the lock, or a schema change is queued waiting on the lock.
+                # NOWAIT can fail when a schema change holds a conflicting lock or is queued ahead of us.
                 attempt_exc = e
                 raise excs.ConcurrencyError(
                     excs.ErrorCode.SCHEMA_CHANGE_IN_PROGRESS,
@@ -833,9 +779,9 @@ class Catalog(CatalogBase):
                         excs.ErrorCode.SERIALIZATION_FAILURE, f'Lock set retry limit ({_MAX_RETRIES}) exceeded'
                     ) from e
                 num_retries += 1
-                # remember the lock set that failed, it will be needed for a sanity check on the next attempt.
+                # Detect a retry that rebuilds the same failed lock set.
                 failed_lock_set = attempt_lock_set
-                # drop the metadata the lock set was derived from, the next attempt should read it from the store.
+                # Clear cached metadata so the next attempt rebuilds the set from the store.
                 self._invalidate_lock_set(read_tvps, read_tbl_keys, write_tvps, write_tbl_keys)
                 continue
 
@@ -896,7 +842,7 @@ class Catalog(CatalogBase):
                 self._modified_tvs.clear()
 
     def _try_rollback(self, conn: sql.Connection) -> None:
-        """Initiate rollback, ignoring the failure resulting from a possibly already-dead connection."""
+        """Roll back the transaction, ignoring database errors if the connection is already unusable."""
         try:
             conn.rollback()
         except sql_exc.DBAPIError:
@@ -914,36 +860,28 @@ class Catalog(CatalogBase):
         write_paths: Collection[Path],
         lock_path_subtree: bool,
     ) -> _LockSet:
-        """Builds a lock set for this request based on the metadata read from the store.
+        """Build a lock set from stored metadata in the current transaction.
 
-        For tables it reads `tables` rows rather than building TableVersions. This is an intentional choice to avoid
-        dealing with pending table ops and other scenarios when the table metadata cannot be interpreted.
+        Read raw `tables` rows without constructing TableVersion instances, so pending operations do not prevent
+        lock-set discovery. Targets named by id or TableVersionPath include tables pending drop; catalog-path
+        lookups include only visible tables.
 
-        Different visibility rules apply depending on how the table is targeted. Tables that are referred to by
-        TableVersionPath or key are part of the lock set even when they are pending drop. A lookup by catalog path is
-        the opposite: only the visible tables are included.
-
-        op_class is the class of the write targets, and of the tables that receive the propagated write through
-        lock_mutable_tree and lock_path_subtree. Everything else is locked for read, including the ancestors of write
-        targets. A table reached several ways gets the strongest lock mode of all.
+        Apply `op_class` to write targets and the views or subtrees affected by their writes. Lock other tables,
+        including ancestors, for read. If a table has several roles, use the strongest required mode.
         """
         assert get_runtime().in_xact
         conn = get_runtime().conn
-        # tbl id -> op classes that it needs. This starts with just the input tables that may or may not actually exist
-        # in the store. Then, as we traverse the mutable trees and directory trees as requested, we add tables that
-        # need locking here.
+        # Table id -> required operation classes. Start with requested targets, then add related tables.
+        # Requested ids may refer to tables that have already been dropped.
         tbl_id_to_op_classes: defaultdict[UUID, set[_TblOpClass]] = defaultdict(set)
-        # id -> store table name. In the end this is guaranteed to contain all tables that need locking, and unlike
-        # tbl_id_to_op_classes it contains only the tables that actually exist in the store.
+        # Table id -> store table name, for existing tables with physical storage only.
         store_tbl_names: dict[UUID, str] = {}
         # True for data-versioned tables. Contains exactly the same tables as store_tbl_names.
         is_data_versioned: dict[UUID, bool] = {}
-        # dir id -> path for directories in the lock set. Path defines the lock acquisition order. All paths are in
-        # the local form.
+        # Directory id -> local catalog path. Paths determine directory lock order.
         dirs_to_lock: dict[UUID, Path] = {}
 
-        # Add the read/write tables to the lock set. For a write table path, only the leaf is locked for a write, and
-        # its bases are locked for a read.
+        # A write path locks its leaf for write and its bases for read.
         for tvp in read_tvps:
             for key in tvp.tbl_keys:
                 tbl_id_to_op_classes[key.tbl_id].add(_TblOpClass.DATA_READ)
@@ -956,7 +894,7 @@ class Catalog(CatalogBase):
             tbl_id_to_op_classes[key.tbl_id].add(op_class)
 
         def list_dir_contents(dir_id: UUID, dir_path: Path) -> tuple[dict[UUID, Path], set[UUID]]:
-            """The directory and all its subdirectories recursively, as dir id -> path, plus the tables they contain."""
+            """Return directory id-to-path mappings for the subtree and the ids of its visible tables."""
             tbl_q = sql.select(schema.Table.id).where(self._active_tbl_clause(dir_id=dir_id))
             tbl_ids = {r.id for r in conn.execute(tbl_q).all()}
 
@@ -968,8 +906,7 @@ class Catalog(CatalogBase):
                 tbl_ids |= child_tbl_ids
             return subtree_dirs, tbl_ids
 
-        # Resolve each write path. With lock_path_subtree, a directory additionally brings its subdirs and tables
-        # recursively.
+        # Resolve catalog paths; include all directory descendants when lock_path_subtree is requested.
         write_path_tbl_ids: set[UUID] = set()
         for path in write_paths:
             # path can be a hosted catalog (e.g. pxt://org:db/dir/), but we are only interested in its local form
@@ -979,9 +916,7 @@ class Catalog(CatalogBase):
                 # the parent dir is gone, nothing to lock
                 continue
 
-            # Add the parent to the lock set. We do this regardless of what path points at, even if it points at
-            # nothing. This prevents two concurrent table or directory creators from taking the same name in the same
-            # parent dir.
+            # Lock the parent even when the target does not exist, so concurrent creators cannot claim the same name.
             dirs_to_lock.setdefault(parent.id, path.parent)
 
             # If path points at a directory, add it to the lock set
@@ -1002,7 +937,6 @@ class Catalog(CatalogBase):
         for tbl_id in write_path_tbl_ids:
             tbl_id_to_op_classes[tbl_id].add(op_class)
 
-        # Various state necessary to discover all the dirs and tables that need to be locked
         # table ids that we already looked up, including those that did not exist in the store
         visited_tbl_ids: set[UUID] = set()
         # table id -> its parent dir id
@@ -1011,9 +945,10 @@ class Catalog(CatalogBase):
         mutable_bases: dict[UUID, UUID] = {}
 
         def visit_tables(where: sql.ColumnElement, op_class: _TblOpClass) -> set[UUID]:
-            """Read the rows from `tables` matching `where`, record op_class for each one, and record other relevant
-            metadata for those tables. Adds the ancestors of each table to tbl_id_to_op_classes with DATA_READ class.
-            Returns table ids that matched the predicate."""
+            """Read matching table metadata, record each table's lock requirements, and return its id.
+
+            Add ancestors to the tables to visit, with DATA_READ as their operation class.
+            """
             rows = conn.execute(sql.select(schema.Table.id, schema.Table.dir_id, schema.Table.md).where(where)).all()
             read_ids: set[UUID] = set()
             for row in rows:
@@ -1035,15 +970,16 @@ class Catalog(CatalogBase):
             return read_ids
 
         def visit_transitive_views(tbl_ids: set[UUID], *, mutable_only: bool) -> set[UUID]:
-            """Invokes visit_tables() on every mutable view in the tree for the given tables. Returns table ids
-            visited."""
+            """Visit the given tables and their descendant views, returning all visited ids.
+
+            When `mutable_only` is True, skip views whose base version is pinned.
+            """
             snapshot_filter = sql.true()
             if mutable_only:
                 # Exclude snapshots by selecting only where the base effective version is None
                 snapshot_filter = schema.Table.md['view_md']['base_versions'][0][1].astext.is_(None)
 
-            # Start with the input set of table ids and find the views of those tables. Those view ids become the input
-            # for the next iteration. Repeat until all matching views in the tree are visited.
+            # Walk one level of views at a time until no unvisited descendants remain.
             visited_ids = set()
             next_ids = set(tbl_ids)
             while len(next_ids) > 0:
@@ -1059,26 +995,22 @@ class Catalog(CatalogBase):
         if lock_mutable_tree:
             visit_transitive_views(set(self._mutable_write_tbl_ids(write_tvps, write_tbl_keys)), mutable_only=True)
 
-        # Mutable view ids of the tables from the write paths
+        # Descendant table/view ids reached from write paths, including snapshots when requested.
         write_path_mutable_views: set[UUID] = set()
         if lock_path_subtree:
             write_path_mutable_views = visit_transitive_views(write_path_tbl_ids, mutable_only=False)
 
-        # Visit every table to be locked that is not visited yet. Visiting a table can lead to a discovery of more
-        # tables that need to be locked, so this repeats until there are no more to visit.
+        # Visiting a table can add its ancestors. Continue until every discovered id has been checked.
         while True:
             todo = tbl_id_to_op_classes.keys() - visited_tbl_ids
             if len(todo) == 0:
                 break
             visit_tables(schema.Table.id.in_(todo), _TblOpClass.DATA_READ)
-            # Mark tables as visited even if their md are no longer in the store. Otherwise this loop will never
-            # converge.
+            # Mark missing ids as visited too, so dropped tables do not cause an endless loop.
             visited_tbl_ids.update(todo)
 
-        # The base of each view from write_path_tbl_ids already has DATA_READ in tbl_id_to_op_classes (see
-        # visit_tables()). If we are locking subtrees, upgrade those base tables to op_class. This comes up when
-        # a mutable view is being dropped: the base's view_sn needs an update, thus the base must be locked
-        # appropriately. But no new tables can be added to tbl_id_to_op_classes anymore.
+        # Dropping a mutable view updates its base's view_sn, so the base needs a write lock.
+        # All bases were discovered above; this changes required modes without adding new targets.
         if lock_path_subtree:
             for tbl_id in write_path_tbl_ids:
                 # dropping a mutable view bumps its base's view_sn, which is a metadata write to the base
@@ -1093,7 +1025,6 @@ class Catalog(CatalogBase):
                 if dir_id is not None:
                     dirs_to_lock.setdefault(dir_id, self.get_dir_path(dir_id))
 
-        # Finally combine all the accumulated state about dirs and tables to a _LockSet instance
         sorted_tbl_targets = tuple(
             _LockTarget(
                 store_tbl_name=store_tbl_name,
@@ -1114,12 +1045,10 @@ class Catalog(CatalogBase):
     def _path_lock_targets_from_cache(
         self, tbl_path: Sequence[TableVersionKey], target_op_class: _TblOpClass
     ) -> tuple[list[_LockTarget], bool] | None:
-        """Return a path's targets and whether any table is data-versioned.
+        """Return cached lock targets for a path and whether any table is data-versioned.
 
-        All metadata is read from cache, no store reads. Returns None on a cache miss.
-
-        tbl_path is in view-before-base order. target_op_class applies to the leaf view only. Its ancestors receive read
-        mode.
+        Return None if any metadata is missing or uninitialized. `tbl_path` lists the leaf before its bases;
+        `target_op_class` applies to the leaf, and the bases receive read locks.
         """
         targets: list[_LockTarget] = []
         any_data_versioned = False
@@ -1141,11 +1070,10 @@ class Catalog(CatalogBase):
     def _ancestors_lock_targets_from_cache(
         self, key: TableVersionKey, target_op_class: _TblOpClass
     ) -> tuple[list[_LockTarget], bool] | None:
-        """Return targets for `key` and its ancestors, and whether any table is data-versioned.
+        """Return cached lock targets for `key` and its bases, and whether any table is data-versioned.
 
-        All metadata is read from cache, no store reads. Returns None on a cache miss.
-
-        target_op_class applies to the key table only. Its ancestors receive read mode.
+        Return None if any metadata is missing or uninitialized. `target_op_class` applies to the named table;
+        its bases receive read locks.
         """
         # Can't use TableVersion.path because it's unset on snapshots.
         keys: list[TableVersionKey] = []
@@ -1162,11 +1090,11 @@ class Catalog(CatalogBase):
     def _mutable_tree_lock_targets_from_cache(
         self, tbl_id: UUID, op_class: _TblOpClass
     ) -> tuple[list[_LockTarget], bool] | None:
-        """Return targets for the table and its transitive mutable views, and whether any is data-versioned.
+        """Return cached lock targets for a table and all its mutable views, recursively.
 
-        All metadata is read from cache, no store reads. Returns None on a cache miss.
-
-        op_class applies to all tables."""
+        Also return whether any target is data-versioned. Apply `op_class` to every target. Return None if any
+        metadata is missing or uninitialized.
+        """
         tv = self._tbl_versions.get(TableVersionKey(tbl_id, None))
         if tv is None or not tv.is_initialized:
             return None
@@ -1196,23 +1124,20 @@ class Catalog(CatalogBase):
         write_tbl_keys: Collection[TableVersionKey],
         lock_mutable_tree: bool,
     ) -> _LockSet | None:
-        """Builds a lock set for the given read and write targets using the cached metadata only.
+        """Build a tentative lock set from cached metadata, without querying the store.
 
-        Does not query the store. Returns None if the cached state is insufficient. Since the cached metadata can be
-        stale, the produced lock set is not guaranteed to be up to date either.
-
-        For reads we lock the target tables and their ancestry. For writes we additionally lock the mutable views of the
-        targets, if lock_mutable_tree is True. op_class is operation class for write targets and affects their lock
-        mode."""
-        # store tbl name -> its lock target with the strongest (most exclusive) lock mode so far
+        Return None if required metadata is missing. Cached metadata may be stale, so validate the set after locking.
+        Include each target's bases for read and, when `lock_mutable_tree` is True, each write target's mutable views.
+        Apply `op_class` to write targets and their affected views.
+        """
+        # Store table name -> strongest required lock target.
         targets: dict[str, _LockTarget] = {}
-        # is any of these tables data versioned?
+        # A data-versioned target makes the whole lock set use blocking acquisition.
         any_data_versioned = False
 
         def add(new_targets: Sequence[_LockTarget]) -> None:
             for target in new_targets:
                 current_target = targets.get(target.store_tbl_name)
-                # If already in the dict, replace if the new mode is stronger. Otherwise add.
                 if current_target is None or target.mode.is_at_least(current_target.mode):
                     targets[target.store_tbl_name] = target
 
@@ -1255,14 +1180,10 @@ class Catalog(CatalogBase):
         write_paths: Collection[Path],
         lock_path_subtree: bool,
     ) -> _LockSet:
-        """The lock set for a transaction with these targets, built from the metadata cache, or from the store if the
-        cache is insufficient.
+        """Build a tentative lock set from cache, falling back to a separate store transaction.
 
-        Runs before the transaction opens, so that the store read cannot pin that transaction's snapshot ahead of its
-        locks.
-
-        A metadata-only transaction reads catalog metadata and no table data, so it locks nothing: it may observe a
-        schema change in progress, which is preferable to `list_tables()` or `describe()` blocking or failing.
+        Run before opening the operation's transaction: a metadata query inside it would establish a snapshot before
+        the locks are acquired. Metadata-only reads need no lock set.
         """
         assert not get_runtime().in_xact
         # Metadata-only reads take no locks
@@ -1271,10 +1192,8 @@ class Catalog(CatalogBase):
 
         lock_set: _LockSet | None = None
 
-        # Attempt to build the lock set from the metadata cache. That is only possible if no write paths are requested,
-        # because Catalog does not cache paths or directory structures. Operations with write paths are create/drop
-        # table/dir, and move. They always fall back to the store read in a dedicated transaction, which is more
-        # expensive, but shouldn't happen too frequently.
+        # Catalog does not cache path resolution or directory structure. Create, drop, and move operations
+        # therefore resolve their paths in a separate store transaction.
         if len(write_paths) == 0:
             lock_set = self._lock_set_from_cache(
                 op_class=op_class,
@@ -1308,10 +1227,9 @@ class Catalog(CatalogBase):
         write_tvps: Collection[TableVersionPath],
         write_tbl_keys: Collection[TableVersionKey],
     ) -> None:
-        """Clear the metadata a lock set was derived from, so that the next attempt rebuilds it from the store.
+        """Clear the cached metadata used to build the lock set, forcing a store read on the next attempt.
 
-        Counted rather than silent: a workload that reshapes a tree between attempts can restart repeatedly, and
-        that should read as a counter rather than as a hang.
+        Count restarts in telemetry so repeated retries caused by concurrent catalog changes are visible.
         """
         telemetry_schemas.lock_set_restarts.add(1)
         _logger.debug('rebuilding the lock set')
@@ -1328,16 +1246,13 @@ class Catalog(CatalogBase):
         write_paths: Collection[Path],
         lock_path_subtree: bool,
     ) -> None:
-        """Checks that the locks this transaction holds cover what the current metadata says the operation touches.
+        """Check that the held locks cover the operation's targets according to refreshed metadata.
 
-        Must run after the metadata cache has been validated against the store, so that the trees it compares
-        are the ones the store describes.
-
-        Two things can have been guessed wrong: the mutable tree of a write target, and what a write path names.
-        A table's ancestry is immutable, so a lock set built from ancestry alone needs no check.
+        Run after refreshing the cache. Mutable views and catalog-path targets can change between lock-set discovery
+        and acquisition. Ancestry is fixed at creation and needs no validation.
 
         Raises:
-            _StaleLockSetError: the locks do not cover it.
+            _StaleLockSetError: a required table or directory lock is missing, or a table lock is too weak.
         """
 
         def validate_targets_locked(targets: Collection[_LockTarget]) -> None:
@@ -1357,8 +1272,7 @@ class Catalog(CatalogBase):
                 validate_targets_locked(targets)
 
         if len(write_paths) > 0:
-            # re-resolve the paths against the metadata the locks made current, and check the result is covered.
-            # The cache cannot answer this, so it is the same store read as before, now under the locks.
+            # Resolve paths again under the acquired locks and check for targets added since the initial store read.
             lock_set_from_store = self._lock_set_from_store(
                 op_class=op_class,
                 read_tvps=(),
@@ -1379,61 +1293,54 @@ class Catalog(CatalogBase):
     def _mutable_write_tbl_ids(
         cls, write_tvps: Collection[TableVersionPath], write_tbl_keys: Collection[TableVersionKey]
     ) -> list[UUID]:
-        """The write targets that have a mutable tree to lock.
+        """Return write-target ids whose effective version is not pinned.
 
-        A snapshot has none, and asking for one would look up a live version it does not have. A pinned effective
-        version is what distinguishes the two, and unlike is_mutable() it is answerable without reading any md --
-        which is the whole constraint a lock set is computed under. The operation itself still fails later, with
-        the error that says a snapshot cannot be written.
+        Snapshots have no mutable tree. Checking the effective version identifies them without a metadata read,
+        which is required while building the lock set. The operation later reports that snapshots cannot be written.
         """
         ids = [tvp.tbl_id for tvp in write_tvps if tvp.effective_version() is None]
         ids.extend(k.tbl_id for k in write_tbl_keys if k.effective_version is None)
         return ids
 
     def _is_locked(self, store_tbl_name: str, mode: _TblLockMode) -> bool:
-        """True if this transaction holds a lock on the given table with the given or stronger lock mode."""
+        """Return whether this transaction holds the requested mode or stronger on the store table."""
         assert get_runtime().in_xact
         held = self._locks_held.get(store_tbl_name)
         return held is not None and held.is_at_least(mode)
 
     def _is_dir_locked(self, dir_id: UUID) -> bool:
-        """True if this transaction X-locked the given Dir record."""
+        """Return whether this transaction holds the given directory row lock."""
         assert get_runtime().in_xact
         return dir_id in self._dir_locks_held
 
     def _assert_md_write_locked(
         self, tbl_id: UUID, *, is_insert: bool, is_pure_snapshot: bool, dir_id: UUID | None
     ) -> None:
-        """Assert that this transaction holds the lock that protects a metadata write to tbl_id.
+        """Assert that the transaction holds the lock required to write this table's metadata.
 
-        A table that has a store table is protected by a self-conflicting mode on it: ACCESS EXCLUSIVE for a schema
-        change, and EXCLUSIVE for the version bump a data write on a data-versioned table writes. Either one
-        excludes every other md write for the length of the transaction, which is what the record needs. An
-        operational data write takes ROW EXCLUSIVE and writes no md.
+        Existing store tables need EXCLUSIVE or stronger: EXCLUSIVE serializes version bumps, and ACCESS EXCLUSIVE
+        protects schema changes. Operational row writes use ROW EXCLUSIVE and do not update table metadata.
 
-        A pure snapshot has no store table, so no store table lock can cover it. The parent Dir record's X-lock
-        protects it instead: a pure snapshot is a name in a directory and nothing more, and its md record is only
-        ever inserted or deleted, always by a path that locks that directory first.
+        New tables and pure snapshots are protected by the parent directory lock. A new table's id is not yet
+        visible to other transactions; a pure snapshot has no store table to lock.
         """
         if is_insert or is_pure_snapshot:
-            # Either this record is being inserted, which nobody can contend for -- the id is unpublished and the
-            # name is held by the parent Dir's X-lock -- or it is a pure snapshot, which has no store table for a
-            # lock to cover and is a name in a directory and nothing else. The dir lock protects both.
+            # The parent directory lock protects new entries and pure snapshots, which have no existing store lock.
             assert dir_id is not None, tbl_id
             assert self._is_dir_locked(dir_id), (tbl_id, dir_id, self._dir_locks_held)
             return
         assert self._has_store_tbl_lock(tbl_id, _TblLockMode.EXCLUSIVE), (tbl_id, self._locks_held)
 
     def assert_rows_write_locked(self, tv: TableVersion) -> None:
-        """Verifies that the transaction holds a lock appropriate for writing rows to this table."""
+        """Assert that the transaction holds the required lock for writing this table's rows."""
         mode = _tbl_lock_mode(_TblOpClass.DATA_WRITE, tv.is_data_versioned)
         store_tbl_name = tv.store_tbl._storage_name()
         assert self._is_locked(store_tbl_name, mode), (store_tbl_name, mode, self._locks_held)
 
     def check_rows_read_locked(self, tv: TableVersion) -> None:
-        """Verifies that the transaction holds a lock appropriate for reading rows from the table.
+        """Warn if the transaction lacks a read lock on this table.
 
-        TODO(PXT-1343): once fixed, this warning should become an assertion.
+        TODO(PXT-1343): include tables read by computed-column query UDFs in the lock set, then make this an assertion.
         """
         read_lock_mode = _tbl_lock_mode(_TblOpClass.DATA_READ, tv.is_data_versioned)
         store_tbl_name = tv.store_tbl._storage_name()
@@ -1445,16 +1352,14 @@ class Catalog(CatalogBase):
             )
 
     def _lock_tables(self, targets: Sequence[_LockTarget], *, blocking: bool) -> None:
-        """Acquire the given targets' store tables, in the given order.
+        """Lock store tables in the supplied name order.
 
-        A LOCK TABLE statement carries a single mode, so a lock set that spans several takes more than one. They are
-        the maximal *runs* of adjacent targets sharing a mode -- never groups gathered from across the set, which
-        would reorder acquisition and reintroduce the deadlocks the global sort rules out. Postgres acquires left to
-        right within a statement, so run by run is still one global order.
+        Each LOCK TABLE statement uses one mode. Batch only adjacent targets with the same mode so acquisition stays
+        in global name order. Grouping all targets by mode would change that order and allow deadlocks.
 
         Raises:
-            _LockNotAvailableError: blocking=False and a lock is not readily available
-            _StaleLockSetError: a store table named in the statement does not exist.
+            _LockNotAvailableError: a NOWAIT lock could not be acquired.
+            _StaleLockSetError: a named store table no longer exists.
         """
         assert get_runtime().in_xact
         names = [t.store_tbl_name for t in targets]
@@ -1466,10 +1371,10 @@ class Catalog(CatalogBase):
             self._lock_run([t.store_tbl_name for t in run], mode, blocking=blocking)
 
     def _lock_run(self, store_tbl_names: list[str], mode: _TblLockMode, *, blocking: bool) -> None:
-        """Acquire `mode` on all named store tables in one statement, in the given order.
+        """Lock the named store tables in one statement, in the supplied order.
 
-        Uses a LOCK TABLE statement which, if executed before any reads under REPEATABLE READ, does not establish a read
-        snapshot for the transaction.
+        LOCK TABLE does not establish a REPEATABLE READ snapshot. Executing it before any queries lets subsequent
+        metadata reads see changes committed while waiting for the locks.
         """
         assert len(store_tbl_names) > 0
         nowait_clause = '' if blocking else 'NOWAIT'
@@ -1487,7 +1392,7 @@ class Catalog(CatalogBase):
         for store_tbl_name in store_tbl_names:
             self._locks_held[store_tbl_name] = mode
 
-    # TODO this looks like 2 independent functions in one. Try to split up.
+    # TODO: separate lock acquisition from metadata refresh.
     @telemetry.spanned('pixeltable.catalog.acquire_locks', level=telemetry.DEBUG)
     def _acquire_locks(
         self,
@@ -1500,21 +1405,16 @@ class Catalog(CatalogBase):
         lock_mutable_tree: bool,
         finalize_pending_ops: bool,
     ) -> None:
-        """
-        Acquires the locks of lock_set, then refreshes the metadata cache for every read and write target -- and,
-        when lock_mutable_tree is True, for each write target's mutable tree.
+        """Acquire the lock set, then refresh metadata for all read and write targets.
 
-        The store table locks come first, and must stay first: LOCK TABLE is snapshot-exempt, where everything below
-        it here is a statement that pins the transaction's snapshot. A transaction that waited for such a lock
-        therefore still reads current metadata afterwards. The `dirs` row locks are the statements this argument
-        rules out going first: a transaction that waited for one wakes with a snapshot from before the wait.
+        Store table locks must come before directory row locks or metadata queries, which establish the transaction's
+        snapshot. Otherwise, waiting for a store table lock could leave us reading metadata from before the wait.
 
-        The order of the rest matters too: TVPs are processed before keys in both groups so that ancestor-first
-        validation (write_tvps -> write_tbl_keys -> read_tvps -> read_tbl_keys) is established before any unordered
-        pass runs.
+        Refresh write targets first, including their mutable views when requested, then read targets. In each group,
+        process paths before individual keys so bases are validated before their views.
         """
-        # a transaction that locks no store table has nothing to observe at either point, and firing there would let
-        # the lock-set resolution consume a fault armed for the operation that follows it in the same thread
+        # Skip fault points when no store tables are locked, so the metadata transaction used to build a lock set
+        # does not consume a fault intended for the subsequent operation.
         if len(lock_set.tbl_targets) > 0:
             fault_injection.process_fault(FaultLocation.CATALOG_BEFORE_TBL_LOCK, op_class=op_class)
             self._lock_tables(lock_set.tbl_targets, blocking=lock_set.blocking)
@@ -1522,8 +1422,7 @@ class Catalog(CatalogBase):
         for dir_id in lock_set.dir_ids:
             self._acquire_dir_xlock(dir_id=dir_id)
 
-        # write targets already refreshed, including the tree members reached through one, so that a target reached
-        # twice is read once
+        # Track refreshed write targets and views to avoid loading the same table twice.
         refreshed: set[UUID] = set()
         for tvp in write_tvps:
             self._refresh_path_cache(
@@ -1640,12 +1539,10 @@ class Catalog(CatalogBase):
         check_pending_ops: bool = True,
         refreshed: set[UUID] | None = None,
     ) -> None:
-        """
-        Refresh the cached TableVersions along a path, and check what this operation writes for pending ops:
-        - the ancestors, which an insert needs too, for computed columns that reference the base tables
-        - the leaf, through _refresh_tbl_cache() when for_write, and its mutable tree when mutable_tree
+        """Refresh cached table versions along the path, starting with the bases.
 
-        Raises Error if tbl doesn't exist.
+        For writes, refresh the leaf through _refresh_tbl_cache(), including its mutable views when requested.
+        Reads refresh the entire path through _get_tbl_version(). Missing tables raise TABLE_NOT_FOUND.
         """
         path_handles = tbl.get_tbl_versions()
         read_handles = path_handles[:0:-1] if for_write else path_handles[::-1]
@@ -1661,7 +1558,7 @@ class Catalog(CatalogBase):
             )
 
     def _has_store_tbl_lock(self, tbl_id: UUID, mode: _TblLockMode) -> bool:
-        """True if this transaction holds `mode` or stronger on the table's store table, under either name."""
+        """Return whether this transaction holds `mode` or stronger under the table or view storage name."""
         return any(self._is_locked(_store_tbl_name(tbl_id, is_view=is_view), mode) for is_view in (False, True))
 
     def _refresh_tbl_cache(
@@ -1672,15 +1569,12 @@ class Catalog(CatalogBase):
         check_pending_ops: bool = True,
         refreshed: set[UUID] | None = None,
     ) -> None:
-        """
-        Refresh a target's cached metadata, and check it for pending ops.
+        """Refresh a target's cached metadata and optionally check for pending operations.
 
-        If mutable_tree, does the same for the target's transitive mutable views, which a write propagates to.
-        refreshed, if given, accumulates the ids visited and skips those already there.
+        With `mutable_tree`, also refresh all mutable descendant views. If supplied, `refreshed` tracks visited ids
+        to avoid refreshing a write target twice.
 
-        Takes no lock. The target's store table was locked before any statement pinned this transaction's snapshot,
-        so what this reads is current as of that acquisition, and no concurrent operation can change it before we
-        commit.
+        This method takes no locks. Callers that need locks must acquire them before reading metadata.
         """
         if refreshed is not None:
             if key.tbl_id in refreshed:
@@ -1698,13 +1592,11 @@ class Catalog(CatalogBase):
             if has_pending_ops:
                 raise PendingTableOpsError(row.id)
 
-        # check_pending_ops == False means this table's pending ops are in the process of being finalized, so its
-        # metadata is still in flux; loading it would also pull in the tables its value exprs reference, which may
-        # have pending ops of their own.
+        # During finalization, skip loading unfinished metadata: its expressions may load other tables with
+        # pending operations of their own.
         tv: TableVersion | None = None
         if check_pending_ops and not tbl_md.is_pure_snapshot:
-            # a caller that names a table without a version -- a write target, or a tree member reached below --
-            # leaves it to the md: a snapshot is loaded at the version it pins, a mutable table at None
+            # For an unpinned key, load the snapshot's pinned version or the mutable table's current version.
             load_key = (
                 key
                 if key.effective_version is not None or not tbl_md.is_snapshot
@@ -1735,27 +1627,20 @@ class Catalog(CatalogBase):
                 ) from exc
 
     def _finalize_pending_ops(self, tbl_id: UUID) -> Exception | None:
-        """
-        Finalizes all pending ops for the given table, and clears the table version cache for that table.
+        """Complete or undo pending operations for a table, then clear its cached table versions.
 
-        Each of its transactions waits for its ACCESS EXCLUSIVE lock, whether this is the owner rolling its own
-        schema change forward or a helper doing it on behalf of an operation that ran into the pending ops.
-        An owner that has actually died leaves the lock free, so the next helper takes over.
+        Each finalization transaction waits for ACCESS EXCLUSIVE. The process that started a schema change normally
+        finishes it; another process can help if it encounters pending operations, including after the owner dies.
 
-        During tbl_state == ROLLFORWARD (error-free path):
-        - executes all remaining pending ops in order op_sn and updates their status to COMPLETED
-        - when done, deletes all table ops and resets tbl_state to LIVE
-        - if it encounters an exception:
-          - if the statement can be aborted, switches tbl_state to ROLLBACK and continues with the rollback protocol
-          - otherwise continues with rollforward
+        In ROLLFORWARD state, execute remaining operations in op_sn order and mark them COMPLETED. On failure,
+        switch to ROLLBACK if the statement can be aborted; otherwise, continue trying to finish it.
 
-        During tbl_state == ROLLBACK (error path):
-        - undoes ops in reverse order of op_sn and updates their status to ABORTED
-        - this process starts with the first pending op, because it could have been partially executed
-        - when done, deletes all table ops and resets tbl_state to LIVE
+        In ROLLBACK state, undo operations in reverse order and mark them ABORTED. Start with the first pending
+        operation because it may have partially executed, then undo earlier completed operations.
 
-        If an exception occurred during finalization, that exception is returned. PendingOpsErrors encountered during
-        finalization are dealt with recursively.
+        After completion or rollback, delete the operation log and return the table to LIVE state. Return any
+        exception encountered during finalization. Recursively finalize other tables if their pending operations
+        prevent this table's work from continuing.
         """
         num_retries = 0
         is_rollback = False
@@ -1883,9 +1768,8 @@ class Catalog(CatalogBase):
             except excs.ConcurrencyError as e:
                 if e.error_code is not excs.ErrorCode.SCHEMA_CHANGE_IN_PROGRESS:
                     raise
-                # Not the finalization's own lock, which it always waits for; this is an op whose work ran into a
-                # fail-fast operation elsewhere. Pass it to the caller rather than letting the handler below treat
-                # it as an op failure, which would abort a statement that has nothing wrong with it.
+                # Finalization itself waits for locks, but its work may call a NOWAIT operation on another table.
+                # Propagate that conflict without treating it as a failure that requires rolling back the schema change.
                 _logger.debug(f'Finalize pending ops({tbl_id}): op reported a schema change in progress')
                 raise
 
@@ -2087,10 +1971,10 @@ class Catalog(CatalogBase):
     def _compute_column_dependents(
         self, write_tvps: Collection[TableVersionPath], write_tbl_keys: Collection[TableVersionKey]
     ) -> None:
-        """Populate self._column_dependents over the mutable trees of this transaction's write targets.
+        """Build the column-dependency graph for the write targets and their mutable descendant views.
 
-        Only called when the write targets were locked with their mutable trees, which is the set this walks. Those
-        locks block schema updates, so the dependency graph is current until the end of the transaction.
+        The caller must already hold write locks on these tables. Those locks prevent schema changes, keeping the
+        graph valid until the transaction ends.
         """
         assert self._column_dependents is None
         self._column_dependents = defaultdict(set)
@@ -2153,11 +2037,10 @@ class Catalog(CatalogBase):
     def _acquire_dir_xlock(
         self, *, parent_id: UUID | None = None, dir_id: UUID | None = None, dir_name: str | None = None
     ) -> None:
-        """Force acquisition of an X-lock on a Dir record via a blind update.
+        """Lock a directory row by updating its dummy column.
 
-        If dir_id is present, then all other conditions are ignored.
-        Note that (parent_id==None) is a valid where condition.
-        If dir_id is not specified, the user from the environment is added to the directory filters.
+        Use `dir_id` when supplied. Otherwise, match `parent_id` and `dir_name`, filtering by the environment's user
+        when set. A None parent id is valid for the root directory.
         """
         assert (dir_name is None) != (dir_id is None)
         assert not (parent_id is not None and dir_name is None)
@@ -2392,8 +2275,7 @@ class Catalog(CatalogBase):
             dir_record = schema.Dir(**rows[0]._mapping)
             return Dir(dir_record.id)
 
-        # check for table. The name slot needs no lock of its own: the caller X-locked this directory, and that lock
-        # is what guards a name in it.
+        # The caller holds the directory lock, so another transaction cannot claim this name.
         q = sql.select(schema.Table.id).where(
             self._active_tbl_clause(dir_id=dir_id, tbl_name=name), schema.Table.md['user'].astext == user
         )
@@ -2699,10 +2581,10 @@ class Catalog(CatalogBase):
         return get_tbl_fn(), is_created
 
     def _create_store_tbl(self, tbl_md: schema.TableMd) -> None:
-        """Create the store table within the current transaction.
+        """Create physical storage in the same transaction as the table's metadata.
 
-        This maintains the invariant that a table metadata record exists iff the store table is present (except pure
-        snapshots that don't maintain a store table).
+        This keeps the metadata row and store table consistent across commit or rollback. Pure snapshots have no
+        store table and must not call this method.
         """
         assert self._in_write_xact
         assert not tbl_md.is_pure_snapshot
@@ -3039,9 +2921,8 @@ class Catalog(CatalogBase):
             tv.tbl_md.pending_stmt = schema.TableStatement.DROP_TABLE
             drop_ops, new_version, mutable_base_tbl_id = tv.drop_ops()
             if mutable_base_tbl_id is not None:
-                # dropping a mutable view changes how writes to the base propagate. The bump happens here, in the
-                # transaction that already holds the base's write lock, rather than in the op that deletes the md:
-                # a pending op runs with only its own table locked for write, and this writes the base's record.
+                # Advance the base's view_sn while this transaction holds its write lock. The pending operation that
+                # deletes the view's metadata locks only the view, so it cannot update the base.
                 self._incr_view_sn(mutable_base_tbl_id)
             self.write_tbl_md(
                 tv.id,
@@ -3313,8 +3194,8 @@ class Catalog(CatalogBase):
         """Update dir_id/name for tbl_id."""
         self._assert_md_write_locked(tbl_id, is_insert=False, is_pure_snapshot=is_pure_snapshot, dir_id=new_dir_id)
         # TODO clean up
-        # _assert_md_write_locked() checks the dir lock only for an insert; a rename claims a name in new_dir_id,
-        # and that directory's X-lock is what holds the name slot
+        # A rename needs the destination directory lock to claim its new name. _assert_md_write_locked()
+        # checks directory locks only for inserts and pure snapshots.
         assert self._is_dir_locked(new_dir_id), (tbl_id, new_name, new_dir_id, self._dir_locks_held)
         stmt = (
             sql.update(schema.Table)
@@ -3856,8 +3737,8 @@ class Catalog(CatalogBase):
             tbl_id, is_insert=False, is_pure_snapshot=tbl_md.is_pure_snapshot, dir_id=deleted_dir_id
         )
         if tbl_md.view_md is not None:
-            # the base's cached mutable_views still names the table this just deleted, and its view_sn was already
-            # advanced by the transaction that initiated the drop, so revalidation would not notice
+            # Clear the base's cached view list. Its view_sn was advanced when the drop began, so version validation
+            # alone would not detect that the view's metadata has now been deleted.
             base_id, base_version = tbl_md.view_md.base_versions[0]
             if base_version is None:
                 self._clear_tv_cache(TableVersionKey(UUID(base_id), None))

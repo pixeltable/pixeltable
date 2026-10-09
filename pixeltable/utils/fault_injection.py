@@ -30,7 +30,8 @@ def create_fault_manager() -> Any:
 
 
 def process_fault(loc: FaultLocation, **kwargs: Any) -> None:
-    """No op. The actual implementation is monkey-patched in tests only.
+    """No-op outside tests, where this function is replaced with the fault manager implementation.
 
-    kwargs is context that a test can use to target faults more precisely."""
+    Call sites pass context through `kwargs` so tests can filter which calls trigger a fault.
+    """
     pass

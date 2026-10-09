@@ -92,8 +92,7 @@ class LocalTable(Table):
     def _name(self) -> str:
         from pixeltable.catalog import retrying_read
 
-        # retrying_read(), not a begin_read_md_xact(): this is also called as a top-level statement (eg while preparing
-        # an insert), where a dropped connection has to be retried rather than raised
+        # This can run outside a transaction while preparing an insert. Retry dropped connections in that case.
         return retrying_read(lambda: get_runtime().catalog.read_tbl_record(self._id).md['name'])
 
     def _dir_id(self) -> UUID | None:
@@ -219,7 +218,7 @@ class LocalTable(Table):
     def list_views(self, *, recursive: bool = True) -> list[str]:
         from pixeltable.catalog import retry_read_loop
 
-        # we need a retry loop here, because we end up loading Tables for the views
+        # Loading view metadata can encounter pending operations, requiring a retry of the whole listing.
         @retry_read_loop(tvps=[self._tbl_version_path])
         def op() -> list[str]:
             paths: list[str] = []
