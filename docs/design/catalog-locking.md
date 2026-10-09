@@ -30,15 +30,15 @@ Two things follow, and the rest of the design rests on them:
 ## 2. Operation classes, modes and wait policies
 
 Each transaction is opened through one of `Catalog.begin_*_xact()` or the matching `retry_*_loop()` decorator, and
-that choice names an operation class (`TblOpClass`). The operation class determines the lock mode, and affects
+that choice specifies an operation class (`_TblOpClass`). The operation class determines the lock mode, and affects
 the choice of wait policy.
 
 | Operation class | Lock Mode: operational | Lock Mode: versioned | Waits?: operational | Waits?: versioned |
 | --- | --- | --- | --- | --- |
 | `MD_READ`: catalog md, no table data | none | none | n/a | n/a |
-| `READ`: query rows | `ACCESS SHARE` | `ACCESS SHARE` | no | yes |
+| `DATA_READ`: query rows | `ACCESS SHARE` | `ACCESS SHARE` | no | yes |
 | `DATA_WRITE`: insert/update/delete | `ROW EXCLUSIVE` | `EXCLUSIVE` | no | yes |
-| `MD_UPDATE`: md write, DDL | `ACCESS EXCLUSIVE` | `ACCESS EXCLUSIVE` | yes | yes |
+| `MD_WRITE`: md write, DDL | `ACCESS EXCLUSIVE` | `ACCESS EXCLUSIVE` | yes | yes |
 | `FINALIZE`: pending-op finalization | `ACCESS EXCLUSIVE` | `ACCESS EXCLUSIVE` | yes | yes |
 
 Only `DATA_WRITE` class differs between data-versioned and operational tables. `ROW EXCLUSIVE` is self-compatible,
@@ -48,10 +48,10 @@ compatible with `ACCESS SHARE`.
 
 **Readers are never blocked by writers of either kind, and writers are never blocked by readers.**
 
-**Lock Mode is per table; wait policy is per transaction.** A single lock set mixes modes, because a write locks
-its target in `ACCESS EXCLUSIVE` and its base tables in `ACCESS SHARE`: it writes the one and reads the others. Each
-`LockTarget` therefore carries its own mode. The wait policy is a single decision for the transaction, since the
-caller either waits for the locks it needs or it doesn't, and `LockSet` carries it.
+**Lock Mode is per table; wait policy is per transaction.** A single lock set mixes modes, because a schema change
+locks its target in `ACCESS EXCLUSIVE` and its base tables in `ACCESS SHARE`: it writes the one and reads the others.
+Each `_LockTarget` therefore has its own mode. The wait policy is a single decision for the transaction, since the
+caller either waits for the locks it needs or it doesn't, and `_LockSet` stores it.
 
 - **Operational reads and writes fail fast** (`NOWAIT`, reported as `SCHEMA_CHANGE_IN_PROGRESS`). Only a schema
   change conflicts with the modes they ask for.
@@ -81,9 +81,9 @@ through a `@pxt.query` UDF for instance, and those go through `begin_read_xact()
 - A **read** locks every table on each `TableVersionPath` it reads, bases included, because a view read reads base
   data. It locks nothing else: a read never recurses into views.
 - A **data write** locks its target and every transitive mutable view, because the write propagates there.
-- A **schema change** locks the same set as the equivalent write. `create_view` and `drop_view` additionally lock
-  the base's store table: adding or dropping a mutable view changes how base writes propagate and bumps the base's
-  `view_sn`, so it has to exclude concurrent base writes.
+- A **schema change** locks the same set as the equivalent write. Creating or dropping a mutable view additionally
+  locks the base's store table: it changes how base writes propagate and bumps the base's `view_sn`, so it has to
+  exclude concurrent base writes.
 - A **drop** also reaches the whole catalog subtree named by its catalog path (`'dir.subdir.tbl'`): for a directory
   its subdirectories and their tables, for a table its views, snapshots included.
 - A table with no store table contributes nothing. Pure snapshots have none, and their bases are already on the
@@ -148,7 +148,7 @@ holding the locks, not about the order they were taken in, which is why the glob
 
 ### The two ways a guess fails
 
-Both raise `StaleLockSetError` and share one recovery:
+Both raise `_StaleLockSetError` and share one recovery:
 
 - **A store table in the set is gone**: another process dropped that view, and this one has not read metadata
   since.
@@ -249,9 +249,11 @@ Asserts catch a wrong operation class, or a statement reached without the lock i
 either to code review:
 
 - `_lock_tables()`: the targets are sorted by name, and none is already locked.
-- `_assert_md_write_locked()`: a metadata write holds a **self-conflicting** mode on the store table, `EXCLUSIVE` or
-  `ACCESS EXCLUSIVE`, depending on the table kind.
-- `assert_rows_write_locked()` / `assert_rows_read_locked()`: called from `StoreBase` and `SqlNode`, which own every
-  statement that reads or writes store rows.
-- `_make_lock_set()`: the set does not span both table kinds (§2).
+- `_assert_md_write_locked()`: a metadata write holds a **self-conflicting** mode on the store table: `EXCLUSIVE` for
+  the version bump of a data write on a data-versioned table, `ACCESS EXCLUSIVE` for a schema change. Inserting a
+  `tables` row, or writing a pure snapshot's, requires the parent `dirs` row lock instead (§5).
+- `assert_rows_write_locked()`: called from `StoreBase`, which owns every statement that writes store rows.
+
+`check_rows_read_locked()`, called from `SqlNode`, only warns: a write's lock set does not yet include the tables
+read by a computed column's `@pxt.query` UDF (PXT-1343). It becomes an assert once that is fixed.
 
