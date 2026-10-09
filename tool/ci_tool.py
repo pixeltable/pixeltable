@@ -136,7 +136,15 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
         # force_all is set by the "Run on all platforms" checkbox on a workflow dispatch.
         if force_all or trigger == 'schedule':
             configs.append(
-                MatrixConfig('standard++', 'py', 'ubuntu-large', '3.11', pytest_options=VERY_EXPENSIVE_PYTEST)
+                MatrixConfig(
+                    'standard++',
+                    'py',
+                    'ubuntu-large',
+                    '3.11',
+                    pytest_options=VERY_EXPENSIVE_PYTEST,
+                    # this configuration's runner has been shutting down mid-run; log memory to see whether it runs out
+                    pre_test_cmd='./scripts/log-memory.sh 15 &',
+                )
             )
             configs.append(MatrixConfig('notebooks++', 'ipynb', 'ubuntu-large', '3.11'))
 

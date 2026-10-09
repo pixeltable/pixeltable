@@ -236,6 +236,48 @@ class TestDestination:
         with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
             ObjectPath.parse_object_storage_addr('pxtfs://org:db/homebucket', allow_obj_name=False)
 
+    def test_dest_parser_pxt_buckets(self) -> None:
+        """pxt://org:db/buckets/home[/key] is the address pxtfs://org:db/home[/key] names, pxtfs scheme included."""
+        # keys are opaque: an object key may hold colons and dots, which a catalog path would read as a version
+        # and a dotted path
+        for path in (
+            '',
+            '/',
+            '/media/images',
+            '/media/images/',
+            '/media/images/img.jpg',
+            '/9f3a/2026-09-01T10:30:00Z.mp4',
+        ):
+            for allow_obj_name in (False, True):
+                pxtfs = ObjectPath.parse_object_storage_addr(f'pxtfs://org:db/home{path}', allow_obj_name)
+                pxt = ObjectPath.parse_object_storage_addr(f'pxt://org:db/buckets/home{path}', allow_obj_name)
+                assert pxt == pxtfs, path
+
+        soa = ObjectPath.parse_object_storage_addr(
+            'pxt://org:db/buckets/home/9f3a/2026-09-01T10:30:00Z.mp4', allow_obj_name=True
+        )
+        assert soa.storage_target == StorageTarget.PIXELTABLE_STORE
+        assert soa.scheme == 'pxtfs'
+        assert (soa.account, soa.account_extension, soa.container) == ('org', 'db', 'home')
+        assert soa.key == '9f3a/2026-09-01T10:30:00Z.mp4'
+        assert soa.prefix == '9f3a/'
+        assert soa.object_name == '2026-09-01T10:30:00Z.mp4'
+
+        # catalog paths share the scheme, so any pxt:// path outside buckets/home is refused
+        for uri, match in (
+            ('pxt://org:db/dir/tbl', 'other pxt:// paths are catalog paths'),
+            ('pxt://org:db', 'other pxt:// paths are catalog paths'),
+            ('pxt://org:db/home', 'other pxt:// paths are catalog paths'),
+            ('pxt://org:db/buckets:1', 'other pxt:// paths are catalog paths'),
+            ('pxt://org:db/buckets', 'bucket segment is required'),
+            ('pxt://org:db/buckets/notbucket', "only 'home' bucket is supported"),
+            ('pxt://org:db/buckets/homebucket/x.jpg', "only 'home' bucket is supported"),
+            ('pxt://orgonly/buckets/home', "netloc must be 'org:db'"),
+        ):
+            for allow_obj_name in (False, True):
+                with pytest.raises(ValueError, match=f'Invalid pxt:// store URI .*{match}'):
+                    ObjectPath.parse_object_storage_addr(uri, allow_obj_name)
+
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS.values())
     def test_destination(self, db_root: DatabaseRoot, dest_id: StorageTarget) -> None:
         """Test various media destinations."""
