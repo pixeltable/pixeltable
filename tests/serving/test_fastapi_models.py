@@ -263,6 +263,8 @@ class TestFastAPIModels:
         assert client.post('/half', json={'note_id': 3, 'val': 20}).json() == {'half': 10.0, 'plus': 11.0}
         assert client.post('/half', json={'note_id': 4, 'val': 5}).json() is None
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_query_udf_column_target(self, db_root: DatabaseRoot) -> None:
         """Routes can be declared against a model whose computed column calls a @pxt.query over another model."""
         p = db_root.make_catalog_path

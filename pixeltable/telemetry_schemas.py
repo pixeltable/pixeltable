@@ -205,6 +205,7 @@ udf_input_tokens = telemetry.counter('pixeltable.udf.input_tokens', '{token}')
 udf_output_tokens = telemetry.counter('pixeltable.udf.output_tokens', '{token}')
 media_fetched_bytes = telemetry.counter('pixeltable.media.fetched_bytes', 'By')
 media_saved_bytes = telemetry.counter('pixeltable.media.saved_bytes', 'By')
+lock_set_restarts = telemetry.counter('pixeltable.catalog.lock_set_restarts', '{restart}')
 
 
 @contextlib.contextmanager
