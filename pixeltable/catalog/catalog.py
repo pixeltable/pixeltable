@@ -709,15 +709,16 @@ class Catalog(CatalogBase):
                 with get_runtime().begin_xact(for_write=for_write) as conn:
                     with self._allow_tbl_md_read():
                         try:
-                            self._acquire_locks(
-                                op_class=op_class,
-                                read_tvps=read_tvps,
-                                read_tbl_keys=read_tbl_keys,
-                                write_tvps=write_tvps,
-                                write_tbl_keys=write_tbl_keys,
+                            self._acquire_locks(attempt_lock_set, op_class)
+                            # order matters: _acquire_locks does not do any queries, which lets us acquire the read
+                            # snapshot for the transaction only after all locks have been acquired
+                            self._refresh_md_cache(
+                                read_tvps,
+                                read_tbl_keys,
+                                write_tvps,
+                                write_tbl_keys,
                                 lock_mutable_tree=lock_mutable_tree,
-                                lock_set=attempt_lock_set,
-                                finalize_pending_ops=finalize_pending_ops,
+                                check_pending_ops=finalize_pending_ops,
                             )
                             self._validate_lock_set(
                                 op_class=op_class,
@@ -1376,26 +1377,12 @@ class Catalog(CatalogBase):
             self._locks_held[t.store_tbl_name] = t.mode
 
     # TODO continue from here
-    # TODO: separate lock acquisition from metadata refresh.
     @telemetry.spanned('pixeltable.catalog.acquire_locks', level=telemetry.DEBUG)
-    def _acquire_locks(
-        self,
-        op_class: _TblOpClass,
-        read_tvps: Collection[TableVersionPath],
-        read_tbl_keys: Collection[TableVersionKey],
-        write_tvps: Collection[TableVersionPath],
-        write_tbl_keys: Collection[TableVersionKey],
-        lock_set: _LockSet,
-        lock_mutable_tree: bool,
-        finalize_pending_ops: bool,
-    ) -> None:
-        """Acquire the lock set, then refresh metadata for all read and write targets.
+    def _acquire_locks(self, lock_set: _LockSet, op_class: _TblOpClass) -> None:
+        """Acquire the lock set: store tables first, then directory rows.
 
         Store table locks must come before directory row locks or metadata queries, which establish the transaction's
         snapshot. Otherwise, waiting for a store table lock could leave us reading metadata from before the wait.
-
-        Refresh write targets first, including their mutable views when requested, then read targets. In each group,
-        process paths before individual keys so bases are validated before their views.
         """
         # Skip fault points when no store tables are locked, so the metadata transaction used to build a lock set
         # does not consume a fault intended for the subsequent operation.
@@ -1406,6 +1393,21 @@ class Catalog(CatalogBase):
         for dir_id in lock_set.dir_ids:
             self._acquire_dir_xlock(dir_id=dir_id)
 
+    def _refresh_md_cache(
+        self,
+        read_tvps: Collection[TableVersionPath],
+        read_tbl_keys: Collection[TableVersionKey],
+        write_tvps: Collection[TableVersionPath],
+        write_tbl_keys: Collection[TableVersionKey],
+        *,
+        lock_mutable_tree: bool,
+        check_pending_ops: bool,
+    ) -> None:
+        """Refresh metadata for all read and write targets.
+
+        Refresh write targets first, including their mutable views when requested, then read targets. In each group,
+        process paths before individual keys so bases are validated before their views.
+        """
         # Track refreshed write targets and views to avoid loading the same table twice.
         refreshed: set[UUID] = set()
         for tvp in write_tvps:
@@ -1413,22 +1415,19 @@ class Catalog(CatalogBase):
                 tbl=tvp,
                 for_write=True,
                 mutable_tree=lock_mutable_tree,
-                check_pending_ops=finalize_pending_ops,
+                check_pending_ops=check_pending_ops,
                 refreshed=refreshed,
             )
         for write_key in write_tbl_keys:
             # a write target is always a mutable table, so its key carries no effective version
             assert write_key.effective_version is None, write_key
             self._refresh_tbl_cache(
-                key=write_key,
-                mutable_tree=lock_mutable_tree,
-                check_pending_ops=finalize_pending_ops,
-                refreshed=refreshed,
+                key=write_key, mutable_tree=lock_mutable_tree, check_pending_ops=check_pending_ops, refreshed=refreshed
             )
         for tvp in read_tvps:
-            self._refresh_path_cache(tbl=tvp, for_write=False, check_pending_ops=finalize_pending_ops)
+            self._refresh_path_cache(tbl=tvp, for_write=False, check_pending_ops=check_pending_ops)
         for read_key in read_tbl_keys:
-            self._refresh_tbl_cache(key=read_key, check_pending_ops=finalize_pending_ops)
+            self._refresh_tbl_cache(key=read_key, check_pending_ops=check_pending_ops)
 
     def _evict_caches(self) -> None:
         # Evict LRU _tbls entries

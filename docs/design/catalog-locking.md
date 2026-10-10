@@ -83,8 +83,8 @@ inside the operation's transaction before locking would establish its snapshot t
 transactions use a tentative lock set:
 
 1. Build the set before opening the operation's transaction (`_resolve_lock_set()`).
-2. Open the transaction and lock store tables, then directory rows.
-3. Refresh metadata and check for pending operations (`_acquire_locks()`). Pending operations abort this attempt.
+2. Open the transaction and lock store tables, then directory rows (`_acquire_locks()`).
+3. Refresh metadata and check for pending operations (`_refresh_md_cache()`). Pending operations abort this attempt.
 4. Check that the held locks cover the refreshed targets (`_validate_lock_set()`). Retry if they do not.
 5. Run the caller's operation.
 
