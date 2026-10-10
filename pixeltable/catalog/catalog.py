@@ -1303,25 +1303,24 @@ class Catalog(CatalogBase):
         assert get_runtime().in_xact
         return dir_id in self._dir_locks_held
 
-    # TODO continue from here
     def _assert_md_write_locked(
-        self, tbl_id: UUID, *, is_insert: bool, is_pure_snapshot: bool, dir_id: UUID | None
+        self, tbl_id: UUID, *, is_new_tbl: bool, is_pure_snapshot: bool, dir_id: UUID | None
     ) -> None:
         """Assert that the transaction holds the lock required to write this table's metadata.
 
-        Existing store tables need EXCLUSIVE or stronger: EXCLUSIVE serializes version bumps, and ACCESS EXCLUSIVE
-        protects schema changes. Operational row writes use ROW EXCLUSIVE and do not update table metadata.
+        Most of the time it means that the store table has to be locked in EXCLUSIVE mode.
 
-        New tables and pure snapshots are protected by the parent directory lock. A new table's id is not yet
-        visible to other transactions; a pure snapshot has no store table to lock.
-        """
-        if is_insert or is_pure_snapshot:
+        Two exceptions are new table creation and pure snapshots: a new table's id is not yet visible to other
+        transactions, and a pure snapshot has no store table to begin with. In those cases we verify that the parent
+        dir is locked."""
+        if is_new_tbl or is_pure_snapshot:
             # The parent directory lock protects new entries and pure snapshots, which have no existing store lock.
             assert dir_id is not None, tbl_id
             assert self._is_dir_locked(dir_id), (tbl_id, dir_id, self._dir_locks_held)
             return
         assert self._has_store_tbl_lock(tbl_id, _TblLockMode.EXCLUSIVE), (tbl_id, self._locks_held)
 
+    # TODO continue from here
     def assert_rows_write_locked(self, tv: TableVersion) -> None:
         """Assert that the transaction holds the required lock for writing this table's rows."""
         mode = _tbl_lock_mode(_TblOpClass.DATA_WRITE, tv.is_data_versioned)
@@ -3184,7 +3183,7 @@ class Catalog(CatalogBase):
 
     def _move_table(self, tbl_id: UUID, new_name: str, new_dir_id: UUID, *, is_pure_snapshot: bool) -> None:
         """Update dir_id/name for tbl_id."""
-        self._assert_md_write_locked(tbl_id, is_insert=False, is_pure_snapshot=is_pure_snapshot, dir_id=new_dir_id)
+        self._assert_md_write_locked(tbl_id, is_new_tbl=False, is_pure_snapshot=is_pure_snapshot, dir_id=new_dir_id)
         # TODO clean up
         # A rename needs the destination directory lock to claim its new name. _assert_md_write_locked()
         # checks directory locks only for inserts and pure snapshots.
@@ -3546,7 +3545,7 @@ class Catalog(CatalogBase):
         if tbl_md is not None:
             assert tbl_md.tbl_id == str(tbl_id)
             self._assert_md_write_locked(
-                tbl_id, is_insert=dir_id is not None, is_pure_snapshot=tbl_md.is_pure_snapshot, dir_id=dir_id
+                tbl_id, is_new_tbl=dir_id is not None, is_pure_snapshot=tbl_md.is_pure_snapshot, dir_id=dir_id
             )
             if version_md is not None:
                 assert tbl_md.current_version == version_md.version
@@ -3726,7 +3725,7 @@ class Catalog(CatalogBase):
         deleted_dir_id, deleted_table_md = deleted[0]
         tbl_md = schema.md_from_dict(schema.TableMd, deleted_table_md)
         self._assert_md_write_locked(
-            tbl_id, is_insert=False, is_pure_snapshot=tbl_md.is_pure_snapshot, dir_id=deleted_dir_id
+            tbl_id, is_new_tbl=False, is_pure_snapshot=tbl_md.is_pure_snapshot, dir_id=deleted_dir_id
         )
         if tbl_md.view_md is not None:
             # Clear the base's cached view list. Its view_sn was advanced when the drop began, so version validation
