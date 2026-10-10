@@ -217,6 +217,7 @@
                   "howto/cookbooks/text/text-extract-entities",
                   "howto/cookbooks/text/doc-ingest-website",
                   "howto/cookbooks/text/doc-chunk-for-rag",
+                  "howto/cookbooks/text/doc-convert-with-docling",
                   "howto/cookbooks/text/doc-extract-text-from-office-files"
                 ]
               },
@@ -334,7 +335,8 @@
           {
             "group": "Bring Your Own",
             "pages": [
-              "integrations/embedding-model"
+              "integrations/embedding-model",
+              "howto/cookbooks/text/doc-convert-with-docling"
             ]
           },
           {

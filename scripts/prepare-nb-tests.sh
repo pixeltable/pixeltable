@@ -49,6 +49,7 @@ EXPENSIVE_NOTEBOOKS=(
     computed-columns
     data-import-huggingface
     doc-chunk-for-rag
+    doc-convert-with-docling
     embedding-indexes
     img-promptable-segmentation
     multimodal_backend
@@ -112,6 +113,8 @@ if [[ $DO_PIP_INSTALL == true ]]; then
 else
     # whisperx is not in the dev env; this notebook gets it only from its %pip cell
     SKIP_NOTEBOOKS+=(audio-podcast-chapters)
+    # docling is not in the dev env; this notebook gets it only from its %pip cell
+    SKIP_NOTEBOOKS+=(doc-convert-with-docling)
 fi
 
 echo "Target path: $TARGET_DIR"
