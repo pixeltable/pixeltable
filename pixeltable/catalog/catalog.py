@@ -1320,7 +1320,6 @@ class Catalog(CatalogBase):
             return
         assert self._has_store_tbl_lock(tbl_id, _TblLockMode.EXCLUSIVE), (tbl_id, self._locks_held)
 
-    # TODO continue from here
     def assert_rows_write_locked(self, tv: TableVersion) -> None:
         """Assert that the transaction holds the required lock for writing this table's rows."""
         mode = _tbl_lock_mode(_TblOpClass.DATA_WRITE, tv.is_data_versioned)
@@ -1330,7 +1329,8 @@ class Catalog(CatalogBase):
     def check_rows_read_locked(self, tv: TableVersion) -> None:
         """Warn if the transaction lacks a read lock on this table.
 
-        TODO(PXT-1343): include tables read by computed-column query UDFs in the lock set, then make this an assertion.
+        TODO(PXT-1343): this can and should become an assertion when tables reached through a computed column query
+        UDFs are in the lock set.
         """
         read_lock_mode = _tbl_lock_mode(_TblOpClass.DATA_READ, tv.is_data_versioned)
         store_tbl_name = tv.store_tbl._storage_name()
@@ -1342,21 +1342,21 @@ class Catalog(CatalogBase):
             )
 
     def _lock_tables(self, targets: Sequence[_LockTarget], *, blocking: bool) -> None:
-        """Lock store tables in the supplied name order.
+        """Lock store tables.
 
-        Each LOCK TABLE statement uses one mode. Batch only adjacent targets with the same mode so acquisition stays
-        in global name order. Grouping all targets by mode would change that order and allow deadlocks.
-
+        The tables must be ordered by name, and that is the order in which the locks are acquired. Maintaining a total
+        order of lock acquisition ensures no deadlocks.
+    
         Raises:
             _LockNotAvailableError: a NOWAIT lock could not be acquired.
             _StaleLockSetError: a named store table no longer exists.
         """
         assert get_runtime().in_xact
         names = [t.store_tbl_name for t in targets]
-        # Every transaction must use the same relative order of lock acquisition in order to avoid deadlocks
         assert names == sorted(names), names
-        # a store table is locked once per transaction, no upgrades
+        # a store table is locked once per transaction, no lock is ever upgraded
         assert all(name not in self._locks_held for name in names), (names, self._locks_held)
+        # TODO continue from here
         for mode, run in itertools.groupby(targets, key=lambda t: t.mode):
             self._lock_run([t.store_tbl_name for t in run], mode, blocking=blocking)
 
