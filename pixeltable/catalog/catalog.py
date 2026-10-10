@@ -1346,7 +1346,7 @@ class Catalog(CatalogBase):
 
         The tables must be ordered by name, and that is the order in which the locks are acquired. Maintaining a total
         order of lock acquisition ensures no deadlocks.
-    
+
         Raises:
             _LockNotAvailableError: a NOWAIT lock could not be acquired.
             _StaleLockSetError: a named store table no longer exists.
@@ -1356,33 +1356,35 @@ class Catalog(CatalogBase):
         assert names == sorted(names), names
         # a store table is locked once per transaction, no lock is ever upgraded
         assert all(name not in self._locks_held for name in names), (names, self._locks_held)
-        # TODO continue from here
-        for mode, run in itertools.groupby(targets, key=lambda t: t.mode):
-            self._lock_run([t.store_tbl_name for t in run], mode, blocking=blocking)
-
-    def _lock_run(self, store_tbl_names: list[str], mode: _TblLockMode, *, blocking: bool) -> None:
-        """Lock the named store tables in one statement, in the supplied order.
-
-        LOCK TABLE does not establish a REPEATABLE READ snapshot. Executing it before any queries lets subsequent
-        metadata reads see changes committed while waiting for the locks.
-        """
-        assert len(store_tbl_names) > 0
         nowait_clause = '' if blocking else 'NOWAIT'
-        stmt = f'LOCK TABLE {", ".join(store_tbl_names)} IN {mode.sql_name} MODE {nowait_clause}'
-        try:
-            get_runtime().conn.execute(sql.text(stmt))
-        except sql_exc.DBAPIError as e:
-            msg = f'{stmt} failed: {e}'
-            _logger.debug(msg)
-            if isinstance(e.orig, psycopg.errors.LockNotAvailable):
-                assert not blocking
-                raise _LockNotAvailableError from e
-            if isinstance(e.orig, psycopg.errors.UndefinedTable):
-                raise _StaleLockSetError(msg) from e
-            raise
-        for store_tbl_name in store_tbl_names:
-            self._locks_held[store_tbl_name] = mode
+        # LOCK TABLE statement supports multiple table names, but only one lock mode. To minimize the number
+        # of statements executed while maintaining the correct locking order, break down the targets into consecutive
+        # sublists that share a mode.
+        # E.g. for input (tbl_A, mode1), (tbl_B, mode1), (tbl_C, mode2), (tbl_D, mode1), (tbl_E, mode1),
+        # the statements will be:
+        # LOCK TABLE tbl_A, tbl_B IN mode1 MODE
+        # LOCK TABLE tbl_C IN mode2 MODE
+        # LOCK TABLE tbl_D, tbl_E IN mode1 MODE
+        for mode, targets_sublist in itertools.groupby(targets, key=lambda t: t.mode):
+            store_tbl_names = [t.store_tbl_name for t in targets_sublist]
+            stmt = f'LOCK TABLE {", ".join(store_tbl_names)} IN {mode.sql_name} MODE {nowait_clause}'
+            try:
+                get_runtime().conn.execute(sql.text(stmt))
+            except sql_exc.DBAPIError as e:
+                msg = f'{stmt} failed: {e}'
+                _logger.debug(msg)
+                if isinstance(e.orig, psycopg.errors.LockNotAvailable):
+                    assert not blocking
+                    raise _LockNotAvailableError from e
+                if isinstance(e.orig, psycopg.errors.UndefinedTable):
+                    # A table that we attempted to lock does not exist in the store. That means that the lock set is
+                    # out of date.
+                    raise _StaleLockSetError(msg) from e
+                raise
+            for store_tbl_name in store_tbl_names:
+                self._locks_held[store_tbl_name] = mode
 
+    # TODO continue from here
     # TODO: separate lock acquisition from metadata refresh.
     @telemetry.spanned('pixeltable.catalog.acquire_locks', level=telemetry.DEBUG)
     def _acquire_locks(
