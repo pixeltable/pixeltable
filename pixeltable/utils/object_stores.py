@@ -609,6 +609,8 @@ class ObjectOps:
                     f'{error_col_str}: a local filesystem `destination` is not supported for a hosted table; use '
                     'the default store or an external store such as s3:// or https://.',
                 )
+        if dest is not None:
+            reject_local_dest_in_project(dest, f'{error_col_str}: `destination`', excs.ErrorCode.INVALID_ARGUMENT)
 
         # Specific checks for storage backends
         store = cls.get_store(dest, False, col_name)
@@ -618,7 +620,6 @@ class ObjectOps:
                 excs.ErrorCode.INVALID_ARGUMENT,
                 f'{error_col_str}: `destination` must be a supported destination; got {dest!r}',
             )
-        reject_local_dest_in_project(dest2, f'{error_col_str}: `destination`', excs.ErrorCode.INVALID_ARGUMENT)
         return dest2
 
     @classmethod

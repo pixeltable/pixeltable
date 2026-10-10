@@ -126,9 +126,14 @@ class TestDestination:
         project_root: Path = request.getfixturevalue('project_env')
         in_project = project_root / 'media'
         in_project.mkdir()
-        for dest in (str(in_project), in_project.as_uri(), project_root.as_uri()):
+        for dest in (str(in_project), in_project.as_uri(), project_root.as_uri(), str(project_root / 'missing')):
             with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is inside the project directory'):
                 t.add_computed_column(img_rot=t.img.rotate(90), destination=dest)
+        # Yet a sibling directory to the project root is acceptable
+        sibling = project_root.parent / f'{project_root.name}-media'
+        sibling.mkdir()
+        t.add_computed_column(img_sibling=t.img.rotate(90), destination=str(sibling))
+        t.add_computed_column(img_dotdot=t.img.rotate(90), destination=str(project_root / '..' / sibling.name))
 
         # Test destination with a non-existent directory
         with pxt_raises(pxt.ErrorCode.STORAGE_NOT_FOUND, match='does not exist'):
