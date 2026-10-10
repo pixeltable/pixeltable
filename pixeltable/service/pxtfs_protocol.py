@@ -43,6 +43,9 @@ class GetBucketCredentialsResponse(BaseModel):
     ttl_seconds: int  # How long credentials are valid, in seconds
     prefix: str | None = None  # Prefix these credentials are scoped to
     no_space_left: bool = False  # True when storage quota is exceeded; only read and delete are allowed
+    # with no_space_left, what to tell the user: the usage, the limit and how to free space; older control planes
+    # send none
+    no_space_detail: str | None = None
 
 
 class GetPresignedUrlRequest(BaseModel):

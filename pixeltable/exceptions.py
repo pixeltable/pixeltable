@@ -208,6 +208,8 @@ class ExternalServiceError(Error):
 
     provider: str | None = None
     provider_http_status_code: int | None = None
+    # the provider's own name for the error, such as Pixeltable Cloud's X-Pixeltable-Error-Code
+    provider_error_code: str | None = None
 
     def __init__(
         self,
@@ -217,10 +219,12 @@ class ExternalServiceError(Error):
         retry_after: float | None = None,
         provider: str | None = None,
         status_code: int | None = None,
+        provider_error_code: str | None = None,
     ) -> None:
         super().__init__(error_code, message, retry_after=retry_after)
         self.provider = provider
         self.provider_http_status_code = status_code
+        self.provider_error_code = provider_error_code
 
     def to_dict(self, with_detail: bool = False) -> dict[str, Any]:
         d = super().to_dict(with_detail)
@@ -228,6 +232,8 @@ class ExternalServiceError(Error):
             d['provider'] = self.provider
         if self.provider_http_status_code is not None:
             d['provider_http_status_code'] = self.provider_http_status_code
+        if self.provider_error_code is not None:
+            d['provider_error_code'] = self.provider_error_code
         return d
 
     @classmethod
@@ -236,6 +242,7 @@ class ExternalServiceError(Error):
         assert isinstance(err, ExternalServiceError)
         err.provider = d.get('provider')
         err.provider_http_status_code = d.get('provider_http_status_code')
+        err.provider_error_code = d.get('provider_error_code')
         return err
 
 

@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import PIL.Image
+import pydantic
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
@@ -1057,6 +1058,17 @@ def update_key(req: Request) -> dict[str, Any]:
 @router.post('/api/key/delete')
 def delete_key(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(DeleteKeyRequest))
+
+
+class _GetUsageRequest(pydantic.BaseModel):
+    """This month's usage of the organization the credential belongs to. The control plane defines the operation."""
+
+    operation_type: typing.Literal['get_usage'] = management_client.GET_USAGE
+
+
+@router.get('/api/usage')
+def get_usage(_req: Request) -> dict[str, Any]:
+    return management_client.api_call(_GetUsageRequest())
 
 
 @router.get('/api/db')

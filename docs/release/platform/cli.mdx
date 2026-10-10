@@ -39,7 +39,7 @@ Use `pxt <command> --help` for per-subcommand flags and examples.
 | **Schema** | `schema diff`, `schema update`, `schema prune` |
 | **Interactive** | `shell` |
 | **Serving** | `service` |
-| **Cloud** | `login`, `logout`, `whoami`, `db`, `secret`, `org`, `key` |
+| **Cloud** | `login`, `logout`, `whoami`, `db`, `secret`, `org`, `key`, `usage` |
 | **Lifecycle** | `daemon`, `dashboard`, `health` |
 
 ### Universal flags
@@ -49,7 +49,7 @@ These flags work the same way across the catalog commands that support them and 
 | Flag | Available on | Description |
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
-| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs other than `example`, plus `init`, `login`, `whoami`, `db`, `secret`, `org`, `key`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), `schema example` and `service example` (which print an example file), or the commands that print plain status lines (`logout`, `daemon start`/`stop`/`restart`). |
+| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs other than `example`, plus `init`, `login`, `whoami`, `db`, `secret`, `org`, `key`, `usage`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), `schema example` and `service example` (which print an example file), or the commands that print plain status lines (`logout`, `daemon start`/`stop`/`restart`). |
 | `--json-schema` | `schema diff`, `service diff`, `db diff`, `db status`, `service list` | Print the JSON Schema of that command's `--json` output, with descriptions of every field and enum value, and exit. |
 | `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), plus `schema update`, `schema prune`, `service update` and `service prune` | Print the intended action; don't execute. |
 | `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`, `db update`, `db delete`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
@@ -138,6 +138,9 @@ pxt secret list                  # every secret in your org and its databases
 pxt key create ci                # a key that acts as you
 pxt key create app --grant access:pxt://myorg:mydb/services/ingest
 pxt key list                     # every key in the org, and who created it
+
+# cloud -- usage
+pxt usage                        # this month's usage and cost against your plan
 ```
 
 ## Inspection commands
@@ -1013,7 +1016,7 @@ python_version = '3.11'
 cpu = 2.0
 memory_mb = 4096
 disk_gb = 50
-workers = 2
+workers = 1    # Pixeltable Cloud runs a hosted database on one worker on every plan, until multi-worker databases ship
 
 # fixed when the database is created
 location = 'aws'
@@ -1181,6 +1184,48 @@ you has nothing to change.
 
 Names are unique per organization across both shapes, so `pxt key delete NAME` never has to choose
 between two keys. Any member of the organization can delete any key.
+
+### `pxt usage`
+
+```bash
+pxt usage
+pxt usage --json                 # the control plane's answer, as it is
+```
+
+Shows this month's usage of the organization your credential belongs to: the plan and the days left
+in the month (UTC), the cost so far against what the plan includes, each meter, and what the
+organization holds against its plan's limits. Any member can run it.
+
+```
+Community plan, 2026-11-01 to 2026-11-30 (UTC), 13 days left
+$18.42 of $25 used; past $25 your databases and services stop until the 1st (UTC)
+
+METER                           QUANTITY          COST
+Compute, vCPU-hours             120.5 vCPU-hour  $4.22
+Compute, memory GiB-hours       241 GiB-hour     $4.22
+Database storage past included  0 GB-month       $0.00
+Media past included             0 GB-month       $0.00
+Egress past included            0 GB             $0.00
+
+RESOURCE                    USED / LIMIT
+Databases                   1 / 1
+Services                    2 / 2
+Media Store                 12.3 GB / 50 GB
+Largest database's storage  3.2 GB / 10 GB
+Egress this month           2.1 GB / 5 GB
+```
+
+Costs are at Pro's rates, after what the plan includes, and bytes are decimal GB. Compute lags up
+to an hour, storage and egress up to a day. On Pro, the second line ends with the amount past the
+included credit instead; it is an estimate, since the invoice comes from Stripe and a first month's
+credit is prorated.
+
+### Plan limits
+
+When Pixeltable Cloud refuses a request past your plan's limits (`PLAN_LIMIT`), for an unpaid
+subscription (`PAYMENT_REQUIRED`), or because the media store is full (`STORE_FULL`), the command
+prints the control plane's reason alone, which ends with the fix, and exits 1. Retrying does not
+help until the fix is made.
 
 ### `pxt secret`
 

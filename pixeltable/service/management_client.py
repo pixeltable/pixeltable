@@ -8,7 +8,7 @@ from __future__ import annotations
 import dataclasses
 import http.client
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 import requests
 
@@ -19,6 +19,9 @@ from pixeltable.service.management_protocol import ManagementOperationType
 from pixeltable.utils.http import SESSION
 
 _DEFAULT_API_URL = 'https://internal-api.pixeltable.com'
+
+# an operation the control plane defines on its own, which `pxt usage` sends; its answer is read as a plain dict
+GET_USAGE: Final = 'get_usage'
 
 
 def api_url() -> str:
@@ -46,7 +49,7 @@ _READ_OPS = frozenset(
         ManagementOperationType.GET_SERVICE_INSTANCE,
         ManagementOperationType.GET_LOGS,
     )
-)
+) | {GET_USAGE}
 
 # what a 403 says the credential is not permitted to do
 _PURPOSES = {
@@ -77,6 +80,7 @@ _PURPOSES = {
     ManagementOperationType.LIST_KEYS.value: 'list keys',
     ManagementOperationType.UPDATE_KEY.value: 'update keys',
     ManagementOperationType.DELETE_KEY.value: 'delete keys',
+    GET_USAGE: "read the organization's usage",
 }
 
 
@@ -147,11 +151,35 @@ def _reason(resp: requests.Response) -> str:
     return reason or phrase or f'HTTP {resp.status_code}'
 
 
-def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) -> None:
-    """Raise for a 4xx other than 429; for a 401 or a 403, the error says which credential the request sent.
+# Pixeltable Cloud's codes, in its X-Pixeltable-Error-Code header, for a refusal that only the user can lift: by
+# upgrading, by paying, or by freeing space. Their reason is written for the user and ends with the fix, so the error
+# is that reason as written; a retry or a new sign-in changes nothing. pixeltable_cli/client/utils.py keeps a copy.
+USER_ACTION_CODES = frozenset(('PAYMENT_REQUIRED', 'PLAN_LIMIT', 'STORE_FULL'))
 
-    purpose is the verb phrase that completes "is not permitted to", such as 'list organizations'.
+
+def _written_reason(resp: requests.Response) -> str:
+    """The control plane's reason as it wrote it, after the '<message> : ' its error body starts with."""
+    text = resp.text.strip()
+    # the message is the status phrase or the error's own, such as 'Storage Quota Exceeded' for a 507
+    _message, sep, reason = text.partition(' : ')
+    return (reason.strip() if sep != '' else text) or _reason(resp)
+
+
+def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) -> None:
+    """Raise for a 4xx other than 429, or for an error status with one of USER_ACTION_CODES.
+
+    For a 401 or a 403, the error says which credential the request sent. purpose is the verb phrase that
+    completes "is not permitted to", such as 'list organizations'.
     """
+    code = resp.headers.get('X-Pixeltable-Error-Code')
+    if resp.status_code >= 400 and code in USER_ACTION_CODES:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_BAD_REQUEST,
+            _written_reason(resp),
+            provider='pixeltable_cloud',
+            status_code=resp.status_code,
+            provider_error_code=code,
+        )
     if is_refusal(resp.status_code):
         raise refusal(resp.status_code, _reason(resp), sent, purpose)
 

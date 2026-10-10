@@ -27,6 +27,7 @@ import pydantic
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config, env_var_name
+from pixeltable.service import management_client
 
 from .daemon_state import compare_env_values, config_fingerprint, state as daemon_state
 from .router import Method, RawResponse, Request
@@ -144,7 +145,7 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         try:
             result = handler(req)
         except excs.Error as e:
-            self._send_json({'detail': str(e), 'error_code': e.error_code.name}, e.http_status)
+            self._send_json({'detail': str(e), 'error_code': _error_code(e)}, e.http_status)
             return
         except Exception as e:
             # log the full request target (self.path includes the query string) plus the resolved catalog
@@ -323,6 +324,12 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             self.wfile.write(data)
         except (BrokenPipeError, ConnectionResetError):
             pass
+
+
+def _error_code(e: excs.Error) -> str:
+    """The code of an error response: a refusal only the user can lift keeps Pixeltable Cloud's own code."""
+    code = e.provider_error_code if isinstance(e, excs.ExternalServiceError) else None
+    return code if code is not None and code in management_client.USER_ACTION_CODES else e.error_code.name
 
 
 def _to_jsonable(result: Any) -> Any:
