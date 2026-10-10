@@ -257,9 +257,6 @@ class _StaleLockSetError(Exception):
     Catalog clears the relevant cached metadata and retries with a lock set read from the store.
     """
 
-    def __init__(self) -> None:
-        super().__init__('lock set does not match the tables this operation touches')
-
 
 class _LockNotAvailableError(Exception):
     """Another transaction holds or is waiting for a conflicting lock."""
@@ -1254,15 +1251,17 @@ class Catalog(CatalogBase):
             for target in targets:
                 held = self._locks_held.get(target.store_tbl_name)
                 if held is None or not held.is_at_least(target.mode):
-                    _logger.debug(f'lock set mismatch: {target.store_tbl_name} is locked in {held}, not {target.mode}')
-                    raise _StaleLockSetError
+                    msg = f'lock set mismatch: {target.store_tbl_name} is locked in {held}, not {target.mode}'
+                    _logger.debug(msg)
+                    raise _StaleLockSetError(msg)
 
         if lock_mutable_tree:
             for write_tbl_id in self._mutable_write_tbl_ids(write_tvps, write_tbl_keys):
                 mutable_tree = self._mutable_tree_lock_targets_from_cache(write_tbl_id, op_class)
                 if mutable_tree is None:
-                    _logger.debug(f'lock set mismatch: mutable tree of {write_tbl_id} is not fully cached')
-                    raise _StaleLockSetError
+                    msg = f'lock set mismatch: mutable tree of {write_tbl_id} is not fully cached'
+                    _logger.debug(msg)
+                    raise _StaleLockSetError(msg)
                 validate_targets_locked(mutable_tree[0])
 
         if len(write_paths) > 0:
@@ -1280,8 +1279,9 @@ class Catalog(CatalogBase):
             validate_targets_locked(lock_set_from_store.tbl_targets)
             for dir_id in lock_set_from_store.dir_ids:
                 if dir_id not in self._dir_locks_held:
-                    _logger.debug(f'lock set mismatch: directory {dir_id} is not locked')
-                    raise _StaleLockSetError
+                    msg = f'lock set mismatch: directory {dir_id} is not locked'
+                    _logger.debug(msg)
+                    raise _StaleLockSetError(msg)
 
     # TODO continue from here
     @classmethod
@@ -1377,12 +1377,13 @@ class Catalog(CatalogBase):
         try:
             get_runtime().conn.execute(sql.text(stmt))
         except sql_exc.DBAPIError as e:
-            _logger.debug(f'{stmt} failed: {e}')
+            msg = f'{stmt} failed: {e}'
+            _logger.debug(msg)
             if isinstance(e.orig, psycopg.errors.LockNotAvailable):
                 assert not blocking
                 raise _LockNotAvailableError from e
             if isinstance(e.orig, psycopg.errors.UndefinedTable):
-                raise _StaleLockSetError from e
+                raise _StaleLockSetError(msg) from e
             raise
         for store_tbl_name in store_tbl_names:
             self._locks_held[store_tbl_name] = mode
