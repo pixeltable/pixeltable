@@ -154,6 +154,32 @@ class TestSkillsInstall:
         assert _tree(target) == _SKILL
         assert _tree(elsewhere) == {'keep.md': b'not ours\n'}
 
+    def test_link_inside_copy_makes_it_differ(
+        self,
+        project: pathlib.Path,
+        tmp_path_factory: pytest.TempPathFactory,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A link inside an otherwise matching copy is not current: it is refused without -f, and -f removes it."""
+        outside = tmp_path_factory.mktemp('outside') / 'notes.md'
+        outside.write_bytes(b'not ours\n')
+        _serve(monkeypatch, _repo_archive())
+        skills.run(['install'])
+        link = project / '.agents/skills/pixeltable/references/extra.md'
+        link.symlink_to(outside)
+        capsys.readouterr()
+
+        with pytest.raises(SystemExit) as exc:
+            skills.run(['install'])
+        assert exc.value.code == utils.EXIT_REFUSED
+        assert '.agents/skills/pixeltable' in capsys.readouterr().err
+
+        skills.run(['install', '-f'])
+        assert not link.is_symlink() and not link.exists()
+        assert _tree(project / '.agents/skills/pixeltable') == _SKILL
+        assert outside.read_bytes() == b'not ours\n'
+
     def test_unsafe_members_are_skipped(self) -> None:
         """Links and paths that climb out of the skill's directory are not taken from the archive."""
         archive = _archive(

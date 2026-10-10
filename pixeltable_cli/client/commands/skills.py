@@ -170,14 +170,20 @@ def _exists(path: pathlib.Path) -> bool:
 
 
 def _read_tree(root: pathlib.Path) -> dict[str, bytes] | None:
-    """The files under root by relative path, or None if root is not a directory."""
+    """The files under root by relative path.
+
+    Returns None unless root is a directory holding only directories and regular files: an installed copy
+    never holds a link, so one anywhere under root makes the copy differ, and replacing it removes the link.
+    """
     if root.is_symlink() or not root.is_dir():
         return None
-    return {
-        p.relative_to(root).as_posix(): p.read_bytes()
-        for p in sorted(root.rglob('*'))
-        if p.is_file() and not p.is_symlink()
-    }
+    files: dict[str, bytes] = {}
+    for p in sorted(root.rglob('*')):
+        if p.is_symlink() or not (p.is_file() or p.is_dir()):
+            return None
+        if p.is_file():
+            files[p.relative_to(root).as_posix()] = p.read_bytes()
+    return files
 
 
 def _write_tree(target: pathlib.Path, files: dict[str, bytes]) -> None:
