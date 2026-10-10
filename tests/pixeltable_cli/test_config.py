@@ -182,10 +182,12 @@ class TestConfig:
         assert (var['value'], var['source']) == ('s3://bucket/prefix', 'env')
         assert 'PIXELTABLE_VAR_PXT_TEST_KEY' in resp['env_var_names']
 
-    def test_config_var_from_env(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
+    def test_config_var_from_env(
+        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path, tmp_path: pathlib.Path
+    ) -> None:
         """A config var a schema declares is bound from the environment, with no entry in any config file."""
         target = db_root.make_catalog_path('cfg')
-        media_dir = project_dir / 'media'
+        media_dir = tmp_path / 'media'
         media_dir.mkdir()
         schema_file = project_dir / 'app.py'
         schema_file.write_text(
@@ -221,11 +223,11 @@ class TestConfig:
         assert (dest['section'], dest['source']) == ('pixeltable.database.vars', 'env')
 
     def test_config_var_from_project_config(
-        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
+        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path, tmp_path: pathlib.Path
     ) -> None:
         """A var bound in the project's pixeltable.toml reaches the daemon."""
         target = db_root.make_catalog_path('cfg')
-        media_dir = project_dir / 'media'
+        media_dir = tmp_path / 'media'
         media_dir.mkdir()
         schema_file = project_dir / 'app.py'
         schema_file.write_text(
