@@ -1249,8 +1249,8 @@ class Catalog(CatalogBase):
 
         def validate_targets_locked(targets: Collection[_LockTarget]) -> None:
             for target in targets:
-                held = self._locks_held.get(target.store_tbl_name)
-                if held is None or not held.is_at_least(target.mode):
+                if not self.is_tbl_locked(target.store_tbl_name, target.mode):
+                    held = self._locks_held.get(target.store_tbl_name)
                     msg = f'lock set mismatch: {target.store_tbl_name} is locked in {held}, not {target.mode}'
                     _logger.debug(msg)
                     raise _StaleLockSetError(msg)
@@ -1278,26 +1278,21 @@ class Catalog(CatalogBase):
             )
             validate_targets_locked(lock_set_from_store.tbl_targets)
             for dir_id in lock_set_from_store.dir_ids:
-                if dir_id not in self._dir_locks_held:
+                if not self._is_dir_locked(dir_id):
                     msg = f'lock set mismatch: directory {dir_id} is not locked'
                     _logger.debug(msg)
                     raise _StaleLockSetError(msg)
 
-    # TODO continue from here
     @classmethod
     def _mutable_write_tbl_ids(
         cls, write_tvps: Collection[TableVersionPath], write_tbl_keys: Collection[TableVersionKey]
     ) -> list[UUID]:
-        """Return write-target ids whose effective version is not pinned.
-
-        Snapshots have no mutable tree. Checking the effective version identifies them without a metadata read,
-        which is required while building the lock set. The operation later reports that snapshots cannot be written.
-        """
+        """Return table ids of the live tables only from the provided lists. Snapshots are filtered out."""
         ids = [tvp.tbl_id for tvp in write_tvps if tvp.effective_version() is None]
         ids.extend(k.tbl_id for k in write_tbl_keys if k.effective_version is None)
         return ids
 
-    def _is_locked(self, store_tbl_name: str, mode: _TblLockMode) -> bool:
+    def is_tbl_locked(self, store_tbl_name: str, mode: _TblLockMode) -> bool:
         """Return whether this transaction holds the requested mode or stronger on the store table."""
         assert get_runtime().in_xact
         held = self._locks_held.get(store_tbl_name)
@@ -1308,6 +1303,7 @@ class Catalog(CatalogBase):
         assert get_runtime().in_xact
         return dir_id in self._dir_locks_held
 
+    # TODO continue from here
     def _assert_md_write_locked(
         self, tbl_id: UUID, *, is_insert: bool, is_pure_snapshot: bool, dir_id: UUID | None
     ) -> None:
@@ -1330,7 +1326,7 @@ class Catalog(CatalogBase):
         """Assert that the transaction holds the required lock for writing this table's rows."""
         mode = _tbl_lock_mode(_TblOpClass.DATA_WRITE, tv.is_data_versioned)
         store_tbl_name = tv.store_tbl._storage_name()
-        assert self._is_locked(store_tbl_name, mode), (store_tbl_name, mode, self._locks_held)
+        assert self.is_tbl_locked(store_tbl_name, mode), (store_tbl_name, mode, self._locks_held)
 
     def check_rows_read_locked(self, tv: TableVersion) -> None:
         """Warn if the transaction lacks a read lock on this table.
@@ -1339,7 +1335,7 @@ class Catalog(CatalogBase):
         """
         read_lock_mode = _tbl_lock_mode(_TblOpClass.DATA_READ, tv.is_data_versioned)
         store_tbl_name = tv.store_tbl._storage_name()
-        if not self._is_locked(store_tbl_name, read_lock_mode):
+        if not self.is_tbl_locked(store_tbl_name, read_lock_mode):
             warnings.warn(
                 f'Table {tv.versioned_name} ({store_tbl_name}) was not locked for read at the transaction start',
                 excs.PixeltableWarning,
@@ -1555,7 +1551,7 @@ class Catalog(CatalogBase):
 
     def _has_store_tbl_lock(self, tbl_id: UUID, mode: _TblLockMode) -> bool:
         """Return whether this transaction holds `mode` or stronger under the table or view storage name."""
-        return any(self._is_locked(_store_tbl_name(tbl_id, is_view=is_view), mode) for is_view in (False, True))
+        return any(self.is_tbl_locked(_store_tbl_name(tbl_id, is_view=is_view), mode) for is_view in (False, True))
 
     def _refresh_tbl_cache(
         self,
