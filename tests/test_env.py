@@ -239,6 +239,16 @@ class TestHostedMediaDefault:
         _reset_env(reinit=False, db_name=None)
         assert Env.get().default_output_media_dest == 'pxt://org1:db1/buckets/home/out'
 
+    def test_local_media_dest_in_project(self, uses_db: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """A local media destination inside the project directory is not allowed."""
+        media_dir = tmp_path / 'media'
+        for dest in (media_dir.as_uri(), str(media_dir)):
+            monkeypatch.setenv('PIXELTABLE_OUTPUT_MEDIA_DEST', dest)
+            reset_runtime()
+            Config.init(reinit=True, project_root=tmp_path)
+            with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='output_media_dest .* is inside the project'):
+                Env._init_env(reinit_db=False)
+
 
 class TestProxyEndpoint:
     @pytest.mark.parametrize(

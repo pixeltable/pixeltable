@@ -16,7 +16,10 @@ from uuid import UUID
 from tenacity import RetryCallState, retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import env, exceptions as excs
+from pixeltable.config import Config
 from pixeltable.utils.http import DOWNLOAD_USER_AGENT, is_retryable_error, retry_if_retryable_error
+
+CLOUD_STORAGE_DOCS_URL = 'https://docs.pixeltable.com/integrations/cloud-storage'
 
 
 @dataclasses.dataclass(frozen=True)
@@ -408,6 +411,20 @@ def warn_if_pxtfs_destination(col_name: str, dest: object) -> None:
     warn_if_pxtfs(dest, f'Column {col_name!r}: destination')
 
 
+def reject_local_dest_in_project(dest: str, setting: str, error_code: excs.ErrorCode) -> None:
+    """Raise if dest is a local directory inside the project root."""
+    project_root = Config.get().project_root
+    if project_root is None:
+        return
+    addr = ObjectPath.parse_object_storage_addr(dest, allow_obj_name=False)
+    if addr.storage_target == StorageTarget.LOCAL_STORE and addr.to_path.resolve().is_relative_to(project_root):
+        raise excs.RequestError(
+            error_code,
+            f'{setting} {dest!r} is inside the project directory {project_root}. Use a directory outside the project '
+            f'or an object store (see {CLOUD_STORAGE_DOCS_URL})',
+        )
+
+
 def _first_caller_outside_pixeltable() -> int:
     """The stacklevel for which warnings.warn(), called by this function's caller, names the first frame whose module
     is not part of Pixeltable, or the outermost frame if every one is."""
@@ -592,6 +609,8 @@ class ObjectOps:
                     f'{error_col_str}: a local filesystem `destination` is not supported for a hosted table; use '
                     'the default store or an external store such as s3:// or https://.',
                 )
+        if dest is not None:
+            reject_local_dest_in_project(dest, f'{error_col_str}: `destination`', excs.ErrorCode.INVALID_ARGUMENT)
 
         # Specific checks for storage backends
         store = cls.get_store(dest, False, col_name)
