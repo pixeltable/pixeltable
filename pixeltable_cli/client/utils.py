@@ -43,6 +43,10 @@ EXIT_ERROR = 1
 EXIT_CHANGES_PENDING = 2
 EXIT_REFUSED = 3
 
+# a copy of pixeltable.service.management_client.USER_ACTION_CODES, since this module does not import pixeltable:
+# the daemon reports these refusals by Pixeltable Cloud's own code, and their reason is printed as it was written
+USER_ACTION_CODES = frozenset(('PAYMENT_REQUIRED', 'PLAN_LIMIT', 'STORE_FULL'))
+
 
 def session_key() -> str:
     """Stable per-terminal session id: the invoking shell's pid plus its creation time.
@@ -388,7 +392,11 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None, params:
         except ValueError:
             body = {}
         detail = body.get('detail') or e.reason
-        print(f'pxt: {e.code} {detail}', file=sys.stderr)
+        if body.get('error_code') in USER_ACTION_CODES:
+            # Pixeltable Cloud wrote it for the user, ending with the fix
+            print(detail, file=sys.stderr)
+        else:
+            print(f'pxt: {e.code} {detail}', file=sys.stderr)
         server_tb = body.get('traceback')
         if server_tb is not None:
             # an unexpected daemon failure carries its traceback; show it so the user can report the error

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shutil
 import uuid
 import warnings
@@ -41,7 +42,9 @@ def _pxt_dest_uri() -> str:
     return f'{home_bucket_uri(CLOUD_DB_ROOT_URIS["cloud"])}/pytest'
 
 
-def _bucket_credentials(no_space_left: bool = False) -> GetBucketCredentialsResponse:
+def _bucket_credentials(
+    no_space_left: bool = False, no_space_detail: str | None = None
+) -> GetBucketCredentialsResponse:
     """Stand-in credentials for patching get_bucket_credentials."""
     return GetBucketCredentialsResponse(
         access_key_id='key',
@@ -51,6 +54,7 @@ def _bucket_credentials(no_space_left: bool = False) -> GetBucketCredentialsResp
         resolved_bucket_name='physical-home',
         ttl_seconds=3600,
         no_space_left=no_space_left,
+        no_space_detail=no_space_detail,
     )
 
 
@@ -520,6 +524,39 @@ class TestPxtStore:
             assert get_credentials.call_count == 3
 
         upload.assert_called_once()
+
+    def test_no_space_detail(self, init_env: None, tmp_path: Path) -> None:
+        """The control plane's text for a full store replaces the generic one in the warning and the refused write,
+        and the generic one returns when a later check sends none."""
+        from pixeltable.utils import pxt_store
+        from pixeltable.utils.s3_store import S3Store
+
+        home = f'pxtfs://org1:db_{uuid.uuid4().hex}/home'
+        src = tmp_path / 'obj.jpg'
+        src.write_bytes(b'data')
+        detail = (
+            'The media store of pxt://org1 is full: 50.2 GB of 50 GB. Reads and deletes work; new media is refused. '
+            'Upgrade to Pro for more.'
+        )
+        full = _bucket_credentials(no_space_left=True, no_space_detail=detail)
+        with (
+            patch.object(pxt_store, 'get_bucket_credentials', return_value=full) as get_credentials,
+            patch.object(S3Store, 'copy_local_file', side_effect=lambda src_path, dest: dest.url) as upload,
+        ):
+            with pytest.warns(excs.PixeltableWarning, match=f'^{re.escape(detail)}$'):
+                store = ObjectOps.get_store(home, False)
+            assert isinstance(store, pxt_store.PxtStore)
+            dest = store.resolve_destination(uuid.uuid4(), 0, 1, ext='.jpg')
+            with pxt_raises(excs.ErrorCode.STORE_UNAVAILABLE, match=f'^{re.escape(detail)}$'):
+                store.copy_local_file(src, dest)
+
+            # an older control plane sends no text
+            store._pxt_store_entry.quota_checked_at -= pxt_store._QUOTA_RECHECK_INTERVAL_S
+            get_credentials.return_value = _bucket_credentials(no_space_left=True)
+            with pxt_raises(excs.ErrorCode.STORE_UNAVAILABLE, match='No space left in Pixeltable store'):
+                store.copy_local_file(src, dest)
+
+        upload.assert_not_called()
 
     def test_scoped_credentials(self, init_env: None) -> None:
         """A store with scope_credentials fetches credentials for its prefix only, in a session that is not cached:

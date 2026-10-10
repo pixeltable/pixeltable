@@ -11,6 +11,7 @@ What a stub cannot check is whether the control plane stores what it reports, so
 exercised against a real one in test_key.py, and only what the client refuses or prints remains here.
 """
 
+import datetime
 import json
 import os
 import pathlib
@@ -34,10 +35,10 @@ import pytest
 from pixeltable import exceptions as excs
 from pixeltable.catalog import globals as catalog_globals
 from pixeltable.service import auth, management_client, session_cache, trial
-from pixeltable.service.management_protocol import CreateKeyRequest, ListOrgsRequest
+from pixeltable.service.management_protocol import CreateKeyRequest, ListOrgsRequest, StartDbRequest
 from pixeltable.utils import cloud_utils
 from pixeltable_cli import utils as cli_utils
-from pixeltable_cli.client.commands import login
+from pixeltable_cli.client.commands import login, usage
 from pixeltable_cli.models import LoginPollResponse
 from pixeltable_cli.server import routes
 from pixeltable_cli.server.router import Request
@@ -70,6 +71,33 @@ _REGISTER = '/agent/identity'
 _TOKEN = '/oauth2/token'
 _TRIAL = '/api/v1/trial-orgs'
 
+# refusals only the user can lift: the status, Pixeltable Cloud's code, and its reason, which the body follows a
+# message with, as the control plane sends them
+_PLAN_LIMIT = (
+    403,
+    'PLAN_LIMIT',
+    'Community runs 1 database at a time, and pxt://acme:main is running. '
+    'Upgrade to Pro under Billing at https://www.pixeltable.com/dashboard to run past it.',
+)
+_PAYMENT_REQUIRED = (
+    402,
+    'PAYMENT_REQUIRED',
+    "acme's last invoice is unpaid, so nothing new starts. "
+    'Pay it under Billing at https://www.pixeltable.com/dashboard.',
+)
+_STORE_FULL = (
+    507,
+    'STORE_FULL',
+    'pxt://acme has used 50.2 GB of its 50 GB media store, so no upload URL was made. '
+    'Drop a table or revert a version to free space, or upgrade to Pro for more.',
+)
+_MESSAGES = {402: 'Payment Required', 403: 'Forbidden', 507: 'Storage Quota Exceeded'}
+
+
+def _refusal_body(status: int, reason: str) -> bytes:
+    return f'{_MESSAGES[status]} : {reason}'.encode()
+
+
 _PENDING = (400, {'error': 'authorization_pending', 'error_description': 'not yet'})
 _SLOW_DOWN = (400, {'error': 'slow_down', 'error_description': 'too fast'})
 _DENIED = (400, {'error': 'access_denied', 'error_description': 'refused'})
@@ -99,6 +127,7 @@ class ControlPlane:
     seen: list[dict[str, Any]] = field(default_factory=list)
     credentials_seen: list[dict[str, str]] = field(default_factory=list)
     status: int = 200
+    headers: dict[str, str] = field(default_factory=dict)  # sent with each management answer
     client_id: str = 'client_01TEST'
     # the status and body of the discovery document; None answers with client_id and this stub's address,
     # and a bytes body is sent as it is
@@ -177,7 +206,7 @@ class ControlPlane:
 
 def _serve(plane: ControlPlane) -> HTTPServer:
     class Handler(BaseHTTPRequestHandler):
-        def _reply(self, status: int, answer: Any) -> None:
+        def _reply(self, status: int, answer: Any, headers: dict[str, str] | None = None) -> None:
             redirect = 300 <= status < 400
             payload = b'' if redirect else answer if isinstance(answer, bytes) else json.dumps(answer).encode()
             self.send_response(status)
@@ -187,6 +216,8 @@ def _serve(plane: ControlPlane) -> HTTPServer:
                 self.send_header('Location', answer)
             if status in (429, 503):
                 self.send_header('Retry-After', '1')  # as throttled and unavailable services send it
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(payload)
 
@@ -233,7 +264,7 @@ def _serve(plane: ControlPlane) -> HTTPServer:
                 plane.drop -= 1
                 self.close_connection = True
                 return
-            self._reply(plane.status, plane.answers.get(request.get('operation_type'), {}))
+            self._reply(plane.status, plane.answers.get(request.get('operation_type'), {}), plane.headers)
 
         def log_message(self, *_args: Any) -> None:
             pass
@@ -783,6 +814,170 @@ def test_client_identifier_rule_matches_pixeltable(allow_hyphens: bool) -> None:
     for name in names:
         expected = catalog_globals.is_valid_identifier(name, allow_hyphens=allow_hyphens)
         assert cli_utils.is_valid_identifier(name, allow_hyphens=allow_hyphens) == expected, name
+
+
+class TestRefusalsTheUserLifts:
+    """A refusal only the user can lift prints Pixeltable Cloud's reason as it wrote it, and nothing else."""
+
+    @pytest.mark.parametrize(('status', 'error_code', 'reason'), [_PLAN_LIMIT, _PAYMENT_REQUIRED, _STORE_FULL])
+    def test_reason_alone(
+        self, cloud_cli: PxtRunner, control_plane: ControlPlane, status: int, error_code: str, reason: str
+    ) -> None:
+        control_plane.answers['start_db'] = _refusal_body(status, reason)
+        control_plane.status = status
+        control_plane.headers = {'X-Pixeltable-Error-Code': error_code}
+        try:
+            r = cloud_cli('db', 'start', 'pxt://acme:main', check=False)
+        finally:
+            control_plane.status = 200
+            control_plane.headers = {}
+
+        assert r.returncode == 1
+        assert r.stderr == f'{reason}\n'
+
+    def test_client_copy_of_the_codes(self) -> None:
+        """The client keeps a copy of the codes, since it cannot import pixeltable."""
+        from pixeltable_cli.client import utils as client_utils
+
+        assert client_utils.USER_ACTION_CODES == management_client.USER_ACTION_CODES
+
+
+# a get_usage answer, as the control plane's contract gives it
+_USAGE: dict[str, Any] = {
+    'plan': 'community',
+    'period_start': '2026-11-01T00:00:00Z',
+    'period_end': '2026-12-01T00:00:00Z',
+    'counts_from': '2026-11-01T00:00:00Z',
+    'included_usd': 25,
+    'used_usd': 18.42,
+    'past_included_usd': 0.0,
+    'stops_at_limit': True,
+    'meters': [
+        {
+            'meter': 'pxt_vcpu_hours',
+            'label': 'Compute, vCPU-hours',
+            'unit': 'vCPU-hour',
+            'quantity': 120.5,
+            'usd': 4.22,
+        },
+        {
+            'meter': 'pxt_gib_hours',
+            'label': 'Compute, memory GiB-hours',
+            'unit': 'GiB-hour',
+            'quantity': 241.0,
+            'usd': 4.22,
+        },
+        {
+            'meter': 'pxt_db_storage_gb_months',
+            'label': 'Database storage past included',
+            'unit': 'GB-month',
+            'quantity': 0.0,
+            'usd': 0.0,
+        },
+        {
+            'meter': 'pxt_media_gb_months',
+            'label': 'Media past included',
+            'unit': 'GB-month',
+            'quantity': 0.0,
+            'usd': 0.0,
+        },
+        {'meter': 'pxt_egress_gb', 'label': 'Egress past included', 'unit': 'GB', 'quantity': 0.0, 'usd': 0.0},
+    ],
+    'resources': [
+        {'name': 'databases', 'label': 'Databases', 'used': 1, 'limit': 1, 'unit': 'count'},
+        {'name': 'services', 'label': 'Services', 'used': 2, 'limit': 2, 'unit': 'count'},
+        {'name': 'media', 'label': 'Media Store', 'used': 12_300_000_000, 'limit': 50_000_000_000, 'unit': 'bytes'},
+        {
+            'name': 'db_storage',
+            'label': "Largest database's storage",
+            'used': 3_200_000_000,
+            'limit': 10_000_000_000,
+            'unit': 'bytes',
+        },
+        {
+            'name': 'egress',
+            'label': 'Egress this month',
+            'used': 2_100_000_000,
+            'limit': 5_000_000_000,
+            'unit': 'bytes',
+        },
+    ],
+}
+
+_METERS_AND_RESOURCES = """
+METER                           QUANTITY          COST
+Compute, vCPU-hours             120.5 vCPU-hour  $4.22
+Compute, memory GiB-hours       241 GiB-hour     $4.22
+Database storage past included  0 GB-month       $0.00
+Media past included             0 GB-month       $0.00
+Egress past included            0 GB             $0.00
+
+RESOURCE                    USED / LIMIT
+Databases                   1 / 1
+Services                    2 / 2
+Media Store                 12.3 GB / 50 GB
+Largest database's storage  3.2 GB / 10 GB
+Egress this month           2.1 GB / 5 GB
+"""
+
+
+class TestUsage:
+    def test_usage(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """`pxt usage` sends get_usage with no other argument: the credential names the organization."""
+        now = datetime.datetime.now(datetime.timezone.utc)
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = (start + datetime.timedelta(days=32)).replace(day=1)
+        answer = {**_USAGE, 'period_start': start.isoformat(), 'period_end': end.isoformat()}
+        answer['counts_from'] = answer['period_start']
+        control_plane.answers['get_usage'] = answer
+
+        r = cloud_cli('usage')
+
+        assert control_plane.last('get_usage') == {'operation_type': 'get_usage'}
+        lines = r.stdout.splitlines()
+        assert lines[0].startswith(f'Community plan, {start:%Y-%m-%d} to ')
+        assert lines[1] == '$18.42 of $25 used; past $25 your databases and services stop until the 1st (UTC)'
+        assert cloud_cli('usage', '--json').json == answer
+
+    def test_community(self, capsys: pytest.CaptureFixture[str]) -> None:
+        usage.print_usage(_USAGE, datetime.datetime(2026, 11, 18, 13, tzinfo=datetime.timezone.utc))
+
+        assert capsys.readouterr().out == (
+            'Community plan, 2026-11-01 to 2026-11-30 (UTC), 13 days left\n'
+            '$18.42 of $25 used; past $25 your databases and services stop until the 1st (UTC)\n'
+            + _METERS_AND_RESOURCES
+        )
+
+    def test_pro(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Pro bills past included, so its line ends with the estimate; usage counts from the billing start."""
+        pro = {
+            **_USAGE,
+            'plan': 'pro',
+            'counts_from': '2026-11-15T00:00:00Z',
+            'included_usd': 100,
+            'used_usd': 132.1,
+            'past_included_usd': 32.1,
+            'stops_at_limit': False,
+        }
+
+        usage.print_usage(pro, datetime.datetime(2026, 11, 30, 23, tzinfo=datetime.timezone.utc))
+
+        assert capsys.readouterr().out == (
+            'Pro plan, 2026-11-01 to 2026-11-30 (UTC), 1 day left\n'
+            'Usage counts from 2026-11-15, the billing start.\n'
+            '$132.10 of $100 used; past included (estimate): $32.10\n' + _METERS_AND_RESOURCES
+        )
+
+    def test_enterprise(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Enterprise's money and included amounts are its contract's, so the answer has none."""
+        enterprise = {**_USAGE, 'plan': 'enterprise', 'included_usd': None, 'used_usd': None, 'stops_at_limit': False}
+        enterprise['resources'] = [{**r, 'limit': None} for r in _USAGE['resources']]
+
+        usage.print_usage(enterprise, datetime.datetime(2026, 11, 18, tzinfo=datetime.timezone.utc))
+
+        lines = capsys.readouterr().out.splitlines()
+        assert lines[1] == 'Usage is billed under your contract.'
+        assert lines[-1] == 'Egress this month           2.1 GB / -'
 
 
 _CREATED_ORG = {'org_id': 'org_01NEW', 'org': _ORG, 'default_db': 'main'}
@@ -1343,6 +1538,47 @@ class TestHomeBucket:
         assert url == 'https://r2.example.com/home/a.jpg?signed'
         assert [r['operation_type'] for r in fresh_plane.seen] == ['get_presigned_url', 'get_presigned_url']
 
+    def test_store_full(
+        self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A full media store refuses an upload URL with its reason as written, which no retry changes."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
+        status, error_code, reason = _STORE_FULL
+        fresh_plane.status = status
+        fresh_plane.headers = {'X-Pixeltable-Error-Code': error_code}
+        fresh_plane.answers['get_presigned_url'] = _refusal_body(status, reason)
+
+        with pxt_raises(excs.ErrorCode.PROVIDER_BAD_REQUEST, match=f'^{re.escape(reason)}$') as info:
+            cloud_utils.get_presigned_url_from_cloud('acme', 'main', 'home', 'a.jpg', method='put')
+
+        assert isinstance(info.value, excs.ExternalServiceError)
+        assert info.value.provider_error_code == error_code
+        assert not info.value.is_retryable
+
+    def test_no_space_detail(
+        self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Credentials for a full store carry the control plane's text for it."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
+        detail = 'The media store of pxt://acme is full: 50.2 GB of 50 GB. Upgrade to Pro for more.'
+        fresh_plane.answers['get_bucket_credentials'] = {
+            'access_key_id': 'AKIATEST',
+            'secret_access_key': 'secret',
+            'session_token': 'session-token',
+            'endpoint_url': 'https://r2.example.com',
+            'resolved_bucket_name': 'home-acme-main',
+            'ttl_seconds': 900,
+            'no_space_left': True,
+            'no_space_detail': detail,
+        }
+
+        credentials = cloud_utils.get_bucket_credentials('acme', 'main', 'home')
+
+        assert credentials.no_space_left
+        assert credentials.no_space_detail == detail
+
     @pytest.mark.parametrize(
         ('status', 'code', 'message'),
         [
@@ -1463,6 +1699,47 @@ class TestControlPlaneErrors:
         assert isinstance(info.value, excs.ExternalServiceError)
         assert info.value.provider_http_status_code == status
         assert info.value.is_retryable == (status in (429, 503))
+
+    @pytest.mark.parametrize(('status', 'error_code', 'reason'), [_PLAN_LIMIT, _PAYMENT_REQUIRED, _STORE_FULL])
+    def test_refusal_the_user_lifts(
+        self,
+        fresh_plane: ControlPlane,
+        private_home: pathlib.Path,
+        monkeypatch: pytest.MonkeyPatch,
+        status: int,
+        error_code: str,
+        reason: str,
+    ) -> None:
+        """The error is the reason as written, keeps the control plane's code, and is not worth a retry."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
+        fresh_plane.status = status
+        fresh_plane.headers = {'X-Pixeltable-Error-Code': error_code}
+        fresh_plane.answers['start_db'] = _refusal_body(status, reason)
+
+        with pxt_raises(excs.ErrorCode.PROVIDER_BAD_REQUEST, match=f'^{re.escape(reason)}$') as info:
+            management_client.api_call(StartDbRequest(org='acme', db='main'))
+
+        assert isinstance(info.value, excs.ExternalServiceError)
+        assert info.value.provider_error_code == error_code
+        assert info.value.provider_http_status_code == status
+        assert not info.value.is_retryable
+
+    def test_other_code(
+        self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Any other code leaves a 403 what it was: a credential not permitted to do something."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
+        fresh_plane.status = 403
+        fresh_plane.headers = {'X-Pixeltable-Error-Code': 'FORBIDDEN'}
+        fresh_plane.answers['start_db'] = b'Forbidden : Not a member of acme'
+
+        with pxt_raises(
+            excs.ErrorCode.INSUFFICIENT_PRIVILEGES,
+            match=r'is valid but is not permitted to start a database: Not a member of acme\.$',
+        ):
+            management_client.api_call(StartDbRequest(org='acme', db='main'))
 
     def test_rejected_api_key(
         self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch

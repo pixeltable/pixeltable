@@ -55,6 +55,7 @@ class _PxtStoreCacheEntry:
     storage_provider: str
     prefix: str | None = None  # the credentials' scope; None for the whole bucket
     no_space_left: bool = False
+    no_space_detail: str | None = None  # the control plane's text for no_space_left, if it sent one
     no_space_warned: bool = False  # tracks whether warning has been issued for no space left in pixeltable store
     quota_checked_at: float = field(default_factory=time.monotonic)  # when no_space_left was last fetched
 
@@ -82,7 +83,8 @@ def _handle_no_space_warning(no_space_left: bool, entry: _PxtStoreCacheEntry, or
         if entry.no_space_warned:
             return
         warnings.warn(
-            f'Pixeltable store for pxt://{org}:{db}/buckets/{bucket} has no space left. '
+            entry.no_space_detail
+            or f'Pixeltable store for pxt://{org}:{db}/buckets/{bucket} has no space left. '
             'Only read and delete operations are allowed.',
             category=excs.PixeltableWarning,
             stacklevel=3,
@@ -98,6 +100,7 @@ def _refresh_credentials(org: str, db: str, bucket: str, entry: _PxtStoreCacheEn
     expiry_time = datetime.now(tz=timezone.utc) + timedelta(seconds=creds.ttl_seconds)
 
     entry.no_space_left = creds.no_space_left
+    entry.no_space_detail = creds.no_space_detail
     entry.quota_checked_at = time.monotonic()
     if creds.resolved_bucket_name:
         entry.physical_bucket_name = creds.resolved_bucket_name
@@ -129,6 +132,7 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str | None = 
         physical_bucket_name=creds.resolved_bucket_name,
         endpoint_url=creds.endpoint_url,
         no_space_left=creds.no_space_left,
+        no_space_detail=creds.no_space_detail,
         storage_provider=creds.storage_provider,
         prefix=prefix,
     )
@@ -301,7 +305,8 @@ class PxtStore(ObjectStoreBase):
         if entry.no_space_left:
             raise excs.ServiceUnavailableError(
                 ErrorCode.STORE_UNAVAILABLE,
-                'No space left in Pixeltable store. Only read and delete operations are allowed.',
+                entry.no_space_detail
+                or 'No space left in Pixeltable store. Only read and delete operations are allowed.',
             )
         # Inner S3 store reads dest.remote_key for the upload and returns dest.url; since
         # dest.url is already the logical (pxt://) URL, we can pass dest through unchanged.
