@@ -49,10 +49,10 @@ These flags work the same way across the catalog commands that support them and 
 | Flag | Available on | Description |
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
-| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs other than `example`, plus `init`, `login`, `whoami`, `db`, `secret`, `org`, `key`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), `schema example` and `service example` (which print an example file), or the commands that print plain status lines (`logout`, `daemon start`/`stop`/`restart`). |
+| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs other than `example`, plus `init`, `skills install`, `login`, `whoami`, `db`, `secret`, `org`, `key`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), `schema example` and `service example` (which print an example file), or the commands that print plain status lines (`logout`, `daemon start`/`stop`/`restart`). |
 | `--json-schema` | `schema diff`, `service diff`, `db diff`, `db status`, `service list` | Print the JSON Schema of that command's `--json` output, with descriptions of every field and enum value, and exit. |
 | `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), plus `schema update`, `schema prune`, `service update` and `service prune` | Print the intended action; don't execute. |
-| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`, `db update`, `db delete`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
+| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`, `db update`, `db delete`, `skills install`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
 
 ### Working directory
 
@@ -98,6 +98,7 @@ pxt pwd                            # print it
 
 # projects
 pxt init                             # mark the current directory as a project root
+pxt skills install                   # give coding agents the Pixeltable skill
 
 # declarative schemas
 pxt schema check  app.py          # validate the file on its own, with no target
@@ -429,6 +430,21 @@ A recorded path is how a later process -- the daemon, a serving worker, a hosted
 pxt schema check app.py           # exit 0 valid, 1 invalid
 pxt service check app.py --json
 ```
+
+## Coding agents
+
+`pxt skills install` gives a coding agent the [Pixeltable skill](https://github.com/pixeltable/pixeltable-skill), which tells it how to build with Pixeltable. Run it in the directory you start the agent from:
+
+```bash
+pxt skills install                   # writes .claude/skills/pixeltable and .agents/skills/pixeltable
+```
+
+| Directory | Read by |
+|---|---|
+| `.claude/skills/pixeltable` | Claude Code |
+| `.agents/skills/pixeltable` | Codex, Cursor, Gemini CLI, GitHub Copilot, OpenCode |
+
+Start a new agent session to load it. The command downloads the skill from the repository's `main` branch and prints the version and commit it wrote; commit the two directories to give every collaborator's agent the same copy. A copy that already matches is left as it is. One that differs, such as an older version, is replaced after a yes at the prompt or with `-f`; without a terminal the command exits 3 instead. Exit 1 means the download or a write failed.
 
 ## Schema management
 

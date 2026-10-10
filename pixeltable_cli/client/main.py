@@ -7,6 +7,7 @@ from typing import Callable
 # Each key names a module under pixeltable_cli.client.commands.* exposing run(argv: list[str]) -> None.
 COMMANDS: dict[str, str] = {
     'init': 'write the project configuration here, making this the project root',
+    'skills': 'install the Pixeltable skill for coding agents in this directory (install)',
     'health': 'show daemon info',
     'cd': 'set or clear the working directory prepended to relative paths',
     'pwd': 'print the working directory',
