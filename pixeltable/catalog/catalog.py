@@ -4,7 +4,6 @@ import contextvars
 import dataclasses
 import enum
 import functools
-import itertools
 import logging
 import random
 import time
@@ -1356,33 +1355,25 @@ class Catalog(CatalogBase):
         assert names == sorted(names), names
         # a store table is locked once per transaction, no lock is ever upgraded
         assert all(name not in self._locks_held for name in names), (names, self._locks_held)
-        nowait_clause = '' if blocking else 'NOWAIT'
-        # LOCK TABLE statement supports multiple table names, but only one lock mode. To minimize the number
-        # of statements executed while maintaining the correct locking order, break down the targets into consecutive
-        # sublists that share a mode.
-        # E.g. for input (tbl_A, mode1), (tbl_B, mode1), (tbl_C, mode2), (tbl_D, mode1), (tbl_E, mode1),
-        # the statements will be:
-        # LOCK TABLE tbl_A, tbl_B IN mode1 MODE
-        # LOCK TABLE tbl_C IN mode2 MODE
-        # LOCK TABLE tbl_D, tbl_E IN mode1 MODE
-        for mode, targets_sublist in itertools.groupby(targets, key=lambda t: t.mode):
-            store_tbl_names = [t.store_tbl_name for t in targets_sublist]
-            stmt = f'LOCK TABLE {", ".join(store_tbl_names)} IN {mode.sql_name} MODE {nowait_clause}'
-            try:
-                get_runtime().conn.execute(sql.text(stmt))
-            except sql_exc.DBAPIError as e:
-                msg = f'{stmt} failed: {e}'
-                _logger.debug(msg)
-                if isinstance(e.orig, psycopg.errors.LockNotAvailable):
-                    assert not blocking
-                    raise _LockNotAvailableError from e
-                if isinstance(e.orig, psycopg.errors.UndefinedTable):
-                    # A table that we attempted to lock does not exist in the store. That means that the lock set is
-                    # out of date.
-                    raise _StaleLockSetError(msg) from e
-                raise
-            for store_tbl_name in store_tbl_names:
-                self._locks_held[store_tbl_name] = mode
+        # Build one ;-separated request with all LOCK TABLE statements in it. psycopg will execute them in the right
+        # order in one round-trip.
+        nowait_clause = '' if blocking else ' NOWAIT'
+        stmt = '; '.join(f'LOCK TABLE {t.store_tbl_name} IN {t.mode.sql_name} MODE{nowait_clause}' for t in targets)
+        try:
+            get_runtime().conn.exec_driver_sql(stmt)
+        except sql_exc.DBAPIError as e:
+            msg = f'{stmt} failed: {e}'
+            _logger.debug(msg)
+            if isinstance(e.orig, psycopg.errors.LockNotAvailable):
+                assert not blocking
+                raise _LockNotAvailableError from e
+            if isinstance(e.orig, psycopg.errors.UndefinedTable):
+                # A table that we attempted to lock does not exist in the store. That means that the lock set is
+                # out of date.
+                raise _StaleLockSetError from e
+            raise
+        for t in targets:
+            self._locks_held[t.store_tbl_name] = t.mode
 
     # TODO continue from here
     # TODO: separate lock acquisition from metadata refresh.
