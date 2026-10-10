@@ -441,7 +441,7 @@ pxt skills install                   # writes .claude/skills/pixeltable and .age
 
 | Directory | Read by |
 |---|---|
-| `.claude/skills/pixeltable` | Claude Code |
+| `.claude/skills/pixeltable` | Claude Code, Cursor |
 | `.agents/skills/pixeltable` | Codex, Cursor, Gemini CLI, GitHub Copilot, OpenCode |
 
 Start a new agent session to load it. The command downloads the skill from the repository's `main` branch and prints the version and commit it wrote; commit the two directories to give every collaborator's agent the same copy. A copy that already matches is left as it is. One that differs, such as an older version, is replaced after a yes at the prompt or with `-f`; without a terminal the command exits 3 instead. Exit 1 means the download or a write failed.

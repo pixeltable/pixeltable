@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import io
 import json
 import pathlib
@@ -10,6 +11,7 @@ import shutil
 import sys
 import tarfile
 import uuid
+import zlib
 from typing import IO, NoReturn
 
 from ..parser import Parser
@@ -23,9 +25,10 @@ _SKILL_PARTS = ('skills', 'pixeltable-skill')
 # the skill's name in its frontmatter; the Agent Skills format expects its directory to have the same name
 SKILL_NAME = 'pixeltable'
 
-# the project directories coding agents read skills from, and the agents that read each
+# the project directories coding agents read skills from, and the agents that read each; Cursor also loads
+# .claude/skills for compatibility, so it finds the skill in both
 SKILL_DIRS = (
-    ('.claude/skills', 'Claude Code'),
+    ('.claude/skills', 'Claude Code, Cursor'),
     ('.agents/skills', 'Codex, Cursor, Gemini CLI, GitHub Copilot, OpenCode'),
 )
 
@@ -41,7 +44,7 @@ What it writes:
   The Pixeltable skill, SKILL.md and its references, from github.com/pixeltable/pixeltable-skill,
   into the two project directories coding agents read skills from:
 
-    .claude/skills/pixeltable       Claude Code
+    .claude/skills/pixeltable       Claude Code, Cursor
     .agents/skills/pixeltable       Codex, Cursor, Gemini CLI, GitHub Copilot, OpenCode
 
   Start a new agent session to load it. A copy that already matches is left as it is; one that differs
@@ -72,7 +75,7 @@ def _install(args: argparse.Namespace) -> None:
     targets = [root / skills_dir / SKILL_NAME for skills_dir, _ in SKILL_DIRS]
     differing = [t for t in targets if _exists(t) and _read_tree(t) != files]
     if len(differing) > 0:
-        names = ' and '.join(str(t.relative_to(root)) for t in differing)
+        names = ' and '.join(t.relative_to(root).as_posix() for t in differing)
         confirm_or_exit(f'replace the copy of the skill in {names}?', args.force, refused_exit_code=EXIT_REFUSED)
 
     written: list[pathlib.Path] = []
@@ -89,8 +92,8 @@ def _install(args: argparse.Namespace) -> None:
                     'source': ARCHIVE_URL,
                     'version': version,
                     'commit': commit,
-                    'installed': [str(t.relative_to(root)) for t in targets],
-                    'written': [str(t.relative_to(root)) for t in written],
+                    'installed': [t.relative_to(root).as_posix() for t in targets],
+                    'written': [t.relative_to(root).as_posix() for t in written],
                 },
                 indent=2,
             )
@@ -102,7 +105,7 @@ def _install(args: argparse.Namespace) -> None:
     print(f'Pixeltable skill ({source}):')
     for target, (_, readers) in zip(targets, SKILL_DIRS):
         state = 'written' if target in written else 'already current'
-        print(f'  {target.relative_to(root)}  {state:<15}  {readers}')
+        print(f'  {target.relative_to(root).as_posix()}  {state:<15}  {readers}')
     if len(written) > 0:
         print('Start a new agent session to load it.')
 
@@ -118,7 +121,7 @@ def _download() -> tuple[dict[str, bytes], str | None, str | None]:
         _fail(f'could not download the skill from {ARCHIVE_URL}: {e}')
     try:
         return unpack(resp.content)
-    except (tarfile.TarError, OSError, ValueError) as e:
+    except (tarfile.TarError, OSError, EOFError, ValueError, zlib.error) as e:
         _fail(f'the archive from {ARCHIVE_URL} does not hold the skill: {e}')
 
 
@@ -129,9 +132,11 @@ def unpack(archive: bytes) -> tuple[dict[str, bytes], str | None, str | None]:
     cannot place anything outside the target. The commit comes from the pax header that GitHub's archives
     carry, and the version from the plugin manifest at the repository root.
     """
+    # decompressing to the end checks the gzip CRC; tarfile alone stops reading early and can return altered files
+    tar_bytes = gzip.decompress(archive)
     files: dict[str, bytes] = {}
     version: str | None = None
-    with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as tar:
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode='r:') as tar:
         for member in tar.getmembers():
             if not member.isfile():
                 continue

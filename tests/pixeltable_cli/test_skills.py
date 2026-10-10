@@ -208,6 +208,45 @@ class TestSkillsInstall:
         assert f'could not download the skill from {skills.ARCHIVE_URL}' in capsys.readouterr().err
         assert list(project.iterdir()) == []
 
+    @pytest.mark.parametrize('damage', ['truncated', 'not gzip'])
+    def test_unreadable_archive(
+        self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], damage: str
+    ) -> None:
+        """A cut-off download or an HTML error page ends with the exit-1 line, not a traceback."""
+        archive = _repo_archive()[:200] if damage == 'truncated' else b'<html>rate limited</html>'
+        _serve(monkeypatch, archive)
+        with pytest.raises(SystemExit) as exc:
+            skills.run(['install'])
+        assert exc.value.code == utils.EXIT_ERROR
+        assert 'does not hold the skill' in capsys.readouterr().err
+        assert list(project.iterdir()) == []
+
+    def test_failed_swap_keeps_previous_copy(
+        self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """When the new copy cannot be renamed into place, the previous one is put back and nothing is left over."""
+        _serve(monkeypatch, _repo_archive())
+        skills.run(['install'])
+        target = project / '.agents/skills/pixeltable'
+        (target / 'SKILL.md').write_bytes(b'previous\n')
+        before = _tree(target)
+        capsys.readouterr()
+
+        rename = pathlib.Path.rename
+
+        def failing_rename(self: pathlib.Path, dst: pathlib.Path) -> pathlib.Path:
+            if self.name.startswith('.pixeltable.new-'):
+                raise OSError('disk full')
+            return rename(self, dst)
+
+        monkeypatch.setattr(pathlib.Path, 'rename', failing_rename)
+        with pytest.raises(SystemExit) as exc:
+            skills.run(['install', '-f'])
+        assert exc.value.code == utils.EXIT_ERROR
+        assert 'could not write' in capsys.readouterr().err
+        assert _tree(target) == before
+        assert sorted(p.name for p in target.parent.iterdir()) == ['pixeltable']
+
     def test_archive_without_skill(
         self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
