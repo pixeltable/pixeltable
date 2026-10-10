@@ -773,6 +773,7 @@ class Catalog(CatalogBase):
                 ) from e
 
             except _StaleLockSetError as e:
+                _logger.debug('stale lock set')
                 has_exc = True
                 if _MAX_RETRIES != -1 and num_retries >= _MAX_RETRIES:
                     raise excs.ConcurrencyError(
@@ -1167,7 +1168,6 @@ class Catalog(CatalogBase):
             blocking=_lock_set_blocking(op_class, any_data_versioned),
         )
 
-    # TODO continue from here
     def _resolve_lock_set(
         self,
         *,
@@ -1180,22 +1180,17 @@ class Catalog(CatalogBase):
         write_paths: Collection[Path],
         lock_path_subtree: bool,
     ) -> _LockSet:
-        """Build a tentative lock set from cache, falling back to a separate store transaction.
-
-        Run before opening the operation's transaction: a metadata query inside it would establish a snapshot before
-        the locks are acquired. Metadata-only reads need no lock set.
-        """
+        """Build a tentative lock set from cache, falling back to a separate store transaction if lock set cannot be
+        built from cache."""
         assert not get_runtime().in_xact
-        # Metadata-only reads take no locks
+        # Metadata-only reads do not take locks
         if op_class is _TblOpClass.MD_READ:
             return _LockSet()
 
-        lock_set: _LockSet | None = None
-
         # Catalog does not cache path resolution or directory structure. Create, drop, and move operations
-        # therefore resolve their paths in a separate store transaction.
+        # therefore always resolve their paths in a separate store transaction.
         if len(write_paths) == 0:
-            lock_set = self._lock_set_from_cache(
+            lock_set: _LockSet | None = self._lock_set_from_cache(
                 op_class=op_class,
                 read_tvps=read_tvps,
                 read_tbl_keys=read_tbl_keys,
@@ -1204,10 +1199,10 @@ class Catalog(CatalogBase):
                 lock_mutable_tree=lock_mutable_tree,
             )
 
-        if lock_set is not None:
-            return lock_set
+            if lock_set is not None:
+                return lock_set
 
-        # It isn't possible to build the lock set from the cache, fall back to the store
+        # If it isn't possible to build the lock set from the cache, fall back to the store
         with self.begin_read_md_xact():
             return self._lock_set_from_store(
                 op_class=op_class,
@@ -1227,12 +1222,9 @@ class Catalog(CatalogBase):
         write_tvps: Collection[TableVersionPath],
         write_tbl_keys: Collection[TableVersionKey],
     ) -> None:
-        """Clear the cached metadata used to build the lock set, forcing a store read on the next attempt.
-
-        Count restarts in telemetry so repeated retries caused by concurrent catalog changes are visible.
-        """
+        """Clear the cached metadata used to build the lock set, forcing a store read on the next attempt."""
+        assert not get_runtime().in_xact
         telemetry_schemas.lock_set_restarts.add(1)
-        _logger.debug('rebuilding the lock set')
         for key in (*(k for tvp in (*read_tvps, *write_tvps) for k in tvp.tbl_keys), *read_tbl_keys, *write_tbl_keys):
             self._clear_tv_cache(key)
 
@@ -1248,12 +1240,15 @@ class Catalog(CatalogBase):
     ) -> None:
         """Check that the held locks cover the operation's targets according to refreshed metadata.
 
-        Run after refreshing the cache. Mutable views and catalog-path targets can change between lock-set discovery
-        and acquisition. Ancestry is fixed at creation and needs no validation.
+        This is necessary to run after the locks are acquired because mutable views and catalog path targets can change
+        between lock set discovery and lock acquisition.
+
+        Ancestry locks are not validated: table ancestry is immutable.
 
         Raises:
             _StaleLockSetError: a required table or directory lock is missing, or a table lock is too weak.
         """
+        assert get_runtime().in_xact
 
         def validate_targets_locked(targets: Collection[_LockTarget]) -> None:
             for target in targets:
@@ -1268,8 +1263,7 @@ class Catalog(CatalogBase):
                 if mutable_tree is None:
                     _logger.debug(f'lock set mismatch: mutable tree of {write_tbl_id} is not fully cached')
                     raise _StaleLockSetError
-                targets, _ = mutable_tree
-                validate_targets_locked(targets)
+                validate_targets_locked(mutable_tree[0])
 
         if len(write_paths) > 0:
             # Resolve paths again under the acquired locks and check for targets added since the initial store read.
@@ -1289,6 +1283,7 @@ class Catalog(CatalogBase):
                     _logger.debug(f'lock set mismatch: directory {dir_id} is not locked')
                     raise _StaleLockSetError
 
+    # TODO continue from here
     @classmethod
     def _mutable_write_tbl_ids(
         cls, write_tvps: Collection[TableVersionPath], write_tbl_keys: Collection[TableVersionKey]
