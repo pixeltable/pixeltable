@@ -43,8 +43,7 @@ EXIT_ERROR = 1
 EXIT_CHANGES_PENDING = 2
 EXIT_REFUSED = 3
 
-# a copy of pixeltable.service.management_client.USER_ACTION_CODES, since this module does not import pixeltable:
-# the daemon reports these refusals by Pixeltable Cloud's own code, and their reason is printed as it was written
+# management_client.USER_ACTION_CODES; this module does not import pixeltable
 USER_ACTION_CODES = frozenset(('PAYMENT_REQUIRED', 'PLAN_LIMIT', 'STORE_FULL'))
 
 
@@ -393,7 +392,6 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None, params:
             body = {}
         detail = body.get('detail') or e.reason
         if body.get('error_code') in USER_ACTION_CODES:
-            # Pixeltable Cloud wrote it for the user, ending with the fix
             print(detail, file=sys.stderr)
         else:
             print(f'pxt: {e.code} {detail}', file=sys.stderr)

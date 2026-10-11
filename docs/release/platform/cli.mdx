@@ -1198,7 +1198,7 @@ organization holds against its plan's limits. Any member can run it.
 
 ```
 Community plan, 2026-11-01 to 2026-11-30 (UTC), 13 days left
-$18.42 of $25 used; past $25 your databases and services stop until the 1st (UTC)
+$18.42 of $25 used; past $25 your databases and services stop until the 1st (UTC), around November 22 at this rate
 
 METER                           QUANTITY          COST
 Compute, vCPU-hours             120.5 vCPU-hour  $4.22
@@ -1215,17 +1215,15 @@ Largest database's storage  3.2 GB / 10 GB
 Egress this month           2.1 GB / 5 GB
 ```
 
-Costs are at Pro's rates, after what the plan includes, and bytes are decimal GB. Compute lags up
-to an hour, storage and egress up to a day. On Pro, the second line ends with the amount past the
-included credit instead; it is an estimate, since the invoice comes from Stripe and a first month's
-credit is prorated.
+Costs are at Pro's rates and bytes are decimal GB. Compute lags up to an hour, storage and egress
+up to a day. On Pro, the second line ends with an estimate of what bills past the included credit.
 
 ### Plan limits
 
 When Pixeltable Cloud refuses a request past your plan's limits (`PLAN_LIMIT`), for an unpaid
 subscription (`PAYMENT_REQUIRED`), or because the media store is full (`STORE_FULL`), the command
-prints the control plane's reason alone, which ends with the fix, and exits 1. Retrying does not
-help until the fix is made.
+prints the control plane's reason alone, which ends with the fix, and exits 1. A `pxt://` connection
+to a stopped database fails at once with the command that starts it.
 
 ### `pxt secret`
 

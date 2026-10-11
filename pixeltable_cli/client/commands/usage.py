@@ -15,10 +15,7 @@ Examples:
   pxt usage
   pxt usage --json
 
-The organization is the one your credential belongs to. Costs are the month so far at Pro's rates,
-after what the plan includes. Compute lags up to an hour; storage and egress, up to a day. On Pro,
-the amount past included is an estimate: the invoice is Stripe's, and a first month's credit is
-prorated. --json prints the control plane's answer as it is.
+Costs are at Pro's rates. Compute lags up to an hour; storage and egress, up to a day.
 """
 
 
@@ -45,7 +42,6 @@ def print_usage(usage: dict[str, Any], now: datetime.datetime) -> None:
     )
     counts_from = start if usage.get('counts_from') is None else datetime.datetime.fromisoformat(usage['counts_from'])
     if counts_from > start:
-        # the billing start, or the day this month's Pro began or the last one ended
         print(f'Usage counts from {counts_from:%Y-%m-%d} (UTC).')
     print(_spend(usage))
 
@@ -74,13 +70,11 @@ def _spend(usage: dict[str, Any]) -> str:
         return f'{_usd(used)} used'
     spent = f'{_usd(used)} of {_usd(included)} used'
     if usage.get('stops_at_limit'):
-        stops = f'{spent}; past {_usd(included)} your databases and services stop until the 1st (UTC)'
-        # when what runs now passes the limit if it keeps running; absent from a control plane that predates it
-        reached = usage.get('limit_reached_at')
-        if reached is None:
-            return stops
-        at = datetime.datetime.fromisoformat(reached)
-        return f'{stops}, around {at:%B} {at.day} at this rate'
+        line = f'{spent}; past {_usd(included)} your databases and services stop until the 1st (UTC)'
+        if usage.get('limit_reached_at'):
+            at = datetime.datetime.fromisoformat(usage['limit_reached_at'])
+            line += f', around {at:%B} {at.day} at this rate'
+        return line
     return f'{spent}; past included (estimate): {_usd(usage.get("past_included_usd"))}'
 
 

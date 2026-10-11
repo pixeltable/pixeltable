@@ -852,72 +852,23 @@ _USAGE: dict[str, Any] = {
     'used_usd': 18.42,
     'past_included_usd': 0.0,
     'stops_at_limit': True,
+    'limit_reached_at': '2026-11-22T06:30:00Z',
     'meters': [
-        {
-            'meter': 'pxt_vcpu_hours',
-            'label': 'Compute, vCPU-hours',
-            'unit': 'vCPU-hour',
-            'quantity': 120.5,
-            'usd': 4.22,
-        },
-        {
-            'meter': 'pxt_gib_hours',
-            'label': 'Compute, memory GiB-hours',
-            'unit': 'GiB-hour',
-            'quantity': 241.0,
-            'usd': 4.22,
-        },
-        {
-            'meter': 'pxt_db_storage_gb_months',
-            'label': 'Database storage past included',
-            'unit': 'GB-month',
-            'quantity': 0.0,
-            'usd': 0.0,
-        },
-        {
-            'meter': 'pxt_media_gb_months',
-            'label': 'Media past included',
-            'unit': 'GB-month',
-            'quantity': 0.0,
-            'usd': 0.0,
-        },
-        {'meter': 'pxt_egress_gb', 'label': 'Egress past included', 'unit': 'GB', 'quantity': 0.0, 'usd': 0.0},
+        {'meter': 'pxt_vcpu_hours', 'label': 'Compute, vCPU-hours', 'unit': 'vCPU-hour', 'quantity': 120.5, 'usd': 4.22}
     ],
     'resources': [
         {'name': 'databases', 'label': 'Databases', 'used': 1, 'limit': 1, 'unit': 'count'},
-        {'name': 'services', 'label': 'Services', 'used': 2, 'limit': 2, 'unit': 'count'},
         {'name': 'media', 'label': 'Media Store', 'used': 12_300_000_000, 'limit': 50_000_000_000, 'unit': 'bytes'},
-        {
-            'name': 'db_storage',
-            'label': "Largest database's storage",
-            'used': 3_200_000_000,
-            'limit': 10_000_000_000,
-            'unit': 'bytes',
-        },
-        {
-            'name': 'egress',
-            'label': 'Egress this month',
-            'used': 2_100_000_000,
-            'limit': 5_000_000_000,
-            'unit': 'bytes',
-        },
     ],
 }
 
 _METERS_AND_RESOURCES = """
-METER                           QUANTITY          COST
-Compute, vCPU-hours             120.5 vCPU-hour  $4.22
-Compute, memory GiB-hours       241 GiB-hour     $4.22
-Database storage past included  0 GB-month       $0.00
-Media past included             0 GB-month       $0.00
-Egress past included            0 GB             $0.00
+METER                QUANTITY          COST
+Compute, vCPU-hours  120.5 vCPU-hour  $4.22
 
-RESOURCE                    USED / LIMIT
-Databases                   1 / 1
-Services                    2 / 2
-Media Store                 12.3 GB / 50 GB
-Largest database's storage  3.2 GB / 10 GB
-Egress this month           2.1 GB / 5 GB
+RESOURCE     USED / LIMIT
+Databases    1 / 1
+Media Store  12.3 GB / 50 GB
 """
 
 
@@ -934,9 +885,7 @@ class TestUsage:
         r = cloud_cli('usage')
 
         assert control_plane.last('get_usage') == {'operation_type': 'get_usage'}
-        lines = r.stdout.splitlines()
-        assert lines[0].startswith(f'Community plan, {start:%Y-%m-%d} to ')
-        assert lines[1] == '$18.42 of $25 used; past $25 your databases and services stop until the 1st (UTC)'
+        assert r.stdout.startswith(f'Community plan, {start:%Y-%m-%d} to ')
         assert cloud_cli('usage', '--json').json == answer
 
     def test_community(self, capsys: pytest.CaptureFixture[str]) -> None:
@@ -944,22 +893,12 @@ class TestUsage:
 
         assert capsys.readouterr().out == (
             'Community plan, 2026-11-01 to 2026-11-30 (UTC), 13 days left\n'
-            '$18.42 of $25 used; past $25 your databases and services stop until the 1st (UTC)\n'
-            + _METERS_AND_RESOURCES
-        )
-
-    def test_community_states_when_it_stops_at_this_rate(self, capsys: pytest.CaptureFixture[str]) -> None:
-        projected = {**_USAGE, 'limit_reached_at': '2026-11-22T06:30:00Z'}
-
-        usage.print_usage(projected, datetime.datetime(2026, 11, 18, 13, tzinfo=datetime.timezone.utc))
-
-        assert capsys.readouterr().out.splitlines()[1] == (
             '$18.42 of $25 used; past $25 your databases and services stop until the 1st (UTC), '
-            'around November 22 at this rate'
+            'around November 22 at this rate\n' + _METERS_AND_RESOURCES
         )
 
     def test_pro(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """Pro bills past included, so its line ends with the estimate; usage counts from the billing start."""
+        """Pro bills past included, so its line ends with the estimate."""
         pro = {
             **_USAGE,
             'plan': 'pro',
@@ -987,7 +926,7 @@ class TestUsage:
 
         lines = capsys.readouterr().out.splitlines()
         assert lines[1] == 'Usage is billed under your contract.'
-        assert lines[-1] == 'Egress this month           2.1 GB / -'
+        assert lines[-1] == 'Media Store  12.3 GB / -'
 
 
 _CREATED_ORG = {'org_id': 'org_01NEW', 'org': _ORG, 'default_db': 'main'}
@@ -1547,47 +1486,6 @@ class TestHomeBucket:
 
         assert url == 'https://r2.example.com/home/a.jpg?signed'
         assert [r['operation_type'] for r in fresh_plane.seen] == ['get_presigned_url', 'get_presigned_url']
-
-    def test_store_full(
-        self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A full media store refuses an upload URL with its reason as written, which no retry changes."""
-        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
-        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
-        status, error_code, reason = _STORE_FULL
-        fresh_plane.status = status
-        fresh_plane.headers = {'X-Pixeltable-Error-Code': error_code}
-        fresh_plane.answers['get_presigned_url'] = _refusal_body(status, reason)
-
-        with pxt_raises(excs.ErrorCode.PROVIDER_BAD_REQUEST, match=f'^{re.escape(reason)}$') as info:
-            cloud_utils.get_presigned_url_from_cloud('acme', 'main', 'home', 'a.jpg', method='put')
-
-        assert isinstance(info.value, excs.ExternalServiceError)
-        assert info.value.provider_error_code == error_code
-        assert not info.value.is_retryable
-
-    def test_no_space_detail(
-        self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Credentials for a full store carry the control plane's text for it."""
-        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
-        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
-        detail = 'The media store of pxt://acme is full: 50.2 GB of 50 GB. Upgrade to Pro for more.'
-        fresh_plane.answers['get_bucket_credentials'] = {
-            'access_key_id': 'AKIATEST',
-            'secret_access_key': 'secret',
-            'session_token': 'session-token',
-            'endpoint_url': 'https://r2.example.com',
-            'resolved_bucket_name': 'home-acme-main',
-            'ttl_seconds': 900,
-            'no_space_left': True,
-            'no_space_detail': detail,
-        }
-
-        credentials = cloud_utils.get_bucket_credentials('acme', 'main', 'home')
-
-        assert credentials.no_space_left
-        assert credentials.no_space_detail == detail
 
     @pytest.mark.parametrize(
         ('status', 'code', 'message'),

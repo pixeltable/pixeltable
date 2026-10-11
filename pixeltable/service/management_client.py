@@ -20,8 +20,7 @@ from pixeltable.utils.http import SESSION
 
 _DEFAULT_API_URL = 'https://internal-api.pixeltable.com'
 
-# an operation the control plane defines on its own, which `pxt usage` sends; its answer is read as a plain dict
-GET_USAGE: Final = 'get_usage'
+GET_USAGE: Final = 'get_usage'  # defined by the control plane alone; `pxt usage` reads its answer as a dict
 
 
 def api_url() -> str:
@@ -151,16 +150,14 @@ def _reason(resp: requests.Response) -> str:
     return reason or phrase or f'HTTP {resp.status_code}'
 
 
-# Pixeltable Cloud's codes, in its X-Pixeltable-Error-Code header, for a refusal that only the user can lift: by
-# upgrading, by paying, or by freeing space. Their reason is written for the user and ends with the fix, so the error
-# is that reason as written; a retry or a new sign-in changes nothing. pixeltable_cli/client/utils.py keeps a copy.
+# X-Pixeltable-Error-Code values for refusals only the user can lift; their reason is written for the user and ends
+# with the fix. pixeltable_cli/client/utils.py keeps a copy.
 USER_ACTION_CODES = frozenset(('PAYMENT_REQUIRED', 'PLAN_LIMIT', 'STORE_FULL'))
 
 
 def _written_reason(resp: requests.Response) -> str:
-    """The control plane's reason as it wrote it, after the '<message> : ' its error body starts with."""
+    """The control plane's reason, after the '<message> : ' its error body starts with."""
     text = resp.text.strip()
-    # the message is the status phrase or the error's own, such as 'Storage Quota Exceeded' for a 507
     _message, sep, reason = text.partition(' : ')
     return (reason.strip() if sep != '' else text) or _reason(resp)
 

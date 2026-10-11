@@ -1061,8 +1061,6 @@ def delete_key(req: Request) -> dict[str, Any]:
 
 
 class _GetUsageRequest(pydantic.BaseModel):
-    """This month's usage of the organization the credential belongs to. The control plane defines the operation."""
-
     operation_type: typing.Literal['get_usage'] = management_client.GET_USAGE
 
 
