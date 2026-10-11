@@ -1598,12 +1598,12 @@ class Catalog(CatalogBase):
                     excs.ErrorCode.INTERNAL_ERROR, f'Table operation was aborted with\n{exc!s}'
                 ) from exc
 
-    # TODO continue from here
     def _finalize_pending_ops(self, tbl_id: UUID) -> Exception | None:
         """Complete or undo pending operations for a table, then clear its cached table versions.
 
-        Each finalization transaction waits for ACCESS EXCLUSIVE. The process that started a schema change normally
-        finishes it; another process can help if it encounters pending operations, including after the owner dies.
+        Each finalization transaction waits for ACCESS EXCLUSIVE lock on the table. The process that started a schema
+        change normally finishes it; another process can help if it encounters pending operations, including after the
+        owner dies.
 
         In ROLLFORWARD state, execute remaining operations in op_sn order and mark them COMPLETED. On failure,
         switch to ROLLBACK if the statement can be aborted; otherwise, continue trying to finish it.
@@ -1613,7 +1613,7 @@ class Catalog(CatalogBase):
 
         After completion or rollback, delete the operation log and return the table to LIVE state. Return any
         exception encountered during finalization. Recursively finalize other tables if their pending operations
-        prevent this table's work from continuing.
+        block this table's finalization.
         """
         num_retries = 0
         is_rollback = False
@@ -1941,6 +1941,7 @@ class Catalog(CatalogBase):
             result.update(self._get_mutable_tree(view.id))
         return result
 
+    # TODO continue from here
     def _compute_column_dependents(
         self, write_tvps: Collection[TableVersionPath], write_tbl_keys: Collection[TableVersionKey]
     ) -> None:
