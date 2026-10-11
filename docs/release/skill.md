@@ -16,8 +16,8 @@ Install it into your agent:
 npx skills add pixeltable/pixeltable-skill
 ```
 
-With only Python, `pxt skills install` writes it into the current directory for Claude Code and the agents that
-read `.agents/skills` ([CLI reference](https://docs.pixeltable.com/platform/cli#coding-agents)).
+With only Python, run `pxt skills install` at the root of your repository; it writes the skill for Claude Code
+and the agents that read `.agents/skills` ([CLI reference](https://docs.pixeltable.com/platform/cli#coding-agents)).
 
 To read it without installing, start at
 [SKILL.md](https://raw.githubusercontent.com/pixeltable/pixeltable-skill/main/skills/pixeltable-skill/SKILL.md);
