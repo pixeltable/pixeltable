@@ -3,7 +3,9 @@
 import io
 import json
 import pathlib
+import stat
 import tarfile
+import types
 from collections.abc import Iterator
 from typing import Any, Self
 
@@ -232,6 +234,28 @@ class TestSkillsInstall:
         # checked before either copy is written
         assert sorted(p.name for p in project.iterdir()) == [pathlib.PurePosixPath(linked).parts[0]]
         assert not (project / '.claude/skills/pixeltable').exists()
+
+    def test_junction_parent_is_refused(
+        self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A Windows junction on the way to a target, which is_symlink() misses, is refused like a link."""
+        junction = project / '.agents/skills'
+        junction.mkdir(parents=True)
+        lstat = pathlib.Path.lstat
+
+        def junction_lstat(self: pathlib.Path) -> Any:
+            if self == junction:
+                return types.SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_reparse_tag=skills._JUNCTION_TAG)
+            return lstat(self)
+
+        monkeypatch.setattr(pathlib.Path, 'lstat', junction_lstat)
+        _serve(monkeypatch, _repo_archive())
+        with pytest.raises(SystemExit) as exc:
+            skills.run(['install', '-f'])
+        assert exc.value.code == utils.EXIT_ERROR
+        assert '.agents/skills is a link' in capsys.readouterr().err
+        assert list(junction.iterdir()) == []
+        assert not (project / '.claude').exists()
 
     def test_unreadable_copy_fails_on_one_line(
         self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

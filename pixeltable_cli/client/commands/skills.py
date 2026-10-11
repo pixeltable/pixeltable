@@ -6,8 +6,10 @@ import argparse
 import gzip
 import io
 import json
+import os
 import pathlib
 import shutil
+import stat
 import sys
 import tarfile
 import uuid
@@ -35,6 +37,10 @@ SKILL_DIRS = (
 )
 
 _DOWNLOAD_TIMEOUT_SECS = 30
+
+# IO_REPARSE_TAG_MOUNT_POINT, the reparse tag of a Windows directory junction; Python's stat module defines it
+# only on Windows
+_JUNCTION_TAG = 0xA0000003
 
 # far above the skill's size (about 150 KB packed), so a damaged or hostile archive cannot exhaust memory
 _MAX_ARCHIVE_BYTES = 10 * 2**20
@@ -127,7 +133,7 @@ def _install(args: argparse.Namespace) -> None:
 def _check_parents(root: pathlib.Path, target: pathlib.Path) -> None:
     """Fail if a directory between root and target is a link: writing through it would leave root."""
     for parent in reversed(target.relative_to(root).parents[:-1]):
-        if (root / parent).is_symlink():
+        if _is_link(root / parent):
             _fail(
                 f'{parent.as_posix()} is a link, so the skill would be written outside {root}. Make it a '
                 'directory, or copy the skill there yourself.'
@@ -218,8 +224,17 @@ def _manifest_version(fp: IO[bytes] | None) -> str | None:
     return version if isinstance(version, str) else None
 
 
+def _is_link(path: pathlib.Path) -> bool:
+    """Whether path is a symlink or a Windows directory junction, which is_symlink() does not report."""
+    try:
+        st = path.lstat()
+    except OSError:
+        return False
+    return stat.S_ISLNK(st.st_mode) or getattr(st, 'st_reparse_tag', 0) == _JUNCTION_TAG
+
+
 def _exists(path: pathlib.Path) -> bool:
-    return path.exists() or path.is_symlink()
+    return path.exists() or _is_link(path)
 
 
 def _read_tree(root: pathlib.Path) -> dict[str, bytes] | None:
@@ -228,14 +243,21 @@ def _read_tree(root: pathlib.Path) -> dict[str, bytes] | None:
     Returns None unless root is a directory holding only directories and regular files: an installed copy
     never holds a link, so one anywhere under root makes the copy differ, and replacing it removes the link.
     """
-    if root.is_symlink() or not root.is_dir():
+    if _is_link(root) or not root.is_dir():
         return None
     files: dict[str, bytes] = {}
-    for p in sorted(root.rglob('*')):
-        if p.is_symlink() or not (p.is_file() or p.is_dir()):
-            return None
-        if p.is_file():
-            files[p.relative_to(root).as_posix()] = p.read_bytes()
+    # walked by hand rather than with rglob(), so it never descends through a link
+    pending = [root]
+    while len(pending) > 0:
+        for p in sorted(pending.pop().iterdir()):
+            if _is_link(p):
+                return None
+            if p.is_dir():
+                pending.append(p)
+            elif p.is_file():
+                files[p.relative_to(root).as_posix()] = p.read_bytes()
+            else:
+                return None
     return files
 
 
@@ -258,12 +280,24 @@ def _write_tree(target: pathlib.Path, files: dict[str, bytes]) -> None:
         return
     # the new copy is in place; a previous one left beside it would be read as a second copy of the skill
     try:
-        if old.is_symlink() or old.is_file():
-            old.unlink()
-        else:
-            shutil.rmtree(old)
+        _remove(old)
     except OSError as e:
         print(f'pxt skills install: could not remove the previous copy at {old}: {e}. Delete it.', file=sys.stderr)
+
+
+def _remove(path: pathlib.Path) -> None:
+    """Remove path; a link is removed itself, never what it points to."""
+    if not _is_link(path):
+        if path.is_file():
+            path.unlink()
+        else:
+            shutil.rmtree(path)
+        return
+    try:
+        path.unlink()
+    except (IsADirectoryError, PermissionError):
+        # Windows removes a junction or a directory symlink with rmdir, which leaves its target alone
+        os.rmdir(path)
 
 
 def _write_files(root: pathlib.Path, files: dict[str, bytes]) -> None:
