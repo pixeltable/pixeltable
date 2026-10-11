@@ -948,6 +948,16 @@ class TestUsage:
             + _METERS_AND_RESOURCES
         )
 
+    def test_community_states_when_it_stops_at_this_rate(self, capsys: pytest.CaptureFixture[str]) -> None:
+        projected = {**_USAGE, 'limit_reached_at': '2026-11-22T06:30:00Z'}
+
+        usage.print_usage(projected, datetime.datetime(2026, 11, 18, 13, tzinfo=datetime.timezone.utc))
+
+        assert capsys.readouterr().out.splitlines()[1] == (
+            '$18.42 of $25 used; past $25 your databases and services stop until the 1st (UTC), '
+            'around November 22 at this rate'
+        )
+
     def test_pro(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Pro bills past included, so its line ends with the estimate; usage counts from the billing start."""
         pro = {
@@ -964,7 +974,7 @@ class TestUsage:
 
         assert capsys.readouterr().out == (
             'Pro plan, 2026-11-01 to 2026-11-30 (UTC), 1 day left\n'
-            'Usage counts from 2026-11-15, the billing start.\n'
+            'Usage counts from 2026-11-15 (UTC).\n'
             '$132.10 of $100 used; past included (estimate): $32.10\n' + _METERS_AND_RESOURCES
         )
 
