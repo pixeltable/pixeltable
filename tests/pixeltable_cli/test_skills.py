@@ -13,16 +13,11 @@ from pixeltable_cli.client import utils
 from pixeltable_cli.client.commands import skills
 
 _COMMIT = 'f976f182ded0a9c7d06d219a63559cd13535c7e1'
-_NEXT_COMMIT = 'c471dbb26b5f2b5a4e1d1c0a7d3c9e8f6a5b4c3d'
 
 _SKILL = {
     'SKILL.md': b'---\nname: pixeltable\n---\nBuild with Pixeltable.\n',
     'references/cli.md': b'# pxt\n',
     'agents/openai.yaml': b'interface: {}\n',
-}
-_NEXT_SKILL = {
-    'SKILL.md': b'---\nname: pixeltable\n---\nBuild with Pixeltable, newer.\n',
-    'references/cli.md': b'# pxt\n',
 }
 
 
@@ -45,14 +40,13 @@ def _archive(
     return buf.getvalue()
 
 
-def _repo_archive(skill: dict[str, bytes] = _SKILL, commit: str = _COMMIT) -> bytes:
+def _repo_archive(skill: dict[str, bytes] = _SKILL) -> bytes:
     return _archive(
         {
             'plugin.json': b'{"name": "pixeltable", "version": "2.12.0"}',
             'README.md': b'# Pixeltable skill\n',
             **{f'skills/pixeltable-skill/{name}': content for name, content in skill.items()},
-        },
-        commit=commit,
+        }
     )
 
 
@@ -88,11 +82,6 @@ def _tree(root: pathlib.Path) -> dict[str, bytes]:
     return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob('*') if p.is_file()}
 
 
-def _skill_files(root: pathlib.Path) -> dict[str, bytes]:
-    """The files of an installed copy, without its install record."""
-    return {rel: content for rel, content in _tree(root).items() if rel != skills.RECORD_FILE}
-
-
 def _http_error(status: int) -> requests.HTTPError:
     resp = requests.Response()
     resp.status_code = status
@@ -105,33 +94,27 @@ def _install_json(capsys: pytest.CaptureFixture[str], *argv: str) -> dict[str, A
     return json.loads(capsys.readouterr().out)
 
 
-def _states(doc: dict[str, Any]) -> dict[str, tuple[str, str | None]]:
-    return {t['path']: (t['state'], t['previous_commit']) for t in doc['targets']}
+def _states(doc: dict[str, Any]) -> dict[str, str]:
+    return {t['path']: t['state'] for t in doc['targets']}
 
 
 class TestSkillsInstall:
     def test_installs_for_each_agent_dir(
         self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """A fresh directory gets the skill's files and an install record, and nothing else from the repository."""
+        """A fresh directory gets the skill's files, and nothing else from the repository, in both skill dirs."""
         requested = _serve(monkeypatch, _repo_archive())
         skills.run(['install'])
         assert requested == [skills.ARCHIVE_URL]
         for skills_dir in ('.claude/skills', '.agents/skills'):
-            target = project / skills_dir / 'pixeltable'
-            assert _skill_files(target) == _SKILL
-            record = json.loads((target / skills.RECORD_FILE).read_text())
-            assert record['commit'] == _COMMIT and record['version'] == '2.12.0'
-            assert sorted(record['files']) == sorted(_SKILL)
+            assert _tree(project / skills_dir / 'pixeltable') == _SKILL
         # nothing left behind from writing beside the target
         assert sorted(p.name for p in (project / '.claude/skills').iterdir()) == ['pixeltable']
 
         out = capsys.readouterr().out
         assert f'(version 2.12.0, commit f976f182d) in {project}:' in out
         assert out.count('written') == 2
-        assert '/reload-skills' in out and '/skills lists it' in out
-        assert 'Commit both directories' in out
-        assert 'below the repository root' not in out
+        assert f'How agents load it: {skills.DOCS_URL}' in out
 
     def test_matching_copy_is_left_alone(
         self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -143,31 +126,14 @@ class TestSkillsInstall:
         assert doc['root'] == str(project)
         assert (doc['commit'], doc['version'], doc['source']) == (_COMMIT, '2.12.0', skills.ARCHIVE_URL)
         assert _states(doc) == {
-            '.claude/skills/pixeltable': ('already current', None),
-            '.agents/skills/pixeltable': ('already current', None),
+            '.claude/skills/pixeltable': 'already current',
+            '.agents/skills/pixeltable': 'already current',
         }
 
-    def test_unedited_copy_is_updated_without_asking(
+    def test_differing_copy_needs_force(
         self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """A copy nobody edited since its install is replaced by a newer skill with no prompt and no -f."""
-        _serve(monkeypatch, _repo_archive())
-        skills.run(['install'])
-
-        _serve(monkeypatch, _repo_archive(_NEXT_SKILL, _NEXT_COMMIT))
-        doc = _install_json(capsys)
-        assert _states(doc) == {
-            '.claude/skills/pixeltable': ('updated', _COMMIT),
-            '.agents/skills/pixeltable': ('updated', _COMMIT),
-        }
-        target = project / '.agents/skills/pixeltable'
-        assert _skill_files(target) == _NEXT_SKILL
-        assert json.loads((target / skills.RECORD_FILE).read_text())['commit'] == _NEXT_COMMIT
-
-    def test_edited_copy_needs_force(
-        self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """A copy edited since its install is refused without -f and left as it was; -f replaces it."""
+        """A copy that differs is refused without -f and left as it was; -f replaces it and drops stale files."""
         _serve(monkeypatch, _repo_archive())
         skills.run(['install'])
         edited = project / '.agents/skills/pixeltable'
@@ -180,32 +146,13 @@ class TestSkillsInstall:
             skills.run(['install'])
         assert exc.value.code == utils.EXIT_REFUSED
         err = capsys.readouterr().err
-        assert '--force/-f' in err and '.agents/skills/pixeltable (edited since it was installed)' in err
+        assert '--force/-f' in err and '.agents/skills/pixeltable' in err
         assert '.claude/skills/pixeltable' not in err
         assert _tree(edited) == before
 
         doc = _install_json(capsys, '-f')
-        assert _states(doc) == {
-            '.claude/skills/pixeltable': ('already current', None),
-            '.agents/skills/pixeltable': ('replaced', _COMMIT),
-        }
-        assert _skill_files(edited) == _SKILL
-
-    def test_copy_not_written_by_pxt_needs_force(
-        self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """A differing copy with no install record, e.g. one copied by hand, is refused without -f."""
-        by_hand = project / '.claude/skills/pixeltable'
-        by_hand.mkdir(parents=True)
-        (by_hand / 'SKILL.md').write_bytes(b'copied by hand\n')
-        _serve(monkeypatch, _repo_archive())
-
-        with pytest.raises(SystemExit) as exc:
-            skills.run(['install'])
-        assert exc.value.code == utils.EXIT_REFUSED
-        assert '.claude/skills/pixeltable (not written by pxt skills install)' in capsys.readouterr().err
-        assert _tree(by_hand) == {'SKILL.md': b'copied by hand\n'}
-        assert not (project / '.agents').exists()
+        assert _states(doc) == {'.claude/skills/pixeltable': 'already current', '.agents/skills/pixeltable': 'replaced'}
+        assert _tree(edited) == _SKILL
 
     def test_link_at_target_is_replaced_not_followed(
         self, project: pathlib.Path, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
@@ -219,7 +166,7 @@ class TestSkillsInstall:
         skills.run(['install', '-f'])
         target = project / '.claude/skills/pixeltable'
         assert not target.is_symlink()
-        assert _skill_files(target) == _SKILL
+        assert _tree(target) == _SKILL
         assert _tree(elsewhere) == {'keep.md': b'not ours\n'}
 
     def test_link_inside_copy_makes_it_differ(
@@ -245,34 +192,64 @@ class TestSkillsInstall:
 
         skills.run(['install', '-f'])
         assert not link.is_symlink() and not link.exists()
-        assert _skill_files(project / '.agents/skills/pixeltable') == _SKILL
+        assert _tree(project / '.agents/skills/pixeltable') == _SKILL
         assert outside.read_bytes() == b'not ours\n'
 
-    def test_below_repository_root_says_so(
-        self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    @pytest.mark.parametrize('linked', ['.agents/skills', '.claude'])
+    def test_linked_parent_is_refused(
+        self,
+        project: pathlib.Path,
+        tmp_path_factory: pytest.TempPathFactory,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        linked: str,
     ) -> None:
-        """Run below a repository root, the output says Claude Code started at the root may not load the copy yet."""
-        (project / '.git').mkdir()
-        (project / 'backend').mkdir()
-        monkeypatch.chdir(project / 'backend')
+        """A link on the way to a target would put the skill outside the project: nothing is written, even -f."""
+        elsewhere = tmp_path_factory.mktemp('elsewhere')
+        link = project / linked
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(elsewhere, target_is_directory=True)
         _serve(monkeypatch, _repo_archive())
 
-        skills.run(['install'])
-        out = capsys.readouterr().out
-        assert f'below the repository root, {project}' in out and 'under backend/' in out
+        with pytest.raises(SystemExit) as exc:
+            skills.run(['install', '-f'])
+        assert exc.value.code == utils.EXIT_ERROR
+        assert f'{linked} is a link, so the skill would be written outside {project}' in capsys.readouterr().err
+        assert list(elsewhere.iterdir()) == []
+        # checked before either copy is written
+        assert sorted(p.name for p in project.iterdir()) == [pathlib.PurePosixPath(linked).parts[0]]
+        assert not (project / '.claude/skills/pixeltable').exists()
 
-        monkeypatch.chdir(project)
+    def test_unreadable_copy_fails_on_one_line(
+        self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A file in the copy already there that cannot be read ends with the exit-1 line, not a traceback."""
+        _serve(monkeypatch, _repo_archive())
         skills.run(['install'])
-        assert 'below the repository root' not in capsys.readouterr().out
+        capsys.readouterr()
+
+        read_bytes = pathlib.Path.read_bytes
+
+        def unreadable(self: pathlib.Path) -> bytes:
+            if self.name == 'SKILL.md':
+                raise PermissionError(13, 'Permission denied', str(self))
+            return read_bytes(self)
+
+        monkeypatch.setattr(pathlib.Path, 'read_bytes', unreadable)
+        with pytest.raises(SystemExit) as exc:
+            skills.run(['install', '-f'])
+        assert exc.value.code == utils.EXIT_ERROR
+        err = capsys.readouterr().err
+        assert 'could not read the copy already there' in err and 'Permission denied' in err
+        assert len(err.splitlines()) == 1
 
     def test_unsafe_members_are_skipped(self) -> None:
-        """Links, paths that climb out of the skill's directory, and an install record are not taken from it."""
+        """Links and paths that climb out of the skill's directory are not taken from the archive."""
         archive = _archive(
             {
                 'skills/pixeltable-skill/SKILL.md': b'---\nname: pixeltable\n---\n',
                 'skills/pixeltable-skill/../../../escaped.md': b'outside\n',
                 'skills/pixeltable-skill/C:evil.md': b'drive\n',
-                f'skills/pixeltable-skill/{skills.RECORD_FILE}': b'{}',
             },
             links=(('skills/pixeltable-skill/passwd', '/etc/passwd'),),
             commit=None,
@@ -282,14 +259,11 @@ class TestSkillsInstall:
         assert commit is None and version is None
 
     @pytest.mark.parametrize(
-        ('error', 'expected'),
+        ('error', 'cause'),
         [
-            (requests.ConnectionError('refused'), 'no connection. Check the network; behind a proxy, set HTTPS_PROXY'),
-            (
-                requests.exceptions.ProxyError('refused'),
-                'the proxy did not accept the connection. Check the address in HTTPS_PROXY',
-            ),
-            (_http_error(503), 'GitHub answered HTTP 503'),
+            (requests.ConnectionError('refused'), 'ConnectionError'),
+            (requests.exceptions.ProxyError('refused'), 'ProxyError'),
+            (_http_error(503), 'HTTP 503'),
         ],
         ids=['no connection', 'proxy', 'http status'],
     )
@@ -299,7 +273,7 @@ class TestSkillsInstall:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
         error: requests.RequestException,
-        expected: str,
+        cause: str,
     ) -> None:
         def get(url: str, timeout: float) -> _Response:
             raise error
@@ -309,7 +283,7 @@ class TestSkillsInstall:
             skills.run(['install'])
         assert exc.value.code == utils.EXIT_ERROR
         err = capsys.readouterr().err
-        assert f'could not download the skill from {skills.ARCHIVE_URL}: {expected}' in err
+        assert f'could not download the skill from {skills.ARCHIVE_URL} ({cause}). Behind a proxy' in err
         assert len(err.splitlines()) == 1
         assert list(project.iterdir()) == []
 

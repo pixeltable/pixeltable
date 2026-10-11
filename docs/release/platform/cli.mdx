@@ -437,6 +437,7 @@ pxt service check app.py --json
 
 ```bash
 pxt skills install                   # writes .claude/skills/pixeltable and .agents/skills/pixeltable
+pxt skills install -f                # update it later, replacing the copy there
 ```
 
 | Directory | Read by |
@@ -444,9 +445,12 @@ pxt skills install                   # writes .claude/skills/pixeltable and .age
 | `.claude/skills/pixeltable` | Claude Code, Cursor |
 | `.agents/skills/pixeltable` | Codex, Cursor, Gemini CLI, GitHub Copilot, OpenCode |
 
-In Claude Code, `/reload-skills` loads the skill in a running session and `/skills` lists it; other agents load it in a new session. Claude Code started at the repository root loads a copy written in a subdirectory only once it reads a file there, so the command says so when it runs below the root. If Claude Code also has the Pixeltable plugin, both copies load, because plugin skills are namespaced: keep one.
+The command downloads the skill from the repository's `main` branch and prints the version and commit it wrote. A copy that already matches is left as it is. One that differs, such as an older version, is replaced after a yes at the prompt or with `-f`; without a terminal the command exits 3 instead. It refuses to write through a linked `.claude`, `.agents` or `skills` directory, since the skill would land outside the project. Exit 1 means the download, a read or a write failed; behind a proxy, set `HTTPS_PROXY`.
 
-The command downloads the skill from the repository's `main` branch and prints the version and commit it wrote. Each copy holds `.pxt-install.json`, the commit it came from. Running the command again leaves a current copy as it is and updates one nobody has edited. A copy edited since it was installed, or one the command did not write, is replaced after a yes at the prompt or with `-f`; without a terminal the command exits 3 instead. Exit 1 means the download or a write failed; behind a proxy, set `HTTPS_PROXY`. Commit both directories to give every collaborator's agent the same copy, and delete them to remove the skill.
+- In Claude Code, `/reload-skills` loads the skill in a running session and `/skills` lists it. Other agents load it in a new session.
+- Claude Code started at the repository root loads a copy written in a subdirectory only once it reads a file there, so install at the root.
+- If Claude Code also has the Pixeltable plugin, both copies load, because plugin skills are namespaced: keep one.
+- Commit both directories to give every collaborator's agent the same copy, and delete them to remove the skill.
 
 ## Schema management
 
