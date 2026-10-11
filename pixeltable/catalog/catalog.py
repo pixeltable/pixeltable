@@ -1391,7 +1391,6 @@ class Catalog(CatalogBase):
         for dir_id in lock_set.dir_ids:
             self._acquire_dir_xlock(dir_id=dir_id)
 
-    # TODO continue from here
     def _refresh_md_cache(
         self,
         read_tvps: Collection[TableVersionPath],
@@ -1423,6 +1422,7 @@ class Catalog(CatalogBase):
         for read_key in read_tbl_keys:
             self._refresh_tbl_cache(key=read_key, check_pending_ops=check_pending_ops)
 
+    # TODO continue from here
     def _evict_caches(self) -> None:
         # Evict LRU _tbls entries
         evicted_tbls: list[TableVersionKey] = []
