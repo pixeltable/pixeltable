@@ -36,6 +36,10 @@ SKILL_DIRS = (
 
 _DOWNLOAD_TIMEOUT_SECS = 30
 
+# far above the skill's size (about 150 KB packed), so a damaged or hostile archive cannot exhaust memory
+_MAX_ARCHIVE_BYTES = 10 * 2**20
+_MAX_UNPACKED_BYTES = 50 * 2**20
+
 EPILOG = f"""\
 Examples:
   pxt skills install                # at the root of the repository you start your coding agent in
@@ -135,18 +139,35 @@ def _download() -> tuple[dict[str, bytes], str | None, str | None]:
     import requests
 
     try:
-        resp = requests.get(ARCHIVE_URL, timeout=_DOWNLOAD_TIMEOUT_SECS)
-        resp.raise_for_status()
+        archive = _fetch()
     except requests.RequestException as e:
         cause = f'HTTP {e.response.status_code}' if e.response is not None else type(e).__name__
         _fail(
             f'could not download the skill from {ARCHIVE_URL} ({cause}). Behind a proxy, set HTTPS_PROXY; '
             'then run it again.'
         )
+    if archive is None:
+        _fail(f'the archive from {ARCHIVE_URL} is larger than {_MAX_ARCHIVE_BYTES // 2**20} MB')
     try:
-        return unpack(resp.content)
+        return unpack(archive)
     except (tarfile.TarError, OSError, EOFError, ValueError, zlib.error) as e:
         _fail(f'the archive from {ARCHIVE_URL} does not hold the skill: {e}')
+
+
+def _fetch() -> bytes | None:
+    """The archive's bytes, or None if it is larger than _MAX_ARCHIVE_BYTES."""
+    import requests
+
+    with requests.get(ARCHIVE_URL, timeout=_DOWNLOAD_TIMEOUT_SECS, stream=True) as resp:
+        resp.raise_for_status()
+        chunks: list[bytes] = []
+        size = 0
+        for chunk in resp.iter_content(chunk_size=2**16):
+            size += len(chunk)
+            if size > _MAX_ARCHIVE_BYTES:
+                return None
+            chunks.append(chunk)
+    return b''.join(chunks)
 
 
 def unpack(archive: bytes) -> tuple[dict[str, bytes], str | None, str | None]:
@@ -156,8 +177,11 @@ def unpack(archive: bytes) -> tuple[dict[str, bytes], str | None, str | None]:
     cannot place anything outside the target. The commit comes from the pax header that GitHub's archives
     carry, and the version from the plugin manifest at the repository root.
     """
-    # decompressing to the end checks the gzip CRC; tarfile alone stops reading early and can return altered files
-    tar_bytes = gzip.decompress(archive)
+    # reading to the end checks the gzip CRC; tarfile alone stops reading early and can return altered files
+    with gzip.GzipFile(fileobj=io.BytesIO(archive)) as gz:
+        tar_bytes = gz.read(_MAX_UNPACKED_BYTES + 1)
+    if len(tar_bytes) > _MAX_UNPACKED_BYTES:
+        raise ValueError(f'it unpacks to more than {_MAX_UNPACKED_BYTES // 2**20} MB')
     files: dict[str, bytes] = {}
     version: str | None = None
     with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode='r:') as tar:
@@ -230,10 +254,16 @@ def _write_tree(target: pathlib.Path, files: dict[str, bytes]) -> None:
     except OSError as e:
         shutil.rmtree(staging, ignore_errors=True)
         _fail(f'could not write {target}: {e}')
-    if old.is_symlink() or old.is_file():
-        old.unlink()
-    elif old.is_dir():
-        shutil.rmtree(old, ignore_errors=True)
+    if not _exists(old):
+        return
+    # the new copy is in place; a previous one left beside it would be read as a second copy of the skill
+    try:
+        if old.is_symlink() or old.is_file():
+            old.unlink()
+        else:
+            shutil.rmtree(old)
+    except OSError as e:
+        print(f'pxt skills install: could not remove the previous copy at {old}: {e}. Delete it.', file=sys.stderr)
 
 
 def _write_files(root: pathlib.Path, files: dict[str, bytes]) -> None:

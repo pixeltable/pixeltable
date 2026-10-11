@@ -4,7 +4,8 @@ import io
 import json
 import pathlib
 import tarfile
-from typing import Any
+from collections.abc import Iterator
+from typing import Any, Self
 
 import pytest
 import requests
@@ -51,11 +52,23 @@ def _repo_archive(skill: dict[str, bytes] = _SKILL) -> bytes:
 
 
 class _Response:
+    """Stands in for a streamed requests.Response."""
+
     def __init__(self, content: bytes) -> None:
         self.content = content
 
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        pass
+
     def raise_for_status(self) -> None:
         pass
+
+    def iter_content(self, chunk_size: int) -> Iterator[bytes]:
+        for i in range(0, len(self.content), chunk_size):
+            yield self.content[i : i + chunk_size]
 
 
 @pytest.fixture
@@ -70,7 +83,7 @@ def _serve(monkeypatch: pytest.MonkeyPatch, archive: bytes) -> list[str]:
     """Answer the download with archive; returns the URLs requested."""
     requested: list[str] = []
 
-    def get(url: str, timeout: float) -> _Response:
+    def get(url: str, **kwargs: Any) -> _Response:
         requested.append(url)
         return _Response(archive)
 
@@ -275,7 +288,7 @@ class TestSkillsInstall:
         error: requests.RequestException,
         cause: str,
     ) -> None:
-        def get(url: str, timeout: float) -> _Response:
+        def get(url: str, **kwargs: Any) -> _Response:
             raise error
 
         monkeypatch.setattr(requests, 'get', get)
@@ -325,6 +338,43 @@ class TestSkillsInstall:
         assert 'could not write' in capsys.readouterr().err
         assert _tree(target) == before
         assert sorted(p.name for p in target.parent.iterdir()) == ['pixeltable']
+
+    @pytest.mark.parametrize('limit', ['_MAX_ARCHIVE_BYTES', '_MAX_UNPACKED_BYTES'])
+    def test_oversized_archive(
+        self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], limit: str
+    ) -> None:
+        """An archive past either size limit is refused before it is unpacked or written."""
+        monkeypatch.setattr(skills, limit, 100)
+        _serve(monkeypatch, _repo_archive())
+        with pytest.raises(SystemExit) as exc:
+            skills.run(['install'])
+        assert exc.value.code == utils.EXIT_ERROR
+        err = capsys.readouterr().err
+        assert 'larger than' in err or 'unpacks to more than' in err
+        assert list(project.iterdir()) == []
+
+    def test_leftover_previous_copy_is_reported(
+        self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """If the replaced copy cannot be removed, the install still succeeds and says where the leftover is."""
+        _serve(monkeypatch, _repo_archive())
+        skills.run(['install'])
+        target = project / '.agents/skills/pixeltable'
+        (target / 'SKILL.md').write_bytes(b'previous\n')
+        capsys.readouterr()
+
+        rmtree = skills.shutil.rmtree
+
+        def failing_rmtree(path: pathlib.Path, *args: Any, **kwargs: Any) -> None:
+            if pathlib.Path(path).name.startswith('.pixeltable.old-'):
+                raise PermissionError(13, 'Permission denied', str(path))
+            rmtree(path, *args, **kwargs)
+
+        monkeypatch.setattr(skills.shutil, 'rmtree', failing_rmtree)
+        skills.run(['install', '-f'])
+        assert _tree(target) == _SKILL
+        err = capsys.readouterr().err
+        assert 'could not remove the previous copy at' in err and '.pixeltable.old-' in err
 
     def test_archive_without_skill(
         self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
