@@ -1376,16 +1376,14 @@ class Catalog(CatalogBase):
         for t in targets:
             self._locks_held[t.store_tbl_name] = t.mode
 
-    # TODO continue from here
     @telemetry.spanned('pixeltable.catalog.acquire_locks', level=telemetry.DEBUG)
     def _acquire_locks(self, lock_set: _LockSet, op_class: _TblOpClass) -> None:
-        """Acquire the lock set: store tables first, then directory rows.
+        """Acquire the lock set
 
-        Store table locks must come before directory row locks or metadata queries, which establish the transaction's
-        snapshot. Otherwise, waiting for a store table lock could leave us reading metadata from before the wait.
+        Store table locks are acquired first because LOCK TABLE statements do not establish the read snapshot for
+        the transaction. Directories, on the other hand, are locked via an UPDATE statement, the first of which will
+        establish the snapshot.
         """
-        # Skip fault points when no store tables are locked, so the metadata transaction used to build a lock set
-        # does not consume a fault intended for the subsequent operation.
         if len(lock_set.tbl_targets) > 0:
             fault_injection.process_fault(FaultLocation.CATALOG_BEFORE_TBL_LOCK, op_class=op_class)
             self._lock_tables(lock_set.tbl_targets, blocking=lock_set.blocking)
@@ -1393,6 +1391,7 @@ class Catalog(CatalogBase):
         for dir_id in lock_set.dir_ids:
             self._acquire_dir_xlock(dir_id=dir_id)
 
+    # TODO continue from here
     def _refresh_md_cache(
         self,
         read_tvps: Collection[TableVersionPath],
@@ -1403,11 +1402,7 @@ class Catalog(CatalogBase):
         lock_mutable_tree: bool,
         check_pending_ops: bool,
     ) -> None:
-        """Refresh metadata for all read and write targets.
-
-        Refresh write targets first, including their mutable views when requested, then read targets. In each group,
-        process paths before individual keys so bases are validated before their views.
-        """
+        """Refresh metadata for all read and write targets and their mutable views, if requested."""
         # Track refreshed write targets and views to avoid loading the same table twice.
         refreshed: set[UUID] = set()
         for tvp in write_tvps:
@@ -1419,7 +1414,6 @@ class Catalog(CatalogBase):
                 refreshed=refreshed,
             )
         for write_key in write_tbl_keys:
-            # a write target is always a mutable table, so its key carries no effective version
             assert write_key.effective_version is None, write_key
             self._refresh_tbl_cache(
                 key=write_key, mutable_tree=lock_mutable_tree, check_pending_ops=check_pending_ops, refreshed=refreshed
