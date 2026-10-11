@@ -1162,6 +1162,60 @@ class TestTunnelRetries:
             transport.post(b'body')
         assert attempts == 1
 
+    @staticmethod
+    def _db_in(monkeypatch: pytest.MonkeyPatch, state: str, **status: Any) -> list[Any]:
+        """Tunnels reset, as a stopped database's do, and the control plane answers `state`; returns its requests."""
+
+        def reset(*_args: Any, **_kwargs: Any) -> socket.socket:
+            raise ConnectionResetError(54, 'Connection reset by peer')
+
+        requests: list[Any] = []
+
+        def get_db(request: Any) -> dict[str, Any]:
+            requests.append(request)
+            return {'report': {'db': 'db1', 'current': {'resources': {}, 'state': state, **status}}}
+
+        monkeypatch.setattr(socket, 'create_connection', reset)
+        monkeypatch.setattr(proxy_client.management_client, 'api_call', get_db)
+        return requests
+
+    def test_a_stopped_database_ends_the_retries_with_the_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Its tunnels reset without a word, which the client used to retry for 90 s and print as a traceback."""
+        requests = self._db_in(monkeypatch, 'STOPPED')
+        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
+        with pxt_raises(
+            excs.ErrorCode.INVALID_STATE, match=r'pxt://org1:db1 is stopped.*`pxt db start pxt://org1:db1`'
+        ):
+            transport.post(b'body')
+        assert [(r.org, r.db) for r in requests] == [('org1', 'db1')]
+
+    def test_a_failed_database_names_its_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._db_in(monkeypatch, 'FAILED', failure_reason='The image did not build.')
+        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'pxt://org1:db1 failed: The image did not build\.'):
+            transport.post(b'body')
+
+    def test_a_database_coming_up_is_retried_and_asked_about_once_a_while(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        requests = self._db_in(monkeypatch, 'STARTING')
+        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
+        for _ in range(2):
+            with pytest.raises(ConnectionResetError):
+                transport._connect_tunnel()
+        assert len(requests) == 1
+
+    def test_a_state_the_control_plane_cannot_give_leaves_the_retries(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._db_in(monkeypatch, 'STOPPED')
+
+        def unreachable(request: Any) -> dict[str, Any]:
+            raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, 'down', provider='pixeltable_cloud')
+
+        monkeypatch.setattr(proxy_client.management_client, 'api_call', unreachable)
+        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
+        with pytest.raises(ConnectionResetError):
+            transport._connect_tunnel()
+
     def test_a_refused_credential_opens_no_connection(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Renewing a session is a round trip of its own, so the credential is resolved before connecting."""
 

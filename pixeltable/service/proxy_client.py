@@ -52,9 +52,12 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.http import DOWNLOAD_USER_AGENT, fetch_url, retry_if_retryable_error, tcp_keepalive_options
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectPath, StorageTarget
+from pixeltable_cli.types import DbState
 
 from . import proxy_protocol
+from . import management_client
 from .management_client import Credential, is_refusal, refusal
+from .management_protocol import GetDbRequest, GetDbResponse
 from .proxy_protocol import (
     InlinePartSink,
     MediaPath,
@@ -164,6 +167,9 @@ _MAX_IDLE_S = 4.0  # below the proxy daemon's 5 s keep-alive, so no connection i
 # Failures that leave the request undelivered (connect, handshake, writing it); retried with backoff.
 _TUNNEL_TRANSIENT_EXC = (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError)
 _TUNNEL_RETRY_MAX_DELAY = 90.0  # seconds; > _CONNECT_TIMEOUT so a hung handshake still leaves retry budget
+# A stopped database closes tunnels without a word, so a failing connection asks the control plane what state the
+# database is in, at most this often; one that is not coming up ends the retries with the reason.
+_STATE_CHECK_INTERVAL_S = 30.0
 
 
 class _TunnelHTTPConnection(http.client.HTTPConnection):
@@ -270,10 +276,46 @@ class TunnelTransport(Transport):
         self._host = host
         self._port = port
         self._pool = _TunnelPool(self._connect_tunnel)
+        self._state_checked_at: float | None = None
         # media URLs are formed against this endpoint; they are reachable only through the tunnel (see fetch())
         self._endpoint = f'https://{self._host}:{self._port}'
 
     def _connect_tunnel(self) -> _TunnelHTTPConnection:
+        try:
+            return self._open_tunnel()
+        except PermissionError:
+            raise  # this machine refused the socket, which says nothing of the database
+        except _TUNNEL_TRANSIENT_EXC:
+            self._raise_if_not_coming_up()
+            raise
+
+    def _raise_if_not_coming_up(self) -> None:
+        """Raise the reason when the database is stopped or failed, which no retry of the connection fixes. A state
+        the control plane cannot give leaves the retries as they were."""
+        now = time.monotonic()
+        if self._state_checked_at is not None and now - self._state_checked_at < _STATE_CHECK_INTERVAL_S:
+            return
+        self._state_checked_at = now
+        uri = f'pxt://{self._org}:{self._db}'
+        try:
+            response = management_client.api_call(GetDbRequest(org=self._org, db=self._db))
+            current = GetDbResponse.model_validate(response).report.current
+        except Exception:
+            _logger.debug('could not read the state of %s', uri, exc_info=True)
+            return
+        if current is None:
+            return
+        if current.state in (DbState.STOPPED, DbState.STOPPING):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE,
+                f'{uri} is stopped, so it accepts no connections. Start it with `pxt db start {uri}`, '
+                'which says why if it cannot start now.',
+            )
+        if current.state == DbState.FAILED:
+            reason = f': {current.failure_reason}' if current.failure_reason else ''
+            raise excs.RequestError(excs.ErrorCode.INVALID_STATE, f'{uri} failed{reason}. See `pxt db status {uri}`.')
+
+    def _open_tunnel(self) -> _TunnelHTTPConnection:
         """Open one tunnel connection: TCP + TLS + PXT/1.0 CONNECT handshake."""
         # before connecting: renewing a session is a round trip of its own, and a refused credential needs no socket
         credential = self._credential_cb()
