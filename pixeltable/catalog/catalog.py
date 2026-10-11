@@ -1422,7 +1422,6 @@ class Catalog(CatalogBase):
         for read_key in read_tbl_keys:
             self._refresh_tbl_cache(key=read_key, check_pending_ops=check_pending_ops)
 
-    # TODO continue from here
     def _evict_caches(self) -> None:
         # Evict LRU _tbls entries
         evicted_tbls: list[TableVersionKey] = []
@@ -1516,11 +1515,7 @@ class Catalog(CatalogBase):
         check_pending_ops: bool = True,
         refreshed: set[UUID] | None = None,
     ) -> None:
-        """Refresh cached table versions along the path, starting with the bases.
-
-        For writes, refresh the leaf through _refresh_tbl_cache(), including its mutable views when requested.
-        Reads refresh the entire path through _get_tbl_version(). Missing tables raise TABLE_NOT_FOUND.
-        """
+        """Refresh cached table versions along the path, starting with the bases."""
         path_handles = tbl.get_tbl_versions()
         read_handles = path_handles[:0:-1] if for_write else path_handles[::-1]
         for handle in read_handles:
@@ -1603,6 +1598,7 @@ class Catalog(CatalogBase):
                     excs.ErrorCode.INTERNAL_ERROR, f'Table operation was aborted with\n{exc!s}'
                 ) from exc
 
+    # TODO continue from here
     def _finalize_pending_ops(self, tbl_id: UUID) -> Exception | None:
         """Complete or undo pending operations for a table, then clear its cached table versions.
 
