@@ -1941,7 +1941,6 @@ class Catalog(CatalogBase):
             result.update(self._get_mutable_tree(view.id))
         return result
 
-    # TODO continue from here
     def _compute_column_dependents(
         self, write_tvps: Collection[TableVersionPath], write_tbl_keys: Collection[TableVersionKey]
     ) -> None:
@@ -2016,7 +2015,9 @@ class Catalog(CatalogBase):
         Use `dir_id` when supplied. Otherwise, match `parent_id` and `dir_name`, filtering by the environment's user
         when set. A None parent id is valid for the root directory.
         """
+        # only one of two ways of identifying a directory is allowed
         assert (dir_name is None) != (dir_id is None)
+        # if parent_id is given, dir_name must be given, too
         assert not (parent_id is not None and dir_name is None)
         user = Env.get().user
         assert self._in_write_xact
@@ -2554,6 +2555,7 @@ class Catalog(CatalogBase):
 
         return get_tbl_fn(), is_created
 
+    # TODO continue from here
     def _create_store_tbl(self, tbl_md: schema.TableMd) -> None:
         """Create physical storage in the same transaction as the table's metadata.
 
