@@ -148,6 +148,8 @@ A hosted database runs two things that come from your project, and they move ind
 
 - **The image** is the Python environment: your dependencies, the Python version, and any system packages. `pxt db update` rebuilds it only when that environment changed, which is the slow step. That version comes from the interpreter that runs `pxt db update`, unless the hosted `[[pixeltable.database]]` entry sets `python_version`.
 - **The project files** are your `app.py` and whatever else the entry selects. They are uploaded on their own, without a rebuild.
+- **The settings** are the hosted entry's `vars` and `db_*` settings, and sections of `pixeltable.toml` such as
+  `[openai]`. `pxt db update` sends them without an upload or a rebuild, and the database restarts with them.
 
 So editing a UDF costs an upload, while adding a line to `pyproject.toml` costs a build. Both are `pxt db update`. It works out which happened.
 
@@ -162,6 +164,7 @@ The image gets its packages from `uv.lock` or `requirements.txt`. Without either
 | A UDF body, a route, any `.py` the entry selects | `pxt db update pxt://org:main`, then `pxt service update app.py pxt://org:main` to move running services onto it |
 | A column or a table in `app.py` | `pxt db update pxt://org:main`, then `pxt schema update app.py pxt://org:main`, then `pxt service update app.py pxt://org:main` |
 | A dependency, the Python version, a system package | `pxt db update pxt://org:main`: the image rebuilds |
+| A setting in `pixeltable.toml` | `pxt db update pxt://org:main`, then `pxt service update app.py pxt://org:main` |
 | `cpu`, `memory_mb`, `disk_gb`, or `workers` | `pxt db update pxt://org:main`: one resize, pods restart once |
 | A service's `cpu`, `memory_mb`, `file_cache_gb`, or `workers` | `pxt service update app.py pxt://org:main`: a `workers` change adds or removes pods, any other change restarts them |
 | A secret | `pxt secret set pxt://org:main KEY=...`, then `pxt db restart pxt://org:main` and `pxt service restart pxt://org:main/ingest` |

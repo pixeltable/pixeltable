@@ -49,10 +49,13 @@ from ..utils import (
 )
 from .conftest import (
     BUILD_TIMEOUT,
+    EXIT_CHANGES_PENDING,
     EXIT_ERROR,
     INPUT_MEDIA_PREFIX,
     BackgroundPxt,
     PxtRunner,
+    assert_in_agreement,
+    db_diff,
     db_update,
     disposable_db,
     read_logs_until,
@@ -581,6 +584,15 @@ class TestService:
             ]
             cli('service', 'update', app, target, '-f')
             assert resources_of(assert_serving(cli, app, target, 'ingest')['ingest']) == (1.0, 3072, 2, 4.0)
+
+            # a workers change alone scales the service without a restart
+            declare('ingest', 'memory_mb = 3072\nworkers = 3\nfile_cache_gb = 4.0')
+            [diff] = cli('service', 'diff', app, target, '--json', check=False).json['services']
+            [op] = diff['ops']
+            assert (op['target'], op['name'], op['requires_restart']) == ('resources', 'workers', False)
+            assert op['details'] == {'from': '2', 'to': '3'}
+            cli('service', 'update', app, target, '-f')
+            assert resources_of(assert_serving(cli, app, target, 'ingest')['ingest']) == (1.0, 3072, 3, 4.0)
 
             # resources for an undefined service are an error, so a misspelled name doesn't go unnoticed
             declare('nosuch', 'workers = 2')
@@ -1275,6 +1287,56 @@ class TestCloudService:
         assert repeated.json[0]['status'] == 'skipped'
         assert repeated.json[0]['details']['reason'] == 'already stopped'
         assert not service_diff(cli, project, app_file, current_db)['in_agreement']
+
+    def test_settings_edit(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+        """A settings edit restarts the database and its services without an upload.
+
+        An edit to a comment or to another database's entry changes nothing.
+        """
+        app_file = str(project / APP_FILE)
+        schema_update(cli, project, app_file, current_db)
+        service_update(cli, project, app_file, current_db, '--allow-destructive')
+        assert service_diff(cli, project, app_file, current_db)['in_agreement']
+
+        # edits outside this database's entry
+        config_file = project / 'pixeltable.toml'
+        entry = config_file.read_text(encoding='utf-8')
+        config_file.write_text(
+            f"{entry}\n# unrelated\n[[pixeltable.database]]\nname = 'pxt://acme:other'\nvars.dest = 'other'\n",
+            encoding='utf-8',
+        )
+        assert_in_agreement(cli, project, current_db)
+        assert service_diff(cli, project, app_file, current_db)['in_agreement']
+
+        media_dest = f'{home_bucket_uri(current_db)}/settings-edit/'
+        config_file.write_text(
+            f"{entry}vars.dest = 'settings-edit'\ndb_output_media_dest = {json.dumps(media_dest)}\n\n"
+            '[openai]\nrate_limits = { gpt-4o = 100 }\n',
+            encoding='utf-8',
+        )
+        # the local daemon refuses a changed provider setting until it restarts
+        cli('daemon', 'restart', cwd=project)
+        changes = ['db_output_media_dest changed', 'openai.rate_limits changed', 'var dest changed']
+        plan = db_diff(cli, project, current_db)
+        assert plan['returncode'] == EXIT_CHANGES_PENDING
+        [op] = plan['ops']
+        assert (op['target'], op['requires_restart']) == ('config', True)
+        assert op['details']['changes'].split('; ') == changes
+        assert not plan['summary']['rebuild']
+
+        applied = db_update(cli, project, current_db)
+        assert [(op['target'], op['status']) for op in applied['ops']] == [('config', 'applied')]
+        await_service_available(cli, project, current_db, 'ingest')
+        assert service_list(cli, project, current_db)['ingest']['update_pending']
+        [pending] = service_diff(cli, project, app_file, current_db)['services']
+        [op] = pending['ops']
+        assert (op['target'], op['requires_restart']) == ('project', True)
+        assert op['details']['changes'].split('; ') == changes
+
+        service_update(cli, project, app_file, current_db)
+        await_service_available(cli, project, current_db, 'ingest')
+        assert not service_list(cli, project, current_db)['ingest']['update_pending']
+        assert service_diff(cli, project, app_file, current_db)['in_agreement']
 
 
 # what the control plane records on an instance whose new pods did not come up while its old ones kept serving
