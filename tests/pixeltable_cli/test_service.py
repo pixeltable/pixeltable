@@ -571,8 +571,7 @@ class TestService:
             assert resources_of(assert_serving(cli, app, target, 'ingest')['ingest']) == (1.0, 2048, 1, 2.0)
 
             declare('ingest', 'memory_mb = 3072\nworkers = 2\nfile_cache_gb = 4.0')
-            # pixeltable.toml is in the archive, so the database needs an update first
-            _db_update(cli, db_root)
+            # resources are not in the fingerprint, so the database needs no update
             r = cli('service', 'diff', app, target, '--json', check=False)
             [diff] = r.json['services']
             assert [(op['name'], op['details']) for op in diff['ops'] if op['target'] == 'resources'] == [
@@ -590,7 +589,6 @@ class TestService:
             assert f'does not define at {target}: nosuch' in r.stderr
         finally:
             config_file.write_text(config, encoding='utf-8')
-            _db_update(cli, db_root)
             cli('service', 'stop', f'{target}/ingest', check=False)
 
     def test_prune(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:

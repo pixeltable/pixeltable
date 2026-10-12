@@ -1,4 +1,4 @@
-"""Unpack a hosted database's project archive before its pod starts.
+"""Prepare a hosted database's project for its pod: the unpacked archive, its fingerprint and the project config.
 
 A database's serving container cannot fetch its own archive. The image installs the project's
 dependencies but not the project itself (`uv sync --no-install-project`), because the image context
@@ -8,8 +8,9 @@ own pixeltable.
 
 Layout under --archive-dir, mounted by both containers:
 
-    project/          the unpacked project; absent until the database has one
-    fingerprint.json  the control plane's fingerprint for that archive
+    project/                 the unpacked project; absent until the database has one
+    project/pixeltable.toml  the project config, from the fingerprint's config
+    fingerprint.json         the control plane's fingerprint for that archive
 
 The fingerprint is written to disk rather than re-fetched: a pod reports which archive it loaded,
 and a second GetArchive call could return a different one.
@@ -26,7 +27,10 @@ import time
 import urllib.request
 from pathlib import Path
 
+import toml
+
 from pixeltable import exceptions as excs
+from pixeltable.config import PROJECT_CONFIG_FILE
 from pixeltable.service import management_client
 from pixeltable.service.db import _validated_db_uri
 from pixeltable.service.management_protocol import GetArchiveRequest, GetArchiveResponse
@@ -108,8 +112,8 @@ def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:
     return response
 
 
-def fetch(db_uri: str, archive_dir: Path) -> bool:
-    """Unpack db_uri's project into archive_dir; False if the database has no project yet."""
+def prepare(db_uri: str, archive_dir: Path) -> bool:
+    """Prepare db_uri's project in archive_dir; False if the database has no project yet."""
     archive_dir.mkdir(parents=True, exist_ok=True)
     for delay in _ARCHIVE_FETCH_DELAYS:
         if delay > 0.0:
@@ -125,6 +129,9 @@ def fetch(db_uri: str, archive_dir: Path) -> bool:
         fingerprint_path(archive_dir).unlink(missing_ok=True)
         if response.fingerprint is not None:
             fingerprint_path(archive_dir).write_text(response.fingerprint.model_dump_json(), encoding='utf-8')
+            # even when empty: it takes precedence over [tool.pixeltable] in the shipped pyproject.toml
+            config_file = project_dir(archive_dir) / PROJECT_CONFIG_FILE
+            config_file.write_text(toml.dumps(response.fingerprint.config), encoding='utf-8')
         return True
     # the database has no project now, whatever an earlier run left here
     shutil.rmtree(project_dir(archive_dir), ignore_errors=True)
@@ -133,11 +140,11 @@ def fetch(db_uri: str, archive_dir: Path) -> bool:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog='pixeltable.service.fetch_archive')
+    parser = argparse.ArgumentParser(prog='pixeltable.service.prepare_project')
     parser.add_argument('--db', required=True, help='pxt://org:db, the database whose project to unpack')
     parser.add_argument('--archive-dir', type=Path, required=True, help='unpack the project under here')
     parsed = parser.parse_args(argv)
-    if not fetch(parsed.db, parsed.archive_dir):
+    if not prepare(parsed.db, parsed.archive_dir):
         # exit 0: a non-zero exit would crash-loop the pod, and a database with no project still serves
         _logger.warning('%s has no project; its udfs cannot be resolved', parsed.db)
 

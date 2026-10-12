@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 import hashlib
+import io
 import json
 import logging
 import os
@@ -13,6 +14,7 @@ import sys
 import sysconfig
 import tarfile
 import tempfile
+import tomllib
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, BinaryIO, Literal
@@ -24,7 +26,7 @@ from tqdm import tqdm
 
 import pixeltable
 from pixeltable import exceptions as excs
-from pixeltable.config import PROJECT_CONFIG_FILES, PYPROJECT_FILE, ConfigSections, DatabaseConfig
+from pixeltable.config import PROJECT_CONFIG_FILE, PYPROJECT_FILE, ConfigSections, DatabaseConfig
 from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
@@ -113,10 +115,11 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
 
 
 def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Path]:
-    """The files that go into an image, and into the fingerprint.
+    """Return the files that go into the archive and the fingerprint.
 
-    Everything git would not ignore, adjusted by the entry's include/exclude patterns, plus the lockfile,
-    which declares the project's packages and is selected whatever the patterns say.
+    - the files git does not ignore, adjusted by the entry's include/exclude patterns
+    - the lockfile and pyproject.toml, whatever the patterns say
+    - never pixeltable.toml
     """
     exclude = config.exclude if config is not None else None
     include = config.include if config is not None else None
@@ -140,9 +143,8 @@ def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Pa
         if include is not None:
             files |= _resolve_patterns(project_root, include)
 
-    # we always include the lockfile and project config files, both are needed by the pod
-    selected = (*LOCK_FILES, *PROJECT_CONFIG_FILES)
-    files |= {project_root / name for name in selected if (project_root / name).is_file()}
+    files |= {project_root / name for name in IMAGE_INPUT_FILES if (project_root / name).is_file()}
+    files.discard(project_root / PROJECT_CONFIG_FILE)  # its settings are in the fingerprint's config
     return sorted(files)
 
 
@@ -176,17 +178,47 @@ def _member_hash(content_hash: str, *, symlink: bool) -> str:
     return _digest({'content': content_hash, 'symlink': symlink})
 
 
-def _path_hash(path: Path) -> str:
+def _path_hashes(root: Path, paths: Iterable[Path]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for path in paths:
+        relpath = path.relative_to(root).as_posix()
+        result[relpath] = _path_hash(path, relpath)
+    return result
+
+
+def _path_hash(path: Path, relpath: str) -> str:
     """Read the file at path and hash it the way _add_hashed() hashes an archive member."""
     if path.is_symlink():
         # a symlink stores a path, so that path identifies it; reading through it would hash the target
         return _member_hash(_digest(os.readlink(path)), symlink=True)
+    if relpath == PYPROJECT_FILE:
+        return _member_hash(_pyproject_hash(path.read_bytes()), symlink=False)
     return _member_hash(_content_hash(path), symlink=False)
 
 
-def _add_hashed(tf: tarfile.TarFile, path: Path, arcname: str) -> str:
-    """Write path into tf and return the hash of the member written."""
-    info = tf.gettarinfo(path, arcname=arcname)
+def _pyproject_hash(data: bytes) -> str:
+    """Hash data, the contents of pyproject.toml, without the [tool.pixeltable] table.
+
+    The settings in that table are in the fingerprint's config.
+    """
+    try:
+        parsed = tomllib.loads(data.decode())
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'{PYPROJECT_FILE} is not valid TOML: {exc}'
+        ) from exc
+    tool = parsed.get('tool')
+    if isinstance(tool, dict):
+        tool.pop('pixeltable', None)
+        if len(tool) == 0:
+            del parsed['tool']  # [tool.pixeltable] alone creates the tool table
+    # default=str: json.dumps() cannot encode a TOML date or time
+    return hashlib.sha256(json.dumps(parsed, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _add_hashed(tf: tarfile.TarFile, path: Path, relpath: str) -> str:
+    """Write path into tf as project/relpath and return the hash of the member written."""
+    info = tf.gettarinfo(path, arcname=f'project/{relpath}')
     if info.issym():
         tf.addfile(info)
         return _member_hash(_digest(info.linkname), symlink=True)
@@ -194,7 +226,12 @@ def _add_hashed(tf: tarfile.TarFile, path: Path, arcname: str) -> str:
         # gettarinfo() writes a second path to one inode as a hard link, which extracts as a regular
         # file with the same bytes; the member itself carries no content
         tf.addfile(info)
-        return _member_hash(_content_hash(path), symlink=False)
+        return _path_hash(path, relpath)
+    if relpath == PYPROJECT_FILE:
+        data = path.read_bytes()
+        info.size = len(data)
+        tf.addfile(info, io.BytesIO(data))
+        return _member_hash(_pyproject_hash(data), symlink=False)
     with path.open('rb') as raw:
         reader = _HashingReader(raw)
         tf.addfile(info, reader)
@@ -255,7 +292,7 @@ def package_project_archive(
             abbrev_path = relpath if len(relpath) <= max_pathlen else '…' + relpath[-(max_pathlen - 1) :]
             # refresh=False: the postfix is drawn by the following update(), which respects tqdm's redraw interval
             bar.set_postfix_str(abbrev_path, refresh=False)
-            hashes[relpath] = _add_hashed(tf, f, f'project/{relpath}')
+            hashes[relpath] = _add_hashed(tf, f, relpath)
             bar.update(1)
         bar.set_postfix_str('', refresh=False)
 
@@ -492,8 +529,7 @@ def package_image_context(project_dir: Path | None = None) -> PackagedContext:
     with tarfile.open(context_path, 'w') as tf:
         for f in files:
             relpath = f.relative_to(project_dir).as_posix()
-            # project files go into project/
-            hashes[relpath] = _add_hashed(tf, f, f'project/{relpath}')
+            hashes[relpath] = _add_hashed(tf, f, relpath)
     _logger.info(f'Image context created: {context_path}')
     return PackagedContext(path=context_path, files=hashes)
 
@@ -646,13 +682,12 @@ def _settings(config: ConfigSections) -> dict[str, Any]:
 
 def unpacked_digest(project_dir: Path) -> str:
     """The archive digest of every file under project_dir, as ProjectFingerprint.archive_digest() computes it."""
-    files = {
-        p.relative_to(project_dir).as_posix(): _path_hash(p)
+    files = _path_hashes(
+        project_dir,
         # a symlink counts even where its target is missing: is_file() follows the link, and dropping it
         # would make a correctly unpacked project look like a different one
-        for p in project_dir.rglob('*')
-        if p.is_symlink() or p.is_file()
-    }
+        (p for p in project_dir.rglob('*') if p.is_symlink() or p.is_file()),
+    )
     return _digest(files)
 
 
@@ -692,11 +727,8 @@ def _fingerprint(
 ) -> ProjectFingerprint:
     requirements = project_root / 'requirements.txt'
     local_requirements = _local_requirement_files(project_root, requirements) if requirements.is_file() else []
-    from_project = {
-        p.relative_to(project_root).as_posix(): _path_hash(p)
-        for p in (*local_requirements, *_lock_sources(project_root))
-    }
-    files = {path.relative_to(project_root).as_posix(): _path_hash(path) for path in files}
+    from_project = _path_hashes(project_root, (*local_requirements, *_lock_sources(project_root)))
+    files = _path_hashes(project_root, files)
     declared_python = config.python_version if config is not None else None
     return ProjectFingerprint(
         files=files,

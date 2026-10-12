@@ -147,9 +147,6 @@ _UNSPECIFIED = _Unspecified()
 PROJECT_CONFIG_FILE = 'pixeltable.toml'
 PYPROJECT_FILE = 'pyproject.toml'  # with a [tool.pixeltable] section
 
-# both of them, for a caller that handles whichever the project holds
-PROJECT_CONFIG_FILES = (PROJECT_CONFIG_FILE, PYPROJECT_FILE)
-
 
 def _load_toml(path: Path) -> dict[str, Any]:
     try:
