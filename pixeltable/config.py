@@ -11,7 +11,7 @@ import tomllib
 import typing
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, NamedTuple, TypeAlias, TypeVar
 
 import pydantic
 import toml
@@ -132,6 +132,9 @@ class DatabaseConfig(DatabaseCapacity):
 
 # the entry in [[pixeltable.database]] that configures the local database
 LOCAL_DATABASE = 'local'
+
+# section -> key -> value, in the layout of a config file
+ConfigSections: TypeAlias = dict[str, dict[str, Any]]
 
 
 class _Unspecified:
@@ -346,8 +349,8 @@ class Config:
 
     __project_config_file: Path | None
 
-    # what each file supplied; __config_dict records one source per option, too coarse to name the file
-    # a single database binding came from
+    # each config file's settings before the merge; __config_dict records one source for the merged database
+    # list, and __own_database_values() reports the source of each var
     __home_config: dict[str, dict[str, tuple[Any, Path | None]]]
     __project_config: dict[str, dict[str, tuple[Any, Path | None]]]
 
@@ -697,6 +700,43 @@ class Config:
             return None
         return next((db for db in databases if db.name == db_name), None)
 
+    def create_project_config(self, db_config: DatabaseConfig | None) -> ConfigSections:
+        """Create the config for db_config.
+
+        It contains:
+        - the settings of the project config file, other than secrets
+        - in place of the file's [[pixeltable.database]] list: a list with one entry for db_config (its name, vars
+          and db_* settings), or no list if db_config is None
+
+        A secret in the project config file is an error for a hosted database.
+        """
+        is_hosted = db_config is not None and db_config.name != LOCAL_DATABASE
+        result: ConfigSections = {}
+        for section, options in self.__project_config.items():
+            for key, (value, _) in options.items():
+                if section == 'pixeltable' and key == 'database':
+                    continue  # replaced by the entry for db_config
+                if key in _SECRET_KEYS:
+                    if is_hosted:
+                        assert db_config is not None
+                        raise excs.RequestError(
+                            excs.ErrorCode.INVALID_CONFIGURATION,
+                            f"'{section}.{key}' in {self.__project_config_file} is a secret, and a hosted "
+                            f'database receives its secrets through `pxt secret`. Remove it and run:\n'
+                            f'  pxt secret set {db_config.name} {env_var_name(section, key)}=<value>',
+                        )
+                    continue
+                result.setdefault(section, {})[key] = value
+
+        if db_config is not None:
+            entry: dict[str, Any] = {'name': db_config.name}
+            if db_config.vars is not None:
+                entry['vars'] = db_config.vars
+            entry.update(db_config.settings or {})
+            result.setdefault('pixeltable', {})['database'] = [entry]
+
+        return result
+
     def __own_database_values(self, field: Literal['vars', 'settings']) -> dict[str, tuple[str, Path | None]]:
         """Return the `vars` or `settings` of the database we are connected to, each with the file that supplied it.
 
@@ -1019,6 +1059,9 @@ _INSTALLATION_KEYS = frozenset(
         'db_pool_max_overflow',
     }
 )
+
+# settings that contain credentials
+_SECRET_KEYS = frozenset({'api_key', 'api_secret', 'api_token', 'token', 'storage_account_key'})
 
 # whitelist of allowed setting overrides for individual dbs; the db_ prefix keeps them apart from the db
 # section's own fields such as name and cpu

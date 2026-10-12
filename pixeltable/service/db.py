@@ -71,8 +71,8 @@ def create_db_update_ops(target: DatabaseResources, current: DatabaseResources |
                 ops.append(
                     DbChangeOp.upload_archive(target.fingerprint.changes(current.fingerprint, {ProjectPart.ARCHIVE}))
                 )
-            if ProjectPart.BINDINGS in changed:
-                ops.append(DbChangeOp.rebind(target.fingerprint.changes(current.fingerprint, {ProjectPart.BINDINGS})))
+            if ProjectPart.CONFIG in changed:
+                ops.append(DbChangeOp.config(target.fingerprint.changes(current.fingerprint, {ProjectPart.CONFIG})))
 
     current_capacity = DatabaseCapacity() if current is None else current.capacity()
     for field, value in current_capacity.changes(target.capacity()).model_dump(exclude_none=True).items():
@@ -236,7 +236,9 @@ def report_instance_fingerprint(
 def _db_resources(config: DatabaseConfig) -> DatabaseResources:
     # TODO: default_bucket?
     return DatabaseResources(
-        fingerprint=project_fingerprint(_validated_project_root(), config),
+        fingerprint=project_fingerprint(
+            _validated_project_root(), config, project_config=Config.get().create_project_config(config)
+        ),
         pxt_md_version=metadata.VERSION,
         **config.capacity().model_dump(),
     )

@@ -325,7 +325,9 @@ def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
         model_mismatch_reason=validate_models(needed, target),
         db_uri=catalog_path.uri_str,
         target_db_fingerprint=db_fingerprint(catalog_path),
-        local_fingerprint=project_fingerprint(project_root, db_config),
+        local_fingerprint=project_fingerprint(
+            project_root, db_config, project_config=Config.get().create_project_config(db_config)
+        ),
     )
 
 

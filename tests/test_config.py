@@ -563,6 +563,76 @@ class TestConfig:
             with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=message):
                 load('', text)
 
+    def test_create_project_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        home = tmp_path / 'home.toml'
+        project = tmp_path / 'proj'
+        project.mkdir()
+
+        def load(project_text: str) -> Config:
+            home.write_text(
+                dedent(
+                    """
+                    [openai]
+                    api_key = 'sk-home'
+
+                    [[pixeltable.database]]
+                    name = 'pxt://myorg:prod'
+                    vars.region = 'us-east-1'
+                    """
+                )
+            )
+            (project / 'pixeltable.toml').write_text(dedent(project_text))
+            monkeypatch.setenv('PIXELTABLE_CONFIG', str(home))
+            Config.init(reinit=True, project_root=project)
+            return Config.get()
+
+        prod_uri = PxtPath.parse('pxt://myorg:prod', allow_empty_path=True)
+        local_uri = PxtPath.parse('', allow_empty_path=True)
+        config = load(
+            """
+            [pixeltable]
+            output_media_dest = 's3://bucket/out'
+
+            [openai]
+            rate_limits = { gpt-4o = 100 }
+
+            [[pixeltable.database]]
+            name = 'pxt://myorg:prod'
+            vars.dest = 's3://bucket/media'
+            db_input_media_dest = 's3://bucket/in'
+            system_dependencies = ['ffmpeg']
+            services.api = { workers = 2 }
+
+            [[pixeltable.database]]
+            name = 'pxt://myorg:staging'
+            vars.dest = 's3://staging/media'
+            """
+        )
+        # the project's sections and the merged entry for the database; the home config's sections are left out
+        assert config.create_project_config(config.get_database_config(prod_uri)) == {
+            'pixeltable': {
+                'output_media_dest': 's3://bucket/out',
+                'database': [
+                    {
+                        'name': 'pxt://myorg:prod',
+                        'vars': {'region': 'us-east-1', 'dest': 's3://bucket/media'},
+                        'db_input_media_dest': 's3://bucket/in',
+                    }
+                ],
+            },
+            'openai': {'rate_limits': {'gpt-4o': 100}},
+        }
+
+        config = load("[openai]\napi_key = 'sk-project'\n\n[[pixeltable.database]]\nvars.dest = 's3://local'\n")
+        # a secret is left out for the local database and refused for a hosted one
+        assert config.create_project_config(config.get_database_config(local_uri)) == {
+            'pixeltable': {'database': [{'name': 'local', 'vars': {'dest': 's3://local'}}]}
+        }
+        with pxt_raises(
+            excs.ErrorCode.INVALID_CONFIGURATION, match=r'pxt secret set pxt://myorg:prod OPENAI_API_KEY=<value>'
+        ):
+            config.create_project_config(config.get_database_config(prod_uri))
+
     def test_database_settings(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A database entry sets the media destinations and the OTLP endpoint and protocol of its database."""
         for var in (

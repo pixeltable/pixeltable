@@ -1,11 +1,12 @@
 """The project's file selection and its fingerprint."""
 
 import pathlib
+from typing import Any
 
 import pytest
 
 from pixeltable import exceptions as excs
-from pixeltable.config import DatabaseConfig
+from pixeltable.config import ConfigSections, DatabaseConfig
 from pixeltable.utils.project import (
     ProjectPart,
     _archive_files,
@@ -17,11 +18,16 @@ from pixeltable.utils.project import (
 
 from .utils import pxt_raises
 
-ARCHIVE, IMAGE, BINDINGS = ProjectPart.ARCHIVE, ProjectPart.IMAGE, ProjectPart.BINDINGS
+ARCHIVE, IMAGE, CONFIG = ProjectPart.ARCHIVE, ProjectPart.IMAGE, ProjectPart.CONFIG
 
 
 def _some(files: dict[str, str], *paths: str) -> dict[str, str]:
     return {path: files[path] for path in paths}
+
+
+def _bound(dest: str, **sections: dict[str, Any]) -> ConfigSections:
+    """A project config that binds the var dest."""
+    return {'pixeltable': {'database': [{'name': 'pxt://acme:main', 'vars': {'dest': dest}}]}, **sections}
 
 
 class TestProject:
@@ -191,20 +197,26 @@ class TestProject:
         assert with_deps.changes(before, {IMAGE}) == ['system_dependencies changed']
 
     def test_digests(self, project: pathlib.Path) -> None:
-        before = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://one'}))
+        before = project_fingerprint(project, None, project_config=_bound('s3://one'))
         # a changed binding restarts a service without sending either artifact
-        rebound = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://two'}))
+        rebound = project_fingerprint(project, None, project_config=_bound('s3://two'))
         assert rebound.archive_digest() == before.archive_digest()
         assert rebound.image_digest() == before.image_digest()
+        assert rebound.compare(before) == {CONFIG}
+        assert rebound.changes(before) == ['var dest changed']
+        limited = project_fingerprint(
+            project, None, project_config=_bound('s3://one', openai={'rate_limits': {'gpt-4o': 100}})
+        )
+        assert limited.changes(before) == ['openai.rate_limits changed']
 
         (project / 'app.py').write_text('x = 2\n')
-        edited = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://one'}))
+        edited = project_fingerprint(project, None, project_config=_bound('s3://one'))
         assert edited.archive_digest() != before.archive_digest()
         # one image serves every project declaring its environment, whatever their sources
         assert edited.image_digest() == before.image_digest()
 
         (project / 'app.py').write_text('x = 1\n')
-        reverted = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://one'}))
+        reverted = project_fingerprint(project, None, project_config=_bound('s3://one'))
         assert reverted.archive_digest() == before.archive_digest()
 
         with_deps = project_fingerprint(project, DatabaseConfig(system_dependencies=['ffmpeg']))

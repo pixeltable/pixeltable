@@ -24,7 +24,7 @@ from tqdm import tqdm
 
 import pixeltable
 from pixeltable import exceptions as excs
-from pixeltable.config import PROJECT_CONFIG_FILES, PYPROJECT_FILE, DatabaseConfig
+from pixeltable.config import PROJECT_CONFIG_FILES, PYPROJECT_FILE, ConfigSections, DatabaseConfig
 from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
@@ -515,7 +515,7 @@ class ProjectPart(enum.StrEnum):
 
     ARCHIVE = 'archive'
 
-    BINDINGS = 'bindings'
+    CONFIG = 'config'
 
 
 class ProjectFingerprint(pydantic.BaseModel):
@@ -537,8 +537,8 @@ class ProjectFingerprint(pydantic.BaseModel):
     # from files, which are affected by DatabaseConfig.exclude
     installed_from_project: dict[str, str] = {}
 
-    # bindings, never resolved values: a var names the source of its value
-    vars: dict[str, str]
+    # produced by Config.create_project_config(); its vars are bindings, never resolved values
+    config: ConfigSections = {}
 
     def compare(self, other: ProjectFingerprint, *, own_files_only: bool = False) -> set[ProjectPart]:
         """The parts that differ from other.
@@ -551,8 +551,8 @@ class ProjectFingerprint(pydantic.BaseModel):
         files_differ = len(self._added_or_changed(other)) > 0 if own_files_only else self.files != other.files
         if files_differ:
             parts.add(ProjectPart.ARCHIVE)
-        if self.vars != other.vars:
-            parts.add(ProjectPart.BINDINGS)
+        if self.config != other.config:
+            parts.add(ProjectPart.CONFIG)
         return parts
 
     def image_digest(self) -> str:
@@ -583,8 +583,9 @@ class ProjectFingerprint(pydantic.BaseModel):
                 lines.append('system_dependencies changed')
             if self.uv_options != other.uv_options:
                 lines.append('uv_options changed')
-        if ProjectPart.BINDINGS in parts:
-            lines += [f'var {name} changed' for name in _changed_keys(self.vars, other.vars)]
+        if ProjectPart.CONFIG in parts:
+            now, was = _settings(self.config), _settings(other.config)
+            lines += [f'{name} changed' for name in _changed_keys(now, was)]
         return lines
 
     def _added_or_changed(self, other: ProjectFingerprint) -> list[str]:
@@ -621,8 +622,26 @@ def _changed_paths(now: dict[str, str], was: dict[str, str]) -> list[str]:
     return [f'{path} changed' for path in sorted(set(now) & set(was)) if now[path] != was[path]]
 
 
-def _changed_keys(now: dict[str, str], was: dict[str, str]) -> list[str]:
+def _changed_keys(now: dict[str, Any], was: dict[str, Any]) -> list[str]:
     return sorted({name for name in set(now) | set(was) if now.get(name) != was.get(name)})
+
+
+def _settings(config: ConfigSections) -> dict[str, Any]:
+    """Return the settings in config as a dict of setting name -> value.
+
+    A setting name is '<section>.<key>' for a section's setting, 'var <name>' for a var of the database entry, and
+    'db_<key>' for a db_* setting of the database entry.
+    """
+    result: dict[str, Any] = {}
+    for section, options in config.items():
+        for key, value in options.items():
+            if section != 'pixeltable' or key != 'database':
+                result[f'{section}.{key}'] = value
+                continue
+            for entry in value:
+                result.update({f'var {name}': binding for name, binding in entry.get('vars', {}).items()})
+                result.update({name: setting for name, setting in entry.items() if name not in ('name', 'vars')})
+    return result
 
 
 def unpacked_digest(project_dir: Path) -> str:
@@ -637,9 +656,13 @@ def unpacked_digest(project_dir: Path) -> str:
     return _digest(files)
 
 
-def project_fingerprint(project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
-    """Fingerprint the project files for project_root."""
-    return _fingerprint(_archive_files(project_root, config), project_root, config)
+def project_fingerprint(
+    project_root: Path, config: DatabaseConfig | None, *, project_config: ConfigSections | None = None
+) -> ProjectFingerprint:
+    """Fingerprint the project files for project_root, together with project_config, if given."""
+    return _fingerprint(
+        _archive_files(project_root, config), project_root, config, project_config if project_config is not None else {}
+    )
 
 
 # Where this interpreter keeps the standard library and installed packages.
@@ -664,7 +687,9 @@ def _content_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
+def _fingerprint(
+    files: Iterable[Path], project_root: Path, config: DatabaseConfig | None, project_config: ConfigSections
+) -> ProjectFingerprint:
     requirements = project_root / 'requirements.txt'
     local_requirements = _local_requirement_files(project_root, requirements) if requirements.is_file() else []
     from_project = {
@@ -681,5 +706,5 @@ def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConf
         system_dependencies=(config.system_dependencies if config is not None else None) or [],
         pixeltable_version=pixeltable.__version__,
         uv_options=config.uv_options if config is not None else None,
-        vars=(config.vars if config is not None else None) or {},
+        config=project_config,
     )

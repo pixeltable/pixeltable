@@ -1479,7 +1479,7 @@ class TestServiceUpdateRunning:
         manager = ServiceManagerProxy(catalog.Path.parse('pxt://acme:main', allow_empty_path=True))
         monkeypatch.setattr(serving_service, 'get_manager', lambda target: manager)
         fingerprint = ProjectFingerprint(
-            files={}, python_version='3.11', system_dependencies=[], pixeltable_version='test', vars={}
+            files={}, python_version='3.11', system_dependencies=[], pixeltable_version='test'
         )
         services = None if declared is None else {'ingest': declared}
         app_info = serving_service._AppInfo(

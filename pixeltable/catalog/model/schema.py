@@ -148,6 +148,7 @@ def _blocked_ops(catalog_dir: PxtPath, bases: list[TableModelMeta]) -> list[Sche
         return []
     project_root = Config.get().project_root
     assert project_root is not None
+    # ignore the config for local
     local = project_fingerprint(project_root, Config.get().get_database_config(db_path))
     stale: list[str] = []
     for path in sorted(udf_source_files(bases)):
