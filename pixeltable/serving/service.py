@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal, Sequence
 
 from pixeltable import catalog, exceptions as excs
-from pixeltable.config import Config
+from pixeltable.config import Config, ServiceResources
 from pixeltable.service.db import db_fingerprint
 from pixeltable.service.management_protocol import LogRecord
 from pixeltable.service.service_md import LocalServiceInstanceRecord
@@ -268,6 +268,9 @@ class _AppInfo:
     app_file: str
     services: dict[str, _ServiceInfo]
 
+    # from the target database's [[pixeltable.database]] entry, keyed by lowercase service name
+    declared_resources: dict[str, ServiceResources]
+
     # why the target cannot serve the referenced models, or None if it can
     model_mismatch_reason: str | None
 
@@ -298,15 +301,26 @@ def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
     assert project_root is not None  # load_app_module() refuses a file outside a project root
     catalog_path = catalog.Path.parse(target, allow_empty_path=True)
     db_config = Config.get().get_database_config(catalog_path)
+    services = {
+        name: _ServiceInfo(
+            spec=service_spec(name, service, routers),
+            kind='declarative' if isinstance(service, FastAPIRouter) else 'custom',
+        )
+        for name, service in services_by_name(module, app_file).items()
+    }
+    declared_resources = {} if db_config is None else db_config.service_resources(_base_path(target))
+    undefined = sorted(set(declared_resources) - {name.lower() for name in services})
+    if len(undefined) > 0:
+        assert db_config is not None
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'The [[pixeltable.database]] entry for {db_config.name} sets resources for services that {app_file} '
+            f'does not define at {target}: {", ".join(undefined)}',
+        )
     return _AppInfo(
         app_file=app_file,
-        services={
-            name: _ServiceInfo(
-                spec=service_spec(name, service, routers),
-                kind='declarative' if isinstance(service, FastAPIRouter) else 'custom',
-            )
-            for name, service in services_by_name(module, app_file).items()
-        },
+        services=services,
+        declared_resources=declared_resources,
         model_mismatch_reason=validate_models(needed, target),
         db_uri=catalog_path.uri_str,
         target_db_fingerprint=db_fingerprint(catalog_path),
@@ -339,6 +353,11 @@ def _service_diff(
         ops += compare_specs(running.spec, service.spec)
         if running.otel != otel:
             ops.append(ServiceChangeOp.otel(running.otel, otel))
+        declared = app_info.declared_resources.get(name.lower())
+        if declared is not None:
+            current = running.record.resources
+            for field, value in current.changes(declared).model_dump(exclude_none=True).items():
+                ops.append(ServiceChangeOp.resources(field, getattr(current, field), value))
 
     target_db_fingerprint = app_info.target_db_fingerprint
     if target_db_fingerprint is None and app_info.db_uri != '':

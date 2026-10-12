@@ -120,6 +120,23 @@ class ServiceChangeOp(ChangeOp):
         )
 
     @classmethod
+    def resources(cls, field: str, current: float | int | None, declared: float | int) -> ServiceChangeOp:
+        """current: None for the control plane's default."""
+        # the replica count changes in place; every other field is a property of each pod
+        restarts = field != 'workers'
+        was = 'the default' if current is None else str(current)
+        return cls(
+            target='resources',
+            name=field,
+            op='alter',
+            severity='additive',
+            description=f'{field} will be {declared} rather than {was}'
+            + (', which restarts the service' if restarts else ''),
+            details={'from': was, 'to': str(declared)},
+            requires_restart=restarts,
+        )
+
+    @classmethod
     def fingerprint_changed(cls, changes: list[str], command: str | None = None) -> ServiceChangeOp:
         """ProjectFingerprint.changes() produced changes."""
         summary = _summary(changes)
@@ -633,6 +650,12 @@ class ServiceInstance(pydantic.BaseModel):
 
     # whether its database has moved past the project this instance serves
     update_pending: bool = False
+
+    # a hosted instance's resources; None for a local instance
+    cpu: float | None = None
+    memory_mb: int | None = None
+    workers: int | None = None
+    file_cache_gb: float | None = None
 
 
 # Databases

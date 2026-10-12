@@ -566,7 +566,12 @@ def _list(target: str | None, *, as_json: bool) -> None:
         # shown as the file it names: a catalog path never carries a .py suffix
         app_file = d.app_module.replace('.', '/') + '.py'
         where = f'{d.catalog_path}/{d.name}'.lstrip('/')
-        print(f'{where:<{width}s}  {d.endpoint}  {pid_or_state}  {app_file}')
+        size = (
+            ''
+            if d.workers is None
+            else f'  {d.workers} x {d.cpu} vCPU, {d.memory_mb} MB, {d.file_cache_gb} GB file cache'
+        )
+        print(f'{where:<{width}s}  {d.endpoint}  {pid_or_state}{size}  {app_file}')
         if d.error is not None:
             print(f'    {d.error}')
         for route in d.spec.routes:

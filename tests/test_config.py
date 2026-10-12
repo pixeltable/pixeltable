@@ -12,7 +12,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as PxtPath
-from pixeltable.config import VAR_SECTION, Config
+from pixeltable.config import VAR_SECTION, Config, ServiceResources
 
 from .utils import get_image_files, pxt_raises
 
@@ -491,6 +491,76 @@ class TestConfig:
         # an entry holding something no database is configured with
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid `DatabaseConfig`'):
             load("[[pixeltable.database]]\nnot_a_setting = 'x'\n")
+
+    def test_service_resources(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A hosted database entry sets its services' resources, each keyed by the service's path."""
+        home = tmp_path / 'home.toml'
+        project = tmp_path / 'proj'
+        project.mkdir()
+
+        def load(home_text: str, project_text: str) -> Config:
+            home.write_text(home_text)
+            (project / 'pixeltable.toml').write_text(project_text)
+            monkeypatch.setenv('PIXELTABLE_CONFIG', str(home))
+            Config.init(reinit=True, project_root=project)
+            return Config.get()
+
+        prod_uri = PxtPath.parse('pxt://myorg:prod', allow_empty_path=True)
+        config = load(
+            '',
+            dedent(
+                """
+                [[pixeltable.database]]
+                name = 'pxt://myorg:prod'
+                services.'search/api' = { cpu = 2.0, memory_mb = 4096 }
+                services.Ingest = { workers = 3, file_cache_gb = 4.0 }
+                """
+            ),
+        )
+        prod = config.get_database_config(prod_uri)
+        assert prod is not None
+        # a service at the root is keyed by its name, and paths are compared without case
+        assert prod.service_resources('') == {'ingest': ServiceResources(workers=3, file_cache_gb=4.0)}
+        assert prod.service_resources('Search') == {'api': ServiceResources(cpu=2.0, memory_mb=4096)}
+        assert prod.service_resources('other') == {}
+
+        # the two files configure one database's services together; the project's entry for a service wins
+        config = load(
+            dedent(
+                """
+                [[pixeltable.database]]
+                name = 'pxt://myorg:prod'
+                services.api = { cpu = 1.0 }
+                services.ingest = { workers = 2 }
+                """
+            ),
+            dedent(
+                """
+                [[pixeltable.database]]
+                name = 'pxt://myorg:prod'
+                services.ingest = { workers = 3 }
+                """
+            ),
+        )
+        prod = config.get_database_config(prod_uri)
+        assert prod is not None
+        assert prod.service_resources('') == {'api': ServiceResources(cpu=1.0), 'ingest': ServiceResources(workers=3)}
+
+        for text, message in (
+            # a local service runs in-process, at whatever size its process has
+            ('[[pixeltable.database]]\nservices.api = { cpu = 1.0 }\n', r'`services` applies to a hosted database'),
+            (
+                "[[pixeltable.database]]\nname = 'pxt://myorg:prod'\nservices.api = { disk_gb = 10 }\n",
+                r'unknown settings: disk_gb',
+            ),
+            ("[[pixeltable.database]]\nname = 'pxt://myorg:prod'\nservices.api = { workers = 0 }\n", r'greater than 0'),
+            (
+                "[[pixeltable.database]]\nname = 'pxt://myorg:prod'\nservices.api = {}\nservices.API = {}\n",
+                r"'api' and 'API', which differ only in case",
+            ),
+        ):
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=message):
+                load('', text)
 
     def test_database_settings(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A database entry sets the media destinations and the OTLP endpoint and protocol of its database."""

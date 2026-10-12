@@ -153,7 +153,7 @@ So editing a UDF costs an upload, while adding a line to `pyproject.toml` costs 
 
 The image gets its packages from `uv.lock` or `requirements.txt`. Without either, `pxt db update` warns, and the image has Pixeltable only. That is enough for the generated `app.py`. List anything else `app.py` imports in one of those files.
 
-`[[pixeltable.database]]` in `pixeltable.toml` declares which files are selected, what the image includes, and the CPU, memory, disk, and worker counts. See the [cloud configuration reference](/platform/cli#cloud-configuration-reference).
+`[[pixeltable.database]]` in `pixeltable.toml` declares which files are selected, what the image includes, the CPU, memory, disk, and worker counts, and each service's resources. See the [cloud configuration reference](/platform/cli#cloud-configuration-reference).
 
 ## What to run after a change
 
@@ -163,6 +163,7 @@ The image gets its packages from `uv.lock` or `requirements.txt`. Without either
 | A column or a table in `app.py` | `pxt db update pxt://org:main`, then `pxt schema update app.py pxt://org:main`, then `pxt service update app.py pxt://org:main` |
 | A dependency, the Python version, a system package | `pxt db update pxt://org:main`: the image rebuilds |
 | `cpu`, `memory_mb`, `disk_gb`, or `workers` | `pxt db update pxt://org:main`: one resize, pods restart once |
+| A service's `cpu`, `memory_mb`, `file_cache_gb`, or `workers` | `pxt service update app.py pxt://org:main`: a `workers` change adds or removes pods, any other change restarts them |
 | A secret | `pxt secret set pxt://org:main KEY=...`, then `pxt db restart pxt://org:main` and `pxt service restart pxt://org:main/ingest` |
 | Nothing, but the last build failed | `pxt db build-image pxt://org:main` forces a rebuild |
 | Nothing, but `pxt db update` stopped and `pxt db status` shows `UPDATING` | `pxt db update pxt://org:main` again from the same project. With no `python_version` on the hosted entry, use the same Python version |

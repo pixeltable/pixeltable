@@ -31,6 +31,29 @@ ConfVarT = TypeVar('ConfVarT', bound=str)
 # Pydantic models for deployment configuration.
 
 
+class ServiceResources(pydantic.BaseModel):
+    """What each pod of a hosted service gets, and how many pods serve it.
+
+    An unset field takes the control plane's default when a service is created, and keeps its current value when
+    a service is updated.
+    """
+
+    cpu: float | None = pydantic.Field(default=None, gt=0)
+    memory_mb: int | None = pydantic.Field(default=None, gt=0)
+    workers: int | None = pydantic.Field(default=None, gt=0)
+    file_cache_gb: float | None = pydantic.Field(default=None, gt=0)
+
+    def changes(self, declared: ServiceResources) -> ServiceResources:
+        """Return the fields set in declared whose values differ from these, with the others unset."""
+        return ServiceResources(
+            **{
+                field: value
+                for field, value in declared.model_dump(exclude_none=True).items()
+                if value != getattr(self, field)
+            }
+        )
+
+
 class DatabaseConfig(pydantic.BaseModel):
     """The contents of a [[pixeltable.database]] entry from the project config."""
 
@@ -59,6 +82,21 @@ class DatabaseConfig(pydantic.BaseModel):
     memory_mb: int | None = None
     disk_gb: int | None = None
     workers: int | None = None
+
+    # keyed by the service's URL path: '<base path>/<service name>', or the name alone at the database's root
+    services: dict[str, ServiceResources] | None = None
+
+    def service_resources(self, base_path: str) -> dict[str, ServiceResources]:
+        """Return the resources of the services at base_path, keyed by lowercase service name.
+
+        Hosted service paths are compared without case.
+        """
+        resources: dict[str, ServiceResources] = {}
+        for path, entry in (self.services or {}).items():
+            path_base, _, name = path.rpartition('/')
+            if path_base.lower() == base_path.lower():
+                resources[name.lower()] = entry
+        return resources
 
     @pydantic.model_validator(mode='before')
     @classmethod
@@ -98,6 +136,29 @@ class DatabaseConfig(pydantic.BaseModel):
         if not re.fullmatch(r'\d+\.\d+(\.\d+)?', v):
             raise ValueError(f"`python_version` must be a version like '3.12' or '3.12.8', got {v!r}")
         return v
+
+    @pydantic.field_validator('services', mode='before')
+    @classmethod
+    def _check_service_keys(cls, v: Any) -> Any:
+        # ServiceResources ignores unknown fields, so that a record stored by an older version still loads
+        for path, entry in (v or {}).items():
+            unknown = sorted(set(entry) - set(ServiceResources.model_fields)) if isinstance(entry, dict) else []
+            if len(unknown) > 0:
+                raise ValueError(f'`services.{path}` has unknown settings: {", ".join(unknown)}')
+        return v
+
+    @pydantic.model_validator(mode='after')
+    def _check_services(self) -> Self:
+        if self.services is None:
+            return self
+        if self.name == LOCAL_DATABASE:
+            raise ValueError('`services` applies to a hosted database; a local service runs in-process')
+        paths: dict[str, str] = {}
+        for path in self.services:
+            other = paths.setdefault(path.lower(), path)
+            if other != path:
+                raise ValueError(f'`services` has both {other!r} and {path!r}, which differ only in case')
+        return self
 
 
 # the entry in [[pixeltable.database]] that configures the local database
@@ -893,7 +954,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'database': (
             'One entry per database the project uses: its variable bindings, per-database values for the media '
             'destinations and the OTLP endpoint and protocol (db_<key>), and for a hosted database the contents of '
-            'its runtime image',
+            "its runtime image and its services' resources",
             list[DatabaseConfig],
         ),
         'db_pool_size': ('Number of database connections the engine keeps open (default: 5)', int),

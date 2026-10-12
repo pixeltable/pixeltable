@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from pixeltable.config import ServiceResources
 from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.service.service_md import ServiceInstanceRecord
 from pixeltable.utils.project import ProjectFingerprint
@@ -280,10 +281,7 @@ class CreateServiceInstanceRequest(BaseModel):
     spec: ServiceSpec
     app_module: str
     otel: bool = False
-    workers: int = 1
-    cpu: float = 0.5
-    memory_mb: int = 512
-    disk_gb: int = 10
+    resources: ServiceResources = Field(default_factory=ServiceResources)
     description: str | None = None
 
 
@@ -328,10 +326,7 @@ class UpdateServiceInstanceRequest(BaseModel):
     spec: ServiceSpec | None = None
     app_module: str | None = None
     otel: bool | None = None
-    workers: int | None = None
-    cpu: float | None = None
-    memory_mb: int | None = None
-    disk_gb: int | None = None
+    resources: ServiceResources = Field(default_factory=ServiceResources)
     description: str | None = None
 
 
