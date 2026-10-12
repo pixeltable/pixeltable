@@ -18,6 +18,7 @@ import toml
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
+from pixeltable.service.resources import DatabaseCapacity, ServiceResources
 
 if TYPE_CHECKING:
     from pixeltable import catalog
@@ -31,30 +32,7 @@ ConfVarT = TypeVar('ConfVarT', bound=str)
 # Pydantic models for deployment configuration.
 
 
-class ServiceResources(pydantic.BaseModel):
-    """What each pod of a hosted service gets, and how many pods serve it.
-
-    An unset field takes the control plane's default when a service is created, and keeps its current value when
-    a service is updated.
-    """
-
-    cpu: float | None = pydantic.Field(default=None, gt=0)
-    memory_mb: int | None = pydantic.Field(default=None, gt=0)
-    workers: int | None = pydantic.Field(default=None, gt=0)
-    file_cache_gb: float | None = pydantic.Field(default=None, gt=0)
-
-    def changes(self, declared: ServiceResources) -> ServiceResources:
-        """Return the fields set in declared whose values differ from these, with the others unset."""
-        return ServiceResources(
-            **{
-                field: value
-                for field, value in declared.model_dump(exclude_none=True).items()
-                if value != getattr(self, field)
-            }
-        )
-
-
-class DatabaseConfig(pydantic.BaseModel):
+class DatabaseConfig(DatabaseCapacity):
     """The contents of a [[pixeltable.database]] entry from the project config."""
 
     model_config = pydantic.ConfigDict(extra='forbid')
@@ -77,20 +55,11 @@ class DatabaseConfig(pydantic.BaseModel):
     python_version: str | None = None  # override the runtime Python version.
     uv_options: str | None = None  # extra options to pass to `uv sync` when building the runtime image
 
-    # hosted db resources
-    cpu: float | None = None
-    memory_mb: int | None = None
-    disk_gb: int | None = None
-    workers: int | None = None
-
     # keyed by the service's URL path: '<base path>/<service name>', or the name alone at the database's root
     services: dict[str, ServiceResources] | None = None
 
     def service_resources(self, base_path: str) -> dict[str, ServiceResources]:
-        """Return the resources of the services at base_path, keyed by lowercase service name.
-
-        Hosted service paths are compared without case.
-        """
+        """Return the resources of the services at base_path, keyed by lowercase service name."""
         resources: dict[str, ServiceResources] = {}
         for path, entry in (self.services or {}).items():
             path_base, _, name = path.rpartition('/')

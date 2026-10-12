@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pydantic
 
-from pixeltable.config import ServiceResources
+from pixeltable.service.resources import ServiceResources
 from pixeltable.utils.project import ProjectFingerprint
 from pixeltable_cli import types
 from pixeltable_cli.types import ServiceSpec, ServiceState

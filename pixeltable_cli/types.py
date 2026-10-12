@@ -651,11 +651,12 @@ class ServiceInstance(pydantic.BaseModel):
     # whether its database has moved past the project this instance serves
     update_pending: bool = False
 
-    # a hosted instance's resources; None for a local instance
-    cpu: float | None = None
-    memory_mb: int | None = None
-    workers: int | None = None
-    file_cache_gb: float | None = None
+    cpu: float | None = pydantic.Field(default=None, description='vCPUs per pod; null for a local instance')
+    memory_mb: int | None = pydantic.Field(default=None, description='memory per pod, in MB; null for a local instance')
+    workers: int | None = pydantic.Field(default=None, description='number of pods; null for a local instance')
+    file_cache_gb: float | None = pydantic.Field(
+        default=None, description='file cache size per pod, in GiB; null for a local instance'
+    )
 
 
 # Databases

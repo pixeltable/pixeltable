@@ -12,7 +12,8 @@ import pytest
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as PxtPath
-from pixeltable.config import VAR_SECTION, Config, ServiceResources
+from pixeltable.config import VAR_SECTION, Config
+from pixeltable.service.resources import ServiceResources
 
 from .utils import get_image_files, pxt_raises
 

@@ -13,7 +13,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import catalog
-from pixeltable.config import Config, DatabaseConfig, ServiceResources
+from pixeltable.config import Config, DatabaseConfig
 from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
     ListServiceInstancesRequest,
@@ -21,6 +21,7 @@ from pixeltable.service.management_protocol import (
     StopServiceInstanceRequest,
     UpdateServiceInstanceRequest,
 )
+from pixeltable.service.resources import ServiceResources
 from pixeltable.service.service_md import LocalServiceInstanceRecord, ServiceInstanceRecord
 from pixeltable.serving import service as serving_service
 from pixeltable.serving.service_instance import ServiceInstance
@@ -1484,7 +1485,7 @@ class TestServiceUpdateRunning:
         app_info = serving_service._AppInfo(
             app_file=app_file,
             services={'ingest': serving_service._ServiceInfo(spec=record.spec, kind='declarative')},
-            declared_resources=services or {},
+            service_resources=services or {},
             model_mismatch_reason=None,
             db_uri='pxt://acme:main',
             target_db_fingerprint=fingerprint,

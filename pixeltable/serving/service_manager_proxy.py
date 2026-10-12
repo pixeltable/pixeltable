@@ -13,7 +13,7 @@ from typing import Sequence
 import httpx
 
 from pixeltable import catalog, exceptions as excs
-from pixeltable.config import Config, ServiceResources
+from pixeltable.config import Config
 from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
     CreateServiceInstanceRequest,
@@ -30,6 +30,7 @@ from pixeltable.service.management_protocol import (
     UpdateServiceInstanceRequest,
     UpdateServiceInstanceResponse,
 )
+from pixeltable.service.resources import ServiceResources
 from pixeltable.utils.app_module import load_app_module, module_name, module_routers, service_spec, services_by_name
 
 from .service_instance import ServiceInstance, ServiceInstanceRecord, ServiceState

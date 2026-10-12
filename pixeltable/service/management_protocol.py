@@ -14,8 +14,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from pixeltable.config import ServiceResources
 from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
+from pixeltable.service.resources import ServiceResources
 from pixeltable.service.service_md import ServiceInstanceRecord
 from pixeltable.utils.project import ProjectFingerprint
 from pixeltable_cli.types import DbArtifact, DbPlan, ServiceSpec
@@ -75,7 +75,9 @@ class DatabaseReport(BaseModel):
     db: str = ''
 
     target_resources: DatabaseResources | None = Field(
-        default=None, description='what the project configuration asks for; an update moves the database to this'
+        default=None,
+        description='the resources requested by the project configuration, with null for an unset size; an update '
+        'applies them',
     )
 
     current: DatabaseStatus | None = Field(

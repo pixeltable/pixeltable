@@ -19,6 +19,7 @@ from pixeltable.service.management_protocol import (
     UpdateDbRequest,
     UpdateDbResponse,
 )
+from pixeltable.service.resources import DatabaseCapacity
 from pixeltable.utils.project import (
     ProjectFingerprint,
     ProjectPart,
@@ -73,11 +74,9 @@ def create_db_update_ops(target: DatabaseResources, current: DatabaseResources |
             if ProjectPart.BINDINGS in changed:
                 ops.append(DbChangeOp.rebind(target.fingerprint.changes(current.fingerprint, {ProjectPart.BINDINGS})))
 
-    current_capacity = {} if current is None else current.capacity()
-    combined = current_capacity | target.capacity()  # target settings take precedence
-    for name, val in combined.items():
-        if val != current_capacity.get(name):
-            ops.append(DbChangeOp.capacity(name, current_capacity.get(name), val))
+    current_capacity = DatabaseCapacity() if current is None else current.capacity()
+    for field, value in current_capacity.changes(target.capacity()).model_dump(exclude_none=True).items():
+        ops.append(DbChangeOp.capacity(field, getattr(current_capacity, field), value))
 
     return ops
 
@@ -239,10 +238,7 @@ def _db_resources(config: DatabaseConfig) -> DatabaseResources:
     return DatabaseResources(
         fingerprint=project_fingerprint(_validated_project_root(), config),
         pxt_md_version=metadata.VERSION,
-        cpu=config.cpu,
-        memory_mb=config.memory_mb,
-        disk_gb=config.disk_gb,
-        workers=config.workers,
+        **config.capacity().model_dump(),
     )
 
 

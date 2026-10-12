@@ -563,7 +563,6 @@ def _list(target: str | None, *, as_json: bool) -> None:
     width = max(len(f'{d.catalog_path}/{d.name}'.lstrip('/')) for d in running)
     for d in running:
         pid_or_state = f'pid {d.pid}' if d.pid is not None else d.state
-        # shown as the file it names: a catalog path never carries a .py suffix
         app_file = d.app_module.replace('.', '/') + '.py'
         where = f'{d.catalog_path}/{d.name}'.lstrip('/')
         size = (
