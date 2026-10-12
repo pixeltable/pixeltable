@@ -137,6 +137,12 @@ class TestProject:
         )
         assert project_fingerprint(project, None).compare(after) == set()
 
+        # a TOML date and a string with the same text are different values
+        (project / 'pyproject.toml').write_text('[project]\nversion = "1979-05-27"\n')
+        string = project_fingerprint(project, None)
+        (project / 'pyproject.toml').write_text('[project]\nversion = 1979-05-27\n')
+        assert project_fingerprint(project, None).compare(string) == {IMAGE, ARCHIVE}
+
     def test_local_requirement(self, project: pathlib.Path) -> None:
         """Replacing a local wheel moves the image digest, though requirements.txt is unchanged."""
         (project / 'wheels').mkdir()

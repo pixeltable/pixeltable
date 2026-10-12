@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import enum
 import hashlib
 import io
@@ -212,8 +213,12 @@ def _pyproject_hash(data: bytes) -> str:
         tool.pop('pixeltable', None)
         if len(tool) == 0:
             del parsed['tool']  # [tool.pixeltable] alone creates the tool table
-    # default=str: json.dumps() cannot encode a TOML date or time
-    return hashlib.sha256(json.dumps(parsed, sort_keys=True, default=str).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(parsed, sort_keys=True, default=_toml_datetime_json).encode()).hexdigest()
+
+
+def _toml_datetime_json(value: datetime.date | datetime.time) -> dict[str, str]:
+    """Encode a TOML date or time for json.dumps(), tagged with its type to keep it apart from a string."""
+    return {f'toml:{type(value).__name__}': value.isoformat()}
 
 
 def _add_hashed(tf: tarfile.TarFile, path: Path, relpath: str) -> str:
