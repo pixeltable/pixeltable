@@ -623,13 +623,23 @@ class TestConfig:
             'openai': {'rate_limits': {'gpt-4o': 100}},
         }
 
-        config = load("[openai]\napi_key = 'sk-project'\n\n[[pixeltable.database]]\nvars.dest = 's3://local'\n")
-        # a secret is left out for the local database and refused for a hosted one
-        assert config.create_project_config(config.get_database_config(local_uri)) == {
-            'pixeltable': {'database': [{'name': 'local', 'vars': {'dest': 's3://local'}}]}
-        }
+        # a secret is hashed for the local database and refused for a hosted one
+        local = []
+        for key in ('sk-project', 'sk-rotated'):
+            config = load(f"[openai]\napi_key = '{key}'\n\n[[pixeltable.database]]\nvars.dest = 's3://local'\n")
+            local.append(config.create_project_config(config.get_database_config(local_uri)))
+        assert local[0]['pixeltable'] == {'database': [{'name': 'local', 'vars': {'dest': 's3://local'}}]}
+        assert local[0]['openai']['api_key'] != local[1]['openai']['api_key']
+        assert 'sk-project' not in str(local[0])
         with pxt_raises(
             excs.ErrorCode.INVALID_CONFIGURATION, match=r'pxt secret set pxt://myorg:prod OPENAI_API_KEY=<value>'
+        ):
+            config.create_project_config(config.get_database_config(prod_uri))
+
+        config = load("[otel]\nexporter_otlp_headers = 'Authorization=Basic abc'\n")
+        with pxt_raises(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            match=r'pxt secret set pxt://myorg:prod OTEL_EXPORTER_OTLP_HEADERS=<value>',
         ):
             config.create_project_config(config.get_database_config(prod_uri))
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -701,7 +702,7 @@ class Config:
         """Create the config for db_config.
 
         It contains:
-        - the settings of the project config file, other than secrets
+        - the settings of the project config file, with the SHA-256 of each secret in place of its value
         - in place of the file's [[pixeltable.database]] list: a list with one entry for db_config (its name, vars
           and db_* settings), or no list if db_config is None
 
@@ -722,6 +723,8 @@ class Config:
                             f'database receives its secrets through `pxt secret`. Remove it and run:\n'
                             f'  pxt secret set {db_config.name} {env_var_name(section, key)}=<value>',
                         )
+                    # an edit to a local secret still changes the config, and so restarts a local service
+                    result.setdefault(section, {})[key] = hashlib.sha256(str(value).encode()).hexdigest()
                     continue
                 result.setdefault(section, {})[key] = value
 
@@ -1058,7 +1061,9 @@ _INSTALLATION_KEYS = frozenset(
 )
 
 # settings that contain credentials
-_SECRET_KEYS = frozenset({'api_key', 'api_secret', 'api_token', 'token', 'storage_account_key'})
+_SECRET_KEYS = frozenset(
+    {'api_key', 'api_secret', 'api_token', 'token', 'storage_account_key', 'exporter_otlp_headers'}
+)
 
 # whitelist of allowed setting overrides for individual dbs; the db_ prefix keeps them apart from the db
 # section's own fields such as name and cpu

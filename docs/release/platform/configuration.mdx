@@ -71,7 +71,8 @@ database only. A `[[pixeltable.database]]` entry with no `name` corresponds to t
 `[[pixeltable.database]]` entry named `pxt://org:db` is a hosted database. Its pods read the entry and the sections of
 `pixeltable.toml` after `pxt db update`, and `pxt service update` restarts running services with them. For a hosted
 database, `pxt db update` refuses a secret in `pixeltable.toml` (a key named `api_key`, `api_secret`, `api_token`,
-`token`, or `storage_account_key`); set it with `pxt secret set pxt://org:db OPENAI_API_KEY=...` instead.
+`token`, `storage_account_key`, or `exporter_otlp_headers`); set it with
+`pxt secret set pxt://org:db OPENAI_API_KEY=...` instead.
 
 ```toml
 # pixeltable.toml
