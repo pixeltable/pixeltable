@@ -129,9 +129,10 @@ def prepare(db_uri: str, archive_dir: Path) -> bool:
         fingerprint_path(archive_dir).unlink(missing_ok=True)
         if response.fingerprint is not None:
             fingerprint_path(archive_dir).write_text(response.fingerprint.model_dump_json(), encoding='utf-8')
-            # even when empty: it takes precedence over [tool.pixeltable] in the shipped pyproject.toml
-            config_file = project_dir(archive_dir) / PROJECT_CONFIG_FILE
-            config_file.write_text(toml.dumps(response.fingerprint.config), encoding='utf-8')
+            # an empty config comes from an older client, whose archive contains the project's config
+            if len(response.fingerprint.config) > 0:
+                config_file = project_dir(archive_dir) / PROJECT_CONFIG_FILE
+                config_file.write_text(toml.dumps(response.fingerprint.config), encoding='utf-8')
         return True
     # the database has no project now, whatever an earlier run left here
     shutil.rmtree(project_dir(archive_dir), ignore_errors=True)

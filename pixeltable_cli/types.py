@@ -655,7 +655,7 @@ class ServiceInstance(pydantic.BaseModel):
     memory_mb: int | None = pydantic.Field(default=None, description='memory per pod, in MB; null for a local instance')
     workers: int | None = pydantic.Field(default=None, description='number of pods; null for a local instance')
     file_cache_gb: float | None = pydantic.Field(
-        default=None, description='file cache size per pod, in GiB; null for a local instance'
+        default=None, description='file cache size per pod, in GB; null for a local instance'
     )
 
 

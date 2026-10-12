@@ -59,35 +59,36 @@ class TestPrepareProject:
         assert recorded == json.loads(project_fingerprint(source, None).model_dump_json())
 
     def test_project_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The pod reads the fingerprint's config, not the [tool.pixeltable] table of the shipped pyproject.toml."""
-        archive_dir = tmp_path / 'archive'
+        """The pod reads the fingerprint's config, or the shipped [tool.pixeltable] if the config is empty."""
         source = tmp_path / 'src'
         source.mkdir()
         pyproject = (
             "[project]\nname = 'app'\n\n[[tool.pixeltable.database]]\nname = 'pxt://acme:main'\nvars.dest = 'old'\n"
         )
         (source / 'pyproject.toml').write_text(pyproject, encoding='utf-8')
-        project_config = {'pixeltable': {'database': [{'name': 'pxt://acme:main', 'vars': {'dest': 'new'}}]}}
-        served = mock.Mock(fingerprint=project_fingerprint(source, None, project_config=project_config))
 
         def _unpack(db_uri: str, dest: Path) -> mock.Mock:
             dest.mkdir(parents=True)
             (dest / 'pyproject.toml').write_text(pyproject, encoding='utf-8')
             return served
 
-        with mock.patch.object(prepare_project, 'unpack_project_archive', side_effect=_unpack):
-            assert prepare_project.prepare(_DB_URI, archive_dir) is True
-
         monkeypatch.setattr(sys, 'path', list(sys.path))
         project_root = Config.get().project_root
-        try:
-            with pytest.MonkeyPatch.context() as mp:
-                mp.setenv('PXTCLOUD_ORG', 'acme')
-                mp.setenv('PXTCLOUD_DB', 'main')
-                Config.init(reinit=True, project_root=prepare_project.project_dir(archive_dir))
-                assert Config.get().get_string_value('dest', section=VAR_SECTION) == 'new'
-        finally:
-            Config.init(reinit=True, project_root=project_root)
+        new_config = {'pixeltable': {'database': [{'name': 'pxt://acme:main', 'vars': {'dest': 'new'}}]}}
+        for i, (project_config, expected) in enumerate([(new_config, 'new'), ({}, 'old')]):
+            archive_dir = tmp_path / f'archive{i}'
+            served = mock.Mock(fingerprint=project_fingerprint(source, None, project_config=project_config))
+            with mock.patch.object(prepare_project, 'unpack_project_archive', side_effect=_unpack):
+                assert prepare_project.prepare(_DB_URI, archive_dir) is True
+
+            try:
+                with pytest.MonkeyPatch.context() as mp:
+                    mp.setenv('PXTCLOUD_ORG', 'acme')
+                    mp.setenv('PXTCLOUD_DB', 'main')
+                    Config.init(reinit=True, project_root=prepare_project.project_dir(archive_dir))
+                    assert Config.get().get_string_value('dest', section=VAR_SECTION) == expected
+            finally:
+                Config.init(reinit=True, project_root=project_root)
 
     def test_a_database_with_no_project_is_not_a_failure(self, tmp_path: Path) -> None:
         """A 404 that outlasts the retries means the database has no project yet. Pods must still serve it."""
