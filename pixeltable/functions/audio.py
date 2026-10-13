@@ -360,7 +360,10 @@ def _set_flac_total_samples(path: str, num_samples: int) -> None:
         header = f.read(42)
         if len(header) < 42 or header[:4] != b'fLaC' or header[4] & 0x7F != 0 or header[5:8] != b'\x00\x00\x22':
             return
-        # STREAMINFO bytes 10-17 pack the sample rate, channels and bits per sample above a 36-bit total sample count
+        # STREAMINFO bytes 10-17 pack the sample rate, channels and bits per sample above a 36-bit total sample count;
+        # a count that doesn't fit is written as 0, which means unknown
+        if not 0 <= num_samples < 2**36:
+            num_samples = 0
         packed = int.from_bytes(header[18:26], 'big')
         packed = (packed & ~(2**36 - 1)) | num_samples
         f.seek(18)
