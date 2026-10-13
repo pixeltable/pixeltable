@@ -1,0 +1,162 @@
+---
+title: 'YOLOX object detection in Python with Pixeltable'
+sidebarTitle: 'YOLOX object detection'
+description: 'Run YOLOX object detection in Python on images and video frames. Store boxes in a Pixeltable computed column, then query and draw them.'
+keywords: ['yolox', 'object detection', 'YOLOX Python', 'video object detection']
+---
+
+YOLOX is an anchor-free object detector. It finds each object in a picture and returns a box around it.
+[`pixeltable.functions.yolox.yolox()`](/sdk/latest/yolox) runs one of `yolox_nano`, `yolox_tiny`, `yolox_s`,
+`yolox_m`, `yolox_l`, or `yolox_x` on an image. On a video, [`frame_iterator()`](/platform/iterators) makes one
+row per frame, and the same function runs on `frame`. The call belongs in a computed column, so an insert
+stores the boxes with the row. Weights come from
+[pixeltable-yolox](https://github.com/pixeltable/pixeltable-yolox). This UDF runs on CPU.
+
+## Install
+
+```bash
+pip install -U pixeltable pixeltable-yolox
+```
+
+## Detect objects in an image table
+
+`yolox()` returns three lists of equal length:
+
+- `bboxes`: `[xmin, ymin, xmax, ymax]` in pixels
+- `scores`: confidence from 0 to 1, already filtered by `threshold` (default `0.5`)
+- `labels`: COCO class ids. `0` is `person` and `2` is `car`. Names are `yolox.data.datasets.COCO_CLASSES`.
+
+`bboxes_draw()` paints those boxes onto the image. Pass the class names and the label text reads `person`.
+
+```python
+import pixeltable as pxt
+from pixeltable.functions.vision import bboxes_draw
+from pixeltable.functions.yolox import yolox
+from yolox.data.datasets import COCO_CLASSES
+
+
+@pxt.udf
+def class_names(detections: dict) -> list[str]:
+    return [COCO_CLASSES[int(label)] for label in detections['labels']]
+
+
+pxt.drop_dir('yolox_demo', force=True)
+pxt.create_dir('yolox_demo')
+
+images = pxt.create_table('yolox_demo.images', {'image': pxt.Image})
+images.insert([
+    {
+        'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000036.jpg'
+    },
+    {
+        'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000090.jpg'
+    },
+])
+
+images.add_computed_column(
+    detections=yolox(images.image, model_id='yolox_m', threshold=0.5)
+)
+images.add_computed_column(classes=class_names(images.detections))
+images.add_computed_column(
+    annotated=bboxes_draw(
+        images.image,
+        images.detections.bboxes,
+        labels=images.classes,
+    )
+)
+images.select(
+    images.image, images.annotated, images.classes, images.detections.scores
+).collect()
+```
+
+## Query the detections
+
+`threshold` drops low-confidence boxes inside `yolox()`. `labels.contains()` keeps rows that include a
+class id. This keeps images with a person (`0`):
+
+```python
+people = images.where(images.detections.labels.contains(0))
+people.select(people.classes, people.detections.scores).collect()
+```
+
+`0.8` returns fewer boxes. `0.25` returns more. Model-size tradeoffs are in
+[Detect objects in images](/howto/cookbooks/images/img-detect-objects). Box color and fill are in
+[Visualize object detections](/howto/cookbooks/images/img-visualize-detections).
+
+## Detect objects in video frames
+
+`frame_iterator()` adds `frame`, `frame_attrs`, and `pos`. `fps=1.0` extracts one frame per second.
+If you set `fps` above the video's own rate, the iterator returns every frame. Adding the detection
+column runs `yolox()` on each extracted frame. `yolox_tiny` is the smaller model. `yolox_m` and
+`yolox_x` are the larger ones.
+
+```python
+from pixeltable.functions.video import frame_iterator, make_video
+
+videos = pxt.create_table('yolox_demo.videos', {'video': pxt.Video})
+videos.insert([
+    {
+        'video': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/bangkok.mp4'
+    }
+])
+
+frames = pxt.create_view(
+    'yolox_demo.frames',
+    videos,
+    iterator=frame_iterator(videos.video, fps=1.0),
+)
+frames.add_computed_column(
+    detections=yolox(frames.frame, model_id='yolox_tiny', threshold=0.5)
+)
+frames.add_computed_column(classes=class_names(frames.detections))
+frames.add_computed_column(
+    annotated=bboxes_draw(
+        frames.frame,
+        frames.detections.bboxes,
+        labels=frames.classes,
+        width=3,
+    )
+)
+```
+
+Frames that contain a car (COCO id `2`):
+
+```python
+cars = frames.where(frames.detections.labels.contains(2))
+cars.select(cars.pos, cars.classes, cars.annotated).head(3)
+```
+
+`make_video()` stitches the annotated frames back into one clip. `pos` is each frame's place in the
+view. `fps=1` plays those frames at one per second, the same spacing `frame_iterator()` used.
+
+```python
+frames.group_by(videos).select(
+    make_video(frames.pos, frames.annotated, fps=1)
+).collect()
+```
+
+`num_frames` and `keyframes_only` are documented on [Iterators](/platform/iterators) and in
+[Extract frames from videos](/howto/cookbooks/video/video-extract-frames). Comparing `yolox_tiny`,
+`yolox_m`, and `yolox_x` with mean average precision is in
+[Object detection in videos](/howto/use-cases/object-detection-in-videos).
+
+[`yolo_to_coco()`](/sdk/latest/yolox) converts `bboxes` and `labels` to COCO annotations: `bbox` as
+`[x, y, width, height]`, plus `category`.
+
+## In an application
+
+These snippets call `pxt.create_table()` and `add_computed_column()` so you can run them in a notebook
+or a REPL. An application declares the same columns on a `TableModel` in `app.py` and creates them
+with `pxt schema update`. A UDF defined in a notebook session is stored with the column. In a script,
+define `class_names()` in an importable module and import it.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Detect objects in images" icon="image" href="/howto/cookbooks/images/img-detect-objects">
+    Image-only YOLOX recipe and the six model ids.
+  </Card>
+  <Card title="Object detection in videos" icon="film" href="/howto/use-cases/object-detection-in-videos">
+    Compare YOLOX model sizes with mean average precision.
+  </Card>
+</CardGroup>
