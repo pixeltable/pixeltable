@@ -89,6 +89,8 @@ class TestCloudDb:
             assert statuses['archive'] == 'applied', status['ops']
             # we might reuse an image from an earlier test run
             assert statuses['image'] in ('applied', 'skipped'), status['ops']
+            # this machine reaches the database's tunnel, so the update has nothing to warn about
+            assert status['warnings'] == [], status['warnings']
             assert db_status(cli, project, absent)['state'] == 'AVAILABLE'
             # the pod that just came up has logged its startup, and the probes are dropped unless asked for
             started = 'Connected to Pixeltable database at:'

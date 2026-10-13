@@ -654,6 +654,9 @@ class DbPlan(pydantic.BaseModel):
     resolution: Resolution
     ops: list[DbChangeOp] = pydantic.Field(default_factory=list)
     status: OpStatus | None = None
+    warnings: list[str] = pydantic.Field(
+        default_factory=list, description='what an applied update found that the plan does not show'
+    )
 
     @classmethod
     def from_ops(cls, db_uri: str, state: DbState | None, ops: list[DbChangeOp]) -> DbPlan:

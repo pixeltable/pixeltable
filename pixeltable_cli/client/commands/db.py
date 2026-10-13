@@ -237,6 +237,9 @@ def _update(args: argparse.Namespace) -> None:
             post_request('/api/db/update', {**body, 'allow_destructive': args.allow_destructive})
         )
     _print_plan(applied, as_json=args.json_output, applied=True)
+    # stderr, so that --json leaves one document on stdout, which carries them too
+    for warning in applied.warnings:
+        print(f'pxt db update: warning: {warning}', file=sys.stderr)
     if not applied.in_agreement:
         # an operation nothing applies, such as a placement change, leaves the database out of agreement
         sys.exit(EXIT_CHANGES_PENDING)

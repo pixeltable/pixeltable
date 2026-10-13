@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pixeltable import catalog, exceptions as excs, metadata
 from pixeltable.config import Config, DatabaseConfig
+from pixeltable.env import Env
 from pixeltable.service import management_client
 from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.service.management_protocol import (
@@ -19,6 +20,7 @@ from pixeltable.service.management_protocol import (
     UpdateDbRequest,
     UpdateDbResponse,
 )
+from pixeltable.service.proxy_client import open_tunnel_socket
 from pixeltable.utils.project import (
     ProjectFingerprint,
     ProjectPart,
@@ -110,7 +112,31 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
     plan.status = 'applied'
     # what the plan asked for has been applied; an operation no update carries out is what is left
     plan.resolution = 'up_to_date'
+    if settled.state == DbState.AVAILABLE:
+        plan.warnings += _tunnel_warnings(db_path)
     return plan
+
+
+def _tunnel_warnings(db_path: catalog.Path) -> list[str]:
+    """A warning when this machine cannot open a TCP connection to the database's tunnel endpoint.
+
+    The control plane answers on port 443, so a database reaches AVAILABLE from a network that blocks the tunnel's
+    port, and the first command that uses its tables is otherwise where that shows.
+    """
+    assert db_path.org is not None and db_path.db is not None
+    host, port = Env.get().proxy_endpoint(db_path.org, db_path.db)
+    try:
+        open_tunnel_socket(db_path.org, db_path.db, host, port).close()
+    except excs.ServiceUnavailableError as e:
+        reason = e.message
+    except OSError as e:
+        reason = f'Cannot reach {db_path.uri_str} at {host}:{port}: {e}'
+    else:
+        return []
+    return [
+        f'{db_path.uri_str} is AVAILABLE, but commands that use its tables, such as `pxt schema update` and '
+        f'`pxt ls`, will fail from this machine.\n{reason}'
+    ]
 
 
 def _op_status(op: DbChangeOp, settled: DatabaseStatus, stored: set[DbArtifact]) -> OpStatus:
