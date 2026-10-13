@@ -1,7 +1,10 @@
 import gc
+import pathlib
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import Mock
 
+import PIL.Image
 import psycopg
 import pytest
 import sqlalchemy as sql
@@ -14,6 +17,7 @@ from pixeltable.catalog.path import Path as CatalogPath
 from pixeltable.env import Env, store_app_name
 from pixeltable.runtime import Runtime, get_runtime
 from pixeltable.service import proxy_daemon
+from pixeltable.service.proxy_client import ProxyClient
 from pixeltable.utils.fault_injection import FaultLocation
 
 from .coordinator import MultiThreadedScenario
@@ -49,22 +53,44 @@ class TestCatalog:
             pxt.move('pxt://local:db/t', 'local_t')  # hosted -> local
 
     @pytest.mark.db_roots('proxy', reason="checks the connections to the local proxy daemon's port")
-    def test_proxy_connections_closed_with_runtime(self, db_root: DatabaseRoot, proxy_daemon_db: str) -> None:
-        """Resetting the runtime closes its proxy catalog's connections, and a table handle from before the reset still
-        works, over the connections of the current runtime."""
+    def test_proxy_connections_closed_with_runtime(
+        self, db_root: DatabaseRoot, proxy_daemon_db: str, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Every connection to the daemon belongs to a live runtime, which closes it. A table handle or a cursor from
+        before a reset uses the current runtime's connections, and a thread's runtime closes its own when the thread
+        ends."""
         port_lock = proxy_daemon.read_port_lock(proxy_daemon_db)
         assert port_lock is not None
         daemon_addr = f"raddr=('127.0.0.1', {port_lock['port']})"
-        t = pxt.create_table(db_root.make_catalog_path('tbl'), {'a': pxt.Int})
-        t.insert(a=1)
+        img = tmp_path / 'img.png'
+        PIL.Image.new('RGB', (8, 6)).save(img)
+        tbl_path = db_root.make_catalog_path('tbl')
+        t = pxt.create_table(tbl_path, {'a': pxt.Int, 'img': pxt.Image})
+        t.insert(a=1, img=str(img))
+        cursor = t.select(t.img).cursor()
+
+        # a local daemon's media is fetched outside the client's pool, so the cursor's client is checked directly
+        fetched_by: list[ProxyClient] = []
+        fetch_media = ProxyClient.fetch_media
+
+        def recording_fetch_media(client: ProxyClient, urls: list[str]) -> dict[str, str]:
+            fetched_by.append(client)
+            return fetch_media(client, urls)
+
+        monkeypatch.setattr(ProxyClient, 'fetch_media', recording_fetch_media)
 
         gc.collect()  # so that only sockets left open below are collected
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always', ResourceWarning)
             reload_catalog()
-            t.insert(a=2)  # dispatched by a handle from before the reset
-            assert t.count() == 2
-            del t
+            t.insert(a=2, img=str(img))  # dispatched by a handle from before the reset
+            with ThreadPoolExecutor(max_workers=1) as pool:  # a thread that ends without closing its runtime
+                pool.submit(t.insert, a=3, img=str(img)).result()
+            [row] = cursor  # opened after the reset
+            assert isinstance(row['img'], PIL.Image.Image)
+            assert fetched_by == [get_runtime().get_proxy_client(CatalogPath.parse(tbl_path))]
+            assert t.count() == 3
+            del t, cursor, row
             reload_catalog()
             gc.collect()
         assert [str(w.message) for w in caught if daemon_addr in str(w.message)] == []

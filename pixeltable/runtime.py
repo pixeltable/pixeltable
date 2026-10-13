@@ -5,6 +5,7 @@ import concurrent.futures
 import inspect
 import logging
 import threading
+import weakref
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator, Literal, TypeVar
 from uuid import UUID
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
     from pixeltable.catalog.path import Path
     from pixeltable.catalog.table import Table
     from pixeltable.exec import ExecPlan
+    from pixeltable.service.proxy_client import ProxyClient
 
 _logger = logging.getLogger(__name__)
 _thread_local = threading.local()
@@ -35,6 +37,13 @@ _XACT_ISOLATION_LEVEL = 'REPEATABLE READ'
 # run_coro() runs one coroutine at a time, on a thread with an event loop that outlives the single call
 _N_RUN_CORO_WORKERS = 1
 _RUN_CORO_THREAD_PREFIX = 'pxt-run-coro'
+
+
+def _close_catalogs(catalogs: dict[Path, CatalogBase], inherited: set[Path]) -> None:
+    for catalog_uri, cat in catalogs.items():
+        if catalog_uri not in inherited:
+            cat.close()
+
 
 # how long close_threadpool_runtimes() waits for a worker
 _TEARDOWN_TIMEOUT_S = 30.0
@@ -79,6 +88,8 @@ class Runtime:
         # Catalog.__init__() calls _init_store() which needs begin_xact() which calls get_runtime().
         self._catalogs = {}
         self._inherited_catalogs = set()
+        # a thread's runtime is discarded when the thread ends, without a close()
+        weakref.finalize(self, _close_catalogs, self._catalogs, self._inherited_catalogs)
         self.conn = None
         self.session = None
         self.isolation_level = None
@@ -97,9 +108,9 @@ class Runtime:
         self.session = other.session
         self.isolation_level = other.isolation_level
         # share the same catalog instances, but with an independent map so each thread can add catalogs
-        # without racing
-        self._catalogs = dict(other._catalogs)
-        self._inherited_catalogs = set(other._catalogs)
+        # without racing; updated in place, since the finalizer from __init__() holds the map and set
+        self._catalogs.update(other._catalogs)
+        self._inherited_catalogs.update(other._catalogs)
         self._progress = other._progress
         self.context_inherited = True
         self.fault_manager = other.fault_manager
@@ -133,6 +144,14 @@ class Runtime:
             cat = self._make_proxy_catalog(catalog_uri)
             self._catalogs[catalog_uri] = cat
         return cat
+
+    def get_proxy_client(self, path: Path) -> ProxyClient:
+        """Return the client of the proxy catalog the given path lives in, creating the catalog on first use."""
+        from pixeltable.catalog.catalog_proxy import CatalogProxy
+
+        cat = self.get_catalog(path)
+        assert isinstance(cat, CatalogProxy)
+        return cat.client
 
     def get_table_by_id(
         self, tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False
@@ -279,9 +298,7 @@ class Runtime:
 
     def close_catalogs(self) -> None:
         """Close the connections of the catalogs this runtime created. The catalogs stay usable."""
-        for catalog_uri, cat in self._catalogs.items():
-            if catalog_uri not in self._inherited_catalogs:
-                cat.close()
+        _close_catalogs(self._catalogs, self._inherited_catalogs)
 
     def run_coro(self, coro: Coroutine[Any, Any, _T]) -> _T:
         """Run a coroutine synchronously in a separate thread with its own persistent event loop."""

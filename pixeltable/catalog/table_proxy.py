@@ -65,11 +65,7 @@ class TableProxy(Table):
     def _client(self) -> ProxyClient:
         # the current runtime's, as for a query: a runtime closes its catalogs' connections, and a handle can outlive
         # the runtime that loaded it
-        from .catalog_proxy import CatalogProxy
-
-        cat = get_runtime().get_catalog(self._catalog_uri)
-        assert isinstance(cat, CatalogProxy)
-        return cat.client
+        return get_runtime().get_proxy_client(self._catalog_uri)
 
     @property
     def _tbl_md_path(self) -> TableMdPath:
