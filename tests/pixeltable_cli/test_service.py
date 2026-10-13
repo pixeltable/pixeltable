@@ -949,6 +949,10 @@ class TestService:
             assert r.returncode == 1, r.stderr
             assert f'writes its log to {log_file}' in r.stderr, r.stderr
             assert 'Pixeltable Cloud database' in r.stderr and 'pxt new' in r.stderr, r.stderr
+            # a service update on a hosted database needs the db update and the schema update before it
+            deploy_steps = "'pxt db update pxt://org:db', then 'pxt schema update app.py pxt://org:db', then "
+            assert deploy_steps in r.stderr, r.stderr
+            assert "'pxt service update app.py pxt://org:db'" in r.stderr, r.stderr
         assert log_file.is_file()
 
         # the same name at a second target makes the bare name ambiguous

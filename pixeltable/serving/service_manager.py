@@ -181,8 +181,9 @@ class ServiceManager(ServiceManagerBase):
             f'A service on this machine writes its log to '
             f'{self._log_path(instance.service_name, instance.base_path)}. '
             "'pxt service logs' reads the log of a service in a Pixeltable Cloud database, such as "
-            f"pxt://org:db/{instance.service_name}. Run 'pxt new' to get a free Pixeltable Cloud trial database, or "
-            "'pxt service update app.py pxt://org:db' to deploy to a Pixeltable Cloud database you already have.",
+            f"pxt://org:db/{instance.service_name}. Run 'pxt new' to get a free Pixeltable Cloud trial database. "
+            "To deploy to a Pixeltable Cloud database, run 'pxt db update pxt://org:db', then "
+            "'pxt schema update app.py pxt://org:db', then 'pxt service update app.py pxt://org:db'.",
         )
 
     def _local_record(self, record: ServiceInstanceRecord) -> LocalServiceInstanceRecord:
