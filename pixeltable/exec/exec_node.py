@@ -163,6 +163,7 @@ class ExecNode(abc.ABC):
                 finally:
                     # the clients are bound to this loop, so they have to be closed while it is open
                     runner.run(thread_runtime.close_clients())
+                    thread_runtime.close_catalogs()
                     telemetry.exit_context(hooks_token)
 
         thread = threading.Thread(target=run, daemon=True)

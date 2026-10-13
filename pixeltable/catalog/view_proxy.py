@@ -11,7 +11,6 @@ from .table_proxy import TableProxy
 
 if TYPE_CHECKING:
     from pixeltable import exprs, type_system as ts
-    from pixeltable.service.proxy_client import ProxyClient
 
     from ..globals import TableDataSource
     from .update_status import UpdateStatus
@@ -20,9 +19,9 @@ if TYPE_CHECKING:
 class ViewProxy(TableProxy):
     """A proxy for a hosted view handle."""
 
-    def __init__(self, id: UUID, is_anon_snapshot: bool, tbl_md_path: TableMdPath, client: 'ProxyClient'):
+    def __init__(self, id: UUID, is_anon_snapshot: bool, tbl_md_path: TableMdPath):
         effective_version = tbl_md_path.effective_version() if is_anon_snapshot else None
-        super().__init__(id, effective_version, tbl_md_path, client)
+        super().__init__(id, effective_version, tbl_md_path)
 
     def _display_name(self) -> str:
         return 'snapshot' if self._tbl_md_path.is_snapshot() else 'view'

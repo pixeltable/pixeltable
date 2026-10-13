@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from pixeltable import exprs, type_system as ts
     from pixeltable._query import Query
     from pixeltable.io.data_sources import SqlDataSource
-    from pixeltable.service.proxy_client import ProxyClient
 
     from ..globals import TableDataSource
     from .table import Table
@@ -34,8 +33,8 @@ _SQL_PARQUET_BATCH_BYTES = 256 * 2**20
 class InsertableTableProxy(TableProxy):
     """A proxy for a hosted InsertableTable handle."""
 
-    def __init__(self, id: UUID, tbl_md_path: TableMdPath, client: 'ProxyClient'):
-        super().__init__(id, None, tbl_md_path, client)
+    def __init__(self, id: UUID, tbl_md_path: TableMdPath):
+        super().__init__(id, None, tbl_md_path)
 
     def _display_name(self) -> str:
         return 'table'

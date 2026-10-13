@@ -1,5 +1,6 @@
 import gc
 import warnings
+from unittest.mock import Mock
 
 import psycopg
 import pytest
@@ -8,8 +9,10 @@ import sqlalchemy.exc as sql_exc
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+from pixeltable.catalog.catalog_base import CatalogBase
+from pixeltable.catalog.path import Path as CatalogPath
 from pixeltable.env import Env, store_app_name
-from pixeltable.runtime import get_runtime
+from pixeltable.runtime import Runtime, get_runtime
 from pixeltable.service import proxy_daemon
 from pixeltable.utils.fault_injection import FaultLocation
 
@@ -48,24 +51,37 @@ class TestCatalog:
     @pytest.mark.db_roots('proxy', reason="checks the connections to the local proxy daemon's port")
     def test_proxy_connections_closed_with_runtime(self, db_root: DatabaseRoot, proxy_daemon_db: str) -> None:
         """Resetting the runtime closes its proxy catalog's connections, and a table handle from before the reset still
-        works, over a new connection."""
+        works, over the connections of the current runtime."""
         port_lock = proxy_daemon.read_port_lock(proxy_daemon_db)
         assert port_lock is not None
         daemon_addr = f"raddr=('127.0.0.1', {port_lock['port']})"
-        p = db_root.make_catalog_path
-        pxt.create_table(p('tbl'), {'a': pxt.Int}).insert(a=1)
+        t = pxt.create_table(db_root.make_catalog_path('tbl'), {'a': pxt.Int})
+        t.insert(a=1)
 
-        gc.collect()  # so that only sockets the reset leaves open are collected below
+        gc.collect()  # so that only sockets left open below are collected
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always', ResourceWarning)
+            reload_catalog()
+            t.insert(a=2)  # dispatched by a handle from before the reset
+            assert t.count() == 2
+            del t
             reload_catalog()
             gc.collect()
         assert [str(w.message) for w in caught if daemon_addr in str(w.message)] == []
 
-        t = pxt.get_table(p('tbl'))
-        reload_catalog()
-        t.insert(a=2)  # dispatched through the client of the catalog the reset closed
-        assert t.count() == 2
+    def test_close_catalogs_skips_inherited(self) -> None:
+        """A runtime that copied another's catalogs closes only the catalogs it created, and leaves the copied ones to
+        the runtime they came from."""
+        parent, worker = Runtime(), Runtime()
+        copied, created = Mock(spec=CatalogBase), Mock(spec=CatalogBase)
+        parent._catalogs[CatalogPath(org='local', db='db1')] = copied
+        worker.copy_db_context(parent)
+        worker._catalogs[CatalogPath(org='local', db='db2')] = created
+        worker.close_catalogs()
+        copied.close.assert_not_called()
+        created.close.assert_called_once()
+        parent.close_catalogs()
+        copied.close.assert_called_once()
 
     def test_ls(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

@@ -51,6 +51,8 @@ class Runtime:
 
     # catalogs keyed by their catalog_uri Path (ROOT_PATH = the in-process catalog)
     _catalogs: dict[Path, CatalogBase]
+    # the keys of _catalogs that copy_db_context() copied; the runtime they came from closes them
+    _inherited_catalogs: set[Path]
 
     conn: sql.Connection | None
     session: orm.Session | None
@@ -76,6 +78,7 @@ class Runtime:
         # Catalogs are created lazily to avoid circular initialization:
         # Catalog.__init__() calls _init_store() which needs begin_xact() which calls get_runtime().
         self._catalogs = {}
+        self._inherited_catalogs = set()
         self.conn = None
         self.session = None
         self.isolation_level = None
@@ -96,6 +99,7 @@ class Runtime:
         # share the same catalog instances, but with an independent map so each thread can add catalogs
         # without racing
         self._catalogs = dict(other._catalogs)
+        self._inherited_catalogs = set(other._catalogs)
         self._progress = other._progress
         self.context_inherited = True
         self.fault_manager = other.fault_manager
@@ -271,9 +275,12 @@ class Runtime:
             finally:
                 loop.close()
 
-        # an inherited context shares its catalogs with the runtime it was copied from, which closes them
-        if not self.context_inherited:
-            for cat in self._catalogs.values():
+        self.close_catalogs()
+
+    def close_catalogs(self) -> None:
+        """Close the connections of the catalogs this runtime created. The catalogs stay usable."""
+        for catalog_uri, cat in self._catalogs.items():
+            if catalog_uri not in self._inherited_catalogs:
                 cat.close()
 
     def run_coro(self, coro: Coroutine[Any, Any, _T]) -> _T:

@@ -11,6 +11,7 @@ from typing_extensions import TypeForm
 
 import pixeltable.exceptions as excs
 from pixeltable import type_system as ts
+from pixeltable.runtime import get_runtime
 from pixeltable.utils import parse_local_file_path
 from pixeltable.utils.object_stores import warn_if_pxtfs_destination
 
@@ -50,17 +51,25 @@ class TableProxy(Table):
 
     _path_key: TablePathKey  # reflects tbl_md_path; immutable; shared read-only across threads
     _local: threading.local  # per-thread tbl_md_path; seeded by the constructing thread, else lazily fetched
-    _client: 'ProxyClient'
     _catalog_uri: CatalogPath  # the hosted catalog this proxy lives in; stamped onto md paths for query routing
 
-    def __init__(self, id: UUID, effective_version: int | None, tbl_md_path: TableMdPath, client: 'ProxyClient'):
+    def __init__(self, id: UUID, effective_version: int | None, tbl_md_path: TableMdPath):
         super().__init__(id)
         self._effective_version = effective_version
         self._path_key = tbl_md_path.key()
         self._local = threading.local()
         self._local.tbl_md_path = tbl_md_path
-        self._client = client
         self._catalog_uri = tbl_md_path.catalog_uri
+
+    @property
+    def _client(self) -> ProxyClient:
+        # the current runtime's, as for a query: a runtime closes its catalogs' connections, and a handle can outlive
+        # the runtime that loaded it
+        from .catalog_proxy import CatalogProxy
+
+        cat = get_runtime().get_catalog(self._catalog_uri)
+        assert isinstance(cat, CatalogProxy)
+        return cat.client
 
     @property
     def _tbl_md_path(self) -> TableMdPath:

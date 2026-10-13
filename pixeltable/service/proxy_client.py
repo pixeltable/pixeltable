@@ -123,8 +123,8 @@ class Transport(abc.ABC):
         """Return a fresh sink for one logical request's media parts."""
 
     def close(self) -> None:
-        """Close the pooled connections. The transport stays usable, and a later request opens a new connection:
-        table handles share it and can outlive the Runtime that closes it."""
+        """Close the pooled connections. The transport stays usable, like the Runtime that closes it: a later request
+        opens a new connection."""
 
 
 class HttpTransport(Transport):
