@@ -30,7 +30,7 @@ def _serve(app_file: str, service_name: str, base_path: str, otel: bool, port: i
     if otel:
         # before the first Pixeltable operation, so that loading the file is traced too
         init_instrumentation()
-    app, spec = create_app(app_file, service_name, base_path)
+    app, spec, _ = create_app(app_file, service_name, base_path)
     if otel:
         instrument_app(app)
 

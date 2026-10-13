@@ -3,6 +3,7 @@ import os
 import pathlib
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor
 from textwrap import dedent
 from types import SimpleNamespace
 from typing import Any, Callable, Iterator
@@ -602,6 +603,77 @@ class TestService:
         finally:
             config_file.write_text(config, encoding='utf-8')
             cli('service', 'stop', f'{target}/ingest', check=False)
+
+    @pytest.mark.skip(reason="needs a service's workers setting in pixeltable.toml, from PXT-1554")
+    @pytest.mark.db_roots('cloud-serving', reason='a local service runs one instance')
+    def test_background_jobs(
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, session_project: pathlib.Path
+    ) -> None:
+        """Every background job of a service with 2 workers finishes, also when the service restarts meanwhile."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app, target = apps('background.py'), db_root.make_catalog_path('background')
+        base_path = target.removeprefix(f'{db_root.base_uri}/')
+        config_file = session_project / 'pixeltable.toml'
+        config = config_file.read_text(encoding='utf-8')
+        config_file.write_text(
+            f"{config}\n[pixeltable.database.services.'{base_path}/jobs']\nworkers = 2\n", encoding='utf-8'
+        )
+        jobs: dict[int, dict[str, Any]] = {}
+        results: dict[int, Any] = {}
+
+        def submit(nap_id: int) -> None:
+            resp = httpx.post(f'{endpoint}/naps', json={'nap_id': nap_id, 'secs': 1.0}, timeout=_REQUEST_TIMEOUT)
+            # 503: the instance is at its job limit or shutting down
+            if resp.status_code != 503:
+                assert resp.status_code == 200, resp.text
+                jobs[nap_id] = resp.json()
+
+        def poll() -> None:
+            for nap_id, job in jobs.items():
+                if nap_id in results:
+                    continue
+                resp = httpx.get(job['job_url'], timeout=_REQUEST_TIMEOUT)
+                # 503: the instance that ran the job did not answer in time
+                if resp.status_code == 503:
+                    continue
+                assert resp.status_code == 200, resp.text
+                status = resp.json()
+                if status['status'] != 'pending':
+                    assert status['status'] == 'done', status
+                    results[nap_id] = status['result']
+
+        def await_jobs(timeout: float) -> None:
+            deadline = time.monotonic() + timeout
+            while len(results) < len(jobs):
+                assert time.monotonic() < deadline, f'{len(jobs) - len(results)} jobs unfinished after {timeout:.0f}s'
+                poll()
+                time.sleep(0.5)
+
+        try:
+            deploy(cli, app, target)
+            endpoint = assert_serving(cli, app, target, 'jobs')['jobs']['endpoint']
+            for nap_id in range(40):
+                submit(nap_id)
+            await_jobs(120.0)
+            # a job id begins with the instance that ran the job
+            assert len({job['id'].split('.')[0] for job in jobs.values()}) == 2, list(jobs.values())
+
+            # jobs submitted while the service restarts
+            submitted = len(jobs)
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                restart = pool.submit(cli, 'service', 'restart', f'{target}/jobs')
+                while not restart.done():
+                    submit(len(jobs))
+                    poll()
+                    time.sleep(1.0)
+                restart.result()
+            assert len(jobs) > submitted
+            await_jobs(120.0)
+            assert results == {nap_id: {'nap_id': nap_id, 'slept': 1.0} for nap_id in jobs}
+        finally:
+            config_file.write_text(config, encoding='utf-8')
+            cli('service', 'stop', f'{target}/jobs', check=False)
 
     def test_prune(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """The same prune, driven by editing the served file rather than by serving another one."""

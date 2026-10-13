@@ -1,8 +1,13 @@
 import asyncio
+import base64
+import contextlib
+import dataclasses
 import hashlib
 import json
 import os
 import pathlib
+import socket
+import threading
 import time
 import urllib.parse
 import uuid
@@ -38,7 +43,10 @@ from tests.utils import (
 
 if TYPE_CHECKING:
     # fastapi is an optional dependency, so the tests that need it import it themselves and skip without it
+    import uvicorn
     from fastapi.testclient import TestClient
+
+    from pixeltable.serving import FastAPIRouter
 
 
 @pxt.udf
@@ -186,6 +194,51 @@ def await_background_job(
         if require_pending:
             assert saw_pending, 'polling never observed pending - sleep column not delaying'
         return body
+
+
+def wait_until(condition: Callable[[], bool], timeout: float) -> bool:
+    """Poll condition until it is true or timeout passes; return its last value."""
+    deadline = time.time() + timeout
+    while not condition():
+        if time.time() > deadline:
+            return False
+        time.sleep(0.05)
+    return True
+
+
+@dataclasses.dataclass
+class ServedRouter:
+    """A router served on a loopback port."""
+
+    server: 'uvicorn.Server'
+    addr: str  # host:port
+
+
+@contextlib.contextmanager
+def serve_router(router: 'FastAPIRouter', *, port: int = 0, job_key: bytes | None = None) -> Iterator[ServedRouter]:
+    """Serve router on a loopback port, on a thread of the test process."""
+    import fastapi
+    import uvicorn
+
+    app = fastapi.FastAPI()
+    app.include_router(router)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(('127.0.0.1', port))
+    addr = f'127.0.0.1:{sock.getsockname()[1]}'
+    if job_key is not None:
+        router._configure_job_forwarding(addr, job_key)
+    # loop='asyncio': the default installs uvloop's event loop policy for the whole test process
+    server = uvicorn.Server(uvicorn.Config(app, log_config=None, loop='asyncio'))
+    thread = threading.Thread(target=server.run, kwargs={'sockets': [sock]}, daemon=True)
+    thread.start()
+    try:
+        assert wait_until(lambda: server.started, 30.0), 'the server did not start'
+        yield ServedRouter(server, addr)
+    finally:
+        server.should_exit = True
+        thread.join(timeout=60.0)
+        sock.close()
 
 
 def get_media(client: Any, url: str) -> Any:
@@ -1046,6 +1099,100 @@ class TestFastAPI:
             monkeypatch.setenv('PIXELTABLE_PUBLIC_ORIGIN', 'http://org-db.svc.pxt.run')
             with pytest.raises(ValueError, match='must be an HTTPS origin'):
                 client.post('/bg', json={'id': 2})
+
+    @pytest.mark.db_roots(
+        'local', reason='a background job computes in the router process only for an in-process catalog'
+    )
+    def test_background_job_limit_and_retention(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter, _fastapi
+
+        monkeypatch.setattr(_fastapi, '_MAX_PENDING_JOBS', 2)
+        monkeypatch.setattr(_fastapi, '_JOB_RESULT_TTL_S', 1.0)
+        monkeypatch.setattr(_fastapi, '_JOB_FETCHED_TTL_S', 0.5)
+        t = pxt.create_table('jobs', {'x': pxt.Int, 'secs': pxt.Float})
+        t.add_computed_column(slept=sleep(t.secs))
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/bg', background=True)
+        client = make_test_client(router)
+
+        jobs = [client.post('/bg', json={'x': i, 'secs': 1.0}).json() for i in range(2)]
+        refused = client.post('/bg', json={'x': 2, 'secs': 0.0})
+        assert refused.status_code == 503 and refused.headers['Retry-After'] == '5', refused.text
+        pending = client.get(jobs[0]['job_url'])
+        assert pending.json()['status'] == 'pending' and pending.headers['Retry-After'] == '2'
+        for job in jobs:
+            await_background_job(client, job, require_pending=False)
+
+        # a fetched result is kept for _JOB_FETCHED_TTL_S
+        assert client.get(jobs[-1]['job_url']).json()['status'] == 'done'
+        time.sleep(0.6)
+        expired = client.get(jobs[-1]['job_url'])
+        assert expired.status_code == 404 and expired.json()['detail'] == 'unknown or expired job'
+
+        # finished jobs do not count against the limit; an unfetched result is kept for _JOB_RESULT_TTL_S
+        unfetched = client.post('/bg', json={'x': 3, 'secs': 0.0})
+        assert unfetched.status_code == 200, unfetched.text
+        time.sleep(2.0)
+        assert client.get(unfetched.json()['job_url']).status_code == 404
+
+        # an id from an earlier pixeltable version, and one from a server that restarted since
+        for job_id in (uuid.uuid4().hex, f'{"0" * 16}.{uuid.uuid4().hex}'):
+            stopped = client.get(f'/_pxt/jobs/{job_id}')
+            assert stopped.status_code == 410, job_id
+            assert stopped.json()['detail'] == 'the service instance that ran this job has stopped'
+        for job_id in ('nonexistent', f'{"0" * 16}.nonexistent', f'{"0" * 16}.YQ.{uuid.uuid4().hex}.{"0" * 32}'):
+            assert client.get(f'/_pxt/jobs/{job_id}').status_code == 404, job_id
+
+    @pytest.mark.db_roots(
+        'local', reason='a background job computes in the router process only for an in-process catalog'
+    )
+    def test_background_job_forwarding(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A poll that reaches a server other than the job's owner is forwarded to the owner."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter, _fastapi
+
+        t = pxt.create_table('jobs', {'x': pxt.Int, 'secs': pxt.Float})
+        t.add_computed_column(slept=sleep(t.secs))
+        job_key = b'k' * 32
+
+        def jobs_router(*, addr: str | None = None, key: bytes = job_key) -> FastAPIRouter:
+            router = FastAPIRouter()
+            router.add_insert_route(t, path='/bg', background=True)
+            if addr is not None:
+                router._configure_job_forwarding(addr, key)
+            return router
+
+        other = make_test_client(jobs_router(addr='127.0.0.1:1'))
+        with serve_router(jobs_router(), job_key=job_key) as owner, httpx.Client(base_url=f'http://{owner.addr}') as c:
+            job = c.post('/bg', json={'x': 1, 'secs': 0.5}).json()
+            poll_path = f'/_pxt/jobs/{job["id"]}'
+            body = await_background_job(other, {'id': job['id'], 'job_url': poll_path})
+            assert single_row(body['result'], 'insert')['x'] == 1, body
+
+            # a changed address does not match the MAC
+            instance, _, job_uuid, mac = job['id'].split('.')
+            addr_b64 = base64.urlsafe_b64encode(b'127.0.0.1:2').decode().rstrip('=')
+            assert other.get(f'/_pxt/jobs/{instance}.{addr_b64}.{job_uuid}.{mac}').status_code == 404
+            # nor does the key of another service
+            stranger = make_test_client(jobs_router(addr='127.0.0.1:1', key=b's' * 32))
+            assert stranger.get(poll_path).status_code == 404
+
+        # the owner stopped
+        assert other.get(poll_path).status_code == 410
+        # another server listens at the owner's address now
+        with serve_router(jobs_router(), port=int(owner.addr.split(':')[1]), job_key=job_key):
+            assert other.get(poll_path).status_code == 410
+
+        # an owner that does not answer in time
+        monkeypatch.setattr(_fastapi, '_FORWARD_TIMEOUT', httpx.Timeout(0.2, connect=1.0))
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as silent:
+            silent.bind(('127.0.0.1', 0))
+            silent.listen()
+            slow = make_test_client(jobs_router(addr=f'127.0.0.1:{silent.getsockname()[1]}'))
+            slow_job = slow.post('/bg', json={'x': 2, 'secs': 0.0}).json()
+            unanswered = other.get(f'/_pxt/jobs/{slow_job["id"]}')
+            assert unanswered.status_code == 503 and unanswered.headers['Retry-After'] == '2', unanswered.text
 
     def test_openapi(self, db_root: DatabaseRoot) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""
