@@ -2991,8 +2991,7 @@ class Catalog(CatalogBase):
             if num_subdirs + num_tbls > 0:
                 raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Directory {dir_path!r} is not empty.')
 
-        # TODO continue from here
-        # drop existing subdirs; every directory of the subtree was locked before the walk started
+        # drop existing subdirs
         assert self._is_dir_locked(dir_id), (dir_id, self._dir_locks_held)
         dir_q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id)
         for row in conn.execute(dir_q).all():
@@ -3081,7 +3080,7 @@ class Catalog(CatalogBase):
 
             reload = False
 
-            # live table; compare our cached TableMd.current_version/view_sn/name to what's stored.
+            # live table; compare our cached TableMd.current_version/view_sn/name to what's stored
             current_version = row.md['current_version']
             view_sn = row.md['view_sn']
             name = row.md['name']
@@ -3159,6 +3158,7 @@ class Catalog(CatalogBase):
             raise excs.NotFoundError(excs.ErrorCode.DIRECTORY_NOT_FOUND, f'Directory not found: {dir_id}')
         return schema.Dir(**row._mapping)
 
+    # TODO continue from here
     def _move_table(self, tbl_id: UUID, new_name: str, new_dir_id: UUID, *, is_pure_snapshot: bool) -> None:
         """Update dir_id/name for tbl_id."""
         self._assert_md_write_locked(tbl_id, is_new_tbl=False, is_pure_snapshot=is_pure_snapshot, dir_id=new_dir_id)
