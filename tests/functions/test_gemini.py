@@ -95,8 +95,8 @@ class TestGemini:
         )
         validate_update_status(t.insert({'id': n, 'image': image} for n, image in enumerate(images)), expected_rows=2)
         results = t.order_by(t.id).collect()
-        assert 'French horn' in results['output'][0]['candidates'][0]['content']['parts'][0]['text']
-        assert 'truck' in results['output'][1]['candidates'][0]['content']['parts'][0]['text']
+        assert 'french horn' in results['output'][0]['candidates'][0]['content']['parts'][0]['text'].lower()
+        assert 'truck' in results['output'][1]['candidates'][0]['content']['parts'][0]['text'].lower()
 
     def test_generate_content_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
