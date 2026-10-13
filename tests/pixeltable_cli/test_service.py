@@ -604,7 +604,6 @@ class TestService:
             config_file.write_text(config, encoding='utf-8')
             cli('service', 'stop', f'{target}/ingest', check=False)
 
-    @pytest.mark.skip(reason="needs a service's workers setting in pixeltable.toml, from PXT-1554")
     @pytest.mark.db_roots('cloud-serving', reason='a local service runs one instance')
     def test_background_jobs(
         self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, session_project: pathlib.Path

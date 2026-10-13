@@ -121,13 +121,6 @@ def _serve(
         # before the first Pixeltable operation, so that loading the file is traced too
         init_instrumentation()
     app, _, routers = create_app(str(project_dir / app_file), service_name, base_path)
-    # the address of this pod for the other pods of the service
-    instance_host = os.environ.get('PIXELTABLE_SERVE_INSTANCE_HOST')
-    if instance_host is not None:
-        instance_addr = f'[{instance_host}]:{port}' if ':' in instance_host else f'{instance_host}:{port}'
-        key = _job_key(base_path, service_name)
-        for router in routers:
-            router._configure_job_forwarding(instance_addr, key)
     _add_gateway_openapi_security(app)
     if otel:
         instrument_app(app)
@@ -138,6 +131,13 @@ def _serve(
     # root_path: the docs page fetches openapi.json by url, and a background route hands back a job url to
     # poll, so both need the whole prefix the gateway stripped, base_path included
     root_path = f'/{service_name}' if base_path == '' else f'/{base_path}/{service_name}'
+    # the address of this pod for the other pods of the service
+    instance_host = os.environ.get('PIXELTABLE_SERVE_INSTANCE_HOST')
+    if instance_host is not None:
+        instance_addr = f'[{instance_host}]:{port}' if ':' in instance_host else f'{instance_host}:{port}'
+        key = _job_key(base_path, service_name)
+        for router in routers:
+            router._configure_job_forwarding(instance_addr, key, root_path)
     config = uvicorn.Config(
         app, host=host, port=port, log_level=log_level, log_config=None, root_path=root_path, proxy_headers=False
     )

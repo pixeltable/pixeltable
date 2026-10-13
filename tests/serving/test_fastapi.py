@@ -215,7 +215,9 @@ class ServedRouter:
 
 
 @contextlib.contextmanager
-def serve_router(router: 'FastAPIRouter', *, port: int = 0, job_key: bytes | None = None) -> Iterator[ServedRouter]:
+def serve_router(
+    router: 'FastAPIRouter', *, port: int = 0, job_key: bytes | None = None, root_path: str = ''
+) -> Iterator[ServedRouter]:
     """Serve router on a loopback port, on a thread of the test process."""
     import fastapi
     import uvicorn
@@ -227,9 +229,9 @@ def serve_router(router: 'FastAPIRouter', *, port: int = 0, job_key: bytes | Non
     sock.bind(('127.0.0.1', port))
     addr = f'127.0.0.1:{sock.getsockname()[1]}'
     if job_key is not None:
-        router._configure_job_forwarding(addr, job_key)
+        router._configure_job_forwarding(addr, job_key, root_path)
     # loop='asyncio': the default installs uvloop's event loop policy for the whole test process
-    server = uvicorn.Server(uvicorn.Config(app, log_config=None, loop='asyncio'))
+    server = uvicorn.Server(uvicorn.Config(app, log_config=None, loop='asyncio', root_path=root_path))
     thread = threading.Thread(target=server.run, kwargs={'sockets': [sock]}, daemon=True)
     thread.start()
     try:
@@ -1160,39 +1162,47 @@ class TestFastAPI:
             router = FastAPIRouter()
             router.add_insert_route(t, path='/bg', background=True)
             if addr is not None:
-                router._configure_job_forwarding(addr, key)
+                router._configure_job_forwarding(addr, key, '')
             return router
 
-        other = make_test_client(jobs_router(addr='127.0.0.1:1'))
-        with serve_router(jobs_router(), job_key=job_key) as owner, httpx.Client(base_url=f'http://{owner.addr}') as c:
-            job = c.post('/bg', json={'x': 1, 'secs': 0.5}).json()
-            poll_path = f'/_pxt/jobs/{job["id"]}'
-            body = await_background_job(other, {'id': job['id'], 'job_url': poll_path})
-            assert single_row(body['result'], 'insert')['x'] == 1, body
+        # served like the pods of a hosted service, whose gateway strips the root_path from the request path
+        root_path = '/svc'
+        with (
+            serve_router(jobs_router(), job_key=job_key, root_path=root_path) as served_other,
+            httpx.Client(base_url=f'http://{served_other.addr}') as other,
+        ):
+            with (
+                serve_router(jobs_router(), job_key=job_key, root_path=root_path) as owner,
+                httpx.Client(base_url=f'http://{owner.addr}') as c,
+            ):
+                job = c.post('/bg', json={'x': 1, 'secs': 0.5}).json()
+                poll_path = f'/_pxt/jobs/{job["id"]}'
+                body = await_background_job(other, {'id': job['id'], 'job_url': poll_path})
+                assert single_row(body['result'], 'insert')['x'] == 1, body
 
-            # a changed address does not match the MAC
-            instance, _, job_uuid, mac = job['id'].split('.')
-            addr_b64 = base64.urlsafe_b64encode(b'127.0.0.1:2').decode().rstrip('=')
-            assert other.get(f'/_pxt/jobs/{instance}.{addr_b64}.{job_uuid}.{mac}').status_code == 404
-            # nor does the key of another service
-            stranger = make_test_client(jobs_router(addr='127.0.0.1:1', key=b's' * 32))
-            assert stranger.get(poll_path).status_code == 404
+                # a changed address does not match the MAC
+                instance, _, job_uuid, mac = job['id'].split('.')
+                addr_b64 = base64.urlsafe_b64encode(b'127.0.0.1:2').decode().rstrip('=')
+                assert other.get(f'/_pxt/jobs/{instance}.{addr_b64}.{job_uuid}.{mac}').status_code == 404
+                # nor does the key of another service
+                stranger = make_test_client(jobs_router(addr='127.0.0.1:1', key=b's' * 32))
+                assert stranger.get(poll_path).status_code == 404
 
-        # the owner stopped
-        assert other.get(poll_path).status_code == 410
-        # another server listens at the owner's address now
-        with serve_router(jobs_router(), port=int(owner.addr.split(':')[1]), job_key=job_key):
+            # the owner stopped
             assert other.get(poll_path).status_code == 410
+            # another server listens at the owner's address now
+            with serve_router(jobs_router(), port=int(owner.addr.split(':')[1]), job_key=job_key, root_path=root_path):
+                assert other.get(poll_path).status_code == 410
 
-        # an owner that does not answer in time
-        monkeypatch.setattr(_fastapi, '_FORWARD_TIMEOUT', httpx.Timeout(0.2, connect=1.0))
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as silent:
-            silent.bind(('127.0.0.1', 0))
-            silent.listen()
-            slow = make_test_client(jobs_router(addr=f'127.0.0.1:{silent.getsockname()[1]}'))
-            slow_job = slow.post('/bg', json={'x': 2, 'secs': 0.0}).json()
-            unanswered = other.get(f'/_pxt/jobs/{slow_job["id"]}')
-            assert unanswered.status_code == 503 and unanswered.headers['Retry-After'] == '2', unanswered.text
+            # an owner that does not answer in time
+            monkeypatch.setattr(_fastapi, '_FORWARD_TIMEOUT', httpx.Timeout(0.2, connect=1.0))
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as silent:
+                silent.bind(('127.0.0.1', 0))
+                silent.listen()
+                slow = make_test_client(jobs_router(addr=f'127.0.0.1:{silent.getsockname()[1]}'))
+                slow_job = slow.post('/bg', json={'x': 2, 'secs': 0.0}).json()
+                unanswered = other.get(f'/_pxt/jobs/{slow_job["id"]}')
+                assert unanswered.status_code == 503 and unanswered.headers['Retry-After'] == '2', unanswered.text
 
     def test_openapi(self, db_root: DatabaseRoot) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""

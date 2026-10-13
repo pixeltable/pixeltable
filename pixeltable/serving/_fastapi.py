@@ -193,6 +193,7 @@ class _JobForwarding:
 
     addr: str  # host:port of this process, reachable from the other pods of its service
     key: bytes  # MAC key for job ids, shared by the pods of the service
+    root_path: str  # the server's root_path, which uvicorn prepends to scope['raw_path']
 
 
 def _b64encode(s: str) -> str:
@@ -2779,9 +2780,9 @@ class FastAPIRouter(fastapi.APIRouter):
             name=_JOB_STATUS_ROUTE_NAME,
         )
 
-    def _configure_job_forwarding(self, addr: str, key: bytes) -> None:
+    def _configure_job_forwarding(self, addr: str, key: bytes, root_path: str) -> None:
         """Issue job ids that the other processes of the service forward to addr, signed with key."""
-        self._job_forwarding = _JobForwarding(addr, key)
+        self._job_forwarding = _JobForwarding(addr, key, root_path)
 
     def _new_job_id(self) -> str:
         job_uuid = uuid.uuid4().hex
@@ -2887,8 +2888,9 @@ class FastAPIRouter(fastapi.APIRouter):
 
     async def _forward_job_poll(self, addr: str, instance: str, request: Request) -> fastapi.Response:
         """Forward the poll to the job's owner at addr and relay its answer."""
-        # raw_path: the path as this server received it, before root_path; the owner's server expects the same form
-        path = request.scope['raw_path'].decode()
+        assert self._job_forwarding is not None
+        # the path as this server received it: the owner's server prepends root_path again
+        path = request.scope['raw_path'].decode().removeprefix(self._job_forwarding.root_path)
         try:
             async with httpx.AsyncClient(timeout=_FORWARD_TIMEOUT) as client:
                 owner_resp = await client.get(f'http://{addr}{path}', headers={_JOB_FORWARDED_HEADER: '1'})

@@ -42,8 +42,8 @@ class TestPodRunner:
             pod_runner._serve(
                 'pxt://org:db', 'app.py', service_name, 'nested', tmp_path, fingerprint_file, '0.0.0.0', 8000, False
             )
-            addr, key = router._configure_job_forwarding.call_args.args
-            assert addr == '10.0.0.7:8000'
+            addr, key, root_path = router._configure_job_forwarding.call_args.args
+            assert (addr, root_path) == ('10.0.0.7:8000', f'/nested/{service_name}')
             keys.append(key)
         assert served[-1].drain_s == 285.0
         # each pod of a service derives the same key, and another service a different one
