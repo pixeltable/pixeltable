@@ -224,8 +224,8 @@ class Runtime:
         self._clients.clear()
 
     def close(self) -> None:
-        """Close this runtime's clients and the runtimes of its run_coro() threads, plus the event loop if this
-        runtime created it."""
+        """Close this runtime's clients, its catalogs' connections and the runtimes of its run_coro() threads, plus
+        the event loop if this runtime created it."""
         # close_threadpool_runtimes() submits to the executor and waits, which deadlocks when the caller is one of
         # its own workers; a worker closes the runtime it created for itself, never this one
         if self._run_coro_executor is not None and not threading.current_thread().name.startswith(
@@ -270,6 +270,11 @@ class Runtime:
                 loop.run_until_complete(loop.shutdown_default_executor())
             finally:
                 loop.close()
+
+        # an inherited context shares its catalogs with the runtime it was copied from, which closes them
+        if not self.context_inherited:
+            for cat in self._catalogs.values():
+                cat.close()
 
     def run_coro(self, coro: Coroutine[Any, Any, _T]) -> _T:
         """Run a coroutine synchronously in a separate thread with its own persistent event loop."""

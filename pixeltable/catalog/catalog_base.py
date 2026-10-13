@@ -26,6 +26,9 @@ class CatalogBase(abc.ABC):
     The public catalog API.
     """
 
+    def close(self) -> None:
+        """Close the connections this catalog holds open. The catalog stays usable."""
+
     @abc.abstractmethod
     def create_table(
         self,

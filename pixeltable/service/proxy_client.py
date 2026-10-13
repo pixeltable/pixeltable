@@ -123,23 +123,32 @@ class Transport(abc.ABC):
         """Return a fresh sink for one logical request's media parts."""
 
     def close(self) -> None:
-        """Release any transport resources."""
+        """Close the pooled connections. The transport stays usable, and a later request opens a new connection:
+        table handles share it and can outlive the Runtime that closes it."""
 
 
 class HttpTransport(Transport):
     """Direct HTTP to a reachable proxy daemon endpoint."""
 
     _endpoint: str
-    _http: httpx.Client
+    _lock: threading.Lock
+    _http: httpx.Client | None  # created on first use, and again after close()
 
     def __init__(self, endpoint: str):
         self._endpoint = endpoint
-        self._http = httpx.Client(base_url=endpoint, timeout=httpx.Timeout(120.0))
+        self._lock = threading.Lock()
+        self._http = None
+
+    def _client(self) -> httpx.Client:
+        with self._lock:
+            if self._http is None:
+                self._http = httpx.Client(base_url=self._endpoint, timeout=httpx.Timeout(120.0))
+            return self._http
 
     def post(self, body: bytes) -> bytes:
         # an explicit Content-Length keeps the request unchunked on the wire
         headers = {'Content-Type': 'application/octet-stream', 'Content-Length': str(len(body))}
-        response = self._http.post('/rpc', content=iter_body_chunks(body), headers=headers)
+        response = self._client().post('/rpc', content=iter_body_chunks(body), headers=headers)
         response.raise_for_status()
         return response.content
 
@@ -153,7 +162,10 @@ class HttpTransport(Transport):
         return InlinePartSink()
 
     def close(self) -> None:
-        self._http.close()
+        with self._lock:
+            http, self._http = self._http, None
+        if http is not None:
+            http.close()
 
 
 # A TCP connect that times out on every try reads as a network that blocks the port, so the tries must outlast a

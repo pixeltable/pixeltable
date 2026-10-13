@@ -39,6 +39,9 @@ class CatalogProxy(CatalogBase):
         self.catalog_uri = catalog_uri
         self.client = client
 
+    def close(self) -> None:
+        self.client.close()
+
     def _make_table(self, md: list[TableVersionMd], is_anon_snapshot: bool) -> Table:
         tbl_id = UUID(md[0].tbl_md.tbl_id)
         Env.get().record_tbl_catalog_uri(tbl_id, self.catalog_uri)

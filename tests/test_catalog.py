@@ -1,3 +1,6 @@
+import gc
+import warnings
+
 import psycopg
 import pytest
 import sqlalchemy as sql
@@ -7,11 +10,12 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.env import Env, store_app_name
 from pixeltable.runtime import get_runtime
+from pixeltable.service import proxy_daemon
 from pixeltable.utils.fault_injection import FaultLocation
 
 from .coordinator import MultiThreadedScenario
 from .fault_injection import BlockFault, ExceptionFault
-from .utils import DatabaseRoot, pxt_raises
+from .utils import DatabaseRoot, pxt_raises, reload_catalog
 
 
 class TestCatalog:
@@ -40,6 +44,28 @@ class TestCatalog:
             pxt.move('pxt://local:db1/t', 'pxt://local:db2/t')
         with pytest.raises(excs.Error, match='same catalog'):
             pxt.move('pxt://local:db/t', 'local_t')  # hosted -> local
+
+    @pytest.mark.db_roots('proxy', reason="checks the connections to the local proxy daemon's port")
+    def test_proxy_connections_closed_with_runtime(self, db_root: DatabaseRoot, proxy_daemon_db: str) -> None:
+        """Resetting the runtime closes its proxy catalog's connections, and a table handle from before the reset still
+        works, over a new connection."""
+        port_lock = proxy_daemon.read_port_lock(proxy_daemon_db)
+        assert port_lock is not None
+        daemon_addr = f"raddr=('127.0.0.1', {port_lock['port']})"
+        p = db_root.make_catalog_path
+        pxt.create_table(p('tbl'), {'a': pxt.Int}).insert(a=1)
+
+        gc.collect()  # so that only sockets the reset leaves open are collected below
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always', ResourceWarning)
+            reload_catalog()
+            gc.collect()
+        assert [str(w.message) for w in caught if daemon_addr in str(w.message)] == []
+
+        t = pxt.get_table(p('tbl'))
+        reload_catalog()
+        t.insert(a=2)  # dispatched through the client of the catalog the reset closed
+        assert t.count() == 2
 
     def test_ls(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
