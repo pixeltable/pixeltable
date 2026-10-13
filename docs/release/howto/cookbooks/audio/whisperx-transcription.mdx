@@ -27,8 +27,8 @@ word-level timestamps and speaker labels: Pixeltable then runs WhisperX alignmen
 stores `segments` plus `word_segments`. A view splits those segments into rows, and an embedding index
 searches what was said.
 
-`diarize=False` returns `language` and `segments` with `start`, `end`, and `text` only. It does not
-need a Hugging Face token. `alignment_model_name`, `interpolate_method`, `return_char_alignments`,
+`diarize=False` returns `language` and `segments` with `start`, `end`, `text`, and `avg_logprob`. It does
+not need a Hugging Face token. `alignment_model_name`, `interpolate_method`, `return_char_alignments`,
 `diarization_model_name`, `num_speakers`, `min_speakers`, and `max_speakers` are valid only when
 `diarize=True`.
 
@@ -126,8 +126,8 @@ clips.select(
 ).collect()
 ```
 
-With `diarize=True`, each segment has `start`, `end`, `text`, `words`, and `speaker` when the
-diarizer overlapped that span. `word_segments` is the flat list of words. Each word has `word`,
+With `diarize=True`, each segment has `start`, `end`, `text`, `avg_logprob`, and `words`, plus
+`speaker` when the diarizer overlapped that span. `word_segments` is the flat list of words. Each word has `word`,
 `start`, `end`, `score`, and `speaker` when alignment and diarization assigned them. A missing
 timestamp or speaker is null.
 
