@@ -202,7 +202,7 @@ On a network or in an agent sandbox that limits outbound traffic, allow these co
 | `*.svc.pxt.run` | 443, HTTPS | Requests to a hosted service |
 | `*.pxt.run` | 443, TCP | Everything that uses tables: `pxt schema update`, `pxt service update`, `pxt ls`, `pxt.get_table()` |
 
-The connection to `{org}-{db}.pxt.run` is TLS on TCP port 443, opened directly rather than through an HTTP proxy. A network that blocks it still lets the other commands work, and `pxt db update` still brings the database to `AVAILABLE`, then warns that this machine cannot reach its tables. A command that uses the tables fails with `Cannot reach pxt://org:main: the TCP connection to org-main.pxt.run:443 timed out`.
+The connection to `{org}-{db}.pxt.run` is TLS on TCP port 443. Like the HTTPS connections, it goes through the HTTP proxy that `HTTPS_PROXY` names, unless `NO_PROXY` lists the host. A network that blocks it still lets the other commands work, and `pxt db update` still brings the database to `AVAILABLE`, then warns that this machine cannot reach its tables. A command that uses the tables fails with `Cannot reach pxt://org:main: the TCP connection to org-main.pxt.run:443 timed out`.
 
 To allow these hosts for a coding agent:
 
@@ -210,7 +210,7 @@ To allow these hosts for a coding agent:
 - **Codex cloud**: turn on **Allow Codex to access internet** for the environment, choose **Custom domains only** or **Package managers**, and add each host under **Additional allowed domains**. Codex does not document wildcards, so list the database's own host, such as `org-main.pxt.run`. If the environment limits HTTP methods, allow `POST`.
 - **GitHub Copilot cloud agent**: in the repository's **Settings > Copilot > Internet access**, add `pixeltable.com`, `workos.com`, `pxt.run`, `r2.cloudflarestorage.com` and `s3.amazonaws.com` to the custom allowlist. Each entry also allows its subdomains.
 
-Claude Code on the web and Codex cloud send all outbound traffic through an HTTP proxy, which the `*.pxt.run` connection does not use. There, the commands that use tables can fail even with `*.pxt.run` allowed; the other commands work.
+Claude Code on the web sends all outbound traffic through an HTTP proxy and sets `HTTPS_PROXY` to it, so `pxt` needs no proxy settings of its own there.
 
 ## Media on the home bucket
 

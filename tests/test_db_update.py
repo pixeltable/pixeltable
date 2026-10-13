@@ -22,6 +22,12 @@ from pixeltable_cli.types import DbPlan
 class TestDbUpdate:
     """`db_update()` against a control plane that settles the database at once."""
 
+    @pytest.fixture(autouse=True)
+    def _no_proxy_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The tunnel check honors HTTPS_PROXY, so a developer's setting would reroute these tests."""
+        for name in ('HTTPS_PROXY', 'https_proxy', 'NO_PROXY', 'no_proxy'):
+            monkeypatch.delenv(name, raising=False)
+
     @staticmethod
     def _apply(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DbPlan:
         (tmp_path / 'pixeltable.toml').write_text('[[pixeltable.database]]\nname = "pxt://acme:main"\n')
