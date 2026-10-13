@@ -2555,13 +2555,8 @@ class Catalog(CatalogBase):
 
         return get_tbl_fn(), is_created
 
-    # TODO continue from here
     def _create_store_tbl(self, tbl_md: schema.TableMd) -> None:
-        """Create physical storage in the same transaction as the table's metadata.
-
-        This keeps the metadata row and store table consistent across commit or rollback. Pure snapshots have no
-        store table and must not call this method.
-        """
+        """Create store table within the current transaction."""
         assert self._in_write_xact
         assert not tbl_md.is_pure_snapshot
         tbl_id = UUID(tbl_md.tbl_id)
@@ -2830,11 +2825,9 @@ class Catalog(CatalogBase):
         """
         Drop the table (and recursively its views, if force == True).
 
-        `tbl` can be an instance of `Table` for a user table, or `TableVersionPath` for a hidden (system) table.
+        `tbl` can be an instance of `Table` for a user table, or `TableVersionPath` for a system table.
 
-        Every lock this needs is already held: the caller named the table by a write path, which locks the store
-        tables of the table, its views and its base, plus the `dirs` row of every directory the drop reaches.
-        Taking a directory lock here instead would take it out of the sorted order its phase requires.
+        All locks necessary for this operation must already be acquired.
         """
         is_pure_snapshot: bool
         if isinstance(tbl, TableVersionPath):
@@ -2938,10 +2931,9 @@ class Catalog(CatalogBase):
         assert result.rowcount == 1, (tbl_id, result.rowcount)
 
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
-        @retry_schema_change_loop(
-            paths=[path] if if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE) else [],
-            lock_path_subtree=True,
-        )
+        paths = [path] if if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE) else []
+
+        @retry_schema_change_loop(paths=paths, lock_path_subtree=True)
         def create_fn() -> Dir:
             return self._create_dir(path, if_exists, parents)
 
@@ -2999,6 +2991,7 @@ class Catalog(CatalogBase):
             if num_subdirs + num_tbls > 0:
                 raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Directory {dir_path!r} is not empty.')
 
+        # TODO continue from here
         # drop existing subdirs; every directory of the subtree was locked before the walk started
         assert self._is_dir_locked(dir_id), (dir_id, self._dir_locks_held)
         dir_q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id)
