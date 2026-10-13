@@ -200,9 +200,9 @@ On a network or in an agent sandbox that limits outbound traffic, allow these co
 | `*.s3.amazonaws.com` | 443, HTTPS | `pxt db update`, to upload the project files |
 | `*.r2.cloudflarestorage.com` | 443, HTTPS | Media in the home bucket |
 | `*.svc.pxt.run` | 443, HTTPS | Requests to a hosted service |
-| `*.pxt.run` | 9000, TCP | Everything that uses tables: `pxt schema update`, `pxt service update`, `pxt ls`, `pxt.get_table()` |
+| `*.pxt.run` | 443, TCP | Everything that uses tables: `pxt schema update`, `pxt service update`, `pxt ls`, `pxt.get_table()` |
 
-The connection to `{org}-{db}.pxt.run` is TLS on TCP port 9000, opened directly rather than through an HTTP proxy. A network that blocks it still lets the other commands work, and `pxt db update` still brings the database to `AVAILABLE`, then warns that this machine cannot reach its tables. A command that uses the tables fails with `Cannot reach pxt://org:main: the TCP connection to org-main.pxt.run:9000 timed out`.
+The connection to `{org}-{db}.pxt.run` is TLS on TCP port 443, opened directly rather than through an HTTP proxy. A network that blocks it still lets the other commands work, and `pxt db update` still brings the database to `AVAILABLE`, then warns that this machine cannot reach its tables. A command that uses the tables fails with `Cannot reach pxt://org:main: the TCP connection to org-main.pxt.run:443 timed out`.
 
 To allow these hosts for a coding agent:
 
