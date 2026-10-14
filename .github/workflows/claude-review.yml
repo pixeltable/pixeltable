@@ -1,40 +1,51 @@
 name: Claude review
 
-# Reviews a PR when someone with write access comments exactly "claude review" on it. A comment-triggered run attaches
-# to the default branch, not to the PR, so the review adds no check to the PR. The run uses this file from the default
-# branch with the repository's secrets, so fork PRs get reviewed too. Nothing from the PR runs.
+# Reviews a PR when its "tests" workflow starts, if its author has write access and Claude has not reviewed it yet, and
+# when someone with write access comments exactly "claude review" on it. Runs started by workflow_run and issue_comment
+# attach to the default branch, not to the PR, so the review adds no check to the PR. They use this file from the
+# default branch with the repository's secrets, so fork PRs get reviewed too. Nothing from the PR runs.
 on:
   issue_comment:
     types: [created]
+  workflow_run:
+    workflows: [tests]
+    types: [requested]
 
 jobs:
-  # claude-code-action fails the job when the commenter lacks write access. Skip the review for them instead.
-  access:
-    if: github.event.issue.pull_request && github.event.comment.body == 'claude review'
+  # Picks the PR, checks access, and sizes the review. claude-code-action fails the job when the actor lacks write
+  # access, so plan skips the review for those actors instead.
+  plan:
+    if: >-
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+      github.event.comment.body == 'claude review') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request')
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: read
     outputs:
-      write: ${{ steps.check.outputs.write }}
+      run: ${{ steps.plan.outputs.run }}
+      pr: ${{ steps.plan.outputs.pr }}
+      tier: ${{ steps.plan.outputs.tier }}
+      requested: ${{ steps.plan.outputs.requested }}
     steps:
-      - id: check
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          sparse-checkout: .github/scripts
+      - id: plan
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           ACTOR: ${{ github.actor }}
-        run: |
-          permission=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq .permission || echo none)
-          case "$permission" in
-            admin|write) echo write=true >> "$GITHUB_OUTPUT" ;;
-            *) echo write=false >> "$GITHUB_OUTPUT" ;;
-          esac
+        run: python3 .github/scripts/plan_claude_review.py
 
   review:
-    needs: access
-    if: needs.access.outputs.write == 'true'
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
     # Job-level: a workflow-level group would let every PR comment cancel a running review.
     concurrency:
-      group: claude-review-${{ github.event.issue.number }}
+      group: claude-review-${{ needs.plan.outputs.pr }}
       cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -49,7 +60,7 @@ jobs:
       checks: read
       statuses: read
     env:
-      PR_NUMBER: ${{ github.event.issue.number }}
+      PR_NUMBER: ${{ needs.plan.outputs.pr }}
       # Removes ANTHROPIC_API_KEY and other secrets from the environment of the commands Claude runs.
       CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1'
       # Runs review agents in the foreground. In the background, Claude ends its turn to wait for them, and the
@@ -58,7 +69,8 @@ jobs:
     steps:
       # Tells the person who commented "claude review" that the review started. Grok and Muse already use eyes, rocket,
       # and heart.
-      - continue-on-error: true
+      - if: github.event_name == 'issue_comment'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -67,13 +79,15 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
-      # Nothing from this copy runs: the next step moves it out of the working directory and strips its agent files.
+      # actions/checkout refuses fork PR code in a workflow_run run without allow-unsafe-pr-checkout. Nothing from this
+      # copy runs: the next step moves it out of the working directory and strips its agent files.
       - uses: actions/checkout@v6
         with:
           ref: refs/pull/${{ env.PR_NUMBER }}/head
           path: pr-head
           fetch-depth: 1
           persist-credentials: false
+          allow-unsafe-pr-checkout: true
       # Claude loads CLAUDE.md and .claude/ from inside its working directory. Move the PR out of it and drop the PR's
       # agent instruction files, so the PR cannot supply instructions.
       - run: |
@@ -84,8 +98,8 @@ jobs:
       # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB fails without bubblewrap, and the action installs it only when
       # allowed_non_write_users is set. Ubuntu 24.04 blocks the unprivileged user namespaces bubblewrap needs.
       # This step, the Claude step, the post step, and both reaction steps continue on error, so a failed review does
-      # not mark the PR's check red. The report step turns a failure into a warning, and the last step reacts to the
-      # comment with a confused face.
+      # not fail the run. The report step turns a failure into a warning, and the last step reacts to the comment with
+      # a confused face.
       - continue-on-error: true
         run: |
           sudo apt-get update -qq
@@ -103,12 +117,14 @@ jobs:
           prompt: >-
             /pxt-review https://github.com/${{ github.repository }}/pull/${{ env.PR_NUMBER }}
             --pr-head ${{ runner.temp }}/pr-head
-            --requested
-          # Naming Grep or Glob here restores both tools, which Claude Code leaves out on Linux by default. Claude has
-          # no tool that posts: its final message holds the review, and the post step publishes it.
-          # The main agent only coordinates and writes the final JSON. The prompt picks a model for each subagent.
+            --tier ${{ needs.plan.outputs.tier }}
+            ${{ needs.plan.outputs.requested == 'true' && '--requested' || '' }}
+          # A small PR gets one Sonnet reviewer. A large PR gets Opus, which hands the steps to subagents as the command
+          # says; Sonnet reviewed a large PR alone. Naming Grep or Glob restores both tools, which Claude Code leaves
+          # out on Linux by default. Claude has no tool that posts: its final message holds the review, and the post
+          # step publishes it.
           claude_args: >-
-            --model claude-sonnet-5-5
+            --model ${{ needs.plan.outputs.tier == 'large' && 'claude-opus-5-5' || 'claude-sonnet-5-5' }}
             --allowedTools "Read" "Grep" "Glob" "Bash(gh pr view:*)" "Bash(gh pr diff:*)" "Bash(gh pr checks:*)"
       # The action hides Claude's transcript. Print Claude's final message, each tool call the allowlist refused, and
       # the cost per model.
@@ -134,7 +150,9 @@ jobs:
           REPO: ${{ github.repository }}
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: python3 .github/scripts/post_claude_review.py
-      - if: always() && (steps.claude.outcome != 'success' || steps.post.outcome != 'success')
+      - if: >-
+          always() && github.event_name == 'issue_comment' &&
+          (steps.claude.outcome != 'success' || steps.post.outcome != 'success')
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
