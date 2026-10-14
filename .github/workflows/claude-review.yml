@@ -1,8 +1,8 @@
 name: Claude review
 
-# Reviews a PR when it opens and when someone comments exactly "claude review" on it, if that actor has write access.
-# Both events run this file from the base branch with the base repository's secrets, so fork PRs from people with
-# write access get reviewed too. Nothing from the PR runs.
+# Reviews a PR when it opens, if its author has write access, and when someone with write access comments exactly
+# "claude review" on it. Both events run this file from the base branch with the base repository's secrets, so fork PRs
+# get reviewed too. Nothing from the PR runs.
 on:
   pull_request_target:
     types: [opened, synchronize, ready_for_review, reopened]
@@ -10,7 +10,8 @@ on:
     types: [created]
 
 jobs:
-  # claude-code-action fails the job when the actor lacks write access. Skip the review for those actors instead.
+  # Checks the PR author for automatic reviews and the commenter for requested ones, so a maintainer marking an
+  # outside PR ready does not review it automatically. claude-code-action also fails when the actor lacks write access.
   access:
     if: >-
       (github.event_name == 'pull_request_target' && !github.event.pull_request.draft) ||
@@ -25,9 +26,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          ACTOR: ${{ github.actor }}
+          USER_LOGIN: ${{ github.event.pull_request.user.login || github.actor }}
         run: |
-          permission=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq .permission || echo none)
+          permission=$(gh api "repos/$REPO/collaborators/$USER_LOGIN/permission" --jq .permission || echo none)
           case "$permission" in
             admin|write) echo write=true >> "$GITHUB_OUTPUT" ;;
             *) echo write=false >> "$GITHUB_OUTPUT" ;;
@@ -63,21 +64,22 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
       # Claude loads CLAUDE.md and .claude/ from inside its working directory. Move the PR out of it and drop the PR's
-      # agent configuration, so the PR cannot supply instructions.
+      # agent instruction files, so the PR cannot supply instructions.
       - run: |
           mv pr-head "$RUNNER_TEMP/pr-head"
           find "$RUNNER_TEMP/pr-head" \
-            \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name .claude -o -name .mcp.json \) \
+            \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name AGENTS.md -o -name .claude -o -name .mcp.json \) \
             -prune -exec rm -rf {} +
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          settings: '{"permissions": {"additionalDirectories": ["${{ runner.temp }}/pr-head"]}}'
           prompt: >-
             /review https://github.com/${{ github.repository }}/pull/${{ env.PR_NUMBER }}
+            --pr-head ${{ runner.temp }}/pr-head
             ${{ github.event_name == 'issue_comment' && '--requested' || '' }}
           claude_args: >-
             --model claude-opus-5-5
-            --add-dir ${{ runner.temp }}/pr-head
             --allowedTools "mcp__github_inline_comment__create_inline_comment"
             "Bash(gh pr view:*)" "Bash(gh pr diff:*)" "Bash(gh pr checks:*)" "Bash(gh pr comment:*)"
