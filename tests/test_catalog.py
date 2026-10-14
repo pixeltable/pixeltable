@@ -167,9 +167,8 @@ class TestCatalog:
     @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_finalize_pending_ops_non_retriable_error(self, uses_db: None, fault_injection: None) -> None:
         t = pxt.create_table('test', {'a': pxt.Int | None})
-        # Inject a non-retriable error into LoadViewOp. LoadViewOp is the last of 3 ops that constitute a view creation.
-        # Upon catching the injected error, the catalog should abort view creation, and undo the first two ops that
-        # were already executed.
+        # Inject a non-retriable error into LoadViewOp, the last op of a view creation. Upon catching the injected
+        # error, the catalog should abort view creation, and undo the ops that were already executed.
         exc = Exception('injected')
         fault = ExceptionFault(exc, recurring=True)
         get_runtime().fault_manager.inject_fault(FaultLocation.CATALOG_LOAD_VIEW_OP_EXEC, fault)
