@@ -1,0 +1,85 @@
+name: Claude review
+
+# Reviews a PR when it opens, if its author has write access, and when someone with write access comments exactly
+# "claude review" on it. Both events run this file from the base branch with the base repository's secrets, so fork PRs
+# get reviewed too. Nothing from the PR runs.
+on:
+  pull_request_target:
+    types: [opened, synchronize, ready_for_review, reopened]
+  issue_comment:
+    types: [created]
+
+jobs:
+  # Checks the PR author for automatic reviews and the commenter for requested ones, so a maintainer marking an
+  # outside PR ready does not review it automatically. claude-code-action also fails when the actor lacks write access.
+  access:
+    if: >-
+      (github.event_name == 'pull_request_target' && !github.event.pull_request.draft) ||
+      (github.event.issue.pull_request && github.event.comment.body == 'claude review')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      write: ${{ steps.check.outputs.write }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          USER_LOGIN: ${{ github.event.pull_request.user.login || github.actor }}
+        run: |
+          permission=$(gh api "repos/$REPO/collaborators/$USER_LOGIN/permission" --jq .permission || echo none)
+          case "$permission" in
+            admin|write) echo write=true >> "$GITHUB_OUTPUT" ;;
+            *) echo write=false >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  review:
+    needs: access
+    if: needs.access.outputs.write == 'true'
+    # Job-level: a workflow-level group would let every PR comment cancel a running review.
+    concurrency:
+      group: claude-review-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Claude gets only GITHUB_TOKEN, passed as github_token below. Without it, the action uses the Claude GitHub App
+    # token, which can push code, and writes it into .git/config, where Claude can read it.
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+      # Removes ANTHROPIC_API_KEY and other secrets from the environment of the commands Claude runs.
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - uses: actions/checkout@v6
+        with:
+          ref: refs/pull/${{ env.PR_NUMBER }}/head
+          path: pr-head
+          fetch-depth: 1
+          persist-credentials: false
+      # Claude loads CLAUDE.md and .claude/ from inside its working directory. Move the PR out of it and drop the PR's
+      # agent instruction files, so the PR cannot supply instructions.
+      - run: |
+          mv pr-head "$RUNNER_TEMP/pr-head"
+          find "$RUNNER_TEMP/pr-head" \
+            \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name AGENTS.md -o -name .claude -o -name .mcp.json \) \
+            -prune -exec rm -rf {} +
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          settings: '{"permissions": {"additionalDirectories": ["${{ runner.temp }}/pr-head"]}}'
+          prompt: >-
+            /review https://github.com/${{ github.repository }}/pull/${{ env.PR_NUMBER }}
+            --pr-head ${{ runner.temp }}/pr-head
+            ${{ github.event_name == 'issue_comment' && '--requested' || '' }}
+          claude_args: >-
+            --model claude-opus-5-5
+            --allowedTools "mcp__github_inline_comment__create_inline_comment"
+            "Bash(gh pr view:*)" "Bash(gh pr diff:*)" "Bash(gh pr checks:*)" "Bash(gh pr comment:*)"
