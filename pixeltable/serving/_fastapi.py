@@ -2037,11 +2037,16 @@ class FastAPIRouter(fastapi.APIRouter):
                 template_query, return_fileresponse=return_fileresponse
             )
 
+        # an operation span, so that the query's own spans are not dropped as orphans
+        @telemetry.spanned('pixeltable.collect', set_current=True)
+        def collect(call_kwargs: dict[str, Any]) -> pxt.ResultSet:
+            query = self._query_binding(route.route_id)
+            result_set = query._collect(args=call_kwargs)
+            query._record_query_attrs(len(result_set))
+            return result_set
+
         def run_query(call_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            # an operation span, so that the query's own spans are not dropped as orphans
-            with telemetry.span('pixeltable.collect', set_current=True):
-                result_set = self._query_binding(route.route_id)._collect(args=call_kwargs)
-            rows = list(result_set)
+            rows = list(collect(call_kwargs))
 
             # do error checking now, before converting data
             if return_fileresponse or one_row:

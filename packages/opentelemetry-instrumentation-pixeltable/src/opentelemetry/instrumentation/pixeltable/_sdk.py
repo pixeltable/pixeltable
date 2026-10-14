@@ -17,7 +17,7 @@ from typing import Any, Literal
 from opentelemetry import metrics as otel_metrics, trace
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.trace import ProxyTracerProvider
-from opentelemetry.util.http import parse_excluded_urls  # type: ignore[import-untyped]
+from opentelemetry.util.http import parse_excluded_urls
 
 from pixeltable import __version__, exceptions as excs, telemetry
 from pixeltable.config import Config
@@ -68,10 +68,12 @@ def init(
     Args:
         endpoint: OTLP collector endpoint (eg `http://localhost:4318`); resolves from the database entry's
             `db_exporter_otlp_endpoint`, then `OTEL_EXPORTER_OTLP_ENDPOINT`, then `otel.exporter_otlp_endpoint`.
-            With no endpoint configured, no `span_dump`, and no application-owned provider, instrumentation
-            stays inert and exports nothing.
+            On the pods of a hosted database, init() skips the entry's `db_exporter_otlp_endpoint`. With no
+            endpoint configured, no `span_dump`, and no application-owned provider, instrumentation stays inert and
+            exports nothing.
         protocol: OTLP transport, `http/protobuf` (default) or `grpc`; resolves from the database entry's
             `db_exporter_otlp_protocol`, then `OTEL_EXPORTER_OTLP_PROTOCOL`, then `otel.exporter_otlp_protocol`.
+            On the pods of a hosted database, init() skips the entry's `db_exporter_otlp_protocol`.
         service_name: `service.name` resource attribute (default `pixeltable`); resolves from
             `otel.service_name` / `OTEL_SERVICE_NAME`.
         headers: OTLP headers as comma-separated `key=value` pairs; resolves from
@@ -157,13 +159,15 @@ def _gateway_span_app(app: Any, excluded_urls: str) -> Any:
             sent_at, elapsed = (float(field) for field in timing.split())
         except ValueError:
             sent_at = elapsed = math.nan
-        received_at = sent_at - elapsed
-        # a missing or malformed header gives nan, and a non-finite or negative time cannot start a span
-        if not 0 < received_at < math.inf or excluded.url_disabled(scope['path']):
+        now = time.time()
+        # The gateway forwards a request within seconds of its receipt, and the pod receives it right after that.
+        # A header that is missing or malformed (nan), or whose times are minutes away from that, starts no span.
+        # For example, `1 0` would start the trace in 1970.
+        if not (abs(now - sent_at) < 300 and 0 <= elapsed < 300) or excluded.url_disabled(scope['path']):
             await app(scope, receive, send)
             return
         # a gateway clock ahead of this pod's clock would put the start after the end of the span
-        received_ns = int(min(received_at, time.time()) * 1e9)
+        received_ns = int(min(sent_at - elapsed, now) * 1e9)
         # the http instrumentation nests its request span under a current span, ignoring any client traceparent
         with tracer.start_as_current_span('pixeltable.gateway', start_time=received_ns, kind=trace.SpanKind.SERVER):
             await app(scope, receive, send)
