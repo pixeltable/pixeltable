@@ -49,7 +49,8 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
-      # gh pr checks reads check runs and commit statuses.
+      # gh pr checks reads check runs, commit statuses, and the workflow run behind each check.
+      actions: read
       checks: read
       statuses: read
     env:
@@ -60,6 +61,13 @@ jobs:
       # action stops at that turn's end, so nothing gets posted.
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1'
     steps:
+      # Tells the person who commented "claude review" that the review started.
+      - if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=eyes --silent
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
@@ -81,8 +89,9 @@ jobs:
             -prune -exec rm -rf {} +
       # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB fails without bubblewrap, and the action installs it only when
       # allowed_non_write_users is set. Ubuntu 24.04 blocks the unprivileged user namespaces bubblewrap needs.
-      # This step and the next continue on error, so a failed install or Claude run does not mark the PR's check
-      # red. The report step below turns that failure into a warning.
+      # This step, the Claude step, and the post step continue on error, so a failed review does not mark the PR's
+      # check red. The report step turns a failure into a warning, and the last step reacts to the comment with a
+      # confused face.
       - continue-on-error: true
         run: |
           sudo apt-get update -qq
@@ -101,10 +110,11 @@ jobs:
             /pxt-review https://github.com/${{ github.repository }}/pull/${{ env.PR_NUMBER }}
             --pr-head ${{ runner.temp }}/pr-head
             ${{ github.event_name == 'issue_comment' && '--requested' || '' }}
+          # Naming Grep or Glob here restores both tools, which Claude Code leaves out on Linux by default. Claude has
+          # no tool that posts: its final message holds the review, and the post step publishes it.
           claude_args: >-
             --model claude-opus-5-5
-            --allowedTools "mcp__github_inline_comment__create_inline_comment"
-            "Bash(gh pr view:*)" "Bash(gh pr diff:*)" "Bash(gh pr checks:*)" "Bash(gh pr comment:*)"
+            --allowedTools "Read" "Grep" "Glob" "Bash(gh pr view:*)" "Bash(gh pr diff:*)" "Bash(gh pr checks:*)"
       # The action hides Claude's transcript. Print Claude's final message and each tool call the allowlist refused.
       - if: always()
         env:
@@ -115,3 +125,20 @@ jobs:
           if [ -z "$EXECUTION_FILE" ] || [ ! -f "$EXECUTION_FILE" ]; then exit 0; fi
           jq -r '.[] | select(.type == "result") | .result // empty' "$EXECUTION_FILE"
           jq -c '.[] | select(.type == "result") | .permission_denials[]? | {tool_name, tool_input}' "$EXECUTION_FILE"
+      # Posts the summary and the inline comments as one review.
+      - id: post
+        if: steps.claude.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: python3 .github/scripts/post_claude_review.py
+      - if: >-
+          always() && github.event_name == 'issue_comment' &&
+          (steps.claude.outcome != 'success' || steps.post.outcome != 'success')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=confused --silent
