@@ -224,6 +224,7 @@
                 "group": "Images",
                 "expanded": false,
                 "pages": [
+                  "howto/cookbooks/images/yolox-object-detection",
                   "howto/cookbooks/images/img-detect-objects",
                   "howto/cookbooks/images/img-detection-vs-segmentation",
                   "howto/cookbooks/images/img-visualize-detections",
@@ -244,6 +245,7 @@
                 "group": "Audio",
                 "expanded": false,
                 "pages": [
+                  "howto/cookbooks/audio/whisperx-transcription",
                   "howto/cookbooks/audio/audio-transcribe",
                   "howto/use-cases/audio-transcriptions",
                   "howto/cookbooks/audio/audio-summarize-podcast",
@@ -592,7 +594,7 @@
     },
     {
       "source": "/examples/vision/yolox",
-      "destination": "/howto/cookbooks/images/img-detect-objects"
+      "destination": "/howto/cookbooks/images/yolox-object-detection"
     },
     {
       "source": "/examples/vision/object-detection",
@@ -864,7 +866,7 @@
     },
     {
       "source": "/libraries/yolox",
-      "destination": "/integrations/frameworks"
+      "destination": "/howto/cookbooks/images/yolox-object-detection"
     }
   ]
 }
