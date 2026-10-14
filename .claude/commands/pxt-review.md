@@ -76,14 +76,18 @@ Create a todo list before you start.
 3. **Review** (skill parts 3 to 5). The PR is small when step 2 counts fewer than 200 changed lines and none of the
    files handles a sensitive area; otherwise it is large. Give each agent the output of step 2. Each agent returns
    findings in the skill's part 6 form, plus questions it could not settle.
-   - **Large PR:** launch these three agents in parallel.
-     - Correctness (opus): walk the affected job through the changed code, then go through the change map block by
-       block. Challenge correctness against the skill's list in part 3, and attribute each finding against the base.
+   - **Large PR:** launch these four agents in parallel. The two correctness agents start from different places, so
+     each can catch what the other misses.
+     - Correctness by job (opus): walk the affected job through the changed code. Challenge correctness along that
+       path against the skill's list in part 3, and attribute each finding against the base.
+     - Correctness by block (sonnet): go through the change map block by block, without the job walk. Challenge each
+       block against the skill's list in part 3, and attribute each finding against the base.
      - Rules (sonnet): check the changed lines against the rules from step 2. A `CLAUDE.md` rule applies to a file
        only when that `CLAUDE.md` is in the file's directory or a parent. Quote the exact rule each finding breaks.
      - Necessity and tests (sonnet): necessity and complexity (part 4) and what the tests and CI prove (part 5).
        Return maintenance suggestions and coverage gaps, kept apart from defects.
-   - **Small PR:** launch one sonnet agent that does all three tasks.
+   - **Small PR:** launch one sonnet agent that does the job walk, the rules check, and the necessity and tests
+     check.
 
 4. **Critic** (`critic.md`). Launch one agent with every finding: opus for a large PR, sonnet for a small one. It runs
    the nine critic checks on each finding against the files and the change ranges from step 2. For each finding, it
