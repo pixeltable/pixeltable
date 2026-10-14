@@ -2543,18 +2543,8 @@ class Catalog(CatalogBase):
                 return existing._id, False
 
             if bumps_base_view_sn:
-                # this is a mutable view of a mutable base; advance the base's view_sn before adding the view. The
-                # base is a write target of this transaction, so its store table is already locked.
-                assert self._has_store_tbl_lock(base.tbl_id, _TblLockMode.ACCESS_EXCLUSIVE), base.tbl_id
-                base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None))
-                self.mark_modified_tv(base_tv.handle)
-                base_tv.tbl_md.view_sn += 1
-                result = get_runtime().conn.execute(
-                    sql.update(schema.Table)
-                    .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=schema.md_dict_factory)})
-                    .where(schema.Table.id == base.tbl_id)
-                )
-                assert result.rowcount == 1, result.rowcount
+                # the base's set of mutable views changes
+                self._incr_view_sn(base.tbl_id)
 
             dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
             assert dir is not None
@@ -2954,7 +2944,9 @@ class Catalog(CatalogBase):
 
         Does nothing if the table is gone. That can happen when a base and its views are dropped together.
         """
-        self._clear_tv_cache(TableVersionKey(tbl_id, None))
+        key = TableVersionKey(tbl_id, None)
+        self._clear_tv_cache(key)
+        self.mark_modified_tv(TableVersionHandle(key))
         result = get_runtime().conn.execute(
             sql.update(schema.Table)
             .values(
