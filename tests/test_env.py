@@ -223,11 +223,14 @@ class TestHostedMediaDefault:
         monkeypatch.setenv('PIXELTABLE_OUTPUT_MEDIA_DEST', 'pxtfs://org1:db1/home/out')
         with pytest.warns(excs.PixeltableDeprecationWarning) as record:
             _reset_env(reinit=False, db_name=None)
-        assert [str(w.message) for w in record] == [
+        # the record also holds unrelated warnings raised in the block, such as a ResourceWarning when GC collects a
+        # socket an earlier test on this worker left open
+        deprecations = [w for w in record if issubclass(w.category, excs.PixeltableDeprecationWarning)]
+        assert [str(w.message) for w in deprecations] == [
             "output_media_dest 'pxtfs://org1:db1/home/out' uses the deprecated pxtfs:// spelling; write "
             "'pxt://org1:db1/buckets/home/out' instead. Values already stored as pxtfs:// keep reading."
         ]
-        assert record[0].filename == __file__
+        assert deprecations[0].filename == __file__
         assert Env.get().default_output_media_dest == 'pxtfs://org1:db1/home/out'
         assert Env.get().default_input_media_dest == 'pxt://org1:db1/buckets/home'
 
@@ -238,6 +241,16 @@ class TestHostedMediaDefault:
         monkeypatch.setenv('PIXELTABLE_OUTPUT_MEDIA_DEST', 'pxt://org1:db1/buckets/home/out')
         _reset_env(reinit=False, db_name=None)
         assert Env.get().default_output_media_dest == 'pxt://org1:db1/buckets/home/out'
+
+    def test_local_media_dest_in_project(self, uses_db: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """A local media destination inside the project directory is not allowed."""
+        media_dir = tmp_path / 'media'
+        for dest in (media_dir.as_uri(), str(media_dir)):
+            monkeypatch.setenv('PIXELTABLE_OUTPUT_MEDIA_DEST', dest)
+            reset_runtime()
+            Config.init(reinit=True, project_root=tmp_path)
+            with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='output_media_dest .* is inside the project'):
+                Env._init_env(reinit_db=False)
 
 
 class TestProxyEndpoint:
