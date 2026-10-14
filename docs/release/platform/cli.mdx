@@ -1060,8 +1060,6 @@ The URI on the command line selects the entry by its `name`: an entry for anothe
 
 `update` applies a new image if dependencies changed, then uploaded project files if sources changed, then one resize for any changed CPU, memory, disk, or worker counts so the pods restart only once. Secrets are set with [`pxt secret`](#pxt-secret) rather than from the project. The media destinations and the OTLP endpoint and protocol travel with the project files, which always include the project configuration.
 
-Once the database is `AVAILABLE`, `update` opens a TCP connection to its tables' host, `{org}-{db}.pxt.run` on port 443, and warns on stderr when it cannot: the database is up, but commands that use its tables will fail from this machine. `--json` also lists the warning in the plan's `warnings`. [Network access](/cloud#network-access) lists what to allow.
-
 #### `pxt db list`
 
 ```bash
