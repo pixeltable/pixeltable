@@ -49,10 +49,16 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+      # gh pr checks reads check runs and commit statuses.
+      checks: read
+      statuses: read
     env:
       PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
       # Removes ANTHROPIC_API_KEY and other secrets from the environment of the commands Claude runs.
       CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1'
+      # Runs review agents in the foreground. In the background, Claude ends its turn to wait for them, and the
+      # action stops at that turn's end, so nothing gets posted.
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1'
     steps:
       - uses: actions/checkout@v6
         with:
