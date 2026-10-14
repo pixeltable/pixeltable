@@ -83,14 +83,7 @@ def _openai_client() -> 'openai.AsyncOpenAI':
 
 # models that share rate limits; see https://platform.openai.com/settings/organization/limits for details
 _shared_rate_limits = {
-    'gpt-4-turbo': [
-        'gpt-4-turbo',
-        'gpt-4-turbo-latest',
-        'gpt-4-turbo-2024-04-09',
-        'gpt-4-turbo-preview',
-        'gpt-4-0125-preview',
-        'gpt-4-1106-preview',
-    ],
+    'gpt-4-turbo': ['gpt-4-turbo', 'gpt-4-turbo-latest', 'gpt-4-turbo-2024-04-09', 'gpt-4-1106-preview'],
     'gpt-4o': [
         'gpt-4o',
         'gpt-4o-latest',
@@ -482,12 +475,8 @@ def _default_max_tokens(model: str) -> int:
         return 8192  # All other gpt-4 models (will not match on gpt-4o models)
     if _is_model_family(model, 'gpt-4o') or _is_model_family(model, 'gpt-4.5-preview'):
         return 16384  # All other gpt-4o / gpt-4.5 models
-    if _is_model_family(model, 'o1-preview'):
-        return 32768
-    if _is_model_family(model, 'o1-mini'):
-        return 65536
-    if _is_model_family(model, 'o1') or _is_model_family(model, 'o3'):
-        return 100000  # All other o1 / o3 models
+    if _is_model_family(model, 'o3'):
+        return 100000  # All o3 models
     return 100000  # global default
 
 
