@@ -319,33 +319,6 @@ def _connect_through(proxy: urllib.parse.SplitResult, org: str, db: str, host: s
         raise
 
 
-def open_tunnel_socket(org: str, db: str, host: str, port: int) -> socket.socket:
-    """Open the TCP connection to pxt://org:db's tunnel endpoint, through the proxy HTTPS_PROXY names if any;
-    fail without retries when every try times out (see _CONNECT_TRIES).
-
-    Any other error is raised as it is; in a request, it and any failure after the connection opens are retried in
-    `TunnelTransport._request()`.
-    """
-    proxy = _https_proxy(host)
-    timeout: TimeoutError | None = None
-    for _ in range(_CONNECT_TRIES):
-        try:
-            if proxy is None:
-                return socket.create_connection((host, port), timeout=_CONNECT_TIMEOUT)
-            return _connect_through(proxy, org, db, host, port)
-        except TimeoutError as e:
-            _logger.debug('TCP connect to %s:%d timed out', host, port)
-            timeout = e
-    # every tunnel host is <org>-<db>.<domain>, so allowing *.<domain> covers every database
-    domain = host.partition('.')[2]
-    through = '' if proxy is None else f' through the HTTPS proxy at {proxy.hostname}:{proxy.port or 80}'
-    raise excs.ServiceUnavailableError(
-        excs.ErrorCode.DATABASE_UNAVAILABLE,
-        f'Cannot reach pxt://{org}:{db}: the TCP connection to {host}:{port}{through} timed out.\n'
-        f'If this network blocks outbound ports, allow outbound TCP port {port} to *.{domain}.',
-    ) from timeout
-
-
 class TunnelTransport(Transport):
     """HTTP over an authenticated TLS tunnel to a proxy daemon behind the service sidecar (pooled, thread-safe)."""
 
@@ -375,7 +348,7 @@ class TunnelTransport(Transport):
         # before connecting: renewing a session is a round trip of its own, and a refused credential needs no socket
         credential = self._credential_cb()
         ctx = ssl.create_default_context()
-        raw_sock = open_tunnel_socket(self._org, self._db, self._host, self._port)
+        raw_sock = self._open_socket()
         ssl_sock: ssl.SSLSocket | None = None
         try:
             raw_sock.settimeout(_HANDSHAKE_TIMEOUT)
@@ -407,6 +380,31 @@ class TunnelTransport(Transport):
         except Exception:
             (ssl_sock or raw_sock).close()
             raise
+
+    def _open_socket(self) -> socket.socket:
+        """Open the TCP connection, through the proxy HTTPS_PROXY names if any; fail without retries when every try
+        times out (see _CONNECT_TRIES).
+
+        Any other error, and any failure after the connection opens, is raised as it is and retried in `_request()`.
+        """
+        proxy = _https_proxy(self._host)
+        timeout: TimeoutError | None = None
+        for _ in range(_CONNECT_TRIES):
+            try:
+                if proxy is None:
+                    return socket.create_connection((self._host, self._port), timeout=_CONNECT_TIMEOUT)
+                return _connect_through(proxy, self._org, self._db, self._host, self._port)
+            except TimeoutError as e:
+                _logger.debug('TCP connect to %s:%d timed out', self._host, self._port)
+                timeout = e
+        # every tunnel host is <org>-<db>.<domain>, so allowing *.<domain> covers every database
+        domain = self._host.partition('.')[2]
+        through = '' if proxy is None else f' through the HTTPS proxy at {proxy.hostname}:{proxy.port or 80}'
+        raise excs.ServiceUnavailableError(
+            excs.ErrorCode.DATABASE_UNAVAILABLE,
+            f'Cannot reach pxt://{self._org}:{self._db}: the TCP connection to {self._host}:{self._port}{through} '
+            f'timed out.\nIf this network blocks outbound ports, allow outbound TCP port {self._port} to *.{domain}.',
+        ) from timeout
 
     def _handshake_error(self, status_line: str, sent: Credential) -> Exception:
         """A refusal reads as the control plane's does, naming the credential; any other status is retried.

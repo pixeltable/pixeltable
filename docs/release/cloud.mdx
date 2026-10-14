@@ -196,18 +196,18 @@ On a network or in an agent sandbox that limits outbound traffic, allow these co
 |---|---|---|
 | `internal-api.pixeltable.com` | 443, HTTPS | `pxt db`, `pxt secret`, `pxt key`, `pxt org`, `pxt service list` |
 | `api.workos.com` | 443, HTTPS | `pxt login`, and renewing the session it starts |
-| `www.pixeltable.com` | 443, HTTPS | `pxt new` |
+| `www.pixeltable.com`, `signin.pixeltable.com` | 443, HTTPS | `pxt new` |
 | `*.s3.amazonaws.com` | 443, HTTPS | `pxt db update`, to upload the project files |
 | `*.r2.cloudflarestorage.com` | 443, HTTPS | Media in the home bucket |
 | `*.svc.pxt.run` | 443, HTTPS | Requests to a hosted service |
 | `*.pxt.run` | 443, TCP | Everything that uses tables: `pxt schema update`, `pxt service update`, `pxt ls`, `pxt.get_table()` |
 
-The connection to `{org}-{db}.pxt.run` is TLS on TCP port 443. Like the HTTPS connections, it goes through the HTTP proxy that `HTTPS_PROXY` names, unless `NO_PROXY` lists the host. A network that blocks it still lets the other commands work, and `pxt db update` still brings the database to `AVAILABLE`, then warns that this machine cannot reach its tables. A command that uses the tables fails with `Cannot reach pxt://org:main: the TCP connection to org-main.pxt.run:443 timed out`.
+The connection to `{org}-{db}.pxt.run` is TLS on TCP port 443. Like the HTTPS connections, it goes through the HTTP proxy that `HTTPS_PROXY` names, unless `NO_PROXY` lists the host. A network that blocks it still lets the other commands work, `pxt db update` included. A command that uses the tables fails with `Cannot reach pxt://org:main: the TCP connection to org-main.pxt.run:443 timed out`.
 
 To allow these hosts for a coding agent:
 
 - **Claude Code on the web**: edit the cloud environment, set **Network access** to **Custom**, and add each host to **Allowed domains**. `*.pxt.run` matches every database. Keep **Also include default list of common package managers** checked: that list already allows `*.r2.cloudflarestorage.com` and `*.amazonaws.com`.
-- **Codex cloud**: turn on **Allow Codex to access internet** for the environment, choose **Custom domains only** or **Package managers**, and add each host under **Additional allowed domains**. Codex does not document wildcards, so list the database's own host, such as `org-main.pxt.run`. If the environment limits HTTP methods, allow `POST`.
+- **Codex cloud**: turn on **Allow Codex to access internet** for the environment, choose **Custom domains only** or **Package managers**, and add each host under **Additional allowed domains**. Codex does not document wildcards, so list the database's own host, such as `org-main.pxt.run`. If the environment limits HTTP methods, allow `POST` and `PUT`.
 - **GitHub Copilot cloud agent**: in the repository's **Settings > Copilot > Internet access**, add `pixeltable.com`, `workos.com`, `pxt.run`, `r2.cloudflarestorage.com` and `s3.amazonaws.com` to the custom allowlist. Each entry also allows its subdomains.
 
 Claude Code on the web sends all outbound traffic through an HTTP proxy and sets `HTTPS_PROXY` to it, so `pxt` needs no proxy settings of its own there.
