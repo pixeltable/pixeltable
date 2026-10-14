@@ -114,6 +114,24 @@ def _is_retryable_exc(e: BaseException) -> bool:
     )
 
 
+def _finalized_view_base_id(tbl_md: schema.TableMd) -> UUID | None:
+    """Return the base whose view_sn is advanced when the table's pending ops are finalized, or None.
+
+    That happens when the table is a mutable view of a mutable base and its pending ops delete its metadata: a drop,
+    or a rolled back creation.
+    """
+    if tbl_md.view_md is None or not tbl_md.is_mutable:
+        return None
+    base_id, base_version = tbl_md.view_md.base_versions[0]
+    if base_version is not None:
+        return None
+    if tbl_md.pending_stmt == schema.TableStatement.DROP_TABLE:
+        return UUID(base_id)
+    if tbl_md.tbl_state == schema.TableState.ROLLBACK and tbl_md.pending_stmt == schema.TableStatement.CREATE_VIEW:
+        return UUID(base_id)
+    return None
+
+
 def _store_tbl_name(tbl_id: UUID, *, is_view: bool) -> str:
     from pixeltable.store import StoreBase
 
@@ -939,8 +957,8 @@ class Catalog(CatalogBase):
         visited_tbl_ids: set[UUID] = set()
         # table id -> its parent dir id
         tbl_dirs: dict[UUID, UUID] = {}
-        # for mutable views of a mutable base, view id -> base tbl id
-        mutable_bases: dict[UUID, UUID] = {}
+        # table id -> base id, only for views whose finalization will advance the base's view_sn
+        finalized_view_bases: dict[UUID, UUID] = {}
 
         def visit_tables(where: sql.ColumnElement, op_class: _TblOpClass) -> set[UUID]:
             """Read matching table metadata, record each table's lock requirements, and return its id.
@@ -959,9 +977,10 @@ class Catalog(CatalogBase):
                 if not tbl_md.is_pure_snapshot:
                     store_tbl_names[row.id] = _store_tbl_name(row.id, is_view=tbl_md.view_md is not None)
                     is_data_versioned[row.id] = tbl_md.is_data_versioned
+                finalized_view_base_id = _finalized_view_base_id(tbl_md)
+                if finalized_view_base_id is not None:
+                    finalized_view_bases[row.id] = finalized_view_base_id
                 if tbl_md.view_md is not None:
-                    if tbl_md.is_mutable and tbl_md.view_md.base_versions[0][1] is None:
-                        mutable_bases[row.id] = UUID(tbl_md.view_md.base_versions[0][0])
                     for hex_id, _ in tbl_md.view_md.base_versions:
                         ancestor_id = UUID(hex_id)
                         tbl_id_to_op_classes[ancestor_id].add(_TblOpClass.DATA_READ)
@@ -1007,15 +1026,14 @@ class Catalog(CatalogBase):
             # Mark missing ids as visited too, so dropped tables do not cause an endless loop.
             visited_tbl_ids.update(todo)
 
-        # Dropping a mutable view updates its base's view_sn, so the base needs a write lock.
-        # All bases were discovered above; this changes required modes without adding new targets.
-        if lock_path_subtree:
-            for tbl_id in write_path_tbl_ids:
-                # dropping a mutable view bumps its base's view_sn, which is a metadata write to the base
-                base_id = mutable_bases.get(tbl_id)
+        # Upgrade lock on a base table whose view_sn will be updated in this transaction. One way this can happen is
+        # a view is being dropped.
+        if op_class is _TblOpClass.FINALIZE:
+            for key in write_tbl_keys:
+                base_id = finalized_view_bases.get(key.tbl_id)
                 if base_id is not None:
-                    assert base_id in tbl_id_to_op_classes
-                    tbl_id_to_op_classes[base_id].add(op_class)
+                    tbl_id_to_op_classes[base_id].add(_TblOpClass.FINALIZE)
+        if lock_path_subtree:
             for tbl_id in write_path_mutable_views:
                 # a view can live in a different directory than its base, so the directories are collected from the
                 # tables rather than from the subtree walk
@@ -1185,8 +1203,9 @@ class Catalog(CatalogBase):
             return _LockSet()
 
         # Catalog does not cache path resolution or directory structure. Create, drop, and move operations
-        # therefore always resolve their paths in a separate store transaction.
-        if len(write_paths) == 0:
+        # therefore always resolve their paths in a separate store transaction. A finalization's lock set depends on
+        # the table's pending ops, which the cache does not reflect.
+        if len(write_paths) == 0 and op_class is not _TblOpClass.FINALIZE:
             lock_set: _LockSet | None = self._lock_set_from_cache(
                 op_class=op_class,
                 read_tvps=read_tvps,
@@ -1654,6 +1673,19 @@ class Catalog(CatalogBase):
                         # nothing left to do
                         return None
                     assert tbl_md.tbl_state in (schema.TableState.ROLLFORWARD, schema.TableState.ROLLBACK)
+                    base_id = _finalized_view_base_id(tbl_md)
+                    if base_id is not None and not self._has_store_tbl_lock(base_id, _TblLockMode.ACCESS_EXCLUSIVE):
+                        base_row = conn.execute(
+                            sql.select(schema.Table.id).where(schema.Table.id == base_id)
+                        ).one_or_none()
+                        # This finalization requires the base locked in ACCESS_EXCLUSIVE, but it's not. The expected
+                        # reason for that is a drop or a rollback started concurrently, after our lock set was read.
+                        # Continue from the top, the next iteration should acquire the base's lock.
+                        # Exception: when the base's metadata is gone from tables, we don't need to lock it. That may
+                        # happen when the base and its view are dropped together.
+                        if base_row is not None:
+                            _logger.debug(f'Finalize pending ops({tbl_id}): base {base_id} is not locked, restarting')
+                            continue
                     is_rollback = tbl_md.tbl_state == schema.TableState.ROLLBACK
 
                     if rollover_op_update is not None:
@@ -2856,9 +2888,6 @@ class Catalog(CatalogBase):
         if tbl is not None:
             assert self._is_dir_locked(tbl._dir_id()), (tbl_id, tbl._dir_id(), self._dir_locks_held)
 
-        # a drop of a mutable view writes its base's md too, so the base's metadata has to be cached as well
-        if isinstance(tbl, View) and tvp.is_mutable() and tvp.base.is_mutable():
-            self._refresh_tbl_cache(key=TableVersionKey(tvp.base.tbl_id, None))
         self._refresh_tbl_cache(key=TableVersionKey(tbl_id, None))
 
         view_ids = self.get_view_ids(tbl_id)
@@ -2899,11 +2928,7 @@ class Catalog(CatalogBase):
             # write TableOps to execute the drop, plus the updated Table record
             tv = tvp.tbl_version.get()
             tv.tbl_md.pending_stmt = schema.TableStatement.DROP_TABLE
-            drop_ops, new_version, mutable_base_tbl_id = tv.drop_ops()
-            if mutable_base_tbl_id is not None:
-                # Advance the base's view_sn while this transaction holds its write lock. The pending operation that
-                # deletes the view's metadata locks only the view, so it cannot update the base.
-                self._incr_view_sn(mutable_base_tbl_id)
+            drop_ops, new_version = tv.drop_ops()
             self.write_tbl_md(
                 tv.id,
                 dir_id=None,
@@ -2925,9 +2950,11 @@ class Catalog(CatalogBase):
         _logger.info(f'Dropped table {tbl_path_repr}.')
 
     def _incr_view_sn(self, tbl_id: UUID) -> None:
-        """Increments the table's view_sn in the store within the current transaction"""
+        """Increments the table's view_sn in the store within the current transaction.
+
+        Does nothing if the table is gone. That can happen when a base and its views are dropped together.
+        """
         self._clear_tv_cache(TableVersionKey(tbl_id, None))
-        assert self._has_store_tbl_lock(tbl_id, _TblLockMode.ACCESS_EXCLUSIVE), tbl_id
         result = get_runtime().conn.execute(
             sql.update(schema.Table)
             .values(
@@ -2939,7 +2966,13 @@ class Catalog(CatalogBase):
             )
             .where(schema.Table.id == tbl_id)
         )
+        if result.rowcount == 0:
+            return
         assert result.rowcount == 1, (tbl_id, result.rowcount)
+        # if the table md got updated, assert that this transaction holds the proper lock on that table.
+        self._assert_tbl_record_write_locked(
+            tbl_id, is_new_tbl=False, is_pure_snapshot=False, current_dir_id=None, new_dir_id=None
+        )
 
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
         paths = [path] if if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE) else []
@@ -3728,12 +3761,11 @@ class Catalog(CatalogBase):
             current_dir_id=deleted_dir_id,
             new_dir_id=None,
         )
-        if tbl_md.view_md is not None:
-            # Clear the base's cached view list. Its view_sn was advanced when the drop began, so version validation
-            # alone would not detect that the view's metadata has now been deleted.
+        if tbl_md.view_md is not None and tbl_md.is_mutable:
             base_id, base_version = tbl_md.view_md.base_versions[0]
             if base_version is None:
-                self._clear_tv_cache(TableVersionKey(UUID(base_id), None))
+                # the base's set of mutable views changed
+                self._incr_view_sn(UUID(base_id))
 
     def read_md_for_export(self, tbl: LocalTable) -> list[TableVersionMd]:
         """

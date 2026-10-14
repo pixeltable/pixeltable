@@ -63,8 +63,9 @@ An operation's lock set includes the store tables and directory rows it needs:
 
 - A read locks every table in each `TableVersionPath`, including bases. It does not lock descendant views.
 - A data write locks its target and all mutable descendant views, since writes propagate to those views.
-- A schema change locks its targets and affected mutable views. Creating or dropping a mutable view also
-  requires an exclusive lock on its mutable base: it changes write propagation and advances the base's `view_sn`.
+- A schema change locks its targets and affected mutable views. Creating a mutable view also requires an
+  exclusive lock on its mutable base: it changes write propagation and advances the base's `view_sn`. Deleting a
+  mutable view's metadata also advances the base's `view_sn`, so the finalization acquires the lock on the base.
 - Dropping a directory locks its subdirectories and tables. Dropping a table also locks its descendant views,
   including snapshots, and the directories containing them.
 - A pure snapshot has no store table. Its path includes the stored base versions to read; its own metadata is

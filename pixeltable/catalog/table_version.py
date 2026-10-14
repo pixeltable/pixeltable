@@ -314,18 +314,11 @@ class TableVersion:
             ),
         )
 
-    def drop_ops(self) -> tuple[list[TableOp], bool, UUID | None]:
-        """Return the drop operations, whether versions were advanced, and the mutable base id, if any.
-
-        The caller must advance that base's view_sn to record the change in write propagation.
-        """
+    def drop_ops(self) -> tuple[list[TableOp], bool]:
+        """Return the drop operations, and whether versions were advanced."""
         new_version = self.is_mutable and self.is_data_versioned
         if new_version:
             self.bump_version(bump_schema_version=True)
-        mutable_base_tbl_id: UUID | None = None
-        # if this is a mutable view of a mutable base, the base's view_sn has to be advanced
-        if self.is_view and self.is_mutable and self.path.base.is_mutable():
-            mutable_base_tbl_id = self.path.base.tbl_id
         id_str = str(self.id)
         ops = (
             TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
@@ -333,7 +326,7 @@ class TableVersion:
             .add(DeleteTableMdOp, is_view=self.is_view)
             .build()
         )
-        return ops, new_version, mutable_base_tbl_id
+        return ops, new_version
 
     def init(self) -> None:
         """
