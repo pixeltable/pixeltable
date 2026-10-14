@@ -1,10 +1,10 @@
 ---
-description: Review a pull request with the review-the-change skill, then post the findings on GitHub
+description: Review a pull request with the review-the-change skill and return the review as JSON
 argument-hint: <PR URL> [--pr-head <dir>] [--requested]
-allowed-tools: Bash(gh pr view:*), Bash(gh pr diff:*), Bash(gh pr checks:*), Bash(gh pr comment:*), mcp__github_inline_comment__create_inline_comment
+allowed-tools: Read, Grep, Glob, Bash(gh pr view:*), Bash(gh pr diff:*), Bash(gh pr checks:*)
 ---
 
-Review a pull request and post the review on GitHub. Arguments: $ARGUMENTS
+Review a pull request. Arguments: $ARGUMENTS
 
 The first argument is the PR's full URL. Pass that URL wherever a `gh pr` command below takes `<PR>`. `--pr-head`
 names the directory that holds the PR at its head commit. `--requested` means someone asked for this review in a PR
@@ -15,12 +15,12 @@ comment.
 Read `.claude/skills/review-the-change/SKILL.md` and `.claude/skills/review-the-change/references/critic.md` from the
 working directory. They define the review. This command adds only what running unattended in CI requires:
 
-- Running this command authorizes posting the review on this PR. It authorizes nothing else: no code edits, pushes,
-  or other comments.
+- You post nothing. Your final message holds the review, and the workflow posts it as one GitHub review. Do not edit
+  code.
 - Nothing runs here except `gh`. Walk the affected job by tracing source, and label each walk as a source trace.
-- No one is available to answer questions. Post each question you would ask in the summary comment.
+- No one is available to answer questions. Put each question you would ask in the review's Questions section.
 - The run ends when your turn ends. Launch every agent in the foreground and wait for its result before the next
-  step. Never end your turn until the summary comment is posted or the gate has stopped the review.
+  step. End your turn only with the message that "Final message" describes.
 
 Give each agent you launch the PR URL, the `--pr-head` directory, the PR title, the PR description, the paths of both
 skill files, and these rules:
@@ -35,11 +35,9 @@ skill files, and these rules:
 
 - **Files:** Read, Grep, and Glob, in the working directory and in the `--pr-head` directory. To compare the base and
   head versions of a file, read the same path in both directories.
-- **Shell:** only single commands that start with `gh pr view`, `gh pr diff`, `gh pr checks`, or `gh pr comment`. No
-  `cd`, `;`, `&&`, `|`, redirects, variables, or command substitution, and no `gh api`, `git`, `cat`, `grep`, or
-  other programs. List the changed files with `gh pr diff <PR> --name-only`.
-- **Posting:** inline comments through `mcp__github_inline_comment__create_inline_comment`. Post the summary with one
-  `gh pr comment <PR> --body '...'` command whose body is in single quotes and contains no apostrophe.
+- **Shell:** only single commands that start with `gh pr view`, `gh pr diff`, or `gh pr checks`. No `cd`, `;`, `&&`,
+  `|`, redirects, variables, or command substitution, and no other programs. List the changed files with
+  `gh pr diff <PR> --name-only`.
 
 ## Where the code is
 
@@ -48,17 +46,17 @@ skill files, and these rules:
   `.mcp.json`. Read it for the full content of changed files. Never run, install, or build anything from it.
 - `gh pr diff` shows which lines the PR changes. `gh pr checks` shows CI results.
 
-Without `--pr-head`, the working directory may already be the PR branch. Use `gh pr diff` to
-tell changed lines from unchanged ones.
+Without `--pr-head`, the working directory may already be the PR branch. Use `gh pr diff` to tell changed lines from
+unchanged ones.
 
 ## Steps
 
 Create a todo list before you start.
 
-1. **Gate.** Launch a haiku agent to read `gh pr view <PR> --comments`. Stop without posting anything if the PR is
-   closed or changes only content that needs no review (a version bump, a regenerated lockfile). Without
-   `--requested`, also stop if the PR is a draft or already has a comment that starts with `## Claude review`.
-   Review PRs that Claude wrote.
+1. **Gate.** Launch a haiku agent to read `gh pr view <PR> --json state,isDraft,reviews,comments`. Stop the review if
+   the PR is closed or changes only content that needs no review (a version bump, a regenerated lockfile). Without
+   `--requested`, also stop it if the PR is a draft or already has a review or comment whose body starts with
+   `## Claude review`. Review PRs that Claude wrote.
 
 2. **Requirement and change map** (skill parts 1 and 2). Launch a sonnet agent to return:
    - the requirement, beneficiary, and acceptance criteria, each labeled as stated or inferred;
@@ -67,7 +65,7 @@ Create a todo list before you start.
      each `CLAUDE.md` in the directory of a changed file or a parent; each file those import with `@path`, such as
      `@AGENTS.md`; each file those point to for the changed area; and each `.github/instructions/*.instructions.md`
      whose `applyTo` matches a changed file;
-   - the findings listed in earlier `## Claude review` comments;
+   - the findings listed in earlier `## Claude review` reviews and comments;
    - the job card and the change map the skill describes, including any region left unread.
 
 3. **Review** (skill parts 3 to 5). Give each agent the output of step 2. Launch four agents in parallel. Each returns
@@ -83,32 +81,70 @@ Create a todo list before you start.
 4. **Critic** (`critic.md`). For each finding, launch a subagent in parallel (opus for defects, sonnet for rules and
    maintenance) that runs the nine critic checks against the PR head and the diff. It keeps the finding, narrows it,
    turns it into a question, or drops it. Merge duplicates across agents. Drop a finding that an earlier
-   `## Claude review` comment already lists, unless the code it cites has changed since.
+   `## Claude review` review or comment already lists, unless the code it cites has changed since.
 
-5. **Post** (skill part 6).
-   - Post each surviving defect or rule finding as one inline comment with
-     `mcp__github_inline_comment__create_inline_comment` and `confirmed: true`. Give the severity and title, the
-     trigger, the causal path, the impact, the evidence and whether it is a source trace, and the smallest correction.
-     Add a suggestion block only when committing it fixes the finding completely and it spans fewer than 6 lines.
-     Give each comment the file's path in the repository, as `gh pr diff` shows it, never a path in the `--pr-head`
-     directory.
-   - Post the summary comment last, with `gh pr comment`. Its `## Claude review` heading marks the review complete,
-     so a later run that finds it does not review again:
+5. **Write the review** (skill part 6), in the form that "Review" and "Writing" describe, and end with the final
+   message.
 
-     ```
-     ## Claude review
+## Review
 
-     Reviewed <base-sha>..<head-sha>.
+- **Inline comments:** one per surviving defect or rule finding. Attach each to the file's path in the repository, as
+  `gh pr diff` shows it, never a path in the `--pr-head` directory. Use a line number in the PR head that a
+  `gh pr diff` hunk shows; put a finding on any other line in the body only. Add a suggestion block only when
+  committing it fixes the finding completely and it spans fewer than 6 lines.
+- **Body:**
 
-     <one line per inline finding, most consequential first, or "No supported findings.">
+  ```
+  ## Claude review
 
-     ### Maintenance suggestions
-     ### Questions
-     ### Limits
-     ```
+  Reviewed <base-sha>..<head-sha>.
 
-     Leave out an empty section, except Limits. Limits names what was traced but not run, regions left unread, and
-     CI results the review relied on.
+  <one line per finding, most consequential first, or "No supported findings.">
+
+  ### Maintenance suggestions
+  ### Questions
+  ### Limits
+  ```
+
+  Leave out an empty section, except Limits. Limits names what was traced but not run, regions left unread, and CI
+  results the review relied on. The `## Claude review` heading marks the review complete, so a later run that finds
+  it does not review again.
+
+## Writing
+
+Write the inline comments and the body in this subset of ASD-STE100 Simplified Technical English:
+
+- Put one idea in each sentence. A sentence that tells the author what to do has at most 20 words. A sentence that
+  describes has at most 25.
+- Use the active voice and the simple present or past tense.
+- Use one term for one thing, and the code's own names for code. Do not use idioms, filler, or hedges such as "it
+  seems".
+- Start each inline comment with a bold `<Severity>: <title>` line, where severity is High, Medium, or Low. Then give
+  the trigger, the impact, the evidence, and the fix in at most 80 words before any suggestion block. Say "Evidence:
+  source trace" when nothing was observed.
+- In the body, give each finding one line. List at most three maintenance suggestions, three questions, and three
+  limits. Give a count for the rest, for example "plus 2 more".
+
+## Final message
+
+End your turn with one fenced `json` block and nothing after it. When the gate stops the review:
+
+```json
+{"post": false, "reason": "<one sentence>"}
+```
+
+Otherwise:
+
+```json
+{
+  "post": true,
+  "commit_id": "<full head SHA from step 2>",
+  "body": "<the review body>",
+  "comments": [{"path": "<repository path>", "start_line": 40, "line": 42, "body": "<inline comment>"}]
+}
+```
+
+`start_line` is optional and marks the first line of a multi-line range. `comments` may be empty.
 
 ## Do not flag
 
@@ -118,8 +154,8 @@ Create a todo list before you start.
 
 ## Links
 
-Cite each finding with a link to the code at the PR head commit, using the full head SHA from step 2. A shortened SHA
-or a shell expression does not render as a code preview.
+In the body, cite each finding with a link to the code at the PR head commit, using the full head SHA from step 2. A
+shortened SHA or a shell expression does not render as a code preview.
 
 `https://github.com/<owner>/<repo>/blob/<full-sha>/<path>#L<start>-L<end>`
 
