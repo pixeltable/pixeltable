@@ -1,7 +1,7 @@
 import os
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 # Variant and port come from the environment so alternate servers can run:
 # - 'changed' changes 'pixelmultiple's signature
@@ -10,7 +10,7 @@ from mcp.server.fastmcp import FastMCP
 _VARIANT = os.environ.get('PIXELTABLE_MCP_VARIANT', 'full')
 _PORT = int(os.environ.get('PIXELTABLE_MCP_PORT', '8000'))
 
-mcp = FastMCP('PixeltableDemo', stateless_http=True, debug=True, log_level='DEBUG', port=_PORT)
+mcp = MCPServer('PixeltableDemo', debug=True, log_level='DEBUG')
 
 
 if _VARIANT == 'changed':
@@ -40,4 +40,5 @@ def pixeldict(d: dict[str, Any] | None) -> dict[str, Any]:
 
 
 if __name__ == '__main__':
-    mcp.run(transport='streamable-http')
+    # port and stateless_http are transport settings in MCP 2; they are no longer constructor arguments
+    mcp.run(transport='streamable-http', stateless_http=True, port=_PORT)

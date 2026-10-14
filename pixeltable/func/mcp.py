@@ -11,6 +11,12 @@ if TYPE_CHECKING:
     import mcp
 
 
+def _require_mcp() -> None:
+    # MCP 2 removed streamablehttp_client; the replacement yields two streams. Reject anything older here so
+    # callers get a Pixeltable error naming the range, instead of an ImportError from the 2.x client.
+    Env.get().require_package('mcp', min_version=[2])
+
+
 def mcp_udfs(url: str) -> list['pxt.func.Function']:
     from pixeltable.runtime import get_runtime
 
@@ -18,13 +24,13 @@ def mcp_udfs(url: str) -> list['pxt.func.Function']:
 
 
 async def mcp_udfs_async(url: str) -> list['pxt.func.Function']:
-    Env.get().require_package('mcp')
+    _require_mcp()
     import mcp
-    from mcp.client.streamable_http import streamablehttp_client
+    from mcp.client.streamable_http import streamable_http_client
 
     list_tools_result: mcp.types.ListToolsResult | None = None
     async with (
-        streamablehttp_client(url) as (read_stream, write_stream, _),
+        streamable_http_client(url) as (read_stream, write_stream),
         mcp.ClientSession(read_stream, write_stream) as session,
     ):
         await session.initialize()
@@ -35,7 +41,7 @@ async def mcp_udfs_async(url: str) -> list['pxt.func.Function']:
 
 
 def mcp_tool_to_udf(url: str, mcp_tool: 'mcp.types.Tool') -> 'pxt.func.Function':
-    Env.get().require_package('mcp')
+    _require_mcp()
     return McpFunction(url, mcp_tool.name, [_signature_from_tool(mcp_tool)], mcp_tool.name, mcp_tool.description)
 
 
@@ -105,13 +111,13 @@ class McpFunction(Function):
 
     async def aexec(self, *args: Any, **kwargs: Any) -> str:
         # TODO: open one session per McpFunction rather than one per call
-        Env.get().require_package('mcp')
+        _require_mcp()
         import mcp
-        from mcp.client.streamable_http import streamablehttp_client
+        from mcp.client.streamable_http import streamable_http_client
 
         error_msg: str | None = None
         async with (
-            streamablehttp_client(self.url) as (read_stream, write_stream, _),
+            streamable_http_client(self.url) as (read_stream, write_stream),
             mcp.ClientSession(read_stream, write_stream) as session,
         ):
             await session.initialize()
@@ -136,9 +142,12 @@ class McpFunction(Function):
 
             if self._is_verified:
                 res = await session.call_tool(name=self.tool_name, arguments=kwargs)
+                # call_tool's declared return is a union; the default flags raise instead of returning the
+                # other members, so a non-CallToolResult here is an SDK invariant break
+                assert isinstance(res, mcp.types.CallToolResult)
                 text_blocks = [item for item in res.content if isinstance(item, mcp.types.TextContent)]
                 joined_text = '\n'.join(block.text for block in text_blocks)
-                if res.isError:
+                if res.is_error:
                     detail = joined_text if len(text_blocks) > 0 else str(res.content)
                     error_msg = f'MCP tool {self.tool_name!r} at {self.url} reported an error:\n{detail}'
                 elif len(res.content) > 0 and len(text_blocks) == len(res.content):
@@ -184,7 +193,7 @@ def _tool_interface(sig: Signature) -> dict:
 
 
 def _signature_from_tool(mcp_tool: 'mcp.types.Tool') -> Signature:
-    input_schema = mcp_tool.inputSchema
+    input_schema = mcp_tool.input_schema
     params = {
         name: __mcp_param_to_pxt_type(mcp_tool.name, name, param) for name, param in input_schema['properties'].items()
     }

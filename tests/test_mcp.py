@@ -11,9 +11,11 @@ from typing import IO, Iterator, NoReturn
 import pytest
 
 import pixeltable as pxt
+from pixeltable.env import Env, PackageInfo
 
 from .utils import (
     DatabaseRoot,
+    pxt_raises,
     reload_catalog,
     rerun_on_network_error,
     skip_test_if_no_client,
@@ -85,6 +87,30 @@ class TestMcp:
         with _mcp_server_variant('gone', port):
             assert t.insert([{'a': 7, 'b': 8}], on_error='ignore').num_excs > 0
             assert 'no longer available' in t.where(t.a == 7).select(m=t.pixelmultiple.errormsg).collect()[0]['m']
+
+    def test_mcp_unsupported_version(self, init_env: None) -> None:
+        # an mcp outside the supported range is a Pixeltable error naming that range. checked before the 2.x
+        # client is imported, so an older install does not surface as ImportError.
+        skip_test_if_not_installed('mcp')
+        env = Env.get()
+        # the recorded version is process-global state; reach it through the instance dict so the test can
+        # stand in for an older (or too-new) install without a second environment
+        packages: dict[str, PackageInfo] = env.__dict__['_Env__optional_packages']
+        package_info = packages['mcp']
+        saved = package_info.version
+        try:
+            package_info.version = [1, 27, 2]
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'version >=2 is required'):
+                pxt.mcp_udfs('http://127.0.0.1:9/mcp')
+
+            # the ceiling is exclusive: 3.0.0 is outside >=2,<3, and 2.0.0 is inside it
+            package_info.version = [3, 0, 0]
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'version >=2,<3 is required'):
+                env.require_package('mcp', min_version=[2], max_version=[3])
+            package_info.version = [2, 0, 0]
+            env.require_package('mcp', min_version=[2], max_version=[3])
+        finally:
+            package_info.version = saved
 
     def test_mcp_as_tools(self, db_root: DatabaseRoot, init_mcp_server: str) -> None:
         skip_test_if_not_installed('mcp', 'openai')

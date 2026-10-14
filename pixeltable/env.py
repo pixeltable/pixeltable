@@ -948,11 +948,20 @@ class Env:
             )
 
     def require_package(
-        self, package_name: str, min_version: list[int] | None = None, not_installed_msg: str | None = None
+        self,
+        package_name: str,
+        min_version: list[int] | None = None,
+        not_installed_msg: str | None = None,
+        *,
+        max_version: list[int] | None = None,
     ) -> None:
         """
         Checks whether the specified optional package is available. If not, raises an exception
         with an error message informing the user how to install it.
+
+        Args:
+            min_version: Inclusive floor, as version components (`[2]` is 2, `[1, 3, 6]` is 1.3.6).
+            max_version: Exclusive ceiling, in the same form (`[3]` rejects 3.0.0 and newer).
         """
         assert package_name in self.__optional_packages
         package_info = self.__optional_packages[package_name]
@@ -975,10 +984,10 @@ class Env:
                         f'{not_installed_msg}. To install it, run: `pip install -U {package_info.library_name}`',
                     )
 
-            if min_version is None:
+            if min_version is None and max_version is None:
                 return
 
-            # check whether we have a version >= the required one
+            # check the installed version against the required range
             if package_info.version is None:
                 module = importlib.import_module(package_name)
                 version_str: str | None = getattr(module, '__version__', None)
@@ -986,14 +995,27 @@ class Env:
                     version_str = importlib.metadata.version(package_info.library_name)
                 package_info.version = [int(x) for x in version_str.split('.')]
 
-            if min_version > package_info.version:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'The installed version of package `{package_name}` is '
-                    f'{".".join(str(v) for v in package_info.version)}, '
-                    f'but version >={".".join(str(v) for v in min_version)} is required. '
-                    f'To fix this, run: `pip install -U {package_info.library_name}`',
-                )
+            installed = package_info.version
+            too_old = min_version is not None and _version_below(installed, min_version)
+            too_new = max_version is not None and not _version_below(installed, max_version)
+            if not too_old and not too_new:
+                return
+
+            range_parts: list[str] = []
+            if min_version is not None:
+                range_parts.append('>=' + '.'.join(str(v) for v in min_version))
+            if max_version is not None:
+                range_parts.append('<' + '.'.join(str(v) for v in max_version))
+            installed_str = '.'.join(str(v) for v in installed)
+            range_str = ','.join(range_parts)
+            message = (
+                f'The installed version of package `{package_name}` is {installed_str}, '
+                f'but version {range_str} is required.'
+            )
+            # upgrading fixes a version that is too old; it cannot fix one that is too new
+            if too_old:
+                message += f' To fix this, run: `pip install -U {package_info.library_name}`'
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, message)
 
     def clear_tmp_dir(self) -> None:
         for path in glob.glob(f'{self._tmp_dir}/*'):
@@ -1154,6 +1176,17 @@ class ApiClientFactory:
     init_fn: Callable
     params: dict[str, inspect.Parameter]
     credential_param: str | None
+
+
+def _version_below(installed: list[int], required: list[int]) -> bool:
+    """True when `installed` is strictly older than `required`.
+
+    Missing components count as 0, so `[2]` and `[2, 0, 0]` compare equal.
+    """
+    width = max(len(installed), len(required))
+    installed_padded = installed + [0] * (width - len(installed))
+    required_padded = required + [0] * (width - len(required))
+    return installed_padded < required_padded
 
 
 @dataclass
