@@ -37,7 +37,8 @@ skill files, and these rules:
   head versions of a file, read the same path in both directories.
 - **Shell:** only single commands that start with `gh pr view`, `gh pr diff`, or `gh pr checks`. No `cd`, `;`, `&&`,
   `|`, redirects, variables, or command substitution, and no other programs. List the changed files with
-  `gh pr diff <PR> --name-only`.
+  `gh pr diff <PR> --name-only`. Only the step 2 agent reads the full `gh pr diff`; the other agents use its change
+  ranges and read files.
 
 ## Where the code is
 
@@ -61,6 +62,10 @@ Create a todo list before you start.
 2. **Requirement and change map** (skill parts 1 and 2). Launch a sonnet agent to return:
    - the requirement, beneficiary, and acceptance criteria, each labeled as stated or inferred;
    - the base and head SHAs from `gh pr view <PR> --json baseRefOid,headRefOid`;
+   - the files to review and, for each, the line ranges that `gh pr diff` shows at the head. Skip lockfiles, generated
+     files, vendored code, minified bundles, and test snapshots, and list them as skipped;
+   - the number of changed lines in the files to review, and whether any of them handles a sensitive area: money,
+     authentication, permissions, secrets, or persisted schema and migrations;
    - the rules that apply, read from the working directory so that the PR cannot change them: the root `CLAUDE.md`;
      each `CLAUDE.md` in the directory of a changed file or a parent; each file those import with `@path`, such as
      `@AGENTS.md`; each file those point to for the changed area; and each `.github/instructions/*.instructions.md`
@@ -68,20 +73,22 @@ Create a todo list before you start.
    - the findings listed in earlier `## Claude review` reviews and comments;
    - the job card and the change map the skill describes, including any region left unread.
 
-3. **Review** (skill parts 3 to 5). Give each agent the output of step 2. Launch four agents in parallel. Each returns
+3. **Review** (skill parts 3 to 5). The PR is small when step 2 counts fewer than 200 changed lines and none of the
+   files handles a sensitive area; otherwise it is large. Give each agent the output of step 2. Each agent returns
    findings in the skill's part 6 form, plus questions it could not settle.
-   - Agent 1 (opus): walk the affected job through the changed code, then challenge correctness against the skill's
-     list in part 3. Attribute each finding against the base.
-   - Agent 2 (opus): the same task, independently, starting from the change map instead of the job.
-   - Agent 3 (sonnet): check the changed lines against the rules from step 2. A `CLAUDE.md` rule applies to a file
-     only when that `CLAUDE.md` is in the file's directory or a parent. Quote the exact rule each finding breaks.
-   - Agent 4 (sonnet): necessity and complexity (part 4) and what the tests and CI prove (part 5). Return maintenance
-     suggestions and coverage gaps, kept apart from defects.
+   - **Large PR:** launch these three agents in parallel.
+     - Correctness (opus): walk the affected job through the changed code, then go through the change map block by
+       block. Challenge correctness against the skill's list in part 3, and attribute each finding against the base.
+     - Rules (sonnet): check the changed lines against the rules from step 2. A `CLAUDE.md` rule applies to a file
+       only when that `CLAUDE.md` is in the file's directory or a parent. Quote the exact rule each finding breaks.
+     - Necessity and tests (sonnet): necessity and complexity (part 4) and what the tests and CI prove (part 5).
+       Return maintenance suggestions and coverage gaps, kept apart from defects.
+   - **Small PR:** launch one sonnet agent that does all three tasks.
 
-4. **Critic** (`critic.md`). For each finding, launch a subagent in parallel (opus for defects, sonnet for rules and
-   maintenance) that runs the nine critic checks against the PR head and the diff. It keeps the finding, narrows it,
-   turns it into a question, or drops it. Merge duplicates across agents. Drop a finding that an earlier
-   `## Claude review` review or comment already lists, unless the code it cites has changed since.
+4. **Critic** (`critic.md`). Launch one agent with every finding: opus for a large PR, sonnet for a small one. It runs
+   the nine critic checks on each finding against the files and the change ranges from step 2. For each finding, it
+   keeps it, narrows it, turns it into a question, or drops it. It merges duplicates and drops a finding that an
+   earlier `## Claude review` review or comment already lists, unless the code it cites has changed since.
 
 5. **Write the review** (skill part 6), in the form that "Review" and "Writing" describe, and end with the final
    message.
@@ -106,9 +113,9 @@ Create a todo list before you start.
   ### Limits
   ```
 
-  Leave out an empty section, except Limits. Limits names what was traced but not run, regions left unread, and CI
-  results the review relied on. The `## Claude review` heading marks the review complete, so a later run that finds
-  it does not review again.
+  Leave out an empty section, except Limits. Limits names what was traced but not run, the files skipped in step 2,
+  regions left unread, and CI results the review relied on. The `## Claude review` heading marks the review complete,
+  so a later run that finds it does not review again.
 
 ## Writing
 
