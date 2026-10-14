@@ -1,3 +1,4 @@
+import importlib.metadata
 import logging
 import os
 import socket
@@ -88,13 +89,12 @@ class TestMcp:
             assert t.insert([{'a': 7, 'b': 8}], on_error='ignore').num_excs > 0
             assert 'no longer available' in t.where(t.a == 7).select(m=t.pixelmultiple.errormsg).collect()[0]['m']
 
-    def test_mcp_unsupported_version(self, init_env: None) -> None:
-        # an mcp outside the supported range is a Pixeltable error naming that range. checked before the 2.x
-        # client is imported, so an older install does not surface as ImportError.
+    def test_mcp_unsupported_version(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        # an older mcp is a Pixeltable error naming the required version, checked before the 2.x client is
+        # imported. a pre-release such as 2.0.0rc1 still satisfies that floor.
         skip_test_if_not_installed('mcp')
         env = Env.get()
-        # the recorded version is process-global state; reach it through the instance dict so the test can
-        # stand in for an older (or too-new) install without a second environment
+        # the recorded version is process-global; reach it through the instance dict and restore it
         packages: dict[str, PackageInfo] = env.__dict__['_Env__optional_packages']
         package_info = packages['mcp']
         saved = package_info.version
@@ -103,12 +103,18 @@ class TestMcp:
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'version >=2 is required'):
                 pxt.mcp_udfs('http://127.0.0.1:9/mcp')
 
-            # the ceiling is exclusive: 3.0.0 is outside >=2,<3, and 2.0.0 is inside it
-            package_info.version = [3, 0, 0]
-            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'version >=2,<3 is required'):
-                env.require_package('mcp', min_version=[2], max_version=[3])
-            package_info.version = [2, 0, 0]
-            env.require_package('mcp', min_version=[2], max_version=[3])
+            package_info.version = None
+            import mcp
+
+            monkeypatch.delattr(mcp, '__version__', raising=False)
+
+            def metadata_version(distribution_name: str) -> str:
+                assert distribution_name == 'mcp'
+                return '2.0.0rc1'
+
+            monkeypatch.setattr(importlib.metadata, 'version', metadata_version)
+            env.require_package('mcp', [2])
+            assert package_info.version == [2, 0, 0]
         finally:
             package_info.version = saved
 

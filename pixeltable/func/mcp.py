@@ -12,9 +12,9 @@ if TYPE_CHECKING:
 
 
 def _require_mcp() -> None:
-    # MCP 2 removed streamablehttp_client; the replacement yields two streams. Reject anything older here so
-    # callers get a Pixeltable error naming the range, instead of an ImportError from the 2.x client.
-    Env.get().require_package('mcp', min_version=[2])
+    # Reject anything older here so callers get a Pixeltable error naming the range, instead of an
+    # ImportError from the 2.x client.
+    Env.get().require_package('mcp', [2])
 
 
 def mcp_udfs(url: str) -> list['pxt.func.Function']:
@@ -142,9 +142,6 @@ class McpFunction(Function):
 
             if self._is_verified:
                 res = await session.call_tool(name=self.tool_name, arguments=kwargs)
-                # call_tool's declared return is a union; the default flags raise instead of returning the
-                # other members, so a non-CallToolResult here is an SDK invariant break
-                assert isinstance(res, mcp.types.CallToolResult)
                 text_blocks = [item for item in res.content if isinstance(item, mcp.types.TextContent)]
                 joined_text = '\n'.join(block.text for block in text_blocks)
                 if res.is_error:

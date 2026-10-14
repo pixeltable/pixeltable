@@ -40,5 +40,4 @@ def pixeldict(d: dict[str, Any] | None) -> dict[str, Any]:
 
 
 if __name__ == '__main__':
-    # port and stateless_http are transport settings in MCP 2; they are no longer constructor arguments
     mcp.run(transport='streamable-http', stateless_http=True, port=_PORT)
