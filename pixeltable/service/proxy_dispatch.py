@@ -48,7 +48,10 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
     request._binary_parts = request_parts
     path_label = request.path_key.get('tbl_key', request.path_key) if request.path_key else ''
     _logger.debug('%s.%s %s', request.class_name, request.method, path_label)
-    method = f'{request.class_name}.{request.method}'
+    key = (request.class_name, request.method)
+    # the client sends any class_name and method, and an unknown pair maps to 'unsupported' so that the metric
+    # has a bounded set of method values
+    method = f'{request.class_name}.{request.method}' if key in _HANDLERS or key in _TABLE_HANDLERS else 'unsupported'
     t0 = time.monotonic()
     # set_current: catalog work before the operation itself (path resolution, the staleness check) nests here
     rpc_span = telemetry.span_start('pixeltable.rpc', set_current=True, attrs={'pxt.method': method})
@@ -73,8 +76,8 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
             error_dict['client_protocol_version'] = request.protocol_version
             error_dict['server_protocol_version'] = PROTOCOL_VERSION
             _logger.info('%s.%s error (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
+            error = mismatch
             return proxy_protocol.encode_response({'error': error_dict})
-        key = (request.class_name, request.method)
         table_handler = _TABLE_HANDLERS.get(key)
         if table_handler is not None:
             # Table method

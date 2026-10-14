@@ -23,7 +23,7 @@ from opentelemetry.trace import ProxyTracerProvider, StatusCode
 import pixeltable as pxt
 from pixeltable import telemetry, telemetry_schemas
 from pixeltable.catalog import IfExistsParam, Path as CatalogPath
-from pixeltable.service import proxy_daemon
+from pixeltable.service import proxy_daemon, proxy_dispatch
 from pixeltable.service.proxy_protocol import InlinePartSink, ProxyRequest, encode_body, serialize_args
 from pixeltable.serving._app import instrument_app
 from pixeltable.telemetry import SubscriberRegistry
@@ -367,11 +367,13 @@ class TestBridge:
             with TestClient(app) as client:
                 assert client.get('/health').status_code == 200
                 assert client.get('/health', headers={'x-pxt-gateway-time': f'{sent_at} 0.25'}).status_code == 200
-                # the first call creates the directory and the other two fail on it
+                # the first call creates the directory and the other three fail on it
                 assert client.post('/rpc', content=body).status_code == 200
                 assert client.post('/rpc', content=body).status_code == 200
                 gateway_headers = {'x-pxt-gateway-time': f'{sent_at} 0.25', 'traceparent': client_traceparent}
                 assert client.post('/rpc', content=body, headers=gateway_headers).status_code == 200
+                # a malformed gateway header counts as no header
+                assert client.post('/rpc', content=body, headers={'x-pxt-gateway-time': 'nope'}).status_code == 200
         finally:
             pxt.drop_dir('otel_rpc', force=True)
 
@@ -383,15 +385,15 @@ class TestBridge:
         # a request exports no span per ASGI message
         assert not any(s.name.endswith((' http send', ' http receive')) for s in spans)
         rpc_spans = sorted((s for s in spans if s.name == 'pixeltable.rpc'), key=lambda s: s.start_time)
-        assert [s.attributes['pxt.method'] for s in rpc_spans] == ['CatalogBase.create_dir'] * 3
+        assert [s.attributes['pxt.method'] for s in rpc_spans] == ['CatalogBase.create_dir'] * 4
         # a failed call marks its span, so that tail sampling keeps the trace
-        assert [s.status.status_code for s in rpc_spans] == [StatusCode.UNSET, StatusCode.ERROR, StatusCode.ERROR]
+        assert [s.status.status_code for s in rpc_spans] == [StatusCode.UNSET] + [StatusCode.ERROR] * 3
         request_spans = [span_ids[s.parent.span_id] for s in rpc_spans]
         assert {s.name for s in request_spans} == {'POST /rpc'}
         # catalog work of the call nests under its rpc span
         assert any(s.parent is not None and s.parent.span_id == rpc_spans[0].context.span_id for s in spans)
-        # without the gateway header, the request span is the root of its trace
-        assert request_spans[0].parent is None and request_spans[1].parent is None
+        # without a valid gateway header, the request span is the root of its trace
+        assert all(request_spans[i].parent is None for i in (0, 1, 3))
         # with it, the trace starts when the gateway received the request, and the client's traceparent is ignored
         gateway_span = span_ids[request_spans[2].parent.span_id]
         assert gateway_span.name == 'pixeltable.gateway' and gateway_span.parent is None
@@ -477,6 +479,27 @@ class TestBridge:
         metric = self._metric(metric_reader, 'pixeltable.test.latency_bounded')
         (point,) = metric.data.data_points
         assert list(point.explicit_bounds) == [0.1, 1.0, 10.0]
+
+    def test_daemon_request_metrics(self, metric_reader: Any) -> None:
+        args = {'path': CatalogPath.parse('otel_rpc'), 'if_exists': IfExistsParam.ERROR, 'parents': False}
+        request = ProxyRequest(
+            class_name='CatalogBase', method='create_dir', args=serialize_args(args, InlinePartSink())
+        )
+        try:
+            proxy_dispatch.handle(request.model_dump_json(), [])
+            # a client with another protocol version gets an error response, which counts as a failed call
+            proxy_dispatch.handle(request.model_copy(update={'protocol_version': 0}).model_dump_json(), [])
+            # a method that the client makes up is recorded as 'unsupported'
+            proxy_dispatch.handle(request.model_copy(update={'method': 'no_such_method'}).model_dump_json(), [])
+        finally:
+            pxt.drop_dir('otel_rpc', force=True)
+        metric = self._metric(metric_reader, 'pixeltable.rpc.duration')
+        counts = {(p.attributes['pxt.method'], p.attributes['pxt.error']): p.count for p in metric.data.data_points}
+        assert counts == {
+            ('CatalogBase.create_dir', False): 1,
+            ('CatalogBase.create_dir', True): 1,
+            ('unsupported', True): 1,
+        }
 
     def test_metrics_end_to_end(self, metric_reader: Any) -> None:
         pxt.create_dir('otel_metrics_smoke', if_exists='replace_force')

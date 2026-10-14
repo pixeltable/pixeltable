@@ -502,8 +502,7 @@ def _run_foreground(
             sys.exit(EXIT_ERROR)
         service_name = next(iter(services))
     app, _ = create_app(app_file, service_name, target)
-    if otel:
-        instrument_app(app)
+    asgi_app = instrument_app(app) if otel else app
     n_routes = len(app.routes)
     display_host = 'localhost' if host in ('0.0.0.0', '::') else host
     url = f'http://{display_host}:{port}'
@@ -511,7 +510,7 @@ def _run_foreground(
         print(json.dumps({'status': 'started', 'host': host, 'port': port, 'url': url, 'routes': n_routes}))
     else:
         print(f'Pixeltable is running on {url}\n  Routes: {n_routes}\n  API docs at {url}/docs')
-    uvicorn.run(app, host=host, port=port, log_config=None)
+    uvicorn.run(asgi_app, host=host, port=port, log_config=None)
 
 
 def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_run: bool) -> None:

@@ -1551,13 +1551,16 @@ class TestServiceOtel:
             patch('uvicorn.run') as mock_run,
             patch('opentelemetry.instrumentation.pixeltable.init') as mock_otel_init,
             patch('opentelemetry.instrumentation.pixeltable.instrument_fastapi') as mock_instrument_fastapi,
+            patch('opentelemetry.instrumentation.pixeltable._sdk._gateway_span_app') as mock_gateway_span_app,
         ):
             service_cmd.run(['run', str(app_file), 'my_dir', 'ingest', '--otel'])
         mock_otel_init.assert_called_once_with()
         mock_instrument_fastapi.assert_called_once_with(
             app, excluded_urls='/health$', exclude_spans=['receive', 'send']
         )
-        mock_run.assert_called_once()
+        mock_gateway_span_app.assert_called_once_with(app, '/health$')
+        # uvicorn serves the wrapper, so that the gateway header starts the trace
+        assert mock_run.call_args.args == (mock_gateway_span_app.return_value,)
 
 
 class TestServiceStop:

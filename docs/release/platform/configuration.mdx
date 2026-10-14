@@ -88,6 +88,8 @@ Settings are resolved in this order:
 3. **Global config**: `<key>` under `[pixeltable]` / `[otel]` in `config.toml`, shared by every database on the installation
 4. **Fallback**: a hosted database uses its home bucket for media
 
+Pixeltable on the pods of a hosted database skips the entry's `db_exporter_otlp_endpoint` and `db_exporter_otlp_protocol`. It sends its telemetry to the collector in the pod, at the address in the pod's environment.
+
 The OTLP auth headers are a secret and do not go in the entry: set `OTEL_EXPORTER_OTLP_HEADERS` in the environment, and on a hosted database with `pxt secret set pxt://org:db OTEL_EXPORTER_OTLP_HEADERS=...` (see [`pxt secret`](/platform/cli#pxt-secret)).
 
 ### Telemetry from a hosted database

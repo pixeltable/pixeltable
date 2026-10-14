@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import math
 import threading
+import time
 from typing import Any, Literal
 
 from opentelemetry import metrics as otel_metrics, trace
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.trace import ProxyTracerProvider
+from opentelemetry.util.http import parse_excluded_urls  # type: ignore[import-untyped]
 
 from pixeltable import __version__, exceptions as excs, telemetry
 from pixeltable.config import Config
@@ -58,7 +61,8 @@ def init(
     Call once, before the first Pixeltable operation. Each argument overrides the matching `[otel]`
     config setting and its standard `OTEL_*` environment variable; when an argument is left as None the
     value resolves from the database's `[[pixeltable.database]]` entry where it sets one (the endpoint and
-    protocol, as `db_<key>`), then that env var, then the `[otel]` config section. Pass
+    protocol, as `db_<key>`), then that env var, then the `[otel]` config section. On the pods of a hosted
+    database, init() skips the entry's endpoint and protocol and reads them from the pod's environment. Pass
     `tracer_provider`/`meter_provider` to instrument against an SDK your application owns instead.
 
     Args:
@@ -141,21 +145,25 @@ def _gateway_span_app(app: Any, excluded_urls: str) -> Any:
 
     The gateway sends the header `x-pxt-gateway-time: <unix time> <seconds since it received the request>`.
     For example, `1760400000.250 0.012` means that the gateway received the request at 1760400000.238.
-    Requests without the header pass through unchanged, and so do requests to `excluded_urls`, the patterns
+    Requests without a valid header pass through unchanged, and so do requests to `excluded_urls`, the patterns
     that `instrument_fastapi()` also leaves untraced.
     """
-    from opentelemetry.util.http import parse_excluded_urls
-
     tracer = trace.get_tracer('pixeltable', __version__, tracer_provider=_state.tracer_provider)
     excluded = parse_excluded_urls(excluded_urls)
 
     async def wrapped_app(scope: Any, receive: Any, send: Any) -> None:
-        timing = next((value for name, value in scope.get('headers', ()) if name == b'x-pxt-gateway-time'), None)
-        if timing is None or excluded.url_disabled(scope['path']):
+        timing = next((value for name, value in scope.get('headers', ()) if name == b'x-pxt-gateway-time'), b'')
+        try:
+            sent_at, elapsed = (float(field) for field in timing.split())
+        except ValueError:
+            sent_at = elapsed = math.nan
+        received_at = sent_at - elapsed
+        # a missing or malformed header gives nan, and a non-finite or negative time cannot start a span
+        if not 0 < received_at < math.inf or excluded.url_disabled(scope['path']):
             await app(scope, receive, send)
             return
-        sent_at, elapsed = (float(field) for field in timing.split())
-        received_ns = int((sent_at - elapsed) * 1e9)
+        # a gateway clock ahead of this pod's clock would put the start after the end of the span
+        received_ns = int(min(received_at, time.time()) * 1e9)
         # the http instrumentation nests its request span under a current span, ignoring any client traceparent
         with tracer.start_as_current_span('pixeltable.gateway', start_time=received_ns, kind=trace.SpanKind.SERVER):
             await app(scope, receive, send)

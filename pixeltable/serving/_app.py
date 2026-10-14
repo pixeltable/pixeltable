@@ -71,9 +71,10 @@ def instrument_app(app: 'fastapi.FastAPI') -> Any:
     gateway received it.
     """
     import opentelemetry.instrumentation.pixeltable as pxt_otel
+    from opentelemetry.instrumentation.pixeltable._sdk import _gateway_span_app
 
     # k8s probes call /health every few seconds, and a trace per probe is noise
     excluded_urls = '/health$'
     # a span per ASGI message sent or received would double the spans of every request
     pxt_otel.instrument_fastapi(app, excluded_urls=excluded_urls, exclude_spans=['receive', 'send'])
-    return pxt_otel._gateway_span_app(app, excluded_urls)
+    return _gateway_span_app(app, excluded_urls)
