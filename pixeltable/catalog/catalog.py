@@ -3169,7 +3169,6 @@ class Catalog(CatalogBase):
             raise excs.NotFoundError(excs.ErrorCode.DIRECTORY_NOT_FOUND, f'Directory not found: {dir_id}')
         return schema.Dir(**row._mapping)
 
-    # TODO continue from here
     def _move_table(self, tbl_id: UUID, new_name: str, new_dir_id: UUID, *, is_pure_snapshot: bool) -> None:
         """Update dir_id/name for tbl_id."""
         conn = get_runtime().conn
@@ -3701,6 +3700,7 @@ class Catalog(CatalogBase):
         res = conn.execute(stmt)
         assert res.rowcount == 1, res.rowcount
 
+    # TODO continue from here
     @telemetry.spanned('pixeltable.catalog.delete_tbl_md')
     def delete_tbl_md(self, tbl_id: UUID) -> None:
         """
