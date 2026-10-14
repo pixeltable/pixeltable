@@ -39,10 +39,12 @@ _N_RUN_CORO_WORKERS = 1
 _RUN_CORO_THREAD_PREFIX = 'pxt-run-coro'
 
 
-def _close_catalogs(catalogs: dict[Path, CatalogBase], inherited: set[Path]) -> None:
-    for catalog_uri, cat in catalogs.items():
-        if catalog_uri not in inherited:
+def _close_catalogs(catalogs: list[CatalogBase]) -> None:
+    for cat in catalogs:
+        try:
             cat.close()
+        except Exception as e:
+            _logger.debug(f'Error closing catalog: {e}')
 
 
 # how long close_threadpool_runtimes() waits for a worker
@@ -60,8 +62,9 @@ class Runtime:
 
     # catalogs keyed by their catalog_uri Path (ROOT_PATH = the in-process catalog)
     _catalogs: dict[Path, CatalogBase]
-    # the keys of _catalogs that copy_db_context() copied; the runtime they came from closes them
-    _inherited_catalogs: set[Path]
+    # the proxy catalogs this runtime created, which it closes; copy_db_context() copies other catalogs into _catalogs
+    # without adding them here
+    _owned_catalogs: list[CatalogBase]
 
     conn: sql.Connection | None
     session: orm.Session | None
@@ -87,9 +90,9 @@ class Runtime:
         # Catalogs are created lazily to avoid circular initialization:
         # Catalog.__init__() calls _init_store() which needs begin_xact() which calls get_runtime().
         self._catalogs = {}
-        self._inherited_catalogs = set()
+        self._owned_catalogs = []
         # a thread's runtime is discarded when the thread ends, without a close()
-        weakref.finalize(self, _close_catalogs, self._catalogs, self._inherited_catalogs)
+        weakref.finalize(self, _close_catalogs, self._owned_catalogs)
         self.conn = None
         self.session = None
         self.isolation_level = None
@@ -108,9 +111,8 @@ class Runtime:
         self.session = other.session
         self.isolation_level = other.isolation_level
         # share the same catalog instances, but with an independent map so each thread can add catalogs
-        # without racing; updated in place, since the finalizer from __init__() holds the map and set
-        self._catalogs.update(other._catalogs)
-        self._inherited_catalogs.update(other._catalogs)
+        # without racing
+        self._catalogs = dict(other._catalogs)
         self._progress = other._progress
         self.context_inherited = True
         self.fault_manager = other.fault_manager
@@ -143,6 +145,7 @@ class Runtime:
         if cat is None:
             cat = self._make_proxy_catalog(catalog_uri)
             self._catalogs[catalog_uri] = cat
+            self._owned_catalogs.append(cat)
         return cat
 
     def get_proxy_client(self, path: Path) -> ProxyClient:
@@ -247,8 +250,8 @@ class Runtime:
         self._clients.clear()
 
     def close(self) -> None:
-        """Close this runtime's clients, its catalogs' connections and the runtimes of its run_coro() threads, plus
-        the event loop if this runtime created it."""
+        """Close this runtime's clients, its catalogs and the runtimes of its run_coro() threads, plus the event loop
+        if this runtime created it."""
         # close_threadpool_runtimes() submits to the executor and waits, which deadlocks when the caller is one of
         # its own workers; a worker closes the runtime it created for itself, never this one
         if self._run_coro_executor is not None and not threading.current_thread().name.startswith(
@@ -297,8 +300,8 @@ class Runtime:
         self.close_catalogs()
 
     def close_catalogs(self) -> None:
-        """Close the connections of the catalogs this runtime created. The catalogs stay usable."""
-        _close_catalogs(self._catalogs, self._inherited_catalogs)
+        """Close the catalogs this runtime created."""
+        _close_catalogs(self._owned_catalogs)
 
     def run_coro(self, coro: Coroutine[Any, Any, _T]) -> _T:
         """Run a coroutine synchronously in a separate thread with its own persistent event loop."""

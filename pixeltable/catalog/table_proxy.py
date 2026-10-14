@@ -63,8 +63,8 @@ class TableProxy(Table):
 
     @property
     def _client(self) -> ProxyClient:
-        # the current runtime's, as for a query: a runtime closes its catalogs' connections, and a handle can outlive
-        # the runtime that loaded it
+        # looked up on each call rather than kept: the runtime that loaded this handle closes its client when that
+        # runtime ends, and the handle can still be used after that, or from another thread
         return get_runtime().get_proxy_client(self._catalog_uri)
 
     @property

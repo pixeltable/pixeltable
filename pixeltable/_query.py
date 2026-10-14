@@ -380,7 +380,7 @@ class ProxyResultCursor(ResultCursor):
                     scheme = urllib.parse.urlparse(val).scheme
                     if len(scheme) > 1 and scheme != 'file':
                         media_urls.add(val)
-        # the current runtime's client, as for a table handle: the runtime that ran the query may be closed by now
+        # the runtime that ran the query may have closed its client since
         client = get_runtime().get_proxy_client(self._query._from_clause.catalog_uri)
         local_paths = client.fetch_media(list(media_urls)) if len(media_urls) > 0 else {}
 
