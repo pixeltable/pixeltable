@@ -61,13 +61,15 @@ jobs:
       # action stops at that turn's end, so nothing gets posted.
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1'
     steps:
-      # Tells the person who commented "claude review" that the review started.
+      # Tells the person who commented "claude review" that the review started. Grok and Muse already use eyes, rocket,
+      # and heart.
       - if: github.event_name == 'issue_comment'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           COMMENT_ID: ${{ github.event.comment.id }}
-        run: gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=eyes --silent
+        run: gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=+1 --silent
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
@@ -89,9 +91,9 @@ jobs:
             -prune -exec rm -rf {} +
       # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB fails without bubblewrap, and the action installs it only when
       # allowed_non_write_users is set. Ubuntu 24.04 blocks the unprivileged user namespaces bubblewrap needs.
-      # This step, the Claude step, and the post step continue on error, so a failed review does not mark the PR's
-      # check red. The report step turns a failure into a warning, and the last step reacts to the comment with a
-      # confused face.
+      # This step, the Claude step, the post step, and both reaction steps continue on error, so a failed review does
+      # not mark the PR's check red. The report step turns a failure into a warning, and the last step reacts to the
+      # comment with a confused face.
       - continue-on-error: true
         run: |
           sudo apt-get update -qq
@@ -137,6 +139,7 @@ jobs:
       - if: >-
           always() && github.event_name == 'issue_comment' &&
           (steps.claude.outcome != 'success' || steps.post.outcome != 'success')
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}

@@ -19,12 +19,20 @@ def final_message(execution_file: str) -> str:
 
 
 def review_json(message: str) -> dict[str, Any] | None:
-    # The block is the last one in the message. Suggestion blocks inside its JSON strings come before its closing fence.
-    start = message.rfind('```json')
-    end = message.rfind('```')
-    if start == -1 or end <= start:
+    # Match fences by whole lines. A JSON string cannot hold a raw newline, so a fence quoted in the body or a comment
+    # never fills a line of its own.
+    lines = message.splitlines()
+    closes = [i for i, line in enumerate(lines) if line.strip() == '```']
+    if not closes:
         return None
-    data: dict[str, Any] = json.loads(message[start + len('```json') : end])
+    opens = [i for i, line in enumerate(lines[: closes[-1]]) if line.strip() == '```json']
+    if not opens:
+        return None
+    try:
+        data: dict[str, Any] = json.loads('\n'.join(lines[opens[-1] + 1 : closes[-1]]))
+    except json.JSONDecodeError as e:
+        print(f'The review JSON does not parse: {e}')
+        return None
     return data
 
 
@@ -50,7 +58,7 @@ def main() -> int:
     repo, pr = os.environ['REPO'], os.environ['PR_NUMBER']
     data = review_json(final_message(os.environ['EXECUTION_FILE']))
     if data is None:
-        print("::warning::Claude's final message has no review JSON, so nothing was posted.")
+        print("::warning::Claude's final message has no review JSON that parses, so nothing was posted.")
         return 1
     if not data.get('post'):
         print(f'Nothing to post: {data.get("reason", "no reason given")}')
@@ -67,14 +75,11 @@ def main() -> int:
         print(f'::warning::GitHub rejected the review: {result.stderr.strip()}')
         return 1
 
-    # GitHub rejects the whole review when one comment's line is outside the diff. Move every comment into the body.
+    # GitHub rejects the whole review when one comment's line is outside the diff. Move every comment into the body,
+    # and leave out commit_id, in case GitHub rejected that instead.
     print(f'::warning::GitHub rejected the inline comments: {result.stderr.strip()}')
     moved = '\n\n'.join(f'**{c["path"]}:{c["line"]}**\n\n{c["body"]}' for c in comments)
-    review = {
-        'commit_id': data['commit_id'],
-        'body': f'{data["body"]}\n\n### Comments not attached to lines\n\n{moved}',
-        'event': 'COMMENT',
-    }
+    review = {'body': f'{data["body"]}\n\n### Comments not attached to lines\n\n{moved}', 'event': 'COMMENT'}
     result = post(repo, pr, review)
     if result.returncode == 0:
         print(f'Posted one review with {len(comments)} comments in its body.')
