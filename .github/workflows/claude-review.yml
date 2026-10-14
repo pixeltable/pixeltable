@@ -106,10 +106,12 @@ jobs:
             --requested
           # Naming Grep or Glob here restores both tools, which Claude Code leaves out on Linux by default. Claude has
           # no tool that posts: its final message holds the review, and the post step publishes it.
+          # The main agent only coordinates and writes the final JSON. The prompt picks a model for each subagent.
           claude_args: >-
-            --model claude-opus-5-5
+            --model claude-sonnet-5-5
             --allowedTools "Read" "Grep" "Glob" "Bash(gh pr view:*)" "Bash(gh pr diff:*)" "Bash(gh pr checks:*)"
-      # The action hides Claude's transcript. Print Claude's final message and each tool call the allowlist refused.
+      # The action hides Claude's transcript. Print Claude's final message, each tool call the allowlist refused, and
+      # the cost per model.
       - if: always()
         env:
           OUTCOME: ${{ steps.claude.outcome }}
@@ -119,6 +121,10 @@ jobs:
           if [ -z "$EXECUTION_FILE" ] || [ ! -f "$EXECUTION_FILE" ]; then exit 0; fi
           jq -r '.[] | select(.type == "result") | .result // empty' "$EXECUTION_FILE"
           jq -c '.[] | select(.type == "result") | .permission_denials[]? | {tool_name, tool_input}' "$EXECUTION_FILE"
+          jq -r '.[] | select(.type == "result") | (.modelUsage // {}) | to_entries[] | [.key,
+            "$\((.value.costUSD * 100 | round) / 100)", "input \(.value.inputTokens)", "output \(.value.outputTokens)",
+            "cache read \(.value.cacheReadInputTokens)", "cache write \(.value.cacheCreationInputTokens)"]
+            | join(", ")' "$EXECUTION_FILE"
       # Posts the summary and the inline comments as one review.
       - id: post
         if: steps.claude.outcome == 'success'
