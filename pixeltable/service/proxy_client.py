@@ -13,10 +13,15 @@ import json
 import logging
 import re
 import selectors
+import shutil
 import socket
 import ssl
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
@@ -29,6 +34,7 @@ from tenacity import (
     retry,
     retry_if_exception_type,
     retry_if_not_exception_type,
+    stop_after_attempt,
     stop_after_delay,
     wait_exponential_jitter,
 )
@@ -37,9 +43,15 @@ from pixeltable import exceptions as excs
 from pixeltable.catalog.path import Path as CatalogPath
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.row import RowBatch
+from pixeltable.utils.cloud_utils import (
+    MAX_PRESIGNED_URL_KEYS,
+    get_presigned_url_from_cloud,
+    get_presigned_urls_from_cloud,
+)
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.http import fetch_url
+from pixeltable.utils.http import DOWNLOAD_USER_AGENT, fetch_url, retry_if_retryable_error, tcp_keepalive_options
 from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.object_stores import ObjectPath, StorageTarget
 
 from . import proxy_protocol
 from .management_client import Credential, is_refusal, refusal
@@ -64,6 +76,12 @@ _logger = logging.getLogger(__name__)
 # placeholder tbl_id/col_id (the cache key is the daemon media URL, which is stable per file).
 _PROXY_MEDIA_TBL_ID = UUID(int=0)
 _PROXY_MEDIA_COL_ID = 0
+
+# home-bucket media is read through URLs the control plane signs, never with credentials for the bucket
+# every URL of a result is signed before its first download; one that expires before its download starts is signed
+# again (_fetch_signed)
+_SIGNED_URL_TTL_S = 900
+_SIGNED_DOWNLOAD_TIMEOUT_S = 60.0
 
 
 def _replace_media_paths(obj: Any, make_url: Callable[[str], str]) -> Any:
@@ -138,14 +156,19 @@ class HttpTransport(Transport):
         self._http.close()
 
 
-_CONNECT_TIMEOUT = 30.0
+# A TCP connect that times out on every try reads as a network that blocks the port, so the tries must outlast a
+# gateway rollout, in which a load balancer address can drop SYNs for ~20 s. create_connection() gives each address
+# the timeout, and *.pxt.run resolves to two.
+_CONNECT_TIMEOUT = 10.0
+_CONNECT_TRIES = 2
+_HANDSHAKE_TIMEOUT = 30.0  # TLS + PXT/1.0
 _RPC_TIMEOUT = 1800.0
 _MAX_POOL_SIZE = 16  # matches the fetch_media download threadpool
 _MAX_IDLE_S = 4.0  # below the proxy daemon's 5 s keep-alive, so no connection is reused as the daemon closes it
 
 # Failures that leave the request undelivered (connect, handshake, writing it); retried with backoff.
 _TUNNEL_TRANSIENT_EXC = (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError)
-_TUNNEL_RETRY_MAX_DELAY = 90.0  # seconds; > _CONNECT_TIMEOUT so a hung handshake still leaves retry budget
+_TUNNEL_RETRY_MAX_DELAY = 90.0  # seconds; > _HANDSHAKE_TIMEOUT so a hung handshake still leaves retry budget
 
 
 class _TunnelHTTPConnection(http.client.HTTPConnection):
@@ -260,19 +283,13 @@ class TunnelTransport(Transport):
         # before connecting: renewing a session is a round trip of its own, and a refused credential needs no socket
         credential = self._credential_cb()
         ctx = ssl.create_default_context()
-        raw_sock = socket.create_connection((self._host, self._port), timeout=_CONNECT_TIMEOUT)
+        raw_sock = self._open_socket()
         ssl_sock: ssl.SSLSocket | None = None
         try:
+            raw_sock.settimeout(_HANDSHAKE_TIMEOUT)
             raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            raw_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-            # TCP_KEEPIDLE is Linux; macOS uses TCP_KEEPALIVE for the same purpose
-            keepidle = getattr(socket, 'TCP_KEEPIDLE', None) or getattr(socket, 'TCP_KEEPALIVE', None)
-            if keepidle is not None:
-                raw_sock.setsockopt(socket.IPPROTO_TCP, keepidle, 60)
-            if hasattr(socket, 'TCP_KEEPINTVL'):
-                raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 30)
-            if hasattr(socket, 'TCP_KEEPCNT'):
-                raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
+            for level, option, value in tcp_keepalive_options():
+                raw_sock.setsockopt(level, option, value)
             ssl_sock = ctx.wrap_socket(raw_sock, server_hostname=self._host)
 
             # the sidecar authenticates the credential and routes the tunnel to org/db, then relays to the
@@ -291,13 +308,33 @@ class TunnelTransport(Transport):
             if not first_line.startswith('PXT/1.0 200'):
                 raise self._handshake_error(first_line, credential)
 
-            # Switch from the connect-phase timeout to the RPC timeout now that the handshake is done;
-            # otherwise the socket would time out on any request that takes longer than _CONNECT_TIMEOUT.
+            # Switch from the handshake timeout to the RPC timeout now that the handshake is done;
+            # otherwise the socket would time out on any request that takes longer than _HANDSHAKE_TIMEOUT.
             ssl_sock.settimeout(_RPC_TIMEOUT)
             return _TunnelHTTPConnection(self._host, ssl_sock, timeout=_RPC_TIMEOUT)
         except Exception:
             (ssl_sock or raw_sock).close()
             raise
+
+    def _open_socket(self) -> socket.socket:
+        """Open the TCP connection, failing without retries when every try times out (see _CONNECT_TRIES).
+
+        Any other error, and any failure after the connection opens, is raised as it is and retried in `_request()`.
+        """
+        timeout: TimeoutError | None = None
+        for _ in range(_CONNECT_TRIES):
+            try:
+                return socket.create_connection((self._host, self._port), timeout=_CONNECT_TIMEOUT)
+            except TimeoutError as e:
+                _logger.debug('TCP connect to %s:%d timed out', self._host, self._port)
+                timeout = e
+        # every tunnel host is <org>-<db>.<domain>, so allowing *.<domain> covers every database
+        domain = self._host.partition('.')[2]
+        raise excs.ServiceUnavailableError(
+            excs.ErrorCode.DATABASE_UNAVAILABLE,
+            f'Cannot reach pxt://{self._org}:{self._db}: the TCP connection to {self._host}:{self._port} timed out.\n'
+            f'If this network blocks outbound ports, allow outbound TCP port {self._port} to *.{domain}.',
+        ) from timeout
 
     def _handshake_error(self, status_line: str, sent: Credential) -> Exception:
         """A refusal reads as the control plane's does, naming the credential; any other status is retried."""
@@ -311,8 +348,8 @@ class TunnelTransport(Transport):
         """Borrow a tunnel connection, issue one request, return the raw body.
 
         A failure that leaves the request undelivered (connect, handshake, writing it) is retried with
-        backoff on a fresh connection, as is a 5xx; a refused credential, a connection the OS refuses, and
-        non-5xx HTTP errors are not.
+        backoff on a fresh connection, as is a 5xx; a refused credential, a connection the OS refuses, a TCP
+        connect that timed out on every try, and non-5xx HTTP errors are not.
 
         A connection that fails *after* the daemon has received the request is treated as a server crash and is
         not retried; retries in this scenario can inadvertently DOS the pod.
@@ -373,6 +410,90 @@ class TunnelTransport(Transport):
 
     def close(self) -> None:
         self._pool.close()
+
+
+def _sign_home_bucket_urls(urls: list[str]) -> dict[str, str]:
+    """A signed https URL for each of urls that addresses a home bucket, in either spelling."""
+    # (org, db, bucket) -> {key: [url]}: both spellings of an address name the same key, which is signed once
+    by_bucket: defaultdict[tuple[str, str, str], dict[str, list[str]]] = defaultdict(dict)
+    for url in urls:
+        try:
+            soa = ObjectPath.parse_object_storage_addr(url, allow_obj_name=True)
+        except ValueError:
+            continue  # the transport refuses it, as it did before
+        if soa.storage_target == StorageTarget.PIXELTABLE_STORE:
+            by_bucket[soa.account, soa.account_extension, soa.container].setdefault(soa.key, []).append(url)
+    signed: dict[str, str] = {}
+    for (org, db, bucket), urls_by_key in by_bucket.items():
+        keys = list(urls_by_key)
+        for i in range(0, len(keys), MAX_PRESIGNED_URL_KEYS):
+            chunk = keys[i : i + MAX_PRESIGNED_URL_KEYS]
+            url_by_key = _sign_keys(org, db, bucket, chunk)
+            signed.update((url, url_by_key[key]) for key in chunk for url in urls_by_key[key])
+    return signed
+
+
+def _sign_keys(org: str, db: str, bucket: str, keys: list[str]) -> dict[str, str]:
+    """A signed GET URL for each of at most MAX_PRESIGNED_URL_KEYS keys in a bucket of org/db, by key."""
+    try:
+        return get_presigned_urls_from_cloud(org, db, bucket, keys, expires_in=_SIGNED_URL_TTL_S)
+    except excs.ExternalServiceError as e:
+        # a control plane from before get_presigned_urls refuses the operation as a bad request
+        if e.provider_http_status_code != 400:
+            raise
+    return {key: get_presigned_url_from_cloud(org, db, bucket, key, expiration=_SIGNED_URL_TTL_S) for key in keys}
+
+
+@retry(
+    retry=retry_if_retryable_error,
+    wait=wait_exponential_jitter(initial=0.5, max=5.0),
+    stop=stop_after_attempt(3),
+    reraise=True,
+)
+def _download(url: str, path: Path) -> None:
+    request = urllib.request.Request(url, headers={'User-Agent': DOWNLOAD_USER_AGENT})
+    with urllib.request.urlopen(request, timeout=_SIGNED_DOWNLOAD_TIMEOUT_S) as r, path.open('wb') as f:
+        shutil.copyfileobj(r, f)
+
+
+def _fetch_signed(url: str, signed_url: str) -> Path:
+    """Download the media at url, a home-bucket address, from its signed URL into a temp file.
+
+    fetch_url() cannot: it drops a URL's query string, which carries the signature.
+    """
+    try:
+        return _fetch_signed_once(url, signed_url)
+    except excs.ExternalServiceError as e:
+        # an expired URL is refused like any other; the second refusal is the one raised
+        if e.provider_http_status_code != 403:
+            raise
+    soa = ObjectPath.parse_object_storage_addr(url, allow_obj_name=True)
+    return _fetch_signed_once(url, _sign_keys(soa.account, soa.account_extension, soa.container, [soa.key])[soa.key])
+
+
+def _fetch_signed_once(url: str, signed_url: str) -> Path:
+    path = TempStore.create_path(extension=Path(urllib.parse.urlparse(url).path).suffix)
+    # the signed URL's query string is a credential, which a download error can hold (an HTTPError's url, a
+    # ValueError's message): the error raised names url instead, and chains nothing
+    try:
+        _download(signed_url, path)
+    except urllib.error.HTTPError as e:
+        path.unlink(missing_ok=True)
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Failed to download {url}: HTTP {e.code}',
+            provider='pixeltable_cloud',
+            status_code=e.code,
+        ) from None
+    except Exception as e:
+        path.unlink(missing_ok=True)
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR, f'Failed to download {url}: {type(e).__name__}', provider='pixeltable_cloud'
+        ) from None
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+    return path
 
 
 # Daemons from before the version fields put both numbers only in this sentence.
@@ -506,7 +627,11 @@ class ProxyClient:
         return _replace_media_paths(result, self._transport.media_url)
 
     def fetch_media(self, urls: list[str]) -> dict[str, str]:
-        """Fetch each daemon/remote media URL into the local store, returning {url: local_path}."""
+        """Fetch each daemon/remote media URL into the local store, returning {url: local_path}.
+
+        Home-bucket media comes through URLs the control plane signs, a call per MAX_PRESIGNED_URL_KEYS keys: the
+        client never holds credentials for a bucket.
+        """
         cache = FileCache.get()
         resolved: dict[str, str] = {}
         to_fetch: list[str] = []
@@ -518,10 +643,16 @@ class ProxyClient:
                 to_fetch.append(url)
 
         if len(to_fetch) > 0:
-            # the transport handles every supported scheme (the daemon's media URLs as well as external s3/http
+            signed = _sign_home_bucket_urls(to_fetch)
+
+            def fetch(url: str) -> Path:
+                signed_url = signed.get(url)
+                return self._transport.fetch(url) if signed_url is None else _fetch_signed(url, signed_url)
+
+            # the transport handles every other supported scheme (the daemon's media URLs as well as external s3/http
             # media); fetch concurrently, but keep FileCache bookkeeping on this thread (not thread-safe)
             with ThreadPoolExecutor(max_workers=min(16, len(to_fetch))) as executor:
-                tmp_paths = list(executor.map(self._transport.fetch, to_fetch))
+                tmp_paths = list(executor.map(fetch, to_fetch))
             for url, tmp in zip(to_fetch, tmp_paths):
                 resolved[url] = str(cache.add(_PROXY_MEDIA_TBL_ID, _PROXY_MEDIA_COL_ID, url, tmp))
 

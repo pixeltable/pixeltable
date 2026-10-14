@@ -82,7 +82,7 @@ class TestDestination:
             case StorageTarget.R2_STORE:
                 uri = 'https://ae60fad96d33636287c3b2e76b88241f.r2.cloudflarestorage.com/pxt-test/pytest'
             case StorageTarget.PIXELTABLE_STORE:
-                uri = 'pxtfs://pixeltable:main/home/pytest'
+                uri = 'pxt://pixeltable:main/buckets/home/pytest'
             case StorageTarget.TIGRIS_STORE:
                 uri = 'https://t3.storage.dev/pxt-test/pytest'
 
@@ -94,7 +94,7 @@ class TestDestination:
                 pytest.skip(f'Destination {str(dest_id)!r} not reachable or not configured properly: {exc}')
             return None
 
-    def test_dest_errors(self, db_root: DatabaseRoot) -> None:
+    def test_dest_errors(self, db_root: DatabaseRoot, request: pytest.FixtureRequest) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test_dest_errors'), schema={'img': pxt.Image | None})
 
@@ -111,7 +111,8 @@ class TestDestination:
                 t.add_computed_column(img_rot=t.img.rotate(90), destination='tests/data/')
             return
 
-        valid_dest = 'tests/data/'
+        valid_dest = self.resolve_destination_uri(StorageTarget.LOCAL_STORE)
+        assert valid_dest is not None
         # destination only applies to stored computed columns
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='only applies to stored computed columns'):
             t.add_computed_column(img_rot=t.img.rotate(90), stored=False, destination=valid_dest)
@@ -120,6 +121,19 @@ class TestDestination:
             _ = pxt.create_table(
                 p('test_dest_bad'), schema={'img': {'type': pxt.Image | None, 'destination': f'{valid_dest}'}}
             )
+
+        # a local destination inside the project directory is not allowed
+        project_root: Path = request.getfixturevalue('project_env')
+        in_project = project_root / 'media'
+        in_project.mkdir()
+        for dest in (str(in_project), in_project.as_uri(), project_root.as_uri(), str(project_root / 'missing')):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is inside the project directory'):
+                t.add_computed_column(img_rot=t.img.rotate(90), destination=dest)
+        # Yet a sibling directory to the project root is acceptable
+        sibling = project_root.parent / f'{project_root.name}-media'
+        sibling.mkdir()
+        t.add_computed_column(img_sibling=t.img.rotate(90), destination=str(sibling))
+        t.add_computed_column(img_dotdot=t.img.rotate(90), destination=str(project_root / '..' / sibling.name))
 
         # Test destination with a non-existent directory
         with pxt_raises(pxt.ErrorCode.STORAGE_NOT_FOUND, match='does not exist'):
@@ -235,6 +249,74 @@ class TestDestination:
 
         with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
             ObjectPath.parse_object_storage_addr('pxtfs://org:db/homebucket', allow_obj_name=False)
+
+    def test_dest_parser_pxt_buckets(self) -> None:
+        """pxt://org:db/buckets/home[/key] is the address pxtfs://org:db/home[/key] names, and both spellings give the
+        pxt:// one."""
+        # keys are opaque: an object key may hold colons and dots, which a catalog path would read as a version
+        # and a dotted path
+        for path in (
+            '',
+            '/',
+            '/media/images',
+            '/media/images/',
+            '/media/images/img.jpg',
+            '/9f3a/2026-09-01T10:30:00Z.mp4',
+        ):
+            for allow_obj_name in (False, True):
+                pxtfs = ObjectPath.parse_object_storage_addr(f'pxtfs://org:db/home{path}', allow_obj_name)
+                pxt = ObjectPath.parse_object_storage_addr(f'pxt://org:db/buckets/home{path}', allow_obj_name)
+                assert pxt == pxtfs, path
+
+        soa = ObjectPath.parse_object_storage_addr(
+            'pxt://org:db/buckets/home/9f3a/2026-09-01T10:30:00Z.mp4', allow_obj_name=True
+        )
+        assert soa.storage_target == StorageTarget.PIXELTABLE_STORE
+        assert soa.scheme == 'pxt'
+        assert (soa.account, soa.account_extension, soa.container) == ('org', 'db', 'home')
+        assert soa.key == '9f3a/2026-09-01T10:30:00Z.mp4'
+        assert soa.prefix == '9f3a/'
+        assert soa.object_name == '2026-09-01T10:30:00Z.mp4'
+
+        # the uris a store writes start from the pxt:// spelling, whichever spelling named the store
+        for uri in ('pxtfs://org:db/home/media', 'pxt://org:db/buckets/home/media'):
+            soa = ObjectPath.parse_object_storage_addr(uri, allow_obj_name=False)
+            assert soa.container_free_uri == 'pxt://org:db/buckets/'
+            assert soa.prefix_free_uri == 'pxt://org:db/buckets/home/'
+            assert soa.prefix == 'media/'
+
+        # catalog paths share the scheme, so any pxt:// path outside buckets/home is refused
+        for uri, match in (
+            ('pxt://org:db/dir/tbl', 'other pxt:// paths are catalog paths'),
+            ('pxt://org:db', 'other pxt:// paths are catalog paths'),
+            ('pxt://org:db/home', 'other pxt:// paths are catalog paths'),
+            ('pxt://org:db/buckets:1', 'other pxt:// paths are catalog paths'),
+            ('pxt://org:db/buckets', 'bucket segment is required'),
+            ('pxt://org:db/buckets/notbucket', "only 'home' bucket is supported"),
+            ('pxt://org:db/buckets/homebucket/x.jpg', "only 'home' bucket is supported"),
+            ('pxt://orgonly/buckets/home', "netloc must be 'org:db'"),
+        ):
+            for allow_obj_name in (False, True):
+                with pytest.raises(ValueError, match=f'Invalid pxt:// store URI .*{match}'):
+                    ObjectPath.parse_object_storage_addr(uri, allow_obj_name)
+
+    def test_canonical_uri(self) -> None:
+        """A home-bucket address in either spelling comes back as pxt://; any other uri comes back as given."""
+        for uri, expected in (
+            ('pxtfs://org:db/home', 'pxt://org:db/buckets/home'),
+            ('pxtfs://org:db/home/', 'pxt://org:db/buckets/home'),
+            ('pxtfs://org:db/home/media/', 'pxt://org:db/buckets/home/media/'),
+            (
+                'PXTFS://org:db/home/9f3a/2026-09-01T10:30:00Z.mp4',
+                'pxt://org:db/buckets/home/9f3a/2026-09-01T10:30:00Z.mp4',
+            ),
+            ('pxt://org:db/buckets/home/media', 'pxt://org:db/buckets/home/media'),
+            ('pxtfs://orgonly/home', 'pxtfs://orgonly/home'),
+            ('pxt://org:db/dir/tbl', 'pxt://org:db/dir/tbl'),
+            ('s3://bucket/media', 's3://bucket/media'),
+            ('$media_dest', '$media_dest'),
+        ):
+            assert ObjectPath.canonical_uri(uri) == expected, uri
 
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS.values())
     def test_destination(self, db_root: DatabaseRoot, dest_id: StorageTarget) -> None:

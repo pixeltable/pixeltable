@@ -4,17 +4,22 @@ import dataclasses
 import enum
 import os
 import re
+import sys
 import urllib.parse
 import urllib.request
 import uuid
+import warnings
 from pathlib import Path
 from typing import NamedTuple
 from uuid import UUID
 
-from tenacity import RetryCallState, retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import env, exceptions as excs
-from pixeltable.utils.http import is_retryable_error
+from pixeltable.config import Config
+from pixeltable.utils.http import DOWNLOAD_USER_AGENT, is_retryable_error, retry_if_retryable_error
+
+CLOUD_STORAGE_DOCS_URL = 'https://docs.pixeltable.com/integrations/cloud-storage'
 
 
 @dataclasses.dataclass(frozen=True)
@@ -52,6 +57,10 @@ class StorageTarget(enum.Enum):
 S3_COMPATIBLE_TARGETS = frozenset(
     {StorageTarget.S3_STORE, StorageTarget.R2_STORE, StorageTarget.B2_STORE, StorageTarget.TIGRIS_STORE}
 )
+
+# a pxt://<org>:<db> path under this root directory addresses one of the database's storage buckets; any other
+# pxt:// path is a catalog path
+PXT_BUCKETS_DIR = 'buckets'
 
 
 class StorageObjectAddress(NamedTuple):
@@ -99,7 +108,7 @@ class StorageObjectAddress(NamedTuple):
     def prefix_free_uri(self) -> str:
         """Return the URI without any prefixes."""
         if self.storage_target == StorageTarget.PIXELTABLE_STORE:
-            return f'{self.scheme}://{self.account}:{self.account_extension}/{self.container}/'
+            return f'{self.container_free_uri}{self.container}/'
         if self.is_azure_scheme:
             return f'{self.scheme}://{self.container}@{self.account}.{self.account_extension}/'
         if self.account and self.account_extension:
@@ -113,7 +122,7 @@ class StorageObjectAddress(NamedTuple):
         """Return the URI without any prefixes."""
         assert not self.is_azure_scheme, 'Azure storage requires a container name'
         if self.storage_target == StorageTarget.PIXELTABLE_STORE:
-            return f'{self.scheme}://{self.account}:{self.account_extension}/'
+            return f'{self.scheme}://{self.account}:{self.account_extension}/{PXT_BUCKETS_DIR}/'
         if self.account and self.account_extension:
             return f'{self.scheme}://{self.account}.{self.account_extension}/'
         if self.account_extension:
@@ -129,10 +138,7 @@ class StorageObjectAddress(NamedTuple):
     def __str__(self) -> str:
         """A debug aid to override default str representation. Not to be used for any purpose."""
         if self.storage_target == StorageTarget.PIXELTABLE_STORE:
-            return (
-                f'{self.storage_target}..{self.scheme}://{self.account}:{self.account_extension}/'
-                f'{self.container}/{self.prefix}{self.object_name}'
-            )
+            return f'{self.storage_target}..{self.prefix_free_uri}{self.prefix}{self.object_name}'
         return f'{self.storage_target}..{self.scheme}://{self.account}.{self.account_extension}/{self.container}/{self.prefix}{self.object_name}'
 
     def __repr__(self) -> str:
@@ -204,6 +210,8 @@ class ObjectPath:
             https://account.blob.core.windows.net/container/<optional prefix>/<optional object>
             https://account.r2.cloudflarestorage.com/container/<optional prefix>/<optional object>
             https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg
+            pxt://org:db/buckets/home/<optional prefix>/<optional object>
+            pxtfs://org:db/home/<optional prefix>/<optional object> (the older spelling of the same address)
         """
         parsed = urllib.parse.urlparse(src_addr)
         scheme = parsed.scheme.lower()
@@ -281,30 +289,40 @@ class ObjectPath:
             else:
                 account_extension = parsed.netloc
             key = key.lstrip('/')
-        elif scheme == 'pxtfs':
-            # pxtfs://org:db/<bucket>[/optional/prefix]
+        elif scheme in ('pxtfs', 'pxt'):
+            # pxt://org:db/buckets/<bucket>[/optional/prefix], also spelled pxtfs://org:db/<bucket>[/optional/prefix]
             # Currently only 'home' bucket is supported.
             # 'home' is a logical name resolved to a physical R2 bucket name at runtime via the management API.
             storage_target = StorageTarget.PIXELTABLE_STORE
             netloc_parts = parsed.netloc.split(':')
             if len(netloc_parts) != 2 or not netloc_parts[0] or not netloc_parts[1]:
                 raise ValueError(
-                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': netloc must be 'org:db', got '{src_addr}'"
+                    f"Invalid {scheme}:// store URI '{parsed.geturl()}': netloc must be 'org:db', got '{src_addr}'"
                 )
             account_name, account_extension = netloc_parts  # org, db
             raw_path = parsed.path.lstrip('/')
+            if scheme == 'pxt':
+                # catalog paths share the scheme; only the buckets/ directory addresses storage
+                buckets_dir, _, raw_path = raw_path.partition('/')
+                if buckets_dir != PXT_BUCKETS_DIR:
+                    raise ValueError(
+                        f"Invalid pxt:// store URI '{src_addr}': a storage address has the form "
+                        f"'pxt://<org>:<db>/{PXT_BUCKETS_DIR}/home[/<key>]'; other pxt:// paths are catalog paths"
+                    )
             path_parts = raw_path.split('/', 1)
             container = path_parts[0]
             if not container:
                 raise ValueError(
-                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': bucket segment is required, got '{src_addr}'"
+                    f"Invalid {scheme}:// store URI '{parsed.geturl()}': bucket segment is required, got '{src_addr}'"
                 )
             if container != 'home':
                 raise ValueError(
-                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': only 'home' bucket is supported, "
+                    f"Invalid {scheme}:// store URI '{parsed.geturl()}': only 'home' bucket is supported, "
                     f"got '{container}'"
                 )
             key = path_parts[1] if len(path_parts) > 1 else ''
+            # both spellings give the pxt address, so the store, its keys and the URLs it writes are the same
+            scheme = 'pxt'
         else:
             raise ValueError(f'Unsupported URI scheme: {parsed.scheme}')
 
@@ -331,12 +349,91 @@ class ObjectPath:
             https://account.blob.core.windows.net/container/<optional prefix>/<optional object>
             https://account.r2.cloudflarestorage.com/container/<optional prefix>/<optional object>
             https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg
+            pxt://org:db/buckets/home/<optional prefix>/<optional object>
+            pxtfs://org:db/home/<optional prefix>/<optional object> (the older spelling of the same address)
         """
         soa = cls.parse_object_storage_addr1(src_addr)
         prefix, object_name = cls.separate_prefix_object(soa.key, allow_obj_name)
         assert not object_name.endswith('/')
         r = soa._replace(prefix=prefix, object_name=object_name)
         return r
+
+    @classmethod
+    def canonical_uri(cls, uri: str) -> str:
+        """uri, with a home-bucket address spelled pxt://<org>:<db>/buckets/home[/<key>], as stored objects are.
+
+        Any other uri, including one the parser refuses, is returned unchanged.
+        """
+        try:
+            soa = cls.parse_object_storage_addr1(uri)
+        except ValueError:
+            return uri
+        if soa.storage_target != StorageTarget.PIXELTABLE_STORE:
+            return uri
+        return f'{soa.prefix_free_uri}{soa.key}' if len(soa.key) > 0 else soa.prefix_free_uri.rstrip('/')
+
+
+def home_bucket_uri(org: str, db: str, key: str = '') -> str:
+    """The address of key in the home bucket of hosted database org:db, or of the bucket itself if key is empty."""
+    bucket_uri = StorageObjectAddress(
+        StorageTarget.PIXELTABLE_STORE, 'pxt', account=org, account_extension=db, container='home'
+    ).prefix_free_uri
+    return f'{bucket_uri}{key}' if len(key) > 0 else bucket_uri.rstrip('/')
+
+
+# a warning names the first caller outside these packages
+_PIXELTABLE_PACKAGES = frozenset({'pixeltable', 'pixeltable_cli'})
+
+
+def warn_if_pxtfs(dest: object, setting: str) -> None:
+    """Warn that dest, the value a user chose for setting, spells a home-bucket address the deprecated pxtfs:// way.
+
+    Call it only where a user's configuration or argument enters Pixeltable, never for a stored value. The warning
+    names the user's line that led here, so the warnings registry shows it once per line.
+    """
+    if not isinstance(dest, str) or urllib.parse.urlparse(dest).scheme.lower() != 'pxtfs':
+        return
+    uri = ObjectPath.canonical_uri(dest)
+    if uri == dest:
+        return  # not a home-bucket address; validating the destination reports that
+    warnings.warn(
+        f'{setting} {dest!r} uses the deprecated pxtfs:// spelling; write {uri!r} instead. Values already stored as '
+        'pxtfs:// keep reading.',
+        excs.PixeltableDeprecationWarning,
+        stacklevel=_first_caller_outside_pixeltable(),
+    )
+
+
+def warn_if_pxtfs_destination(col_name: str, dest: object) -> None:
+    """warn_if_pxtfs() for dest, the destination a user chose for column col_name."""
+    # one column operation can reach this from more than one caller, and the warnings registry shows the warning once
+    # only because its text is the same
+    warn_if_pxtfs(dest, f'Column {col_name!r}: destination')
+
+
+def reject_local_dest_in_project(dest: str, setting: str, error_code: excs.ErrorCode) -> None:
+    """Raise if dest is a local directory inside the project root."""
+    project_root = Config.get().project_root
+    if project_root is None:
+        return
+    addr = ObjectPath.parse_object_storage_addr(dest, allow_obj_name=False)
+    if addr.storage_target == StorageTarget.LOCAL_STORE and addr.to_path.resolve().is_relative_to(project_root):
+        raise excs.RequestError(
+            error_code,
+            f'{setting} {dest!r} is inside the project directory {project_root}. Use a directory outside the project '
+            f'or an object store (see {CLOUD_STORAGE_DOCS_URL})',
+        )
+
+
+def _first_caller_outside_pixeltable() -> int:
+    """The stacklevel for which warnings.warn(), called by this function's caller, names the first frame whose module
+    is not part of Pixeltable, or the outermost frame if every one is."""
+    frame = sys._getframe(1)
+    level = 1
+    while frame.f_back is not None and frame.f_globals.get('__name__', '').partition('.')[0] in _PIXELTABLE_PACKAGES:
+        frame = frame.f_back
+        level += 1
+    return level
 
 
 class ObjectStoreBase:
@@ -512,6 +609,8 @@ class ObjectOps:
                     f'{error_col_str}: a local filesystem `destination` is not supported for a hosted table; use '
                     'the default store or an external store such as s3:// or https://.',
                 )
+        if dest is not None:
+            reject_local_dest_in_project(dest, f'{error_col_str}: `destination`', excs.ErrorCode.INVALID_ARGUMENT)
 
         # Specific checks for storage backends
         store = cls.get_store(dest, False, col_name)
@@ -660,15 +759,10 @@ class HTTPStore(ObjectStoreBase):
         if not self.base_url.endswith('/'):
             self.base_url += '/'
 
-    @retry(
-        retry=retry_if_exception(lambda exc: isinstance(exc, Exception) and is_retryable_error(exc)[0]),
-        wait=_wait_retry_after,
-        stop=stop_after_attempt(4),
-        reraise=True,
-    )
+    @retry(retry=retry_if_retryable_error, wait=_wait_retry_after, stop=stop_after_attempt(4), reraise=True)
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
         url = self.base_url + src_path
-        req = urllib.request.Request(url, headers={'User-Agent': 'Pixeltable/1.0 (https://pixeltable.com)'})
+        req = urllib.request.Request(url, headers={'User-Agent': DOWNLOAD_USER_AGENT})
         with urllib.request.urlopen(req) as resp, open(dest_path, 'wb') as f:
             data = resp.read()
             f.write(data)

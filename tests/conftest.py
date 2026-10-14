@@ -1,4 +1,6 @@
+import ctypes
 import functools
+import gc
 import http.server
 import json
 import logging
@@ -10,7 +12,7 @@ import sys
 import threading
 import urllib.parse
 import uuid
-from typing import Callable, Generator, Iterator, get_args
+from typing import Any, Callable, Generator, Iterator, get_args
 
 import pytest
 import requests
@@ -48,6 +50,7 @@ from .utils import (
     local_embedding,
     new_db_uri,
     reload_catalog,
+    skip_test_if_not_installed,
     validate_async_teardown,
 )
 
@@ -92,9 +95,32 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 def pytest_runtest_setup(item: pytest.Item) -> None:
     current_test = os.environ.get('PYTEST_CURRENT_TEST')
     _logger.info(f'Running Pixeltable test: {current_test}')
-    pxtf.huggingface._model_cache.clear()
-    pxtf.huggingface._processor_cache.clear()
-    pxtf.vllm._model_cache.clear()
+    _clear_model_caches()
+
+
+def _clear_model_caches() -> None:
+    """Drop the models that earlier tests loaded and return their memory to the OS, so that the xdist worker that
+    runs the 'large_model' group doesn't accumulate them."""
+    caches: list[dict[Any, Any]] = [
+        pxtf.huggingface._model_cache,
+        pxtf.huggingface._processor_cache,
+        pxtf.llama_cpp._model_cache,
+        pxtf.vllm._model_cache,
+        pxtf.whisper._model_cache,
+        pxtf.whisperx._model_cache,
+        pxtf.whisperx._alignment_model_cache,
+        pxtf.whisperx._diarization_model_cache,
+        pxtf.yolox._model_cache,
+        pxtf.yolox._processor_cache,
+    ]
+    if not any(caches):
+        return
+    for cache in caches:
+        cache.clear()
+    gc.collect()
+    if platform.libc_ver()[0] == 'glibc':
+        # glibc keeps freed memory in the process's heap unless asked to return it
+        ctypes.CDLL('libc.so.6').malloc_trim(0)
 
 
 def pytest_runtest_teardown(item: pytest.Item) -> None:
@@ -794,6 +820,8 @@ def clip_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:
 )
 def mpnet_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:
     if request.param:
+        # before requesting all_mpnet_embed, whose setup fails without the package
+        skip_test_if_not_installed('sentence_transformers')
         return request.getfixturevalue('all_mpnet_embed'), False
     return local_embedding.using(dim=512), True
 

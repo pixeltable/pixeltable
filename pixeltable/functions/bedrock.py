@@ -406,9 +406,7 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
         ...     ],
         ... }
         >>> tbl.add_computed_column(
-        ...     response=invoke_model(
-        ...         body, model_id='anthropic.claude-3-haiku-20240307-v1:0'
-        ...     )
+        ...     response=invoke_model(body, model_id='us.anthropic.claude-haiku-5-5')
         ... )
 
         Invoke Amazon Nova Lite with a video column:
@@ -525,14 +523,12 @@ async def converse(
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `anthropic.claude-3-haiku-20240307-v1:0`
+        Add a computed column that applies the model `us.anthropic.claude-haiku-5-5`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> msgs = [{'role': 'user', 'content': [{'text': tbl.prompt}]}]
         ... tbl.add_computed_column(
-        ...     response=converse(
-        ...         msgs, model_id='anthropic.claude-3-haiku-20240307-v1:0'
-        ...     )
+        ...     response=converse(msgs, model_id='us.anthropic.claude-haiku-5-5')
         ... )
 
         Pass an image via the Converse API:

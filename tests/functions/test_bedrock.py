@@ -220,7 +220,7 @@ class TestBedrock:
             response=invoke_model(
                 {
                     'anthropic_version': 'bedrock-2023-05-31',
-                    'max_tokens': 256,
+                    'max_tokens': 1024,
                     'messages': [
                         {
                             'role': 'user',
@@ -234,13 +234,14 @@ class TestBedrock:
                         }
                     ],
                 },
-                model_id='anthropic.claude-3-haiku-20240307-v1:0',
+                model_id='us.anthropic.claude-haiku-5-5',
             )
         )
         image_filepaths = get_image_files()[:1]
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         results = t.select(t.response).collect()
-        assert results[0]['response']['content'][0]['text']
+        # a response can begin with a thinking block
+        assert any(block['type'] == 'text' and block['text'] for block in results[0]['response']['content'])
 
     def test_converse_anthropic(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
@@ -251,15 +252,16 @@ class TestBedrock:
         t.add_computed_column(
             output=converse(
                 messages,
-                model_id='anthropic.claude-3-haiku-20240307-v1:0',
+                model_id='us.anthropic.claude-haiku-5-5',
                 system=[{'text': 'You are a helpful assistant. Keep answers short.'}],
-                inference_config={'temperature': 0.6, 'maxTokens': 256},
-                additional_model_request_fields={'top_k': 40},
+                inference_config={'maxTokens': 1024},
+                additional_model_request_fields={'output_config': {'effort': 'low'}},
             )
         )
-        t.add_computed_column(response=t.output.output.message.content[0].text)
+        # a response can begin with a reasoning block, which has no text
+        t.add_computed_column(response=t.output.output.message.content['*'].text)
         validate_update_status(t.insert(input='What is the capital of France?'), expected_rows=1)
-        assert 'Paris' in t.collect()[0]['response']
+        assert any('Paris' in text for text in t.collect()[0]['response'] if text is not None)
 
     @rerun(reruns=3, reruns_delay=8)
     def test_converse_tool_invocations(self, uses_db: None) -> None:
@@ -270,9 +272,7 @@ class TestBedrock:
             t = pxt.create_table('tbl', {'prompt': pxt.String | None})
             messages = [{'role': 'user', 'content': [{'text': t.prompt}]}]
             t.add_computed_column(
-                response=bedrock.converse(
-                    messages, model_id='anthropic.claude-3-haiku-20240307-v1:0', tool_config=tools
-                )
+                response=bedrock.converse(messages, model_id='us.anthropic.claude-haiku-5-5', tool_config=tools)
             )
             t.add_computed_column(tool_calls=bedrock.invoke_tools(tools, t.response))
             return t

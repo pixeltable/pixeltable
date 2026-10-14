@@ -243,7 +243,7 @@ class TestExprs:
                 # over the proxy each fileurl is a fetchable daemon media URL, not the local source file
                 assert all(u.startswith(('http://', 'https://')) and '/media/' in u for u in stored_urls), stored_urls
             case 'cloud':
-                assert all(u.startswith('pxtfs://') and '/home/' in u for u in stored_urls), stored_urls
+                assert all(u.startswith('pxt://') and '/buckets/home/' in u for u in stored_urls), stored_urls
 
         # localpath
         res = img_t.select(img_t.img.localpath).collect().to_pandas()

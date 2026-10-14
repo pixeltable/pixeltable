@@ -126,8 +126,16 @@ jobs:
         run: rm -rf pixeltable pixeltable_cli  # Ensure we use installed packages for testing, not local source tree
       - name: Install dependencies
         run: |
+          # Pin pixeltable to the checkout: the commit itself for main, else the latest version tag at or before it
+          # (the release tag can sit past its version tag)
+          if [[ '${{ inputs.from_main }}' == 'true' ]]; then
+            PXT="git+https://github.com/pixeltable/pixeltable@$(git rev-parse HEAD)"
+          else
+            PXT="pixeltable==$(git describe --tags --abbrev=0 --match 'v[0-9]*' | sed 's/^v//')"
+          fi
           python -m pip install --upgrade pip
-          python -m pip install ${{ inputs.from_main && 'git+https://github.com/pixeltable/pixeltable' || 'pixeltable' }} ${{ matrix.package-configs }}
+          # Retried, since a new release can take a few minutes to reach every PyPI mirror
+          ./scripts/retry.sh 3 60 python -m pip install "$PXT" ${{ matrix.package-configs }}
           python -m pip install filelock pytest pytest-xdist pytest-rerunfailures pytest-benchmark
       - name: Install spaCy model
         if: ${{ contains(matrix.package-configs, 'spacy') }}
@@ -135,7 +143,8 @@ jobs:
       - name: Run the unit tests
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
-        run: pytest -v -m '' --junitxml=junit-report.xml tests
+        # boto3 is a core dependency, so Bedrock's live tests would run in every job; run them only where boto3 is named
+        run: pytest -v -m '' ${{ !contains(matrix.package-configs, 'boto3') && '--ignore=tests/functions/test_bedrock.py' || '' }} --junitxml=junit-report.xml tests
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4

@@ -29,7 +29,7 @@ from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.local_store import TempStore
-from pixeltable.utils.object_stores import ObjectOps
+from pixeltable.utils.object_stores import ObjectOps, home_bucket_uri
 
 from . import proxy_protocol
 from .proxy_protocol import PROTOCOL_VERSION, ProxyRequest, protocol_mismatch_message
@@ -186,7 +186,7 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
         else:
             archives.setdefault(key, []).append(member)
     org, db = Env.get().hosted_db(required=True)
-    store = ObjectOps.get_store(f'pxtfs://{org}:{db}/home/uploads/', False)
+    store = ObjectOps.get_store(home_bucket_uri(org, db, 'uploads/'), False)
 
     # record every destination before downloading so handle() also cleans up a partial download
     for key, member in parts:
