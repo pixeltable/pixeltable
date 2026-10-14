@@ -20,7 +20,7 @@ from uuid import UUID, uuid4
 
 import sqlalchemy as sql
 
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, telemetry, telemetry_schemas
 from pixeltable._query import Query
 from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_loop
 from pixeltable.config import Config
@@ -48,7 +48,11 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
     request._binary_parts = request_parts
     path_label = request.path_key.get('tbl_key', request.path_key) if request.path_key else ''
     _logger.debug('%s.%s %s', request.class_name, request.method, path_label)
+    method = f'{request.class_name}.{request.method}'
     t0 = time.monotonic()
+    # set_current: catalog work before the operation itself (path resolution, the staleness check) nests here
+    rpc_span = telemetry.span_start('pixeltable.rpc', set_current=True, attrs={'pxt.method': method})
+    error: Exception | None = None
     try:
         if request.protocol_version != PROTOCOL_VERSION:
             config = Config.get()
@@ -115,6 +119,7 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
         return body
 
     except excs.Error as e:
+        error = e
         if e.detail is not None:
             # Log error details in the server log
             _logger.info('Error detail handling %s.%s:\n%s', request.class_name, request.method, e.detail)
@@ -125,7 +130,8 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
             error_dict['cause'] = _restore_upload_names(error_dict['cause'], request._uploaded_names)
         return proxy_protocol.encode_response({'error': error_dict})
 
-    except Exception:
+    except Exception as e:
+        error = e
         # An unexpected server-side failure. Log the full traceback for debugging, but return only a short
         # reference id to the client: server internals (stack frames, filesystem paths) must not cross the wire unless
         # include_error_detail is True (enabled in test mode).
@@ -146,6 +152,8 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
         return proxy_protocol.encode_response({'error': error_dict})
 
     finally:
+        telemetry.span_end(rpc_span, exc=error)
+        telemetry_schemas.rpc_duration.record(time.monotonic() - t0, method=method, error=error is not None)
         # best-effort removal of this request's uploaded temp files; missing_ok covers a file that a handler moved
         # into a reassembled directory (those directories are removed by the handler that creates them) or that
         # tbl.insert() moved into the media store
@@ -237,14 +245,17 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
             archive_path.unlink(missing_ok=True)
 
     # concurrent downloads are safe: boto3 clients are thread-safe
-    if len(objects) > 0:
-        with ThreadPoolExecutor(max_workers=min(16, len(objects)), thread_name_prefix='pxt-part-download') as executor:
-            list(executor.map(lambda key: download(key, pathlib.Path(request._remote_parts[key, None])), objects))
-    if len(archives) > 0:
-        with ThreadPoolExecutor(
-            max_workers=min(_MAX_ARCHIVE_DOWNLOADS, len(archives)), thread_name_prefix='pxt-archive-download'
-        ) as executor:
-            list(executor.map(lambda item: extract(*item), archives.items()))
+    with telemetry.span('pixeltable.media.prefetch', num_parts=len(parts)):
+        if len(objects) > 0:
+            with ThreadPoolExecutor(
+                max_workers=min(16, len(objects)), thread_name_prefix='pxt-part-download'
+            ) as executor:
+                list(executor.map(lambda key: download(key, pathlib.Path(request._remote_parts[key, None])), objects))
+        if len(archives) > 0:
+            with ThreadPoolExecutor(
+                max_workers=min(_MAX_ARCHIVE_DOWNLOADS, len(archives)), thread_name_prefix='pxt-archive-download'
+            ) as executor:
+                list(executor.map(lambda item: extract(*item), archives.items()))
 
 
 def _convert_result(key: tuple[str, str], result: Any) -> Any:

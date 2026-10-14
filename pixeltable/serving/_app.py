@@ -64,8 +64,16 @@ def init_instrumentation(**kwargs: Any) -> None:
     pxt_otel.init(**kwargs)
 
 
-def instrument_app(app: 'fastapi.FastAPI') -> None:
-    """Instrument a FastAPI application, so that Pixeltable spans nest under its request spans."""
+def instrument_app(app: 'fastapi.FastAPI') -> Any:
+    """Instrument a FastAPI application, so that Pixeltable spans nest under its request spans.
+
+    Returns the ASGI app to serve, which also starts the trace of a request at the time the Pixeltable Cloud
+    gateway received it.
+    """
     import opentelemetry.instrumentation.pixeltable as pxt_otel
 
-    pxt_otel.instrument_fastapi(app)
+    # k8s probes call /health every few seconds, and a trace per probe is noise
+    excluded_urls = '/health$'
+    # a span per ASGI message sent or received would double the spans of every request
+    pxt_otel.instrument_fastapi(app, excluded_urls=excluded_urls, exclude_spans=['receive', 'send'])
+    return pxt_otel._gateway_span_app(app, excluded_urls)

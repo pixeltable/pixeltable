@@ -1554,7 +1554,9 @@ class TestServiceOtel:
         ):
             service_cmd.run(['run', str(app_file), 'my_dir', 'ingest', '--otel'])
         mock_otel_init.assert_called_once_with()
-        mock_instrument_fastapi.assert_called_once_with(app)
+        mock_instrument_fastapi.assert_called_once_with(
+            app, excluded_urls='/health$', exclude_spans=['receive', 'send']
+        )
         mock_run.assert_called_once()
 
 

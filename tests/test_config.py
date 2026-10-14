@@ -544,9 +544,13 @@ class TestConfig:
         monkeypatch.setenv('PXTCLOUD_DB', 'prod')
         assert config.get_string_value('input_media_dest') == 's3://prod/input/'
         assert config.get_string_value('output_media_dest') is None
-        assert config.get_string_value('exporter_otlp_endpoint', section='otel') == 'https://otlp.prod.example'
-        assert config.get_string_value('exporter_otlp_protocol', section='otel') is None
         assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://prod/bucket'
+        # except the OTLP endpoint: the entry's endpoint is the backend of the pod's collector, and the process
+        # exports to the collector at the address set in its environment
+        assert config.get_string_value('exporter_otlp_endpoint', section='otel') is None
+        monkeypatch.setenv('OTEL_EXPORTER_OTLP_ENDPOINT', 'http://localhost:4318')
+        assert config.get_string_value('exporter_otlp_endpoint', section='otel') == 'http://localhost:4318'
+        monkeypatch.delenv('OTEL_EXPORTER_OTLP_ENDPOINT')
         monkeypatch.delenv('PXTCLOUD_ORG')
         monkeypatch.delenv('PXTCLOUD_DB')
 

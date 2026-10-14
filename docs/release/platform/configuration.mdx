@@ -90,6 +90,20 @@ Settings are resolved in this order:
 
 The OTLP auth headers are a secret and do not go in the entry: set `OTEL_EXPORTER_OTLP_HEADERS` in the environment, and on a hosted database with `pxt secret set pxt://org:db OTEL_EXPORTER_OTLP_HEADERS=...` (see [`pxt secret`](/platform/cli#pxt-secret)).
 
+### Telemetry from a hosted database
+
+Each pod of a hosted database runs an OpenTelemetry Collector. Pixeltable in the pod sends its traces, metrics, and logs to that collector, and the collector sends them to your OTLP backends. The first backend takes its endpoint and protocol from the database's entry (`db_exporter_otlp_endpoint`, `db_exporter_otlp_protocol`), or else from the secrets `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`. Its headers come from the secret `OTEL_EXPORTER_OTLP_HEADERS`.
+
+Each further backend is a set of secrets whose names end in `__<NAME>`:
+
+```bash
+pxt secret set pxt://myorg:mydb \
+  OTEL_EXPORTER_OTLP_ENDPOINT__GRAFANA=https://otlp-gateway-<zone>.grafana.net/otlp \
+  'OTEL_EXPORTER_OTLP_HEADERS__GRAFANA=Authorization=Basic <token>'
+```
+
+The collector sends every trace that contains an error or takes longer than one second, and 10% of the other traces. Set `OTEL_TRACES_SAMPLER_ARG` to a ratio between 0 and 1 to change that share, or `OTEL_TRACES_SAMPLER_ARG__<NAME>` for one backend. Logs and metrics are sent in full. The pods read these settings at startup, so run `pxt db restart` and `pxt service restart` after you change them.
+
 ## API configuration
 
 | Environment Variable | Config File | Meaning |

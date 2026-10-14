@@ -38,7 +38,7 @@ from pydantic.fields import FieldInfo
 from typing_extensions import TypeForm
 
 import pixeltable as pxt
-from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
+from pixeltable import catalog, exceptions as excs, exprs, func, telemetry, type_system as ts
 from pixeltable.catalog import fold_identifier, model
 from pixeltable.catalog.model.query import ModelQuery
 from pixeltable.config import Config
@@ -365,8 +365,14 @@ class _ResponseMedia:
 
 
 def _run_endpoint_op(
-    endpoint_op: Callable[..., T], kwargs: dict[str, Any], tmp_paths: list[Path], media: _ResponseMedia
+    endpoint_op: Callable[..., T],
+    kwargs: dict[str, Any],
+    tmp_paths: list[Path],
+    media: _ResponseMedia,
+    telemetry_ctx: telemetry.CtxSnapshot | None = None,
 ) -> T:
+    # a background job runs on an executor thread, so it restores the request's context to join its trace
+    ctx_token = telemetry.restore_context(telemetry_ctx)
     try:
         result = endpoint_op(kwargs, media.url_for)
         # the response carries the urls before the client can fetch them, so the uploads only need to finish here
@@ -381,6 +387,8 @@ def _run_endpoint_op(
         if isinstance(e, pxt.Error):
             raise HTTPException(status_code=e.http_status, detail=e.to_dict()) from e
         raise
+    finally:
+        telemetry.exit_context(ctx_token)
 
 
 class PxtEndpoint:
@@ -436,7 +444,9 @@ class PxtEndpoint:
                 if origin.scheme != 'https' or not origin.netloc or origin.path or origin.query or origin.fragment:
                     raise ValueError('PIXELTABLE_PUBLIC_ORIGIN must be an HTTPS origin')
                 job_url = f'{public_origin}{urllib.parse.urlsplit(job_url).path}'
-            fut = self.router._executor.submit(_run_endpoint_op, self.endpoint_op, kwargs, tmp_paths, media)
+            fut = self.router._executor.submit(
+                _run_endpoint_op, self.endpoint_op, kwargs, tmp_paths, media, telemetry.capture_context()
+            )
             with self.router._jobs_lock:
                 self.router._jobs[job_id] = fut
             return BackgroundJobResponse(id=job_id, job_url=job_url)
@@ -2028,7 +2038,9 @@ class FastAPIRouter(fastapi.APIRouter):
             )
 
         def run_query(call_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            result_set = self._query_binding(route.route_id)._collect(args=call_kwargs)
+            # an operation span, so that the query's own spans are not dropped as orphans
+            with telemetry.span('pixeltable.collect', set_current=True):
+                result_set = self._query_binding(route.route_id)._collect(args=call_kwargs)
             rows = list(result_set)
 
             # do error checking now, before converting data

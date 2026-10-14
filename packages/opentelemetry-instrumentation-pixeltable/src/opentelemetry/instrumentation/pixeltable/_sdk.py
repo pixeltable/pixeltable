@@ -16,7 +16,7 @@ from opentelemetry import metrics as otel_metrics, trace
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.trace import ProxyTracerProvider
 
-from pixeltable import exceptions as excs, telemetry
+from pixeltable import __version__, exceptions as excs, telemetry
 from pixeltable.config import Config
 from pixeltable.env import Env
 
@@ -80,7 +80,8 @@ def init(
             complete even if the process dies. Works with or without an OTLP endpoint.
         metrics: force metric export on/off (by default metrics are exported only when an OTLP endpoint
             is configured).
-        logs: force log export on/off (default off; must be explicitly enabled).
+        logs: force export of the `pixeltable`, `sqlalchemy.engine`, and `uvicorn` log records on/off (default
+            off; must be explicitly enabled).
         tracer_provider: an existing TracerProvider to instrument against.
         meter_provider: an existing MeterProvider to instrument against.
 
@@ -132,6 +133,34 @@ def instrument_fastapi(app: Any, **kwargs: Any) -> None:
 
     kwargs.setdefault('tracer_provider', _state.tracer_provider)
     FastAPIInstrumentor.instrument_app(app, **kwargs)
+
+
+def _gateway_span_app(app: Any, excluded_urls: str) -> Any:
+    """Wrap an ASGI app so that the trace of a request forwarded by the Pixeltable Cloud gateway starts with a
+    `pixeltable.gateway` span, covering the time from the gateway's receipt of the request to the response.
+
+    The gateway sends the header `x-pxt-gateway-time: <unix time> <seconds since it received the request>`.
+    For example, `1760400000.250 0.012` means that the gateway received the request at 1760400000.238.
+    Requests without the header pass through unchanged, and so do requests to `excluded_urls`, the patterns
+    that `instrument_fastapi()` also leaves untraced.
+    """
+    from opentelemetry.util.http import parse_excluded_urls
+
+    tracer = trace.get_tracer('pixeltable', __version__, tracer_provider=_state.tracer_provider)
+    excluded = parse_excluded_urls(excluded_urls)
+
+    async def wrapped_app(scope: Any, receive: Any, send: Any) -> None:
+        timing = next((value for name, value in scope.get('headers', ()) if name == b'x-pxt-gateway-time'), None)
+        if timing is None or excluded.url_disabled(scope['path']):
+            await app(scope, receive, send)
+            return
+        sent_at, elapsed = (float(field) for field in timing.split())
+        received_ns = int((sent_at - elapsed) * 1e9)
+        # the http instrumentation nests its request span under a current span, ignoring any client traceparent
+        with tracer.start_as_current_span('pixeltable.gateway', start_time=received_ns, kind=trace.SpanKind.SERVER):
+            await app(scope, receive, send)
+
+    return wrapped_app
 
 
 def _instrument_sqlalchemy(**kwargs: Any) -> None:
@@ -277,7 +306,9 @@ def _setup(
         otel_metrics.set_meter_provider(mp)
     if logger_provider is not None:
         set_logger_provider(logger_provider)
-        logging.getLogger('pixeltable').addHandler(log_handler)
+        # Env sends these loggers to the log file and turns off their propagation, so each needs the handler
+        for logger_name in ('pixeltable', 'sqlalchemy.engine', 'uvicorn'):
+            logging.getLogger(logger_name).addHandler(log_handler)
     _state.owns_tracer_provider = owns_tp
     _state.owns_meter_provider = owns_mp
     _state.tracer_provider = tp
