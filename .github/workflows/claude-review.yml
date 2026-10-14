@@ -1,21 +1,16 @@
 name: Claude review
 
-# Reviews a PR when it opens, if its author has write access, and when someone with write access comments exactly
-# "claude review" on it. Both events run this file from the base branch with the base repository's secrets, so fork PRs
-# get reviewed too. Nothing from the PR runs.
+# Reviews a PR when someone with write access comments exactly "claude review" on it. A comment-triggered run attaches
+# to the default branch, not to the PR, so the review adds no check to the PR. The run uses this file from the default
+# branch with the repository's secrets, so fork PRs get reviewed too. Nothing from the PR runs.
 on:
-  pull_request_target:
-    types: [opened, synchronize, ready_for_review, reopened]
   issue_comment:
     types: [created]
 
 jobs:
-  # Checks the PR author for automatic reviews and the commenter for requested ones, so a maintainer marking an
-  # outside PR ready does not review it automatically. claude-code-action also fails when the actor lacks write access.
+  # claude-code-action fails the job when the commenter lacks write access. Skip the review for them instead.
   access:
-    if: >-
-      (github.event_name == 'pull_request_target' && !github.event.pull_request.draft) ||
-      (github.event.issue.pull_request && github.event.comment.body == 'claude review')
+    if: github.event.issue.pull_request && github.event.comment.body == 'claude review'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -26,9 +21,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          USER_LOGIN: ${{ github.event.pull_request.user.login || github.actor }}
+          ACTOR: ${{ github.actor }}
         run: |
-          permission=$(gh api "repos/$REPO/collaborators/$USER_LOGIN/permission" --jq .permission || echo none)
+          permission=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq .permission || echo none)
           case "$permission" in
             admin|write) echo write=true >> "$GITHUB_OUTPUT" ;;
             *) echo write=false >> "$GITHUB_OUTPUT" ;;
@@ -39,7 +34,7 @@ jobs:
     if: needs.access.outputs.write == 'true'
     # Job-level: a workflow-level group would let every PR comment cancel a running review.
     concurrency:
-      group: claude-review-${{ github.event.pull_request.number || github.event.issue.number }}
+      group: claude-review-${{ github.event.issue.number }}
       cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -54,7 +49,7 @@ jobs:
       checks: read
       statuses: read
     env:
-      PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+      PR_NUMBER: ${{ github.event.issue.number }}
       # Removes ANTHROPIC_API_KEY and other secrets from the environment of the commands Claude runs.
       CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1'
       # Runs review agents in the foreground. In the background, Claude ends its turn to wait for them, and the
@@ -63,8 +58,7 @@ jobs:
     steps:
       # Tells the person who commented "claude review" that the review started. Grok and Muse already use eyes, rocket,
       # and heart.
-      - if: github.event_name == 'issue_comment'
-        continue-on-error: true
+      - continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -73,15 +67,13 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
-      # actions/checkout refuses fork PR code under pull_request_target without allow-unsafe-pr-checkout. Nothing
-      # from this copy runs: the next step moves it out of the working directory and strips its agent files.
+      # Nothing from this copy runs: the next step moves it out of the working directory and strips its agent files.
       - uses: actions/checkout@v6
         with:
           ref: refs/pull/${{ env.PR_NUMBER }}/head
           path: pr-head
           fetch-depth: 1
           persist-credentials: false
-          allow-unsafe-pr-checkout: true
       # Claude loads CLAUDE.md and .claude/ from inside its working directory. Move the PR out of it and drop the PR's
       # agent instruction files, so the PR cannot supply instructions.
       - run: |
@@ -111,7 +103,7 @@ jobs:
           prompt: >-
             /pxt-review https://github.com/${{ github.repository }}/pull/${{ env.PR_NUMBER }}
             --pr-head ${{ runner.temp }}/pr-head
-            ${{ github.event_name == 'issue_comment' && '--requested' || '' }}
+            --requested
           # Naming Grep or Glob here restores both tools, which Claude Code leaves out on Linux by default. Claude has
           # no tool that posts: its final message holds the review, and the post step publishes it.
           claude_args: >-
@@ -136,9 +128,7 @@ jobs:
           REPO: ${{ github.repository }}
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: python3 .github/scripts/post_claude_review.py
-      - if: >-
-          always() && github.event_name == 'issue_comment' &&
-          (steps.claude.outcome != 'success' || steps.post.outcome != 'success')
+      - if: always() && (steps.claude.outcome != 'success' || steps.post.outcome != 'success')
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
