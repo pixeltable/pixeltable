@@ -70,6 +70,14 @@ jobs:
           find "$RUNNER_TEMP/pr-head" \
             \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name AGENTS.md -o -name .claude -o -name .mcp.json \) \
             -prune -exec rm -rf {} +
+      # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB fails without bubblewrap, and the action installs it only when
+      # allowed_non_write_users is set. Ubuntu 24.04 blocks the unprivileged user namespaces bubblewrap needs.
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bubblewrap socat
+          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
