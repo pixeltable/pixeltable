@@ -1258,6 +1258,28 @@ def assert_audio_bytes(data: bytes, *, duration_s: float | None = None, tol: flo
             assert abs(actual - duration_s) <= tol, (actual, duration_s)
 
 
+R2_HOST_SUFFIX = '.r2.cloudflarestorage.com'
+
+
+def storage_edge_host() -> str:
+    """The host of the storage edge of the cloud env under test: `usercontent.` and the env's base domain, which
+    PIXELTABLE_CLOUD_HOST names."""
+    domain = urllib.parse.urlsplit(f'//{os.environ["PIXELTABLE_CLOUD_HOST"]}').hostname  # without a port
+    assert domain is not None
+    return f'usercontent.{domain}'
+
+
+def assert_home_bucket_url(url: str) -> Literal['edge', 'r2']:
+    """Assert that url is a GET URL of an object in a hosted database's home bucket, and return where it points: the
+    cloud env's storage edge, or R2, where the control plane presigns a key the edge refuses."""
+    parsed = urllib.parse.urlparse(url)
+    assert parsed.scheme == 'https', url
+    if parsed.hostname == storage_edge_host():
+        return 'edge'
+    assert parsed.hostname is not None and parsed.hostname.endswith(R2_HOST_SUFFIX), url
+    return 'r2'
+
+
 def fetch_presigned(url: str, expires_s: int, host_suffix: str) -> bytes:
     """Fetch a presigned URL of an object and return its bytes.
 
@@ -1268,10 +1290,34 @@ def fetch_presigned(url: str, expires_s: int, host_suffix: str) -> bytes:
     assert parsed.scheme == 'https', url
     assert parsed.hostname is not None and parsed.hostname.endswith(host_suffix), url
     assert urllib.parse.parse_qs(parsed.query).get('X-Amz-Expires') == [str(expires_s)], url
+    return _fetch_signed(url)
+
+
+def fetch_home_bucket_url(url: str, expires_s: int) -> bytes:
+    """Fetch a GET URL of an object in a hosted database's home bucket and return its bytes.
+
+    Asserts what fetch_presigned() does: that the URL points at the storage edge or R2, as assert_home_bucket_url()
+    has it, was signed for expires_s seconds, is fetchable without credentials, and is refused once its signature is
+    stripped.
+    """
+    if assert_home_bucket_url(url) == 'r2':
+        return fetch_presigned(url, expires_s, R2_HOST_SUFFIX)
+    # the edge's token is `t=<expiry>.<hmac>`, with the expiry in Unix seconds
+    token = urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get('t')
+    assert token is not None and len(token) == 1, url
+    match = re.fullmatch(r'(\d+)\.[0-9a-f]{64}', token[0])
+    assert match is not None, url
+    # the expiry is absolute: allow for the time since signing and for clock skew
+    assert abs(int(match[1]) - (time.time() + expires_s)) <= 300, url
+    return _fetch_signed(url)
+
+
+def _fetch_signed(url: str) -> bytes:
     resp = httpx.get(url, timeout=30)
     assert resp.status_code == 200, resp.text
-    unsigned = httpx.get(parsed._replace(query='').geturl(), timeout=30)
-    # R2 answers a request that carries no signature with 400 InvalidArgument (Authorization); S3 with 403
+    unsigned = httpx.get(urllib.parse.urlparse(url)._replace(query='').geturl(), timeout=30)
+    # R2 answers a request that carries no signature with 400 InvalidArgument (Authorization); S3 and the storage
+    # edge with 403
     assert unsigned.status_code in (400, 401, 403), (unsigned.status_code, unsigned.text)
     return resp.content
 

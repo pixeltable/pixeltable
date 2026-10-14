@@ -24,9 +24,11 @@ from pixeltable_cli.types import ServiceSpec
 from tests.utils import (
     DatabaseRoot,
     assert_audio_bytes,
+    assert_home_bucket_url,
     assert_image_bytes,
     assert_video_bytes,
     ensure_s3_pytest_resources_access,
+    fetch_home_bucket_url,
     fetch_presigned,
     get_audio_files,
     get_image_files,
@@ -261,8 +263,8 @@ def assert_correct_result_url(
     url: str, db_root: DatabaseRoot, always_external: bool, route_type: str | None = None
 ) -> None:
     if route_type != 'compute' and db_root.is_cloud:  # compute routes never return cloud URLs
-        # `image` is served as a presigned R2 URL from a cloud DB ...
-        assert 'r2.cloudflarestorage.com' in url, url
+        # `image` is served as a home bucket URL from a cloud DB ...
+        assert_home_bucket_url(url)
     elif always_external or db_root.id != 'local':
         # ... or as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
         # be shipped to the daemon, ...
@@ -1473,8 +1475,8 @@ class TestFastAPI:
 
     @pytest.mark.db_roots('cloud', reason='only a hosted table has a home bucket')
     def test_media_urls(self, db_root: DatabaseRoot) -> None:
-        """Insert and query routes return every media column of a hosted table, computed or inserted, as a presigned
-        home bucket URL that serves the stored bytes."""
+        """Insert and query routes return every media column of a hosted table, computed or inserted, as a signed home
+        bucket URL that serves the stored bytes."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.functions.video import extract_frame
         from pixeltable.serving import FastAPIRouter
@@ -1512,14 +1514,14 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         body = resp.json()
         for col, decode in decoders.items():
-            decode(fetch_presigned(body[col], expires_s=3600, host_suffix='.r2.cloudflarestorage.com'))
+            decode(fetch_home_bucket_url(body[col], expires_s=3600))
 
         resp = client.post('/all', json={})
         assert resp.status_code == 200, resp.text
         rows = resp.json()['rows']
         assert len(rows) == 1
         for col, decode in decoders.items():
-            decode(fetch_presigned(rows[0][col], expires_s=3600, host_suffix='.r2.cloudflarestorage.com'))
+            decode(fetch_home_bucket_url(rows[0][col], expires_s=3600))
 
     @pytest.mark.very_expensive
     def test_s3_media_urls(self, db_root: DatabaseRoot) -> None:
