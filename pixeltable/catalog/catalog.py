@@ -3733,11 +3733,12 @@ class Catalog(CatalogBase):
         res = conn.execute(stmt)
         assert res.rowcount == 1, res.rowcount
 
-    # TODO continue from here
     @telemetry.spanned('pixeltable.catalog.delete_tbl_md')
     def delete_tbl_md(self, tbl_id: UUID) -> None:
-        """
-        Deletes all table metadata from the store for the given table UUID.
+        """Delete all of the table's metadata from the store.
+
+        Deleting a mutable view of a mutable base also advances the base's view_sn, which requires a write lock on the
+        base.
         """
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(table_id=str(tbl_id)))
         conn = get_runtime().conn
