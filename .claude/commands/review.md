@@ -76,6 +76,8 @@ Create a todo list before you start.
      `mcp__github_inline_comment__create_inline_comment` and `confirmed: true`. Give the severity and title, the
      trigger, the causal path, the impact, the evidence and whether it is a source trace, and the smallest correction.
      Add a suggestion block only when committing it fixes the finding completely and it spans fewer than 6 lines.
+     Give each comment the file's path in the repository, as `gh pr diff` shows it, never a path in the additional
+     working directory.
    - Post the summary comment last, with `gh pr comment`. Its `## Claude review` heading marks the review complete,
      so a later run that finds it does not review again:
 

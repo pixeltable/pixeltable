@@ -1,7 +1,8 @@
 name: Claude review
 
-# Reviews a PR when it opens and when someone comments exactly "claude review" on it. Both events run this file from
-# the base branch with the base repository's secrets, so PRs from forks get reviewed too. Nothing from the PR runs.
+# Reviews a PR when it opens and when someone comments exactly "claude review" on it, if that actor has write access.
+# Both events run this file from the base branch with the base repository's secrets, so fork PRs from people with
+# write access get reviewed too. Nothing from the PR runs.
 on:
   pull_request_target:
     types: [opened, synchronize, ready_for_review, reopened]
@@ -41,14 +42,16 @@ jobs:
       cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # These scope GITHUB_TOKEN only. Claude posts with the Claude GitHub App token that id-token: write obtains.
+    # Claude gets only GITHUB_TOKEN, passed as github_token below. Without it, the action uses the Claude GitHub App
+    # token, which can push code, and writes it into .git/config, where Claude can read it.
     permissions:
       contents: read
-      pull-requests: read
-      issues: read
-      id-token: write
+      pull-requests: write
+      issues: write
     env:
       PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+      # Removes ANTHROPIC_API_KEY and other secrets from the environment of the commands Claude runs.
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -69,6 +72,7 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: >-
             /review https://github.com/${{ github.repository }}/pull/${{ env.PR_NUMBER }}
             ${{ github.event_name == 'issue_comment' && '--requested' || '' }}
@@ -76,3 +80,4 @@ jobs:
             --model claude-opus-5-5
             --add-dir ${{ runner.temp }}/pr-head
             --allowedTools "mcp__github_inline_comment__create_inline_comment"
+            "Bash(gh pr view:*)" "Bash(gh pr diff:*)" "Bash(gh pr checks:*)" "Bash(gh pr comment:*)"
