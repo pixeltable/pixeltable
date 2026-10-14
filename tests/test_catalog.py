@@ -324,6 +324,37 @@ class TestCatalog:
         assert base.count() == 1
         assert pxt.get_table('v', if_not_exists='ignore') is None
 
+    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
+    def test_drop_base_finalized_before_view(self, uses_db: None, fault_injection: None) -> None:
+        """
+        Thread 0 drops a base and its view together, and pauses inside the view's finalization (while not holding any
+        locks). Thread 1 inserts into the base's own base (root), comes across the base and also finalizes it, without
+        touching the view. Thread 0 then finishes the view's drop even though the base is gone.
+        """
+        root = pxt.create_table('root', {'a': pxt.Int | None})
+        base = pxt.create_view('base', root)
+        _ = pxt.create_view('v', base)
+        block_in_finalize = BlockFault()
+
+        (
+            MultiThreadedScenario()
+            .then_inject_fault(
+                thread_id=0, loc=FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault=block_in_finalize
+            )
+            .then_run_until(
+                thread_id=0,
+                name='drop base and view',
+                event=block_in_finalize.reached,
+                fn=lambda: pxt.drop_table('base', force=True),
+            )
+            .then_run(thread_id=1, name='insert into root', fn=lambda: root.insert([{'a': 1}]))
+            .then_unblock(thread_id=1, fault=block_in_finalize)
+            .execute()
+        )
+
+        assert pxt.list_tables() == ['root']
+        assert root.list_views() == []
+
 
 class Outcome(enum.Enum):
     """Expected result when an operation starts while another holds its locks."""
