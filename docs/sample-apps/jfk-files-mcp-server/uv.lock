@@ -1115,7 +1115,7 @@ dev = [
 requires-dist = [
     { name = "beautifulsoup4" },
     { name = "httpx" },
-    { name = "mcp" },
+    { name = "mcp", specifier = ">=2" },
     { name = "mistralai" },
     { name = "pixeltable", specifier = ">=0.7.4" },
     { name = "python-dotenv" },
