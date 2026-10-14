@@ -164,6 +164,8 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
 5. Code review
 
     * Once you submit your PR, a Pixeltable maintainer will review it.
+    * Claude also reviews a PR when it opens, if its author has write access to the repository. Anyone with write
+        access can request another review by commenting `claude review` on the PR.
     * Respond to any comments on your PR. If you need to make changes, follow the workflow in Steps 3-4 above.
     * Once your PR is approved, click the green "Squash and merge" button on your PR page to squash-commit it into
         `main`.
