@@ -175,6 +175,21 @@ class ServiceChangeOp(ChangeOp):
         )
 
     @classmethod
+    def kept_release_changed(cls, changes: list[str]) -> ServiceChangeOp:
+        """The project differs from the release a hosted instance keeps, whose code would serve the definition."""
+        return cls(
+            target='project',
+            name='release',
+            op='alter',
+            severity='blocked',
+            description=(
+                f'{_summary(changes)} since the release the service keeps; update without --keep-release to move it '
+                'onto the new code'
+            ),
+            details={'changes': '; '.join(changes)},
+        )
+
+    @classmethod
     def needs_db_update(cls, command: str) -> ServiceChangeOp:
         """The target runs the base image, so it holds neither this project's dependencies nor its files."""
         return cls(

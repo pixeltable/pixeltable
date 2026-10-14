@@ -1499,14 +1499,16 @@ class TestServiceUpdateRunning:
         )
 
     @pytest.mark.parametrize('keep_release', [False, True])
-    def test_hosted_kept_older_project(self, app_file: str, keep_release: bool) -> None:
-        """An instance kept on an older release runs an older project, which --keep-release does not count as drift."""
+    def test_hosted_older_project(self, app_file: str, keep_release: bool) -> None:
+        """An instance on an older project is moved onto the new one, or blocked if it keeps its release."""
         older = ProjectFingerprint(
             files={'app.py': 'old'}, python_version='3.11', system_dependencies=[], pixeltable_version='test', vars={}
         )
         diff = self._hosted_diff(app_file, keep_release, fingerprint=older)
-        assert [op.target for op in diff.ops] == ([] if keep_release else ['project'])
-        assert diff.resolution == ('up_to_date' if keep_release else 'update_additive')
+        assert [op.target for op in diff.ops] == ['project']
+        assert diff.resolution == ('blocked' if keep_release else 'update_additive')
+        if keep_release:
+            assert 'app.py removed since the release the service keeps' in diff.ops[0].description
 
     def test_hosted_unsettled_generation_beside_changes(self, app_file: str) -> None:
         """A failed generation stays in a plan that also changes something else, which replaces it."""

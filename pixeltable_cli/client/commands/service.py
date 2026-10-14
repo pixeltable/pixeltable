@@ -350,7 +350,10 @@ def run(argv: list[str]) -> None:
             '--keep-release',
             action='store_true',
             dest='keep_release',
-            help="keep a hosted service on its current code instead of moving it onto the database's latest code",
+            help=(
+                "keep a hosted service on its current code, which must match the project's, instead of moving it "
+                "onto the database's latest code"
+            ),
         )
     if verb == 'run':
         ap.add_argument('service', nargs='?', help='the service to serve; required when the file defines more than one')

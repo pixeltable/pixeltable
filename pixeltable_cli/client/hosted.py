@@ -16,7 +16,7 @@ from pixeltable_cli import models
 from pixeltable_cli.types import GenerationReceipt
 from pixeltable_cli.utils import split_pxt_uri
 
-from .utils import EXIT_CHANGES_PENDING, EXIT_ERROR, get_request, post_request, print_aligned
+from .utils import EXIT_CHANGES_PENDING, EXIT_ERROR, RequestFailedError, get_request, post_request, print_aligned
 
 RECEIPT_POLL_INTERVAL = 5.0
 RECEIPT_WAIT_TIMEOUT = 3 * 3600.0
@@ -280,29 +280,42 @@ def await_receipts(
     """Poll receipts until each settles, showing the progress of the first unsettled one, and return them.
 
     Ctrl-C and RECEIPT_WAIT_TIMEOUT only stop the waiting; the change continues in Pixeltable Cloud. The timeout
-    exits with EXIT_CHANGES_PENDING.
+    exits with EXIT_CHANGES_PENDING. A poll that fails transiently is retried until the timeout; any other failed
+    poll exits with EXIT_ERROR.
     """
     if len(receipts) == 0:
         print('pxt: Pixeltable Cloud accepted the change without a receipt to wait on', file=sys.stderr)
         sys.exit(EXIT_ERROR)
     current = receipts
+    poll_error: RequestFailedError | None = None
     deadline = time.monotonic() + RECEIPT_WAIT_TIMEOUT
     try:
         with spinner(_waiting_label(current) if show else None) as set_label:
             while not all(r.settled for r in current) and not any(r.unsuccessful for r in current):
                 if time.monotonic() >= deadline:
                     break
-                set_label(_waiting_label(current))
+                set_label(_waiting_label(current, poll_error))
                 time.sleep(RECEIPT_POLL_INTERVAL)
-                resp = post_request(
-                    '/api/receipts', {'db_uri': db_uri, 'receipts': [r.model_dump(mode='json') for r in current]}
-                )
+                try:
+                    resp = post_request(
+                        '/api/receipts',
+                        {'db_uri': db_uri, 'receipts': [r.model_dump(mode='json') for r in current]},
+                        raise_on_error=True,
+                    )
+                except RequestFailedError as e:
+                    if not e.transient:
+                        e.report()
+                        _exit_stopped_waiting(status_command, EXIT_ERROR)
+                    poll_error = e
+                    continue
+                poll_error = None
                 current = models.ReceiptsResponse.model_validate(resp).receipts
     except KeyboardInterrupt:
         _exit_stopped_waiting(status_command)
     if not all(r.settled for r in current) and not any(r.unsuccessful for r in current):
         print(
-            f'pxt: still in progress after {RECEIPT_WAIT_TIMEOUT / 3600:.0f}h: {_waiting_label(current).rstrip(" .")}\n'
+            f'pxt: still in progress after {RECEIPT_WAIT_TIMEOUT / 3600:.0f}h: '
+            f'{_waiting_label(current, poll_error).rstrip(" .")}\n'
             f'The change continues in Pixeltable Cloud; run `{status_command}` to check its progress.',
             file=sys.stderr,
         )
@@ -362,15 +375,18 @@ def await_endpoint(endpoint: str, *, status_command: str) -> None:
         _exit_stopped_waiting(status_command)
 
 
-def _exit_stopped_waiting(status_command: str) -> NoReturn:
+def _exit_stopped_waiting(status_command: str, exit_code: int = EXIT_INTERRUPTED) -> NoReturn:
     print(
         f'\npxt: stopped waiting; the change continues in Pixeltable Cloud. '
         f'Run `{status_command}` to check its progress.',
         file=sys.stderr,
     )
-    sys.exit(EXIT_INTERRUPTED)
+    sys.exit(exit_code)
 
 
-def _waiting_label(receipts: list[GenerationReceipt]) -> str:
+def _waiting_label(receipts: list[GenerationReceipt], poll_error: RequestFailedError | None = None) -> str:
     pending = next((r for r in receipts if not r.settled), receipts[0])
-    return f'{pending.resource} generation {describe_receipt(pending)} ...'
+    label = f'{pending.resource} generation {describe_receipt(pending)}'
+    if poll_error is not None:
+        label += f' (could not read its progress: {poll_error}; retrying)'
+    return f'{label} ...'

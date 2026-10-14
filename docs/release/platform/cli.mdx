@@ -943,7 +943,7 @@ Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreeme
 | `-f`, `--force` | `update`, `prune` | Skip the `[y/N]` prompt |
 | `-n`, `--dry-run` | `update`, `prune` | Print the intended change; do not run `update` or `prune` |
 | `--allow-destructive` | `update` | Permit changes that stop serving a route callers may be using |
-| `--keep-release` | `update` | Keep a hosted service on its current code; without it, `update` moves the service onto the database's latest code, including an image rebuilt by `pxt db build-image` |
+| `--keep-release` | `update` | Keep a hosted service on its current code, which must match the local project files; without it, `update` moves the service onto the database's latest code, including an image rebuilt by `pxt db build-image` |
 | `--host`, `--port` | `run` | Bind address and port (default `127.0.0.1:8000`) |
 | `--otel` | `run`, `update`, `diff` | Emit OpenTelemetry traces; see [Tracing](#tracing) |
 

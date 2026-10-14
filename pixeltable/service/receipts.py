@@ -8,6 +8,8 @@ from __future__ import annotations
 import time
 from collections.abc import Sequence
 
+import requests
+
 from pixeltable import catalog, exceptions as excs
 from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
@@ -72,7 +74,8 @@ def _moved_generations(db_path: catalog.Path, request: SubmitUpdateRequest, curr
 def await_receipts(db_path: catalog.Path, receipts: Sequence[GenerationReceipt]) -> list[GenerationReceipt]:
     """Poll receipts until each is settled, and return them.
 
-    Raises if one failed, was superseded, or is still pending at the deadline.
+    Raises if one failed, was superseded, or is still pending at the deadline. A poll that fails with a retryable
+    error is retried until the deadline.
     """
     if len(receipts) == 0:
         raise excs.InternalError(
@@ -92,7 +95,11 @@ def await_receipts(db_path: catalog.Path, receipts: Sequence[GenerationReceipt])
                 provider='pixeltable_cloud',
             )
         time.sleep(POLL_INTERVAL)
-        current = read_receipts(db_path, current)
+        try:
+            current = read_receipts(db_path, current)
+        except (excs.Error, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+            if isinstance(exc, excs.Error) and not exc.is_retryable:
+                raise
     raise_if_unsuccessful(db_path, current)
     return current
 

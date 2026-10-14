@@ -291,6 +291,29 @@ class TestDbSubmission:
         with pxt_raises(excs.ErrorCode.PROVIDER_ERROR, match='the image build failed'):
             receipts.await_receipts(PxtPath.parse(_DB_URI, allow_empty_path=True), [pending, failed])
 
+    def test_poll_failure(self, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A poll that fails transiently does not end the wait; a refused one does."""
+        observed = _receipt(outcome=ReceiptOutcome.OBSERVED)
+        failures: list[Exception] = [
+            excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, 'Management API error 500', status_code=500),
+            requests.exceptions.ConnectionError('connection reset'),
+        ]
+
+        def api_call(request: Any, credential: Any = None) -> dict[str, Any]:
+            assert isinstance(request, GetReceiptsRequest)
+            if len(failures) > 0:
+                raise failures.pop(0)
+            return GetReceiptsResponse(receipts=[observed]).model_dump(mode='json')
+
+        monkeypatch.setattr(management_client, 'api_call', api_call)
+        db_path = PxtPath.parse(_DB_URI, allow_empty_path=True)
+        pending = _receipt(phase=ResourcePhase.PENDING)
+        assert receipts.await_receipts(db_path, [pending]) == [observed]
+
+        failures.append(excs.AuthorizationError(excs.ErrorCode.INSUFFICIENT_PRIVILEGES, 'not permitted'))
+        with pxt_raises(excs.ErrorCode.INSUFFICIENT_PRIVILEGES):
+            receipts.await_receipts(db_path, [pending])
+
     def test_unknown_outcome(self, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """An outcome this version does not know is not taken for success."""
         _serve(monkeypatch, _ControlPlane(generation=7, settled=_receipt(outcome='ROLLED_BACK')))

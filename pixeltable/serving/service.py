@@ -108,7 +108,7 @@ def service_update(
         port: the loopback port to serve on. None keeps a restarted service on its current port, and asks the
             OS for one when starting a service that was not running.
         keep_release: keep a hosted service on its current release instead of moving it onto the
-            database's current release.
+            database's current release; a service whose release differs from the local project is refused.
         expected_generations: by service name, the generation of each hosted service the caller's plan was
             computed against; a change against an older one is refused.
         wait: wait until a hosted service's change finishes. Otherwise each applied service carries the
@@ -394,14 +394,15 @@ def _service_diff(
                 command=f'pxt db update {app_info.db_uri}',
             )
         )
-    elif running is not None and running.record.fingerprint is not None and not keeping:
+    elif running is not None and running.record.fingerprint is not None:
         # a hosted instance reports none until its pod loads one; there is nothing to compare against yet
         stale = app_info.local_fingerprint.compare(running.record.fingerprint)
         if len(stale) > 0:
+            changes = app_info.local_fingerprint.changes(running.record.fingerprint, stale)
             ops.append(
-                ServiceChangeOp.fingerprint_changed(
-                    app_info.local_fingerprint.changes(running.record.fingerprint, stale)
-                )
+                ServiceChangeOp.kept_release_changed(changes)
+                if keeping
+                else ServiceChangeOp.fingerprint_changed(changes)
             )
 
     receipt = None if running is None else running.record.receipt
