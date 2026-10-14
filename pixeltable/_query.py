@@ -35,6 +35,7 @@ from pixeltable.plan import Planner
 from pixeltable.query_clauses import FromClause, JoinClause, JoinType
 from pixeltable.row import Row
 from pixeltable.runtime import get_runtime
+from pixeltable.service.proxy_client import ProxyClient
 from pixeltable.type_system import ColumnType
 from pixeltable.utils.formatter import Formatter
 
@@ -337,10 +338,12 @@ class ProxyResultCursor(ResultCursor):
     TODO: implement a streaming protocol
     """
 
+    _client: ProxyClient
     _rows: list[list[Any]]
 
-    def __init__(self, query: Query, schema: dict[str, ColumnType], rows: list[list[Any]]):
+    def __init__(self, query: Query, client: ProxyClient, schema: dict[str, ColumnType], rows: list[list[Any]]):
         super().__init__(query)
+        self._client = client
         self._rows = rows
         # use the fetched result's schema/columns as authoritative (avoids any client-side schema staleness)
         self._schema = schema
@@ -380,9 +383,7 @@ class ProxyResultCursor(ResultCursor):
                     scheme = urllib.parse.urlparse(val).scheme
                     if len(scheme) > 1 and scheme != 'file':
                         media_urls.add(val)
-        # the runtime that ran the query may have closed its client since
-        client = get_runtime().get_proxy_client(self._query._from_clause.catalog_uri)
-        local_paths = client.fetch_media(list(media_urls)) if len(media_urls) > 0 else {}
+        local_paths = self._client.fetch_media(list(media_urls)) if len(media_urls) > 0 else {}
 
         for row in self._rows:
             for i, is_img in media_items:
@@ -666,8 +667,12 @@ class Query(QueryBase):
         return result
 
     def _exec_proxy(self, **extra: Any) -> ProxyResultCursor:
-        result = get_runtime().get_proxy_client(self._from_clause.catalog_uri).run_query(self.as_dict(), **extra)
-        return ProxyResultCursor(self, result['schema'], result['rows'])
+        from pixeltable.catalog.catalog_proxy import CatalogProxy
+
+        cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
+        assert isinstance(cat, CatalogProxy)
+        result = cat.client.run_query(self.as_dict(), **extra)
+        return ProxyResultCursor(self, cat.client, result['schema'], result['rows'])
 
     def _collect(self, args: dict[str, Any] | None = None, *, media_as_urls: bool = False) -> ResultSet:
         if not self._from_clause.is_local:

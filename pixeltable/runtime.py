@@ -5,7 +5,6 @@ import concurrent.futures
 import inspect
 import logging
 import threading
-import weakref
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator, Literal, TypeVar
 from uuid import UUID
@@ -27,7 +26,6 @@ if TYPE_CHECKING:
     from pixeltable.catalog.path import Path
     from pixeltable.catalog.table import Table
     from pixeltable.exec import ExecPlan
-    from pixeltable.service.proxy_client import ProxyClient
 
 _logger = logging.getLogger(__name__)
 _thread_local = threading.local()
@@ -37,15 +35,6 @@ _XACT_ISOLATION_LEVEL = 'REPEATABLE READ'
 # run_coro() runs one coroutine at a time, on a thread with an event loop that outlives the single call
 _N_RUN_CORO_WORKERS = 1
 _RUN_CORO_THREAD_PREFIX = 'pxt-run-coro'
-
-
-def _close_catalogs(catalogs: list[CatalogBase]) -> None:
-    for cat in catalogs:
-        try:
-            cat.close()
-        except Exception as e:
-            _logger.debug(f'Error closing catalog: {e}')
-
 
 # how long close_threadpool_runtimes() waits for a worker
 _TEARDOWN_TIMEOUT_S = 30.0
@@ -62,9 +51,6 @@ class Runtime:
 
     # catalogs keyed by their catalog_uri Path (ROOT_PATH = the in-process catalog)
     _catalogs: dict[Path, CatalogBase]
-    # the proxy catalogs this runtime created, which it closes; copy_db_context() copies other catalogs into _catalogs
-    # without adding them here
-    _owned_catalogs: list[CatalogBase]
 
     conn: sql.Connection | None
     session: orm.Session | None
@@ -90,9 +76,6 @@ class Runtime:
         # Catalogs are created lazily to avoid circular initialization:
         # Catalog.__init__() calls _init_store() which needs begin_xact() which calls get_runtime().
         self._catalogs = {}
-        self._owned_catalogs = []
-        # a thread's runtime is discarded when the thread ends, without a close()
-        weakref.finalize(self, _close_catalogs, self._owned_catalogs)
         self.conn = None
         self.session = None
         self.isolation_level = None
@@ -145,16 +128,7 @@ class Runtime:
         if cat is None:
             cat = self._make_proxy_catalog(catalog_uri)
             self._catalogs[catalog_uri] = cat
-            self._owned_catalogs.append(cat)
         return cat
-
-    def get_proxy_client(self, path: Path) -> ProxyClient:
-        """Return the client of the proxy catalog the given path lives in, creating the catalog on first use."""
-        from pixeltable.catalog.catalog_proxy import CatalogProxy
-
-        cat = self.get_catalog(path)
-        assert isinstance(cat, CatalogProxy)
-        return cat.client
 
     def get_table_by_id(
         self, tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False
@@ -250,8 +224,8 @@ class Runtime:
         self._clients.clear()
 
     def close(self) -> None:
-        """Close this runtime's clients, its catalogs and the runtimes of its run_coro() threads, plus the event loop
-        if this runtime created it."""
+        """Close this runtime's clients and the runtimes of its run_coro() threads, plus the event loop if this
+        runtime created it."""
         # close_threadpool_runtimes() submits to the executor and waits, which deadlocks when the caller is one of
         # its own workers; a worker closes the runtime it created for itself, never this one
         if self._run_coro_executor is not None and not threading.current_thread().name.startswith(
@@ -296,12 +270,6 @@ class Runtime:
                 loop.run_until_complete(loop.shutdown_default_executor())
             finally:
                 loop.close()
-
-        self.close_catalogs()
-
-    def close_catalogs(self) -> None:
-        """Close the catalogs this runtime created."""
-        _close_catalogs(self._owned_catalogs)
 
     def run_coro(self, coro: Coroutine[Any, Any, _T]) -> _T:
         """Run a coroutine synchronously in a separate thread with its own persistent event loop."""

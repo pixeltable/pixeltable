@@ -39,9 +39,6 @@ class CatalogProxy(CatalogBase):
         self.catalog_uri = catalog_uri
         self.client = client
 
-    def close(self) -> None:
-        self.client.close()
-
     def _make_table(self, md: list[TableVersionMd], is_anon_snapshot: bool) -> Table:
         tbl_id = UUID(md[0].tbl_md.tbl_id)
         Env.get().record_tbl_catalog_uri(tbl_id, self.catalog_uri)
@@ -49,9 +46,9 @@ class CatalogProxy(CatalogBase):
         tbl_md_path = TableMdPath.from_md(md, is_anon_snapshot=is_anon_snapshot, catalog_uri=self.catalog_uri)
 
         if md[0].tbl_md.view_md is not None or is_anon_snapshot:
-            return ViewProxy(tbl_id, is_anon_snapshot, tbl_md_path)
+            return ViewProxy(tbl_id, is_anon_snapshot, tbl_md_path, self.client)
         else:
-            return InsertableTableProxy(tbl_id, tbl_md_path)
+            return InsertableTableProxy(tbl_id, tbl_md_path, self.client)
 
     def create_table(
         self,

@@ -21,6 +21,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import weakref
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -123,31 +124,26 @@ class Transport(abc.ABC):
         """Return a fresh sink for one logical request's media parts."""
 
     def close(self) -> None:
-        """Close the pooled connections. The transport can still be used: the next request opens a new connection."""
+        """Release any transport resources."""
 
 
 class HttpTransport(Transport):
     """Direct HTTP to a reachable proxy daemon endpoint."""
 
     _endpoint: str
-    _lock: threading.Lock
-    _http: httpx.Client | None  # created on first use, and again after close()
+    _http: httpx.Client
 
     def __init__(self, endpoint: str):
         self._endpoint = endpoint
-        self._lock = threading.Lock()
-        self._http = None
-
-    def _client(self) -> httpx.Client:
-        with self._lock:
-            if self._http is None:
-                self._http = httpx.Client(base_url=self._endpoint, timeout=httpx.Timeout(120.0))
-            return self._http
+        self._http = httpx.Client(base_url=endpoint, timeout=httpx.Timeout(120.0))
+        # closes the pooled connections when the transport is collected without close(), as when the runtime holding
+        # it is discarded
+        weakref.finalize(self, self._http.close)
 
     def post(self, body: bytes) -> bytes:
         # an explicit Content-Length keeps the request unchunked on the wire
         headers = {'Content-Type': 'application/octet-stream', 'Content-Length': str(len(body))}
-        response = self._client().post('/rpc', content=iter_body_chunks(body), headers=headers)
+        response = self._http.post('/rpc', content=iter_body_chunks(body), headers=headers)
         response.raise_for_status()
         return response.content
 
@@ -161,10 +157,7 @@ class HttpTransport(Transport):
         return InlinePartSink()
 
     def close(self) -> None:
-        with self._lock:
-            http, self._http = self._http, None
-        if http is not None:
-            http.close()
+        self._http.close()
 
 
 # A TCP connect that times out on every try reads as a network that blocks the port, so the tries must outlast a
@@ -219,6 +212,15 @@ def _is_server_closed(conn: http.client.HTTPConnection) -> bool:
         return True
 
 
+def _close_idle(idle: list[tuple[_TunnelHTTPConnection, float]]) -> None:
+    for conn, _ in idle:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    idle.clear()
+
+
 class _TunnelPool:
     """Thread-safe pool of TLS + PXT/1.0 tunnel connections."""
 
@@ -227,6 +229,9 @@ class _TunnelPool:
         self._max = max_size
         self._lock = threading.Lock()
         self._idle: list[tuple[_TunnelHTTPConnection, float]] = []  # with when each one's last response arrived
+        # closes the idle connections when GC collects the pool, in a cycle with its transport, without close(); it
+        # holds the list, since holding the pool would keep the pool alive
+        weakref.finalize(self, _close_idle, self._idle)
 
     @contextmanager
     def borrow(self) -> Iterator[_TunnelHTTPConnection]:
@@ -257,12 +262,7 @@ class _TunnelPool:
 
     def close(self) -> None:
         with self._lock:
-            for conn, _ in self._idle:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-            self._idle.clear()
+            _close_idle(self._idle)
 
 
 class TunnelTransport(Transport):
