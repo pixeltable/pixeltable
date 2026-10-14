@@ -252,7 +252,8 @@ class TestOpenai:
             1,
         )
         result = t.collect()
-        assert '#!/bin/bash' in result['chat_output'][0]['choices'][0]['message']['content']
+        content = result['chat_output'][0]['choices'][0]['message']['content']
+        assert '#!/bin/bash' in content or '#!/usr/bin/env bash' in content
 
     def test_reuse_client(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
