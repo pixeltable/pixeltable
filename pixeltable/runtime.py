@@ -211,22 +211,27 @@ class Runtime:
         This is the only place that is allowed to remove entries from _clients, so that no client is ever dropped
         without being closed first.
         """
-        for client in self._clients.values():
+
+        async def call(fn: Callable[..., Any], *args: Any) -> None:
+            # a failure is logged rather than raised, so that it doesn't keep the other close calls from running
             try:
-                close = getattr(client, 'close', None)
-                if close is not None:
-                    result = close()
-                    if inspect.isawaitable(result):
-                        await result
-                    continue
-                # some SDK clients (e.g. mistralai.Mistral) have no close() and release their HTTP clients only on
-                # context manager exit: __aexit__() closes the async one, __exit__() the sync one
-                if hasattr(client, '__aexit__'):
-                    await client.__aexit__(None, None, None)
-                if hasattr(client, '__exit__'):
-                    client.__exit__(None, None, None)
+                result = fn(*args)
+                if inspect.isawaitable(result):
+                    await result
             except Exception as e:
                 _logger.debug(f'Error closing client: {e}')
+
+        for client in self._clients.values():
+            close = getattr(client, 'close', None)
+            if close is not None:
+                await call(close)
+                continue
+            # some SDK clients (e.g. mistralai.Mistral) have no close() and release their HTTP clients only on
+            # context manager exit: __aexit__() closes the async one, __exit__() the sync one
+            if hasattr(client, '__aexit__'):
+                await call(client.__aexit__, None, None, None)
+            if hasattr(client, '__exit__'):
+                await call(client.__exit__, None, None, None)
         self._clients.clear()
 
     def close(self) -> None:
