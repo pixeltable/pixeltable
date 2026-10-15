@@ -91,6 +91,57 @@ def _assert_scenes_cover_video(
     assert seen == set(expected)
 
 
+def _scene_span(scenes: list[dict[str, Any]]) -> tuple[float, float]:
+    assert len(scenes) >= 1
+    assert all(scene['duration'] > 0 for scene in scenes)
+    assert all(scenes[i]['start_time'] <= scenes[i + 1]['start_time'] for i in range(len(scenes) - 1))
+    start = float(scenes[0]['start_time'])
+    end = float(scenes[-1]['start_time'] + scenes[-1]['duration'])
+    total = sum(float(scene['duration']) for scene in scenes)
+    assert total == pytest.approx(end - start, abs=1e-4)
+    return start, end
+
+
+def _assert_vfr_stream_end(path: Path) -> tuple[float, float]:
+    """Return (first frame time, absolute end) for a VFR file whose stream duration covers a long final frame."""
+    with av.open(str(path)) as container:
+        stream = container.streams.video[0]
+        assert stream.duration is not None and stream.time_base is not None and stream.average_rate
+        start_pts = stream.start_time or 0
+        end = float((start_pts + stream.duration) * stream.time_base)
+        average_rate = float(stream.average_rate)
+        frames = [frame.time for frame in container.decode(video=0)]
+    assert frames
+    # One average interval after the last frame leaves the long final frame outside every scene.
+    assert end - (frames[-1] + 1 / average_rate) > 0.5
+    return float(frames[0]), end
+
+
+def _assert_offset_mkv_end(path: Path) -> tuple[float, float]:
+    """Return (first frame time, absolute end) for an offset VFR Matroska file with no stream duration.
+
+    The DURATION tag is an absolute end. Adding the stream start to it extends the scene past the video.
+    """
+    with av.open(str(path)) as container:
+        stream = container.streams.video[0]
+        assert stream.duration is None
+        assert stream.time_base is not None and stream.average_rate
+        tag = stream.metadata.get('DURATION')
+        assert isinstance(tag, str)
+        hours_s, minutes_s, seconds_s = tag.split(':')
+        stored_end = int(hours_s) * 3600 + int(minutes_s) * 60 + float(seconds_s)
+        start_s = float((stream.start_time or 0) * stream.time_base)
+        average_rate = float(stream.average_rate)
+        frames = [frame.time for frame in container.decode(video=0)]
+    assert frames
+    assert start_s > 0.2
+    assert stored_end - frames[-1] > 0.7
+    assert frames[-1] + 1 / average_rate < stored_end - 0.5
+    # The stored end is already absolute, so shifting it by the start time overshoots.
+    assert start_s + stored_end > stored_end + 0.2
+    return float(frames[0]), stored_end
+
+
 class TestVideo:
     def _validate_videos(self, videos: list[str]) -> None:
         t = pxt.create_table('validated_videos', schema={'v': pxt.Video | None}, if_exists='ignore')
@@ -1983,6 +2034,93 @@ class TestVideo:
         _assert_scenes_cover_video(t, pxtf.video.scene_detect_content, content_expected)
         _assert_scenes_cover_video(t, pxtf.video.scene_detect_content, content_expected, sample_fps=2.0)
         _assert_scenes_cover_video(t, pxtf.video.scene_detect_histogram, {'solid': 1, 'one_cut': 2, 'two_cuts': 3})
+
+    @pytest.mark.db_roots('local', reason='pure UDF test')
+    def test_scene_detect_end_time(self, uses_db: None, tmp_path: Path) -> None:
+        """Final scene reaches a long last frame, including on an offset stream with no stream duration."""
+        skip_test_if_not_installed('scenedetect')
+
+        def ffmpeg(args: list[str]) -> None:
+            subprocess.run(
+                ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', *args],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+        vfr_path = tmp_path / 'vfr.mp4'
+        ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'color=c=red:s=64x64:d=2:r=25',
+                '-f',
+                'lavfi',
+                '-i',
+                'color=c=blue:s=64x64:d=1:r=1',
+                '-filter_complex',
+                '[0][1]concat=n=2:v=1:a=0',
+                '-fps_mode',
+                'vfr',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                str(vfr_path),
+            ]
+        )
+        # Matroska leaves AVStream.duration unset and records an absolute end in DURATION.
+        offset_path = tmp_path / 'offset_vfr.mkv'
+        ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'color=c=red:s=64x64:d=0.4:r=25',
+                '-f',
+                'lavfi',
+                '-i',
+                'color=c=blue:s=64x64:d=1:r=1',
+                '-filter_complex',
+                '[0][1]concat=n=2:v=1:a=0',
+                '-fps_mode',
+                'vfr',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                '-output_ts_offset',
+                '0.5',
+                str(offset_path),
+            ]
+        )
+
+        expected = {'vfr': _assert_vfr_stream_end(vfr_path), 'offset': _assert_offset_mkv_end(offset_path)}
+        t = pxt.create_table('scene_end_clips', {'name': pxt.String, 'video': pxt.Video})
+        validate_update_status(
+            t.insert([{'name': 'vfr', 'video': str(vfr_path)}, {'name': 'offset', 'video': str(offset_path)}]),
+            expected_rows=2,
+        )
+        for sample_fps in (None, 2.0):
+            scenes_expr = (
+                pxtf.video.scene_detect_content(t.video)
+                if sample_fps is None
+                else pxtf.video.scene_detect_content(t.video, fps=sample_fps)
+            )
+            result = t.select(t.name, scenes=scenes_expr).collect()
+            seen: set[str] = set()
+            for row in result:
+                name = row['name']
+                seen.add(name)
+                start, end = _scene_span(row['scenes'])
+                expected_start, expected_end = expected[name]
+                assert start == pytest.approx(expected_start, abs=0.05), (name, sample_fps, row['scenes'])
+                assert end == pytest.approx(expected_end, abs=0.05), (name, sample_fps, row['scenes'])
+                # Adding the stream start to an already-absolute end overshoots by about that offset.
+                if name == 'offset':
+                    assert end < expected_start + expected_end - 0.2, (sample_fps, end, expected_start, expected_end)
+            assert seen == {'vfr', 'offset'}
 
     @pytest.mark.db_roots('local', reason='reads Env default video encoder config')
     def test_default_video_codec(self, uses_db: None) -> None:

@@ -61,6 +61,31 @@ def get_video_duration(path: str) -> float | None:
         return None
 
 
+def get_video_packet_end_time(path: str) -> float | None:
+    """Absolute presentation end of the video stream, in seconds.
+
+    The end is the latest packet presentation timestamp plus that packet's duration. Packet
+    timestamps already include the stream start. ``AVStream.duration``, by contrast, is relative
+    to the start. Returns None when the packets do not carry a positive duration.
+    """
+    with av.open(path) as container:
+        if len(container.streams.video) == 0:
+            return None
+        video_stream = container.streams.video[0]
+        if video_stream.time_base is None:
+            return None
+        # Latest PTS, not the last demuxed packet: B-frames are stored out of presentation order.
+        max_pts: int | None = None
+        max_pts_duration: int | None = None
+        for packet in container.demux(video_stream):
+            if packet.pts is not None and (max_pts is None or packet.pts > max_pts):
+                max_pts = packet.pts
+                max_pts_duration = packet.duration
+        if max_pts is None or max_pts_duration is None or max_pts_duration <= 0:
+            return None
+        return float((max_pts + max_pts_duration) * video_stream.time_base)
+
+
 def get_audio_duration(path: str) -> float | None:
     """
     Return audio duration in seconds, or None if there is no audio stream or the duration cannot be determined.
@@ -392,6 +417,11 @@ class VideoFrames:
     video_framerate: Fraction | None
     video_time_base: Fraction | None
     video_start_time: int | None
+    # Presentation time of the latest frame, and that frame's end when its duration is known.
+    # fps sampling does not yield every frame; the latest one can still extend the video.
+    video_last_pts: int | None
+    video_last_time: float | None
+    video_end_time: float | None
 
     @dataclass
     class Item:
@@ -412,6 +442,9 @@ class VideoFrames:
         self.video_framerate = None
         self.video_time_base = None
         self.video_start_time = None
+        self.video_last_pts = None
+        self.video_last_time = None
+        self.video_end_time = None
 
     def __enter__(self) -> Self:
         self.container = av.open(self.path)
@@ -437,6 +470,19 @@ class VideoFrames:
         try:
             for frame in self.container.decode(video=0):
                 frame_idx += 1
+                # B-frames are decoded out of presentation order, so the latest PTS wins.
+                # A missing duration must not keep an earlier frame's end as the video end.
+                if (
+                    frame.pts is not None
+                    and frame.time is not None
+                    and (self.video_last_pts is None or frame.pts >= self.video_last_pts)
+                ):
+                    self.video_last_pts = frame.pts
+                    self.video_last_time = float(frame.time)
+                    if frame.duration and frame.time_base is not None:
+                        self.video_end_time = float((frame.pts + frame.duration) * frame.time_base)
+                    else:
+                        self.video_end_time = None
                 if self.fps == 0.0 or (num_returned <= frame.time * self.fps):
                     img = frame.to_image()
                     assert isinstance(img, PIL.Image.Image)
