@@ -668,7 +668,6 @@ class Catalog(CatalogBase):
 
         assert len(write_paths) == 0 or op_class is _TblOpClass.MD_WRITE, (write_paths, op_class)
         num_retries = 0
-        failed_lock_set: _LockSet | None = None
         pending_ops_tbl_id: UUID | None = None
         has_exc = False  # True if we exited the 'with ...begin_xact()' block with an exception
         while True:
@@ -677,8 +676,6 @@ class Catalog(CatalogBase):
                 self._finalize_pending_ops(pending_ops_tbl_id)
                 pending_ops_tbl_id = None
 
-            prev_failed_lock_set = failed_lock_set
-            failed_lock_set = None
             try:
                 attempt_lock_set = self._resolve_lock_set(
                     op_class=op_class,
@@ -789,13 +786,6 @@ class Catalog(CatalogBase):
                         excs.ErrorCode.SERIALIZATION_FAILURE, f'Lock set retry limit ({_MAX_RETRIES}) exceeded'
                     ) from e
                 num_retries += 1
-                if attempt_lock_set == prev_failed_lock_set:
-                    # The same lock set failed twice in a row, so another retry would not make progress. A single
-                    # repeat is legitimate: the table that made it stale can disappear before the rebuild.
-                    raise excs.Error(
-                        excs.ErrorCode.INTERNAL_ERROR, 'Could not determine the tables to lock for this operation'
-                    ) from e
-                failed_lock_set = attempt_lock_set
                 # Clear cached metadata so the next attempt rebuilds the set from the store.
                 self._invalidate_lock_set(read_tvps, read_tbl_keys, write_tvps, write_tbl_keys)
                 continue
