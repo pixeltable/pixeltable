@@ -94,14 +94,16 @@ _UNAVAILABLE_VIDEO_MODEL_SNIPPETS = (
 )
 
 
-def _is_unavailable_video_model_error(errortype: str | None, errormsg: str | None) -> bool:
-    """Return True when an invoke failure means the video model is missing or not enabled."""
+def _is_unavailable_video_model_error(_errortype: str | None, errormsg: str | None) -> bool:
+    """Return True when the error message shows the video model is missing, retired, or not enabled.
+
+    Error type alone is not a skip signal. A ResourceNotFoundException from a routing or request bug
+    still fails the test unless the message matches a known unavailable-model snippet.
+    """
     message = (errormsg or '').lower()
     # Storage failures mention the output bucket; those are configuration errors, not a missing model.
     if 's3:' in message or 's3://' in message:
         return False
-    if errortype == 'ResourceNotFoundException':
-        return True
     return any(snippet in message for snippet in _UNAVAILABLE_VIDEO_MODEL_SNIPPETS)
 
 
@@ -163,6 +165,12 @@ def test_unavailable_video_model_error() -> None:
     )
     assert not _is_unavailable_video_model_error(
         'ValidationException', 'Invalid input: resolution must be one of 540p, 720p'
+    )
+    # Type alone must not skip; this message matches none of the unavailable-model snippets.
+    assert not _is_unavailable_video_model_error(
+        'ResourceNotFoundException',
+        'An error occurred (ResourceNotFoundException) when calling the StartAsyncInvoke operation: '
+        'The requested resource was not found.',
     )
 
 
@@ -415,7 +423,7 @@ class TestBedrock:
                 model_id=_LUMA_RAY_MODEL_ID,
             )
         )
-        status = t.insert(prompt='a dog running on a beach')
+        status = t.insert(prompt='a dog running on a beach', on_error='ignore')
         if status.num_excs != 0:
             row = t.select(errortype=t.video.errortype, errormsg=t.video.errormsg).collect()[0]
             errortype = row['errortype']
