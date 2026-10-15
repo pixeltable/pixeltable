@@ -78,6 +78,33 @@ def _assert_text_similarity(t: pxt.Table) -> None:
     assert 'machine learning' in results['text'][0].lower() or 'intelligence' in results['text'][0].lower()
 
 
+_LUMA_RAY_MODEL_ID = 'luma.ray-v2:0'
+_LUMA_RAY_REGION = 'us-west-2'
+_UNAVAILABLE_VIDEO_MODEL_SNIPPETS = (
+    'end of its life',
+    'end of life',
+    "don't have access to the model",
+    'do not have access to the model',
+    'model access is denied',
+    'use case details have not been submitted',
+    'not subscribed',
+    'aws marketplace',
+    'could not find model',
+    'model identifier is invalid',
+)
+
+
+def _is_unavailable_video_model_error(errortype: str | None, errormsg: str | None) -> bool:
+    """Return True when an invoke failure means the video model is missing or not enabled."""
+    message = (errormsg or '').lower()
+    # Storage failures mention the output bucket; those are configuration errors, not a missing model.
+    if 's3:' in message or 's3://' in message:
+        return False
+    if errortype == 'ResourceNotFoundException':
+        return True
+    return any(snippet in message for snippet in _UNAVAILABLE_VIDEO_MODEL_SNIPPETS)
+
+
 def _assert_image_similarity(t: pxt.Table, img_paths: list) -> None:
     with PIL.Image.open(img_paths[0]) as sample_img:
         sim = t.image.similarity(image=sample_img)
@@ -120,6 +147,23 @@ def _converse_image_messages(t: pxt.Table) -> list:
             ],
         }
     ]
+
+
+def test_unavailable_video_model_error() -> None:
+    eol = (
+        'An error occurred (ResourceNotFoundException) when calling the StartAsyncInvoke operation: '
+        'This model version has reached the end of its life.'
+    )
+    assert _is_unavailable_video_model_error('ResourceNotFoundException', eol)
+    assert _is_unavailable_video_model_error(
+        'AccessDeniedException', "You don't have access to the model with the specified model ID."
+    )
+    assert not _is_unavailable_video_model_error(
+        'AccessDeniedException', 'is not authorized to perform: s3:PutObject on resource: s3://bucket/key'
+    )
+    assert not _is_unavailable_video_model_error(
+        'ValidationException', 'Invalid input: resolution must be one of 540p, 720p'
+    )
 
 
 @pytest.mark.remote_api
@@ -360,22 +404,26 @@ class TestBedrock:
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text']
 
-    def test_invoke_model_nova_reel(self, uses_db: None) -> None:
+    def test_invoke_model_luma_ray(self, uses_db: None, bedrock_us_west_2: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
         t = pxt.create_table('tbl', {'prompt': pxt.String | None})
         t.add_computed_column(
             video=invoke_model(
-                {
-                    'taskType': 'TEXT_VIDEO',
-                    'textToVideoParams': {'text': t.prompt},
-                    'videoGenerationConfig': {'durationSeconds': 6, 'fps': 24, 'dimension': '1280x720'},
-                },
-                model_id='amazon.nova-reel-v1:1',
+                {'prompt': t.prompt, 'aspect_ratio': '16:9', 'duration': '5s', 'resolution': '540p'},
+                model_id=_LUMA_RAY_MODEL_ID,
             )
         )
-        validate_update_status(t.insert(prompt='a dog running on a beach'), expected_rows=1)
+        status = t.insert(prompt='a dog running on a beach')
+        if status.num_excs != 0:
+            row = t.select(errortype=t.video.errortype, errormsg=t.video.errormsg).collect()[0]
+            errortype = row['errortype']
+            errormsg = row['errormsg']
+            if _is_unavailable_video_model_error(errortype, errormsg):
+                pytest.skip(f'Bedrock model {_LUMA_RAY_MODEL_ID} is not available in {_LUMA_RAY_REGION}: {errormsg}')
+            raise AssertionError(f'invoke_model({_LUMA_RAY_MODEL_ID}) failed: {errortype}: {errormsg}')
+        validate_update_status(status, expected_rows=1)
         result = t.collect()[0]['video']
         assert result is not None and Path(result).exists()
 
