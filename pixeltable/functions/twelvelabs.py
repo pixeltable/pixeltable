@@ -12,6 +12,7 @@ import threading
 import time
 from base64 import b64encode
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Literal, NoReturn, Sequence
 
 import numpy as np
@@ -21,7 +22,7 @@ from pixeltable import env, type_system as ts
 from pixeltable.runtime import get_runtime
 from pixeltable.utils import av as av_utils
 from pixeltable.utils.code import local_public_names
-from pixeltable.utils.http import exponential_backoff, is_retryable_error
+from pixeltable.utils.http import is_retryable_error
 from pixeltable.utils.image import to_base64
 
 _logger = logging.getLogger(__name__)
@@ -41,9 +42,12 @@ _ASSET_READY_TIMEOUT_SECS = 600.0
 # TwelveLabs budget (600 RPM), leaving room for uploads and embed calls.
 _ASSET_RETRIEVE_RPS = 5.0
 # A paced sleep stops this far before the readiness deadline. The retrieve after that sleep
-# uses the leftover time as its wait_for timeout, so the last poll is cancelled at the deadline
-# instead of running with no timeout. An asset that is ready in that window is still accepted.
+# uses the leftover time as its wait_for timeout, so it is cancelled at the deadline instead of
+# running with no timeout. A pending result is polled again while another bounded poll can finish.
 _ASSET_FINAL_POLL_SECS = 5.0
+# Budget of a trailing retrieve inside that window. Less time than this cannot hold another poll,
+# so a pending result here is the deadline. Long enough for the status call to return.
+_ASSET_FOLLOWUP_POLL_SECS = 1.0
 # HTTP statuses is_retryable_error() treats as retryable. Any other explicit status is final.
 _RETRYABLE_RETRIEVE_STATUSES = frozenset({408, 429, 503, 504})
 _RETRYABLE_RETRIEVE_STATUS_NAMES = {
@@ -53,10 +57,6 @@ _RETRYABLE_RETRIEVE_STATUS_NAMES = {
     'GATEWAY_TIMEOUT': 504,
     'NOT_FOUND': 404,
 }
-# RequestRateScheduler.MAX_RETRIES is 3. Retrying create while the ready asset is still held
-# avoids deleting it and uploading the file again for those attempts.
-_ASSET_CREATE_RETRIES = 3
-_ASSET_CREATE_MAX_BACKOFF_SECS = 60.0
 
 
 class _AssetPolls:
@@ -82,6 +82,59 @@ class _AssetPolls:
 
 
 _asset_polls = _AssetPolls()
+
+
+@dataclass
+class _ReadyAsset:
+    """A ready upload kept so a scheduler retry of embed create does not upload again."""
+
+    asset_id: str
+    input_type: str
+    size: int
+    mtime_ns: int
+    failures: int
+
+
+class _ReadyAssets:
+    """Ready assets retained after a retryable `embed.v_2.create` failure.
+
+    RequestRateScheduler retries the whole UDF and paces those retries. Holding the asset
+    here lets the retry skip the upload. The map is keyed by file path; size and mtime
+    must match, and a different file at that path is deleted instead of reused.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._by_path: dict[str, list[_ReadyAsset]] = {}
+
+    def take(self, file_path: str, input_type: str, size: int, mtime_ns: int) -> tuple[_ReadyAsset | None, list[str]]:
+        stale: list[str] = []
+        with self._lock:
+            held = self._by_path.get(file_path)
+            if not held:
+                return None, stale
+            match: _ReadyAsset | None = None
+            rest: list[_ReadyAsset] = []
+            for item in held:
+                same = item.input_type == input_type and item.size == size and item.mtime_ns == mtime_ns
+                if same and match is None:
+                    match = item
+                elif same:
+                    rest.append(item)
+                else:
+                    stale.append(item.asset_id)
+            if rest:
+                self._by_path[file_path] = rest
+            else:
+                del self._by_path[file_path]
+            return match, stale
+
+    def put(self, file_path: str, item: _ReadyAsset) -> None:
+        with self._lock:
+            self._by_path.setdefault(file_path, []).append(item)
+
+
+_ready_assets = _ReadyAssets()
 
 
 @env.register_client('twelvelabs', credential_param='api_key')
@@ -239,6 +292,18 @@ async def _poll_pending(
     return _classify_retrieve_results(asset_ids, results)
 
 
+def _clip_poll_sleep(remaining: float, desired: float, rate_limit_delay: float | None) -> float:
+    """Seconds to wait before the next retrieve.
+
+    `desired` is already clipped so the retrieve keeps a positive timeout. A Retry-After that is
+    longer, and still finishes before the deadline, replaces it.
+    """
+    sleep_for = max(desired, 0.0)
+    if rate_limit_delay is not None and sleep_for < rate_limit_delay < remaining:
+        return rate_limit_delay
+    return sleep_for
+
+
 def _release_ready(n_waiting: int, polled: int, still_pending: Sequence[tuple[str, Any]]) -> int:
     """Drop assets that left this poll from the shared pace count. Returns the count still held."""
     released = polled - len(still_pending)
@@ -251,14 +316,19 @@ async def _wait_for_assets(client: 'twelvelabs.AsyncTwelveLabs', asset_ids: list
 
     Raises when an asset fails or is still not ready at `_ASSET_READY_TIMEOUT_SECS`. Every retrieve,
     including the last one, is bounded by the time left in that budget. A paced sleep that would run
-    up to the deadline stops `_ASSET_FINAL_POLL_SECS` early and is followed by one retrieve in the
-    leftover time. The timeout is raised only when that status is still not ready. HTTP 429 and other
-    retryable retrieve errors are polled again until that deadline instead of failing the upload.
+    up to the deadline stops `_ASSET_FINAL_POLL_SECS` early. If that retrieve is still pending and
+    time remains for another bounded poll, polling continues, honoring the pacing delay and any
+    Retry-After. The readiness error is raised only when that poll cannot finish in time, or the
+    provider delay makes success impossible. HTTP 429 and other retryable retrieve errors stay in
+    this loop instead of failing the upload.
     """
     pending = list(asset_ids)
     deadline = time.monotonic() + _ASSET_READY_TIMEOUT_SECS
     delay = _ASSET_POLL_INITIAL_SECS
     n_waiting = len(pending)
+    # Set once the next retrieve is the one reserved before the deadline. A pending result from it
+    # is not terminal while the leftover can still hold a paced poll.
+    in_final_window = False
     _asset_polls.adjust(n_waiting)
     try:
         while pending:
@@ -276,23 +346,32 @@ async def _wait_for_assets(client: 'twelvelabs.AsyncTwelveLabs', asset_ids: list
             pause = max(delay, _asset_polls.inflight() / _ASSET_RETRIEVE_RPS)
             if rate_limit_delay is not None:
                 pause = max(pause, rate_limit_delay)
-            # Leave a positive timeout for one last retrieve. Sleeping until the deadline would make
-            # that wait_for timeout 0, and awaiting the retrieve without one holds the upload past it.
-            reserved = min(_ASSET_FINAL_POLL_SECS, remaining)
-            if pause < remaining - reserved:
+            pending = [asset_id for asset_id, _status in still_pending]
+            if not in_final_window:
+                reserve = min(_ASSET_FINAL_POLL_SECS, remaining)
+                if pause < remaining - reserve:
+                    await asyncio.sleep(pause)
+                    delay = min(delay * 2, _ASSET_POLL_MAX_SECS)
+                    continue
+                # The next retrieve is bounded by the reserve. It is not the last look when it
+                # returns pending with time left.
+                in_final_window = True
+                sleep_for = _clip_poll_sleep(remaining, remaining - reserve, rate_limit_delay)
+                if sleep_for > 0:
+                    await asyncio.sleep(sleep_for)
+                continue
+            # Inside the reserved window. Sleep the pace when the next retrieve still has
+            # `_ASSET_FOLLOWUP_POLL_SECS` of timeout; otherwise use that budget as the deadline.
+            if pause + _ASSET_FOLLOWUP_POLL_SECS <= remaining:
                 await asyncio.sleep(pause)
                 delay = min(delay * 2, _ASSET_POLL_MAX_SECS)
-                pending = [asset_id for asset_id, _status in still_pending]
                 continue
-            sleep_for = remaining - reserved
-            if sleep_for > 0:
-                await asyncio.sleep(sleep_for)
-            final_ids = [asset_id for asset_id, _status in still_pending]
-            final_pending, _rate_limit_delay = await _poll_pending(client, final_ids, deadline)
-            n_waiting = _release_ready(n_waiting, len(final_ids), final_pending)
-            if final_pending:
-                raise _assets_not_ready(final_pending)
-            return
+            if remaining <= _ASSET_FOLLOWUP_POLL_SECS:
+                if rate_limit_delay is not None and 0 < rate_limit_delay < remaining:
+                    await asyncio.sleep(rate_limit_delay)
+                    continue
+                raise _assets_not_ready(still_pending)
+            await asyncio.sleep(_clip_poll_sleep(remaining, remaining - _ASSET_FOLLOWUP_POLL_SECS, rate_limit_delay))
     finally:
         _asset_polls.adjust(-n_waiting)
 
@@ -534,23 +613,86 @@ async def _embed_av_multi_input(
     return await _embed_multi_input(input_type=input_type, b64_str=b64_str)
 
 
-async def _create_with_ready_asset(client: Any, create_kwargs: dict[str, Any]) -> Any:
-    """Call `embed.v_2.create` for an asset that is already ready.
+def _retain_ready_asset(file_path: str, asset: _ReadyAsset, exc: Exception) -> bool:
+    """Keep `asset` when RequestRateScheduler will retry `exc`.
 
-    A retryable create failure used to leave this context, which deletes the asset. The scheduler
-    then uploads the file again and waits for readiness on every retry. The retries stay here, on
-    the same asset, until one succeeds or the bound is used up.
+    `asset.failures` counts this failure, starting at 1. On this attempt the
+    scheduler's `num_retries` is one less, and it queues another attempt only
+    while that is still below `MAX_RETRIES`. The last failure deletes the asset.
     """
-    for attempt in range(_ASSET_CREATE_RETRIES + 1):
+    retryable, _retry_delay = is_retryable_error(exc)
+    if not retryable:
+        return False
+    from pixeltable.exec.expr_eval.schedulers import RequestRateScheduler
+
+    if asset.failures > RequestRateScheduler.MAX_RETRIES:
+        return False
+    _ready_assets.put(file_path, asset)
+    return True
+
+
+async def _delete_assets(client: Any, asset_ids: Sequence[str]) -> None:
+    if len(asset_ids) == 0:
+        return
+    await asyncio.gather(*(client.assets.delete(asset_id) for asset_id in asset_ids), return_exceptions=True)
+
+
+async def _create_with_ready_asset(
+    client: Any,
+    file_path: str,
+    input_type: Literal['audio', 'video'],
+    request_cls: type[Any],
+    model_name: str,
+    start_sec: float | None,
+    end_sec: float | None,
+    embedding_option: Sequence[str] | None,
+) -> Any:
+    """Call `embed.v_2.create` for media that must be uploaded, once it is `ready`.
+
+    A retryable create failure is raised unchanged so RequestRateScheduler paces the next
+    attempt at the configured request rate. The ready asset is kept and reused by that
+    attempt, so the file is not uploaded again. Retrying create inside this call would
+    bypass that limit, and exhausting those retries would let the scheduler upload again.
+    """
+    import twelvelabs
+
+    file_stat = os.stat(file_path)
+    held, stale = _ready_assets.take(file_path, input_type, file_stat.st_size, file_stat.st_mtime_ns)
+    await _delete_assets(client, stale)
+
+    def create_kwargs(asset_id: str) -> dict[str, Any]:
+        return {
+            'input_type': input_type,
+            'model_name': model_name,
+            input_type: request_cls(
+                media_source=twelvelabs.MediaSource(asset_id=asset_id),
+                start_sec=start_sec,
+                end_sec=end_sec,
+                embedding_option=embedding_option,
+            ),
+        }
+
+    if held is not None:
         try:
-            return await client.embed.v_2.create(**create_kwargs)
+            result = await client.embed.v_2.create(**create_kwargs(held.asset_id))
         except Exception as exc:
-            retryable, retry_delay = is_retryable_error(exc)
-            if not retryable or attempt >= _ASSET_CREATE_RETRIES:
-                raise
-            delay = exponential_backoff(attempt) if retry_delay is None or retry_delay < 0 else retry_delay
-            await asyncio.sleep(min(delay, _ASSET_CREATE_MAX_BACKOFF_SECS))
-    raise AssertionError('embed create retry loop exited without a result')
+            held.failures += 1
+            if not _retain_ready_asset(file_path, held, exc):
+                await _delete_assets(client, [held.asset_id])
+            raise
+        await _delete_assets(client, [held.asset_id])
+        return result
+
+    async with _asset_uploads(input_type=input_type, files=[file_path]) as asset_ids:
+        asset_id = asset_ids[0]
+        try:
+            return await client.embed.v_2.create(**create_kwargs(asset_id))
+        except Exception as exc:
+            fresh = _ReadyAsset(asset_id, input_type, file_stat.st_size, file_stat.st_mtime_ns, failures=1)
+            # Drop it from the context manager's delete list only when the scheduler will retry.
+            if _retain_ready_asset(file_path, fresh, exc):
+                asset_ids.remove(asset_id)
+            raise
 
 
 def _encode_short_media(file_path: str, input_type: Literal['audio', 'video']) -> str:
@@ -592,18 +734,9 @@ async def _embed_av_content(
     res: twelvelabs.EmbeddingSuccessResponse
 
     if size_bytes > TWELVELABS_INLINE_LIMIT_BYTES:
-        async with _asset_uploads(input_type=input_type, files=[file_path]) as asset_ids:
-            create_kwargs = {
-                'input_type': input_type,
-                'model_name': model_name,
-                input_type: request_cls(
-                    media_source=twelvelabs.MediaSource(asset_id=asset_ids[0]),
-                    start_sec=start_sec,
-                    end_sec=end_sec,
-                    embedding_option=embedding_option,
-                ),
-            }
-            res = await _create_with_ready_asset(cl, create_kwargs)
+        res = await _create_with_ready_asset(
+            cl, file_path, input_type, request_cls, model_name, start_sec, end_sec, embedding_option
+        )
     else:
         with open(file_path, 'rb') as fp:
             b64_str = b64encode(fp.read()).decode('utf-8')

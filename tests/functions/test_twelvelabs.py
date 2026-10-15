@@ -142,6 +142,8 @@ def large_media_client(init_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path
     media = tmp_path / 'media.mp4'
     media.write_bytes(b'media')
     monkeypatch.setattr(twelvelabs, 'TWELVELABS_INLINE_LIMIT_BYTES', 0)
+    # A retryable create stashes the asset on this process-wide map. Give each test its own.
+    monkeypatch.setattr(twelvelabs, '_ready_assets', twelvelabs._ReadyAssets())
     return _LargeMediaClient(monkeypatch, media)
 
 
@@ -601,6 +603,8 @@ class TestTwelveLabsLocal:
     ) -> None:
         from pixeltable.functions import twelvelabs
 
+        # One invocation creates once and raises the retryable error. RequestRateScheduler
+        # paces the next attempt. That attempt reuses the ready asset instead of uploading.
         media = large_media_client.media
         uploads = 0
         creates = 0
@@ -632,22 +636,34 @@ class TestTwelveLabsLocal:
         client = large_media_client.install(upload_file=upload_file, retrieve=retrieve, create=create, delete=delete)
         monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
 
+        with pytest.raises(_RetrieveRateLimitError, match='too many requests'):
+            asyncio.run(twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0'))
+        assert uploads == 1
+        assert creates == 1
+        assert asset_ids == ['asset-ready']
+        assert sleeps == []
+        assert client.assets.delete.await_count == 0
+
         vector = asyncio.run(twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0'))
         assert vector.shape == (512,)
         assert uploads == 1
         assert creates == 2
         assert asset_ids == ['asset-ready', 'asset-ready']
-        assert sleeps == pytest.approx([0.05])
+        assert sleeps == []
         assert client.assets.delete.await_count == 1
 
     def test_embed_create_retry_stops_when_bounded(
         self, large_media_client: _LargeMediaClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        from pixeltable.exec.expr_eval.schedulers import RequestRateScheduler
         from pixeltable.functions import twelvelabs
 
+        # Each call creates once. The asset is held for RequestRateScheduler.MAX_RETRIES
+        # retries, then deleted so a later call uploads again instead of leaking it.
         media = large_media_client.media
         uploads = 0
         creates = 0
+        sleeps: list[float] = []
 
         def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
             nonlocal uploads
@@ -663,19 +679,54 @@ class TestTwelveLabsLocal:
             assert kwargs['video'].media_source.asset_id == 'asset-ready'
             raise _RetrieveRateLimitError('0.01')
 
+        def sleep(delay: float) -> None:
+            sleeps.append(delay)
+
         client = large_media_client.install(
             upload_file=upload_file, retrieve=retrieve, create=create, delete=lambda asset_id: None
         )
-        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock())
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
 
-        async def run() -> None:
-            await twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0')
-
-        with pytest.raises(_RetrieveRateLimitError):
-            asyncio.run(asyncio.wait_for(run(), timeout=2))
-        assert uploads == 1
-        assert creates == twelvelabs._ASSET_CREATE_RETRIES + 1
+        attempts = RequestRateScheduler.MAX_RETRIES + 1
+        for attempt in range(attempts):
+            with pytest.raises(_RetrieveRateLimitError, match='too many requests'):
+                asyncio.run(twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0'))
+            assert creates == attempt + 1
+            assert uploads == 1
+        assert sleeps == []
         assert client.assets.delete.await_count == 1
+
+        with pytest.raises(_RetrieveRateLimitError, match='too many requests'):
+            asyncio.run(twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0'))
+        assert uploads == 2
+        assert creates == attempts + 1
+
+    def test_embed_create_nonretryable_does_not_reuse_asset(self, large_media_client: _LargeMediaClient) -> None:
+        from pixeltable.functions import twelvelabs
+
+        media = large_media_client.media
+        uploads = 0
+
+        def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
+            nonlocal uploads
+            uploads += 1
+            return SimpleNamespace(asset_id=f'asset-{uploads}')
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            return SimpleNamespace(status='ready', error=None)
+
+        def create(**kwargs: Any) -> SimpleNamespace:
+            raise RuntimeError('rejected')
+
+        client = large_media_client.install(
+            upload_file=upload_file, retrieve=retrieve, create=create, delete=lambda asset_id: None
+        )
+
+        for expected_uploads in (1, 2):
+            with pytest.raises(RuntimeError, match='rejected'):
+                asyncio.run(twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0'))
+            assert uploads == expected_uploads
+        assert client.assets.delete.await_count == 2
 
     def test_retrieve_rate_limit_past_deadline_is_not_retried(
         self, large_media_client: _LargeMediaClient, monkeypatch: pytest.MonkeyPatch
@@ -908,8 +959,8 @@ class TestTwelveLabsLocal:
         skip_test_if_not_installed('twelvelabs')
         from pixeltable.functions import twelvelabs
 
-        # The pace for this many waits is longer than the budget. The sleep must stop early
-        # enough for one more retrieve, and that retrieve is bounded by the time still left.
+        # The pace for this many waits is longer than the budget. The sleep stops early for a
+        # bounded retrieve. A pending result is polled once more in the trailing second, then raised.
         others_waiting = 5_000
         monkeypatch.setattr(twelvelabs._asset_polls, 'waiting', others_waiting)
         clock = {'t': 0.0}
@@ -938,10 +989,12 @@ class TestTwelveLabsLocal:
         assert '429' not in message
         assert 'timed out' not in message.lower()
         assert is_retryable_error(exc_info.value)[0] is False
-        assert retrieves == ['ee429ff', 'ee429ff']
+        assert retrieves == ['ee429ff', 'ee429ff', 'ee429ff']
         budget = twelvelabs._ASSET_READY_TIMEOUT_SECS
-        assert sleeps == pytest.approx([budget - twelvelabs._ASSET_FINAL_POLL_SECS])
-        assert clock['t'] == pytest.approx(budget - twelvelabs._ASSET_FINAL_POLL_SECS)
+        early = budget - twelvelabs._ASSET_FINAL_POLL_SECS
+        followup = twelvelabs._ASSET_FINAL_POLL_SECS - twelvelabs._ASSET_FOLLOWUP_POLL_SECS
+        assert sleeps == pytest.approx([early, followup])
+        assert clock['t'] == pytest.approx(budget - twelvelabs._ASSET_FOLLOWUP_POLL_SECS)
         assert twelvelabs._asset_polls.waiting == others_waiting
 
     def test_ready_within_budget_polled_at_deadline(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -985,6 +1038,86 @@ class TestTwelveLabsLocal:
         assert clock['t'] == pytest.approx(budget - reserved)
         assert clock['t'] > ready_after
         assert twelvelabs._asset_polls.waiting == others_waiting
+
+    def test_ready_in_final_window_is_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        # Backoff reaches the early final retrieve at 595s of 600. The asset is still
+        # processing there and ready at 597s. That retrieve must not be the deadline.
+        budget = twelvelabs._ASSET_READY_TIMEOUT_SECS
+        early = budget - twelvelabs._ASSET_FINAL_POLL_SECS
+        ready_at = early + 2.0
+        followup = budget - twelvelabs._ASSET_FOLLOWUP_POLL_SECS
+        assert ready_at == pytest.approx(597.0)
+        assert early < ready_at < followup < budget
+        monkeypatch.setattr(twelvelabs._asset_polls, 'waiting', 0)
+        clock = {'t': 0.0}
+        polled_at: list[float] = []
+
+        def monotonic() -> float:
+            return clock['t']
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            polled_at.append(clock['t'])
+            status = 'ready' if clock['t'] >= ready_at else 'processing'
+            return SimpleNamespace(status=status, error=None)
+
+        def sleep(delay: float) -> None:
+            clock['t'] += delay
+
+        client: Any = SimpleNamespace(assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve)))
+        monkeypatch.setattr(twelvelabs.time, 'monotonic', monotonic)
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
+
+        asyncio.run(twelvelabs._wait_for_assets(client, ['asset-1']))
+        assert early in polled_at
+        assert polled_at[-1] == pytest.approx(followup)
+        assert polled_at[-1] >= ready_at
+        assert clock['t'] == pytest.approx(followup)
+        assert clock['t'] <= budget
+        assert twelvelabs._asset_polls.waiting == 0
+
+    def test_final_window_waits_out_retry_after(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        # The early final retrieve returns 503 with Retry-After 4.5s. The asset is ready
+        # after that delay and before the deadline. Polling on the 1s trailing budget
+        # (sooner than Retry-After) would still see the error and raise.
+        budget = twelvelabs._ASSET_READY_TIMEOUT_SECS
+        early = budget - twelvelabs._ASSET_FINAL_POLL_SECS
+        retry_after = 4.5
+        ready_at = early + retry_after
+        assert ready_at < budget
+        monkeypatch.setattr(twelvelabs._asset_polls, 'waiting', 0)
+        clock = {'t': 0.0}
+        polled_at: list[float] = []
+
+        def monotonic() -> float:
+            return clock['t']
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            polled_at.append(clock['t'])
+            if clock['t'] >= ready_at:
+                return SimpleNamespace(status='ready', error=None)
+            if clock['t'] >= early:
+                raise _RetrieveRateLimitError(str(retry_after))
+            return SimpleNamespace(status='processing', error=None)
+
+        def sleep(delay: float) -> None:
+            clock['t'] += delay
+
+        client: Any = SimpleNamespace(assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve)))
+        monkeypatch.setattr(twelvelabs.time, 'monotonic', monotonic)
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
+
+        asyncio.run(twelvelabs._wait_for_assets(client, ['asset-1']))
+        assert early in polled_at
+        assert polled_at[-1] >= ready_at
+        assert polled_at[-1] == pytest.approx(early + retry_after)
+        assert clock['t'] < budget
+        assert twelvelabs._asset_polls.waiting == 0
 
     def test_sustained_waits_ready_within_budget(self, monkeypatch: pytest.MonkeyPatch) -> None:
         skip_test_if_not_installed('twelvelabs')
@@ -1071,8 +1204,8 @@ class TestTwelveLabsLocal:
         from pixeltable.functions import twelvelabs
 
         # A 503 is retryable, so the scheduler would upload again if this helper re-raised it.
-        # Keep polling until the deadline, then raise a non-retryable readiness error. The last
-        # slice of the budget is the bounded final retrieve, not another sleep.
+        # Keep polling through the early final retrieve. The trailing second is that retrieve's
+        # budget, and a pending result there is a non-retryable readiness error.
         budget = 12.0
         monkeypatch.setattr(twelvelabs, '_ASSET_READY_TIMEOUT_SECS', budget)
         monkeypatch.setattr(twelvelabs, '_ASSET_POLL_INITIAL_SECS', 1.0)
@@ -1102,8 +1235,8 @@ class TestTwelveLabsLocal:
         assert 'asset-429' not in str(exc_info.value)
         assert '503' not in str(exc_info.value)
         assert is_retryable_error(exc_info.value)[0] is False
-        assert retrieves == 4
-        assert clock['t'] == pytest.approx(budget - twelvelabs._ASSET_FINAL_POLL_SECS)
+        assert retrieves == 5
+        assert clock['t'] == pytest.approx(budget - twelvelabs._ASSET_FOLLOWUP_POLL_SECS)
         assert twelvelabs._asset_polls.waiting == 0
 
     def test_embedding_indexes(self, uses_db: None, mock_embeddings: AsyncMock) -> None:
