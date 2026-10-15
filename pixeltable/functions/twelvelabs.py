@@ -7,6 +7,7 @@ the [Working with TwelveLabs](https://docs.pixeltable.com/howto/providers/workin
 
 import asyncio
 import os
+import time
 from base64 import b64encode
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Literal, Sequence
@@ -27,6 +28,11 @@ if TYPE_CHECKING:
 
 TWELVELABS_INLINE_LIMIT_BYTES = 2 * 2**20
 
+# Direct uploads stay in `processing` until validation finishes. Large media can take minutes.
+_ASSET_POLL_INITIAL_SECS = 1.0
+_ASSET_POLL_MAX_SECS = 5.0
+_ASSET_READY_TIMEOUT_SECS = 600.0
+
 
 @env.register_client('twelvelabs', credential_param='api_key')
 def _(api_key: str) -> 'twelvelabs.AsyncTwelveLabs':
@@ -39,11 +45,47 @@ def _twelvelabs_client() -> 'twelvelabs.AsyncTwelveLabs':
     return get_runtime().get_client('twelvelabs')
 
 
+async def _wait_for_assets(client: 'twelvelabs.AsyncTwelveLabs', asset_ids: list[str]) -> None:
+    """Poll `assets.retrieve` until every asset is `ready`. Raises on `failed` or timeout."""
+    pending = list(asset_ids)
+    deadline = time.monotonic() + _ASSET_READY_TIMEOUT_SECS
+    delay = _ASSET_POLL_INITIAL_SECS
+    while pending:
+        assets = await asyncio.gather(*(client.assets.retrieve(asset_id) for asset_id in pending))
+        still_pending: list[tuple[str, Any]] = []
+        for asset_id, asset in zip(pending, assets):
+            status = asset.status
+            if status == 'ready':
+                continue
+            if status == 'failed':
+                error = asset.error
+                message = error.message if error is not None and error.message else 'unknown error'
+                raise pxt.ExternalServiceError(
+                    pxt.ErrorCode.PROVIDER_ERROR,
+                    f'TwelveLabs asset {asset_id} failed: {message}',
+                    provider='twelvelabs',
+                )
+            still_pending.append((asset_id, status))
+        if not still_pending:
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            details = ', '.join(f'{asset_id} (status={status})' for asset_id, status in still_pending)
+            raise pxt.ExternalServiceError(
+                pxt.ErrorCode.PROVIDER_TIMEOUT,
+                f'TwelveLabs timed out after {_ASSET_READY_TIMEOUT_SECS:.0f}s waiting for assets to be ready: '
+                f'{details}',
+                provider='twelvelabs',
+            )
+        await asyncio.sleep(min(delay, _ASSET_POLL_MAX_SECS, remaining))
+        delay = min(delay * 2, _ASSET_POLL_MAX_SECS)
+        pending = [asset_id for asset_id, _status in still_pending]
+
+
 @asynccontextmanager
 async def _asset_uploads(input_type: Literal['audio', 'video'], files: list[str]) -> AsyncIterator[list[str]]:
     """
-    Context manager that makes uploaded files temporarily available to Twelvelabs models, deleting them from the server
-    after use.
+    Context manager that uploads files, waits until each TwelveLabs asset is ready, and deletes the assets after use.
 
     Returns:
         A list of asset IDs corresponding to the uploaded files.
@@ -61,6 +103,7 @@ async def _asset_uploads(input_type: Literal['audio', 'video'], files: list[str]
             tasks.append(client.multipart_upload.upload_file(file_path=file, file_type=input_type))  # type: ignore[attr-defined]
         upload_results = await asyncio.gather(*tasks)
         uploaded = [u.asset_id for u in upload_results]
+        await _wait_for_assets(client, uploaded)
 
         yield uploaded
 
