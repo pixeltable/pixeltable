@@ -77,7 +77,9 @@ def scene_detect_adaptive(
         - `start_pts` (int): The pts of the start of the scene.
         - `duration` (float): The duration of the scene in seconds.
 
-        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
+        The list is ordered chronologically and covers the video without gaps: the first scene starts at the
+        first analyzed frame and the last scene ends at the end of the video. If no scene cuts are detected,
+        the list contains a single scene spanning the video.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -178,7 +180,9 @@ def scene_detect_content(
         - `start_pts` (int): The pts of the start of the scene.
         - `duration` (float): The duration of the scene in seconds.
 
-        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
+        The list is ordered chronologically and covers the video without gaps: the first scene starts at the
+        first analyzed frame and the last scene ends at the end of the video. If no scene cuts are detected,
+        the list contains a single scene spanning the video.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -265,8 +269,9 @@ def scene_detect_threshold(
         fade_bias: Float between -1.0 and +1.0 representing the percentage of timecode skew for the start of a scene
             (-1.0 causing a cut at the fade-to-black, 0.0 in the middle, and +1.0 causing the cut to be right at the
             position where the threshold is passed).
-        add_final_scene: Boolean indicating if the video ends on a fade-out to generate an additional scene at this
-            timecode.
+        add_final_scene: If True and the video ends on a fade-out, return the faded-out ending as a separate final
+            scene, starting where the fade-out crosses `threshold`. If False, the faded-out ending is part of the
+            last scene.
         method: How to treat threshold when detecting fade events
             - 'ceiling': Fade out happens when frame brightness rises above threshold.
             - 'floor': Fade out happens when frame brightness falls below threshold.
@@ -279,7 +284,9 @@ def scene_detect_threshold(
         - `start_pts` (int): The pts of the start of the scene.
         - `duration` (float): The duration of the scene in seconds.
 
-        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
+        The list is ordered chronologically and covers the video without gaps: the first scene starts at the
+        first analyzed frame and the last scene ends at the end of the video. If no scene cuts are detected,
+        the list contains a single scene spanning the video.
 
     Examples:
         Detect fade-to-black transitions with default parameters:
@@ -294,7 +301,7 @@ def scene_detect_threshold(
 
         >>> tbl.select(tbl.video.scene_detect_threshold(method='ceiling')).collect()
 
-        Add final scene boundary:
+        Return a faded-out ending as its own scene:
 
         >>> tbl.select(
         ...     tbl.video.scene_detect_threshold(add_final_scene=True)
@@ -362,7 +369,9 @@ def scene_detect_histogram(
         - `start_pts` (int): The pts of the start of the scene.
         - `duration` (float): The duration of the scene in seconds.
 
-        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
+        The list is ordered chronologically and covers the video without gaps: the first scene starts at the
+        first analyzed frame and the last scene ends at the end of the video. If no scene cuts are detected,
+        the list contains a single scene spanning the video.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -445,7 +454,9 @@ def scene_detect_hash(
         - `start_pts` (int): The pts of the start of the scene.
         - `duration` (float): The duration of the scene in seconds.
 
-        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
+        The list is ordered chronologically and covers the video without gaps: the first scene starts at the
+        first analyzed frame and the last scene ends at the end of the video. If no scene cuts are detected,
+        the list contains a single scene spanning the video.
 
     Examples:
         Detect scene cuts with default parameters:
