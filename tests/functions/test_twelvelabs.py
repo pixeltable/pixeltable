@@ -4,7 +4,7 @@ import time
 from base64 import b64decode
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Iterator
 from unittest.mock import AsyncMock
 
 import numpy as np
@@ -145,6 +145,16 @@ def large_media_client(init_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path
     # A retryable create stashes the asset on this process-wide map. Give each test its own.
     monkeypatch.setattr(twelvelabs, '_ready_assets', twelvelabs._ReadyAssets())
     return _LargeMediaClient(monkeypatch, media)
+
+
+@pytest.fixture(autouse=True)
+def _reset_retrieve_admission() -> Iterator[None]:
+    """Each test starts with a clear retrieve schedule. The gate is process-wide."""
+    from pixeltable.functions import twelvelabs
+
+    twelvelabs._retrieve_admission.reset()
+    yield
+    twelvelabs._retrieve_admission.reset()
 
 
 class TestTwelveLabsLocal:
@@ -679,12 +689,20 @@ class TestTwelveLabsLocal:
             assert kwargs['video'].media_source.asset_id == 'asset-ready'
             raise _RetrieveRateLimitError('0.01')
 
+        # Freeze the clock so the gap between the two uploads is the admission slot, not wall time.
+        clock = {'t': 0.0}
+
+        def monotonic() -> float:
+            return clock['t']
+
         def sleep(delay: float) -> None:
             sleeps.append(delay)
+            clock['t'] += delay
 
         client = large_media_client.install(
             upload_file=upload_file, retrieve=retrieve, create=create, delete=lambda asset_id: None
         )
+        monkeypatch.setattr(twelvelabs.time, 'monotonic', monotonic)
         monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
 
         attempts = RequestRateScheduler.MAX_RETRIES + 1
@@ -700,6 +718,8 @@ class TestTwelveLabsLocal:
             asyncio.run(twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0'))
         assert uploads == 2
         assert creates == attempts + 1
+        # The second upload's first retrieve waits out the slot reserved by the first upload.
+        assert sleeps == pytest.approx([1.0 / twelvelabs._ASSET_RETRIEVE_RPS])
 
     def test_embed_create_nonretryable_does_not_reuse_asset(self, large_media_client: _LargeMediaClient) -> None:
         from pixeltable.functions import twelvelabs
@@ -810,7 +830,8 @@ class TestTwelveLabsLocal:
         from pixeltable.functions import twelvelabs
 
         # 100 assets, 99 ready on the first poll, and 4 other polls already in flight.
-        # The next gap uses those 5 assets (1s). Counting the original 104 would sleep 20.8s.
+        # The first round staggers retrieves one slot apart. The next gap uses the 5 assets
+        # still waiting (1s). Counting the original 104 would sleep 20.8s.
         asset_ids = [f'asset-{i}' for i in range(100)]
         still_processing = asset_ids[-1]
         others_waiting = 4
@@ -838,8 +859,12 @@ class TestTwelveLabsLocal:
 
         still_waiting = others_waiting + 1
         expected_pause = max(twelvelabs._ASSET_POLL_INITIAL_SECS, still_waiting / twelvelabs._ASSET_RETRIEVE_RPS)
-        assert waiting_during_sleep == [still_waiting]
-        assert sleeps == pytest.approx([expected_pause])
+        spacing = 1.0 / twelvelabs._ASSET_RETRIEVE_RPS
+        admission = [i * spacing for i in range(1, len(asset_ids))]
+        assert sleeps[:-1] == pytest.approx(admission)
+        assert sleeps[-1] == pytest.approx(expected_pause)
+        assert waiting_during_sleep[:-1] == [others_waiting + len(asset_ids)] * len(admission)
+        assert waiting_during_sleep[-1] == still_waiting
         assert retrieved.count(still_processing) == 2
         assert len(retrieved) == len(asset_ids) + 1
         assert twelvelabs._asset_polls.waiting == others_waiting
@@ -866,7 +891,10 @@ class TestTwelveLabsLocal:
             nonlocal phase
             sleeps.append(delay)
             waiting_during_sleep.append(twelvelabs._asset_polls.waiting)
-            phase = 1
+            # The first sleep staggers the two retrieves in this round. The failing status
+            # is the poll after the pace sleep, once the ready asset has left the count.
+            if len(sleeps) > 1:
+                phase = 1
 
         client: Any = SimpleNamespace(assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve)))
         monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
@@ -883,9 +911,11 @@ class TestTwelveLabsLocal:
         assert cause.asset_id == 'pending-429'
         assert cause.reason == 'processing timed out'
         still_waiting = others_waiting + 1
+        in_round = others_waiting + 2
         expected_pause = max(twelvelabs._ASSET_POLL_INITIAL_SECS, still_waiting / twelvelabs._ASSET_RETRIEVE_RPS)
-        assert waiting_during_sleep == [still_waiting]
-        assert sleeps == pytest.approx([expected_pause])
+        spacing = 1.0 / twelvelabs._ASSET_RETRIEVE_RPS
+        assert waiting_during_sleep == [in_round, still_waiting]
+        assert sleeps == pytest.approx([spacing, expected_pause])
         assert twelvelabs._asset_polls.waiting == others_waiting
 
     def test_retrieve_error_deletes_asset(
@@ -949,10 +979,146 @@ class TestTwelveLabsLocal:
         monkeypatch.setattr(twelvelabs.time, 'monotonic', monotonic)
         monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
 
-        with pytest.raises(_RetrieveRejectedError, match='ee429ff'):
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='TwelveLabs asset retrieve failed') as exc_info:
             asyncio.run(twelvelabs._wait_for_assets(client, ['ee429ff']))
+        message = str(exc_info.value)
+        assert message == 'TwelveLabs asset retrieve failed'
+        assert '429' not in message
+        assert 'ee429ff' not in message
+        assert is_retryable_error(exc_info.value)[0] is False
+        assert exc_info.value.__cause__ is error
         assert calls == 1
         assert clock['t'] == 0
+        assert twelvelabs._asset_polls.waiting == 0
+
+    def test_permanent_retrieve_with_retry_text_does_not_reupload(self, large_media_client: _LargeMediaClient) -> None:
+        from pixeltable.functions import twelvelabs
+
+        # The scheduler re-runs embed when is_retryable_error() is true. A 404 whose text
+        # contains "429" must not do that, and the failed attempt uploads and deletes once.
+        media = large_media_client.media
+        uploads = 0
+        error = _RetrieveRejectedError('asset ee429ff was not found')
+
+        def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
+            nonlocal uploads
+            uploads += 1
+            return SimpleNamespace(asset_id='ee429ff')
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            raise error
+
+        def create(**kwargs: Any) -> SimpleNamespace:
+            raise AssertionError('embed should not run before the asset is ready')
+
+        client = large_media_client.install(
+            upload_file=upload_file, retrieve=retrieve, create=create, delete=lambda asset_id: None
+        )
+
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='TwelveLabs asset retrieve failed') as exc_info:
+            asyncio.run(twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0'))
+        assert uploads == 1
+        assert client.assets.delete.await_count == 1
+        assert client.embed.v_2.create.await_count == 0
+        assert str(exc_info.value) == 'TwelveLabs asset retrieve failed'
+        assert '429' not in str(exc_info.value)
+        assert 'ee429ff' not in str(exc_info.value)
+        assert is_retryable_error(exc_info.value)[0] is False
+        assert exc_info.value.__cause__ is error
+
+    def test_initial_retrieves_share_admission(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        # Ten single-asset waits start together and each asset is ready immediately.
+        # The first poll used to be unpaced, so this arrival issued 10 retrieves at once.
+        n_assets = 10
+        clock = _VirtualClock(n_assets)
+        polled_at: list[float] = []
+        monkeypatch.setattr(twelvelabs._asset_polls, 'waiting', 0)
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            polled_at.append(clock.now)
+            return SimpleNamespace(status='ready', error=None)
+
+        async def run_one(i: int) -> None:
+            try:
+                await twelvelabs._wait_for_assets(client, [f'asset-{i}'])
+            finally:
+                clock.task_finished()
+
+        client: Any = SimpleNamespace(assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve)))
+        monkeypatch.setattr(twelvelabs.time, 'monotonic', clock.monotonic)
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', clock.sleep)
+
+        async def run() -> list[BaseException | None]:
+            tasks = [asyncio.create_task(run_one(i)) for i in range(n_assets)]
+            return list(await asyncio.gather(*tasks, return_exceptions=True))
+
+        outcomes = asyncio.run(run())
+        assert outcomes == [None] * n_assets
+        spacing = 1.0 / twelvelabs._ASSET_RETRIEVE_RPS
+        assert polled_at == pytest.approx([i * spacing for i in range(n_assets)])
+        assert twelvelabs._asset_polls.waiting == 0
+
+    def test_later_retrieves_share_admission(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        # Both assets are processing, then ready. Each round starts its retrieves one slot
+        # apart, including the follow-up round. The backoff between rounds stays the poll pause.
+        monkeypatch.setattr(twelvelabs._asset_polls, 'waiting', 0)
+        seen: set[str] = set()
+        sleeps: list[float] = []
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            status = 'processing' if asset_id not in seen else 'ready'
+            seen.add(asset_id)
+            return SimpleNamespace(status=status, error=None)
+
+        def sleep(delay: float) -> None:
+            sleeps.append(delay)
+
+        client: Any = SimpleNamespace(assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve)))
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
+
+        asyncio.run(twelvelabs._wait_for_assets(client, ['asset-a', 'asset-b']))
+        spacing = 1.0 / twelvelabs._ASSET_RETRIEVE_RPS
+        pause = max(twelvelabs._ASSET_POLL_INITIAL_SECS, 2 / twelvelabs._ASSET_RETRIEVE_RPS)
+        assert sleeps == pytest.approx([spacing, pause, spacing])
+        assert twelvelabs._asset_polls.waiting == 0
+
+    def test_retrieve_admission_coordinates_across_threads(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        import threading
+
+        from pixeltable.functions import twelvelabs
+
+        monkeypatch.setattr(twelvelabs._asset_polls, 'waiting', 0)
+        barrier = threading.Barrier(2)
+        polled: list[float] = []
+        recorded = threading.Lock()
+
+        async def retrieve(asset_id: str) -> SimpleNamespace:
+            with recorded:
+                polled.append(time.monotonic())
+            await asyncio.sleep(0)
+            return SimpleNamespace(status='ready', error=None)
+
+        client: Any = SimpleNamespace(assets=SimpleNamespace(retrieve=retrieve))
+
+        def worker() -> None:
+            barrier.wait()
+            asyncio.run(twelvelabs._wait_for_assets(client, ['asset']))
+
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        spacing = 1.0 / twelvelabs._ASSET_RETRIEVE_RPS
+        assert len(polled) == 2
+        assert sorted(polled)[1] - sorted(polled)[0] >= spacing - 0.05
         assert twelvelabs._asset_polls.waiting == 0
 
     def test_deadline_poll_raises_when_still_processing(self, monkeypatch: pytest.MonkeyPatch) -> None:

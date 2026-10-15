@@ -84,6 +84,89 @@ class _AssetPolls:
 _asset_polls = _AssetPolls()
 
 
+class _RetrieveAdmission:
+    """Spaces `assets.retrieve` across worker threads to `_ASSET_RETRIEVE_RPS`.
+
+    The first poll used to start immediately, so waits arriving at the scheduler's 10/s
+    issued retrieves faster than this cap. `claim` reserves one slot per asset in a round
+    and returns how long that retrieve waits before it starts. The lock covers only the
+    reservation, so waits on different event loops share one schedule.
+
+    `logical` follows `time.monotonic` when that clock moves. A sleep that does not move
+    the clock still counts: `end_sleep` advances `logical` to that sleep's wake time, and
+    the next claim does not add a second delay for the same wait.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._logical = 0.0
+        self._next = 0.0
+
+    def reset(self) -> None:
+        with self._lock:
+            self._logical = 0.0
+            self._next = 0.0
+
+    def _observe(self, now: float) -> None:
+        self._logical = max(self._logical, now)
+
+    def claim(self, n: int, *, max_delay: float) -> tuple[float, list[float]] | None:
+        """Reserve `n` slots. Returns `(logical_now, delays)` from `logical_now`.
+
+        A slot that would start at or after `max_delay` is pulled back to just before that
+        bound so the retrieve still runs inside the readiness deadline. The schedule keeps
+        the fair spacing for whoever claims next.
+        """
+        if n <= 0 or max_delay <= 0:
+            return None
+        spacing = 1.0 / _ASSET_RETRIEVE_RPS
+        # wait_for shares this bound. Stopping slightly early leaves the retrieve time to start.
+        latest = max_delay - min(0.05, max_delay / 2)
+        if latest <= 0:
+            return None
+        with self._lock:
+            self._observe(time.monotonic())
+            first = max(0.0, self._next - self._logical)
+            delays = [min(first + i * spacing, latest) for i in range(n)]
+            logical_now = self._logical
+            self._next = logical_now + first + n * spacing
+            return logical_now, delays
+
+    def begin_sleep(self, delay: float) -> tuple[float, float]:
+        """A paced sleep of `delay` seconds starts now. Returns `(monotonic_before, logical_wake)`."""
+        with self._lock:
+            now = time.monotonic()
+            self._observe(now)
+            return now, self._logical + delay
+
+    def end_sleep(self, before: float, after: float, delay: float, wake: float) -> None:
+        with self._lock:
+            moved = after - before
+            if moved + 1e-4 >= delay:
+                self._logical = max(self._logical, after)
+            elif wake > self._logical:
+                self._logical = wake
+
+
+_retrieve_admission = _RetrieveAdmission()
+
+
+async def _sleep_paced(delay: float, *, wake: float | None = None) -> None:
+    """Sleep `delay` seconds and fold that wait into retrieve admission.
+
+    `wake`, when set, is the logical wake time already reserved for this sleep. Otherwise
+    the wake is `delay` past the current logical time.
+    """
+    if delay <= 0:
+        return
+    if wake is None:
+        before, wake = _retrieve_admission.begin_sleep(delay)
+    else:
+        before = time.monotonic()
+    await asyncio.sleep(delay)
+    _retrieve_admission.end_sleep(before, time.monotonic(), delay, wake)
+
+
 @dataclass
 class _ReadyAsset:
     """A ready upload kept so a scheduler retry of embed create does not upload again."""
@@ -245,6 +328,23 @@ def _retrieve_should_retry(exc: BaseException) -> tuple[bool, float | None]:
     return is_retryable_error(exc)
 
 
+def _reraise_permanent_retrieve(exc: BaseException) -> NoReturn:
+    """Fail a retrieve that will not be polled again.
+
+    A permanent status can still carry text such as "429". `RequestRateScheduler._exec`
+    classifies the exception it sees with `is_retryable_error()`, which would upload the
+    file again after this asset was deleted. The fixed message is not retryable. The
+    provider exception stays on `__cause__`, which that classifier does not read.
+    """
+    if isinstance(exc, Exception) and is_retryable_error(exc)[0]:
+        _logger.warning('TwelveLabs asset retrieve failed: %s', exc)
+        err = pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_ERROR, 'TwelveLabs asset retrieve failed', provider='twelvelabs'
+        )
+        raise err from exc
+    raise exc
+
+
 def _classify_retrieve_results(
     asset_ids: Sequence[str], results: Sequence[Any]
 ) -> tuple[list[tuple[str, Any]], float | None]:
@@ -259,7 +359,7 @@ def _classify_retrieve_results(
                     rate_limit_delay = retry_delay
                 still_pending.append((asset_id, None))
                 continue
-            raise result
+            _reraise_permanent_retrieve(result)
         status = result.status
         if status == 'ready':
             continue
@@ -270,11 +370,26 @@ def _classify_retrieve_results(
 
 
 async def _retrieve_within(client: 'twelvelabs.AsyncTwelveLabs', asset_ids: Sequence[str], timeout: float) -> list[Any]:
-    """Retrieve `asset_ids`, cancelling the round if it is still running after `timeout` seconds."""
+    """Retrieve `asset_ids`, cancelling the round if it is still running after `timeout` seconds.
+
+    Each retrieve waits for a shared admission slot before it starts, including the first poll
+    of a wait and a poll inside the final window. A slot past `timeout` is pulled in so the
+    retrieve still starts before the deadline.
+    """
     if timeout <= 0:
         raise _assets_not_ready([(asset_id, None) for asset_id in asset_ids])
+    claimed = _retrieve_admission.claim(len(asset_ids), max_delay=timeout)
+    if claimed is None:
+        raise _assets_not_ready([(asset_id, None) for asset_id in asset_ids])
+    logical_now, delays = claimed
+
+    async def one(asset_id: str, delay: float) -> Any:
+        if delay > 0:
+            await _sleep_paced(delay, wake=logical_now + delay)
+        return await client.assets.retrieve(asset_id)
+
     retrieve_round = asyncio.gather(
-        *(client.assets.retrieve(asset_id) for asset_id in asset_ids), return_exceptions=True
+        *(one(asset_id, delay) for asset_id, delay in zip(asset_ids, delays, strict=True)), return_exceptions=True
     )
     try:
         return await asyncio.wait_for(retrieve_round, timeout=timeout)
@@ -315,12 +430,13 @@ async def _wait_for_assets(client: 'twelvelabs.AsyncTwelveLabs', asset_ids: list
     """Poll `assets.retrieve` until every asset is `ready`.
 
     Raises when an asset fails or is still not ready at `_ASSET_READY_TIMEOUT_SECS`. Every retrieve,
-    including the last one, is bounded by the time left in that budget. A paced sleep that would run
-    up to the deadline stops `_ASSET_FINAL_POLL_SECS` early. If that retrieve is still pending and
-    time remains for another bounded poll, polling continues, honoring the pacing delay and any
-    Retry-After. The readiness error is raised only when that poll cannot finish in time, or the
-    provider delay makes success impossible. HTTP 429 and other retryable retrieve errors stay in
-    this loop instead of failing the upload.
+    including the first and the last, waits for a shared admission slot and is bounded by the time
+    left in that budget. A paced sleep that would run up to the deadline stops `_ASSET_FINAL_POLL_SECS`
+    early. If that retrieve is still pending and time remains for another bounded poll, polling
+    continues, honoring the pacing delay and any Retry-After. The readiness error is raised only when
+    that poll cannot finish in time, or the provider delay makes success impossible. HTTP 429 and other
+    retryable retrieve errors stay in this loop instead of failing the upload. A permanent retrieve
+    error whose text the scheduler would retry is raised as a fixed-message provider error instead.
     """
     pending = list(asset_ids)
     deadline = time.monotonic() + _ASSET_READY_TIMEOUT_SECS
@@ -350,7 +466,7 @@ async def _wait_for_assets(client: 'twelvelabs.AsyncTwelveLabs', asset_ids: list
             if not in_final_window:
                 reserve = min(_ASSET_FINAL_POLL_SECS, remaining)
                 if pause < remaining - reserve:
-                    await asyncio.sleep(pause)
+                    await _sleep_paced(pause)
                     delay = min(delay * 2, _ASSET_POLL_MAX_SECS)
                     continue
                 # The next retrieve is bounded by the reserve. It is not the last look when it
@@ -358,20 +474,20 @@ async def _wait_for_assets(client: 'twelvelabs.AsyncTwelveLabs', asset_ids: list
                 in_final_window = True
                 sleep_for = _clip_poll_sleep(remaining, remaining - reserve, rate_limit_delay)
                 if sleep_for > 0:
-                    await asyncio.sleep(sleep_for)
+                    await _sleep_paced(sleep_for)
                 continue
             # Inside the reserved window. Sleep the pace when the next retrieve still has
             # `_ASSET_FOLLOWUP_POLL_SECS` of timeout; otherwise use that budget as the deadline.
             if pause + _ASSET_FOLLOWUP_POLL_SECS <= remaining:
-                await asyncio.sleep(pause)
+                await _sleep_paced(pause)
                 delay = min(delay * 2, _ASSET_POLL_MAX_SECS)
                 continue
             if remaining <= _ASSET_FOLLOWUP_POLL_SECS:
                 if rate_limit_delay is not None and 0 < rate_limit_delay < remaining:
-                    await asyncio.sleep(rate_limit_delay)
+                    await _sleep_paced(rate_limit_delay)
                     continue
                 raise _assets_not_ready(still_pending)
-            await asyncio.sleep(_clip_poll_sleep(remaining, remaining - _ASSET_FOLLOWUP_POLL_SECS, rate_limit_delay))
+            await _sleep_paced(_clip_poll_sleep(remaining, remaining - _ASSET_FOLLOWUP_POLL_SECS, rate_limit_delay))
     finally:
         _asset_polls.adjust(-n_waiting)
 
