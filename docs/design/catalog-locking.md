@@ -27,7 +27,7 @@ That class determines the required lock mode.
 
 | Operation class | Operational table | Data-versioned table | Wait policy |
 | --- | --- | --- | --- |
-| `MD_READ`: catalog metadata | No lock | No lock | Not applicable |
+| `MD_READ`: catalog metadata | No lock | No lock | N/A |
 | `DATA_READ`: query rows | `ACCESS SHARE` | `ACCESS SHARE` | Wait if any locked table is data-versioned |
 | `DATA_WRITE`: insert/update/delete | `ROW EXCLUSIVE` | `EXCLUSIVE` | Wait if any locked table is data-versioned |
 | `MD_WRITE`: metadata changes and DDL | `ACCESS EXCLUSIVE` | `ACCESS EXCLUSIVE` | Always wait |
@@ -48,11 +48,12 @@ always wait, for either table kind.
 
 ### Metadata-only reads
 
-Catalog listings and descriptions read metadata without locking store tables. They can return a schema that
-changes before the caller uses it. A subsequent data operation acquires its own locks and refreshes metadata.
+Catalog listings and descriptions read metadata without locking store tables. They don't wait for a schema change
+in progress, so the schema they return may already be out of date by the time the caller uses it. A subsequent data
+operation acquires its own locks and refreshes metadata.
 
 A metadata read can still encounter pending operations while loading a table. It then finalizes those operations
-before continuing; finalization takes locks and may wait (section 7).
+before continuing; finalization takes locks and may have to wait (section 7).
 
 The transaction type must match what the call site actually reads. Queries that read tables through expressions,
 such as `@pxt.query` UDFs, need data-read locks on those tables too. Section 8 describes a current limitation.
