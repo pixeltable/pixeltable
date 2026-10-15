@@ -444,15 +444,17 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
         ... )
         >>> tbl.add_computed_column(image=tbl.response['images'][0])
 
-        Invoke Amazon Nova Reel for video generation (auto-routes to async; requires `bedrock.temp_location`):
+        Invoke Luma Ray 2 for video generation (auto-routes to async; requires `bedrock.temp_location`).
+        Luma Ray 2 (`luma.ray-v2:0`) is available in `us-west-2`:
 
         >>> body = {
-        ...     'taskType': 'TEXT_VIDEO',
-        ...     'textToVideoParams': {'text': tbl.prompt},
-        ...     'videoGenerationConfig': {'durationSeconds': 6, 'fps': 24},
+        ...     'prompt': tbl.prompt,
+        ...     'aspect_ratio': '16:9',
+        ...     'duration': '5s',
+        ...     'resolution': '540p',
         ... }
         >>> tbl.add_computed_column(
-        ...     video=invoke_model(body, model_id='amazon.nova-reel-v1:1')
+        ...     video=invoke_model(body, model_id='luma.ray-v2:0')
         ... )
     """
     body = _apply_invoke_model_request_conversions(body, model_id)
