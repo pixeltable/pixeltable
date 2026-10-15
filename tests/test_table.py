@@ -4239,7 +4239,9 @@ class TestTable:
         actual_schema = {col: val['type_'] for col, val in metadata['columns'].items()}
         assert expected_schema == actual_schema
 
-    def test_repr(self, db_root: DatabaseRoot, test_tbl: pxt.Table, local_embed: pxt.Function) -> None:
+    def test_repr(
+        self, db_root: DatabaseRoot, test_tbl: pxt.Table, local_embed: pxt.Function, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         p = db_root.make_catalog_path
 
         def loc(path: str) -> str:
@@ -4380,6 +4382,17 @@ class TestTable:
                       c7                  Json    test_tbl
                       c8  Array[(2, 3), int64]    test_tbl  [[1, 2, 3], [4, 5, 6]]""",
         )
+
+        # B-tree indexes are part of the same describe()/repr output. Added after the snapshots above so their
+        # recorded versions stay put.
+        test_tbl.add_btree_index('c2', idx_name='c2_idx')
+        described = re.sub(r'-{3,}', '---', repr(test_tbl))
+        described = re.sub(r'\s+', ' ', described)
+        assert 'Index Name Column Type --- c2_idx c2 btree' in described
+        assert 'c2_idx' in test_tbl._repr_html_()
+        capsys.readouterr()
+        test_tbl.describe()
+        assert capsys.readouterr().out.strip() == repr(test_tbl)
 
         # The remaining cases aren't supported over a hosted (proxy) catalog yet:
         # - ColumnRef.__repr__ renders its owner table client-side via the local catalog plus the

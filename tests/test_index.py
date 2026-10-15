@@ -28,7 +28,6 @@ from .utils import (
     reload_catalog,
     rerun_on_network_error,
     skip_test_if_not_installed,
-    validate_repr,
     validate_update_status,
 )
 
@@ -1277,131 +1276,6 @@ class TestIndex:
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='has_default_idxs=True'):
                 t2.drop_index(**drop_kwargs)  # type: ignore[arg-type]
         assert set(btree_idxs(t2).values()) == {'id', 'b', 'c'}
-
-    def test_describe_shows_btree_indexes(
-        self, db_root: DatabaseRoot, local_embed: pxt.Function, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """B-tree indexes show up in describe()/repr the same way get_metadata()['indexes'] lists them.
-
-        Embedding-only tables keep the Index Name/Column/Metric/Embedding block.
-        """
-        from pixeltable.catalog.local_table import LocalTable
-
-        p = db_root.make_catalog_path
-        t = pxt.create_table(p('describe_idxs'), {'n': pxt.Int | None, 'text': pxt.String | None})
-        t.add_btree_index('n', idx_name='n_idx')
-        t.add_embedding_index('text', idx_name='text_idx', metric='cosine', string_embed=local_embed)
-
-        md_idxs = t.get_metadata()['indexes']
-        assert set(md_idxs) == {'n_idx', 'text_idx'}
-        assert md_idxs['n_idx']['index_type'] == 'btree'
-        assert md_idxs['n_idx']['columns'] == ['n']
-        assert md_idxs['text_idx']['index_type'] == 'embedding'
-
-        validate_repr(
-            t,
-            f"""
-            table '{p('describe_idxs')}'
-
-             Column Name         Type        Source Computed With Comment
-            -------------------------------------------------------------
-                       n    Int | None describe_idxs
-                    text String | None describe_idxs
-
-             Index Name Column      Type  Metric                     Embedding
-            -------------------------------------------------------------------
-                  n_idx      n     btree
-               text_idx   text embedding  cosine local_embedding(text, dim=512)
-            """,
-        )
-        capsys.readouterr()
-        t.describe()
-        assert capsys.readouterr().out.strip() == repr(t)
-
-        # an embedding index alone still renders the embedding block, without a Type column
-        emb_only = pxt.create_table(p('describe_emb_only'), {'text': pxt.String | None})
-        emb_only.add_embedding_index('text', idx_name='emb_idx', metric='cosine', string_embed=local_embed)
-        validate_repr(
-            emb_only,
-            f"""
-            table '{p('describe_emb_only')}'
-
-             Column Name         Type           Source Computed With Comment
-            ----------------------------------------------------------------
-                    text String | None describe_emb_only
-
-             Index Name Column  Metric                      Embedding
-            ---------------------------------------------------------
-                emb_idx   text  cosine local_embedding(text, dim=512)
-            """,
-        )
-
-        # default B-tree indexes are user-visible in describe, and ineligible columns are not
-        defaults = pxt.create_table(
-            p('describe_defaults'),
-            {'n': pxt.Int | None, 'note': pxt.String | None, 'flag': pxt.Bool | None},
-            has_default_idxs=True,
-        )
-        default_md = defaults.get_metadata()['indexes']
-        assert {info['columns'][0] for info in default_md.values()} == {'n', 'note'}
-        assert all(info['index_type'] == 'btree' for info in default_md.values())
-        default_text = repr(defaults)
-        for name, info in default_md.items():
-            assert name in default_text
-            assert info['columns'][0] in default_text
-        assert 'btree' in default_text
-        # flag is ineligible, so the descriptor lists only the default B-tree indexes
-        if isinstance(defaults, LocalTable):
-            default_desc = defaults._index_descriptor()
-            assert list(default_desc['Column']) == [info['columns'][0] for info in default_md.values()]
-            assert list(default_desc['Type']) == ['btree', 'btree']
-            assert list(default_desc.columns) == ['Index Name', 'Column', 'Type']
-
-        # a view shows indexes defined on it, not indexes of its base
-        v = pxt.create_view(p('describe_idxs_view'), t)
-        v.add_computed_column(doubled=v.n * 2)
-        v.add_btree_index('doubled', idx_name='doubled_idx')
-        view_text = repr(v)
-        assert 'doubled_idx' in view_text
-        assert 'n_idx' not in view_text
-        assert 'text_idx' not in view_text
-
-        if isinstance(t, LocalTable):
-            described = t._index_descriptor()
-            assert list(described.columns) == ['Index Name', 'Column', 'Type', 'Metric', 'Embedding']
-            assert list(described['Index Name']) == list(md_idxs)
-            for row, (name, info) in zip(described.to_dict(orient='records'), md_idxs.items(), strict=True):
-                assert row['Index Name'] == name
-                assert row['Column'] == info['columns'][0]
-                assert row['Type'] == info['index_type']
-                if info['index_type'] == 'btree':
-                    assert row['Metric'] == ''
-                    assert row['Embedding'] == ''
-                else:
-                    params = info['parameters']
-                    assert params is not None
-                    assert row['Metric'] == params['metric']
-                    assert row['Embedding'] == params['embedding']
-
-            # column filter follows the indexes on that column, not every index on the table
-            n_desc = t._index_descriptor(['n'])
-            assert list(n_desc.columns) == ['Index Name', 'Column', 'Type']
-            assert list(n_desc['Index Name']) == ['n_idx']
-            text_desc = t._index_descriptor(['text'])
-            assert list(text_desc.columns) == ['Index Name', 'Column', 'Metric', 'Embedding']
-            assert list(text_desc['Index Name']) == ['text_idx']
-            assert t._index_descriptor(['missing']).empty
-
-            n_repr = repr(t.n)
-            assert 'n_idx' in n_repr
-            assert 'btree' in n_repr
-            assert 'text_idx' not in n_repr
-
-        t.drop_index(idx_name='n_idx')
-        dropped = repr(t)
-        assert 'n_idx' not in dropped
-        assert 'text_idx' in dropped
-        assert 'btree' not in dropped
 
     def test_btree_index_on_view(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

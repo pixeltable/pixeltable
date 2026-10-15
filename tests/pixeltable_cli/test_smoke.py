@@ -403,16 +403,19 @@ class TestDescribe:
     def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_desc'), if_exists='ignore')
-        pxt.create_table(p('cli_desc/t'), {'a': pxt.Int | None, 'b': pxt.String | None}, if_exists='replace')
+        t = pxt.create_table(p('cli_desc/t'), {'a': pxt.Int | None, 'b': pxt.String | None}, if_exists='replace')
+        t.add_btree_index('a', idx_name='a_idx')
 
         # --json returns the full get_metadata() dict
         meta = cli('describe', p('cli_desc/t'), '--json').json
         assert 'a' in meta['columns']
 
-        # text is repr(table) which lists the columns
+        # text is repr(table) which lists the columns and indexes
         text = cli('describe', p('cli_desc/t')).stdout
         assert 'a' in text
         assert 'b' in text
+        assert 'a_idx' in text
+        assert 'btree' in text
 
     def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
