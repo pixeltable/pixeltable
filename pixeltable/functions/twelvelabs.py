@@ -8,6 +8,7 @@ the [Working with TwelveLabs](https://docs.pixeltable.com/howto/providers/workin
 import asyncio
 import logging
 import os
+import threading
 import time
 from base64 import b64encode
 from contextlib import asynccontextmanager
@@ -59,10 +60,25 @@ _ASSET_CREATE_MAX_BACKOFF_SECS = 60.0
 
 
 class _AssetPolls:
-    """Process-wide count of assets _wait_for_assets() is still polling."""
+    """Process-wide count of assets _wait_for_assets() is still polling.
+
+    Worker threads each run an event loop, and this count is shared. adjust() holds a
+    threading.Lock across the read-modify-write so the count stays non-negative and the
+    poll pause keeps the 5/s retrieve cap.
+    """
 
     def __init__(self) -> None:
         self.waiting = 0
+        self._lock = threading.Lock()
+
+    def adjust(self, delta: int) -> None:
+        with self._lock:
+            self.waiting += delta
+            assert self.waiting >= 0, self.waiting
+
+    def inflight(self) -> int:
+        with self._lock:
+            return self.waiting
 
 
 _asset_polls = _AssetPolls()
@@ -226,7 +242,7 @@ async def _poll_pending(
 def _release_ready(n_waiting: int, polled: int, still_pending: Sequence[tuple[str, Any]]) -> int:
     """Drop assets that left this poll from the shared pace count. Returns the count still held."""
     released = polled - len(still_pending)
-    _asset_polls.waiting -= released
+    _asset_polls.adjust(-released)
     return n_waiting - released
 
 
@@ -243,7 +259,7 @@ async def _wait_for_assets(client: 'twelvelabs.AsyncTwelveLabs', asset_ids: list
     deadline = time.monotonic() + _ASSET_READY_TIMEOUT_SECS
     delay = _ASSET_POLL_INITIAL_SECS
     n_waiting = len(pending)
-    _asset_polls.waiting += n_waiting
+    _asset_polls.adjust(n_waiting)
     try:
         while pending:
             still_pending, rate_limit_delay = await _poll_pending(client, pending, deadline)
@@ -257,7 +273,7 @@ async def _wait_for_assets(client: 'twelvelabs.AsyncTwelveLabs', asset_ids: list
             # pool is not held until the deadline, and do not let the 429 become a scheduler retry.
             if rate_limit_delay is not None and rate_limit_delay >= remaining:
                 raise _assets_not_ready(still_pending, blocked_by_provider_delay=True)
-            pause = max(delay, _asset_polls.waiting / _ASSET_RETRIEVE_RPS)
+            pause = max(delay, _asset_polls.inflight() / _ASSET_RETRIEVE_RPS)
             if rate_limit_delay is not None:
                 pause = max(pause, rate_limit_delay)
             # Leave a positive timeout for one last retrieve. Sleeping until the deadline would make
@@ -278,7 +294,7 @@ async def _wait_for_assets(client: 'twelvelabs.AsyncTwelveLabs', asset_ids: list
                 raise _assets_not_ready(final_pending)
             return
     finally:
-        _asset_polls.waiting -= n_waiting
+        _asset_polls.adjust(-n_waiting)
 
 
 @asynccontextmanager
