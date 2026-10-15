@@ -220,26 +220,41 @@ def body(lines: list[str], m: Metrics) -> str:
 def measure(files: list[dict[str, Any]]) -> list[Growth]:
     # Index the merge-base functions of every changed file by body, so that a function the PR moves, or a method of a
     # class the PR renames, keeps its merge-base metrics.
-    before_by_path: dict[str, dict[str, Metrics]] = {}
-    before_by_body: dict[str, Metrics] = {}
+    before: dict[str, dict[str, Metrics]] = {}  # head path -> name -> metrics at the merge base
+    by_body: dict[str, tuple[str, str]] = {}  # body -> (head path, name) of the merge-base function
     for f in files:
         if f['status'] != 'added':
-            before, lines = read_functions(BASE_DIR / f.get('previous_filename', f['filename']))
-            before_by_path[f['filename']] = before
-            before_by_body.update((body(lines, m), m) for m in before.values())
+            functions, lines = read_functions(BASE_DIR / f.get('previous_filename', f['filename']))
+            before[f['filename']] = functions
+            by_body.update((body(lines, m), (f['filename'], name)) for name, m in functions.items())
+    after = {f['filename']: read_functions(HEAD_DIR / f['filename']) for f in files if f['status'] != 'removed'}
+
+    # Match unchanged bodies first, and each merge-base function once: a function inserted under a repeated name must
+    # not take the match of the unchanged function whose `#n` key it shifted.
+    matches: dict[tuple[str, str], Metrics] = {}
+    used: set[tuple[str, str]] = set()
+    for path, (functions, lines) in after.items():
+        for name, m in functions.items():
+            key = by_body.get(body(lines, m))
+            if key is not None and key not in used:
+                used.add(key)
+                matches[path, name] = before[key[0]][key[1]]
 
     growths: list[Growth] = []
-    for f in files:
-        if f['status'] == 'removed':
-            continue
-        path = f['filename']
-        after, lines = read_functions(HEAD_DIR / path)
-        for name, m in after.items():
-            old = before_by_body.get(body(lines, m)) or before_by_path.get(path, {}).get(name)
+    for path, (functions, lines) in after.items():
+        for name, m in functions.items():
+            old = matches.get((path, name))
+            if old is None and (path, name) not in used:
+                old = before.get(path, {}).get(name)
             if m.complexity > ERODED and (old is None or m.complexity > old.complexity):
                 growths.append(Growth(path, name, old, m, '\n'.join(lines[m.start - 1 : m.end])))
     growths.sort(key=lambda g: g.after.complexity - (g.before.complexity if g.before else 0), reverse=True)
     return growths
+
+
+def shown(g: Growth) -> str:
+    """Returns the part of g.source that Claude sees."""
+    return '\n'.join(g.source.splitlines()[:MAX_SOURCE_LINES])[:MAX_SOURCE_CHARS]
 
 
 def judge(growths: list[Growth]) -> dict[int, Judgment]:
@@ -247,7 +262,7 @@ def judge(growths: list[Growth]) -> dict[int, Judgment]:
     parts = []
     for i, g in enumerate(growths):
         before = f'{g.before.complexity}, {g.before.sloc} lines' if g.before else 'none, the PR added it'
-        source = '\n'.join(g.source.splitlines()[:MAX_SOURCE_LINES])[:MAX_SOURCE_CHARS]
+        source = shown(g)
         cut = f'The source stops early, at line {len(source.splitlines())} of {len(g.source.splitlines())}.\n'
         parts.append(
             f'<function id="{i}" path="{g.path}" name="{g.name}">\n'
@@ -314,6 +329,8 @@ def render(
         complexity = f'{g.before.complexity} -> {g.after.complexity}' if g.before else f'new, {g.after.complexity}'
         sloc = f'{g.before.sloc} -> {g.after.sloc}' if g.before else str(g.after.sloc)
         verdict = judgments[i].verdict.capitalize() if i in judgments else 'Not judged'
+        if i in judgments and shown(g) != g.source:
+            verdict += f', on the first {len(shown(g).splitlines())} lines'
         lines.append(f'| [`{g.name}`]({link}) | `{g.path}` | {complexity} | {sloc} | {verdict} |')
     if split:
         lines.append('')
