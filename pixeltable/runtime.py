@@ -212,13 +212,19 @@ class Runtime:
         without being closed first.
         """
         for client in self._clients.values():
-            close = getattr(client, 'close', None)
-            if close is None:
-                continue
             try:
-                result = close()
-                if inspect.isawaitable(result):
-                    await result
+                close = getattr(client, 'close', None)
+                if close is not None:
+                    result = close()
+                    if inspect.isawaitable(result):
+                        await result
+                    continue
+                # some SDK clients (e.g. mistralai.Mistral) have no close() and release their HTTP clients only on
+                # context manager exit: __aexit__() closes the async one, __exit__() the sync one
+                if hasattr(client, '__aexit__'):
+                    await client.__aexit__(None, None, None)
+                if hasattr(client, '__exit__'):
+                    client.__exit__(None, None, None)
             except Exception as e:
                 _logger.debug(f'Error closing client: {e}')
         self._clients.clear()

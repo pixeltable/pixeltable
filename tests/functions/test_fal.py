@@ -2,10 +2,20 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
+from pixeltable.runtime import get_runtime, reset_runtime
 
 from ..utils import rerun_on_network_error, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
+
+
+class TestFalClient:
+    def test_client_closed_on_reset(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('fal_client')
+        monkeypatch.setenv('FAL_API_KEY', 'test-key')
+        http_client = get_runtime().get_client('fal')._client
+        reset_runtime()
+        assert http_client.is_closed
 
 
 @pytest.mark.very_expensive
