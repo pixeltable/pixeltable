@@ -90,6 +90,7 @@ _UNAVAILABLE_VIDEO_MODEL_SNIPPETS = (
     'not subscribed',
     'aws marketplace',
     'could not find model',
+    'could not resolve the foundation model',
     'model identifier is invalid',
 )
 
@@ -166,6 +167,11 @@ def test_unavailable_video_model_error() -> None:
     assert not _is_unavailable_video_model_error(
         'ValidationException', 'Invalid input: resolution must be one of 540p, 720p'
     )
+    unresolved = (
+        'An error occurred (ResourceNotFoundException) when calling the StartAsyncInvoke operation: '
+        'Could not resolve the foundation model from the provided model identifier.'
+    )
+    assert _is_unavailable_video_model_error('ResourceNotFoundException', unresolved)
     # Type alone must not skip; this message matches none of the unavailable-model snippets.
     assert not _is_unavailable_video_model_error(
         'ResourceNotFoundException',
