@@ -1874,6 +1874,28 @@ class TestVideo:
         )
         _ = v.collect()
 
+    def test_scene_detect_cut_at_scene_start(self, init_env: None) -> None:
+        skip_test_if_not_installed('scenedetect')
+        from pixeltable.functions.video.scene_detect import _scene_detect
+
+        class FirstFrameCutDetector:
+            """Reports a cut at the first frame, as scenedetect >= 0.7.2 does for a video that starts faded out."""
+
+            first: Any = None
+
+            def process_frame(self, timecode: Any, frame_img: Any) -> list[Any]:
+                if self.first is None:
+                    self.first = timecode
+                return []
+
+            def post_process(self, timecode: Any) -> list[Any]:
+                return [self.first]
+
+        scenes = _scene_detect(get_video_files()[0], 2.0, FirstFrameCutDetector())
+        # the cut doesn't produce an empty scene, and without other cuts the whole video is one scene
+        assert len(scenes) == 1
+        assert scenes[0]['duration'] > 0.0
+
     @pytest.mark.db_roots('local', reason='reads Env default video encoder config')
     def test_default_video_codec(self, uses_db: None) -> None:
         result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, check=False)
