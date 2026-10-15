@@ -420,7 +420,8 @@ class TunnelTransport(Transport):
         """Open the TCP connection, through the proxy HTTPS_PROXY names if any; fail without retries when every try
         times out (see _CONNECT_TRIES).
 
-        Any other error, and any failure after the connection opens, is raised as it is and retried in `_request()`.
+        A proxy that refuses the CONNECT, or closes the connection instead of answering, raises an error that is not
+        retried either. Any other error is raised as it is; `_request()` retries it if it is an OSError.
         """
         proxy = _https_proxy(self._host, self._port)
         timeout: TimeoutError | None = None
@@ -441,16 +442,31 @@ class TunnelTransport(Transport):
             f'timed out.\nIf this network blocks outbound ports, allow outbound TCP port {self._port} to *.{domain}.',
         ) from timeout
 
-    def _handshake_error(self, status_line: str, sent: Credential) -> Exception:
-        """A refusal reads as the control plane's does, naming the credential; any other status is retried.
+    def _unused_proxy_hint(self) -> str:
+        """What to do about an intercepted direct connection, given why the tunnel did not use HTTPS_PROXY."""
+        url = urllib.request.getproxies_environment().get('https')
+        if url is None:
+            return 'If this network sends HTTPS through a proxy, set HTTPS_PROXY to it.'
+        if urllib.request.proxy_bypass(f'{self._host}:{self._port}'):
+            return f'NO_PROXY exempts {self._host}:{self._port} from HTTPS_PROXY; remove it from NO_PROXY.'
+        # only the scheme: the URL can hold the proxy's password
+        scheme = urllib.parse.urlsplit(url if '://' in url else f'http://{url}').scheme
+        if scheme == 'http':
+            return 'HTTPS_PROXY names no proxy host.'
+        return f'The tunnel can use only an http:// proxy, and HTTPS_PROXY names a {scheme}:// one.'
 
-        An answer that is not PXT/1.0 came from something between this machine and the sidecar, such as a sandbox's
-        egress gateway answering as an HTTP server, and it answers the same way on a retry.
+    def _handshake_error(self, status_line: str, sent: Credential) -> Exception:
+        """The error for a handshake the sidecar did not accept; only a ConnectionError is retried.
+
+        A PXT/1.0 refusal reads as the control plane's does, naming the credential, and is final; any other PXT/1.0
+        status is a ConnectionError. An answer that is not PXT/1.0 came from something between this machine and the
+        sidecar, such as a sandbox's egress gateway answering as an HTTP server; it answers the same way again, so
+        that is final too.
         """
         protocol, _, status = status_line.partition(' ')
         if protocol != 'PXT/1.0':
             if _https_proxy(self._host, self._port) is None:
-                fix = 'If this network sends HTTPS through a proxy, set HTTPS_PROXY to it.'
+                fix = self._unused_proxy_hint()
             else:
                 domain = self._host.partition('.')[2]
                 fix = (

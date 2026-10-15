@@ -1354,17 +1354,34 @@ class TestTunnelRetries:
         assert self._post_through(sidecar, monkeypatch) == b'ok'
         assert sidecar.tokens == ['key'] * 3
 
+    @pytest.mark.parametrize(
+        ('proxy_env', 'fix'),
+        [
+            ({}, r'If this network sends HTTPS through a proxy, set HTTPS_PROXY to it\.'),
+            (
+                {'HTTPS_PROXY': 'http://proxy.invalid:3128', 'NO_PROXY': 'h'},
+                r'NO_PROXY exempts h:443 from HTTPS_PROXY; remove it from NO_PROXY\.',
+            ),
+            (
+                {'HTTPS_PROXY': 'socks5://agent:secret@proxy.invalid:1080'},
+                r'The tunnel can use only an http:// proxy, and HTTPS_PROXY names a socks5:// one\.',
+            ),
+        ],
+    )
     def test_an_answer_from_something_other_than_the_sidecar_is_not_retried(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, proxy_env: dict[str, str], fix: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A sandbox's egress gateway answers a direct connection on 443 as an HTTP server. That is no refusal by
-        Pixeltable Cloud, and it answers the same way again."""
+        Pixeltable Cloud, and it answers the same way again. The hint says why the connection was direct."""
+        for name, value in proxy_env.items():
+            monkeypatch.setenv(name, value)
         sidecar = _PlainSidecar((b'HTTP/1.1 400 Bad Request',))
         with pxt_raises(
             excs.ErrorCode.DATABASE_UNAVAILABLE,
-            match=r"answered instead of Pixeltable Cloud \('HTTP/1.1 400 Bad Request'\)\.\n.*set HTTPS_PROXY",
-        ):
+            match=rf"answered instead of Pixeltable Cloud \('HTTP/1.1 400 Bad Request'\)\.\n{fix}",
+        ) as info:
             self._post_through(sidecar, monkeypatch)
+        assert 'secret' not in str(info.value)
         assert sidecar.tokens == ['key']
 
     @staticmethod
