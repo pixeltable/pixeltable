@@ -145,6 +145,29 @@ def _assert_offset_mkv_end(path: Path) -> tuple[float, float]:
     return float(frames[0]), stored_end
 
 
+def _assert_offset_asf_end(path: Path) -> tuple[float, float]:
+    """Return (first frame time, absolute end) for an offset ASF clip.
+
+    ``AVStream.duration`` is the absolute end. Adding the stream start overshoots: a 5s offset
+    and a 2s clip store 7s and would otherwise end at 12s.
+    """
+    with av.open(str(path)) as container:
+        stream = container.streams.video[0]
+        assert stream.duration is not None and stream.time_base is not None and container.format.name
+        format_names = {part.strip().lower() for part in container.format.name.split(',')}
+        assert format_names & {'asf', 'wmv'}
+        start_s = float((stream.start_time or 0) * stream.time_base)
+        stored = float(stream.duration * stream.time_base)
+        frames = [frame.time for frame in container.decode(video=0)]
+    assert frames
+    assert start_s > 4.0
+    # A relative 2s length would sit below the 5s start. The stored value is already the end.
+    assert frames[-1] > start_s
+    assert stored > start_s
+    assert frames[-1] < stored
+    return float(frames[0]), stored
+
+
 def _assert_offset_mp4_end(path: Path) -> tuple[float, float]:
     """Return (first frame time, absolute end) for an offset VFR MP4.
 
@@ -213,6 +236,20 @@ def test_scene_end_time_tiers() -> None:
         )
         == 9.0
     )
+    # MPEG-PS can report a 0.04s header duration. From a 0.54s start that ends at 0.58s, before the
+    # last frame at 1.5s, so the frame's own end is used.
+    assert (
+        _scene_end_for(
+            decoded_time=1.5,
+            yielded_time=1.5,
+            start_pts=48_600,
+            stream_duration=3_600,
+            time_base=Fraction(1, 90_000),
+            frame_end=1.54,
+            format_name='mpeg',
+        )
+        == 1.54
+    )
 
     # No header duration: the decoded frame's own end is next.
     assert _scene_end_for(decoded_time=9.5, yielded_time=9.5, frame_end=10.5) == 10.5
@@ -265,6 +302,38 @@ def test_scene_end_time_tiers() -> None:
             decoded_time=1.5, yielded_time=1.5, start_pts=500, container_duration=2_000_000, format_name='webm'
         )
         == 2.0
+    )
+
+    # ASF stream duration is an absolute end. A 5s start and a stored 7s is a 2s clip ending at 7, not 12.
+    assert (
+        _scene_end_for(
+            decoded_time=6.96,
+            yielded_time=6.96,
+            start_pts=5_000,
+            stream_duration=7_000,
+            time_base=Fraction(1, 1000),
+            format_name='asf',
+        )
+        == 7.0
+    )
+    # ``wmv`` is that same container when PyAV reports it as the format name.
+    assert (
+        _scene_end_for(
+            decoded_time=6.96,
+            yielded_time=6.96,
+            start_pts=5_000,
+            stream_duration=7_000,
+            time_base=Fraction(1, 1000),
+            format_name='wmv',
+        )
+        == 7.0
+    )
+    # With no stream duration, the ASF container duration is the same absolute end.
+    assert (
+        _scene_end_for(
+            decoded_time=6.96, yielded_time=6.96, start_pts=5_000, container_duration=7_000_000, format_name='asf'
+        )
+        == 7.0
     )
 
     # Container duration follows the audio when audio outlasts the video, so the frame rate is the end.
@@ -2176,7 +2245,7 @@ class TestVideo:
 
     @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_scene_detect_end_time(self, uses_db: None, tmp_path: Path) -> None:
-        """Final scene reaches a long last frame, including on an offset stream with no stream duration."""
+        """Final scene reaches a long last frame, including offset Matroska, ASF, and MP4 timings."""
         skip_test_if_not_installed('scenedetect')
 
         def ffmpeg(args: list[str]) -> None:
@@ -2236,6 +2305,23 @@ class TestVideo:
                 str(offset_path),
             ]
         )
+        # ASF stores an absolute end in AVStream.duration. Adding the 5s start would end a 2s clip at 12s.
+        offset_asf_path = tmp_path / 'offset.asf'
+        ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'color=c=red:s=64x64:d=2:r=25',
+                '-output_ts_offset',
+                '5',
+                '-c:v',
+                'msmpeg4v2',
+                '-f',
+                'asf',
+                str(offset_asf_path),
+            ]
+        )
         # MP4 stores a length, unlike the Matroska DURATION tag above. The unshifted length is past the last frame.
         offset_mp4_path = tmp_path / 'offset_vfr.mp4'
         ffmpeg(
@@ -2265,6 +2351,7 @@ class TestVideo:
         expected = {
             'vfr': _assert_vfr_stream_end(vfr_path),
             'offset': _assert_offset_mkv_end(offset_path),
+            'offset_asf': _assert_offset_asf_end(offset_asf_path),
             'offset_mp4': _assert_offset_mp4_end(offset_mp4_path),
         }
         t = pxt.create_table('scene_end_clips', {'name': pxt.String, 'video': pxt.Video})
@@ -2273,10 +2360,11 @@ class TestVideo:
                 [
                     {'name': 'vfr', 'video': str(vfr_path)},
                     {'name': 'offset', 'video': str(offset_path)},
+                    {'name': 'offset_asf', 'video': str(offset_asf_path)},
                     {'name': 'offset_mp4', 'video': str(offset_mp4_path)},
                 ]
             ),
-            expected_rows=3,
+            expected_rows=4,
         )
         for sample_fps in (None, 2.0):
             scenes_expr = (
@@ -2294,9 +2382,9 @@ class TestVideo:
                 assert start == pytest.approx(expected_start, abs=0.05), (name, sample_fps, row['scenes'])
                 assert end == pytest.approx(expected_end, abs=0.05), (name, sample_fps, row['scenes'])
                 # Adding the stream start to an already-absolute end overshoots by about that offset.
-                if name == 'offset':
+                if name in {'offset', 'offset_asf'}:
                     assert end < expected_start + expected_end - 0.2, (sample_fps, end, expected_start, expected_end)
-            assert seen == {'vfr', 'offset', 'offset_mp4'}
+            assert seen == {'vfr', 'offset', 'offset_asf', 'offset_mp4'}
 
     @pytest.mark.db_roots('local', reason='reads Env default video encoder config')
     def test_default_video_codec(self, uses_db: None) -> None:

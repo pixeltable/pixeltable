@@ -502,25 +502,40 @@ def _parse_clock_duration(value: str) -> float | None:
     return hours * 3600 + minutes * 60 + seconds
 
 
-# Matroska and WebM store the presentation end in duration fields. MP4, MPEG-TS, and MPEG
-# store a length counted from the stream start.
-_ABSOLUTE_END_FORMATS = frozenset({'matroska', 'webm'})
+# PyAV reports ASF as ``asf``. ``wmv`` is the same container when that name is what
+# ``container.format.name`` contains.
+_ASF_FORMATS = frozenset({'asf', 'wmv'})
+# Matroska, WebM, and ASF store the presentation end in duration fields. MP4, MPEG-TS, and
+# MPEG store a length counted from the stream start. ASF also stores that end in
+# ``AVStream.duration``; Matroska leaves the stream duration unset.
+_ABSOLUTE_END_FORMATS = frozenset({'matroska', 'webm'}) | _ASF_FORMATS
+
+
+def _format_name_in(format_name: str, names: frozenset[str]) -> bool:
+    return any(part.strip().lower() in names for part in format_name.split(','))
+
+
+def _stored_duration_is_absolute(format_name: str) -> bool:
+    """True when this container's duration fields are absolute presentation ends."""
+    return _format_name_in(format_name, _ABSOLUTE_END_FORMATS)
 
 
 def _stream_presentation_end(frame_iter: av_utils.VideoFrames) -> float | None:
-    """Absolute end from ``AVStream.duration``, which is relative to the stream start."""
+    """Absolute end from ``AVStream.duration``.
+
+    The duration is a length from the stream start, except for ASF (``asf`` and ``wmv``),
+    where it is already the absolute end. A 5s-offset 2s clip stores 7s, and adding the
+    start runs the scene to 12s. Matroska leaves ``AVStream.duration`` unset.
+    """
     if frame_iter.container is None or frame_iter.video_time_base is None:
         return None
     duration = frame_iter.container.streams.video[0].duration
     if duration is None or duration <= 0:
         return None
-    start_pts = frame_iter.video_start_time or 0
+    # ASF's stream duration is an absolute presentation timestamp. Adding the start counts the offset twice.
+    absolute_stream = _format_name_in(frame_iter.container.format.name, _ASF_FORMATS)
+    start_pts = 0 if absolute_stream else (frame_iter.video_start_time or 0)
     return float((start_pts + duration) * frame_iter.video_time_base)
-
-
-def _stored_duration_is_absolute(format_name: str) -> bool:
-    """True when this container's duration fields are absolute presentation ends."""
-    return any(part.strip().lower() in _ABSOLUTE_END_FORMATS for part in format_name.split(','))
 
 
 def _presentation_end_from_stored_duration(
@@ -564,11 +579,12 @@ def _metadata_presentation_end(frame_iter: av_utils.VideoFrames, not_before: flo
 def _scene_end_time(frame_iter: av_utils.VideoFrames, *, scene_start: float, last_frame_time: float) -> float:
     """Absolute presentation time at which the final scene ends.
 
-    A full decode and ``fps`` sampling use the same end. Stream duration is relative to the
-    stream start and counts when it extends past the last decoded frame. Next is that frame's
-    own duration, recorded while decoding. Otherwise the video ``DURATION`` tag, or the container
-    duration when no audio stream can run longer than the video. The last resort is one average
-    frame after the last decoded frame.
+    A full decode and ``fps`` sampling use the same end. Stream duration counts when it extends
+    past the last decoded frame. It is a length from the stream start, except for ASF, where it is
+    already the absolute end. Next is that frame's own duration, recorded while decoding. Otherwise
+    the video ``DURATION`` tag, or the container duration when no audio stream can run longer than
+    the video. The last resort is one average frame after the last decoded frame. A stream end at
+    or before the last decoded frame, such as a short MPEG-PS header duration, is ignored.
 
     The file is not opened again to scan packets. When PyAV reports a frame duration, the decode
     already produced that end. Matroska files that omit ``AVStream.duration`` carry the same end
