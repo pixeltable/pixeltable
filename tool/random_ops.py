@@ -416,13 +416,15 @@ class RandomTableOps:
         t = self.get_random_tbl(allow_base_tbl=False)
         if t is None:
             return success('No views to drop.')
+        descr = self.tbl_descr(t)  # a dropped handle can't describe itself
         pxt.drop_table(t, force=True, if_not_exists='ignore')
-        return success(f'Dropped view {self.tbl_descr(t)}.')
+        return success(f'Dropped view {descr}.')
 
     def drop_table(self) -> OpResult:
         t = self.get_random_tbl(allow_view=False)
+        descr = self.tbl_descr(t)  # a dropped handle can't describe itself
         pxt.drop_table(t, force=True, if_not_exists='ignore')
-        return success(f'Dropped table {self.tbl_descr(t)}.')
+        return success(f'Dropped table {descr}.')
 
     def alter_column_nullable(self) -> OpResult:
         t = self.get_random_tbl(allow_view=False)
