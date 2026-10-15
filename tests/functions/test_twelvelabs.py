@@ -1,4 +1,5 @@
 import asyncio
+import heapq
 import time
 from base64 import b64decode
 from pathlib import Path
@@ -44,6 +45,52 @@ class _RetrieveRejectedError(Exception):
     def __init__(self) -> None:
         super().__init__('asset missing')
         self.status_code = 404
+
+
+class _RetrieveStatusError(Exception):
+    """Duck-typed retrieve failure with an HTTP status that `is_retryable_error()` recognizes."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f'http {status_code}')
+        self.status_code = status_code
+
+
+class _VirtualClock:
+    """Moves time to the next wake once every task is asleep."""
+
+    def __init__(self, n_tasks: int) -> None:
+        self.now = 0.0
+        self._n_tasks = n_tasks
+        self._n_sleeping = 0
+        self._seq = 0
+        self._waiters: list[tuple[float, int, asyncio.Future[None]]] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def task_finished(self) -> None:
+        self._n_tasks -= 1
+        self._release_next_if_idle()
+
+    async def sleep(self, delay: float) -> None:
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[None] = loop.create_future()
+        self._seq += 1
+        heapq.heappush(self._waiters, (self.now + max(delay, 0.0), self._seq, fut))
+        self._n_sleeping += 1
+        try:
+            self._release_next_if_idle()
+            await fut
+        finally:
+            self._n_sleeping -= 1
+
+    def _release_next_if_idle(self) -> None:
+        if self._n_tasks <= 0 or self._n_sleeping != self._n_tasks or not self._waiters:
+            return
+        wake, _seq, fut = heapq.heappop(self._waiters)
+        self.now = wake
+        if not fut.done():
+            fut.set_result(None)
 
 
 @pytest.fixture
@@ -274,11 +321,11 @@ class TestTwelveLabsLocal:
         events: list[str] = []
 
         def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
-            return SimpleNamespace(asset_id='asset-1')
+            return SimpleNamespace(asset_id='asset-429')
 
         def retrieve(asset_id: str) -> SimpleNamespace:
             events.append('retrieve')
-            return SimpleNamespace(status='failed', error=SimpleNamespace(message='Asset is corrupt'))
+            return SimpleNamespace(status='failed', error=SimpleNamespace(message='processing timed out'))
 
         def create(**kwargs: Any) -> SimpleNamespace:
             events.append('create')
@@ -294,10 +341,15 @@ class TestTwelveLabsLocal:
         )
         monkeypatch.setattr(twelvelabs, '_twelvelabs_client', lambda: client)
 
-        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='Asset is corrupt') as exc_info:
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='TwelveLabs asset failed') as exc_info:
             asyncio.run(twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0'))
-        assert str(tmp_path) not in str(exc_info.value)
-        assert events == ['retrieve', 'delete:asset-1']
+        message = str(exc_info.value)
+        assert str(tmp_path) not in message
+        assert 'asset-429' not in message
+        assert '429' not in message
+        assert 'timed out' not in message.lower()
+        assert is_retryable_error(exc_info.value)[0] is False
+        assert events == ['retrieve', 'delete:asset-429']
 
     def test_embed_asset_ready_timeout_deletes_asset(
         self, init_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -311,7 +363,7 @@ class TestTwelveLabsLocal:
         events: list[str] = []
 
         def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
-            return SimpleNamespace(asset_id='asset-1')
+            return SimpleNamespace(asset_id='asset-429')
 
         # The deadline is measured with monotonic time. Jumping it during retrieve exercises the
         # post-poll check without waiting out the real budget.
@@ -343,10 +395,13 @@ class TestTwelveLabsLocal:
 
         with pxt_raises(pxt.ErrorCode.PROVIDER_TIMEOUT, match='still processing after 600s') as exc_info:
             asyncio.run(twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0'))
-        assert str(tmp_path) not in str(exc_info.value)
-        assert 'timed out' not in str(exc_info.value).lower()
+        message = str(exc_info.value)
+        assert str(tmp_path) not in message
+        assert 'asset-429' not in message
+        assert '429' not in message
+        assert 'timed out' not in message.lower()
         assert is_retryable_error(exc_info.value)[0] is False
-        assert events == ['retrieve:asset-1', 'delete:asset-1']
+        assert events == ['retrieve:asset-429', 'delete:asset-429']
 
     def test_asset_uploads_polls_concurrently(
         self, init_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -634,9 +689,9 @@ class TestTwelveLabsLocal:
 
         def retrieve(asset_id: str) -> SimpleNamespace:
             if phase == 0:
-                status = 'processing' if asset_id == 'pending-asset' else 'ready'
+                status = 'processing' if asset_id == 'pending-429' else 'ready'
                 return SimpleNamespace(status=status, error=None)
-            return SimpleNamespace(status='failed', error=SimpleNamespace(message='Asset is corrupt'))
+            return SimpleNamespace(status='failed', error=SimpleNamespace(message='processing timed out'))
 
         def sleep(delay: float) -> None:
             nonlocal phase
@@ -647,9 +702,13 @@ class TestTwelveLabsLocal:
         client: Any = SimpleNamespace(assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve)))
         monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
 
-        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='Asset is corrupt') as exc_info:
-            asyncio.run(twelvelabs._wait_for_assets(client, ['ready-asset', 'pending-asset']))
-        assert 'timed out' not in str(exc_info.value).lower()
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='TwelveLabs asset failed') as exc_info:
+            asyncio.run(twelvelabs._wait_for_assets(client, ['ready-asset', 'pending-429']))
+        message = str(exc_info.value)
+        assert 'pending-429' not in message
+        assert '429' not in message
+        assert 'timed out' not in message.lower()
+        assert is_retryable_error(exc_info.value)[0] is False
         still_waiting = others_waiting + 1
         expected_pause = max(twelvelabs._ASSET_POLL_INITIAL_SECS, still_waiting / twelvelabs._ASSET_RETRIEVE_RPS)
         assert waiting_during_sleep == [still_waiting]
@@ -694,6 +753,202 @@ class TestTwelveLabsLocal:
         with pytest.raises(_RetrieveRejectedError, match='asset missing'):
             asyncio.run(twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0'))
         assert events == ['retrieve:asset-1', 'delete:asset-1']
+
+    def test_deadline_poll_raises_when_still_processing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        # The pace for this many waits is longer than the budget. The sleep must stop at the
+        # deadline and retrieve once more before raising.
+        others_waiting = 5_000
+        monkeypatch.setattr(twelvelabs._asset_polls, 'waiting', others_waiting)
+        clock = {'t': 0.0}
+        sleeps: list[float] = []
+        retrieves: list[str] = []
+
+        def monotonic() -> float:
+            return clock['t']
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            retrieves.append(asset_id)
+            return SimpleNamespace(status='processing', error=None)
+
+        def sleep(delay: float) -> None:
+            sleeps.append(delay)
+            clock['t'] += delay
+
+        client: Any = SimpleNamespace(assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve)))
+        monkeypatch.setattr(twelvelabs.time, 'monotonic', monotonic)
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
+
+        with pxt_raises(pxt.ErrorCode.PROVIDER_TIMEOUT, match='still processing after 600s') as exc_info:
+            asyncio.run(twelvelabs._wait_for_assets(client, ['ee429ff']))
+        message = str(exc_info.value)
+        assert 'ee429ff' not in message
+        assert '429' not in message
+        assert 'timed out' not in message.lower()
+        assert is_retryable_error(exc_info.value)[0] is False
+        assert retrieves == ['ee429ff', 'ee429ff']
+        assert sleeps == pytest.approx([twelvelabs._ASSET_READY_TIMEOUT_SECS])
+        assert twelvelabs._asset_polls.waiting == others_waiting
+
+    def test_ready_within_budget_polled_at_deadline(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        # One asset among 2048 waits. The pace is ~410s, so the second sleep lands on the 600s
+        # deadline. The asset is ready at 450s and must be seen by the retrieve after that sleep.
+        others_waiting = 2048
+        ready_after = 450.0
+        monkeypatch.setattr(twelvelabs._asset_polls, 'waiting', others_waiting)
+        clock = {'t': 0.0}
+        sleeps: list[float] = []
+        retrieves = 0
+
+        def monotonic() -> float:
+            return clock['t']
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            nonlocal retrieves
+            retrieves += 1
+            status = 'ready' if clock['t'] >= ready_after else 'processing'
+            return SimpleNamespace(status=status, error=None)
+
+        def sleep(delay: float) -> None:
+            sleeps.append(delay)
+            clock['t'] += delay
+
+        client: Any = SimpleNamespace(assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve)))
+        monkeypatch.setattr(twelvelabs.time, 'monotonic', monotonic)
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
+
+        asyncio.run(twelvelabs._wait_for_assets(client, ['asset-429']))
+        pace = (others_waiting + 1) / twelvelabs._ASSET_RETRIEVE_RPS
+        budget = twelvelabs._ASSET_READY_TIMEOUT_SECS
+        assert pace < budget
+        assert sleeps == pytest.approx([pace, budget - pace])
+        assert retrieves == 3
+        assert clock['t'] == pytest.approx(budget)
+        assert clock['t'] > ready_after
+        assert twelvelabs._asset_polls.waiting == others_waiting
+
+    def test_sustained_waits_ready_within_budget(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        # 2048 single-asset waits arrive at the request-rate scheduler's default 10/s. Each asset
+        # is ready 450s after it starts, inside the 600s budget. At waiting=2048 the pace is ~410s;
+        # sleeping out the rest of the budget without a retrieve used to drop 1569 of these assets.
+        n_assets = 2048
+        arrivals_per_sec = 10.0
+        ready_after = 450.0
+        budget = twelvelabs._ASSET_READY_TIMEOUT_SECS
+        asset_ids = [f'asset-{i}' for i in range(n_assets)]
+        clock = _VirtualClock(n_assets)
+        started: dict[str, float] = {}
+        finished: dict[str, float] = {}
+        peak = 0
+        monkeypatch.setattr(twelvelabs._asset_polls, 'waiting', 0)
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            nonlocal peak
+            peak = max(peak, twelvelabs._asset_polls.waiting)
+            status = 'ready' if clock.now >= started[asset_id] + ready_after else 'processing'
+            return SimpleNamespace(status=status, error=None)
+
+        async def run_one(i: int) -> None:
+            asset_id = asset_ids[i]
+            try:
+                lag = i / arrivals_per_sec - clock.now
+                if lag > 0:
+                    await clock.sleep(lag)
+                started[asset_id] = clock.now
+                await twelvelabs._wait_for_assets(client, [asset_id])
+                finished[asset_id] = clock.now
+            finally:
+                clock.task_finished()
+
+        client: Any = SimpleNamespace(assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve)))
+        monkeypatch.setattr(twelvelabs.time, 'monotonic', clock.monotonic)
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', clock.sleep)
+
+        async def run() -> list[BaseException | None]:
+            tasks = [asyncio.create_task(run_one(i)) for i in range(n_assets)]
+            return list(await asyncio.gather(*tasks, return_exceptions=True))
+
+        # No asyncio.wait_for here: the virtual clock replaces time.monotonic, which is also the
+        # event-loop clock, so a real timeout would expire as soon as simulated time passes it.
+        outcomes = asyncio.run(run())
+        failures = [outcome for outcome in outcomes if outcome is not None]
+        assert failures == []
+        assert peak == n_assets
+        assert len(finished) == n_assets
+        for asset_id, start in started.items():
+            assert finished[asset_id] >= start + ready_after - 1e-6
+            assert finished[asset_id] <= start + budget + 1e-6
+        assert twelvelabs._asset_polls.waiting == 0
+
+    @pytest.mark.parametrize('status_code', [408, 503, 504])
+    def test_retryable_retrieve_status_polls_again(self, monkeypatch: pytest.MonkeyPatch, status_code: int) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        calls = 0
+        error = _RetrieveStatusError(status_code)
+        assert is_retryable_error(error)[0] is True
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise error
+            return SimpleNamespace(status='ready', error=None)
+
+        client: Any = SimpleNamespace(assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve)))
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock())
+        monkeypatch.setattr(twelvelabs._asset_polls, 'waiting', 0)
+
+        asyncio.run(twelvelabs._wait_for_assets(client, ['asset-1']))
+        assert calls == 2
+        assert twelvelabs._asset_polls.waiting == 0
+
+    def test_retryable_retrieve_past_deadline_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        # A 503 is retryable, so the scheduler would upload again if this helper re-raised it.
+        # Keep polling until the deadline, then raise a non-retryable readiness error.
+        monkeypatch.setattr(twelvelabs, '_ASSET_READY_TIMEOUT_SECS', 3.0)
+        monkeypatch.setattr(twelvelabs, '_ASSET_POLL_INITIAL_SECS', 1.0)
+        monkeypatch.setattr(twelvelabs, '_ASSET_POLL_MAX_SECS', 5.0)
+        monkeypatch.setattr(twelvelabs, '_ASSET_RETRIEVE_RPS', 1_000_000.0)
+        monkeypatch.setattr(twelvelabs._asset_polls, 'waiting', 0)
+        clock = {'t': 0.0}
+        retrieves = 0
+
+        def monotonic() -> float:
+            return clock['t']
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            nonlocal retrieves
+            retrieves += 1
+            raise _RetrieveStatusError(503)
+
+        def sleep(delay: float) -> None:
+            clock['t'] += delay
+
+        client: Any = SimpleNamespace(assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve)))
+        monkeypatch.setattr(twelvelabs.time, 'monotonic', monotonic)
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
+
+        with pxt_raises(pxt.ErrorCode.PROVIDER_TIMEOUT, match='still processing') as exc_info:
+            asyncio.run(twelvelabs._wait_for_assets(client, ['asset-429']))
+        assert 'asset-429' not in str(exc_info.value)
+        assert '503' not in str(exc_info.value)
+        assert is_retryable_error(exc_info.value)[0] is False
+        assert retrieves == 3
+        assert clock['t'] == pytest.approx(3.0)
+        assert twelvelabs._asset_polls.waiting == 0
 
     def test_embedding_indexes(self, uses_db: None, mock_embeddings: AsyncMock) -> None:
         from pixeltable.functions import twelvelabs
