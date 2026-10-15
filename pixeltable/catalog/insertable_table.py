@@ -120,7 +120,7 @@ class InsertableTable(LocalTable):
         return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        from pixeltable.io.table_data_conduit import TableDataConduit
+        from pixeltable.io.table_data_conduit import PydanticTableDataConduit, TableDataConduit
 
         self._validate_insert_source(source)
         fail_on_exception = OnErrorParam.fail_on_exception(on_error)
@@ -134,6 +134,9 @@ class InsertableTable(LocalTable):
             data_source = TableDataConduit.create(
                 source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
             )
+            if isinstance(data_source, PydanticTableDataConduit):
+                # model serializers are user code that can call Pixeltable, which the write transaction would refuse
+                data_source.dump_models()
 
         status = self._insert_table_data_source(
             data_source=data_source,
