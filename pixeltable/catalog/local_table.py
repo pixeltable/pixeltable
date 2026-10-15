@@ -1247,7 +1247,8 @@ class LocalTable(Table):
     ) -> UpdateStatus:
         cat = get_runtime().catalog
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
-        # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
+        # begin_write_xact() also locks the mutable views: we need to see whether any transitive view has column
+        # dependents
         with cat.begin_write_xact(tvps=[self._tbl_version_path]):
             self._check_mutable('recompute columns of')
             if len(columns) == 0:

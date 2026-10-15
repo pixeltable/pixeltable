@@ -179,7 +179,8 @@ class ColumnRef(Expr):
             tbl = cat.get_table_by_id(self.col_md.tbl_id)
             tvp = tbl._tbl_version_path
 
-        # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
+        # begin_write_xact() also locks the mutable views: we need to see whether any transitive view has column
+        # dependents
         with cat.begin_write_xact(tvps=[tvp]):
             col = self.col
             tbl_version = col.tbl_handle.get()

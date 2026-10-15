@@ -258,7 +258,7 @@ def retrying_read(op: Callable[[], T], *, tbl_keys: Collection[TableVersionKey] 
 
 
 class ProhibitedWriteError(Exception):
-    """Raised by begin_xact() when _frozen == True."""
+    """Raised by _begin_xact() when _frozen == True."""
 
 
 class PendingTableOpsError(Exception):
@@ -390,8 +390,7 @@ class Catalog(CatalogBase):
     get_tbl_version() handles its own retries when called outside a transaction or retry loop.
 
     Metadata changes write both the updated metadata and its operation log in one transaction, then call
-    roll_forward() and invalidate the affected TableVersion and TableVersionPath caches.
-    TODO: this is currently only implemented for Table.add_columns().
+    _roll_forward() and invalidate the affected TableVersion and TableVersionPath caches.
 
     The _tbls and _tbl_versions caches use LRU order. Cache hits move entries to the end; entries beyond
     _MAX_TBL_CACHE_SIZE are evicted only after a transaction ends. Keep a single TableVersion instance per
@@ -417,8 +416,8 @@ class Catalog(CatalogBase):
     # Ids of Tables that have pending TableOps, in the order they must be finalized.
     _roll_forward_ids: list[UUID]
     _in_retry_loop: bool
-    # True within _allow_tbl_md_read(); permits loading table metadata inside begin_xact initialization, or inside
-    # a retry_loop, but not in the middle of a regular begin_xact transaction.
+    # True within _allow_tbl_md_read(); permits loading table metadata during _begin_xact() setup, or inside a
+    # retry_*_loop(), but not in the middle of a transaction opened with begin_*_xact().
     _tbl_md_read_allowed: bool
 
     # cached column dependencies
@@ -719,8 +718,9 @@ class Catalog(CatalogBase):
                     with self._allow_tbl_md_read():
                         try:
                             self._acquire_locks(attempt_lock_set, op_class)
-                            # order matters: _acquire_locks does not do any queries, which lets us acquire the read
-                            # snapshot for the transaction only after all locks have been acquired
+                            # order matters: _acquire_locks runs LOCK TABLE which does not establish the snapshot, so
+                            # the metadata refresh sees changes committed while this transaction waited for its store
+                            # table locks
                             self._refresh_md_cache(
                                 read_tvps,
                                 read_tbl_keys,
@@ -1773,11 +1773,9 @@ class Catalog(CatalogBase):
                 raise
 
             except excs.ConcurrencyError as e:
-                if e.error_code is not excs.ErrorCode.SCHEMA_CHANGE_IN_PROGRESS:
-                    raise
                 # Finalization itself waits for locks, but its work may call a NOWAIT operation on another table.
-                # Propagate that conflict without treating it as a failure that requires rolling back the schema change.
-                _logger.debug(f'Finalize pending ops({tbl_id}): op reported a schema change in progress')
+                # Propagate the error without treating it as a failure that requires rolling back the schema change.
+                _logger.debug(f'Finalize pending ops({tbl_id}): op reported a concurrency error: {e}')
                 raise
 
             except PendingTableOpsError as e:
@@ -1793,7 +1791,7 @@ class Catalog(CatalogBase):
 
             except sql_exc.DBAPIError as e:
                 # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
-                # logic of begin_xact()?
+                # logic of _begin_xact()?
                 # InFailedSqlTransaction is specific to finalizing a multi-op statement: an earlier op in the
                 # same transaction failed and poisoned it, so the current op needs a fresh transaction.
                 if _is_retryable_exc(e) or isinstance(e.orig, psycopg.errors.InFailedSqlTransaction):
@@ -2284,7 +2282,7 @@ class Catalog(CatalogBase):
             dir_record = schema.Dir(**rows[0]._mapping)
             return Dir(dir_record.id)
 
-        # The caller holds the directory lock, so another transaction cannot claim this name.
+        # Names are unique within a directory: claiming a name in it requires the directory lock.
         q = sql.select(schema.Table.id).where(
             self._active_tbl_clause(dir_id=dir_id, tbl_name=name), schema.Table.md['user'].astext == user
         )
@@ -2357,8 +2355,9 @@ class Catalog(CatalogBase):
         Might raise PendingTableOpsError."""
         key = TableVersionKey(tbl_id, version)
         if key not in self._tbls:
-            # begin_xact() is re-entrant: it joins the caller's transaction if there is one, and otherwise
-            # starts a fresh read transaction (which also permits the metadata load). Cache hits stay xact-free.
+            # begin_read_md_xact() is re-entrant: it joins the caller's transaction if there is one, and otherwise
+            # starts a fresh metadata read transaction (which also permits the metadata load). Cache hits stay
+            # xact-free.
             with self.begin_read_md_xact():
                 if version is None:
                     tbl = self._load_tbl(tbl_id, ignore_pending_drop=ignore_if_dropped)
@@ -3873,8 +3872,8 @@ class Catalog(CatalogBase):
         # - we need to run this as SERIALIZABLE in order to avoid a race when two processes are started against
         #   an empty store (they both see a count of 0 for the root dir and both create a new root dir)
         # - this can only be run inside a new transaction, to ensure the isolation level
-        # - we don't use retry_loop() here because this is called from Catalog.__init__() (via _init_store()),
-        #   before the Catalog instance is registered with Runtime; retry_loop() would re-enter Catalog().
+        # - we don't use retry_*_loop() here because this is called from Catalog.__init__() (via _init_store()),
+        #   before the Catalog instance is registered with Runtime; retry_*_loop() would re-enter Catalog().
         assert not get_runtime().in_xact, 'create_user() must run as the outermost transaction'
 
         num_retries = 0

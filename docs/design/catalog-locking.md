@@ -91,7 +91,6 @@ transactions use a tentative lock set:
 
 Use cached `TableVersion` metadata when available. It supplies store table names, bases, mutable views, and table
 kinds. On a cache miss, read raw `tables` rows in a separate metadata transaction (`_lock_set_from_store()`).
-Raw rows avoid constructing `TableVersion` instances while tables may have pending operations.
 
 Catalog paths always require a store read because Catalog does not cache directory structure or path resolution.
 Both cached and stored results can become stale before lock acquisition.
@@ -157,17 +156,18 @@ lock ensures that only one creator can claim the name.
 A schema change can span several transactions. Locks are released between them, so locks alone cannot keep data
 operations out of an unfinished change.
 
-**A table with pending operations is not usable.** A transaction that finds them aborts its attempt. It either
-finalizes them before retrying or reports that a schema change is in progress.
+**A table with pending operations is not usable.** A transaction that finds them aborts its attempt, finalizes
+them, and retries. Finalization waits for its locks, even when the operation itself would use `NOWAIT`.
 
 Pending operations run in one of two ways:
 
 - With `needs_xact = True`, the operation and its completion record run in the finalization transaction under
   `ACCESS EXCLUSIVE`.
-- `CreateStoreColumnsOp` and `CreateStoreIdxsOp` run outside that transaction. Each DDL statement has its own
-  transaction, and completion is recorded afterwards. These operations must be idempotent because multiple
-  processes can try to complete them. Statements use `IF NOT EXISTS` and acquire `ACCESS EXCLUSIVE`, explicitly
-  for index creation and implicitly for `ALTER TABLE`.
+- With `needs_xact = False`, the operation runs outside that transaction, and completion is recorded afterwards.
+  These operations must be idempotent because multiple processes can try to complete them.
+  `CreateStoreColumnsOp` and `CreateStoreIdxsOp` run each DDL statement in its own transaction. Statements use
+  `IF NOT EXISTS` and acquire `ACCESS EXCLUSIVE`, explicitly for index creation and implicitly for `ALTER TABLE`.
+  `DeleteTableMediaFilesOp` deletes a dropped table's media files.
 
 ### Finalization always waits
 
