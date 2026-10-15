@@ -47,6 +47,7 @@ class TestTwelveLabsClient:
     def test_client_closed_on_reset(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         skip_test_if_not_installed('twelvelabs')
         monkeypatch.setenv('TWELVELABS_API_KEY', 'test-key')
+        # no public accessor exposes the SDK's httpx client, so this reads the private attribute that holds it
         http_client = get_runtime().get_client('twelvelabs')._client_wrapper.httpx_client.httpx_client
         reset_runtime()
         assert http_client.is_closed

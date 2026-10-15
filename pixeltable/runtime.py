@@ -212,7 +212,7 @@ class Runtime:
         without being closed first.
         """
 
-        async def call(fn: Callable[..., Any], *args: Any) -> None:
+        async def try_close(fn: Callable[..., Any], *args: Any) -> None:
             # a failure is logged rather than raised, so that it doesn't keep the other close calls from running
             try:
                 result = fn(*args)
@@ -224,14 +224,14 @@ class Runtime:
         for client in self._clients.values():
             close = getattr(client, 'close', None)
             if close is not None:
-                await call(close)
+                await try_close(close)
                 continue
             # some SDK clients (e.g. mistralai.Mistral) have no close() and release their HTTP clients only on
             # context manager exit: __aexit__() closes the async one, __exit__() the sync one
             if hasattr(client, '__aexit__'):
-                await call(client.__aexit__, None, None, None)
+                await try_close(client.__aexit__, None, None, None)
             if hasattr(client, '__exit__'):
-                await call(client.__exit__, None, None, None)
+                await try_close(client.__exit__, None, None, None)
         self._clients.clear()
 
     def close(self) -> None:

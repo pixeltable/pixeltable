@@ -13,6 +13,7 @@ class TestFalClient:
     def test_client_closed_on_reset(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         skip_test_if_not_installed('fal_client')
         monkeypatch.setenv('FAL_API_KEY', 'test-key')
+        # no public accessor exposes the SDK's httpx client, so this reads the private attribute that holds it
         http_client = get_runtime().get_client('fal')._client
         reset_runtime()
         assert http_client.is_closed
