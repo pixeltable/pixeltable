@@ -3,14 +3,38 @@ Repository override for Devin Review: AGENTS.md takes precedence. Apply this
 file's design challenge only to diffs that add a public contract, a
 persistence model, or a trust boundary. For all other diffs, report only
 actionable defects introduced by the diff; no findings is a valid result.
+The same gate is applied inline below at "Scale the process" and
+"Deliver the review", in case comments are stripped before ingestion.
 
 Vendored from
-https://github.com/pierrebrunelle/challenge-the-design/blob/main/skills/challenge-the-design/SKILL.md
-MIT License, Copyright (c) 2026 Pierre Brunelle.
-Local edits vs upstream: this header, and an ASCII hyphen for the en dash in
-"Options: What 2-3 viable actions exist?".
-Re-sync: re-add this header, then append
+https://github.com/pierrebrunelle/challenge-the-design/blob/917c2623f801318fd01c04446384dfb8f08541ec/skills/challenge-the-design/SKILL.md
+Local edits vs upstream commit 917c262: this header, Unicode dashes
+normalized to ASCII hyphens, and the repository gate added at the two spots
+named above. Re-sync: diff upstream main against this file, re-apply the
+local edits, and update the pinned commit:
   curl -fsSL https://raw.githubusercontent.com/pierrebrunelle/challenge-the-design/main/skills/challenge-the-design/SKILL.md | perl -CSD -pe 's/\p{Pd}/-/g'
+
+MIT License
+
+Copyright (c) 2026 Pierre Brunelle
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 -->
 ---
 name: challenge-the-design
@@ -61,7 +85,10 @@ A ticket can authorize work without proving its suggested implementation necessa
 Respect explicit scope; surface disputed requirements for a decision rather than
 silently replacing them.
 
-Scale the process to the consequences. A small correction needs a short argument;
+Scale the process to the consequences. In this repository, apply this workflow
+only to a diff that adds a public contract, a persistence model, or a trust
+boundary; for any other diff, report only actionable defects introduced by the
+diff and give no design assessment. A small correction needs a short argument;
 a new service, persistence model, trust boundary or public contract needs deeper
 scrutiny. Keep working notes concise. Do not turn every question below into a
 mandatory section of the final review.
@@ -205,8 +232,11 @@ to make uncertain judgments look quantitative. Make significant assumptions visi
 
 ## Deliver the review
 
-Give a brief design assessment before local findings: is the problem established,
+When the diff adds a public contract, a persistence model, or a trust boundary,
+give a brief design assessment before local findings: is the problem established,
 is the approach justified, and which assumption or tradeoff determines the verdict?
+For any other diff, deliver only actionable defect findings; no findings is a
+valid result.
 Explain when the proposed design should stand. An empty bug list does not establish
 design quality, and questioning a design does not establish that it is wrong.
 
