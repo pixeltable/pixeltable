@@ -1131,7 +1131,7 @@ class Catalog(CatalogBase):
         """
         # Store table name -> strongest required lock target.
         targets: dict[str, _LockTarget] = {}
-        # A data-versioned target makes the whole lock set use blocking acquisition.
+        # If any of the involved tables is data-versioned.
         any_data_versioned = False
 
         def add(new_targets: Sequence[_LockTarget]) -> None:
@@ -2028,7 +2028,6 @@ class Catalog(CatalogBase):
         """
         # only one of two ways of identifying a directory is allowed
         assert (dir_name is None) != (dir_id is None)
-        # if parent_id is given, dir_name must be given, too
         assert not (parent_id is not None and dir_name is None)
         user = Env.get().user
         assert self._in_write_xact
@@ -2512,7 +2511,6 @@ class Catalog(CatalogBase):
                 return existing._id, False
 
             if bumps_base_view_sn:
-                # the base's set of mutable views changes
                 self._incr_view_sn(base.tbl_id)
 
             dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
@@ -2930,7 +2928,6 @@ class Catalog(CatalogBase):
         if result.rowcount == 0:
             return
         assert result.rowcount == 1, (tbl_id, result.rowcount)
-        # if the table md got updated, assert that this transaction holds the proper lock on that table.
         self._assert_tbl_record_write_locked(
             tbl_id, is_new_tbl=False, is_pure_snapshot=False, current_dir_id=None, new_dir_id=None
         )
@@ -3726,7 +3723,6 @@ class Catalog(CatalogBase):
         if tbl_md.view_md is not None and tbl_md.is_mutable:
             base_id, base_version = tbl_md.view_md.base_versions[0]
             if base_version is None:
-                # the base's set of mutable views changed
                 self._incr_view_sn(UUID(base_id))
 
     def read_md_for_export(self, tbl: LocalTable) -> list[TableVersionMd]:

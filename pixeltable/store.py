@@ -300,7 +300,6 @@ class StoreBase:
                     isinstance(e.orig, (psycopg.errors.DuplicateObject, psycopg.errors.DuplicateTable))
                     and 'already exists' in str(e.orig)
                 ):
-                    # the object already exists
                     return
                 raise
 

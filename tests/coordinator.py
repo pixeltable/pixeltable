@@ -150,7 +150,6 @@ class MultiThreadedScenario:
                             return
                         time.sleep(_POLL_INTERVAL)
                 finally:
-                    # every exit, success or failure, opens the next gate
                     step.next_gate.set()
 
             Thread(target=poll, name=f'poll-{step.thread_id}', daemon=True).start()

@@ -309,11 +309,9 @@ class TestCatalog:
             .then_inject_fault(
                 thread_id=0, loc=FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault=block_in_finalize
             )
-            # Thread 0: drop v but block mid-finalize
             .then_run_until(
                 thread_id=0, name='drop view', event=block_in_finalize.reached, fn=lambda: pxt.drop_table('v')
             )
-            # Thread 1: insert into base
             .then_run(thread_id=1, name='insert into base', fn=lambda: base.insert([{'a': 1}]))
             .then_unblock(thread_id=1, fault=block_in_finalize)
             .execute()
@@ -362,7 +360,6 @@ class Outcome(enum.Enum):
     FAILS_FAST = 'fails_fast'
 
 
-# Short names keep the operation matrices readable.
 _READ, _WRITE, _MD_UPDATE, _FINALIZE = (
     _TblOpClass.DATA_READ,
     _TblOpClass.DATA_WRITE,
@@ -531,7 +528,6 @@ class TestLocking:
             retries = [r.message for r in caplog.records if 'Retriable error' in r.message or 'Retrying (' in r.message]
             assert retries == [], retries
 
-        # Check effects as well as scheduling: each successful write adds one row, including writes that waited.
         expected_rows = 1
         if in_flight is _TblOpClass.DATA_WRITE:
             expected_rows += 1
@@ -539,7 +535,6 @@ class TestLocking:
             expected_rows += 1
         assert t.count() == expected_rows
 
-        # A data-versioned read or write that waited for a schema change must use the updated schema.
         if in_flight is _TblOpClass.MD_WRITE and is_data_versioned:
             if arriving is _TblOpClass.DATA_WRITE:
                 # re-fetch: this thread's handle predates the schema change
@@ -577,7 +572,6 @@ class TestLocking:
             .execute()
         )
 
-        # the waiter read the metadata that thread 0 committed, so both columns exist and both are populated.
         # Re-fetch: this thread's handle predates both schema changes.
         t2 = pxt.get_table('tbl')
         res = t2.select(t2.a, t2.b, t2.c).collect()
@@ -609,7 +603,6 @@ class TestLocking:
             .execute()
         )
 
-        # the row was inserted after the schema change, so the computed column must be populated
         t2 = pxt.get_table('tbl')
         res = t2.select(t2.a, t2.b).collect()
         assert len(res) == 1 and res[0]['b'] == 2, res
@@ -789,7 +782,6 @@ class TestLocking:
             .execute()
         )
 
-        # Propagation and the computed value confirm that the write reloaded metadata including the new view.
         v2 = pxt.get_table('v')
         res = v2.select(v2.a, v2.b).collect()
         assert len(res) == 1 and res[0]['b'] == 2, res
@@ -926,7 +918,6 @@ class TestLocking:
         fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.MD_WRITE)
 
         def create_view_after_the_drop() -> None:
-            # The directory drop removes the base before view creation resumes.
             with pxt_raises(excs.ErrorCode.TABLE_NOT_FOUND):
                 pxt.create_view('d2/v', base)
 
