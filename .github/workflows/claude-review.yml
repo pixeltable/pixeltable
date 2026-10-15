@@ -212,12 +212,18 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
       # The job holds ANTHROPIC_API_KEY and a token that can comment, so every dependency is pinned by hash.
-      - run: pip install --quiet --require-hashes -r .github/scripts/claude_erosion_requirements.txt
+      - run: |
+          pip install --quiet --require-hashes -r .github/scripts/claude_erosion_requirements.txt
+          npm ci --ignore-scripts --no-audit --no-fund --prefix .github/scripts/ts-functions
       # Writes the PR's head commit and merge base, or nothing when there is nothing to check.
       - id: target
         run: python .github/scripts/claude_erosion_check.py target
-      # Checks out source files only: scb-check reads every Python file, and lizard reads TypeScript and JavaScript.
+      # Checks out source files only: scb-check reads every Python file, and ts-functions reads TypeScript and
+      # JavaScript.
       - if: steps.target.outputs.head
         uses: actions/checkout@v6
         with:

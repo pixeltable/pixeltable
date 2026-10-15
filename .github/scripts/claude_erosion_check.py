@@ -3,11 +3,11 @@
 Handles the "workflow_run" event of a PR's tests run, so it runs on every commit, in two steps. `target` picks the PR
 and writes its head commit and merge base, which the workflow checks out under erosion/head and erosion/base. `report`
 measures both checkouts and posts. For Python, scb-check 0.1.3, the tool behind SlopCodeBench (arXiv 2603.24755),
-measures the erosion and verbosity of the whole codebase and the complexity of each function. lizard measures
-TypeScript and JavaScript functions, which the paper does not cover. Claude judges each function above complexity 10
-that is new or grew. The script posts one comment once the PR leaves the bounds, then updates it on later commits.
-Reads GITHUB_EVENT_PATH, GITHUB_OUTPUT, RUNNER_TEMP, REPO, and ANTHROPIC_API_KEY from the environment; `gh`
-authenticates with GH_TOKEN.
+measures the erosion and verbosity of the whole codebase and the complexity of each function. ts-functions/index.mjs,
+adapted from slopcheck, measures TypeScript and JavaScript functions, which the paper does not cover. Claude judges
+each function above complexity 10 that is new or grew. The script posts one comment once the PR leaves the bounds,
+then updates it on later commits. Reads GITHUB_EVENT_PATH, GITHUB_OUTPUT, RUNNER_TEMP, REPO, and ANTHROPIC_API_KEY
+from the environment; `gh` authenticates with GH_TOKEN.
 """
 
 import ast
@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Any, Literal
 
 import anthropic
-import lizard  # type: ignore[import-untyped]
 import pydantic
 from scb_check.analysis.loc import sloc_line_numbers  # type: ignore[import-untyped]
 from scb_check.analysis.parse import ParseError, parse_file  # type: ignore[import-untyped]
@@ -43,7 +42,7 @@ MAX_SOURCE_LINES = 300
 MAX_SOURCE_CHARS = 20_000
 MODEL = 'claude-sonnet-5-5'
 PYTHON = ('.py',)
-LIZARD = ('.js', '.jsx', '.ts', '.tsx')
+TYPESCRIPT = ('.js', '.jsx', '.ts', '.tsx')
 # Test functions are long runs of cases and asserts, and scb-check counts each assert as a branch.
 TESTS = re.compile(r'(^|/)tests?/|(^|/)test_[^/]*\.py$|_test\.py$|\.(test|spec)\.[jt]sx?$')
 # Nobody edits generated files by hand, so a verdict on them has no one to act on it.
@@ -133,22 +132,20 @@ def python_functions(path: Path) -> dict[str, Metrics]:
     return functions
 
 
-def lizard_functions(path: Path) -> dict[str, Metrics]:
-    source = path.read_text(encoding='utf-8', errors='replace')
-    lines = source.splitlines()
-    functions: dict[str, Metrics] = {}
-    # Lizard picks the language from the file extension.
-    for f in lizard.analyze_file.analyze_source_code(str(path), source).function_list:
-        name = f.name
-        # Name an anonymous function by its first line, which survives edits above it better than a repeat number.
-        if name == '(anonymous)':
-            name = f'(anonymous) at {lines[f.start_line - 1].strip()[:60].replace("`", "").replace("|", "/")}'
-        add_unique(functions, name, Metrics(f.cyclomatic_complexity, f.nloc, f.start_line, f.end_line))
-    return functions
-
-
-def functions_in(path: Path) -> dict[str, Metrics]:
-    return python_functions(path) if path.suffix in PYTHON else lizard_functions(path)
+def typescript_functions(paths: list[Path]) -> dict[Path, dict[str, Metrics]]:
+    """Returns path -> functions for TypeScript and JavaScript files, from one run of ts-functions/index.mjs."""
+    if not paths:
+        return {}
+    cmd = ['node', str(Path(__file__).parent / 'ts-functions' / 'index.mjs')]
+    paths_json = json.dumps([str(p) for p in paths])
+    out = subprocess.run(cmd, input=paths_json, check=True, capture_output=True, text=True).stdout
+    result: dict[Path, dict[str, Metrics]] = {}
+    for path, found in json.loads(out).items():
+        functions: dict[str, Metrics] = {}
+        for f in found:
+            add_unique(functions, f['name'], Metrics(f['complexity'], f['sloc'], f['start'], f['end']))
+        result[Path(path)] = functions
+    return result
 
 
 def codebase_metrics(root: Path) -> dict[str, Any] | None:
@@ -166,7 +163,7 @@ def changed_files(repo: str, pr: str) -> list[dict[str, Any]]:
     return [
         f
         for f in map(json.loads, out.splitlines())
-        if f['filename'].endswith(PYTHON + LIZARD)
+        if f['filename'].endswith(PYTHON + TYPESCRIPT)
         and not SKIPPED.search(f['filename'])
         and not TESTS.search(f['filename'])
         and not GENERATED.search(f['filename'])
@@ -203,13 +200,14 @@ def target(repo: str, event: dict[str, Any]) -> dict[str, Any] | None:
     return {'pr': pr, 'head': head, 'base': base, 'comment_id': comment_id, 'files': files}
 
 
-def read_functions(path: Path) -> tuple[dict[str, Metrics], list[str]]:
-    """Returns (functions, source lines) for path, or no functions if it does not parse."""
-    try:
-        functions = functions_in(path)
-    except ParseError as e:
-        print(f'::warning::Skipped {path}: {e}')
-        functions = {}
+def read_functions(path: Path, typescript: dict[Path, dict[str, Metrics]]) -> tuple[dict[str, Metrics], list[str]]:
+    """Returns (functions, source lines) for path, or no functions if a Python file does not parse."""
+    functions = typescript.get(path, {})
+    if path.suffix in PYTHON:
+        try:
+            functions = python_functions(path)
+        except ParseError as e:
+            print(f'::warning::Skipped {path}: {e}')
     return functions, path.read_text(encoding='utf-8', errors='replace').splitlines()
 
 
@@ -220,14 +218,21 @@ def body(lines: list[str], m: Metrics) -> str:
 def measure(files: list[dict[str, Any]]) -> list[Growth]:
     # Index the merge-base functions of every changed file by body, so that a function the PR moves, or a method of a
     # class the PR renames, keeps its merge-base metrics.
+    base_paths = {
+        f['filename']: BASE_DIR / f.get('previous_filename', f['filename']) for f in files if f['status'] != 'added'
+    }
+    head_paths = {f['filename']: HEAD_DIR / f['filename'] for f in files if f['status'] != 'removed'}
+    typescript = typescript_functions(
+        [p for p in [*base_paths.values(), *head_paths.values()] if p.suffix in TYPESCRIPT]
+    )
+
     before: dict[str, dict[str, Metrics]] = {}  # head path -> name -> metrics at the merge base
     by_body: dict[str, tuple[str, str]] = {}  # body -> (head path, name) of the merge-base function
-    for f in files:
-        if f['status'] != 'added':
-            functions, lines = read_functions(BASE_DIR / f.get('previous_filename', f['filename']))
-            before[f['filename']] = functions
-            by_body.update((body(lines, m), (f['filename'], name)) for name, m in functions.items())
-    after = {f['filename']: read_functions(HEAD_DIR / f['filename']) for f in files if f['status'] != 'removed'}
+    for path, base_path in base_paths.items():
+        functions, lines = read_functions(base_path, typescript)
+        before[path] = functions
+        by_body.update((body(lines, m), (path, name)) for name, m in functions.items())
+    after = {path: read_functions(head_path, typescript) for path, head_path in head_paths.items()}
 
     # Match unchanged bodies first, and each merge-base function once: a function inserted under a repeated name must
     # not take the match of the unchanged function whose `#n` key it shifted.
@@ -342,8 +347,9 @@ def render(
         f'above complexity {ERODED}. Verbosity is the share of lines that ast-grep rules flag or that are clones. Both '
         'come from scb-check 0.1.3 over every Python file, as in [SlopCodeBench](https://arxiv.org/abs/2603.24755). '
         "Human median growth is per sampled commit across the paper's 473 human repositories. Function complexity "
-        'comes from scb-check for Python and from lizard for TypeScript and JavaScript, which the paper does not '
-        'cover. Test files are not judged. This comment updates on each commit.</sub>',
+        'comes from scb-check for Python and from a ts-morph counter adapted from '
+        '[slopcheck](https://github.com/godagoo/slopcheck-deslop) for TypeScript and JavaScript, which the paper does '
+        'not cover. Test files and generated files are not judged. This comment updates on each commit.</sub>',
     ]
     return '\n'.join(lines), bool(reasons)
 
