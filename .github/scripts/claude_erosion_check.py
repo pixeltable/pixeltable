@@ -5,9 +5,10 @@ and writes its head commit and merge base, which the workflow checks out under e
 measures both checkouts and posts. For Python, scb-check 0.1.3, the tool behind SlopCodeBench (arXiv 2603.24755),
 measures the erosion and verbosity of the whole codebase and the complexity of each function. ts-functions/index.mjs,
 adapted from slopcheck, measures TypeScript and JavaScript functions, which the paper does not cover. Claude judges
-each function above complexity 10 that is new or grew. The script posts one comment once the PR leaves the bounds,
-then updates it on later commits. Reads GITHUB_EVENT_PATH, GITHUB_OUTPUT, RUNNER_TEMP, REPO, and ANTHROPIC_API_KEY
-from the environment; `gh` authenticates with GH_TOKEN.
+up to 10 functions per commit above complexity 10 that are new or grew, the largest growth first; the rest count as
+unjudged and take the PR out of bounds. The script posts one comment once the PR leaves the bounds, then updates it on
+later commits. Reads GITHUB_EVENT_PATH, GITHUB_OUTPUT, RUNNER_TEMP, REPO, and ANTHROPIC_API_KEY from the environment;
+`gh` authenticates with GH_TOKEN.
 """
 
 import ast
@@ -170,14 +171,25 @@ def changed_files(repo: str, pr: str) -> list[dict[str, Any]]:
     ]
 
 
-def existing_comment(repo: str, pr: str) -> tuple[int | None, str | None]:
-    """Returns (comment id, head commit the comment covers)."""
+def existing_comment(repo: str, pr: str) -> dict[str, Any] | None:
+    """Returns the erosion comment's id, body, and the head and merge base it covers."""
     query = f'.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("{MARKER}"))) | [.id, .body]'
     out = gh('api', '--paginate', f'repos/{repo}/issues/{pr}/comments', '--jq', f'{query} | @json')
     for line in out.splitlines():
         comment_id, body = json.loads(line)
-        return comment_id, body.split()[2]
-    return None, None
+        head, base = body.split()[2:4]  # the marker: <!-- claude-erosion-check {head} {base} -->
+        return {'id': comment_id, 'body': body, 'head': head, 'base': base}
+    return None
+
+
+def source_changed(repo: str, old: str, new: str) -> bool:
+    """Returns False only when new descends from old and no Python, TypeScript, or JavaScript file changed between."""
+    jq = '{status, files: [.files[]?.filename]}'
+    compare = json.loads(gh('api', f'repos/{repo}/compare/{old}...{new}', '--jq', jq))
+    # The compare API lists at most 300 files.
+    if compare['status'] != 'ahead' or len(compare['files']) >= 300:
+        return True
+    return any(path.endswith(PYTHON + TYPESCRIPT) for path in compare['files'])
 
 
 def target(repo: str, event: dict[str, Any]) -> dict[str, Any] | None:
@@ -187,17 +199,25 @@ def target(repo: str, event: dict[str, Any]) -> dict[str, Any] | None:
         return None
     pull = json.loads(gh('api', f'repos/{repo}/pulls/{pr}'))
     head = pull['head']['sha']
-    comment_id, covered = existing_comment(repo, pr)
+    comment = existing_comment(repo, pr)
     # A rerun of the tests starts this job again for the same commit.
-    if covered == head:
+    if comment is not None and comment['head'] == head:
         print(f'The comment on PR #{pr} already covers {head}.')
         return None
     files = changed_files(repo, pr)
-    if not files and comment_id is None:
+    if not files and comment is None:
         print(f'PR #{pr} changes no Python, TypeScript, or JavaScript source files.')
         return None
     base = gh('api', f'repos/{repo}/compare/{pull["base"]["sha"]}...{head}', '--jq', '.merge_base_commit.sha').strip()
-    return {'pr': pr, 'head': head, 'base': base, 'comment_id': comment_id, 'files': files}
+    # With the same merge base and no source change since the covered head, the scans and the verdicts would repeat,
+    # so only move the comment to the new head.
+    if comment is not None and comment['base'] == base and not source_changed(repo, comment['head'], head):
+        old = comment['head']
+        body = comment['body'].replace(old, head).replace(f' at {old[:7]}', f' at {head[:7]}')
+        upsert(repo, pr, comment['id'], body)
+        print(f'No source changed on PR #{pr} since {old}; moved the comment to {head}.')
+        return None
+    return {'pr': pr, 'head': head, 'base': base, 'comment_id': comment['id'] if comment else None, 'files': files}
 
 
 def read_functions(path: Path, typescript: dict[Path, dict[str, Metrics]]) -> tuple[dict[str, Metrics], list[str]]:
@@ -295,6 +315,7 @@ def plain(text: str) -> str:
 def render(
     repo: str,
     head: str,
+    base: str,
     codebase: tuple[dict[str, Any] | None, dict[str, Any] | None],
     growths: list[Growth],
     judgments: dict[int, Judgment],
@@ -317,7 +338,7 @@ def render(
         for metric, delta in growth.items()
         if delta > bounds[metric]
     ]
-    lines = [f'{MARKER} {head} -->', '## Claude erosion check', '']
+    lines = [f'{MARKER} {head} {base} -->', '## Claude erosion check', '']
     lines.append(f'Out of bounds at {head[:7]}: {"; ".join(reasons)}.' if reasons else f'Within bounds at {head[:7]}.')
     if base_report is not None and head_report is not None:
         lines += ['', '| Python codebase | Merge base | Head | Growth | Human median growth |', '|---|---|---|---|---|']
@@ -374,7 +395,7 @@ def report(repo: str, t: dict[str, Any]) -> None:
     codebase = (codebase_metrics(BASE_DIR), codebase_metrics(HEAD_DIR))
     growths = measure(t['files'])
     judgments = judge(growths[:MAX_JUDGED]) if growths else {}
-    body, out_of_bounds = render(repo, t['head'], codebase, growths, judgments)
+    body, out_of_bounds = render(repo, t['head'], t['base'], codebase, growths, judgments)
     print(body)
     if t['comment_id'] is None and not out_of_bounds:
         print(f'PR #{t["pr"]} is within bounds; nothing to post.')

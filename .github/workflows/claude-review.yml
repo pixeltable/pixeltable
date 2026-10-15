@@ -187,9 +187,9 @@ jobs:
         run: gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=confused --silent
 
   # Runs on every commit of a PR, next to plan and review. Measures how the PR changes code erosion and verbosity, as
-  # SlopCodeBench (arXiv 2603.24755) defines them, and has Claude judge each function above complexity 10 that grew.
-  # Posts one comment once the PR leaves the bounds, then updates it on each commit. The script only parses the PR's
-  # files; nothing from the PR runs.
+  # SlopCodeBench (arXiv 2603.24755) defines them, and has Claude judge up to 10 functions above complexity 10 that
+  # grew. Posts one comment once the PR leaves the bounds, then updates it on each commit. The script only parses the
+  # PR's files; nothing from the PR runs.
   erosion:
     if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request'
     # A newer commit on the same branch replaces a running check.

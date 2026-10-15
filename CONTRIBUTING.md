@@ -169,8 +169,8 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
         `claude review` on the PR. Claude reacts to that comment with a thumbs-up when the review starts, and posts its
         summary and inline comments as one review.
     * On every commit, a check measures how your PR changes code erosion and verbosity, as defined in
-        [SlopCodeBench](https://arxiv.org/abs/2603.24755), and Claude judges each function above complexity 10 that
-        grew. If the PR leaves the bounds, the check posts one comment and updates it on later commits.
+        [SlopCodeBench](https://arxiv.org/abs/2603.24755), and Claude judges up to 10 functions above complexity 10
+        that grew. If the PR leaves the bounds, the check posts one comment and updates it on later commits.
     * Respond to any comments on your PR. If you need to make changes, follow the workflow in Steps 3-4 above.
     * Once your PR is approved, click the green "Squash and merge" button on your PR page to squash-commit it into
         `main`.
