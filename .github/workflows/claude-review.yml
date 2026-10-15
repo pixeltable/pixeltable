@@ -4,7 +4,8 @@ name: Claude review
 # when someone with write access comments exactly "claude review" on it. An hourly sweep reviews PRs marked ready for
 # review in the last three hours, which start no "tests" run. Runs started by workflow_run, issue_comment, and schedule
 # attach to the default branch, not to the PR, so the review adds no check to the PR. They use this file from the
-# default branch with the repository's secrets, so fork PRs get reviewed too. Nothing from the PR runs.
+# default branch with the repository's secrets, so fork PRs get reviewed too. Nothing from the PR runs. The erosion job
+# checks the complexity of every commit of a PR.
 on:
   issue_comment:
     types: [created]
@@ -184,3 +185,33 @@ jobs:
           REPO: ${{ github.repository }}
           COMMENT_ID: ${{ github.event.comment.id }}
         run: gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=confused --silent
+
+  # Runs on every commit of a PR, next to plan and review. Measures how the PR changes the cyclomatic complexity of the
+  # functions it touches, and has Claude judge each function above complexity 10 that grew. Posts one comment once a
+  # function needs a split, then updates it on each commit. The script reads the PR's files through the API and only
+  # parses them.
+  erosion:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request'
+    # A newer commit on the same branch replaces a running check.
+    concurrency:
+      group: claude-erosion-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          sparse-checkout: .github/scripts
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install --quiet radon==6.0.1 lizard==1.24.1 anthropic==1.10.0
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python .github/scripts/claude_erosion_check.py

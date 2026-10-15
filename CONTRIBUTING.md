@@ -168,6 +168,8 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
         if you have write access to the repository. Anyone with write access can request another review by commenting
         `claude review` on the PR. Claude reacts to that comment with a thumbs-up when the review starts, and posts its
         summary and inline comments as one review.
+    * On every commit, Claude checks the complexity of the functions your PR touches. If a function above complexity
+        10 grew and should be split, Claude posts one comment and updates it on later commits.
     * Respond to any comments on your PR. If you need to make changes, follow the workflow in Steps 3-4 above.
     * Once your PR is approved, click the green "Squash and merge" button on your PR page to squash-commit it into
         `main`.
