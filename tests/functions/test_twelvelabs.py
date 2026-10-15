@@ -317,6 +317,8 @@ class TestTwelveLabsLocal:
         with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='ee429ff') as exc_info:
             asyncio.run(twelvelabs.embed.py_fns[3](str(large_media_client.media), model_name='marengo3.0'))
         assert 'processing timed out' in str(exc_info.value)
+        assert exc_info.value.provider_http_status_code == 502
+        assert is_retryable_error(exc_info.value) == (False, None)
         assert 'create' not in events
         assert events == ['retrieve:ee429ff', 'delete:ee429ff']
 
@@ -345,8 +347,9 @@ class TestTwelveLabsLocal:
         large_media_client.install(upload_file=upload_file, retrieve=retrieve, create=create, delete=delete)
 
         started = time.monotonic()
-        with pxt_raises(pxt.ErrorCode.PROVIDER_TIMEOUT, match='timed out'):
+        with pxt_raises(pxt.ErrorCode.PROVIDER_TIMEOUT, match='not ready') as exc_info:
             asyncio.run(twelvelabs.embed.py_fns[3](str(large_media_client.media), model_name='marengo3.0'))
+        assert is_retryable_error(exc_info.value) == (False, None)
         assert time.monotonic() - started < 1
         assert 'create' not in events
         assert events[0] == 'retrieve'
@@ -379,8 +382,9 @@ class TestTwelveLabsLocal:
         large_media_client.install(upload_file=upload_file, retrieve=retrieve, create=create, delete=delete)
 
         started = time.monotonic()
-        with pxt_raises(pxt.ErrorCode.PROVIDER_TIMEOUT, match='timed out'):
+        with pxt_raises(pxt.ErrorCode.PROVIDER_TIMEOUT, match='not ready') as exc_info:
             asyncio.run(twelvelabs.embed.py_fns[3](str(large_media_client.media), model_name='marengo3.0'))
+        assert is_retryable_error(exc_info.value) == (False, None)
         assert time.monotonic() - started < 1
         assert events == ['retrieve', 'delete:asset-1']
 

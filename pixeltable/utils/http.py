@@ -119,6 +119,7 @@ def is_retryable_error(exc: Exception) -> tuple[bool, float | None]:
 
     An explicit HTTP status is authoritative. A status outside `_RETRIABLE_HTTP_STATUSES` does not fall
     through to substring matching, so a 404 whose text contains "429", or a 400 that says "timed out", is final.
+    `ExternalServiceError`'s `status_code`, stored as `provider_http_status_code`, is that status.
     """
 
     # Check for HTTP status TOO_MANY_REQUESTS in various exception classes.
@@ -179,9 +180,10 @@ def _extract_error_metadata(obj: Any) -> tuple[bool, float | None] | None:
 
     `(False, None)` is an explicit status outside the retryable set. The caller must not match the message.
     The last attribute that parses as an HTTP status wins. A retry header does not override that status.
+    `provider_http_status_code` is included so `ExternalServiceError(status_code=...)` is authoritative.
     """
     status: int | None = None
-    for attr in ('status', 'code', 'status_code'):
+    for attr in ('status', 'code', 'status_code', 'provider_http_status_code'):
         if hasattr(obj, attr):
             parsed = _coerce_http_status(getattr(obj, attr))
             if parsed is not None:

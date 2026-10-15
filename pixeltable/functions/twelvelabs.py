@@ -67,8 +67,13 @@ async def _poll_assets_until_ready(client: 'twelvelabs.AsyncTwelveLabs', asset_i
             if result.status == 'failed':
                 error = getattr(result, 'error', None)
                 reason = getattr(error, 'message', None) or error or 'unknown error'
+                # 502 is outside the retryable statuses, so an asset id or reason containing
+                # "429" or "timed out" cannot make RequestRateScheduler upload the file again.
                 raise pxt.ExternalServiceError(
-                    pxt.ErrorCode.PROVIDER_ERROR, f'TwelveLabs asset {asset_id} failed: {reason}', provider='twelvelabs'
+                    pxt.ErrorCode.PROVIDER_ERROR,
+                    f'TwelveLabs asset {asset_id} failed: {reason}',
+                    provider='twelvelabs',
+                    status_code=502,
                 )
             if result.status != 'ready':
                 still_pending.append(asset_id)
@@ -83,9 +88,10 @@ async def _wait_for_assets(client: 'twelvelabs.AsyncTwelveLabs', asset_ids: Sequ
     try:
         await asyncio.wait_for(_poll_assets_until_ready(client, asset_ids), timeout=_ASSET_READY_TIMEOUT_SECS)
     except asyncio.TimeoutError as exc:
+        # "timed out" is a retry token; this deadline must not upload the file again.
         raise pxt.ExternalServiceError(
             pxt.ErrorCode.PROVIDER_TIMEOUT,
-            f'TwelveLabs assets timed out after {_ASSET_READY_TIMEOUT_SECS:g}s waiting to be ready',
+            f'TwelveLabs assets were not ready after {_ASSET_READY_TIMEOUT_SECS:g}s',
             provider='twelvelabs',
         ) from exc
 

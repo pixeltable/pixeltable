@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
+from pixeltable.exceptions import ErrorCode, ExternalServiceError
 from pixeltable.utils.http import fetch_url, is_retryable_error, new_session, parse_duration_str, redact_url
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
@@ -163,6 +164,21 @@ class TestHttpUtils:
         # No HTTP status: message matching still applies, and a transport failure is still retryable.
         assert is_retryable_error(DummyError('asset ee429ff was not found'))[0] is True
         assert is_retryable_error(urllib.error.URLError('timed out'))[0] is True
+
+        # ExternalServiceError stores the constructor status as provider_http_status_code.
+        failed_asset = ExternalServiceError(
+            ErrorCode.PROVIDER_ERROR,
+            'TwelveLabs asset ee429ff failed: processing timed out',
+            provider='twelvelabs',
+            status_code=502,
+        )
+        assert is_retryable_error(failed_asset) == (False, None)
+        limited = ExternalServiceError(ErrorCode.RATE_LIMITED, 'slow down', provider='twelvelabs', status_code=429)
+        assert is_retryable_error(limited) == (True, None)
+        unmatched = ExternalServiceError(
+            ErrorCode.PROVIDER_ERROR, 'TwelveLabs asset ee429ff failed: processing timed out', provider='twelvelabs'
+        )
+        assert is_retryable_error(unmatched)[0] is True
 
     def test_parse_duration_header(self) -> None:
         assert parse_duration_str(None) is None
