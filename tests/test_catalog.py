@@ -664,6 +664,30 @@ class TestLocking:
             .execute()
         )
 
+    def test_pure_snapshot_schema_change_does_not_lock_base(self, uses_db: None, fault_injection: None) -> None:
+        """A schema change on a pure snapshot must not take a write lock on the base.
+
+        The snapshot is immutable, so the operation fails. It must fail right away, without waiting for a reader of
+        the base. Use a data-versioned base because snapshots require one (PXT-1101).
+        """
+        t = self.make_tbl(is_data_versioned=True)
+        snap = pxt.create_snapshot('snap', t)
+        read_t = t.select().collect
+        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.DATA_READ)
+
+        def rename_fails() -> None:
+            with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
+                snap.rename_column('a', 'b')
+
+        (
+            MultiThreadedScenario()
+            .then_inject_fault(thread_id=0, loc=FaultLocation.CATALOG_AFTER_TBL_LOCK, fault=fault)
+            .then_run_until(thread_id=0, name='read the base', event=fault.reached, fn=read_t)
+            .then_run(thread_id=1, name='rename a snapshot column', fn=rename_fails)
+            .then_unblock(thread_id=1, fault=fault)
+            .execute()
+        )
+
     def test_md_only_read_waits_for_a_finalize(
         self, is_data_versioned: bool, uses_db: None, fault_injection: None
     ) -> None:

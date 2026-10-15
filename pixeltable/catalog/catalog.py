@@ -897,13 +897,14 @@ class Catalog(CatalogBase):
         # Directory id -> local catalog path. Paths determine directory lock order.
         dirs_to_lock: dict[UUID, Path] = {}
 
-        # A write path locks its leaf for write and its bases for read.
+        # A write path locks its leaf for write if it is live, and everything else for read.
         for tvp in read_tvps:
             for key in tvp.tbl_keys:
                 tbl_id_to_op_classes[key.tbl_id].add(_TblOpClass.DATA_READ)
         for tvp in write_tvps:
             for i, key in enumerate(tvp.tbl_keys):
-                tbl_id_to_op_classes[key.tbl_id].add(op_class if i == 0 else _TblOpClass.DATA_READ)
+                is_live_leaf = i == 0 and key.effective_version is None
+                tbl_id_to_op_classes[key.tbl_id].add(op_class if is_live_leaf else _TblOpClass.DATA_READ)
         for key in read_tbl_keys:
             tbl_id_to_op_classes[key.tbl_id].add(_TblOpClass.DATA_READ)
         for key in write_tbl_keys:
@@ -1064,7 +1065,8 @@ class Catalog(CatalogBase):
         """Return cached lock targets for a path and whether any table is data-versioned.
 
         Return None if any metadata is missing or uninitialized. `tbl_path` lists the leaf before its bases;
-        `target_op_class` applies to the leaf, and the bases receive read locks.
+        `target_op_class` applies to the leaf if it is live, and the other tables receive read locks. A snapshot leaf
+        is immutable, and for a pure snapshot it is a version of the base.
         """
         targets: list[_LockTarget] = []
         any_data_versioned = False
@@ -1073,7 +1075,7 @@ class Catalog(CatalogBase):
             if tv is None or not tv.is_initialized:
                 return None
             assert tv.is_view == (i < len(tbl_path) - 1), (i, tbl_path)
-            op_class = target_op_class if i == 0 else _TblOpClass.DATA_READ
+            op_class = target_op_class if i == 0 and key.effective_version is None else _TblOpClass.DATA_READ
             targets.append(
                 _LockTarget(
                     store_tbl_name=_store_tbl_name(tv.id, is_view=tv.is_view),
