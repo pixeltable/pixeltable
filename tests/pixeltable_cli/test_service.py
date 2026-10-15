@@ -36,7 +36,7 @@ from ..conftest import SampleFileServer
 from ..utils import (
     DatabaseRoot,
     assert_image_bytes,
-    fetch_home_bucket_url,
+    fetch_presigned,
     free_port,
     get_audio_files,
     get_documents,
@@ -203,7 +203,7 @@ def _fetch_media(url: str, db_root: DatabaseRoot) -> bytes:
     """The bytes behind a media url of a response: a hosted service signs a home bucket url, a local one serves the
     file itself."""
     if db_root.is_cloud:
-        return fetch_home_bucket_url(url, expires_s=3600)
+        return fetch_presigned(url, expires_s=3600, host_suffix=f'usercontent.{os.environ["PIXELTABLE_CLOUD_HOST"]}')
     assert '/media/' in url, url
     resp = httpx.get(url, timeout=_REQUEST_TIMEOUT)
     assert resp.status_code == 200, resp.text
