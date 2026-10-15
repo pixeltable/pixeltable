@@ -594,11 +594,9 @@ class TestService:
             cli('service', 'update', app, target, '-f')
             assert resources_of(assert_serving(cli, app, target, 'ingest')['ingest']) == (1.0, 3072, 3, 4.0)
 
-            # resources for an undefined service are an error, so a misspelled name doesn't go unnoticed
+            # an entry for another file's service, or for no service at all, leaves the plan unchanged
             declare('nosuch', 'workers = 2')
-            r = cli('service', 'diff', app, target, check=False)
-            assert r.returncode == 1
-            assert f'does not define at {target}: nosuch' in r.stderr
+            assert resources_of(assert_serving(cli, app, target, 'ingest')['ingest']) == (1.0, 3072, 3, 4.0)
         finally:
             config_file.write_text(config, encoding='utf-8')
             cli('service', 'stop', f'{target}/ingest', check=False)
@@ -1596,6 +1594,28 @@ class TestServiceUpdateRunning:
 
         [diff] = serving_service.service_diff(app_file, target).services
         assert diff.resolution == 'up_to_date', diff.ops
+
+    def test_hosted_scaled(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """A workers change scales the pods in place, and restarts them only when they run an older project."""
+        control_plane = self._hosted_planned(monkeypatch, app_file, declared=ServiceResources(workers=3))
+        target = PxtPath('pxt://acme:main')
+        initial = control_plane.record
+
+        [diff] = serving_service.service_update(app_file, target).services
+        assert diff.status == 'applied'
+        assert [type(r).__name__ for r in control_plane.sent] == ['UpdateServiceInstanceRequest']
+
+        stale = ProjectFingerprint(
+            files={'app.py': 'stale'}, python_version='3.11', system_dependencies=[], pixeltable_version='test'
+        )
+        control_plane.record = initial.model_copy(update={'fingerprint': stale})
+        control_plane.sent.clear()
+        [diff] = serving_service.service_update(app_file, target).services
+        assert [(op.target, op.requires_restart) for op in diff.ops] == [('resources', False), ('project', True)]
+        assert [type(r).__name__ for r in control_plane.sent] == [
+            'UpdateServiceInstanceRequest',
+            'RestartServiceInstanceRequest',
+        ]
 
     def test_hosted_changed_roll_failed(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
         """An update whose new pods do not come up is reported as not updated, although the old ones keep serving."""

@@ -111,7 +111,9 @@ class DatabaseConfig(DatabaseCapacity):
     @classmethod
     def _check_service_keys(cls, v: Any) -> Any:
         # ServiceResources ignores unknown fields, so that a record stored by an older version still loads
-        for path, entry in (v or {}).items():
+        if not isinstance(v, dict):
+            return v
+        for path, entry in v.items():
             unknown = sorted(set(entry) - set(ServiceResources.model_fields)) if isinstance(entry, dict) else []
             if len(unknown) > 0:
                 raise ValueError(f'`services.{path}` has unknown settings: {", ".join(unknown)}')
@@ -584,6 +586,13 @@ class Config:
         if self.__config_file.exists():
             config_dict = self.__read_toml_file(self.__config_file)
             self.__validate_config(config_dict, self.__config_file)
+            for db in config_dict.get('pixeltable', {}).get('database', []):
+                if db.name != LOCAL_DATABASE:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_CONFIGURATION,
+                        f'Cannot configure {db.name!r} in {self.__config_file}: a hosted database is configured in '
+                        f"its project. Move the [[pixeltable.database]] entry to the project's {PROJECT_CONFIG_FILE}.",
+                    )
             return self.__add_path(config_dict, self.__config_file)
 
         else:

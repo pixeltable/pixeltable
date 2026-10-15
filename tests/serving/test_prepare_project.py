@@ -182,7 +182,8 @@ class TestUnpack:
         )
 
         packaged = package_project_archive(project)
-        fingerprint = project_fingerprint(project, None)
+        project_config = {'pixeltable': {'database': [{'name': 'pxt://acme:main'}]}}
+        fingerprint = project_fingerprint(project, None, project_config=project_config)
         served = {
             'presigned_url': packaged.path.as_uri(),
             'digest': fingerprint.archive_digest(),

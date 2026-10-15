@@ -126,7 +126,10 @@ def service_update(
         if isinstance(manager, ServiceManagerProxy):
             # a hosted instance is replaced in place rather than stopped, so that the control plane can keep its
             # old pods serving until the new ones are ready
-            started = manager.start(app_file, diff.name, _base_path(target), otel=otel, port=port, restart=True)
+            scales_only = len(diff.ops) > 0 and not any(op.requires_restart for op in diff.ops)
+            started = manager.start(
+                app_file, diff.name, _base_path(target), otel=otel, port=port, restart=not scales_only
+            )
         else:
             instance = running.get(diff.name)
             # a restart keeps the service's port, so that its callers are not redirected
@@ -302,26 +305,16 @@ def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
     assert project_root is not None  # load_app_module() refuses a file outside a project root
     catalog_path = catalog.Path.parse(target, allow_empty_path=True)
     db_config = Config.get().get_database_config(catalog_path)
-    services = {
-        name: _ServiceInfo(
-            spec=service_spec(name, service, routers),
-            kind='declarative' if isinstance(service, FastAPIRouter) else 'custom',
-        )
-        for name, service in services_by_name(module, app_file).items()
-    }
-    service_resources = {} if db_config is None else db_config.service_resources(_base_path(target))
-    undefined = sorted(set(service_resources) - {name.lower() for name in services})
-    if len(undefined) > 0:
-        assert db_config is not None
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f'The [[pixeltable.database]] entry for {db_config.name} sets resources for services that {app_file} '
-            f'does not define at {target}: {", ".join(undefined)}',
-        )
     return _AppInfo(
         app_file=app_file,
-        services=services,
-        service_resources=service_resources,
+        services={
+            name: _ServiceInfo(
+                spec=service_spec(name, service, routers),
+                kind='declarative' if isinstance(service, FastAPIRouter) else 'custom',
+            )
+            for name, service in services_by_name(module, app_file).items()
+        },
+        service_resources={} if db_config is None else db_config.service_resources(_base_path(target)),
         model_mismatch_reason=validate_models(needed, target),
         db_uri=catalog_path.uri_str,
         target_db_fingerprint=db_fingerprint(catalog_path),

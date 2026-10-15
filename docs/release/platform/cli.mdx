@@ -1023,8 +1023,9 @@ db_exporter_otlp_protocol = 'http/protobuf'  # or 'grpc'
 
 # which project files the database gets. Glob patterns relative to the project root; everything git
 # would not ignore is uploaded by default, the lockfile and pyproject.toml always are, and pixeltable.toml
-# never is. Patterns use git wildmatch, so
-# a bare `*.py` matches at every depth while a leading slash anchors it: `/*.py` is the root only.
+# never is: pxt db update sends its settings, and the pods get them as their own pixeltable.toml. Patterns
+# use git wildmatch, so a bare `*.py` matches at every depth while a leading slash anchors it: `/*.py` is
+# the root only.
 include = ["app/**", "models/**"]
 exclude = ["__pycache__", "*.pyc", ".git", ".env", "*.egg-info", ".venv"]
 

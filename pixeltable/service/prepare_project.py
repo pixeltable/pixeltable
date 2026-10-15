@@ -98,7 +98,9 @@ def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:
             tf.extractall(staged, members=members, filter='data')
 
         unpacked = unpacked_digest(staged)
-        if unpacked != response.digest:
+        # TODO: remove once every stored fingerprint has a config; older clients hashed pyproject.toml by its bytes
+        legacy = response.fingerprint is None or len(response.fingerprint.config) == 0
+        if unpacked != response.digest and not legacy:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_DATA_FORMAT,
                 f'{db_path.uri_str} served project {unpacked}, not {response.digest}',

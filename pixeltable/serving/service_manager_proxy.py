@@ -86,7 +86,8 @@ class ServiceManagerProxy(ServiceManagerBase):
 
         An available instance is not stopped: an update changes it in place when its definition or its declared
         resources changed.
-        restart: replace them with a restart when it did not, which moves them onto the database's current project.
+        restart: unless the update replaced the pods, replace them with a restart, which moves them onto the database's
+        current project.
         A replacement whose new pods do not come up raises, also when the old ones keep serving.
         """
         if port is not None:
@@ -140,7 +141,8 @@ class ServiceManagerProxy(ServiceManagerBase):
                     )
                 )
                 instance = self._wait_for_roll(name, base_path, updated.instance)
-            elif restart and instance.state is ServiceState.AVAILABLE:
+            replaced = redefined or len(changed_resources.model_dump(exclude_none=True).keys() - {'workers'}) > 0
+            if restart and not replaced and instance.state is ServiceState.AVAILABLE:
                 self.restart(instance)
             if instance.state is ServiceState.AVAILABLE:
                 self._wait_for_endpoint(instance)
