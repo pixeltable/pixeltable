@@ -257,8 +257,9 @@ class TestProxyEndpoint:
     @pytest.mark.parametrize(
         ('cloud_host', 'expected'),
         [
-            (None, ('acme-main.pxt.run', 9000)),
-            ('dev.pxt.run', ('acme-main.dev.pxt.run', 9000)),
+            (None, ('acme-main.pxt.run', 443)),
+            ('dev.pxt.run', ('acme-main.dev.pxt.run', 443)),
+            ('pxt.run:9000', ('acme-main.pxt.run', 9000)),
             ('localhost:9443', ('acme-main.localhost', 9443)),
         ],
     )
