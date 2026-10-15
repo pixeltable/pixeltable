@@ -366,6 +366,7 @@ class _ResponseMedia:
 
 def _run_endpoint_op(
     endpoint_op: Callable[..., T],
+    route: _RegisteredRoute,
     kwargs: dict[str, Any],
     tmp_paths: list[Path],
     media: _ResponseMedia,
@@ -374,9 +375,12 @@ def _run_endpoint_op(
     # a background job runs on an executor thread, so it restores the request's context to join its trace
     ctx_token = telemetry.restore_context(telemetry_ctx)
     try:
-        result = endpoint_op(kwargs, media.url_for)
-        # the response carries the urls before the client can fetch them, so the uploads only need to finish here
-        media.flush()
+        # an operation span, so that the route's work outside its table operation (eg the schema check before an
+        # insert) is traced rather than dropped
+        with telemetry.span('pixeltable.route', set_current=True, route=route.display_name):
+            result = endpoint_op(kwargs, media.url_for)
+            # the response carries the urls before the client can fetch them, so the uploads only need to finish here
+            media.flush()
         return result
     except Exception as e:
         for p in tmp_paths:
@@ -445,13 +449,13 @@ class PxtEndpoint:
                     raise ValueError('PIXELTABLE_PUBLIC_ORIGIN must be an HTTPS origin')
                 job_url = f'{public_origin}{urllib.parse.urlsplit(job_url).path}'
             fut = self.router._executor.submit(
-                _run_endpoint_op, self.endpoint_op, kwargs, tmp_paths, media, telemetry.capture_context()
+                _run_endpoint_op, self.endpoint_op, self.route, kwargs, tmp_paths, media, telemetry.capture_context()
             )
             with self.router._jobs_lock:
                 self.router._jobs[job_id] = fut
             return BackgroundJobResponse(id=job_id, job_url=job_url)
         else:
-            return _run_endpoint_op(self.endpoint_op, kwargs, tmp_paths, media)
+            return _run_endpoint_op(self.endpoint_op, self.route, kwargs, tmp_paths, media)
 
 
 class FastAPIRouter(fastapi.APIRouter):
@@ -2037,7 +2041,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 template_query, return_fileresponse=return_fileresponse
             )
 
-        # an operation span, so that the query's own spans are not dropped as orphans
+        # the query's operation span, with the tables and row count that Query.collect() records
         @telemetry.spanned('pixeltable.collect', set_current=True)
         def collect(call_kwargs: dict[str, Any]) -> pxt.ResultSet:
             query = self._query_binding(route.route_id)

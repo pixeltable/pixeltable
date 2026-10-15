@@ -432,13 +432,28 @@ class TestBridge:
         finally:
             pxt.drop_dir('otel_serving', force=True)
 
-        spans = {s.name: s for s in span_exporter.get_finished_spans()}
-        # the query route's collect nests under its request span and carries the table and row count
-        assert spans['pixeltable.collect'].parent.span_id == spans['POST /lookup'].context.span_id
-        assert spans['pixeltable.collect'].attributes['pxt.tables'] == ('docs',)
-        assert spans['pixeltable.collect'].attributes['pxt.rows'] == 1
+        spans = span_exporter.get_finished_spans()
+        by_id = {s.context.span_id: s for s in spans}
+        by_name = {s.name: s for s in spans}
+        route_spans = {s.attributes['pxt.route']: s for s in spans if s.name == 'pixeltable.route'}
+        # each route's work runs in a route span under its request span
+        assert set(route_spans) == {'POST /lookup', 'POST /bg'}
+        assert by_id[route_spans['POST /lookup'].parent.span_id].name == 'POST /lookup'
+        # the query route's collect nests under its route span and carries the table and row count
+        collect = by_name['pixeltable.collect']
+        assert collect.parent.span_id == route_spans['POST /lookup'].context.span_id
+        assert collect.attributes['pxt.tables'] == ('docs',)
+        assert collect.attributes['pxt.rows'] == 1
+        # the insert route's schema check runs before the insert, and its catalog spans nest under the route span
+        insert = by_name['pixeltable.insert']
+        bg_route = route_spans['POST /bg']
+        assert insert.parent.span_id == bg_route.context.span_id
+        assert any(
+            s.parent is not None and s.parent.span_id == bg_route.context.span_id and s.end_time <= insert.start_time
+            for s in spans
+        )
         # the background insert runs on a worker thread, in the trace of the request that queued it
-        assert spans['pixeltable.insert'].context.trace_id == spans['POST /bg'].context.trace_id
+        assert insert.context.trace_id == by_name['POST /bg'].context.trace_id
 
     @pytest.fixture
     def metric_reader(self) -> Iterator[Any]:
