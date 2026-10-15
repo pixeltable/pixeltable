@@ -790,7 +790,7 @@ class Catalog(CatalogBase):
                     ) from e
                 num_retries += 1
                 if attempt_lock_set == prev_failed_lock_set:
-                    # The same lock set failed twice in a row, so another retry would make no progress. A single
+                    # The same lock set failed twice in a row, so another retry would not make progress. A single
                     # repeat is legitimate: the table that made it stale can disappear before the rebuild.
                     raise excs.Error(
                         excs.ErrorCode.INTERNAL_ERROR, 'Could not determine the tables to lock for this operation'
@@ -896,14 +896,14 @@ class Catalog(CatalogBase):
         # Directory id -> local catalog path. Paths determine directory lock order.
         dirs_to_lock: dict[UUID, Path] = {}
 
-        # A write path locks its leaf for write if it is live, and everything else for read.
+        # A write path locks its leaf for write if it is a live table, and everything else for read.
         for tvp in read_tvps:
             for key in tvp.tbl_keys:
                 tbl_id_to_op_classes[key.tbl_id].add(_TblOpClass.DATA_READ)
         for tvp in write_tvps:
             for i, key in enumerate(tvp.tbl_keys):
-                is_live_leaf = i == 0 and key.effective_version is None
-                tbl_id_to_op_classes[key.tbl_id].add(op_class if is_live_leaf else _TblOpClass.DATA_READ)
+                is_live_tbl_leaf = i == 0 and key.effective_version is None
+                tbl_id_to_op_classes[key.tbl_id].add(op_class if is_live_tbl_leaf else _TblOpClass.DATA_READ)
         for key in read_tbl_keys:
             tbl_id_to_op_classes[key.tbl_id].add(_TblOpClass.DATA_READ)
         for key in write_tbl_keys:
@@ -1064,8 +1064,8 @@ class Catalog(CatalogBase):
         """Return cached lock targets for a path and whether any table is data-versioned.
 
         Return None if any metadata is missing or uninitialized. `tbl_path` lists the leaf before its bases;
-        `target_op_class` applies to the leaf if it is live, and the other tables receive read locks. A snapshot leaf
-        is immutable, and for a pure snapshot it is a version of the base.
+        `target_op_class` applies to the leaf if it is a live table, and the other tables receive read locks. A snapshot
+        leaf is immutable, and for a pure snapshot it is a version of the base.
         """
         targets: list[_LockTarget] = []
         any_data_versioned = False
