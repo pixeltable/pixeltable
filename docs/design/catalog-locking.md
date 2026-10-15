@@ -76,7 +76,8 @@ safely executed:
 Acquire all store table locks in a single global order, sorted by store table name. Then acquire directory
 locks in catalog-path order. Every transaction follows this order to avoid deadlocks.
 
-Lock each store table once, using the strongest mode required by any of its roles. Do not upgrade locks
+An operation can require several modes on the same store table, for example when it writes to a table and also
+reads it as the base of a view. Lock each store table once, in the strongest required mode. Do not upgrade locks
 partway through the transaction.
 
 ## 4. Build, lock, and validate
