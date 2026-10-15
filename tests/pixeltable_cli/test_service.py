@@ -203,7 +203,7 @@ def _fetch_media(url: str, db_root: DatabaseRoot) -> bytes:
     """The bytes behind a media url of a response: a hosted service signs a home bucket url, a local one serves the
     file itself."""
     if db_root.is_cloud:
-        return fetch_presigned(url, expires_s=3600, host_suffix='.r2.cloudflarestorage.com')
+        return fetch_presigned(url, expires_s=3600, host_suffix=f'usercontent.{os.environ["PIXELTABLE_CLOUD_HOST"]}')
     assert '/media/' in url, url
     resp = httpx.get(url, timeout=_REQUEST_TIMEOUT)
     assert resp.status_code == 200, resp.text
@@ -941,12 +941,18 @@ class TestService:
             assert r.returncode == 1 and "No service 'ingest' is running" in r.stderr, r.stderr
             return
 
-        # a local service logs to a file, and the error names it, for a qualified name and a bare one alike
+        # a local service logs to a file, and the error gives the path of that file and points to the cloud, for a
+        # qualified name and a bare one alike
         log_file = Config.get().home.joinpath('logs', 'services', target, 'ingest.log')
         for name in (f'{target}/ingest', 'ingest'):
             r = cli('service', 'logs', name, check=False)
             assert r.returncode == 1, r.stderr
-            assert f'not supported; the log is at {log_file}' in r.stderr, r.stderr
+            assert f'writes its log to {log_file}' in r.stderr, r.stderr
+            assert 'Pixeltable Cloud database' in r.stderr and 'pxt new' in r.stderr, r.stderr
+            # a service update on a hosted database needs the db update and the schema update before it
+            deploy_steps = "'pxt db update pxt://org:db', then 'pxt schema update app.py pxt://org:db', then "
+            assert deploy_steps in r.stderr, r.stderr
+            assert "'pxt service update app.py pxt://org:db'" in r.stderr, r.stderr
         assert log_file.is_file()
 
         # the same name at a second target makes the bare name ambiguous
