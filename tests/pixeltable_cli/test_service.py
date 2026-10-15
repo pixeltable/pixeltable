@@ -1539,10 +1539,32 @@ class TestServiceUpdateRunning:
 class TestServiceOtel:
     @pytest.mark.otel
     @pytest.mark.db_roots('local', reason='run() is patched out, so it reaches no catalog')
-    def test_run_otel(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        ('excluded_urls_env', 'excluded_urls'),
+        [
+            ({}, '/health$'),
+            # the fastapi variable wins over the general one
+            ({'OTEL_PYTHON_FASTAPI_EXCLUDED_URLS': '/ping', 'OTEL_PYTHON_EXCLUDED_URLS': '/other'}, '/ping,/health$'),
+            ({'OTEL_PYTHON_EXCLUDED_URLS': '/other'}, '/other,/health$'),
+            # blank patterns are dropped, because an empty pattern matches every URL
+            ({'OTEL_PYTHON_FASTAPI_EXCLUDED_URLS': ''}, '/health$'),
+            ({'OTEL_PYTHON_FASTAPI_EXCLUDED_URLS': '   '}, '/health$'),
+            ({'OTEL_PYTHON_FASTAPI_EXCLUDED_URLS': '/ping,'}, '/ping,/health$'),
+        ],
+    )
+    def test_run_otel(
+        self,
+        tmp_path: pathlib.Path,
+        monkeypatch: pytest.MonkeyPatch,
+        excluded_urls_env: dict[str, str],
+        excluded_urls: str,
+    ) -> None:
         """--otel resolves the instrumentation package and wires init()/instrument_fastapi() into run."""
         skip_test_if_not_installed('fastapi', 'uvicorn', 'opentelemetry.instrumentation.pixeltable')
-        monkeypatch.setenv('OTEL_PYTHON_FASTAPI_EXCLUDED_URLS', '/ping')
+        for name in ('OTEL_PYTHON_FASTAPI_EXCLUDED_URLS', 'OTEL_PYTHON_EXCLUDED_URLS'):
+            monkeypatch.delenv(name, raising=False)
+        for name, value in excluded_urls_env.items():
+            monkeypatch.setenv(name, value)
         app_file = tmp_path / 'app.py'
         app_file.write_text('', encoding='utf-8')  # the app it declares is patched out below
         app = SimpleNamespace(routes=[])  # stands in for the FastAPI app, which run() counts the routes of
@@ -1558,9 +1580,9 @@ class TestServiceOtel:
         mock_otel_init.assert_called_once_with()
         # the patterns from the environment stay excluded next to /health$
         mock_instrument_fastapi.assert_called_once_with(
-            app, excluded_urls='/ping,/health$', exclude_spans=['receive', 'send']
+            app, excluded_urls=excluded_urls, exclude_spans=['receive', 'send']
         )
-        mock_gateway_span_app.assert_called_once_with(app, '/ping,/health$')
+        mock_gateway_span_app.assert_called_once_with(app, excluded_urls)
         # uvicorn serves the wrapper, so that the gateway header starts the trace
         assert mock_run.call_args.args == (mock_gateway_span_app.return_value,)
 

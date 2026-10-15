@@ -43,6 +43,8 @@ from .proxy_protocol import decode_body, iter_body_chunks
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
+_logger = logging.getLogger(__name__)
+
 _LOCK_NAME = 'port.lock'
 _STARTUP_TIMEOUT = 60.0  # generous: the daemon creates/migrates its db on first init
 _STOP_TIMEOUT = 10.0
@@ -370,7 +372,16 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
 
     # configuration, not a flag, turns this on: a cloud pod running an older pixeltable ignores an unknown
     # environment variable but fails on an unknown flag
-    otel = Config.get().get_string_value('exporter_otlp_endpoint', section='otel') is not None
+    otel_endpoint = Config.get().get_string_value('exporter_otlp_endpoint', section='otel')
+    env = Env.get()
+    otel_installed = env.is_installed_package('opentelemetry.instrumentation.pixeltable') and env.is_installed_package(
+        'opentelemetry.instrumentation.fastapi'
+    )
+    if otel_endpoint is not None and not otel_installed:
+        # the endpoint can come from an OTEL_* variable that another program set, and a missing package must not
+        # stop the daemon
+        _logger.warning('An OTLP endpoint is configured, but the daemon exports no telemetry without pixeltable[otel]')
+    otel = otel_endpoint is not None and otel_installed
     if otel:
         init_instrumentation()
     app = _build_app(test_mode)

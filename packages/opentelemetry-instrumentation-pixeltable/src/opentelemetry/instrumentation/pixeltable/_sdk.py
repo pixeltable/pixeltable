@@ -150,6 +150,9 @@ def _gateway_span_app(app: Any, excluded_urls: str) -> Any:
     Requests without a valid header pass through unchanged, and so do requests to `excluded_urls`, the patterns
     that `instrument_fastapi()` also leaves untraced.
     """
+    # inline: the asgi instrumentation comes with the fastapi instrumentation, which this package does not require
+    from opentelemetry.instrumentation.asgi import get_host_port_url_tuple  # type: ignore[import-untyped]
+
     tracer = trace.get_tracer('pixeltable', __version__, tracer_provider=_state.tracer_provider)
     excluded = parse_excluded_urls(excluded_urls)
 
@@ -163,7 +166,9 @@ def _gateway_span_app(app: Any, excluded_urls: str) -> Any:
         # The gateway forwards a request within seconds of its receipt, and the pod receives it right after that.
         # A header that is missing or malformed (nan), or whose times are minutes away from that, starts no span.
         # For example, `1 0` would start the trace in 1970.
-        if not (abs(now - sent_at) < 300 and 0 <= elapsed < 300) or excluded.url_disabled(scope['path']):
+        is_valid_timing = abs(now - sent_at) < 300 and 0 <= elapsed < 300
+        # the patterns apply to the full URL, as in the asgi instrumentation
+        if not is_valid_timing or excluded.url_disabled(get_host_port_url_tuple(scope)[2]):
             await app(scope, receive, send)
             return
         # a gateway clock ahead of this pod's clock would put the start after the end of the span
