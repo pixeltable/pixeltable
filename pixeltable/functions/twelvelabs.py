@@ -39,7 +39,7 @@ _ASSET_RETRIEVE_RPS = 5.0
 
 
 class _AssetPolls:
-    """Process-wide count of assets inside _wait_for_assets()."""
+    """Process-wide count of assets _wait_for_assets() is still polling."""
 
     def __init__(self) -> None:
         self.waiting = 0
@@ -141,6 +141,11 @@ async def _wait_for_assets(client: 'twelvelabs.AsyncTwelveLabs', asset_ids: list
                         provider='twelvelabs',
                     )
                 still_pending.append((asset_id, status))
+            # Ready assets are not retrieved again. Drop them from the shared pace count before the
+            # next pause. The finally block releases whatever this call is still holding.
+            released = len(pending) - len(still_pending)
+            _asset_polls.waiting -= released
+            n_waiting -= released
             if not still_pending:
                 return
             remaining = deadline - time.monotonic()

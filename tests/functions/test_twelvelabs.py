@@ -581,6 +581,81 @@ class TestTwelveLabsLocal:
         assert twelvelabs._asset_polls.waiting == 40
         assert events == ['retrieve:processing', 'retrieve:ready', 'create', 'delete:asset-1']
 
+    def test_retrieve_poll_gap_drops_ready_assets(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        # 100 assets, 99 ready on the first poll, and 4 other polls already in flight.
+        # The next gap uses those 5 assets (1s). Counting the original 104 would sleep 20.8s.
+        asset_ids = [f'asset-{i}' for i in range(100)]
+        still_processing = asset_ids[-1]
+        others_waiting = 4
+        seen: set[str] = set()
+        retrieved: list[str] = []
+        sleeps: list[float] = []
+        waiting_during_sleep: list[int] = []
+        monkeypatch.setattr(twelvelabs._asset_polls, 'waiting', others_waiting)
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            first_poll = asset_id not in seen
+            seen.add(asset_id)
+            retrieved.append(asset_id)
+            status = 'processing' if asset_id == still_processing and first_poll else 'ready'
+            return SimpleNamespace(status=status, error=None)
+
+        def sleep(delay: float) -> None:
+            sleeps.append(delay)
+            waiting_during_sleep.append(twelvelabs._asset_polls.waiting)
+
+        client: Any = SimpleNamespace(assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve)))
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
+
+        asyncio.run(twelvelabs._wait_for_assets(client, asset_ids))
+
+        still_waiting = others_waiting + 1
+        expected_pause = max(twelvelabs._ASSET_POLL_INITIAL_SECS, still_waiting / twelvelabs._ASSET_RETRIEVE_RPS)
+        assert waiting_during_sleep == [still_waiting]
+        assert sleeps == pytest.approx([expected_pause])
+        assert retrieved.count(still_processing) == 2
+        assert len(retrieved) == len(asset_ids) + 1
+        assert twelvelabs._asset_polls.waiting == others_waiting
+
+    def test_retrieve_poll_count_restored_when_remaining_asset_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        # One asset is ready on the first poll and the other fails on the next. finally must drop only
+        # the asset still outstanding, and the gap before that failure uses the reduced count.
+        others_waiting = 4
+        phase = 0
+        sleeps: list[float] = []
+        waiting_during_sleep: list[int] = []
+        monkeypatch.setattr(twelvelabs._asset_polls, 'waiting', others_waiting)
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            if phase == 0:
+                status = 'processing' if asset_id == 'pending-asset' else 'ready'
+                return SimpleNamespace(status=status, error=None)
+            return SimpleNamespace(status='failed', error=SimpleNamespace(message='Asset is corrupt'))
+
+        def sleep(delay: float) -> None:
+            nonlocal phase
+            sleeps.append(delay)
+            waiting_during_sleep.append(twelvelabs._asset_polls.waiting)
+            phase = 1
+
+        client: Any = SimpleNamespace(assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve)))
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
+
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='Asset is corrupt') as exc_info:
+            asyncio.run(twelvelabs._wait_for_assets(client, ['ready-asset', 'pending-asset']))
+        assert 'timed out' not in str(exc_info.value).lower()
+        still_waiting = others_waiting + 1
+        expected_pause = max(twelvelabs._ASSET_POLL_INITIAL_SECS, still_waiting / twelvelabs._ASSET_RETRIEVE_RPS)
+        assert waiting_during_sleep == [still_waiting]
+        assert sleeps == pytest.approx([expected_pause])
+        assert twelvelabs._asset_polls.waiting == others_waiting
+
     def test_retrieve_error_deletes_asset(
         self, init_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
