@@ -167,8 +167,7 @@ class TestCatalog:
     @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_finalize_pending_ops_non_retriable_error(self, uses_db: None, fault_injection: None) -> None:
         t = pxt.create_table('test', {'a': pxt.Int | None})
-        # Inject a non-retriable error into LoadViewOp, the last op of a view creation. Upon catching the injected
-        # error, the catalog should abort view creation, and undo the ops that were already executed.
+        # Fail the last operation of view creation. The catalog must abort creation and undo the completed operations.
         exc = Exception('injected')
         fault = ExceptionFault(exc, recurring=True)
         get_runtime().fault_manager.inject_fault(FaultLocation.CATALOG_LOAD_VIEW_OP_EXEC, fault)
@@ -297,10 +296,9 @@ class TestCatalog:
     @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_drop_view_concurrent_insert(self, uses_db: None, fault_injection: None) -> None:
         """
-        Start with a base table and a view. Thread 0 begins to drop the view, but pauses inside finalize pending ops
-        (without the exclusive lock). Thread 1 swoops in in the meantime to insert a row into the base table, and
-        finalizes view drop as a side effect. Before the fix, this would result in the insert failing with "table not
-        found" error.
+        Thread 0 drops a view and pauses during finalization while holding no locks. Thread 1 inserts into the base
+        table, finishing the pending view drop before inserting. The insert must succeed; it previously failed
+        with a "table not found" error.
         """
         base = pxt.create_table('base', {'a': pxt.Int | None})
         _ = pxt.create_view('v', base)
@@ -327,9 +325,9 @@ class TestCatalog:
     @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_drop_base_finalized_before_view(self, uses_db: None, fault_injection: None) -> None:
         """
-        Thread 0 drops a base and its view together, and pauses inside the view's finalization (while not holding any
-        locks). Thread 1 inserts into the base's own base (root), comes across the base and also finalizes it, without
-        touching the view. Thread 0 then finishes the view's drop even though the base is gone.
+        The view chain is root -> base -> v. Thread 0 drops base and v, then pauses while finalizing v's drop,
+        holding no locks. Thread 1 inserts into root and finishes dropping base, leaving v's drop unfinished.
+        Thread 0 must then finish dropping v even though base is gone.
         """
         root = pxt.create_table('root', {'a': pxt.Int | None})
         base = pxt.create_view('base', root)

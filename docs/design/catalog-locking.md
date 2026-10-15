@@ -17,8 +17,8 @@ for its store table locks.
 **Store table locks must precede every statement that establishes a snapshot.** A metadata query, a directory
 row lock, or even `SELECT 1` before `LOCK TABLE` would leave the transaction reading metadata from before the wait.
 
-With this order, table metadata needs no extra check for changes committed while waiting. Directory locks
-come later and need a separate retry mechanism, described in section 5.
+Acquiring locks first ensures that the metadata read includes changes committed during the wait.
+Directory locks come later and need the retry mechanism described in section 5.
 
 ## 2. Lock modes and waiting
 
@@ -33,10 +33,10 @@ That class determines the required lock mode.
 | `MD_WRITE`: metadata changes and DDL | `ACCESS EXCLUSIVE` | `ACCESS EXCLUSIVE` | Always wait |
 | `FINALIZE`: complete pending operations | `ACCESS EXCLUSIVE` | `ACCESS EXCLUSIVE` | Always wait |
 
-Operational writers can hold `ROW EXCLUSIVE` concurrently. Conflicts between their row updates are resolved
-by Postgres row locks. Data-versioned writers use `EXCLUSIVE`, which allows only one writer at a time and
-preserves a linear version history. Both modes allow `ACCESS SHARE`, so readers and writers do not block
-each other at the table-lock level.
+Operational writers can hold `ROW EXCLUSIVE` concurrently; Postgres row locks resolve conflicting row updates.
+Data-versioned writers use `EXCLUSIVE`, which allows only one writer at a time, so each write builds on the
+previous version.
+Both modes allow `ACCESS SHARE`, so these table locks do not block readers.
 
 Lock modes apply per table. For example, a schema change can lock its target with `ACCESS EXCLUSIVE` and
 its bases with `ACCESS SHARE`.
@@ -55,18 +55,19 @@ operation acquires its own locks and refreshes metadata.
 A metadata read can still encounter pending operations while loading a table. It then finalizes those operations
 before continuing; finalization takes locks and may have to wait (section 7).
 
-The transaction type must match what the call site actually reads. Queries that read tables through expressions,
-such as `@pxt.query` UDFs, need data-read locks on those tables too. Section 8 describes a current limitation.
+If an expression reads another table, for example through a `@pxt.query` UDF, the transaction needs a read lock
+on that table too. Section 8 describes a current limitation.
 
 ## 3. Which objects to lock
 
-An operation's lock set includes the store tables and directory rows it needs:
+An operation's lock set is the store tables and directory rows that need to be locked before that operation can be
+safely executed:
 
 - A read locks every table in each `TableVersionPath`, including bases. It does not lock descendant views.
 - A data write locks its target and all mutable descendant views, since writes propagate to those views.
-- A schema change locks its targets and affected mutable views. Creating a mutable view also requires an
-  exclusive lock on its mutable base: it changes write propagation and advances the base's `view_sn`. Deleting a
-  mutable view's metadata also advances the base's `view_sn`, so the finalization acquires the lock on the base.
+- A schema change locks its targets and affected mutable views. Creating or deleting a mutable view changes
+  which views receive writes from its mutable base and advances the base's `view_sn`. Both operations therefore
+  need an exclusive lock on the base. For deletion, finalization acquires that lock.
 - Dropping a directory locks its subdirectories and tables. Dropping a table also locks its descendant views,
   including snapshots, and the directories containing them.
 - A pure snapshot has no store table. Its path includes the stored base versions to read; its own metadata is
@@ -80,9 +81,9 @@ partway through the transaction.
 
 ## 4. Build, lock, and validate
 
-The lock set depends on metadata: which views exist and which object a catalog path names. But reading metadata
-inside the operation's transaction before locking would establish its snapshot too early. To resolve this,
-transactions use a tentative lock set:
+To choose the locks, Catalog needs metadata about views and catalog paths. Reading that metadata in the
+operation's transaction would establish its snapshot before locking. Catalog therefore builds a tentative
+lock set before opening the transaction:
 
 1. Build the set before opening the operation's transaction (`_resolve_lock_set()`).
 2. Open the transaction and lock store tables, then directory rows (`_acquire_locks()`).
@@ -96,8 +97,8 @@ kinds. On a cache miss, read raw `tables` rows in a separate metadata transactio
 Catalog paths always require a store read because Catalog does not cache directory structure or path resolution.
 Both cached and stored results can become stale before lock acquisition.
 
-A table's ancestry, kind, and store table name are fixed at creation. They need no post-lock validation, though
-an ancestor may have been dropped. Mutable view trees and catalog-path targets can change and must be validated.
+A table's ancestors, kind, and store table name are fixed at creation, though an ancestor may have been dropped.
+Mutable views and catalog paths can change and must be checked after locking.
 
 ### Why a stale set is safe
 
@@ -106,8 +107,8 @@ It performs no caller data reads, row writes, metadata changes, or media I/O. Di
 an `UPDATE` to a dummy column (section 5), but that update rolls back with an abandoned attempt.
 
 Creating or dropping a mutable view requires `ACCESS EXCLUSIVE` on its base. Every table lock Pixeltable uses
-conflicts with that mode. Once the required tree is locked and validated, its shape cannot change until the
-transaction ends.
+conflicts with that mode. Once a transaction has locked and validated the view tree, other transactions cannot
+add or remove mutable views until it ends.
 
 ### Retrying a stale set
 
@@ -126,9 +127,9 @@ Directories have no store tables, so directory operations lock rows in `dirs`. A
 store table locks, sorted by catalog path. Taking a directory lock first would establish a snapshot before
 a possible wait for a store table lock.
 
-Directory locks use a blind `UPDATE` of `lock_dummy`. This matters because a transaction may already have a
-snapshot when it waits for a directory lock. The preceding lock holder updated the same row, so Postgres raises
-a serialization failure and the waiting transaction retries with a fresh snapshot.
+Directory locks update `lock_dummy`, even if its value is unchanged. A transaction may already have a snapshot
+when it waits for this lock. If the preceding lock holder updated the row after that snapshot, Postgres raises
+a serialization failure. The waiting transaction then retries with a fresh snapshot.
 
 `SELECT ... FOR UPDATE` would not provide this guarantee: a holder could release the lock without changing the
 row, leaving the waiter with stale directory contents and no serialization failure.
@@ -148,9 +149,9 @@ committed store table must have its metadata row. Pure snapshots are the excepti
 Create the store table and its indexes in the transaction that inserts its metadata. Drop the store table in
 the transaction that deletes its metadata. Postgres DDL is transactional, so rollback removes both changes.
 
-This keeps recovery simple: a missing store table means the tentative lock set is stale. There is no partially
-committed creation to reconstruct. Initial creation also needs no `IF NOT EXISTS` handling: the parent directory
-lock ensures that only one creator can claim the name.
+A missing store table therefore means the tentative lock set is stale. Recovery never needs to create a store
+table for metadata that has already committed. Creation also needs no `IF NOT EXISTS` handling: the parent
+directory lock ensures that only one creator can claim the name.
 
 ## 7. Pending operations between transactions
 
@@ -162,10 +163,10 @@ them, and retries. Finalization waits for its locks, even when the operation its
 
 Pending operations run in one of two ways:
 
-- With `needs_xact = True`, the operation and its completion record run in the finalization transaction under
-  `ACCESS EXCLUSIVE`.
-- With `needs_xact = False`, the operation runs outside that transaction, and completion is recorded afterwards.
-  These operations must be idempotent because multiple processes can try to complete them.
+- With `needs_xact = True`, finalization executes the operation and records its completion in the same transaction,
+  while holding `ACCESS EXCLUSIVE`.
+- With `needs_xact = False`, finalization executes the operation outside that transaction and records completion
+  in the next transaction. These operations must be idempotent because multiple processes can try to complete them.
   `CreateStoreColumnsOp` and `CreateStoreIdxsOp` run each DDL statement in its own transaction. Statements use
   `IF NOT EXISTS` and acquire `ACCESS EXCLUSIVE`, explicitly for index creation and implicitly for `ALTER TABLE`.
   `DeleteTableMediaFilesOp` deletes a dropped table's media files.

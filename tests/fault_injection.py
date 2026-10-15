@@ -1,17 +1,15 @@
 """
-A lightweight fault injection framework for testing failure and concurrency scenarios in instrumented code paths.
+Inject failures and pauses at named locations to test recovery and concurrency.
 
-Product code calls `process_fault(loc)` at each `FaultLocation`. In production this is a no-op. Tests that use fault
-injection, monkey patch the actual working implementation using the `fault_injection` fixture.
+Product code calls `process_fault(loc, **kwargs)` at each `FaultLocation`. In production this does nothing.
+The `fault_injection` fixture replaces it with the test implementation.
 
-When fault injection is enabled, each thread/Runtime gets a separate `FaultManager`. Faults of the following types can
-be injected in the fault manager:
+Each Runtime has a `FaultManager` that supports two fault types:
 
 - `ExceptionFault`: raises an exception
-- `BlockFault`: pauses the thread at the fault point, letting the test inspect or manipulate shared state before calling
-`unblock()`
+- `BlockFault`: pauses the thread until the test calls `unblock()`
 
-A fault's `filter` selects calls using the context passed by the fault location.
+A fault's `filter` selects which calls trigger it, using the keyword arguments passed to `process_fault()`.
 """
 
 import copy
