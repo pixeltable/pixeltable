@@ -1,33 +1,34 @@
 name: Claude review
 
 # Reviews a PR when its "tests" workflow starts, if its author has write access and Claude has not reviewed it yet, and
-# when someone with write access comments exactly "claude review" on it. Runs started by workflow_run and issue_comment
-# attach to the default branch, not to the PR, so the review adds no check to the PR. They use this file from the
-# default branch with the repository's secrets, so fork PRs get reviewed too. Nothing from the PR runs.
+# when someone with write access comments exactly "claude review" on it. An hourly sweep reviews PRs marked ready for
+# review, which start no "tests" run. Runs started by workflow_run, issue_comment, and schedule attach to the default
+# branch, not to the PR, so the review adds no check to the PR. They use this file from the default branch with the
+# repository's secrets, so fork PRs get reviewed too. Nothing from the PR runs.
 on:
   issue_comment:
     types: [created]
   workflow_run:
     workflows: [tests]
     types: [requested]
+  schedule:
+    - cron: '17 * * * *'
 
 jobs:
-  # Picks the PR, checks access, and sizes the review. claude-code-action fails the job when the actor lacks write
+  # Picks the PRs, checks access, and sizes each review. claude-code-action fails the job when the actor lacks write
   # access, so plan skips the review for those actors instead.
   plan:
     if: >-
       (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
       github.event.comment.body == 'claude review') ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request')
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request') ||
+      github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
     outputs:
-      run: ${{ steps.plan.outputs.run }}
-      pr: ${{ steps.plan.outputs.pr }}
-      tier: ${{ steps.plan.outputs.tier }}
-      requested: ${{ steps.plan.outputs.requested }}
+      reviews: ${{ steps.plan.outputs.reviews }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -42,10 +43,15 @@ jobs:
 
   review:
     needs: plan
-    if: needs.plan.outputs.run == 'true'
+    if: needs.plan.outputs.reviews != '[]'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        review: ${{ fromJSON(needs.plan.outputs.reviews) }}
     # Job-level: a workflow-level group would let every PR comment cancel a running review.
     concurrency:
-      group: claude-review-${{ needs.plan.outputs.pr }}
+      group: claude-review-${{ matrix.review.pr }}
       cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -60,7 +66,7 @@ jobs:
       checks: read
       statuses: read
     env:
-      PR_NUMBER: ${{ needs.plan.outputs.pr }}
+      PR_NUMBER: ${{ matrix.review.pr }}
       # Removes ANTHROPIC_API_KEY and other secrets from the environment of the commands Claude runs.
       CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1'
       # Runs review agents in the foreground. In the background, Claude ends its turn to wait for them, and the
@@ -117,14 +123,14 @@ jobs:
           prompt: >-
             /pxt-review https://github.com/${{ github.repository }}/pull/${{ env.PR_NUMBER }}
             --pr-head ${{ runner.temp }}/pr-head
-            --tier ${{ needs.plan.outputs.tier }}
-            ${{ needs.plan.outputs.requested == 'true' && '--requested' || '' }}
+            --tier ${{ matrix.review.tier }}
+            ${{ matrix.review.requested && '--requested' || '' }}
           # A small PR gets one Sonnet reviewer. A large PR gets Opus, which hands the steps to subagents as the command
           # says; Sonnet reviewed a large PR alone. Naming Grep or Glob restores both tools, which Claude Code leaves
           # out on Linux by default. Claude has no tool that posts: its final message holds the review, and the post
           # step publishes it.
           claude_args: >-
-            --model ${{ needs.plan.outputs.tier == 'large' && 'claude-opus-5-5' || 'claude-sonnet-5-5' }}
+            --model ${{ matrix.review.tier == 'large' && 'claude-opus-5-5' || 'claude-sonnet-5-5' }}
             --allowedTools "Read" "Grep" "Glob" "Bash(gh pr view:*)" "Bash(gh pr diff:*)" "Bash(gh pr checks:*)"
       # The action hides Claude's transcript. Print Claude's final message, each tool call the allowlist refused, and
       # the cost per model.
