@@ -22,7 +22,7 @@ jobs:
       (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
       github.event.comment.body == 'claude review') ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request') ||
-      github.event_name == 'schedule'
+      (github.event_name == 'schedule' && github.repository_owner == 'pixeltable')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -84,12 +84,26 @@ jobs:
           REPO: ${{ github.repository }}
           COMMENT_ID: ${{ github.event.comment.id }}
         run: gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=+1 --silent
-      - uses: actions/checkout@v6
+      # An automatic job can wait in the concurrency group behind a review of the same PR. If that review posted before
+      # this job started, skip the rest of the job.
+      - id: recheck
+        if: ${{ !matrix.review.requested }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          posted=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json reviews,comments \
+            --jq '[.reviews[].body, .comments[].body] | any(startswith("## Claude review"))')
+          echo "skip=$posted" >> "$GITHUB_OUTPUT"
+      - if: steps.recheck.outputs.skip != 'true'
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
       # actions/checkout refuses fork PR code in a workflow_run run without allow-unsafe-pr-checkout. Nothing from this
       # copy runs: the next step moves it out of the working directory and strips its agent files.
-      - uses: actions/checkout@v6
+      - if: steps.recheck.outputs.skip != 'true'
+        uses: actions/checkout@v6
         with:
           ref: refs/pull/${{ env.PR_NUMBER }}/head
           path: pr-head
@@ -98,17 +112,19 @@ jobs:
           allow-unsafe-pr-checkout: true
       # Claude loads CLAUDE.md and .claude/ from inside its working directory. Move the PR out of it and drop the PR's
       # agent instruction files, so the PR cannot supply instructions.
-      - run: |
+      - if: steps.recheck.outputs.skip != 'true'
+        run: |
           mv pr-head "$RUNNER_TEMP/pr-head"
           find "$RUNNER_TEMP/pr-head" \
             \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name AGENTS.md -o -name .claude -o -name .mcp.json \) \
             -prune -exec rm -rf {} +
       # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB fails without bubblewrap, and the action installs it only when
       # allowed_non_write_users is set. Ubuntu 24.04 blocks the unprivileged user namespaces bubblewrap needs.
-      # This step, the Claude step, the post step, and both reaction steps continue on error, so a failed review does
-      # not fail the run. The report step turns a failure into a warning, and the last step reacts to the comment with
-      # a confused face.
-      - continue-on-error: true
+      # This step, the Claude step, the post step, the recheck step, and both reaction steps continue on error, so a
+      # failed review does not fail the run. The report step turns a failure into a warning, and the last step reacts
+      # to the comment with a confused face.
+      - if: steps.recheck.outputs.skip != 'true'
+        continue-on-error: true
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends bubblewrap socat
@@ -116,6 +132,7 @@ jobs:
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
       - id: claude
+        if: steps.recheck.outputs.skip != 'true'
         continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
@@ -136,7 +153,7 @@ jobs:
             --allowedTools "Read" "Grep" "Glob" "Bash(gh pr view:*)" "Bash(gh pr diff:*)" "Bash(gh pr checks:*)"
       # The action hides Claude's transcript. Print Claude's final message, each tool call the allowlist refused, and
       # the cost per model.
-      - if: always()
+      - if: always() && steps.recheck.outputs.skip != 'true'
         env:
           OUTCOME: ${{ steps.claude.outcome }}
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
