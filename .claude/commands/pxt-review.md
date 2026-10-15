@@ -17,7 +17,9 @@ working directory. They define the review. This command adds only what running u
 
 - You post nothing. Your final message holds the review, and the workflow posts it as one GitHub review. Do not edit
   code.
-- Nothing runs here except `gh`. Walk the affected job by tracing source, and label each walk as a source trace.
+- Nothing runs here except `gh`, so walk the affected job by tracing source.
+- The posted review follows "Review" and "Writing" below instead of the skill's part 6, so it omits the skill's
+  scope summary, verification limits, and record of what was checked.
 - No one is available to answer questions. Put each question you would ask in the review's Questions section.
 - The run ends when your turn ends. Launch every agent in the foreground and wait for its result before the next
   step. End your turn only with the message that "Final message" describes.
@@ -124,8 +126,9 @@ Create a todo list before you start.
   ### Questions
   ```
 
-  Leave out an empty section. Do not add a section on what the review did not check. The `## Claude review` heading
-  marks the review complete, so a later run that finds it does not review again.
+  The body holds only these parts. Leave out an empty section. Do not say what you checked, how you checked it, or
+  what you did not run, and do not explain why code is correct. The `## Claude review` heading marks the review
+  complete, so a later run that finds it does not review again.
 
 ## Writing
 
@@ -137,8 +140,8 @@ Write the inline comments and the body in this subset of ASD-STE100 Simplified T
 - Use one term for one thing, and the code's own names for code. Do not use idioms, filler, or hedges such as "it
   seems".
 - Start each inline comment with a bold `<Severity>: <title>` line, where severity is High, Medium, or Low. Then give
-  the trigger, the impact, the evidence, and the fix in at most 80 words before any suggestion block. Say "Evidence:
-  source trace" when nothing was observed.
+  the trigger, the impact, and the fix in at most 80 words before any suggestion block. Cite evidence only when
+  something was observed, such as a failing CI job.
 - In the body, give each finding one line. List at most three maintenance suggestions and three questions. Give a
   count for the rest, for example "plus 2 more".
 
