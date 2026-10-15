@@ -291,7 +291,6 @@ class TempStore:
 
     @classmethod
     def contains_path(cls, file_path: Path | str) -> bool:
-        # any process's directory: a tmp file that another process wrote must still be persisted, not referenced
         return Path(file_path).is_relative_to(env.Env.get().tmp_dir)
 
     @classmethod
