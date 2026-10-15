@@ -186,10 +186,10 @@ jobs:
           COMMENT_ID: ${{ github.event.comment.id }}
         run: gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=confused --silent
 
-  # Runs on every commit of a PR, next to plan and review. Measures how the PR changes the cyclomatic complexity of the
-  # functions it touches, and has Claude judge each function above complexity 10 that grew. Posts one comment once a
-  # function needs a split, then updates it on each commit. The script reads the PR's files through the API and only
-  # parses them.
+  # Runs on every commit of a PR, next to plan and review. Measures how the PR changes code erosion and verbosity, as
+  # SlopCodeBench (arXiv 2603.24755) defines them, and has Claude judge each function above complexity 10 that grew.
+  # Posts one comment once the PR leaves the bounds, then updates it on each commit. The script only parses the PR's
+  # files; nothing from the PR runs.
   erosion:
     if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request'
     # A newer commit on the same branch replaces a running check.
@@ -197,10 +197,13 @@ jobs:
       group: claude-erosion-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
       cancel-in-progress: true
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: read
       pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -209,9 +212,44 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: pip install --quiet radon==6.0.1 lizard==1.24.1 anthropic==1.10.0
-      - env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
+      # scb-check 0.1.3 is the version SlopCodeBench pins.
+      - run: pip install --quiet scb-check==0.1.3 lizard==1.24.1 anthropic==1.10.0
+      # Writes the PR's head commit and merge base, or nothing when there is nothing to check.
+      - id: target
+        run: python .github/scripts/claude_erosion_check.py target
+      # Checks out source files only: scb-check reads every Python file, and lizard reads TypeScript and JavaScript.
+      - if: steps.target.outputs.head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.target.outputs.head }}
+          path: erosion/head
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            *.py
+            *.ts
+            *.tsx
+            *.js
+            *.jsx
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true
+      - if: steps.target.outputs.head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.target.outputs.base }}
+          path: erosion/base
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            *.py
+            *.ts
+            *.tsx
+            *.js
+            *.jsx
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - if: steps.target.outputs.head
+        env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python .github/scripts/claude_erosion_check.py
+        run: python .github/scripts/claude_erosion_check.py report
