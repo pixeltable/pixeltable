@@ -7,6 +7,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+import pytest
+
 
 def _free_port() -> int:
     with socket.socket() as s:
@@ -14,6 +16,7 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='Windows cannot deliver SIGTERM to another process')
 def test_sigterm_stops_the_daemon_at_once(tmp_path: Path) -> None:
     """In a container the daemon is PID 1, which ignores SIGTERM without a handler: a stopped catalog-server pod
     waited out its whole grace period and was killed."""
