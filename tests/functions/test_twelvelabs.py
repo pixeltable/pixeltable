@@ -1,4 +1,5 @@
 import asyncio
+import time
 from base64 import b64decode
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.functions.audio import audio_splitter
 from pixeltable.functions.video import video_splitter
+from pixeltable.utils.http import is_retryable_error
 
 from ..utils import (
     get_audio_files,
@@ -25,6 +27,23 @@ from ..utils import (
 )
 
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
+
+
+class _RetrieveRateLimitError(Exception):
+    """Duck-typed TwelveLabs API error for HTTP 429, including an optional Retry-After header."""
+
+    def __init__(self, retry_after: str | None = None) -> None:
+        super().__init__('too many requests')
+        self.status_code = 429
+        self.headers = {'Retry-After': retry_after} if retry_after is not None else {}
+
+
+class _RetrieveRejectedError(Exception):
+    """Duck-typed non-429 retrieve failure."""
+
+    def __init__(self) -> None:
+        super().__init__('asset missing')
+        self.status_code = 404
 
 
 @pytest.fixture
@@ -289,14 +308,21 @@ class TestTwelveLabsLocal:
         media = tmp_path / 'media.mp4'
         media.write_bytes(b'media')
         monkeypatch.setattr(twelvelabs, 'TWELVELABS_INLINE_LIMIT_BYTES', 0)
-        monkeypatch.setattr(twelvelabs, '_ASSET_READY_TIMEOUT_SECS', 0.0)
         events: list[str] = []
 
         def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
             return SimpleNamespace(asset_id='asset-1')
 
+        # The deadline is measured with monotonic time. Jumping it during retrieve exercises the
+        # post-poll check without waiting out the real budget.
+        clock = {'t': 0.0}
+
+        def monotonic() -> float:
+            return clock['t']
+
         def retrieve(asset_id: str) -> SimpleNamespace:
             events.append(f'retrieve:{asset_id}')
+            clock['t'] += twelvelabs._ASSET_READY_TIMEOUT_SECS
             return SimpleNamespace(status='processing', error=None)
 
         def create(**kwargs: Any) -> SimpleNamespace:
@@ -312,10 +338,14 @@ class TestTwelveLabsLocal:
             assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve), delete=AsyncMock(side_effect=delete)),
         )
         monkeypatch.setattr(twelvelabs, '_twelvelabs_client', lambda: client)
+        monkeypatch.setattr(twelvelabs.time, 'monotonic', monotonic)
+        monkeypatch.setattr(twelvelabs, '_ASSET_READY_TIMEOUT_SECS', 600.0)
 
-        with pxt_raises(pxt.ErrorCode.PROVIDER_TIMEOUT, match='timed out') as exc_info:
+        with pxt_raises(pxt.ErrorCode.PROVIDER_TIMEOUT, match='still processing after 600s') as exc_info:
             asyncio.run(twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0'))
         assert str(tmp_path) not in str(exc_info.value)
+        assert 'timed out' not in str(exc_info.value).lower()
+        assert is_retryable_error(exc_info.value)[0] is False
         assert events == ['retrieve:asset-1', 'delete:asset-1']
 
     def test_asset_uploads_polls_concurrently(
@@ -363,6 +393,232 @@ class TestTwelveLabsLocal:
 
         assert asyncio.run(run()) == ['a.mp4', 'b.mp4']
         assert sorted(deleted) == ['a.mp4', 'b.mp4']
+
+    def test_embed_retrieve_past_deadline_deletes_asset(
+        self, init_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        media = tmp_path / 'media.mp4'
+        media.write_bytes(b'media')
+        monkeypatch.setattr(twelvelabs, 'TWELVELABS_INLINE_LIMIT_BYTES', 0)
+        monkeypatch.setattr(twelvelabs, '_ASSET_READY_TIMEOUT_SECS', 0.2)
+        events: list[str] = []
+
+        def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
+            return SimpleNamespace(asset_id='asset-1')
+
+        async def retrieve(asset_id: str) -> SimpleNamespace:
+            events.append(f'retrieve:{asset_id}')
+            await asyncio.sleep(5)
+            events.append('retrieve-finished')
+            return SimpleNamespace(status='ready', error=None)
+
+        def create(**kwargs: Any) -> SimpleNamespace:
+            events.append('create')
+            raise AssertionError('embed should not run before the asset is ready')
+
+        def delete(asset_id: str) -> None:
+            events.append(f'delete:{asset_id}')
+
+        client = SimpleNamespace(
+            embed=SimpleNamespace(v_2=SimpleNamespace(create=AsyncMock(side_effect=create))),
+            multipart_upload=SimpleNamespace(upload_file=AsyncMock(side_effect=upload_file)),
+            assets=SimpleNamespace(retrieve=retrieve, delete=AsyncMock(side_effect=delete)),
+        )
+        monkeypatch.setattr(twelvelabs, '_twelvelabs_client', lambda: client)
+
+        started = time.monotonic()
+        with pxt_raises(pxt.ErrorCode.PROVIDER_TIMEOUT, match='still processing') as exc_info:
+            asyncio.run(twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0'))
+        assert time.monotonic() - started < 2
+        assert str(tmp_path) not in str(exc_info.value)
+        assert 'timed out' not in str(exc_info.value).lower()
+        assert is_retryable_error(exc_info.value)[0] is False
+        assert events == ['retrieve:asset-1', 'delete:asset-1']
+
+    def test_retrieve_rate_limit_retries_until_ready(
+        self, init_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        media = tmp_path / 'media.mp4'
+        media.write_bytes(b'media')
+        monkeypatch.setattr(twelvelabs, 'TWELVELABS_INLINE_LIMIT_BYTES', 0)
+        monkeypatch.setattr(twelvelabs, '_ASSET_POLL_INITIAL_SECS', 0.01)
+        monkeypatch.setattr(twelvelabs, '_ASSET_RETRIEVE_RPS', 1_000_000.0)
+        events: list[str] = []
+        sleeps: list[float] = []
+        calls = 0
+
+        def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
+            return SimpleNamespace(asset_id='asset-1')
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            nonlocal calls
+            calls += 1
+            events.append(f'retrieve:{asset_id}')
+            if calls == 1:
+                raise _RetrieveRateLimitError('0.05')
+            return SimpleNamespace(status='ready', error=None)
+
+        def sleep(delay: float) -> None:
+            sleeps.append(delay)
+
+        def create(**kwargs: Any) -> SimpleNamespace:
+            events.append('create')
+            return SimpleNamespace(data=[SimpleNamespace(embedding=[0.5] * 512)])
+
+        def delete(asset_id: str) -> None:
+            events.append(f'delete:{asset_id}')
+
+        client = SimpleNamespace(
+            embed=SimpleNamespace(v_2=SimpleNamespace(create=AsyncMock(side_effect=create))),
+            multipart_upload=SimpleNamespace(upload_file=AsyncMock(side_effect=upload_file)),
+            assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve), delete=AsyncMock(side_effect=delete)),
+        )
+        monkeypatch.setattr(twelvelabs, '_twelvelabs_client', lambda: client)
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
+
+        vector = asyncio.run(twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0'))
+        assert vector.shape == (512,)
+        assert twelvelabs._asset_polls.waiting == 0
+        assert sleeps == pytest.approx([0.05])
+        assert events == ['retrieve:asset-1', 'retrieve:asset-1', 'create', 'delete:asset-1']
+
+    def test_retrieve_rate_limit_past_deadline_is_not_retried(
+        self, init_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        media = tmp_path / 'media.mp4'
+        media.write_bytes(b'media')
+        monkeypatch.setattr(twelvelabs, 'TWELVELABS_INLINE_LIMIT_BYTES', 0)
+        events: list[str] = []
+
+        def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
+            return SimpleNamespace(asset_id='asset-1')
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            events.append(f'retrieve:{asset_id}')
+            raise _RetrieveRateLimitError('10000')
+
+        def sleep(delay: float) -> None:
+            raise AssertionError(f'waited {delay}s after a retry delay past the deadline')
+
+        def create(**kwargs: Any) -> SimpleNamespace:
+            events.append('create')
+            raise AssertionError('embed should not run before the asset is ready')
+
+        def delete(asset_id: str) -> None:
+            events.append(f'delete:{asset_id}')
+
+        client = SimpleNamespace(
+            embed=SimpleNamespace(v_2=SimpleNamespace(create=AsyncMock(side_effect=create))),
+            multipart_upload=SimpleNamespace(upload_file=AsyncMock(side_effect=upload_file)),
+            assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve), delete=AsyncMock(side_effect=delete)),
+        )
+        monkeypatch.setattr(twelvelabs, '_twelvelabs_client', lambda: client)
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
+
+        with pxt_raises(pxt.ErrorCode.PROVIDER_TIMEOUT, match='still processing') as exc_info:
+            asyncio.run(twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0'))
+        message = str(exc_info.value).lower()
+        assert 'timed out' not in message
+        assert '429' not in message
+        assert 'too many requests' not in message
+        assert is_retryable_error(exc_info.value)[0] is False
+        assert events == ['retrieve:asset-1', 'delete:asset-1']
+
+    def test_retrieve_poll_gap_tracks_inflight_assets(
+        self, init_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        media = tmp_path / 'media.mp4'
+        media.write_bytes(b'media')
+        monkeypatch.setattr(twelvelabs, 'TWELVELABS_INLINE_LIMIT_BYTES', 0)
+        # 40 other assets are already waiting. This call adds one more, past the 5s backoff ceiling.
+        monkeypatch.setattr(twelvelabs._asset_polls, 'waiting', 40)
+        events: list[str] = []
+        sleeps: list[float] = []
+        statuses = ['processing', 'ready']
+
+        def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
+            return SimpleNamespace(asset_id='asset-1')
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            status = statuses.pop(0)
+            events.append(f'retrieve:{status}')
+            return SimpleNamespace(status=status, error=None)
+
+        def sleep(delay: float) -> None:
+            sleeps.append(delay)
+
+        def create(**kwargs: Any) -> SimpleNamespace:
+            events.append('create')
+            return SimpleNamespace(data=[SimpleNamespace(embedding=[0.5] * 512)])
+
+        def delete(asset_id: str) -> None:
+            events.append(f'delete:{asset_id}')
+
+        client = SimpleNamespace(
+            embed=SimpleNamespace(v_2=SimpleNamespace(create=AsyncMock(side_effect=create))),
+            multipart_upload=SimpleNamespace(upload_file=AsyncMock(side_effect=upload_file)),
+            assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve), delete=AsyncMock(side_effect=delete)),
+        )
+        monkeypatch.setattr(twelvelabs, '_twelvelabs_client', lambda: client)
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', AsyncMock(side_effect=sleep))
+
+        vector = asyncio.run(twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0'))
+        assert vector.shape == (512,)
+        assert sleeps == pytest.approx([41 / twelvelabs._ASSET_RETRIEVE_RPS])
+        assert sleeps[0] > twelvelabs._ASSET_POLL_MAX_SECS
+        assert twelvelabs._asset_polls.waiting == 40
+        assert events == ['retrieve:processing', 'retrieve:ready', 'create', 'delete:asset-1']
+
+    def test_retrieve_error_deletes_asset(
+        self, init_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        media = tmp_path / 'media.mp4'
+        media.write_bytes(b'media')
+        monkeypatch.setattr(twelvelabs, 'TWELVELABS_INLINE_LIMIT_BYTES', 0)
+        monkeypatch.setattr(twelvelabs, '_ASSET_READY_TIMEOUT_SECS', 0.2)
+        monkeypatch.setattr(twelvelabs, '_ASSET_POLL_INITIAL_SECS', 0.01)
+        monkeypatch.setattr(twelvelabs, '_ASSET_RETRIEVE_RPS', 1_000_000.0)
+        events: list[str] = []
+
+        def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
+            return SimpleNamespace(asset_id='asset-1')
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            events.append(f'retrieve:{asset_id}')
+            raise _RetrieveRejectedError()
+
+        def create(**kwargs: Any) -> SimpleNamespace:
+            events.append('create')
+            raise AssertionError('embed should not run before the asset is ready')
+
+        def delete(asset_id: str) -> None:
+            events.append(f'delete:{asset_id}')
+
+        client = SimpleNamespace(
+            embed=SimpleNamespace(v_2=SimpleNamespace(create=AsyncMock(side_effect=create))),
+            multipart_upload=SimpleNamespace(upload_file=AsyncMock(side_effect=upload_file)),
+            assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve), delete=AsyncMock(side_effect=delete)),
+        )
+        monkeypatch.setattr(twelvelabs, '_twelvelabs_client', lambda: client)
+
+        with pytest.raises(_RetrieveRejectedError, match='asset missing'):
+            asyncio.run(twelvelabs.embed.py_fns[3](str(media), model_name='marengo3.0'))
+        assert events == ['retrieve:asset-1', 'delete:asset-1']
 
     def test_embedding_indexes(self, uses_db: None, mock_embeddings: AsyncMock) -> None:
         from pixeltable.functions import twelvelabs
