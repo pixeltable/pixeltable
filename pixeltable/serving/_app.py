@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING, Any
 
 from pixeltable import exceptions as excs
@@ -73,8 +74,11 @@ def instrument_app(app: 'fastapi.FastAPI') -> Any:
     import opentelemetry.instrumentation.pixeltable as pxt_otel
     from opentelemetry.instrumentation.pixeltable._sdk import _gateway_span_app
 
+    # the fastapi instrumentation ignores these variables when it receives patterns from the caller, and this keeps
+    # their patterns next to /health$
+    env_excluded_urls = os.environ.get('OTEL_PYTHON_FASTAPI_EXCLUDED_URLS', os.environ.get('OTEL_PYTHON_EXCLUDED_URLS'))
     # k8s probes call /health every few seconds, and a trace per probe is noise
-    excluded_urls = '/health$'
+    excluded_urls = f'{env_excluded_urls},/health$' if env_excluded_urls else '/health$'
     # a span per ASGI message sent or received would double the spans of every request
     pxt_otel.instrument_fastapi(app, excluded_urls=excluded_urls, exclude_spans=['receive', 'send'])
     return _gateway_span_app(app, excluded_urls)
