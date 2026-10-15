@@ -281,17 +281,29 @@ def _https_proxy(host: str) -> urllib.parse.SplitResult | None:
     if proxy.scheme != 'http' or proxy.hostname is None:
         _logger.debug('Not using HTTPS_PROXY %s://%s for the tunnel to %s', proxy.scheme, proxy.hostname, host)
         return None
+    try:
+        _ = proxy.port
+    except ValueError:
+        # not the URL itself, which can hold the proxy's password
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'HTTPS_PROXY names {proxy.hostname} with an invalid port.'
+        ) from None
     return proxy
 
 
 def _connect_through(proxy: urllib.parse.SplitResult, org: str, db: str, host: str, port: int) -> socket.socket:
     """Open a connection to host:port with the proxy's CONNECT method.
 
-    A proxy that answers 5xx raises ConnectionError, to be retried; one that refuses, or closes the connection
-    instead of answering, refuses again on a retry.
+    A proxy that cannot be reached, or answers 429 or 5xx, raises ConnectionError, to be retried; one that refuses,
+    or closes the connection instead of answering, refuses again on a retry.
     """
     proxy_addr = f'{proxy.hostname}:{proxy.port or 80}'
-    sock = socket.create_connection((proxy.hostname, proxy.port or 80), timeout=_CONNECT_TIMEOUT)
+    try:
+        sock = socket.create_connection((proxy.hostname, proxy.port or 80), timeout=_CONNECT_TIMEOUT)
+    except (TimeoutError, PermissionError):
+        raise  # a timeout counts as a try, and a denied socket is not retried
+    except OSError as e:
+        raise ConnectionError(f'Cannot connect to the HTTPS proxy at {proxy_addr}: {e}') from e
     try:
         request = f'CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n'
         if proxy.username is not None:
@@ -317,8 +329,19 @@ def _connect_through(proxy: urllib.parse.SplitResult, org: str, db: str, host: s
         code = status.partition(' ')[0]
         if code == '200':
             return sock
-        if code.startswith('5'):
+        if code.startswith('5') or code == '429':
             raise ConnectionError(f'HTTPS proxy at {proxy_addr} could not connect to {host}:{port}: {status_line}')
+        if code == '407':
+            fix = (
+                f'Put the proxy credentials in HTTPS_PROXY, as http://user:password@{proxy_addr}.'
+                if proxy.username is None
+                else 'Check the proxy credentials in HTTPS_PROXY.'
+            )
+            raise excs.ServiceUnavailableError(
+                excs.ErrorCode.DATABASE_UNAVAILABLE,
+                f'Cannot reach pxt://{org}:{db}: the HTTPS proxy at {proxy_addr} requires authentication ({status}).'
+                f'\n{fix}',
+            )
         domain = host.partition('.')[2]
         raise excs.ServiceUnavailableError(
             excs.ErrorCode.DATABASE_UNAVAILABLE,
@@ -425,11 +448,18 @@ class TunnelTransport(Transport):
         """
         protocol, _, status = status_line.partition(' ')
         if protocol != 'PXT/1.0':
+            if _https_proxy(self._host) is None:
+                fix = 'If this network sends HTTPS through a proxy, set HTTPS_PROXY to it.'
+            else:
+                domain = self._host.partition('.')[2]
+                fix = (
+                    f'The HTTPS proxy may inspect TLS: have it pass *.{domain} through uninspected, or exempt it with '
+                    'NO_PROXY if this network allows a direct connection.'
+                )
             return excs.ServiceUnavailableError(
                 excs.ErrorCode.DATABASE_UNAVAILABLE,
                 f'Cannot reach pxt://{self._org}:{self._db}: something between this machine and '
-                f'{self._host}:{self._port} answered instead of Pixeltable Cloud ({status_line!r}).\n'
-                'If this network sends HTTPS through a proxy, set HTTPS_PROXY to it.',
+                f'{self._host}:{self._port} answered instead of Pixeltable Cloud ({status_line!r}).\n{fix}',
             )
         code, _, reason = status.partition(' ')
         if code.isdigit() and is_refusal(int(code)):
