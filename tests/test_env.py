@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Iterator
 
 import numpy as np
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -15,7 +16,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.local_store import LocalStore, TempStore
 
 from .utils import pxt_raises, skip_test_if_not_local
 
@@ -180,9 +181,9 @@ class TestTmpDir:
         tmp_dir = Env.get().tmp_dir
         in_use = TempStore.create_path(extension='.txt')
         in_use.write_text('in use')
-        exited = subprocess.Popen((sys.executable, '-c', ''))
-        exited.wait()
-        stale = tmp_dir / str(exited.pid) / 'stale.txt'
+        # no process can have this pid: it is above the Linux and macOS limits, and Windows pids are multiples of 4.
+        # (An exited child's pid won't do: on Windows, its process stays listed while a Popen holds its handle.)
+        stale = tmp_dir / str(2**31 - 1) / 'stale.txt'
         stale.parent.mkdir()
         stale.write_text('stale')
         legacy = tmp_dir / f'{uuid.uuid4()}.txt'  # the layout before per-process directories
@@ -193,8 +194,16 @@ class TestTmpDir:
         assert in_use.read_text() == 'in use'
         assert not stale.parent.exists()
         assert not legacy.exists()
-        # a sibling whose pid has this process's pid as a prefix is another process's directory
-        assert not TempStore.contains_path(tmp_dir / f'{os.getpid()}0' / 'file.txt')
+
+    def test_insert_other_process_tmp_file(self, uses_db: None) -> None:
+        """A tmp file that another process wrote is persisted to the media dir, not stored by reference."""
+        src = Env.get().tmp_dir / str(2**31 - 1) / 'img.png'
+        src.parent.mkdir()
+        PIL.Image.new('RGB', (8, 8)).save(src)
+        t = pxt.create_table('tmp_files', {'img': pxt.Image})
+        t.insert([{'img': str(src)}])
+        path = LocalStore.file_url_to_path(t.select(url=t.img.fileurl).collect()[0]['url'])
+        assert path is not None and path.is_relative_to(Env.get().media_dir), path
 
 
 class TestHostedMediaDefault:

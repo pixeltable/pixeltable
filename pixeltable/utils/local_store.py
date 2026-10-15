@@ -291,8 +291,8 @@ class TempStore:
 
     @classmethod
     def contains_path(cls, file_path: Path | str) -> bool:
-        # compare path components: as a string prefix, tmp/123 would also match tmp/1234/...
-        return Path(file_path).is_relative_to(cls._tmp_dir())
+        # any process's directory: a tmp file that another process wrote must still be persisted, not referenced
+        return Path(file_path).is_relative_to(env.Env.get().tmp_dir)
 
     @classmethod
     def resolve_url(cls, file_url: str | None) -> Path | None:
