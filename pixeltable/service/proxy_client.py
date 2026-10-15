@@ -266,16 +266,17 @@ class _TunnelPool:
             _close_idle(self._idle)
 
 
-def _https_proxy(host: str) -> urllib.parse.SplitResult | None:
-    """The HTTP proxy that HTTPS_PROXY names for host, unless NO_PROXY exempts host; None for a direct connection.
+def _https_proxy(host: str, port: int) -> urllib.parse.SplitResult | None:
+    """The HTTP proxy that HTTPS_PROXY names for host:port, unless NO_PROXY exempts it; None for a direct connection.
 
     Sandboxes that send all traffic through a proxy answer a direct connection on 443 themselves, as an HTTP
     server, so the tunnel goes through the proxy as HTTPS would. Only an http:// proxy can carry it; any other
     kind is left to connect directly, as before proxies were honored.
     """
     url = urllib.request.getproxies_environment().get('https')
-    # with a proxy in the environment, proxy_bypass() reads NO_PROXY from there too, not the system settings
-    if url is None or urllib.request.proxy_bypass(host):
+    # with a proxy in the environment, proxy_bypass() reads NO_PROXY from there too, not the system settings; given
+    # host:port, it matches entries for the host, its domains, or that host and port
+    if url is None or urllib.request.proxy_bypass(f'{host}:{port}'):
         return None
     proxy = urllib.parse.urlsplit(url if '://' in url else f'http://{url}')
     if proxy.scheme != 'http' or proxy.hostname is None:
@@ -421,7 +422,7 @@ class TunnelTransport(Transport):
 
         Any other error, and any failure after the connection opens, is raised as it is and retried in `_request()`.
         """
-        proxy = _https_proxy(self._host)
+        proxy = _https_proxy(self._host, self._port)
         timeout: TimeoutError | None = None
         for _ in range(_CONNECT_TRIES):
             try:
@@ -448,7 +449,7 @@ class TunnelTransport(Transport):
         """
         protocol, _, status = status_line.partition(' ')
         if protocol != 'PXT/1.0':
-            if _https_proxy(self._host) is None:
+            if _https_proxy(self._host, self._port) is None:
                 fix = 'If this network sends HTTPS through a proxy, set HTTPS_PROXY to it.'
             else:
                 domain = self._host.partition('.')[2]

@@ -1392,7 +1392,19 @@ class TestTunnelRetries:
         assert headers['Proxy-Authorization'] == f'Basic {base64.b64encode(b"agent:p@ss").decode()}'
         assert sidecar.tokens == ['key']
 
-    def test_no_proxy_exempts_a_host(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        ('no_proxy', 'dialed'),
+        [
+            ('localhost,.pxt.invalid', ('org1-db1.pxt.invalid', 443)),
+            ('org1-db1.pxt.invalid', ('org1-db1.pxt.invalid', 443)),
+            ('org1-db1.pxt.invalid:443', ('org1-db1.pxt.invalid', 443)),
+            # an entry for another port leaves this one to the proxy
+            ('org1-db1.pxt.invalid:9000', ('127.0.0.1', 1)),
+        ],
+    )
+    def test_no_proxy_exempts_a_host(
+        self, no_proxy: str, dialed: tuple[str, int], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         addresses: list[Any] = []
 
         def deny(address: Any, timeout: float | None = None) -> socket.socket:
@@ -1400,12 +1412,12 @@ class TestTunnelRetries:
             raise PermissionError(1, 'Operation not permitted')
 
         monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:1')
-        monkeypatch.setenv('NO_PROXY', 'localhost,.pxt.invalid')
+        monkeypatch.setenv('NO_PROXY', no_proxy)
         monkeypatch.setattr(socket, 'create_connection', deny)
         transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='org1-db1.pxt.invalid', port=443)
         with pytest.raises(PermissionError):
             transport.post(b'body')
-        assert addresses == [('org1-db1.pxt.invalid', 443)]
+        assert addresses == [dialed]
 
     @pytest.mark.parametrize(
         ('userinfo', 'answer', 'error'),
