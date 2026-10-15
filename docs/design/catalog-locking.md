@@ -67,7 +67,7 @@ safely executed:
 - A data write locks its target and all mutable descendant views, since writes propagate to those views.
 - A schema change locks its targets and affected mutable views. Creating or deleting a mutable view changes
   which views receive writes from its mutable base and advances the base's `view_sn`. Both operations therefore
-  need an exclusive lock on the base. For deletion, finalization acquires that lock.
+  need an exclusive lock on the base. Finalization acquires that lock as well when dropping a mutable view.
 - Dropping a directory locks its subdirectories and tables. Dropping a table also locks its descendant views,
   including snapshots, and the directories containing them.
 - A pure snapshot has no store table. Its path includes the stored base versions to read; its own metadata is
