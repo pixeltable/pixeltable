@@ -429,27 +429,28 @@ class VideoFrames:
             self.container.close()
 
     def __iter__(self) -> Iterator[Item]:
+        # One decode() generator for this container. A fresh decode() per frame keeps only its first frame
+        # and drops the frame the decoder flushes at end of stream.
+        assert self.container is not None
         num_returned = 0
         frame_idx = -1
-        while True:
-            try:
-                frame = next(self.container.decode(video=0))
-            except (StopIteration, EOFError):
-                return
-
-            frame_idx += 1
-            if self.fps == 0.0 or (num_returned <= frame.time * self.fps):
-                img = frame.to_image()
-                assert isinstance(img, PIL.Image.Image)
-                yield VideoFrames.Item(
-                    frame_idx=frame_idx,
-                    pts=frame.pts,
-                    dts=frame.dts,
-                    time=frame.time,
-                    is_corrupt=frame.is_corrupt,
-                    key_frame=frame.key_frame,
-                    pict_type=frame.pict_type,
-                    interlaced_frame=frame.interlaced_frame,
-                    frame=img,
-                )
-                num_returned += 1
+        try:
+            for frame in self.container.decode(video=0):
+                frame_idx += 1
+                if self.fps == 0.0 or (num_returned <= frame.time * self.fps):
+                    img = frame.to_image()
+                    assert isinstance(img, PIL.Image.Image)
+                    yield VideoFrames.Item(
+                        frame_idx=frame_idx,
+                        pts=frame.pts,
+                        dts=frame.dts,
+                        time=frame.time,
+                        is_corrupt=frame.is_corrupt,
+                        key_frame=frame.key_frame,
+                        pict_type=frame.pict_type,
+                        interlaced_frame=frame.interlaced_frame,
+                        frame=img,
+                    )
+                    num_returned += 1
+        except EOFError:
+            return

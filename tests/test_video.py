@@ -5,6 +5,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable, Literal
 
+import av
+import numpy as np
 import PIL.Image
 import pytest
 
@@ -21,6 +23,7 @@ from pixeltable.functions.video import (
 from pixeltable.utils import av as av_utils
 
 from .utils import (
+    TESTS_DIR,
     DatabaseRoot,
     check_media_store_count,
     generate_test_video,
@@ -33,6 +36,59 @@ from .utils import (
     skip_test_if_not_installed,
     validate_update_status,
 )
+
+
+def _write_color_frames(
+    path: Path,
+    frames: list[tuple[int, int, int]],
+    *,
+    codec: str = 'libx264',
+    fps: int = 25,
+    max_b_frames: int | None = None,
+) -> None:
+    with av.open(str(path), mode='w') as out:
+        stream = out.add_stream(codec, rate=fps)
+        assert isinstance(stream, av.VideoStream)
+        stream.width = 64
+        stream.height = 64
+        stream.pix_fmt = 'yuv420p'
+        if max_b_frames is not None:
+            codec_ctx = stream.codec_context
+            assert isinstance(codec_ctx, av.VideoCodecContext)
+            codec_ctx.max_b_frames = max_b_frames
+        for color in frames:
+            image = np.zeros((64, 64, 3), dtype=np.uint8)
+            image[:] = color
+            for packet in stream.encode(av.VideoFrame.from_ndarray(image, format='rgb24')):
+                out.mux(packet)
+        for packet in stream.encode():
+            out.mux(packet)
+
+
+def _decoded_frame_count(path: Path) -> int:
+    with av.open(str(path)) as container:
+        return sum(1 for _ in container.decode(video=0))
+
+
+def _assert_scenes_cover_video(
+    t: pxt.Table, udf: pxt.Function, expected: dict[str, int], *, sample_fps: float | None = None
+) -> None:
+    scenes_expr = udf(t.video) if sample_fps is None else udf(t.video, fps=sample_fps)
+    result = t.select(t.name, scenes=scenes_expr, duration=t.video.get_duration()).collect()
+    seen: set[str] = set()
+    for row in result:
+        name = row['name']
+        if name not in expected:
+            continue
+        seen.add(name)
+        scenes = row['scenes']
+        assert len(scenes) == expected[name], name
+        duration = row['duration']
+        assert duration is not None
+        total = sum(scene['duration'] for scene in scenes)
+        assert total == pytest.approx(duration, abs=1e-2), (name, total, duration, scenes)
+        assert all(scene['duration'] > 0 for scene in scenes)
+    assert seen == set(expected)
 
 
 class TestVideo:
@@ -138,19 +194,47 @@ class TestVideo:
             'num_frames_1000', videos, iterator=frame_iterator(videos.video, num_frames=1000)
         )
         videos.insert(video=path)
-        assert frames_all.count() == 448
+        assert frames_all.count() == 449
         assert frames_1_0.count() == 15
         assert frames_0_5.count() == 8
         assert frames_0_33.count() == 5
-        assert frames_1000.count() == 448
+        assert frames_1000.count() == 449
         assert num_frames_10.count() == 10
         assert num_frames_50.count() == 50
-        assert num_frames_1000.count() == 448
+        assert num_frames_1000.count() == 449
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='At most one of'):
             _ = pxt.create_view('invalid_args', videos, iterator=frame_iterator(videos.video, fps=1 / 2, num_frames=10))
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`fps` must be a positive number'):
             _ = pxt.create_view('invalid_fps', videos, iterator=frame_iterator(videos.video, fps=0))
+
+    @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
+    def test_frame_iterator_keeps_last_frame(self, uses_db: None, tmp_path: Path) -> None:
+        cases: list[tuple[Path, int]] = [
+            (TESTS_DIR / 'data' / 'test_videos' / 'test_13_frames.mp4', 13),
+            (TESTS_DIR / 'data' / 'test_videos' / 'test_462_frames.mp4', 462),
+        ]
+        # mpeg4 with no B-frames reports end of stream as StopIteration. The view must still return every frame.
+        mpeg4_path = tmp_path / 'mpeg4_no_bframes.mp4'
+        mpeg4_frames = 50
+        _write_color_frames(mpeg4_path, [(0, 0, 255)] * mpeg4_frames, codec='mpeg4', fps=25, max_b_frames=0)
+        cases.append((mpeg4_path, mpeg4_frames))
+
+        for path, expected in cases:
+            assert _decoded_frame_count(path) == expected
+            pxt.drop_table('frames', if_not_exists='ignore')
+            videos = pxt.create_table('videos', {'video': pxt.Video}, if_exists='replace_force')
+            view = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video))
+            videos.insert(video=str(path))
+            assert view.count() == expected
+
+            # `frame` is unstored, so reading the last row seeks back to the frame that used to be dropped.
+            selected = view.order_by(view.pos, asc=False).limit(1).select(view.frame).collect()['frame']
+            assert len(selected) == 1
+            assert isinstance(selected[0], PIL.Image.Image)
+            with av.open(str(path)) as container:
+                decoded_frames = list(container.decode(video=0))
+            assert selected[0] == decoded_frames[-1].to_image()
 
     @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
     def test_frame_iterator_seek(self, uses_db: None) -> None:
@@ -1873,6 +1957,32 @@ class TestVideo:
             'scenes_view', t, iterator=video_splitter(t.video, segment_times=t.scenes[1:].start_time, mode='accurate')
         )
         _ = v.collect()
+
+    @pytest.mark.db_roots('local', reason='pure UDF test')
+    def test_scene_detect_keeps_last_scene(self, uses_db: None, tmp_path: Path) -> None:
+        skip_test_if_not_installed('scenedetect')
+        fps = 25
+        red, green, blue = (255, 0, 0), (0, 255, 0), (0, 0, 255)
+        # red->green scores ~20, under ContentDetector's default threshold of 27, so it is not a cut.
+        specs: list[tuple[str, list[tuple[int, int, int]]]] = [
+            ('red_green', [red, green]),
+            ('one_cut', [red, blue]),
+            ('two_cuts', [red, blue, red]),
+            ('solid', [red]),
+        ]
+        rows: list[dict[str, str]] = []
+        for name, colors in specs:
+            path = tmp_path / f'{name}.mp4'
+            _write_color_frames(path, [color for color in colors for _ in range(fps)], fps=fps)
+            rows.append({'name': name, 'video': str(path)})
+
+        t = pxt.create_table('clips', {'name': pxt.String, 'video': pxt.Video})
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+
+        content_expected = {'red_green': 1, 'one_cut': 2, 'two_cuts': 3}
+        _assert_scenes_cover_video(t, pxtf.video.scene_detect_content, content_expected)
+        _assert_scenes_cover_video(t, pxtf.video.scene_detect_content, content_expected, sample_fps=2.0)
+        _assert_scenes_cover_video(t, pxtf.video.scene_detect_histogram, {'solid': 1, 'one_cut': 2, 'two_cuts': 3})
 
     @pytest.mark.db_roots('local', reason='reads Env default video encoder config')
     def test_default_video_codec(self, uses_db: None) -> None:

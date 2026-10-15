@@ -486,7 +486,7 @@ class _SceneDetectFrameInfo(NamedTuple):
     frame_time: float
 
 
-def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[SceneInfo]:
+def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> list[SceneInfo]:
     from scenedetect import FrameTimecode  # type: ignore[import-untyped]
 
     with av_utils.VideoFrames(Path(video), fps=fps) as frame_iter:
@@ -504,6 +504,7 @@ def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[Sce
         # in order to determine the cut frame times, we need to record frame times (chronologically) and look them
         # up by index; trying to derive frame times from frame indices isn't possible due to variable frame rates
         frame_info: list[_SceneDetectFrameInfo] = []
+        last_frame_time: float | None = None
 
         def process_cuts(cuts: list[FrameTimecode]) -> None:
             nonlocal frame_info, start_time, start_pts
@@ -528,6 +529,7 @@ def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[Sce
             frame_info.append(_SceneDetectFrameInfo(item.frame_idx, item.pts, item.time))
             frame_array = np.array(item.frame.convert('RGB'))
             frame_idx = item.frame_idx
+            last_frame_time = item.time
             timecode = FrameTimecode(item.frame_idx, video_fps)
             cuts = detector.process_frame(timecode, frame_array)
             process_cuts(cuts)
@@ -538,15 +540,20 @@ def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[Sce
             final_cuts = detector.post_process(final_timecode)
             process_cuts(final_cuts)
 
-            # if we didn't detect any cuts but the video has content, add the full video as a single scene
-            if len(scenes) == 0:
-                scenes.append(
-                    {
-                        'start_time': start_time,
-                        'start_pts': start_pts,
-                        'duration': frame_info[-1].frame_time - start_time,
-                    }
-                )
+            # The scene that starts at the last cut (or at the first frame, when there is no cut) runs to the
+            # end of the video. A full decode ends one frame after the last frame. fps sampling stops on an
+            # earlier frame, so that case uses the video duration.
+            assert start_time is not None and last_frame_time is not None
+            end_time = last_frame_time + float(1 / frame_iter.video_framerate)
+            if fps:
+                video_duration = av_utils.get_video_duration(video)
+                if (
+                    video_duration is not None
+                    and frame_iter.video_start_time is not None
+                    and frame_iter.video_time_base is not None
+                ):
+                    end_time = float(frame_iter.video_start_time * frame_iter.video_time_base) + video_duration
+            scenes.append({'start_time': start_time, 'start_pts': start_pts, 'duration': end_time - start_time})
 
         return scenes
 
