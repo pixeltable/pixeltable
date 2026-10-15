@@ -82,7 +82,7 @@ partway through the transaction.
 
 ## 4. Build, lock, and validate
 
-To choose the locks, Catalog needs metadata about views and catalog paths. Reading that metadata in the
+To build the lock set, Catalog needs metadata about views and catalog paths. Reading that metadata in the
 operation's transaction would establish its snapshot before locking. Catalog therefore builds a tentative
 lock set before opening the transaction:
 
