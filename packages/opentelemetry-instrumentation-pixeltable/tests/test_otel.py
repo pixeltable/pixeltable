@@ -444,14 +444,14 @@ class TestBridge:
         assert collect.parent.span_id == route_spans['POST /lookup'].context.span_id
         assert collect.attributes['pxt.tables'] == ('docs',)
         assert collect.attributes['pxt.rows'] == 1
-        # the insert route's schema check runs before the insert, and its catalog spans nest under the route span
+        # the insert route checks the table's schema before the insert, and that check's catalog work nests under it
         insert = by_name['pixeltable.insert']
+        check = by_name['pixeltable.route.check_schema']
         bg_route = route_spans['POST /bg']
         assert insert.parent.span_id == bg_route.context.span_id
-        assert any(
-            s.parent is not None and s.parent.span_id == bg_route.context.span_id and s.end_time <= insert.start_time
-            for s in spans
-        )
+        assert check.parent.span_id == bg_route.context.span_id
+        assert check.end_time <= insert.start_time
+        assert any(s.parent is not None and s.parent.span_id == check.context.span_id for s in spans)
         # the background insert runs on a worker thread, in the trace of the request that queued it
         assert insert.context.trace_id == by_name['POST /bg'].context.trace_id
 

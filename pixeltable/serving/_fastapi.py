@@ -176,6 +176,7 @@ def _route_table_path(target: RouteTarget) -> catalog.TablePath:
     return target._tbl_path
 
 
+@telemetry.spanned('pixeltable.route.check_schema', nest_children=True)
 def _validate_registered_schema(tbl: pxt.Table, schema_version: int) -> None:
     """Raise 409 if the table's schema changed since the route's contract was frozen.
 
