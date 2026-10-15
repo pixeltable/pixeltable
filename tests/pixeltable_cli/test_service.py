@@ -927,18 +927,22 @@ class TestService:
         deploy(cli, app, target)
         assert_serving(cli, app, target, 'ingest')
 
-        # the daemon validates --since and --tail before resolving the service
-        r = cli('service', 'logs', f'{target}/ingest', '--since', 'bogus', check=False)
-        assert r.returncode == 1 and 'must be a duration' in r.stderr, r.stderr
-        r = cli('service', 'logs', f'{target}/ingest', '--tail', '50000', check=False)
-        assert r.returncode == 1 and "'limit' must be <= 10000" in r.stderr, r.stderr
-        r = cli('service', 'logs', f'{target}/nosuch', check=False)
-        assert r.returncode == 1 and 'No service' in r.stderr, r.stderr
+        # the daemon validates --since, --tail and --trace before resolving the service
+        for verb in ('logs', 'spans'):
+            r = cli('service', verb, f'{target}/ingest', '--since', 'bogus', check=False)
+            assert r.returncode == 1 and 'must be a duration' in r.stderr, r.stderr
+            r = cli('service', verb, f'{target}/ingest', '--tail', '50000', check=False)
+            assert r.returncode == 1 and "'limit' must be <= 10000" in r.stderr, r.stderr
+            r = cli('service', verb, f'{target}/nosuch', check=False)
+            assert r.returncode == 1 and 'No service' in r.stderr, r.stderr
+        r = cli('service', 'spans', f'{target}/ingest', '--trace', 'ABC', check=False)
+        assert r.returncode == 1 and 'must be 32 lowercase hex digits' in r.stderr, r.stderr
 
         if db_root.is_cloud:
             # a bare name reaches local services only
-            r = cli('service', 'logs', 'ingest', check=False)
-            assert r.returncode == 1 and "No service 'ingest' is running" in r.stderr, r.stderr
+            for verb in ('logs', 'spans'):
+                r = cli('service', verb, 'ingest', check=False)
+                assert r.returncode == 1 and "No service 'ingest' is running" in r.stderr, r.stderr
             return
 
         # a local service logs to a file, and the error names it, for a qualified name and a bare one alike
@@ -947,6 +951,9 @@ class TestService:
             r = cli('service', 'logs', name, check=False)
             assert r.returncode == 1, r.stderr
             assert f'not supported; the log is at {log_file}' in r.stderr, r.stderr
+            # a local service writes its spans to the span_dump file, if one is set
+            r = cli('service', 'spans', name, check=False)
+            assert r.returncode == 1 and 'not supported. Start it with --otel' in r.stderr, r.stderr
         assert log_file.is_file()
 
         # the same name at a second target makes the bare name ambiguous

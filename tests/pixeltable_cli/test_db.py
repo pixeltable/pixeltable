@@ -6,6 +6,7 @@ environment is configured. Applying what an entry declares rebuilds an image, wh
 against the session's hosted database, the one the cloud catalog tests use.
 """
 
+import json
 import pathlib
 import shutil
 import time
@@ -14,7 +15,10 @@ from typing import Any, Iterator
 
 import pytest
 
+import pixeltable_cli.client.commands.db as db_cmd
 from pixeltable.service import proxy_daemon
+from pixeltable.service.management_protocol import SpanRecord
+from pixeltable_cli.client import hosted
 from tests.utils import DatabaseRoot, new_db_uri
 
 from .conftest import (
@@ -45,6 +49,22 @@ def db_status(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> dict[str, A
 def _list_dbs(cli: PxtRunner, project: pathlib.Path) -> set[str]:
     listed = cli('db', 'list', '--json', cwd=project).json
     return {entry['db'] for entry in listed}
+
+
+def _span(
+    trace_id: str, span_id: str, parent_span_id: str | None, name: str, offset_ms: int, status: str = 'UNSET'
+) -> dict[str, Any]:
+    """A span as the daemon returns it, starting offset_ms after midnight UTC on 2026-10-15."""
+    return SpanRecord(
+        trace_id=trace_id,
+        span_id=span_id,
+        parent_span_id=parent_span_id,
+        name=name,
+        start_ms=1_792_022_400_000 + offset_ms,
+        duration_ms=12.5,
+        status=status,
+        attributes={},
+    ).model_dump(mode='json')
 
 
 def get_target_ops(plan: dict[str, Any], target: str) -> list[dict[str, Any]]:
@@ -276,11 +296,14 @@ class TestCloudDb:
         org_with_db = cli('org', 'status', test_db_uri, cwd=project, check=False)
         assert org_with_db.returncode == 2 and 'URI must be pxt://org,' in org_with_db.stderr, org_with_db.stderr
 
-        # the daemon validates --since and --tail before reading anything
-        r = cli('db', 'logs', test_db_uri, '--since', 'bogus', cwd=project, check=False)
-        assert r.returncode == EXIT_ERROR and 'must be a duration' in r.stderr, r.stderr
-        r = cli('db', 'logs', test_db_uri, '--tail', '50000', cwd=project, check=False)
-        assert r.returncode == EXIT_ERROR and "'limit' must be <= 10000" in r.stderr, r.stderr
+        # the daemon validates --since, --tail and --trace before reading anything
+        for verb in ('logs', 'spans'):
+            r = cli('db', verb, test_db_uri, '--since', 'bogus', cwd=project, check=False)
+            assert r.returncode == EXIT_ERROR and 'must be a duration' in r.stderr, r.stderr
+            r = cli('db', verb, test_db_uri, '--tail', '50000', cwd=project, check=False)
+            assert r.returncode == EXIT_ERROR and "'limit' must be <= 10000" in r.stderr, r.stderr
+        r = cli('db', 'spans', test_db_uri, '--trace', 'ABC', cwd=project, check=False)
+        assert r.returncode == EXIT_ERROR and 'must be 32 lowercase hex digits' in r.stderr, r.stderr
 
         undeclared = cli('db', 'diff', 'pxt://pixeltable:pxttest-undeclared', cwd=project, check=False)
         assert undeclared.returncode == EXIT_ERROR
@@ -301,3 +324,42 @@ class TestLocalLogs:
         assert r.returncode == EXIT_ERROR, r.stderr
         assert f'not supported; the log is at {log_file}' in r.stderr, r.stderr
         assert log_file.is_file()
+        # a local database writes its spans to the span_dump file, if one is set
+        r = cli('db', 'spans', db_root.prefix, check=False)
+        assert r.returncode == EXIT_ERROR, r.stderr
+        assert 'not supported. Set OTEL_SPAN_DUMP' in r.stderr, r.stderr
+
+    def test_spans_text(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+        """The text output groups the spans by trace and indents each span under its parent."""
+        trace_a, trace_b = 'a' * 32, 'b' * 32
+        spans = [
+            # trace a starts first, so it is printed first
+            _span(trace_a, '01', None, 'POST /ingest', 0),
+            # trace b starts before the rest of trace a, so it is printed second
+            _span(trace_b, '11', None, 'GET /search', 5),
+            _span(trace_a, '02', '01', 'insert', 10),
+            _span(trace_a, '03', '02', 'compute', 20, status='ERROR'),
+            _span(trace_a, '04', '01', 'commit', 30),
+            # its parent was not sampled, so it sits at depth 0
+            _span(trace_b, '12', '99', 'orphan', 40),
+        ]
+        monkeypatch.setattr(hosted, 'get_request', lambda _path, _params: {'spans': spans})
+
+        db_cmd.run(['spans', 'pxt://acme:main'])
+        assert capsys.readouterr().out.splitlines() == [
+            f'trace {trace_a}',
+            '2026-10-15T00:00:00.000+00:00  12.5 ms  POST /ingest',
+            '  2026-10-15T00:00:00.010+00:00  12.5 ms  insert',
+            '    2026-10-15T00:00:00.020+00:00  12.5 ms  compute  ERROR',
+            '  2026-10-15T00:00:00.030+00:00  12.5 ms  commit',
+            f'trace {trace_b}',
+            '2026-10-15T00:00:00.005+00:00  12.5 ms  GET /search',
+            '2026-10-15T00:00:00.040+00:00  12.5 ms  orphan',
+        ]
+
+        db_cmd.run(['spans', 'pxt://acme:main', '--json'])
+        assert json.loads(capsys.readouterr().out) == spans
+
+        monkeypatch.setattr(hosted, 'get_request', lambda _path, _params: {'spans': []})
+        db_cmd.run(['spans', 'pxt://acme:main', '--since', '10m'])
+        assert capsys.readouterr().out == 'No spans in the last 10m.\n'

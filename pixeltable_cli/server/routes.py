@@ -1,5 +1,6 @@
 import datetime
 import os
+import re
 import threading
 import time
 import typing
@@ -27,6 +28,8 @@ from pixeltable.service.management_protocol import (
     GetDbRequest,
     GetLogsRequest,
     GetLogsResponse,
+    GetSpansRequest,
+    GetSpansResponse,
     ListAllSecretsRequest,
     ListDbRequest,
     ListKeysRequest,
@@ -35,6 +38,7 @@ from pixeltable.service.management_protocol import (
     SetSecretRequest,
     StartDbRequest,
     StopDbRequest,
+    TRACE_ID_PATTERN,
     UpdateKeyRequest,
 )
 from pixeltable.serving import service
@@ -1084,9 +1088,8 @@ def restart_db(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(RestartDbRequest))
 
 
-@router.get('/api/logs')
-def get_logs(req: Request) -> dict[str, Any]:
-    """Return the log of a database's pod (org and db), or of one service (service)."""
+def _read_window(req: Request) -> tuple[int, int]:
+    """Return the since_seconds and limit of a read of logs or spans."""
     since = req.query_str('since') or '1h'
     since_seconds = parse_duration_str(since)
     if since_seconds is None or since_seconds < 1:
@@ -1094,11 +1097,18 @@ def get_logs(req: Request) -> dict[str, Any]:
             excs.ErrorCode.INVALID_ARGUMENT, f"'since' must be a duration such as 30s, 10m, 1h or 2d; got {since!r}"
         )
     limit = req.query_int('limit', default=200, ge=1, le=10000)
+    return int(since_seconds), limit
+
+
+@router.get('/api/logs')
+def get_logs(req: Request) -> dict[str, Any]:
+    """Return the log of a database's pod (org and db), or of one service (service)."""
+    since_seconds, limit = _read_window(req)
     include_health = req.query_bool('include_health')
     service_address = req.query_str('service')
     if service_address is not None:
         records = service.service_logs(
-            PxtPath(service_address), since_seconds=int(since_seconds), limit=limit, include_health=include_health
+            PxtPath(service_address), since_seconds=since_seconds, limit=limit, include_health=include_health
         )
         return GetLogsResponse(records=list(records)).model_dump(mode='json')
     org, db_name = req.required_query_str('org'), req.required_query_str('db')
@@ -1109,9 +1119,34 @@ def get_logs(req: Request) -> dict[str, Any]:
             f'{proxy_daemon.log_path(db_name)}',
         )
     return management_client.api_call(
-        GetLogsRequest(
-            org=org, db=db_name, since_seconds=int(since_seconds), limit=limit, include_health=include_health
+        GetLogsRequest(org=org, db=db_name, since_seconds=since_seconds, limit=limit, include_health=include_health)
+    )
+
+
+@router.get('/api/spans')
+def get_spans(req: Request) -> dict[str, Any]:
+    """Return the sampled spans of a database's pod (org and db), or of one service (service)."""
+    since_seconds, limit = _read_window(req)
+    trace_id = req.query_str('trace_id')
+    if trace_id is not None and re.fullmatch(TRACE_ID_PATTERN, trace_id) is None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f"'trace_id' must be 32 lowercase hex digits; got {trace_id!r}"
         )
+    service_address = req.query_str('service')
+    if service_address is not None:
+        spans = service.service_spans(
+            PxtPath(service_address), since_seconds=since_seconds, limit=limit, trace_id=trace_id
+        )
+        return GetSpansResponse(spans=list(spans)).model_dump(mode='json')
+    org, db_name = req.required_query_str('org'), req.required_query_str('db')
+    if org == 'local':
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            'Reading the spans of a database on this machine is not supported. Set OTEL_SPAN_DUMP (the span_dump '
+            'option in the [otel] config section) to write them to a file.',
+        )
+    return management_client.api_call(
+        GetSpansRequest(org=org, db=db_name, since_seconds=since_seconds, limit=limit, trace_id=trace_id)
     )
 
 

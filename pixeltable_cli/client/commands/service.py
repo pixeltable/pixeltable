@@ -1,4 +1,4 @@
-"""`pxt service {diff,update,prune,stop,list,logs,example}` - run the services an application file defines."""
+"""`pxt service {diff,update,prune,stop,list,logs,spans,example}` - run the services an application file defines."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import pydantic
 
 from ...types import Resolution, ServiceChangeOp, ServiceInstance, ServicePlan
 from ...utils import PxtPath, project_root, split_pxt_uri
-from ..hosted import add_logs_args, print_logs
+from ..hosted import add_logs_args, print_logs, print_spans
 from ..parser import Parser
 from ..utils import (
     EXIT_CHANGES_PENDING,
@@ -207,7 +207,19 @@ log a few seconds after it is written. A service running on this machine logs to
 'pxt service logs' reports the path of that file.
 """
 
-VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'restart', 'list', 'logs', 'check', 'example')
+SPANS_EPILOG = """\
+Examples:
+  pxt service spans pxt://acme:main/my_dir/ingest   # the sampled trace spans of a hosted service in the last hour
+  pxt service spans pxt://acme:main/ingest --since 10m --tail 50
+  pxt service spans pxt://acme:main/ingest --trace 4bf92f3577b34da6a3ce929d0e0e4736
+  pxt service spans pxt://acme:main/ingest --json
+
+The spans are grouped by trace, and each span is indented under its parent. CloudWatch keeps every trace that
+contains an error or takes longer than one second, and a share of the other traces. A span appears a few seconds
+after it ends. Spans are read only from hosted services.
+"""
+
+VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'restart', 'list', 'logs', 'spans', 'check', 'example')
 
 
 _MARKERS: dict[Resolution, str] = {
@@ -238,6 +250,7 @@ def run(argv: list[str]) -> None:
             '  restart  restart the named services onto the current project and secrets\n'
             '  list     what is running locally, and where\n'
             '  logs     read the log of the named service\n'
+            '  spans    read the sampled trace spans of the named service\n'
             '  check    validate the application file on its own (takes no TARGET)\n'
             '  example  write a working application file to start from\n\n'
             'APP is a Python file defining FastAPIRouter services; TARGET is the catalog directory their\n'
@@ -299,6 +312,14 @@ def run(argv: list[str]) -> None:
         add_logs_args(ap)
         args = ap.parse_args(argv[1:])
         print_logs({'service': args.name}, args)
+        return
+
+    if verb == 'spans':
+        ap = Parser(prog='pxt service spans', epilog=SPANS_EPILOG, usage_exit_code=EXIT_ERROR)
+        ap.add_argument('name', help='service name, or TARGET/NAME to disambiguate')
+        add_logs_args(ap, spans=True)
+        args = ap.parse_args(argv[1:])
+        print_spans({'service': args.name}, args)
         return
 
     if verb == 'diff' and argv[1:] == ['--json-schema']:

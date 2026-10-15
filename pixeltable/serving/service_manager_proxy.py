@@ -19,11 +19,14 @@ from pixeltable.service.management_protocol import (
     DeleteServiceInstanceRequest,
     GetLogsRequest,
     GetLogsResponse,
+    GetSpansRequest,
+    GetSpansResponse,
     ListServiceInstancesRequest,
     ListServiceInstancesResponse,
     LogRecord,
     RestartServiceInstanceRequest,
     RestartServiceInstanceResponse,
+    SpanRecord,
     StartServiceInstanceRequest,
     StopServiceInstanceRequest,
     UpdateServiceInstanceRequest,
@@ -194,6 +197,24 @@ class ServiceManagerProxy(ServiceManagerBase):
             )
         )
         return response.records
+
+    def spans(
+        self, instance: ServiceInstance, *, since_seconds: int, limit: int, trace_id: str | None
+    ) -> Sequence[SpanRecord]:
+        response = GetSpansResponse.model_validate(
+            management_client.api_call(
+                GetSpansRequest(
+                    org=self._org,
+                    db=self._db,
+                    service_name=instance.service_name,
+                    base_path=instance.base_path,
+                    since_seconds=since_seconds,
+                    limit=limit,
+                    trace_id=trace_id,
+                )
+            )
+        )
+        return response.spans
 
     def _serves(self, record: ServiceInstanceRecord, base_path: str, recursive: bool) -> bool:
         if record.base_path == base_path:

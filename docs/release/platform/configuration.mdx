@@ -104,7 +104,11 @@ pxt secret set pxt://myorg:mydb \
   'OTEL_EXPORTER_OTLP_HEADERS__GRAFANA=Authorization=Basic <token>'
 ```
 
-The collector sends every trace that contains an error or takes longer than one second, and 10% of the other traces. Set `OTEL_TRACES_SAMPLER_ARG` to a ratio between 0 and 1 to change that share, or `OTEL_TRACES_SAMPLER_ARG__<NAME>` for one backend. Logs and metrics are sent in full. The pods read these settings at startup, so run `pxt db restart` and `pxt service restart` after you change them.
+The collector sends every trace that contains an error or takes longer than one second, and 10% of the other traces. Set `OTEL_TRACES_SAMPLER_ARG` to a ratio between 0 and 1 to change that share, or `OTEL_TRACES_SAMPLER_ARG__<NAME>` for one backend. Logs and metrics are sent in full.
+
+The collector also sends traces to CloudWatch, sampled the same way. `OTEL_TRACES_SAMPLER_ARG__CLOUDWATCH` sets the share of the other traces that CloudWatch keeps. Without it, `OTEL_TRACES_SAMPLER_ARG` sets that share, and the default is 10%. You cannot name a backend `CLOUDWATCH`. Read the spans with `pxt db spans` and `pxt service spans`.
+
+The pods read these settings at startup, so run `pxt db restart` and `pxt service restart` after you change them.
 
 ## API configuration
 

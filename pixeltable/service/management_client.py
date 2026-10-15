@@ -30,7 +30,12 @@ def api_url() -> str:
 
 _LONG_OPS = frozenset(
     op.value
-    for op in (ManagementOperationType.UPDATE_DB, ManagementOperationType.DELETE_DB, ManagementOperationType.GET_LOGS)
+    for op in (
+        ManagementOperationType.UPDATE_DB,
+        ManagementOperationType.DELETE_DB,
+        ManagementOperationType.GET_LOGS,
+        ManagementOperationType.GET_SPANS,
+    )
 )
 
 # operations that don't change server state; can be sent multiple times
@@ -45,6 +50,7 @@ _READ_OPS = frozenset(
         ManagementOperationType.LIST_SERVICE_INSTANCES,
         ManagementOperationType.GET_SERVICE_INSTANCE,
         ManagementOperationType.GET_LOGS,
+        ManagementOperationType.GET_SPANS,
     )
 )
 
@@ -68,6 +74,7 @@ _PURPOSES = {
     ManagementOperationType.UPDATE_DB.value: 'create or update a database',
     ManagementOperationType.GET_ARCHIVE.value: "download a database's project",
     ManagementOperationType.GET_LOGS.value: 'read logs',
+    ManagementOperationType.GET_SPANS.value: 'read spans',
     ManagementOperationType.CREATE_ORG.value: 'create an organization',
     ManagementOperationType.LIST_ORGS.value: 'list organizations',
     ManagementOperationType.SET_SECRET.value: 'set secrets',

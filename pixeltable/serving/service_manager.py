@@ -34,7 +34,7 @@ import pydantic
 from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.service.management_protocol import LogRecord
+from pixeltable.service.management_protocol import LogRecord, SpanRecord
 from pixeltable.service.service_md import LocalServiceInstanceRecord, ServiceInstanceRecord
 from pixeltable.utils.app_module import load_app_module, module_name, services_by_name
 from pixeltable.utils.process import is_pid, pid_alive, process_timestamp
@@ -95,6 +95,15 @@ class ServiceManagerBase(abc.ABC):
         """Return the newest limit lines that instance logged in the last since_seconds seconds, oldest first.
 
         include_health keeps the health probe lines, which are otherwise left out.
+        """
+
+    @abc.abstractmethod
+    def spans(
+        self, instance: ServiceInstance, *, since_seconds: int, limit: int, trace_id: str | None
+    ) -> Sequence[SpanRecord]:
+        """Return the newest limit sampled spans of instance from the last since_seconds seconds, oldest first.
+
+        trace_id keeps only the spans of that trace.
         """
 
 
@@ -180,6 +189,15 @@ class ServiceManager(ServiceManagerBase):
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'Reading the log of a service on this machine is not supported; the log is at '
             f'{self._log_path(instance.service_name, instance.base_path)}',
+        )
+
+    def spans(
+        self, instance: ServiceInstance, *, since_seconds: int, limit: int, trace_id: str | None
+    ) -> Sequence[SpanRecord]:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            'Reading the spans of a service on this machine is not supported. Start it with --otel and set '
+            'OTEL_SPAN_DUMP (the span_dump option in the [otel] config section) to write its spans to a file.',
         )
 
     def _local_record(self, record: ServiceInstanceRecord) -> LocalServiceInstanceRecord:
