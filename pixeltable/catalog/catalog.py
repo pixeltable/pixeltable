@@ -696,12 +696,6 @@ class Catalog(CatalogBase):
                 pending_ops_tbl_id = e.tbl_id
                 continue
 
-            if prev_failed_lock_set is not None and attempt_lock_set == prev_failed_lock_set:
-                # Rebuilding returned the same failed lock set, so another retry would make no progress.
-                raise excs.Error(
-                    excs.ErrorCode.INTERNAL_ERROR, 'Could not determine the tables to lock for this operation'
-                )
-
             # one span per acquisition attempt; retries show up as sibling spans
             xact_span = telemetry.span_start('pixeltable.catalog.begin_xact')
             telemetry.add_attrs(
@@ -795,7 +789,12 @@ class Catalog(CatalogBase):
                         excs.ErrorCode.SERIALIZATION_FAILURE, f'Lock set retry limit ({_MAX_RETRIES}) exceeded'
                     ) from e
                 num_retries += 1
-                # Detect a retry that rebuilds the same failed lock set.
+                if attempt_lock_set == prev_failed_lock_set:
+                    # The same lock set failed twice in a row, so another retry would make no progress. A single
+                    # repeat is legitimate: the table that made it stale can disappear before the rebuild.
+                    raise excs.Error(
+                        excs.ErrorCode.INTERNAL_ERROR, 'Could not determine the tables to lock for this operation'
+                    ) from e
                 failed_lock_set = attempt_lock_set
                 # Clear cached metadata so the next attempt rebuilds the set from the store.
                 self._invalidate_lock_set(read_tvps, read_tbl_keys, write_tvps, write_tbl_keys)
