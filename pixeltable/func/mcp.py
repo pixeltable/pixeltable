@@ -11,12 +11,6 @@ if TYPE_CHECKING:
     import mcp
 
 
-def _require_mcp() -> None:
-    # Reject anything older here so callers get a Pixeltable error naming the range, instead of an
-    # ImportError from the 2.x client.
-    Env.get().require_package('mcp', [2])
-
-
 def mcp_udfs(url: str) -> list['pxt.func.Function']:
     from pixeltable.runtime import get_runtime
 
@@ -24,7 +18,7 @@ def mcp_udfs(url: str) -> list['pxt.func.Function']:
 
 
 async def mcp_udfs_async(url: str) -> list['pxt.func.Function']:
-    _require_mcp()
+    Env.get().require_package('mcp', [2])
     import mcp
     from mcp.client.streamable_http import streamable_http_client
 
@@ -41,7 +35,7 @@ async def mcp_udfs_async(url: str) -> list['pxt.func.Function']:
 
 
 def mcp_tool_to_udf(url: str, mcp_tool: 'mcp.types.Tool') -> 'pxt.func.Function':
-    _require_mcp()
+    Env.get().require_package('mcp', [2])
     return McpFunction(url, mcp_tool.name, [_signature_from_tool(mcp_tool)], mcp_tool.name, mcp_tool.description)
 
 
@@ -111,7 +105,7 @@ class McpFunction(Function):
 
     async def aexec(self, *args: Any, **kwargs: Any) -> str:
         # TODO: open one session per McpFunction rather than one per call
-        _require_mcp()
+        Env.get().require_package('mcp', [2])
         import mcp
         from mcp.client.streamable_http import streamable_http_client
 
