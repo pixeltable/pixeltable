@@ -116,18 +116,27 @@ def is_retryable_error(exc: Exception) -> tuple[bool, float | None]:
     """
     Attempts to guess if the exception indicates a retryable error.
     If that is the case, returns True and the retry delay in seconds.
+
+    An explicit HTTP status is authoritative. A status outside `_RETRIABLE_HTTP_STATUSES` does not fall
+    through to substring matching, so a 404 whose text contains "429", or a 400 that says "timed out", is final.
     """
 
     # Check for HTTP status TOO_MANY_REQUESTS in various exception classes.
     # We look for attributes that contain status codes, instead of checking the type of the exception,
     # in order to handle a wider variety of exception classes.
     err_md = _extract_error_metadata(exc)
-    if (err_md is None or not err_md[0]) and hasattr(exc, 'response'):
-        err_md = _extract_error_metadata(exc.response)
+    if err_md is not None and not err_md[0]:
+        return False, None
+    if err_md is None:
+        response = getattr(exc, 'response', None)
+        if response is not None:
+            err_md = _extract_error_metadata(response)
+            if err_md is not None and not err_md[0]:
+                return False, None
 
     if err_md is not None and err_md[0]:
         retry_after = err_md[1]
-        return err_md[0], retry_after if retry_after is not None and retry_after >= 0 else None
+        return True, retry_after if retry_after is not None and retry_after >= 0 else None
 
     # Transport-level failures are retryable.
     if isinstance(exc, (urllib.error.URLError, ConnectionError, TimeoutError)) and not isinstance(
@@ -147,20 +156,45 @@ def is_retryable_error(exc: Exception) -> tuple[bool, float | None]:
 retry_if_retryable_error = retry_if_exception(lambda exc: isinstance(exc, Exception) and is_retryable_error(exc)[0])
 
 
+def _coerce_http_status(value: Any) -> int | None:
+    """HTTP status code, or None when `value` is not one."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value if 100 <= value <= 599 else None
+    if isinstance(value, str):
+        text = value.strip()
+        if text.isdigit():
+            code = int(text)
+            return code if 100 <= code <= 599 else None
+        try:
+            return int(HTTPStatus[text.upper().replace('-', '_').replace(' ', '_')])
+        except KeyError:
+            return None
+    return None
+
+
 def _extract_error_metadata(obj: Any) -> tuple[bool, float | None] | None:
-    is_retryable: bool | None = None
-    retry_delay: float | None = None
-    for attr in ['status', 'code', 'status_code']:
+    """`(retryable, delay)` from an HTTP status or a retry header, or None when this object says neither.
+
+    `(False, None)` is an explicit status outside the retryable set. The caller must not match the message.
+    The last attribute that parses as an HTTP status wins. A retry header does not override that status.
+    """
+    status: int | None = None
+    for attr in ('status', 'code', 'status_code'):
         if hasattr(obj, attr):
-            is_retryable = getattr(obj, attr) in _RETRIABLE_HTTP_STATUSES.values()
-            is_retryable |= str(getattr(obj, attr)).upper() in _RETRIABLE_HTTP_STATUSES
+            parsed = _coerce_http_status(getattr(obj, attr))
+            if parsed is not None:
+                status = parsed
 
-    if hasattr(obj, 'headers'):
-        retry_delay = _extract_retry_delay_from_headers(obj.headers)
-        if retry_delay is not None:
-            is_retryable = True
-
-    return (is_retryable, retry_delay) if is_retryable is not None else None
+    retry_delay = _extract_retry_delay_from_headers(obj.headers) if hasattr(obj, 'headers') else None
+    if status is not None:
+        if status in _RETRIABLE_HTTP_STATUSES.values():
+            return True, retry_delay
+        return False, None
+    if retry_delay is not None:
+        return True, retry_delay
+    return None
 
 
 def _extract_retry_delay_from_headers(headers: Any | None) -> float | None:
