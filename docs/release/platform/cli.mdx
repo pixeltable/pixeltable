@@ -995,7 +995,7 @@ name = 'pxt://myorg:prod'           # matches the URI passed to pxt db update
 db_input_media_dest = 's3://bucket/input/'
 db_output_media_dest = 's3://bucket/output/'
 
-# the OpenTelemetry exporter; set its auth headers with pxt secret set
+# the OTLP backend that the collector in each pod sends telemetry to; set its auth headers with pxt secret set
 db_exporter_otlp_endpoint = 'https://otlp.example.com'
 db_exporter_otlp_protocol = 'http/protobuf'  # or 'grpc'
 
