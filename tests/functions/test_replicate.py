@@ -14,7 +14,6 @@ class TestReplicateLocal:
         skip_test_if_not_installed('replicate')
         monkeypatch.setenv('REPLICATE_API_TOKEN', 'test-token')
         client = get_runtime().get_client('replicate')
-        # replicate.Client opens its HTTP clients lazily, on its first request
         http_clients = [client._client, client._async_client]
         reset_runtime()
         assert all(c.is_closed for c in http_clients)
