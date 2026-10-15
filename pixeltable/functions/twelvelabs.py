@@ -53,12 +53,17 @@ async def _poll_assets_until_ready(client: 'twelvelabs.AsyncTwelveLabs', asset_i
             *(client.assets.retrieve(asset_id) for asset_id in pending), return_exceptions=True
         )
         still_pending: list[str] = []
+        # Longest Retry-After from this round. wait_for() in _wait_for_assets cancels a longer sleep.
+        provider_delay = 0.0
         for asset_id, result in zip(pending, results, strict=True):
             if isinstance(result, BaseException):
-                if isinstance(result, Exception) and is_retryable_error(result)[0]:
-                    still_pending.append(asset_id)
-                    continue
-                raise result
+                retryable, delay = is_retryable_error(result) if isinstance(result, Exception) else (False, None)
+                if not retryable:
+                    raise result
+                still_pending.append(asset_id)
+                if delay is not None:
+                    provider_delay = max(provider_delay, delay)
+                continue
             if result.status == 'failed':
                 error = getattr(result, 'error', None)
                 reason = getattr(error, 'message', None) or error or 'unknown error'
@@ -70,7 +75,7 @@ async def _poll_assets_until_ready(client: 'twelvelabs.AsyncTwelveLabs', asset_i
         if not still_pending:
             return
         pending = still_pending
-        await asyncio.sleep(_ASSET_POLL_INTERVAL_SECS)
+        await asyncio.sleep(max(_ASSET_POLL_INTERVAL_SECS, provider_delay))
 
 
 async def _wait_for_assets(client: 'twelvelabs.AsyncTwelveLabs', asset_ids: Sequence[str]) -> None:

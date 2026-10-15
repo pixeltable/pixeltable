@@ -34,9 +34,11 @@ pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 class _RetrieveHttpError(Exception):
     """Duck-typed TwelveLabs retrieve failure with an HTTP status."""
 
-    def __init__(self, status_code: int, message: str) -> None:
+    def __init__(self, status_code: int, message: str, *, headers: dict[str, str] | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+        if headers is not None:
+            self.headers = headers
 
 
 def _fast_polls(monkeypatch: pytest.MonkeyPatch, *, timeout: float | None = None) -> None:
@@ -414,6 +416,51 @@ class TestTwelveLabsLocal:
         assert vector.shape == (512,)
         assert calls == 2
         assert deleted == ['asset-1']
+
+    def test_retry_after_retrieve_is_polled_again(
+        self, large_media_client: _LargeMediaClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pixeltable.functions import twelvelabs
+
+        _fast_polls(monkeypatch)
+        calls = 0
+        slept: list[float] = []
+        limited = _RetrieveHttpError(429, 'slow down', headers={'Retry-After': '60'})
+        assert is_retryable_error(limited) == (True, 60.0)
+        real_sleep = asyncio.sleep
+
+        async def capture_sleep(delay: float) -> None:
+            slept.append(delay)
+            await real_sleep(0)
+
+        # The poll interval is already 0. Record the provider delay instead of waiting it out.
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', capture_sleep)
+
+        def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
+            return SimpleNamespace(asset_id='asset-1')
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise limited
+            return SimpleNamespace(status='ready', error=None)
+
+        def create(**kwargs: Any) -> SimpleNamespace:
+            return SimpleNamespace(data=[SimpleNamespace(embedding=[0.5] * 512)])
+
+        deleted: list[str] = []
+
+        def delete(asset_id: str) -> None:
+            deleted.append(asset_id)
+
+        large_media_client.install(upload_file=upload_file, retrieve=retrieve, create=create, delete=delete)
+
+        vector = asyncio.run(twelvelabs.embed.py_fns[3](str(large_media_client.media), model_name='marengo3.0'))
+        assert vector.shape == (512,)
+        assert calls == 2
+        assert deleted == ['asset-1']
+        assert max(slept) >= 60
 
     def test_missing_asset_is_not_polled_again(
         self, large_media_client: _LargeMediaClient, monkeypatch: pytest.MonkeyPatch
