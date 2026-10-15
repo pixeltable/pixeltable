@@ -246,15 +246,15 @@ def _retry_loop(
     return decorator
 
 
-def retrying_read(op: Callable[[], T], *, read_tvps: Collection[TableVersionPath] | None = None) -> T:
-    """Run a read-only operation, retrying transient failures when it opens its own transaction.
+def retrying_read(op: Callable[[], T], *, tbl_keys: Collection[TableVersionKey] | None = None) -> T:
+    """Run an operation that reads catalog metadata, retrying transient failures when it opens its own transaction.
 
-    Inside an existing transaction, run the operation once. The enclosing transaction handles retries.
+    `tbl_keys` identifies tables to refresh before running the operation, as in retry_read_md_loop(). Inside an
+    existing transaction, run the operation once. The enclosing transaction handles retries.
     """
     if get_runtime().in_xact:
         return op()
-    loop = retry_read_md_loop() if read_tvps is None else retry_read_loop(tvps=read_tvps)
-    return loop(op)()
+    return retry_read_md_loop(tbl_keys=tbl_keys)(op)()
 
 
 class ProhibitedWriteError(Exception):

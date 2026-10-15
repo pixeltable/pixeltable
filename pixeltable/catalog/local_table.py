@@ -216,10 +216,10 @@ class LocalTable(Table):
         return getattr(self, name)
 
     def list_views(self, *, recursive: bool = True) -> list[str]:
-        from pixeltable.catalog import retry_read_loop
+        from pixeltable.catalog import retry_read_md_loop
 
         # Loading view metadata can encounter pending operations, requiring a retry of the whole listing.
-        @retry_read_loop(tvps=[self._tbl_version_path])
+        @retry_read_md_loop(tbl_keys=self._tbl_version_path.tbl_keys)
         def op() -> list[str]:
             paths: list[str] = []
             for t in self._get_views(recursive=recursive):
@@ -370,7 +370,7 @@ class LocalTable(Table):
                 helper.append(f'Custom Metadata: {Formatter.summarize_json(self._get_custom_metadata())}')
             return helper
 
-        return retrying_read(op, read_tvps=[self._tbl_version_path])
+        return retrying_read(op, tbl_keys=self._tbl_version_path.tbl_keys)
 
     def _col_descriptor(self, columns: list[str] | None = None) -> tuple[pd.DataFrame, list[int] | None]:
         """Generates column descriptor DataFrame and a list of vertical separators.

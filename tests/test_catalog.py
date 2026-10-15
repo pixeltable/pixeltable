@@ -638,7 +638,7 @@ class TestLocking:
         assert b.count() == 2
 
     def test_md_only_reads_never_block(self, is_data_versioned: bool, uses_db: None, fault_injection: None) -> None:
-        """Catalog listings must remain available while a schema change holds its lock.
+        """Catalog listings and table descriptions must remain available while a schema change holds its lock.
 
         These calls read metadata without locking store tables. They may return a schema that is about to change.
         """
@@ -648,8 +648,10 @@ class TestLocking:
 
         def md_only_reads() -> None:
             assert 'tbl' in pxt.list_tables()
-            assert pxt.get_table('tbl') is not None
             assert 'tbl' in pxt.get_dir_contents()['tables']
+            t2 = pxt.get_table('tbl')
+            assert 'tbl' in repr(t2)
+            assert t2.list_views() == []
 
         (
             MultiThreadedScenario()
