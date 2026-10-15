@@ -144,14 +144,16 @@ The restarts let running table and service processes read the new value. You can
 
 ## What the database runs
 
-A hosted database runs two things that come from your project, and they move independently.
+A hosted database runs three things that come from your project, and they move independently.
 
 - **The image** is the Python environment: your dependencies, the Python version, and any system packages. `pxt db update` rebuilds it only when that environment changed, which is the slow step. That version comes from the interpreter that runs `pxt db update`, unless the hosted `[[pixeltable.database]]` entry sets `python_version`.
 - **The project files** are your `app.py` and whatever else the entry selects. They are uploaded on their own, without a rebuild.
-- **The settings** are the hosted entry's `vars` and `db_*` settings, and sections of `pixeltable.toml` such as
-  `[openai]`. `pxt db update` sends them without an upload or a rebuild, and the database restarts with them.
+- **The settings** are the hosted entry's `vars` and `db_*` settings, and sections such as `[openai]`, from
+  `pixeltable.toml` or from `[tool.pixeltable]` in `pyproject.toml`. `pxt db update` sends them without an upload or a
+  rebuild, and the database restarts with them.
 
-So editing a UDF costs an upload, while adding a line to `pyproject.toml` costs a build. Both are `pxt db update`. It works out which happened.
+So editing a UDF costs an upload, adding a dependency to `pyproject.toml` costs a build, and a settings change costs
+only a restart. All three are `pxt db update`. It works out which happened.
 
 The image gets its packages from `uv.lock` or `requirements.txt`. Without either, `pxt db update` warns, and the image has Pixeltable only. That is enough for the generated `app.py`. List anything else `app.py` imports in one of those files.
 
