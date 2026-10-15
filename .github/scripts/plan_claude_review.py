@@ -21,13 +21,15 @@ SKIPPED = re.compile(
 )
 SENSITIVE = re.compile(r'auth|billing|payment|stripe|secret|permission|migration|/metadata/', re.IGNORECASE)
 SMALL_PR_LINES = 200
-# The sweep looks back further than its own interval, so a skipped or late run does not lose a PR.
-READY_WINDOW = datetime.timedelta(hours=24)
+# The sweep runs hourly and looks back three hours: a late or skipped run does not lose a PR, and a PR whose review
+# fails or stops before posting is tried at most three times.
+READY_WINDOW = datetime.timedelta(hours=3)
 
 READY_PRS_QUERY = """
-query($owner: String!, $name: String!) {
+query($owner: String!, $name: String!, $cursor: String) {
   repository(owner: $owner, name: $name) {
-    pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
+    pullRequests(states: OPEN, first: 100, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
       nodes {
         number
         isDraft
@@ -58,17 +60,22 @@ def pr_from_tests_run(event: dict[str, Any], repo: str) -> str | None:
 
 def prs_marked_ready(repo: str, now: datetime.datetime) -> list[str]:
     owner, name = repo.split('/')
-    data = json.loads(
-        gh('api', 'graphql', '-f', f'query={READY_PRS_QUERY}', '-F', f'owner={owner}', '-F', f'name={name}')
-    )
-    result = []
-    for pr in data['data']['repository']['pullRequests']['nodes']:
-        events = pr['timelineItems']['nodes']
-        if pr['isDraft'] or not events:
-            continue
-        if now - datetime.datetime.fromisoformat(events[0]['createdAt']) <= READY_WINDOW:
-            result.append(str(pr['number']))
-    return result
+    result: list[str] = []
+    cursor: str | None = None
+    while True:
+        args = ['api', 'graphql', '-f', f'query={READY_PRS_QUERY}', '-F', f'owner={owner}', '-F', f'name={name}']
+        if cursor is not None:
+            args += ['-f', f'cursor={cursor}']
+        page = json.loads(gh(*args))['data']['repository']['pullRequests']
+        for pr in page['nodes']:
+            events = pr['timelineItems']['nodes']
+            if pr['isDraft'] or not events:
+                continue
+            if now - datetime.datetime.fromisoformat(events[0]['createdAt']) <= READY_WINDOW:
+                result.append(str(pr['number']))
+        if not page['pageInfo']['hasNextPage']:
+            return result
+        cursor = page['pageInfo']['endCursor']
 
 
 def has_write_access(repo: str, login: str) -> bool:
@@ -105,8 +112,17 @@ def plan(event_name: str, event: dict[str, Any], repo: str, actor: str, now: dat
         candidates, requested = ([pr] if pr is not None else []), False
     else:
         candidates, requested = prs_marked_ready(repo, now), False
-    decisions = (decide(repo, pr, requested, actor) for pr in candidates)
-    return [d for d in decisions if d is not None]
+    reviews = []
+    for pr in candidates:
+        try:
+            decision = decide(repo, pr, requested, actor)
+        except subprocess.CalledProcessError as e:
+            # One PR that cannot be read does not stop the reviews of the others.
+            print(f'::warning::Skipped PR #{pr}: {e.stderr.strip()}')
+            continue
+        if decision is not None:
+            reviews.append(decision)
+    return reviews
 
 
 def main() -> int:

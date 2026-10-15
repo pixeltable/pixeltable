@@ -164,8 +164,8 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
 5. Code review
 
     * Once you submit your PR, a Pixeltable maintainer will review it.
-    * Claude reviews your PR once when its tests first run, or within an hour of marking a draft ready, if you have
-        write access to the repository. Anyone with write access can request another review by commenting
+    * Claude reviews your PR once when its tests first run, or at the next hourly check after you mark a draft ready,
+        if you have write access to the repository. Anyone with write access can request another review by commenting
         `claude review` on the PR. Claude reacts to that comment with a thumbs-up when the review starts, and posts its
         summary and inline comments as one review.
     * Respond to any comments on your PR. If you need to make changes, follow the workflow in Steps 3-4 above.
