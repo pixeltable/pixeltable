@@ -1276,6 +1276,14 @@ def fetch_presigned(url: str, expires_s: int, host_suffix: str) -> bytes:
     return resp.content
 
 
+def _proxy_temp_store_count(db: str) -> int:
+    """Count the objects in the proxy daemon's temp store, which is a per-process directory under its tmp dir."""
+    tmp_dir = proxy_daemon.proxy_home(db) / 'tmp'
+    if not tmp_dir.is_dir():
+        return 0
+    return sum(LocalStore(path).count(None) for path in tmp_dir.iterdir() if path.is_dir())
+
+
 def get_temp_store_count(tbl: pxt.Table, db_root: DatabaseRoot) -> int:
     """Count the objects in the temp store of the catalog tbl lives in."""
     if db_root.is_cloud:
@@ -1285,7 +1293,7 @@ def get_temp_store_count(tbl: pxt.Table, db_root: DatabaseRoot) -> int:
     if catalog_uri.db is None:
         return TempStore.count()
     else:
-        return LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
+        return _proxy_temp_store_count(catalog_uri.db)
 
 
 def check_temp_store_count(tbl: pxt.Table, expected_count: int, db_root: DatabaseRoot) -> None:
@@ -1299,7 +1307,7 @@ def check_temp_store_count(tbl: pxt.Table, expected_count: int, db_root: Databas
     if catalog_uri.db is None:
         actual = TempStore.count()
     else:
-        actual = LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
+        actual = _proxy_temp_store_count(catalog_uri.db)
 
     assert actual == expected_count, f'expected {expected_count} temp objects, found {actual}'
 

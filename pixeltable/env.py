@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import datetime
-import glob
 import http.server
 import importlib
 import importlib.metadata
@@ -25,6 +24,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
+import psutil
 import sqlalchemy as sql
 import tzlocal
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
@@ -122,7 +122,7 @@ class Env:
     _file_cache_dir: Path | None  # cached object files with external URL
     _dataset_cache_dir: Path | None  # cached datasets (eg, pytorch or COCO)
     _log_dir: Path | None  # log files
-    _tmp_dir: Path | None  # any tmp files
+    _tmp_dir: Path | None  # any tmp files, in one TempStore directory per process
     _services_dir: Path | None  # registry of local services
     _sa_engine: sql.engine.base.Engine | None
     _pgdata_dir: Path | None
@@ -996,13 +996,24 @@ class Env:
                 )
 
     def clear_tmp_dir(self) -> None:
-        for path in glob.glob(f'{self._tmp_dir}/*'):
-            # another process sharing this home can remove an entry between the glob and the delete
-            if os.path.isdir(path):
+        """Remove the tmp files of processes that have exited.
+
+        Processes that share this home each write to their own TempStore directory, named after the pid; the
+        directory of a live process stays. A reused pid keeps a stale directory until that process exits too.
+        """
+        # list the entries before the pids: a directory created after the listing is not considered, and one created
+        # before it belongs to a process that is in the pid list
+        paths = list(self._tmp_dir.iterdir())
+        live_pids = {str(pid) for pid in psutil.pids()}
+        for path in paths:
+            if path.name in live_pids:
+                continue
+            # another process sharing this home can remove an entry between the listing and the delete
+            if path.is_dir():
                 shutil.rmtree(path, ignore_errors=True)
             else:
                 with contextlib.suppress(FileNotFoundError):
-                    os.remove(path)
+                    path.unlink()
 
     # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Type[T] | None) -> T:
     def get_resource_pool_info(self, pool_id: str, make_pool_info: Callable[[], T] | None = None) -> T:

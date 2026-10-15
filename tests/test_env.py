@@ -1,5 +1,8 @@
 import asyncio
 import os
+import subprocess
+import sys
+import uuid
 from pathlib import Path
 from typing import Iterator
 
@@ -12,6 +15,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.local_store import TempStore
 
 from .utils import pxt_raises, skip_test_if_not_local
 
@@ -168,6 +172,29 @@ class TestEnvReset:
         t2_new = pxt.get_table('analytics/reports/sales')
         result = t2_new.where(t2_new.sale_id == 1).select(t2_new.amount_doubled).collect()
         assert result[0]['amount_doubled'] == 300.0
+
+
+class TestTmpDir:
+    def test_shared_home(self, uses_db: None) -> None:
+        """A process that starts on a shared home removes only the tmp files of processes that have exited."""
+        tmp_dir = Env.get().tmp_dir
+        in_use = TempStore.create_path(extension='.txt')
+        in_use.write_text('in use')
+        exited = subprocess.Popen((sys.executable, '-c', ''))
+        exited.wait()
+        stale = tmp_dir / str(exited.pid) / 'stale.txt'
+        stale.parent.mkdir()
+        stale.write_text('stale')
+        legacy = tmp_dir / f'{uuid.uuid4()}.txt'  # the layout before per-process directories
+        legacy.write_text('legacy')
+
+        subprocess.run((sys.executable, '-c', 'import pixeltable as pxt\npxt.init()'), check=True)
+
+        assert in_use.read_text() == 'in use'
+        assert not stale.parent.exists()
+        assert not legacy.exists()
+        # a sibling whose pid has this process's pid as a prefix is another process's directory
+        assert not TempStore.contains_path(tmp_dir / f'{os.getpid()}0' / 'file.txt')
 
 
 class TestHostedMediaDefault:
