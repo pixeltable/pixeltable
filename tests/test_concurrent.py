@@ -462,3 +462,16 @@ class TestConcurrentOps:
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column name balloon'):
             t.insert(balloon=2)
         assert sorted(t.select(t.zeppelin).collect()['zeppelin']) == [0, 1]
+
+    @pytest.mark.parametrize('select', [False, True])
+    def test_insert_query_on_another_thread(self, db_root: DatabaseRoot, select: bool) -> None:
+        """Inserting another table's rows works on a thread that has not read that table."""
+        p = db_root.make_catalog_path
+        src = pxt.create_table(p('src'), {'c': pxt.Int | None})
+        validate_update_status(src.insert({'c': i} for i in range(3)), expected_rows=3)
+        dst = pxt.create_table(p('dst'), {'c': pxt.Int | None})
+
+        source = src.select() if select else src
+        errors = _run_workers(lambda _tid: validate_update_status(dst.insert(source), expected_rows=3), n_threads=1)
+        self._assert_no_errors(errors)
+        assert dst.count() == 3

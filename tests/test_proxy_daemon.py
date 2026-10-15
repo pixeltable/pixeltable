@@ -15,6 +15,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import httpx
@@ -29,16 +30,17 @@ from pixeltable.catalog import TablePathKey, TableVersionKey
 from pixeltable.catalog.path import Path as CatalogPath
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.runtime import close_threadpool_runtimes
 from pixeltable.service import proxy_client, proxy_daemon, proxy_dispatch, proxy_protocol
 from pixeltable.service.management_client import Credential
-from pixeltable.service.proxy_client import HttpTransport, ProxyClient, TunnelTransport
-from pixeltable.service.proxy_protocol import ArchiveMember, PxtArchivePartSink, PxtStorePartSink
+from pixeltable.service.proxy_client import HttpTransport, ProxyClient, Transport, TunnelTransport
+from pixeltable.service.proxy_protocol import ArchiveMember, InlinePartSink, PxtArchivePartSink, PxtStorePartSink
 from pixeltable.utils import cloud_utils
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, StorageTarget
 
-from .utils import pxt_raises, reload_env
+from .utils import pxt_raises, reload_env, validate_update_status
 
 _KEY = Credential('api_key', 'key', 'the PIXELTABLE_API_KEY environment variable')
 
@@ -119,6 +121,33 @@ class _RecordingHttpTransport(httpx.BaseTransport):
         assert isinstance(request.stream, httpx.SyncByteStream)
         self.requests.append((request.headers, [bytes(piece) for piece in request.stream]))
         return httpx.Response(200, content=b'ok')
+
+
+class _OneThreadTransport(Transport):
+    """Serves each request in this process with proxy_dispatch.handle(), always on the same thread, as one daemon
+    worker thread would."""
+
+    def __init__(self) -> None:
+        self._executor = ThreadPoolExecutor(max_workers=1)
+
+    def post(self, body: bytes) -> bytes:
+        request_json, request_parts = proxy_protocol.decode_body(body)
+        return self._executor.submit(
+            proxy_dispatch.handle, request_json.decode(), request_parts, include_error_detail=True
+        ).result()
+
+    def fetch(self, url: str) -> pathlib.Path:
+        raise NotImplementedError
+
+    def media_url(self, media_path: str) -> str:
+        raise NotImplementedError
+
+    def new_part_sink(self) -> InlinePartSink:
+        return InlinePartSink()
+
+    def close(self) -> None:
+        close_threadpool_runtimes(self._executor, 1)
+        self._executor.shutdown()
 
 
 class TestProxyDaemon:
@@ -211,6 +240,33 @@ class TestProxyDaemon:
         assert np.array_equal(seen[0]['arr'], arr)
         # handle() removed the files it localized for the request
         assert not any(pathlib.Path(p).exists() for p in request._remote_parts.values())
+
+    @pytest.mark.db_roots('local', reason='calls proxy_dispatch.handle() in-process against the local catalog')
+    def test_insert_after_another_thread_renamed_a_column(self, uses_db: None) -> None:
+        """A daemon thread that read the table before another thread renamed a column accepts an insert by the
+        new name."""
+        t = pxt.create_table('tbl', {'c1': pxt.Int | None})
+        path_key = TablePathKey((TableVersionKey(t._id, None),))
+        client = ProxyClient(_OneThreadTransport(), CatalogPath(org='local', db='test'))
+
+        def call(method: str, args: dict[str, Any]) -> Any:
+            return client.dispatch_table_method(
+                method,
+                args,
+                path_key=path_key,
+                get_snapshot_key=lambda: TablePathKey((TableVersionKey(t._id, t.get_metadata()['version']),)),
+                refresh=lambda md: None,
+            )
+
+        try:
+            call('get_metadata', {})
+            t.rename_column('c1', 'balloon')
+            rows = [{'balloon': 1}]
+            status = call('insert', {'rows': rows, 'on_error': 'abort', 'print_stats': False, 'return_rows': False})
+            validate_update_status(status, expected_rows=1)
+        finally:
+            client.close()
+        assert t.select(t.balloon).collect()['balloon'] == [1]
 
     def test_response_round_trip(self) -> None:
         """The generic response path preserves every value it is given."""

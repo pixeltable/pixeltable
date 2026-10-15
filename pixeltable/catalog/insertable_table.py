@@ -161,8 +161,15 @@ class InsertableTable(LocalTable):
 
         start_ts = time.perf_counter()
         status = pxt.UpdateStatus()
+        # the transaction can only load metadata for the tables it declares, and the query's tables can be new to
+        # this thread
+        query = data_source.pxt_query if isinstance(data_source, QueryTableDataConduit) else None
         with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+            for_write=True,
+            write_tvps=[self._tbl_version_path],
+            read_tvps=query._from_clause.tvps if query is not None else None,
+            read_tbl_ids=query.referenced_tbl_ids() if query is not None else None,
+            lock_mutable_tree=True,
         ):
             if prepare:
                 # Only inside a transaction is the schema validated against the store; outside one, this thread's
@@ -172,12 +179,9 @@ class InsertableTable(LocalTable):
             # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;
             # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
             try:
-                if isinstance(data_source, QueryTableDataConduit):
+                if query is not None:
                     status += self._tbl_version.get().insert(
-                        source=None,
-                        query=data_source.pxt_query,
-                        print_stats=print_stats,
-                        fail_on_exception=fail_on_exception,
+                        source=None, query=query, print_stats=print_stats, fail_on_exception=fail_on_exception
                     )
                 else:
                     for row_batch in data_source.valid_row_batch():
