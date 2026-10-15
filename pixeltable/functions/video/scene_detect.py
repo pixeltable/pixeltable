@@ -502,6 +502,11 @@ def _parse_clock_duration(value: str) -> float | None:
     return hours * 3600 + minutes * 60 + seconds
 
 
+# Matroska and WebM store the presentation end in duration fields. MP4, MPEG-TS, and MPEG
+# store a length counted from the stream start.
+_ABSOLUTE_END_FORMATS = frozenset({'matroska', 'webm'})
+
+
 def _stream_presentation_end(frame_iter: av_utils.VideoFrames) -> float | None:
     """Absolute end from ``AVStream.duration``, which is relative to the stream start."""
     if frame_iter.container is None or frame_iter.video_time_base is None:
@@ -513,65 +518,71 @@ def _stream_presentation_end(frame_iter: av_utils.VideoFrames) -> float | None:
     return float((start_pts + duration) * frame_iter.video_time_base)
 
 
-def _absolute_end_from_stored_duration(stored_s: float, start_s: float, not_before: float) -> float | None:
-    """Choose an absolute end from a duration that may already be absolute.
+def _stored_duration_is_absolute(format_name: str) -> bool:
+    """True when this container's duration fields are absolute presentation ends."""
+    return any(part.strip().lower() in _ABSOLUTE_END_FORMATS for part in format_name.split(','))
 
-    MP4 and MPEG-TS store a length relative to the stream start. Matroska often stores the
-    absolute end in the same field, including ``DURATION`` metadata. A reading that falls
-    before the last frame is not an end. When both readings cover that frame, the smaller one
-    is the end that does not count the start offset twice.
-    """
+
+def _presentation_end_from_stored_duration(
+    stored_s: float, start_s: float, *, absolute: bool, not_before: float
+) -> float | None:
+    """Absolute presentation end of a stored duration that passes the last decoded frame."""
     if stored_s <= 0:
         return None
-    candidates = [end for end in (stored_s, start_s + stored_s) if end > not_before]
-    if not candidates:
+    end = stored_s if absolute else start_s + stored_s
+    if end <= not_before:
         return None
-    return min(candidates)
+    return end
 
 
 def _metadata_presentation_end(frame_iter: av_utils.VideoFrames, not_before: float) -> float | None:
-    """Absolute end from stream metadata or the container, when ``AVStream.duration`` is absent."""
+    """Absolute end from the video ``DURATION`` tag, then from the container duration.
+
+    Container duration covers every stream. It is used when the file has no audio stream,
+    as in ``get_video_duration()``. A reading that does not pass the last decoded frame is ignored.
+    """
     container = frame_iter.container
     if container is None or frame_iter.video_time_base is None:
         return None
     start_s = float((frame_iter.video_start_time or 0) * frame_iter.video_time_base)
+    absolute = _stored_duration_is_absolute(container.format.name)
     stream = container.streams.video[0]
     tag = stream.metadata.get('DURATION') if stream.metadata else None
     if isinstance(tag, str):
         parsed = _parse_clock_duration(tag)
         if parsed is not None:
-            tag_end = _absolute_end_from_stored_duration(parsed, start_s, not_before)
+            tag_end = _presentation_end_from_stored_duration(parsed, start_s, absolute=absolute, not_before=not_before)
             if tag_end is not None:
                 return tag_end
-    if container.duration is None:
+    if len(container.streams.audio) > 0 or container.duration is None:
         return None
-    # Container duration can outlive the video when another stream is longer, so it is only
-    # a fallback after the video stream's own metadata.
-    return _absolute_end_from_stored_duration(container.duration / 1_000_000, start_s, not_before)
+    return _presentation_end_from_stored_duration(
+        container.duration / 1_000_000, start_s, absolute=absolute, not_before=not_before
+    )
 
 
-def _scene_end_time(
-    video: str, frame_iter: av_utils.VideoFrames, *, scene_start: float, last_frame_time: float
-) -> float:
+def _scene_end_time(frame_iter: av_utils.VideoFrames, *, scene_start: float, last_frame_time: float) -> float:
     """Absolute presentation time at which the final scene ends.
 
-    The stream duration is preferred for both sampled and full decodes: the last frame of a
-    variable-frame-rate video is not one average frame interval. Without that duration, the
-    last frame's packet duration is already an absolute end. Container and metadata fallbacks
-    are normalized the same way, so a stream that starts after zero is not added twice.
+    A full decode and ``fps`` sampling use the same end. Stream duration is relative to the
+    stream start and counts when it extends past the last decoded frame. Next is that frame's
+    own duration, recorded while decoding. Otherwise the video ``DURATION`` tag, or the container
+    duration when no audio stream can run longer than the video. The last resort is one average
+    frame after the last decoded frame.
+
+    The file is not opened again to scan packets. When PyAV reports a frame duration, the decode
+    already produced that end. Matroska files that omit ``AVStream.duration`` carry the same end
+    in the ``DURATION`` tag, and their packets often have no duration.
     """
+    not_before = frame_iter.video_last_time if frame_iter.video_last_time is not None else last_frame_time
+
     stream_end = _stream_presentation_end(frame_iter)
-    if stream_end is not None and stream_end > scene_start:
+    if stream_end is not None and stream_end > not_before:
         return stream_end
 
-    if frame_iter.video_end_time is not None and frame_iter.video_end_time > scene_start:
+    if frame_iter.video_end_time is not None and frame_iter.video_end_time > not_before:
         return frame_iter.video_end_time
 
-    packet_end = av_utils.get_video_packet_end_time(video)
-    if packet_end is not None and packet_end > scene_start:
-        return packet_end
-
-    not_before = frame_iter.video_last_time if frame_iter.video_last_time is not None else last_frame_time
     metadata_end = _metadata_presentation_end(frame_iter, not_before)
     if metadata_end is not None and metadata_end > scene_start:
         return metadata_end
@@ -637,7 +648,7 @@ def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> l
             # The scene that starts at the last cut (or at the first frame) runs through the end of the
             # video, including a final frame that fps sampling did not yield.
             assert start_time is not None and last_frame_time is not None
-            end_time = _scene_end_time(video, frame_iter, scene_start=start_time, last_frame_time=last_frame_time)
+            end_time = _scene_end_time(frame_iter, scene_start=start_time, last_frame_time=last_frame_time)
             scenes.append({'start_time': start_time, 'start_pts': start_pts, 'duration': end_time - start_time})
 
         return scenes

@@ -61,31 +61,6 @@ def get_video_duration(path: str) -> float | None:
         return None
 
 
-def get_video_packet_end_time(path: str) -> float | None:
-    """Absolute presentation end of the video stream, in seconds.
-
-    The end is the latest packet presentation timestamp plus that packet's duration. Packet
-    timestamps already include the stream start. ``AVStream.duration``, by contrast, is relative
-    to the start. Returns None when the packets do not carry a positive duration.
-    """
-    with av.open(path) as container:
-        if len(container.streams.video) == 0:
-            return None
-        video_stream = container.streams.video[0]
-        if video_stream.time_base is None:
-            return None
-        # Latest PTS, not the last demuxed packet: B-frames are stored out of presentation order.
-        max_pts: int | None = None
-        max_pts_duration: int | None = None
-        for packet in container.demux(video_stream):
-            if packet.pts is not None and (max_pts is None or packet.pts > max_pts):
-                max_pts = packet.pts
-                max_pts_duration = packet.duration
-        if max_pts is None or max_pts_duration is None or max_pts_duration <= 0:
-            return None
-        return float((max_pts + max_pts_duration) * video_stream.time_base)
-
-
 def get_audio_duration(path: str) -> float | None:
     """
     Return audio duration in seconds, or None if there is no audio stream or the duration cannot be determined.
@@ -479,8 +454,11 @@ class VideoFrames:
                 ):
                     self.video_last_pts = frame.pts
                     self.video_last_time = float(frame.time)
-                    if frame.duration and frame.time_base is not None:
-                        self.video_end_time = float((frame.pts + frame.duration) * frame.time_base)
+                    # Frame.duration was added in PyAV 14.4. av>=14.1 has no such attribute,
+                    # and a zero duration is not an end.
+                    frame_duration = getattr(frame, 'duration', None)
+                    if isinstance(frame_duration, int) and frame_duration > 0 and frame.time_base is not None:
+                        self.video_end_time = float((frame.pts + frame_duration) * frame.time_base)
                     else:
                         self.video_end_time = None
                 if self.fps == 0.0 or (num_returned <= frame.time * self.fps):

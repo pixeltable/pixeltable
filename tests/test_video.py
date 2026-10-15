@@ -2,8 +2,10 @@ import math
 import os
 import platform
 import subprocess
+from fractions import Fraction
 from pathlib import Path
-from typing import Any, Callable, Literal
+from types import SimpleNamespace
+from typing import Any, Callable, Literal, cast
 
 import av
 import numpy as np
@@ -18,6 +20,7 @@ from pixeltable.functions.video import (
     concat_videos_agg,
     frame_iterator,
     legacy_frame_iterator,
+    scene_detect,
     video_splitter,
 )
 from pixeltable.utils import av as av_utils
@@ -140,6 +143,142 @@ def _assert_offset_mkv_end(path: Path) -> tuple[float, float]:
     # The stored end is already absolute, so shifting it by the start time overshoots.
     assert start_s + stored_end > stored_end + 0.2
     return float(frames[0]), stored_end
+
+
+def _assert_offset_mp4_end(path: Path) -> tuple[float, float]:
+    """Return (first frame time, absolute end) for an offset VFR MP4.
+
+    The stream duration is a length relative to the start. That unshifted length is still
+    after the last frame, which is the case where taking the smaller candidate drops the offset.
+    """
+    with av.open(str(path)) as container:
+        stream = container.streams.video[0]
+        assert stream.duration is not None and stream.time_base is not None and stream.average_rate
+        start_pts = stream.start_time or 0
+        start_s = float(start_pts * stream.time_base)
+        relative = float(stream.duration * stream.time_base)
+        end = float((start_pts + stream.duration) * stream.time_base)
+        average_rate = float(stream.average_rate)
+        frames = [frame.time for frame in container.decode(video=0)]
+    assert frames
+    assert start_s > 0.2
+    assert frames[-1] < relative < end - 0.2
+    assert end - (frames[-1] + 1 / average_rate) > 0.5
+    return float(frames[0]), end
+
+
+def _scene_end_for(
+    *,
+    decoded_time: float | None,
+    yielded_time: float,
+    scene_start: float = 0.0,
+    start_pts: int = 0,
+    time_base: Fraction = Fraction(1, 1000),
+    framerate: Fraction = Fraction(25, 1),
+    stream_duration: int | None = None,
+    frame_end: float | None = None,
+    format_name: str = 'mov,mp4,m4a,3gp,3g2,mj2',
+    duration_tag: str | None = None,
+    container_duration: int | None = None,
+    audio: bool = False,
+) -> float:
+    stream = SimpleNamespace(duration=stream_duration, metadata={'DURATION': duration_tag} if duration_tag else {})
+    container = SimpleNamespace(
+        streams=SimpleNamespace(video=[stream], audio=[object()] if audio else []),
+        duration=container_duration,
+        format=SimpleNamespace(name=format_name),
+    )
+    frame_iter = SimpleNamespace(
+        container=container,
+        video_time_base=time_base,
+        video_start_time=start_pts,
+        video_end_time=frame_end,
+        video_last_time=decoded_time,
+        video_framerate=framerate,
+    )
+    return scene_detect._scene_end_time(
+        cast(av_utils.VideoFrames, frame_iter), scene_start=scene_start, last_frame_time=yielded_time
+    )
+
+
+def test_scene_end_time_tiers() -> None:
+    """Each last-scene fallback, including relative and absolute durations with a nonzero start."""
+    # Stream duration extends past the last frame, ahead of a longer frame duration.
+    assert _scene_end_for(decoded_time=9.0, yielded_time=9.0, stream_duration=10_000, frame_end=10.5) == 10.0
+
+    # A stream duration that ends before the last decoded frame is ignored (truncated mdhd).
+    assert (
+        _scene_end_for(
+            decoded_time=8.0, yielded_time=8.0, stream_duration=5_000, frame_end=9.0, time_base=Fraction(1, 1000)
+        )
+        == 9.0
+    )
+
+    # No header duration: the decoded frame's own end is next.
+    assert _scene_end_for(decoded_time=9.5, yielded_time=9.5, frame_end=10.5) == 10.5
+
+    # MP4 duration is a length. start 0.5 + 10s, last frame 9.9: the end is 10.5, not 10.
+    assert (
+        _scene_end_for(
+            decoded_time=9.9,
+            yielded_time=9.9,
+            start_pts=500,
+            duration_tag='00:00:10.000000000',
+            format_name='mov,mp4,m4a,3gp,3g2,mj2',
+        )
+        == 10.5
+    )
+    assert (
+        _scene_end_for(
+            decoded_time=9.9,
+            yielded_time=9.9,
+            start_pts=500,
+            container_duration=10_000_000,
+            format_name='mov,mp4,m4a,3gp,3g2,mj2',
+        )
+        == 10.5
+    )
+    # The same arithmetic for a relative length of 1s, start 0.5, last frame 0.9.
+    assert (
+        _scene_end_for(
+            decoded_time=0.9, yielded_time=0.9, start_pts=500, container_duration=1_000_000, format_name='mpegts'
+        )
+        == 1.5
+    )
+
+    # Matroska DURATION is an absolute end. Adding the 0.5s start would run the scene to 2.5.
+    assert (
+        _scene_end_for(
+            decoded_time=1.5,
+            yielded_time=1.5,
+            start_pts=500,
+            duration_tag='00:00:02.000000000',
+            container_duration=5_000_000,
+            audio=True,
+            format_name='matroska,webm',
+        )
+        == 2.0
+    )
+    # WebM container duration, with no audio and no tag, is that same absolute end.
+    assert (
+        _scene_end_for(
+            decoded_time=1.5, yielded_time=1.5, start_pts=500, container_duration=2_000_000, format_name='webm'
+        )
+        == 2.0
+    )
+
+    # Container duration follows the audio when audio outlasts the video, so the frame rate is the end.
+    audio_end = _scene_end_for(
+        decoded_time=4.0,
+        yielded_time=4.0,
+        container_duration=10_000_000,
+        audio=True,
+        format_name='mov,mp4,m4a,3gp,3g2,mj2',
+    )
+    assert audio_end == pytest.approx(4.0 + 1 / 25)
+
+    # No timing metadata: one average frame past the last decoded frame, including when only the yielded time is known.
+    assert _scene_end_for(decoded_time=None, yielded_time=9.5, stream_duration=1_000) == pytest.approx(9.5 + 1 / 25)
 
 
 class TestVideo:
@@ -2041,12 +2180,14 @@ class TestVideo:
         skip_test_if_not_installed('scenedetect')
 
         def ffmpeg(args: list[str]) -> None:
-            subprocess.run(
-                ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', *args],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+            base = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y']
+            result = subprocess.run([*base, *args], capture_output=True, text=True, check=False)
+            # ffmpeg before 5.1 has no -fps_mode. -vsync vfr is the same mux mode.
+            if result.returncode != 0 and '-fps_mode' in args and 'fps_mode' in result.stderr:
+                fallback = ['-vsync' if arg == '-fps_mode' else arg for arg in args]
+                result = subprocess.run([*base, *fallback], capture_output=True, text=True, check=False)
+            if result.returncode != 0:
+                raise subprocess.CalledProcessError(result.returncode, args, result.stdout, result.stderr)
 
         vfr_path = tmp_path / 'vfr.mp4'
         ffmpeg(
@@ -2095,12 +2236,47 @@ class TestVideo:
                 str(offset_path),
             ]
         )
+        # MP4 stores a length, unlike the Matroska DURATION tag above. The unshifted length is past the last frame.
+        offset_mp4_path = tmp_path / 'offset_vfr.mp4'
+        ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'color=c=red:s=64x64:d=2:r=25',
+                '-f',
+                'lavfi',
+                '-i',
+                'color=c=blue:s=64x64:d=1:r=1',
+                '-filter_complex',
+                '[0][1]concat=n=2:v=1:a=0',
+                '-fps_mode',
+                'vfr',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                '-output_ts_offset',
+                '0.5',
+                str(offset_mp4_path),
+            ]
+        )
 
-        expected = {'vfr': _assert_vfr_stream_end(vfr_path), 'offset': _assert_offset_mkv_end(offset_path)}
+        expected = {
+            'vfr': _assert_vfr_stream_end(vfr_path),
+            'offset': _assert_offset_mkv_end(offset_path),
+            'offset_mp4': _assert_offset_mp4_end(offset_mp4_path),
+        }
         t = pxt.create_table('scene_end_clips', {'name': pxt.String, 'video': pxt.Video})
         validate_update_status(
-            t.insert([{'name': 'vfr', 'video': str(vfr_path)}, {'name': 'offset', 'video': str(offset_path)}]),
-            expected_rows=2,
+            t.insert(
+                [
+                    {'name': 'vfr', 'video': str(vfr_path)},
+                    {'name': 'offset', 'video': str(offset_path)},
+                    {'name': 'offset_mp4', 'video': str(offset_mp4_path)},
+                ]
+            ),
+            expected_rows=3,
         )
         for sample_fps in (None, 2.0):
             scenes_expr = (
@@ -2120,7 +2296,7 @@ class TestVideo:
                 # Adding the stream start to an already-absolute end overshoots by about that offset.
                 if name == 'offset':
                     assert end < expected_start + expected_end - 0.2, (sample_fps, end, expected_start, expected_end)
-            assert seen == {'vfr', 'offset'}
+            assert seen == {'vfr', 'offset', 'offset_mp4'}
 
     @pytest.mark.db_roots('local', reason='reads Env default video encoder config')
     def test_default_video_codec(self, uses_db: None) -> None:
