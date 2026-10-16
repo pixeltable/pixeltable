@@ -1,6 +1,6 @@
 import asyncio
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, cast
 
 import PIL.Image
 import pytest
@@ -105,7 +105,15 @@ def _is_throttled_video_request(errortype: str | None, errormsg: str | None) -> 
     throttle exception classes. ExternalServiceError is the wrapped rate-limit error, so it skips
     only when the message is that throttle.
     """
-    if errortype in ('ThrottlingException', 'TooManyRequestsException', 'Throttling'):
+    # Share the production classifier's codes. If bedrock cannot be imported, the message checks
+    # below still skip a throttled StartAsyncInvoke instead of failing at import time.
+    try:
+        from pixeltable.functions import bedrock
+    except ImportError:
+        throttle_codes: frozenset[str] = frozenset()
+    else:
+        throttle_codes = bedrock._BEDROCK_THROTTLE_CODES
+    if errortype in throttle_codes:
         return True
     message = (errormsg or '').lower()
     if 'throttlingexception' in message or 'throttled startasyncinvoke' in message:
@@ -177,6 +185,9 @@ def test_throttled_video_request() -> None:
     )
     assert _is_throttled_video_request('ThrottlingException', nightly)
     assert _is_throttled_video_request('ClientError', nightly)
+    # Type alone comes from the production code set, so a bland message still skips.
+    assert _is_throttled_video_request('TooManyRequestsException', 'please retry')
+    assert _is_throttled_video_request('Throttling', None)
     wrapped = f"Bedrock throttled StartAsyncInvoke for model 'luma.ray-v2:0': {nightly}"
     assert _is_throttled_video_request('ExternalServiceError', wrapped)
     assert not _is_throttled_video_request('ValidationException', 'Invalid input: resolution must be one of 540p, 720p')
@@ -193,11 +204,18 @@ def _throttle_error(code: str, message: str, *, cls_name: str | None = None) -> 
 
     error_cls = ClientError
     if cls_name is not None:
-        error_cls = type(cls_name, (ClientError,), {})
+        # typeshed types the three-argument type() as returning type, not the ClientError subclass it builds.
+        error_cls = cast(type[ClientError], type(cls_name, (ClientError,), {}))
     return error_cls(
         {
             'Error': {'Code': code, 'Message': message},
-            'ResponseMetadata': {'HTTPStatusCode': 429 if 'throttl' in code.lower() else 400},
+            'ResponseMetadata': {
+                'RequestId': 'test',
+                'HostId': 'test',
+                'HTTPStatusCode': 429 if 'throttl' in code.lower() else 400,
+                'HTTPHeaders': {},
+                'RetryAttempts': 0,
+            },
         },
         'StartAsyncInvoke',
     )
