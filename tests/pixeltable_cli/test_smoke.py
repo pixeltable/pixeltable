@@ -1679,7 +1679,7 @@ class TestColdStartBudget:
     """
 
     @pytest.mark.parametrize(
-        'command', ['ls', 'new', 'login', 'logout', 'whoami', 'key', 'org', 'db', 'service', 'skills']
+        'command', ['ls', 'new', 'login', 'logout', 'whoami', 'key', 'org', 'db', 'service', 'skills', 'feedback']
     )
     def test_pixeltable_not_imported_by_client(
         self, cli: PxtRunner, pxt_daemon: int, session_project: pathlib.Path, command: str

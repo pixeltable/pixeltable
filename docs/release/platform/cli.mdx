@@ -49,7 +49,7 @@ These flags work the same way across the catalog commands that support them and 
 | Flag | Available on | Description |
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
-| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs other than `example`, plus `init`, `skills install`, `login`, `whoami`, `db`, `secret`, `org`, `key`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), `schema example` and `service example` (which print an example file), or the commands that print plain status lines (`logout`, `daemon start`/`stop`/`restart`). |
+| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs other than `example`, plus `init`, `skills install`, `feedback`, `login`, `whoami`, `db`, `secret`, `org`, `key`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), `schema example` and `service example` (which print an example file), or the commands that print plain status lines (`logout`, `daemon start`/`stop`/`restart`). |
 | `--json-schema` | `schema diff`, `service diff`, `db diff`, `db status`, `service list` | Print the JSON Schema of that command's `--json` output, with descriptions of every field and enum value, and exit. |
 | `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), plus `schema update`, `schema prune`, `service update` and `service prune` | Print the intended action; don't execute. |
 | `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`, `db update`, `db delete`, `skills install`) | Skip the `[y/N]` prompt. Required in non-interactive contexts and when a [coding agent](#coding-agents) runs the command: without it the command exits `3` and names the command to run with `-f` on a `next:` line (see [Output and scripting](#output-and-scripting)). `rename` and `mv` don't prompt and don't accept `-f`. |
@@ -461,6 +461,22 @@ The command downloads the skill from the repository's `main` branch and prints t
 - Claude Code started at the repository root loads a copy written in a subdirectory only once it reads a file there, so install at the root.
 - If Claude Code also has the Pixeltable plugin, both copies load, because plugin skills are namespaced: keep one.
 - Commit both directories to give every collaborator's agent the same copy, and delete them to remove the skill.
+
+### Reporting a gap
+
+When Pixeltable cannot do what a task needs, a coding agent drafts a report for the Pixeltable team with `pxt feedback`:
+
+```bash
+pxt feedback --kind gap "What the task needed, what was tried, what happened"   # prints what would be sent; sends nothing
+```
+
+`--kind` is `bug`, `gap` or `docs`. The text is one quoted argument of 1 to 4000 characters.
+
+Without `--send`, the command prints the destination and every field it would send, and sends nothing. With `--send`, it sends these fields and nothing else: the kind, the text, the Pixeltable version, the Python version, the OS, and the coding agent it runs under, when it can tell. It sends no paths, hostnames, organization or file contents. With `DO_NOT_TRACK` set to `1`, `true` or `yes`, `--send` prints the preview, sends nothing and exits 3.
+
+The text comes from your project, so an agent should show you the preview and wait for your yes before it adds `--send`.
+
+An unexpected daemon failure prints its traceback, followed by a `next:` line naming `pxt feedback --kind bug`.
 
 ## Schema management
 

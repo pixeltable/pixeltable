@@ -386,6 +386,10 @@ class RequestFailedError(Exception):
         if self.server_tb is not None:
             # an unexpected daemon failure carries its traceback; show it so the user can report the error
             print(f'\n--- daemon traceback ---\n{self.server_tb}', file=sys.stderr)
+            print_next(
+                "pxt feedback --kind bug 'WHAT YOU RAN AND WHAT HAPPENED'",
+                'previews a report for the Pixeltable team; send it with --send once the user agrees',
+            )
 
 
 def _request(method: str, path: str, body: dict[str, Any] | None = None, params: dict[str, Any] | None = None) -> Any:
