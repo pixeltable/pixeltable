@@ -13,7 +13,7 @@ import PIL.Image
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.catalog import Path, fold_identifier
+from pixeltable.catalog import Path, TableMetadata, fold_identifier
 from pixeltable.catalog.model import schema
 from pixeltable.config import Config
 from pixeltable.env import Env
@@ -339,6 +339,7 @@ def table_errors(req: Request) -> models.ErrorsResponse:
         select_args += [t[c_name].errortype, t[c_name].errormsg]
     rows = t.where(where).select(*select_args).collect()
 
+    defined_in = {c_name: _defining_table(path, md, c_name) for c_name in computed}
     entries: list[models.ErrorEntry] = []
     for r in rows:
         pk = {name: r[name] for name in pk_names}
@@ -346,8 +347,20 @@ def table_errors(req: Request) -> models.ErrorsResponse:
             etype = r[f'{c_name}_errortype']
             emsg = r[f'{c_name}_errormsg']
             if etype is not None:
-                entries.append(models.ErrorEntry(pk=pk, column=c_name, errortype=etype, errormsg=emsg))
+                entries.append(
+                    models.ErrorEntry(
+                        pk=pk, column=c_name, errortype=etype, errormsg=emsg, defined_in=defined_in[c_name]
+                    )
+                )
     return models.ErrorsResponse(entries=entries)
+
+
+def _defining_table(path: str, md: TableMetadata, column: str) -> str:
+    """The path of the table that defines column, walking from a view up through its bases."""
+    while md['columns'][column]['defined_in'] != md['name'] and md['base'] is not None:
+        path = md['base']
+        md = pxt.get_table(path).get_metadata()
+    return path
 
 
 @router.get('/api/tables/history', checks_env=False)
