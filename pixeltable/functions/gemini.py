@@ -292,6 +292,15 @@ async def generate_content(
         contents = _replace_upload_placeholders(contents, uploaded)
         response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
         result = response.model_dump()
+        # Count tokens before rejecting an empty candidate list. record_token_usage returns when usage is
+        # missing, and a later PROVIDER_OVERLOADED retry still consumed these tokens.
+        telemetry_schemas.record_token_usage(
+            f'{__name__}.generate_content',
+            model,
+            result.get('usage_metadata'),
+            'prompt_token_count',
+            'candidates_token_count',
+        )
         # `model_dump()` (default mode) preserves `inline_data.data` as raw `bytes`; `mode='json'` would
         # url-safe-base64-encode which is suboptimal as we'd have to convert it back to binary to convert to PIL image.
         # `candidates` is null, not absent, when the prompt is blocked or the body is empty.
@@ -311,13 +320,6 @@ async def generate_content(
                     img = PIL.Image.open(io.BytesIO(blob['data']))
                     img.load()
                     blob['data'] = img
-        telemetry_schemas.record_token_usage(
-            f'{__name__}.generate_content',
-            model,
-            result.get('usage_metadata'),
-            'prompt_token_count',
-            'candidates_token_count',
-        )
         return result
 
 
@@ -370,7 +372,14 @@ def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDic
 
 @pxt.udf
 def _gemini_response_to_pxt_tool_calls(response: dict) -> dict | None:
-    candidates = _require_candidates(response, what='tool calls')
+    candidates = _field(response, 'candidates')
+    if not isinstance(candidates, list) or len(candidates) == 0:
+        # This UDF has no resource pool, so PROVIDER_OVERLOADED would retry the same response dict.
+        # A prompt block is a permanent request error; an empty unblocked body has no tool calls.
+        block_reason, _, _ = _response_failure_detail(response)
+        if block_reason is not None:
+            raise _no_candidates_error(response, what='tool calls')
+        return None
     content = candidates[0].get('content') if isinstance(candidates[0], dict) else None
     parts = content.get('parts') if isinstance(content, dict) else None
     if not isinstance(parts, list):

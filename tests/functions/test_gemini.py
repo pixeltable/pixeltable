@@ -546,11 +546,21 @@ class TestGeminiNoCandidates:
         from pixeltable.functions import gemini
         from pixeltable.utils.http import is_retryable_error
 
-        response = types.GenerateContentResponse(candidates=candidates, prompt_feedback=None)
+        response = types.GenerateContentResponse(
+            candidates=candidates,
+            prompt_feedback=None,
+            usage_metadata=types.GenerateContentResponseUsageMetadata(prompt_token_count=11, candidates_token_count=0),
+        )
         if candidates is None:
             dumped = response.model_dump()
             assert dumped.get('candidates') is None
         _install_gemini_client(monkeypatch, response)
+        recorded: list[tuple[Any, ...]] = []
+
+        def record_token_usage(*args: Any, **_kwargs: Any) -> None:
+            recorded.append(args)
+
+        monkeypatch.setattr(gemini.telemetry_schemas, 'record_token_usage', record_token_usage)
         with pxt_raises(pxt.ErrorCode.PROVIDER_OVERLOADED, match='did not include a block reason') as exc_info:
             asyncio.run(
                 gemini.generate_content.py_fn(
@@ -563,12 +573,21 @@ class TestGeminiNoCandidates:
         assert delay is not None and delay > 0
         assert is_retryable_error(exc_info.value) == (False, None)
         assert exc_info.value.is_retryable
+        assert len(recorded) == 1
+        udf_path, recorded_model, usage, input_key, output_key = recorded[0]
+        assert udf_path == 'pixeltable.functions.gemini.generate_content'
+        assert recorded_model == 'gemini-2.5-flash-lite'
+        assert usage['prompt_token_count'] == 11
+        assert usage['candidates_token_count'] == 0
+        assert input_key == 'prompt_token_count'
+        assert output_key == 'candidates_token_count'
 
     @pytest.mark.skipif(_google_genai_missing(), reason='Package `google.genai` is not installed.')
     @pytest.mark.db_roots('local', reason='computed column insert runs RateLimitsScheduler')
     def test_empty_candidates_retried_on_insert(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
         # Public path for the retry above: insert evaluates generate_content through RateLimitsScheduler.
-        # skipif runs at collection, before uses_db, and import_module does not raise if `google` is absent.
+        # skipif runs at collection, before uses_db. import_module('google.genai') raises ModuleNotFoundError
+        # when google is absent, and _google_genai_missing catches that ImportError.
         from google.genai import types
 
         from pixeltable.functions import gemini
@@ -698,6 +717,11 @@ class TestGeminiNoCandidates:
         calls = _gemini_response_to_pxt_tool_calls.py_fn
         with pxt_raises(pxt.ErrorCode.PROVIDER_BAD_REQUEST, match='block reason: PROHIBITED_CONTENT'):
             calls(blocked.model_dump())
+
+        empty = types.GenerateContentResponse(candidates=None, prompt_feedback=None)
+        assert calls(empty.model_dump()) is None
+        assert calls({'candidates': []}) is None
+        assert calls({}) is None
 
         assert calls(
             {
