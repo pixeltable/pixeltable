@@ -1,5 +1,5 @@
 import asyncio
-import importlib.util
+import importlib
 import logging
 import random
 import time
@@ -494,11 +494,6 @@ class TestGemini:
         assert res[1]['sim'] - res[0]['sim'] > 0.1
 
 
-def _skip_without_genai() -> None:
-    if importlib.util.find_spec('google.genai') is None:
-        pytest.skip('Package `google.genai` is not installed.')
-
-
 def _install_gemini_client(monkeypatch: pytest.MonkeyPatch, response: Any) -> None:
     from pixeltable.functions import gemini
 
@@ -514,6 +509,15 @@ def _install_gemini_client(monkeypatch: pytest.MonkeyPatch, response: Any) -> No
 
     fake_env = SimpleNamespace(require_package=require_package, get_resource_pool_info=get_resource_pool_info)
     monkeypatch.setattr(gemini.env.Env, 'get', classmethod(lambda _cls: fake_env))
+
+
+def _google_genai_missing() -> bool:
+    """True when `google.genai` cannot be imported, including when the `google` parent is absent."""
+    try:
+        importlib.import_module('google.genai')
+    except ImportError:
+        return True
+    return False
 
 
 class TestGeminiNoCandidates:
@@ -536,7 +540,7 @@ class TestGeminiNoCandidates:
     def test_generate_content_empty_is_retryable(
         self, monkeypatch: pytest.MonkeyPatch, candidates: list[Any] | None
     ) -> None:
-        _skip_without_genai()
+        pytest.importorskip('google.genai')
         from google.genai import types
 
         from pixeltable.functions import gemini
@@ -560,8 +564,39 @@ class TestGeminiNoCandidates:
         assert is_retryable_error(exc_info.value) == (False, None)
         assert exc_info.value.is_retryable
 
+    @pytest.mark.skipif(_google_genai_missing(), reason='Package `google.genai` is not installed.')
+    @pytest.mark.db_roots('local', reason='computed column insert runs RateLimitsScheduler')
+    def test_empty_candidates_retried_on_insert(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Public path for the retry above: insert evaluates generate_content through RateLimitsScheduler.
+        # skipif runs at collection, before uses_db, and import_module does not raise if `google` is absent.
+        from google.genai import types
+
+        from pixeltable.functions import gemini
+
+        empty = types.GenerateContentResponse(candidates=None, prompt_feedback=None)
+        ok = types.GenerateContentResponse(
+            candidates=[
+                types.Candidate(
+                    content=types.Content(role='model', parts=[types.Part(text='retried')]),
+                    finish_reason=types.FinishReason.STOP,
+                )
+            ]
+        )
+        generate = AsyncMock(side_effect=[empty, ok])
+        client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate)))
+        monkeypatch.setattr(gemini, '_genai_client', lambda: client)
+        # get_retry_delay owns the delay; zero it so this only checks that the scheduler honors a delay.
+        monkeypatch.setattr(gemini, 'exponential_backoff', lambda _attempt: 0.0)
+
+        t = pxt.create_table('gemini_empty_retry', {'prompt': pxt.String})
+        t.add_computed_column(response=gemini.generate_content(t.prompt, model='gemini-test-empty-retry'))
+        validate_update_status(t.insert([{'prompt': 'hello'}]), expected_rows=1)
+        stored = t.collect()[0]['response']
+        assert stored['candidates'][0]['content']['parts'][0]['text'] == 'retried'
+        assert generate.await_count == 2
+
     def test_generate_content_blocked_prompt_is_not_retryable(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _skip_without_genai()
+        pytest.importorskip('google.genai')
         from google.genai import types
 
         from pixeltable.functions import gemini
@@ -582,7 +617,7 @@ class TestGeminiNoCandidates:
         assert exc_info.value.is_retryable is False
 
     def test_generate_content_returns_text_candidates(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _skip_without_genai()
+        pytest.importorskip('google.genai')
         from google.genai import types
 
         from pixeltable.functions import gemini
@@ -611,7 +646,7 @@ class TestGeminiNoCandidates:
         assert result['candidates'][0]['finish_reason'] in (types.FinishReason.STOP, 'STOP')
 
     def test_generate_speech_empty_is_retryable(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _skip_without_genai()
+        pytest.importorskip('google.genai')
         from google.genai import types
 
         from pixeltable.functions import gemini
@@ -631,7 +666,7 @@ class TestGeminiNoCandidates:
         assert gemini.GeminiRateLimitsInfo().get_retry_delay(exc_info.value, 0) is not None
 
     def test_generate_speech_blocked_candidate_is_not_retryable(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _skip_without_genai()
+        pytest.importorskip('google.genai')
         from google.genai import types
 
         from pixeltable.functions import gemini
@@ -649,7 +684,7 @@ class TestGeminiNoCandidates:
         assert gemini.GeminiRateLimitsInfo().get_retry_delay(exc_info.value, 0) is None
 
     def test_tool_calls_no_candidates(self) -> None:
-        _skip_without_genai()
+        pytest.importorskip('google.genai')
         from google.genai import types
 
         from pixeltable.functions.gemini import _gemini_response_to_pxt_tool_calls
