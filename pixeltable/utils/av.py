@@ -392,6 +392,11 @@ class VideoFrames:
     video_framerate: Fraction | None
     video_time_base: Fraction | None
     video_start_time: int | None
+    # Presentation time of the latest frame, and that frame's end when its duration is known.
+    # fps sampling does not yield every frame; the latest one can still extend the video.
+    video_last_pts: int | None
+    video_last_time: float | None
+    video_end_time: float | None
 
     @dataclass
     class Item:
@@ -412,6 +417,9 @@ class VideoFrames:
         self.video_framerate = None
         self.video_time_base = None
         self.video_start_time = None
+        self.video_last_pts = None
+        self.video_last_time = None
+        self.video_end_time = None
 
     def __enter__(self) -> Self:
         self.container = av.open(self.path)
@@ -429,27 +437,44 @@ class VideoFrames:
             self.container.close()
 
     def __iter__(self) -> Iterator[Item]:
+        # One decode() generator for this container. A fresh decode() per frame keeps only its first frame
+        # and drops the frame the decoder flushes at end of stream.
+        assert self.container is not None
         num_returned = 0
         frame_idx = -1
-        while True:
-            try:
-                frame = next(self.container.decode(video=0))
-            except (StopIteration, EOFError):
-                return
-
-            frame_idx += 1
-            if self.fps == 0.0 or (num_returned <= frame.time * self.fps):
-                img = frame.to_image()
-                assert isinstance(img, PIL.Image.Image)
-                yield VideoFrames.Item(
-                    frame_idx=frame_idx,
-                    pts=frame.pts,
-                    dts=frame.dts,
-                    time=frame.time,
-                    is_corrupt=frame.is_corrupt,
-                    key_frame=frame.key_frame,
-                    pict_type=frame.pict_type,
-                    interlaced_frame=frame.interlaced_frame,
-                    frame=img,
-                )
-                num_returned += 1
+        try:
+            for frame in self.container.decode(video=0):
+                frame_idx += 1
+                # B-frames are decoded out of presentation order, so the latest PTS wins.
+                # A missing duration must not keep an earlier frame's end as the video end.
+                if (
+                    frame.pts is not None
+                    and frame.time is not None
+                    and (self.video_last_pts is None or frame.pts >= self.video_last_pts)
+                ):
+                    self.video_last_pts = frame.pts
+                    self.video_last_time = float(frame.time)
+                    # Frame.duration was added in PyAV 14.4. av>=14.1 has no such attribute,
+                    # and a zero duration is not an end.
+                    frame_duration = getattr(frame, 'duration', None)
+                    if isinstance(frame_duration, int) and frame_duration > 0 and frame.time_base is not None:
+                        self.video_end_time = float((frame.pts + frame_duration) * frame.time_base)
+                    else:
+                        self.video_end_time = None
+                if self.fps == 0.0 or (num_returned <= frame.time * self.fps):
+                    img = frame.to_image()
+                    assert isinstance(img, PIL.Image.Image)
+                    yield VideoFrames.Item(
+                        frame_idx=frame_idx,
+                        pts=frame.pts,
+                        dts=frame.dts,
+                        time=frame.time,
+                        is_corrupt=frame.is_corrupt,
+                        key_frame=frame.key_frame,
+                        pict_type=frame.pict_type,
+                        interlaced_frame=frame.interlaced_frame,
+                        frame=img,
+                    )
+                    num_returned += 1
+        except EOFError:
+            return

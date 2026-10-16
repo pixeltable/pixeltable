@@ -119,6 +119,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     pos: int
     video_idx: int
     cur_frame: av.VideoFrame | None
+    frame_gen: Iterator[av.VideoFrame]
 
     def __init__(
         self, video: pxt.Video, *, fps: float | None = None, num_frames: int | None = None, keyframes_only: bool = False
@@ -180,11 +181,14 @@ class frame_iterator(pxt.PxtIterator[Frame]):
             f'FrameIterator: path={self.video_path} fps={self.fps} num_frames={self.num_frames} '
             f'keyframes_only={self.keyframes_only}'
         )
+        self.frame_gen = self.container.decode(video=0)
         self.cur_frame = self.next_frame()
 
     def next_frame(self) -> av.VideoFrame | None:
+        # One generator per open container: a new decode() call keeps only its first frame, which drops the
+        # extra frame a decoder flushes at end of stream. next(..., None) also treats StopIteration as EOS.
         try:
-            return next(self.container.decode(video=0))
+            return next(self.frame_gen, None)
         except EOFError:
             return None
 
@@ -278,6 +282,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         # Subtlety: The offset passed in to seek() is not the pts, but rather the pts adjusted for the video start time.
         seek_offset = math.floor((seek_time - self.video_start_time) / self.video_time_base)
         self.container.seek(seek_offset, backward=True, stream=self.container.streams.video[0])
+        self.frame_gen = self.container.decode(video=0)
 
         self.cur_frame = self.next_frame()
         while self.cur_frame is not None and float(self.cur_frame.pts * self.video_time_base) < seek_time - 1e-3:
