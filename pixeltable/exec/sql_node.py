@@ -416,7 +416,6 @@ class SqlNode(ExecNode):
             return
         cat = get_runtime().catalog
         for handle in self.tbl.get_tbl_versions():
-            # a pure snapshot has no store table to lock, and does not appear in its own path
             cat.check_rows_read_locked(handle.get())
 
     def _log_explain(self, stmt: sql.Select) -> None:
