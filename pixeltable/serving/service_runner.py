@@ -5,18 +5,16 @@ import argparse
 import atexit
 import logging
 import signal
-import socket
 import sys
 from pathlib import Path
 from typing import Any
 
 import pixeltable.catalog as catalog
-from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
 from pixeltable.utils.project import project_fingerprint
 
-from .service_manager import ServiceManager
+from .service_manager import ServiceManager, bind_service_port
 
 
 def _serve(app_file: str, service_name: str, base_path: str, otel: bool, port: int = 0) -> None:
@@ -34,17 +32,7 @@ def _serve(app_file: str, service_name: str, base_path: str, otel: bool, port: i
     if otel:
         instrument_app(app)
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # SO_REUSEADDR lets POSIX rebind a port a stopped service left in TIME_WAIT. On Windows it lets a socket bind a
-    # port that another is still listening on, so the service would share a busy port instead of refusing it.
-    if sys.platform != 'win32':
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-        sock.bind(('127.0.0.1', port))
-    except OSError as e:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot serve {service_name!r} on port {port}: {e.strerror}'
-        ) from e
+    sock = bind_service_port(service_name, port)
     port = sock.getsockname()[1]
 
     project_root = Config.get().project_root
