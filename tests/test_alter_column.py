@@ -1,7 +1,10 @@
+import threading
+
 import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+from pixeltable.runtime import get_runtime
 
 from .utils import DatabaseRoot, pxt_raises, reload_catalog, validate_update_status
 
@@ -32,6 +35,38 @@ class TestAlterColumn:
             reload_catalog(do_reload_catalog)
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected non-None'):
                 t.insert(c1=None)
+
+    @pytest.mark.db_roots(
+        'local',
+        reason='a second in-process runtime holds the pre-alter schema; hosted inserts are checked in the daemon',
+    )
+    def test_alter_column_visible_to_other_runtime(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        # The failed insert caches this runtime's schema and returns before the write transaction, which is
+        # what would drop that cache. Another runtime then widens the column.
+        path = db_root.make_catalog_path('test_tbl')
+        t = pxt.create_table(path, {'c1': pxt.String}, _is_data_versioned=is_data_versioned)
+        validate_update_status(t.insert(c1='a'), 1)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected non-None'):
+            t.insert(c1=None)
+
+        errors: list[BaseException] = []
+
+        def alter() -> None:
+            try:
+                pxt.get_table(path).alter_column('c1', type_=pxt.String | None)
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                get_runtime().close()
+
+        thread = threading.Thread(target=alter)
+        thread.start()
+        thread.join()
+        if len(errors) > 0:
+            raise errors[0]
+
+        validate_update_status(t.insert(c1=None), 1)
+        assert t.select(t.c1).order_by(t.c1).collect()['c1'] == ['a', None]
 
     def test_alter_column_via_reference(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         t = pxt.create_table(

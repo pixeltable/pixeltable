@@ -134,6 +134,9 @@ class InsertableTable(LocalTable):
             data_source = TableDataConduit.create(
                 source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
             )
+            # Row checks read the cached schema, and a cache hit outside a transaction does not reload it.
+            # Another runtime may have committed an alter_column since this one last read the table.
+            self._tbl_version_path.clear_cached_md()
             data_source.add_table_info(self)
             data_source.prepare_for_insert_into_table()
 
