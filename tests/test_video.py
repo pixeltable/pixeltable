@@ -2386,6 +2386,43 @@ class TestVideo:
                     assert end < expected_start + expected_end - 0.2, (sample_fps, end, expected_start, expected_end)
             assert seen == {'vfr', 'offset', 'offset_asf', 'offset_mp4'}
 
+    def test_scene_detect_cut_at_scene_start(self, init_env: None) -> None:
+        skip_test_if_not_installed('scenedetect')
+        from pixeltable.functions.video.scene_detect import _scene_detect
+
+        class StubDetector:
+            """Reports cuts at given positions in the sequence of sampled frames."""
+
+            frame_cuts: set[int]  # positions at which process_frame() reports a cut at the current frame
+            final_cuts: list[int]  # positions of the cuts that post_process() reports
+            timecodes: list[Any]
+
+            def __init__(self, frame_cuts: set[int], final_cuts: list[int]) -> None:
+                self.frame_cuts = frame_cuts
+                self.final_cuts = final_cuts
+                self.timecodes = []
+
+            def process_frame(self, timecode: Any, frame_img: Any) -> list[Any]:
+                self.timecodes.append(timecode)
+                return [timecode] if len(self.timecodes) - 1 in self.frame_cuts else []
+
+            def post_process(self, timecode: Any) -> list[Any]:
+                return [self.timecodes[i] for i in self.final_cuts]
+
+        video = get_video_files()[0]
+
+        # scenedetect >= 0.7.2 reports a cut at the first frame of a video that starts faded out: the cut doesn't
+        # produce an empty scene, and without other cuts the whole video is one scene
+        scenes = _scene_detect(video, 2.0, StubDetector(frame_cuts=set(), final_cuts=[0]))
+        assert len(scenes) == 1
+        assert scenes[0]['duration'] > 0.0
+
+        # the cut at the first frame is skipped; the cuts at the next two frames end the scenes that start at the first
+        # and second frame
+        scenes = _scene_detect(video, 2.0, StubDetector(frame_cuts={0, 1, 2}, final_cuts=[]))
+        assert len(scenes) >= 2
+        assert all(s['duration'] > 0.0 for s in scenes)
+
     @pytest.mark.db_roots('local', reason='reads Env default video encoder config')
     def test_default_video_codec(self, uses_db: None) -> None:
         result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, check=False)
