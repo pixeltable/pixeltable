@@ -101,7 +101,7 @@ Both cached and stored results can become stale before lock acquisition.
 A table's ancestors, kind, and store table name are fixed at creation, though an ancestor may have been dropped.
 Mutable views and catalog paths can change and must be checked after locking.
 
-### Why a stale set is safe
+### Why a stale lock set is safe
 
 Before validation, the transaction only acquires locks, reads metadata, and checks for pending operations.
 It performs no caller data reads, row writes, metadata changes, or media I/O. Directory locking does issue
