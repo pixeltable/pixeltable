@@ -294,23 +294,28 @@ class TunnelTransport(Transport):
         self._endpoint = f'https://{self._host}:{self._port}'
 
     def _connect_tunnel(self) -> _TunnelHTTPConnection:
+        # before connecting: renewing a session is a round trip of its own, and a refused credential needs no socket
+        credential = self._credential_cb()
         try:
-            return self._open_tunnel()
+            return self._open_tunnel(credential)
         except PermissionError:
             raise
         except _TUNNEL_TRANSIENT_EXC:
-            self._raise_if_stopped()
+            self._raise_if_stopped(credential)
             raise
 
-    def _raise_if_stopped(self) -> None:
-        """A stopped database resets tunnels without a word, which no retry fixes: ask the control plane."""
+    def _raise_if_stopped(self, credential: Credential) -> None:
+        """A stopped database resets tunnels without a word, which no retry fixes: ask the control plane.
+
+        credential is the one the tunnel presented, since none may be configured.
+        """
         now = time.monotonic()
         if self._state_checked_at is not None and now - self._state_checked_at < _STATE_CHECK_INTERVAL_S:
             return
         self._state_checked_at = now
         try:
             current = GetDbResponse.model_validate(
-                management_client.api_call(GetDbRequest(org=self._org, db=self._db))
+                management_client.api_call(GetDbRequest(org=self._org, db=self._db), credential)
             ).report.current
         except Exception:
             return  # no answer: keep retrying
@@ -320,10 +325,8 @@ class TunnelTransport(Transport):
                 excs.ErrorCode.INVALID_STATE, f'{uri} is stopped; start it with `pxt db start {uri}`.'
             )
 
-    def _open_tunnel(self) -> _TunnelHTTPConnection:
+    def _open_tunnel(self, credential: Credential) -> _TunnelHTTPConnection:
         """Open one tunnel connection: TCP + TLS + PXT/1.0 CONNECT handshake."""
-        # before connecting: renewing a session is a round trip of its own, and a refused credential needs no socket
-        credential = self._credential_cb()
         ctx = ssl.create_default_context()
         raw_sock = self._open_socket()
         ssl_sock: ssl.SSLSocket | None = None
