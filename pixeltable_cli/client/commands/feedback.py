@@ -9,13 +9,10 @@ import platform
 import sys
 import textwrap
 import urllib.parse
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import NoReturn
 
 from ..parser import Parser
 from ..utils import EXIT_ERROR, EXIT_REFUSED, agent_name
-
-if TYPE_CHECKING:
-    import requests
 
 DEFAULT_URL = 'https://www.pixeltable.com/api/v1/feedback'
 
@@ -134,7 +131,7 @@ def _send(url: str, fields: dict[str, str | None]) -> str | None:
     """POST fields to url; the reference the server gave the report, or None if it gave none."""
     import requests
 
-    # unescaped UTF-8: the site caps the body at 16 KB, which \uXXXX escapes of a non-ASCII message could exceed
+    # unescaped UTF-8: \uXXXX escapes would make a non-ASCII message up to 12 times its size against the site's cap
     body = json.dumps(fields, ensure_ascii=False).encode('utf-8')
     try:
         # a redirect would take the report to a host the preview did not name
@@ -148,30 +145,15 @@ def _send(url: str, fields: dict[str, str | None]) -> str | None:
     except requests.RequestException as e:
         _fail(f'could not send ({type(e).__name__})')
     if resp.status_code == 429:
-        wait = _retry_after(resp)
-        _fail(f'not sent (rate limited); try again in {wait} s.' if wait is not None else 'not sent (rate limited).')
+        wait = resp.headers.get('Retry-After')
+        _fail(f'not sent (rate limited); try again in {wait} s.' if wait else 'not sent (rate limited).')
     if resp.status_code != 202:
         _fail(f'could not send (HTTP {resp.status_code})')
-    report_id = _json_body(resp).get('id')
-    return report_id if isinstance(report_id, str) else None
-
-
-def _retry_after(resp: requests.Response) -> int | None:
-    """Seconds to wait, from the body's retry_after or else the Retry-After header."""
-    for value in (_json_body(resp).get('retry_after'), resp.headers.get('Retry-After')):
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            continue
-    return None
-
-
-def _json_body(resp: requests.Response) -> dict[str, Any]:
     try:
-        body = resp.json()
-    except ValueError:
-        return {}
-    return body if isinstance(body, dict) else {}
+        report_id = resp.json()['id']
+    except (ValueError, TypeError, KeyError):
+        return None
+    return report_id if isinstance(report_id, str) else None
 
 
 def _fail(message: str, exit_code: int = EXIT_ERROR) -> NoReturn:

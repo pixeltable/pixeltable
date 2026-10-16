@@ -164,22 +164,9 @@ class TestFeedback:
         feedback.run(['--kind', 'gap', _MESSAGE, '--send'])
         assert len(posted) == 1
 
-    @pytest.mark.parametrize(
-        ('body', 'headers'),
-        [
-            ({'error_code': 'RATE_LIMITED', 'message': 'slow down', 'retry_after': 42}, {'Retry-After': '42'}),
-            ({'error_code': 'RATE_LIMITED'}, {'Retry-After': '42'}),
-        ],
-        ids=['body', 'header only'],
-    )
-    def test_rate_limited(
-        self,
-        capsys: pytest.CaptureFixture[str],
-        monkeypatch: pytest.MonkeyPatch,
-        body: dict[str, Any],
-        headers: dict[str, str],
-    ) -> None:
-        _serve(monkeypatch, _response(429, body, headers))
+    def test_rate_limited(self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+        body = {'error_code': 'RATE_LIMITED', 'message': 'slow down', 'retry_after': 42}
+        _serve(monkeypatch, _response(429, body, {'Retry-After': '42'}))
         with pytest.raises(SystemExit) as exc:
             feedback.run(['--kind', 'gap', _MESSAGE, '--send'])
         assert exc.value.code == utils.EXIT_ERROR
