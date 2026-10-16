@@ -127,8 +127,12 @@ the operation with that view removed from the lock set.
 ## 5. Directory locks
 
 Directories have no store tables, so directory operations lock rows in `dirs`. Acquire these locks after all
-store table locks, sorted by catalog path. Taking a directory lock first would establish a snapshot before
-a possible wait for a store table lock.
+store table locks. Taking a directory lock first would establish a snapshot before a possible wait for a store table
+lock.
+
+Directory locks are acquired in the order of the directories' catalog paths, compared component by component: a
+directory comes before its subdirectories, and sibling directories are ordered by name. For example, `a` is locked
+before `a/b`, which is locked before `a/c` and `b`.
 
 Directory locks update `lock_dummy`, even if its value is unchanged. A transaction may already have a snapshot
 when it waits for this lock. If the preceding lock holder updated the row after that snapshot, Postgres raises
