@@ -167,6 +167,7 @@ class TestPrepareProject:
         """A pod pinned to a release asks for that release's archive, and fails if it is never found."""
         monkeypatch.setenv('PXTCLOUD_ARCHIVE_DIGEST', 'digest-7')
         monkeypatch.setenv('PXTCLOUD_BUILD_ID', 'build-7')
+        monkeypatch.setenv('PXTCLOUD_RELEASE_KEY', 'release-7')
         archive_dir = tmp_path / 'archive'
         with (
             mock.patch.object(prepare_project, 'unpack_project_archive', side_effect=_not_found()) as unpack,
@@ -175,7 +176,11 @@ class TestPrepareProject:
         ):
             prepare_project.prepare(_DB_URI, archive_dir)
         assert unpack.call_count == len(prepare_project._PINNED_FETCH_DELAYS)
-        assert unpack.call_args.kwargs == {'archive_digest': 'digest-7', 'build_id': 'build-7'}
+        assert unpack.call_args.kwargs == {
+            'archive_digest': 'digest-7',
+            'build_id': 'build-7',
+            'release_key': 'release-7',
+        }
 
 
 class TestUnpack:

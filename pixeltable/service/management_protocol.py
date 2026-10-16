@@ -381,7 +381,8 @@ class GetArchiveRequest(BaseModel):
     """Ask for a url serving a project archive of the database; a pod sends this as it starts.
 
     A pod pinned to a release names its archive digest and build id, and gets that release's archive; without
-    them it gets the archive of the database's current release.
+    them it gets the archive of the database's current release. The release key tells apart releases that share
+    an archive and a build but not their settings (the fingerprint's config).
     """
 
     operation_type: Literal[ManagementOperationType.GET_ARCHIVE] = ManagementOperationType.GET_ARCHIVE
@@ -389,6 +390,7 @@ class GetArchiveRequest(BaseModel):
     db: str
     archive_digest: str | None = None
     build_id: str | None = None
+    release_key: str | None = None
 
 
 class GetArchiveResponse(BaseModel):
