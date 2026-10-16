@@ -363,6 +363,7 @@ class RequestFailedError(Exception):
     server_tb: str | None
     error_code: str  # the daemon's error_code, or one of DAEMON_UNREACHABLE and INTERNAL_ERROR when it gave none
     detail: str  # the reason, without the status
+    retry_after: float | None  # seconds after which resending may succeed, when the daemon knows
 
     def __init__(
         self,
@@ -373,6 +374,7 @@ class RequestFailedError(Exception):
         *,
         error_code: str | None = None,
         detail: str | None = None,
+        retry_after: float | None = None,
     ) -> None:
         super().__init__(message)
         self.status = status
@@ -380,6 +382,7 @@ class RequestFailedError(Exception):
         self.server_tb = server_tb
         self.error_code = error_code or ('DAEMON_UNREACHABLE' if status is None else 'INTERNAL_ERROR')
         self.detail = detail or message
+        self.retry_after = retry_after
 
     @property
     def transient(self) -> bool:
@@ -394,7 +397,9 @@ class RequestFailedError(Exception):
 
     def report(self) -> None:
         if invocation is not None and '--json' in invocation:
-            doc = {'error_code': self.error_code, 'message': self.detail, 'retryable': self.transient}
+            doc: dict[str, Any] = {'error_code': self.error_code, 'message': self.detail, 'retryable': self.transient}
+            if self.retry_after is not None:
+                doc['retry_after'] = self.retry_after
             print(json.dumps(doc, indent=2))
             sys.stdout.flush()
         print(f'pxt: {self} [{self.error_code}]', file=sys.stderr)
@@ -447,6 +452,7 @@ def _send(method: str, path: str, body: dict[str, Any] | None, params: dict[str,
         detail = body.get('detail') or e.reason
         retryable = body.get('retryable')
         error_code = body.get('error_code')
+        retry_after = body.get('retry_after')
         raise RequestFailedError(
             f'{e.code} {detail}',
             e.code,
@@ -454,6 +460,7 @@ def _send(method: str, path: str, body: dict[str, Any] | None, params: dict[str,
             server_tb=body.get('traceback'),
             error_code=error_code if isinstance(error_code, str) else None,
             detail=str(detail),
+            retry_after=retry_after if isinstance(retry_after, (int, float)) else None,
         ) from e
     except urllib.error.URLError as e:
         raise RequestFailedError(f'cannot reach daemon at {url}: {e.reason}') from e

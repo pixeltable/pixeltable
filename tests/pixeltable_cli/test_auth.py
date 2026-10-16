@@ -99,6 +99,7 @@ class ControlPlane:
     seen: list[dict[str, Any]] = field(default_factory=list)
     credentials_seen: list[dict[str, str]] = field(default_factory=list)
     status: int = 200
+    error_code: str | None = None  # sent as X-Pixeltable-Error-Code with an error status, as Cloud names its errors
     client_id: str = 'client_01TEST'
     # the status and body of the discovery document; None answers with client_id and this stub's address,
     # and a bytes body is sent as it is
@@ -187,6 +188,8 @@ def _serve(plane: ControlPlane) -> HTTPServer:
                 self.send_header('Location', answer)
             if status in (429, 503):
                 self.send_header('Retry-After', '1')  # as throttled and unavailable services send it
+            if status >= 400 and plane.error_code is not None:
+                self.send_header('X-Pixeltable-Error-Code', plane.error_code)
             self.end_headers()
             self.wfile.write(payload)
 
@@ -705,6 +708,45 @@ class TestKey:
         assert r.returncode == 1
         assert 'pxt: 400 Pixeltable Cloud refused this request: Keys with grants are not available yet.' in r.stderr
         assert 'Bad Request' not in r.stderr
+
+    @pytest.mark.parametrize(
+        ('status', 'error_code', 'expected'),
+        [
+            # a refusal Cloud names reaches the caller by that name
+            (
+                403,
+                'PLAN_LIMIT',
+                {
+                    'error_code': 'PLAN_LIMIT',
+                    'message': 'Pixeltable Cloud refused this request: Community allows 2 keys.',
+                    'retryable': False,
+                },
+            ),
+            # a name that is only the status's says nothing more, so core's code stands
+            (403, 'FORBIDDEN', {'error_code': 'INSUFFICIENT_PRIVILEGES', 'retryable': False}),
+            # an outage keeps its wait
+            (503, 'BUSY', {'error_code': 'BUSY', 'retryable': True, 'retry_after': 1.0}),
+        ],
+    )
+    def test_cloud_error_code(
+        self, cloud_cli: PxtRunner, control_plane: ControlPlane, status: int, error_code: str, expected: dict[str, Any]
+    ) -> None:
+        """Cloud's X-Pixeltable-Error-Code reaches the caller: at the end of the text line, and in --json."""
+        control_plane.answers['create_key'] = b'Community allows 2 keys'
+        control_plane.status = status
+        control_plane.error_code = error_code
+        try:
+            r = cloud_cli('key', 'create', 'app', check=False)
+            r_json = cloud_cli('key', 'create', 'app', '--json', check=False)
+        finally:
+            control_plane.status = 200
+            control_plane.error_code = None
+
+        assert r.returncode == 1
+        assert r.stderr.rstrip().endswith(f'[{expected["error_code"]}]'), r.stderr
+        assert r_json.returncode == 1
+        assert {k: r_json.json[k] for k in expected} == expected
+        assert ('retry_after' in r_json.json) == ('retry_after' in expected)
 
     def test_key_update_no_args(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         before = len(control_plane.seen)

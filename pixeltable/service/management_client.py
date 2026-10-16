@@ -6,6 +6,7 @@ Callers pass a request model from management_protocol and get back the raw respo
 from __future__ import annotations
 
 import dataclasses
+import http
 import http.client
 from pathlib import Path
 from typing import Any, Literal
@@ -159,13 +160,32 @@ def _reason(resp: requests.Response) -> str:
     return reason or phrase or f'HTTP {resp.status_code}'
 
 
+def _error_code(resp: requests.Response) -> str | None:
+    """The control plane's name for the error, when more specific than its status's (eg, PLAN_LIMIT for a 403)."""
+    # the control plane names every error in this header, its status's name when it has none more specific
+    code = resp.headers.get('X-Pixeltable-Error-Code')
+    try:
+        status_name: str | None = http.HTTPStatus(resp.status_code).name
+    except ValueError:
+        status_name = None
+    return None if code is None or code == status_name else code
+
+
+def _retry_after(resp: requests.Response) -> float | None:
+    """Retry-After in seconds; None when absent, or given as a date, which the control plane never sends."""
+    try:
+        return float(resp.headers['Retry-After'])
+    except (KeyError, ValueError):
+        return None
+
+
 def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) -> None:
     """Raise for a 4xx other than 429; for a 401 or a 403, the error says which credential the request sent.
 
     purpose is the verb phrase that completes "is not permitted to", such as 'list organizations'.
     """
     if is_refusal(resp.status_code):
-        raise refusal(resp.status_code, _reason(resp), sent, purpose)
+        raise refusal(resp.status_code, _reason(resp), sent, purpose, error_code=_error_code(resp))
 
 
 def is_refusal(status_code: int) -> bool:
@@ -173,22 +193,27 @@ def is_refusal(status_code: int) -> bool:
     return 400 <= status_code < 500 and status_code != 429
 
 
-def refusal(status_code: int, reason: str, sent: Credential, purpose: str) -> excs.Error:
+def refusal(
+    status_code: int, reason: str, sent: Credential, purpose: str, *, error_code: str | None = None
+) -> excs.Error:
     """The error for a refusal status (see is_refusal); for a 401 or a 403, it says which credential was sent.
 
-    reason is a sentence without its final period. Shared with the database tunnel, so that a credential
-    refused there reads the same as one the control plane refused.
+    reason is a sentence without its final period, and error_code the control plane's name for the error when more
+    specific than the status's. Shared with the database tunnel, so that a credential refused there reads the same
+    as one the control plane refused.
     """
     if status_code == 409:
         return excs.ConcurrencyError(
             excs.ErrorCode.CONCURRENT_MODIFICATION, f'Pixeltable Cloud refused this request: {reason}.'
         )
-    if status_code not in (401, 403):
+    # a 403 with a name of its own, such as PLAN_LIMIT, refuses the request rather than the credential
+    if status_code not in (401, 403) or (status_code == 403 and error_code is not None):
         return excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_BAD_REQUEST,
             f'Pixeltable Cloud refused this request: {reason}.',
             provider='pixeltable_cloud',
             status_code=status_code,
+            provider_error_code=error_code,
         )
     if status_code == 403:
         # the control plane accepted the credential and refused the operation, so signing in again cannot help
@@ -210,7 +235,11 @@ def refusal(status_code: int, reason: str, sent: Credential, purpose: str) -> ex
     # one only delays the error. A 401 is always the control plane's own decision -- it answers 503,
     # never 401, when WorkOS is the thing that could not be reached.
     return excs.ExternalServiceError(
-        excs.ErrorCode.PROVIDER_AUTH_ERROR, message, provider='pixeltable_cloud', status_code=status_code
+        excs.ErrorCode.PROVIDER_AUTH_ERROR,
+        message,
+        provider='pixeltable_cloud',
+        status_code=status_code,
+        provider_error_code=error_code,
     )
 
 
@@ -239,7 +268,9 @@ def api_call(request: Any, credential: Credential | None = None) -> dict[str, An
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
             f'Management API error {resp.status_code}: {resp.text}',
+            retry_after=_retry_after(resp),
             provider='pixeltable_cloud',
             status_code=resp.status_code,
+            provider_error_code=_error_code(resp),
         )
     return resp.json()

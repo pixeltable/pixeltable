@@ -62,6 +62,19 @@ def _changed_settings(names: list[str]) -> str:
     return '\n'.join(lines)
 
 
+def _error_body(e: excs.Error) -> dict[str, Any]:
+    """The body of a daemon error response; error_code is a provider's own name for the error when it gives one."""
+    provider_code = e.provider_error_code if isinstance(e, excs.ExternalServiceError) else None
+    body: dict[str, Any] = {
+        'detail': str(e),
+        'error_code': provider_code or e.error_code.name,
+        'retryable': e.is_retryable,
+    }
+    if e.retry_after is not None:
+        body['retry_after'] = e.retry_after
+    return body
+
+
 class _DaemonHandler(BaseHTTPRequestHandler):
     """Dispatcher for /api/* JSON routes and static SPA files."""
 
@@ -107,9 +120,7 @@ class _DaemonHandler(BaseHTTPRequestHandler):
                 if Config.reload_if_changed():
                     _logger.info('Reloaded %s', Config.get().config_file)
             except excs.Error as e:
-                self._send_json(
-                    {'detail': str(e), 'error_code': e.error_code.name, 'retryable': e.is_retryable}, e.http_status
-                )
+                self._send_json(_error_body(e), e.http_status)
                 return
             except Exception as e:
                 self._send_json(
@@ -146,9 +157,7 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         try:
             result = handler(req)
         except excs.Error as e:
-            self._send_json(
-                {'detail': str(e), 'error_code': e.error_code.name, 'retryable': e.is_retryable}, e.http_status
-            )
+            self._send_json(_error_body(e), e.http_status)
             return
         except Exception as e:
             # log the full request target (self.path includes the query string) plus the resolved catalog
