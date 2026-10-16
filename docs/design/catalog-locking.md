@@ -155,14 +155,11 @@ lock.
 ## 6. Store tables and metadata commit together
 
 For tables with physical storage, a committed `tables` row must have a corresponding store table, and a
-committed store table must have its metadata row. Pure snapshots are the exception because they have no store table.
+committed store table must have its metadata row.
 
 Create the store table and its indexes in the transaction that inserts its metadata. Drop the store table in
-the transaction that deletes its metadata. Postgres DDL is transactional, so rollback removes both changes.
-
-A missing store table therefore means the tentative lock set is stale. Recovery never needs to create a store
-table for metadata that has already committed. Creation also needs no `IF NOT EXISTS` handling: the parent
-directory lock ensures that only one creator can claim the name.
+the transaction that deletes its metadata. Postgres DDL is transactional, so rollback removes both changes. A missing
+store table therefore means the tentative lock set is stale.
 
 ## 7. Pending operations between transactions
 
