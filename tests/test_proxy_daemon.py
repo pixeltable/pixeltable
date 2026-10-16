@@ -1,3 +1,4 @@
+import gc
 import http
 import io
 import json
@@ -1361,6 +1362,16 @@ class TestTunnelRetries:
         with pool.borrow() as conn:
             assert conn is fresh
         assert slow.closed
+
+    def test_a_collected_transport_closes_its_idle_connections(self) -> None:
+        """A transport dropped without close(), as when the runtime holding it is discarded, closes its idle
+        connections when GC collects it and its pool."""
+        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
+        idle = _ScriptedConn()
+        transport._pool._idle.append((idle, time.monotonic()))  # type: ignore[arg-type]
+        del transport
+        gc.collect()
+        assert idle.closed
 
 
 class _SigningPlane:

@@ -13,6 +13,7 @@ from typing import Sequence
 import httpx
 
 from pixeltable import catalog, exceptions as excs
+from pixeltable.config import Config
 from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
     CreateServiceInstanceRequest,
@@ -32,6 +33,7 @@ from pixeltable.service.management_protocol import (
     UpdateServiceInstanceRequest,
     UpdateServiceInstanceResponse,
 )
+from pixeltable.service.resources import ServiceResources
 from pixeltable.utils.app_module import load_app_module, module_name, module_routers, service_spec, services_by_name
 
 from .service_instance import ServiceInstance, ServiceInstanceRecord, ServiceState
@@ -85,8 +87,10 @@ class ServiceManagerProxy(ServiceManagerBase):
     ) -> ServiceInstance:
         """Make the named service in app_file serve base_path, and return its instance.
 
-        An available instance is not stopped: an update replaces its pods in place when its definition changed.
-        restart: replace them with a restart when it did not, which moves them onto the database's current project.
+        An available instance is not stopped: an update changes it in place when its definition or its declared
+        resources changed.
+        restart: unless the update replaced the pods, replace them with a restart, which moves them onto the database's
+        current project.
         A replacement whose new pods do not come up raises, also when the old ones keep serving.
         """
         if port is not None:
@@ -103,6 +107,7 @@ class ServiceManagerProxy(ServiceManagerBase):
             )
         spec = service_spec(name, services[name], module_routers(module))
         app_module = module_name(app_file, subject='application file')
+        declared = self._declared_resources(name, base_path)
         instance = self.get(name, base_path)
 
         if instance is None:
@@ -115,10 +120,13 @@ class ServiceManagerProxy(ServiceManagerBase):
                     spec=spec,
                     app_module=app_module,
                     otel=otel,
+                    resources=declared,
                 )
             )
         else:
-            if (instance.spec, instance.record.app_module, instance.otel) != (spec, app_module, otel):
+            redefined = (instance.spec, instance.record.app_module, instance.otel) != (spec, app_module, otel)
+            changed_resources = instance.record.resources.changes(declared)
+            if redefined or changed_resources != ServiceResources():
                 updated = UpdateServiceInstanceResponse.model_validate(
                     management_client.api_call(
                         UpdateServiceInstanceRequest(
@@ -126,14 +134,18 @@ class ServiceManagerProxy(ServiceManagerBase):
                             db=self._db,
                             service_name=name,
                             base_path=base_path,
-                            spec=spec,
-                            app_module=app_module,
-                            otel=otel,
+                            # only what changed: a spec, cpu, memory_mb or file_cache_gb makes the control plane
+                            # replace the pods
+                            spec=spec if redefined else None,
+                            app_module=app_module if redefined else None,
+                            otel=otel if redefined else None,
+                            resources=changed_resources,
                         )
                     )
                 )
                 instance = self._wait_for_roll(name, base_path, updated.instance)
-            elif restart and instance.state is ServiceState.AVAILABLE:
+            replaced = redefined or len(changed_resources.model_dump(exclude_none=True).keys() - {'workers'}) > 0
+            if restart and not replaced and instance.state is ServiceState.AVAILABLE:
                 self.restart(instance)
             if instance.state is ServiceState.AVAILABLE:
                 self._wait_for_endpoint(instance)
@@ -152,6 +164,11 @@ class ServiceManagerProxy(ServiceManagerBase):
             )
         self._wait_for_endpoint(started)
         return started
+
+    def _declared_resources(self, name: str, base_path: str) -> ServiceResources:
+        db_config = Config.get().get_database_config(self.catalog_uri)
+        declared = None if db_config is None else db_config.service_resources(base_path).get(name.lower())
+        return ServiceResources() if declared is None else declared
 
     def stop(self, instance: ServiceInstance) -> None:
         management_client.api_call(

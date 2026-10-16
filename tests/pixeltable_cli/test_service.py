@@ -13,7 +13,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import catalog
-from pixeltable.config import Config
+from pixeltable.config import Config, DatabaseConfig
 from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
     ListServiceInstancesRequest,
@@ -21,6 +21,7 @@ from pixeltable.service.management_protocol import (
     StopServiceInstanceRequest,
     UpdateServiceInstanceRequest,
 )
+from pixeltable.service.resources import ServiceResources
 from pixeltable.service.service_md import LocalServiceInstanceRecord, ServiceInstanceRecord
 from pixeltable.serving import service as serving_service
 from pixeltable.serving.service_instance import ServiceInstance
@@ -48,10 +49,13 @@ from ..utils import (
 )
 from .conftest import (
     BUILD_TIMEOUT,
+    EXIT_CHANGES_PENDING,
     EXIT_ERROR,
     INPUT_MEDIA_PREFIX,
     BackgroundPxt,
     PxtRunner,
+    assert_in_agreement,
+    db_diff,
     db_update,
     disposable_db,
     read_logs_until,
@@ -203,7 +207,7 @@ def _fetch_media(url: str, db_root: DatabaseRoot) -> bytes:
     """The bytes behind a media url of a response: a hosted service signs a home bucket url, a local one serves the
     file itself."""
     if db_root.is_cloud:
-        return fetch_presigned(url, expires_s=3600, host_suffix='.r2.cloudflarestorage.com')
+        return fetch_presigned(url, expires_s=3600, host_suffix=f'usercontent.{os.environ["PIXELTABLE_CLOUD_HOST"]}')
     assert '/media/' in url, url
     resp = httpx.get(url, timeout=_REQUEST_TIMEOUT)
     assert resp.status_code == 200, resp.text
@@ -543,6 +547,59 @@ class TestService:
         restarted = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
         assert restarted['update_pending'] is False, restarted
         assert summary() == 'HELLO'
+
+    @pytest.mark.db_roots('cloud-serving', reason='resources apply only to a hosted service')
+    def test_resources(
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, session_project: pathlib.Path
+    ) -> None:
+        """pixeltable.toml sets a hosted service's resources, and pxt service update applies a change."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app, target = apps('basic.py'), db_root.make_catalog_path('resources')
+        base_path = target.removeprefix(f'{db_root.base_uri}/')
+        config_file = session_project / 'pixeltable.toml'
+        config = config_file.read_text(encoding='utf-8')
+
+        def declare(name: str, resources: str) -> None:
+            config_file.write_text(
+                f"{config}\n[pixeltable.database.services.'{base_path}/{name}']\n{resources}\n", encoding='utf-8'
+            )
+
+        def resources_of(service: dict[str, Any]) -> tuple[float, int, int, float]:
+            return service['cpu'], service['memory_mb'], service['workers'], service['file_cache_gb']
+
+        try:
+            deploy(cli, app, target)
+            # nothing declared: the control plane's defaults
+            assert resources_of(assert_serving(cli, app, target, 'ingest')['ingest']) == (1.0, 2048, 1, 2.0)
+
+            declare('ingest', 'memory_mb = 3072\nworkers = 2\nfile_cache_gb = 4.0')
+            # resources are not in the fingerprint, so the database needs no update
+            r = cli('service', 'diff', app, target, '--json', check=False)
+            [diff] = r.json['services']
+            assert [(op['name'], op['details']) for op in diff['ops'] if op['target'] == 'resources'] == [
+                ('memory_mb', {'from': '2048', 'to': '3072'}),
+                ('workers', {'from': '1', 'to': '2'}),
+                ('file_cache_gb', {'from': '2.0', 'to': '4.0'}),
+            ]
+            cli('service', 'update', app, target, '-f')
+            assert resources_of(assert_serving(cli, app, target, 'ingest')['ingest']) == (1.0, 3072, 2, 4.0)
+
+            # a workers change alone scales the service without a restart
+            declare('ingest', 'memory_mb = 3072\nworkers = 3\nfile_cache_gb = 4.0')
+            [diff] = cli('service', 'diff', app, target, '--json', check=False).json['services']
+            [op] = diff['ops']
+            assert (op['target'], op['name'], op['requires_restart']) == ('resources', 'workers', False)
+            assert op['details'] == {'from': '2', 'to': '3'}
+            cli('service', 'update', app, target, '-f')
+            assert resources_of(assert_serving(cli, app, target, 'ingest')['ingest']) == (1.0, 3072, 3, 4.0)
+
+            # an entry for another file's service, or for no service at all, leaves the plan unchanged
+            declare('nosuch', 'workers = 2')
+            assert resources_of(assert_serving(cli, app, target, 'ingest')['ingest']) == (1.0, 3072, 3, 4.0)
+        finally:
+            config_file.write_text(config, encoding='utf-8')
+            cli('service', 'stop', f'{target}/ingest', check=False)
 
     def test_prune(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """The same prune, driven by editing the served file rather than by serving another one."""
@@ -945,12 +1002,18 @@ class TestService:
                 assert r.returncode == 1 and "No service 'ingest' is running" in r.stderr, r.stderr
             return
 
-        # a local service logs to a file, and the error names it, for a qualified name and a bare one alike
+        # a local service logs to a file, and the error gives the path of that file and points to the cloud, for a
+        # qualified name and a bare one alike
         log_file = Config.get().home.joinpath('logs', 'services', target, 'ingest.log')
         for name in (f'{target}/ingest', 'ingest'):
             r = cli('service', 'logs', name, check=False)
             assert r.returncode == 1, r.stderr
-            assert f'not supported; the log is at {log_file}' in r.stderr, r.stderr
+            assert f'writes its log to {log_file}' in r.stderr, r.stderr
+            assert 'Pixeltable Cloud database' in r.stderr and 'pxt new' in r.stderr, r.stderr
+            # a service update on a hosted database needs the db update and the schema update before it
+            deploy_steps = "'pxt db update pxt://org:db', then 'pxt schema update app.py pxt://org:db', then "
+            assert deploy_steps in r.stderr, r.stderr
+            assert "'pxt service update app.py pxt://org:db'" in r.stderr, r.stderr
             # a local service writes its spans to the span_dump file, if one is set
             r = cli('service', 'spans', name, check=False)
             assert r.returncode == 1 and 'not supported. Start it with --otel' in r.stderr, r.stderr
@@ -1236,6 +1299,56 @@ class TestCloudService:
         assert repeated.json[0]['details']['reason'] == 'already stopped'
         assert not service_diff(cli, project, app_file, current_db)['in_agreement']
 
+    def test_settings_edit(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+        """A settings edit restarts the database and its services without an upload.
+
+        An edit to a comment or to another database's entry changes nothing.
+        """
+        app_file = str(project / APP_FILE)
+        schema_update(cli, project, app_file, current_db)
+        service_update(cli, project, app_file, current_db, '--allow-destructive')
+        assert service_diff(cli, project, app_file, current_db)['in_agreement']
+
+        # edits outside this database's entry
+        config_file = project / 'pixeltable.toml'
+        entry = config_file.read_text(encoding='utf-8')
+        config_file.write_text(
+            f"{entry}\n# unrelated\n[[pixeltable.database]]\nname = 'pxt://acme:other'\nvars.dest = 'other'\n",
+            encoding='utf-8',
+        )
+        assert_in_agreement(cli, project, current_db)
+        assert service_diff(cli, project, app_file, current_db)['in_agreement']
+
+        media_dest = f'{home_bucket_uri(current_db)}/settings-edit/'
+        config_file.write_text(
+            f"{entry}vars.dest = 'settings-edit'\ndb_output_media_dest = {json.dumps(media_dest)}\n\n"
+            '[openai]\nrate_limits = { gpt-4o = 100 }\n',
+            encoding='utf-8',
+        )
+        # the local daemon refuses a changed provider setting until it restarts
+        cli('daemon', 'restart', cwd=project)
+        changes = ['db_output_media_dest changed', 'openai.rate_limits changed', 'var dest changed']
+        plan = db_diff(cli, project, current_db)
+        assert plan['returncode'] == EXIT_CHANGES_PENDING
+        [op] = plan['ops']
+        assert (op['target'], op['requires_restart']) == ('config', True)
+        assert op['details']['changes'].split('; ') == changes
+        assert not plan['summary']['rebuild']
+
+        applied = db_update(cli, project, current_db)
+        assert [(op['target'], op['status']) for op in applied['ops']] == [('config', 'applied')]
+        await_service_available(cli, project, current_db, 'ingest')
+        assert service_list(cli, project, current_db)['ingest']['update_pending']
+        [pending] = service_diff(cli, project, app_file, current_db)['services']
+        [op] = pending['ops']
+        assert (op['target'], op['requires_restart']) == ('project', True)
+        assert op['details']['changes'].split('; ') == changes
+
+        service_update(cli, project, app_file, current_db)
+        await_service_available(cli, project, current_db, 'ingest')
+        assert not service_list(cli, project, current_db)['ingest']['update_pending']
+        assert service_diff(cli, project, app_file, current_db)['in_agreement']
+
 
 # what the control plane records on an instance whose new pods did not come up while its old ones kept serving
 _ROLL_FAILED = 'rollout failed, still serving the previous version: pod did not become ready within 300s'
@@ -1280,7 +1393,11 @@ class _ControlPlane:
         self.sent.append(request)
         changes: dict[str, Any] = {}
         if isinstance(request, UpdateServiceInstanceRequest):
-            changes.update(spec=request.spec, app_module=request.app_module, otel=request.otel)
+            # an omitted field is left as it is
+            redefined = {'spec': request.spec, 'app_module': request.app_module, 'otel': request.otel}
+            changes.update({field: value for field, value in redefined.items() if value is not None})
+            resized = request.resources.model_dump(exclude_none=True)
+            changes.update(resources=self.record.resources.model_copy(update=resized))
         answered = self.record.model_copy(update=changes)
         if isinstance(request, StopServiceInstanceRequest):
             changes.update(state=ServiceState.STOPPED)
@@ -1411,7 +1528,13 @@ class TestServiceUpdateRunning:
         )
         assert [type(r).__name__ for r in sent] == ['UpdateServiceInstanceRequest']
 
-    def test_hosted_failed_otel_retry(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+    def _hosted_planned(
+        self, monkeypatch: pytest.MonkeyPatch, app_file: str, *, declared: ServiceResources | None = None
+    ) -> _ControlPlane:
+        """Fake a hosted instance of app_file's 'ingest' that matches the file.
+
+        declared: the database entry's resources for 'ingest'.
+        """
         record = ServiceInstanceRecord(
             service_name='ingest',
             base_path='',
@@ -1419,24 +1542,34 @@ class TestServiceUpdateRunning:
             app_module=module_name(app_file, subject='application file'),
             spec=ServiceSpec(name='ingest'),
             state=ServiceState.AVAILABLE,
+            resources=ServiceResources(cpu=0.5, memory_mb=1024, workers=1, file_cache_gb=2.0),
         )
-        control_plane = _ControlPlane(record, roll_error=_ROLL_FAILED)
+        control_plane = _ControlPlane(record)
         monkeypatch.setattr(management_client, 'api_call', control_plane.api_call)
         monkeypatch.setattr(ServiceManagerProxy, '_wait_for_endpoint', lambda self, instance: None)
         manager = ServiceManagerProxy(catalog.Path.parse('pxt://acme:main', allow_empty_path=True))
         monkeypatch.setattr(serving_service, 'get_manager', lambda target: manager)
         fingerprint = ProjectFingerprint(
-            files={}, python_version='3.11', system_dependencies=[], pixeltable_version='test', vars={}
+            files={}, python_version='3.11', system_dependencies=[], pixeltable_version='test'
         )
+        services = None if declared is None else {'ingest': declared}
         app_info = serving_service._AppInfo(
             app_file=app_file,
             services={'ingest': serving_service._ServiceInfo(spec=record.spec, kind='declarative')},
+            service_resources=services or {},
             model_mismatch_reason=None,
             db_uri='pxt://acme:main',
             target_db_fingerprint=fingerprint,
             local_fingerprint=fingerprint,
         )
         monkeypatch.setattr(serving_service, '_get_app_info', lambda app_file, target: app_info)
+        entry = DatabaseConfig(name='pxt://acme:main', services=services)
+        monkeypatch.setattr(Config, 'get_database_config', lambda self, path: entry)
+        return control_plane
+
+    def test_hosted_failed_otel_retry(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        control_plane = self._hosted_planned(monkeypatch, app_file)
+        control_plane.roll_error = _ROLL_FAILED
 
         with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=f"Service 'ingest' was not updated: {_ROLL_FAILED}"):
             serving_service.service_update(app_file, PxtPath('pxt://acme:main'), otel=True)
@@ -1448,6 +1581,51 @@ class TestServiceUpdateRunning:
         assert diff.status == 'applied'
         assert control_plane.record.error is None
         assert [type(request).__name__ for request in control_plane.sent] == [
+            'UpdateServiceInstanceRequest',
+            'RestartServiceInstanceRequest',
+        ]
+
+    def test_hosted_resized(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """Declared resources are compared field by field, and an update sends only the fields that differ."""
+        declared = ServiceResources(cpu=1.0, memory_mb=1024, workers=3)
+        control_plane = self._hosted_planned(monkeypatch, app_file, declared=declared)
+        target = PxtPath('pxt://acme:main')
+
+        [diff] = serving_service.service_diff(app_file, target).services
+        # memory_mb is unchanged; a new replica count doesn't replace the pods
+        assert [(op.target, op.name, op.details, op.requires_restart) for op in diff.ops] == [
+            ('resources', 'cpu', {'from': '0.5', 'to': '1.0'}, True),
+            ('resources', 'workers', {'from': '1', 'to': '3'}, False),
+        ]
+        [diff] = serving_service.service_update(app_file, target).services
+        assert diff.status == 'applied'
+        [request] = control_plane.sent
+        assert isinstance(request, UpdateServiceInstanceRequest)
+        # the definition is unchanged, so the update leaves it out
+        assert (request.spec, request.otel) == (None, None)
+        assert request.resources == ServiceResources(cpu=1.0, workers=3)
+
+        [diff] = serving_service.service_diff(app_file, target).services
+        assert diff.resolution == 'up_to_date', diff.ops
+
+    def test_hosted_scaled(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        """A workers change scales the pods in place, and restarts them only when they run an older project."""
+        control_plane = self._hosted_planned(monkeypatch, app_file, declared=ServiceResources(workers=3))
+        target = PxtPath('pxt://acme:main')
+        initial = control_plane.record
+
+        [diff] = serving_service.service_update(app_file, target).services
+        assert diff.status == 'applied'
+        assert [type(r).__name__ for r in control_plane.sent] == ['UpdateServiceInstanceRequest']
+
+        stale = ProjectFingerprint(
+            files={'app.py': 'stale'}, python_version='3.11', system_dependencies=[], pixeltable_version='test'
+        )
+        control_plane.record = initial.model_copy(update={'fingerprint': stale})
+        control_plane.sent.clear()
+        [diff] = serving_service.service_update(app_file, target).services
+        assert [(op.target, op.requires_restart) for op in diff.ops] == [('resources', False), ('project', True)]
+        assert [type(r).__name__ for r in control_plane.sent] == [
             'UpdateServiceInstanceRequest',
             'RestartServiceInstanceRequest',
         ]

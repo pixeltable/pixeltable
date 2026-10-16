@@ -228,33 +228,6 @@ def print_db(report: dict[str, Any], workers: list[dict[str, Any]] | None = None
     _print_workers(workers or [])
 
 
-def print_service(svc: dict[str, Any]) -> None:
-    name = svc.get('service_name', '')
-    state = svc.get('state', '')
-    base = svc.get('base_path', '')
-    workers_max = svc.get('workers_max')
-    if workers_max is not None:
-        workers_str = f'workers={svc.get("workers_min", 1)}-{workers_max}'
-    else:
-        workers_str = f'workers={svc.get("workers_min", 1)}'
-    endpoint = svc.get('endpoint') or ''
-    pending = ' (update pending)' if svc.get('update_pending') is True else ''
-    print(f'{name}  state={state}{pending}  base={base}  {workers_str}  {endpoint}'.rstrip())
-    # Print route URLs from service_config
-    svc_config_str = svc.get('service_config')
-    if svc_config_str and endpoint:
-        try:
-            svc_cfg = json.loads(svc_config_str) if isinstance(svc_config_str, str) else svc_config_str
-            prefix = svc_cfg.get('prefix', '')
-            for route in svc_cfg.get('routes', []):
-                method = route.get('method', 'POST').upper()
-                path = route.get('path', '')
-                print(f'  {method}  {endpoint}{prefix}{path}')
-        except Exception:
-            pass
-    _print_workers(svc.get('workers') or [])
-
-
 def print_org(org: dict[str, Any]) -> None:
     name = org.get('org', '')
     org_id = org.get('org_id', '')

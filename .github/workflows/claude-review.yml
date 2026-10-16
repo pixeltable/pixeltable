@@ -1,0 +1,261 @@
+name: Claude review
+
+# Reviews a PR when its "tests" workflow starts, if its author has write access and Claude has not reviewed it yet, and
+# when someone with write access comments exactly "claude review" on it. An hourly sweep reviews PRs marked ready for
+# review in the last three hours, which start no "tests" run. Runs started by workflow_run, issue_comment, and schedule
+# attach to the default branch, not to the PR, so the review adds no check to the PR. They use this file from the
+# default branch with the repository's secrets, so fork PRs get reviewed too. Nothing from the PR runs. The erosion job
+# checks the complexity of every commit of a PR.
+on:
+  issue_comment:
+    types: [created]
+  workflow_run:
+    workflows: [tests]
+    types: [requested]
+  schedule:
+    - cron: '17 * * * *'
+
+jobs:
+  # Picks the PRs, checks access, and sizes each review. claude-code-action fails the job when the actor lacks write
+  # access, so plan skips the review for those actors instead.
+  plan:
+    if: >-
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+      github.event.comment.body == 'claude review') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request') ||
+      (github.event_name == 'schedule' && github.repository_owner == 'pixeltable')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      reviews: ${{ steps.plan.outputs.reviews }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          sparse-checkout: .github/scripts
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+        run: python3 .github/scripts/plan_claude_review.py
+
+  review:
+    needs: plan
+    if: needs.plan.outputs.reviews != '[]'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        review: ${{ fromJSON(needs.plan.outputs.reviews) }}
+    # Job-level: a workflow-level group would let every PR comment cancel a running review. A sweep job waits instead
+    # of cancelling, because the sweep cannot see a review that is still running; once that review posts, the waiting
+    # job's gate stops it.
+    concurrency:
+      group: claude-review-${{ matrix.review.pr }}
+      cancel-in-progress: ${{ github.event_name != 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Claude gets only GITHUB_TOKEN, passed as github_token below. Without it, the action uses the Claude GitHub App
+    # token, which can push code, and writes it into .git/config, where Claude can read it.
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      # gh pr checks reads check runs, commit statuses, and the workflow run behind each check.
+      actions: read
+      checks: read
+      statuses: read
+    env:
+      PR_NUMBER: ${{ matrix.review.pr }}
+      # Removes ANTHROPIC_API_KEY and other secrets from the environment of the commands Claude runs.
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1'
+      # Runs review agents in the foreground. In the background, Claude ends its turn to wait for them, and the
+      # action stops at that turn's end, so nothing gets posted.
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1'
+    steps:
+      # Tells the person who commented "claude review" that the review started. Grok and Muse already use eyes, rocket,
+      # and heart.
+      - if: github.event_name == 'issue_comment'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=+1 --silent
+      # An automatic job can wait in the concurrency group behind a review of the same PR. If that review posted before
+      # this job started, skip the rest of the job.
+      - id: recheck
+        if: ${{ !matrix.review.requested }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          posted=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json reviews,comments \
+            --jq '[.reviews[].body, .comments[].body] | any(startswith("## Claude review"))')
+          echo "skip=$posted" >> "$GITHUB_OUTPUT"
+      - if: steps.recheck.outputs.skip != 'true'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      # actions/checkout refuses fork PR code in a workflow_run run without allow-unsafe-pr-checkout. Nothing from this
+      # copy runs: the next step moves it out of the working directory and strips its agent files.
+      - if: steps.recheck.outputs.skip != 'true'
+        uses: actions/checkout@v6
+        with:
+          ref: refs/pull/${{ env.PR_NUMBER }}/head
+          path: pr-head
+          fetch-depth: 1
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true
+      # Claude loads CLAUDE.md and .claude/ from inside its working directory. Move the PR out of it and drop the PR's
+      # agent instruction files, so the PR cannot supply instructions.
+      - if: steps.recheck.outputs.skip != 'true'
+        run: |
+          mv pr-head "$RUNNER_TEMP/pr-head"
+          find "$RUNNER_TEMP/pr-head" \
+            \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name AGENTS.md -o -name .claude -o -name .mcp.json \) \
+            -prune -exec rm -rf {} +
+      # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB fails without bubblewrap, and the action installs it only when
+      # allowed_non_write_users is set. Ubuntu 24.04 blocks the unprivileged user namespaces bubblewrap needs.
+      # This step, the Claude step, the post step, the recheck step, and both reaction steps continue on error, so a
+      # failed review does not fail the run. The report step turns a failure into a warning, and the last step reacts
+      # to the comment with a confused face.
+      - if: steps.recheck.outputs.skip != 'true'
+        continue-on-error: true
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bubblewrap socat
+          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - id: claude
+        if: steps.recheck.outputs.skip != 'true'
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          settings: '{"permissions": {"additionalDirectories": ["${{ runner.temp }}/pr-head"]}}'
+          prompt: >-
+            /pxt-review https://github.com/${{ github.repository }}/pull/${{ env.PR_NUMBER }}
+            --pr-head ${{ runner.temp }}/pr-head
+            --tier ${{ matrix.review.tier }}
+            ${{ matrix.review.requested && '--requested' || '' }}
+          # A small PR gets one Sonnet reviewer. A large PR gets Opus, which hands the steps to subagents as the command
+          # says; Sonnet reviewed a large PR alone. Naming Grep or Glob restores both tools, which Claude Code leaves
+          # out on Linux by default. Claude has no tool that posts: its final message holds the review, and the post
+          # step publishes it.
+          claude_args: >-
+            --model ${{ matrix.review.tier == 'large' && 'claude-opus-5-5' || 'claude-sonnet-5-5' }}
+            --allowedTools "Read" "Grep" "Glob" "Bash(gh pr view:*)" "Bash(gh pr diff:*)" "Bash(gh pr checks:*)"
+      # The action hides Claude's transcript. Print Claude's final message, each tool call the allowlist refused, and
+      # the cost per model.
+      - if: always() && steps.recheck.outputs.skip != 'true'
+        env:
+          OUTCOME: ${{ steps.claude.outcome }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          if [ "$OUTCOME" != success ]; then echo "::warning::The Claude review step ended with outcome $OUTCOME."; fi
+          if [ -z "$EXECUTION_FILE" ] || [ ! -f "$EXECUTION_FILE" ]; then exit 0; fi
+          jq -r '.[] | select(.type == "result") | .result // empty' "$EXECUTION_FILE"
+          jq -c '.[] | select(.type == "result") | .permission_denials[]? | {tool_name, tool_input}' "$EXECUTION_FILE"
+          jq -r '.[] | select(.type == "result") | (.modelUsage // {}) | to_entries[] | [.key,
+            "$\((.value.costUSD * 100 | round) / 100)", "input \(.value.inputTokens)", "output \(.value.outputTokens)",
+            "cache read \(.value.cacheReadInputTokens)", "cache write \(.value.cacheCreationInputTokens)"]
+            | join(", ")' "$EXECUTION_FILE"
+      # Posts the summary and the inline comments as one review.
+      - id: post
+        if: steps.claude.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: python3 .github/scripts/post_claude_review.py
+      - if: >-
+          always() && github.event_name == 'issue_comment' &&
+          (steps.claude.outcome != 'success' || steps.post.outcome != 'success')
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=confused --silent
+
+  # Runs on every commit of a PR, next to plan and review. Measures how the PR changes code erosion and verbosity, as
+  # SlopCodeBench (arXiv 2603.24755) defines them, and has Claude judge up to 10 functions above complexity 10 that
+  # grew. Posts one comment once the PR leaves the bounds, then updates it on each commit. The script only parses the
+  # PR's files; nothing from the PR runs.
+  erosion:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request'
+    # A newer commit on the same branch replaces a running check.
+    concurrency:
+      group: claude-erosion-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          sparse-checkout: .github/scripts
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      # The job holds ANTHROPIC_API_KEY and a token that can comment, so every dependency is pinned by hash.
+      - run: |
+          pip install --quiet --require-hashes -r .github/scripts/claude_erosion_requirements.txt
+          npm ci --ignore-scripts --no-audit --no-fund --prefix .github/scripts/ts-functions
+      # Writes the PR's head commit and merge base, or nothing when there is nothing to check.
+      - id: target
+        run: python .github/scripts/claude_erosion_check.py target
+      # Checks out source files only: scb-check reads every Python file, and ts-functions reads TypeScript and
+      # JavaScript.
+      - if: steps.target.outputs.head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.target.outputs.head }}
+          path: erosion/head
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            *.py
+            *.ts
+            *.tsx
+            *.js
+            *.jsx
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true
+      - if: steps.target.outputs.head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.target.outputs.base }}
+          path: erosion/base
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            *.py
+            *.ts
+            *.tsx
+            *.js
+            *.jsx
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - if: steps.target.outputs.head
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python .github/scripts/claude_erosion_check.py report

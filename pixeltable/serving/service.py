@@ -8,6 +8,7 @@ from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.service.db import db_fingerprint
 from pixeltable.service.management_protocol import LogRecord, SpanRecord
+from pixeltable.service.resources import ServiceResources
 from pixeltable.service.service_md import LocalServiceInstanceRecord
 from pixeltable.utils.app_module import (
     check_report,
@@ -125,7 +126,10 @@ def service_update(
         if isinstance(manager, ServiceManagerProxy):
             # a hosted instance is replaced in place rather than stopped, so that the control plane can keep its
             # old pods serving until the new ones are ready
-            started = manager.start(app_file, diff.name, _base_path(target), otel=otel, port=port, restart=True)
+            scales_only = len(diff.ops) > 0 and not any(op.requires_restart for op in diff.ops)
+            started = manager.start(
+                app_file, diff.name, _base_path(target), otel=otel, port=port, restart=not scales_only
+            )
         else:
             instance = running.get(diff.name)
             # a restart keeps the service's port, so that its callers are not redirected
@@ -280,6 +284,9 @@ class _AppInfo:
     app_file: str
     services: dict[str, _ServiceInfo]
 
+    # from the target database's [[pixeltable.database]] entry, keyed by lowercase service name
+    service_resources: dict[str, ServiceResources]
+
     # why the target cannot serve the referenced models, or None if it can
     model_mismatch_reason: str | None
 
@@ -319,10 +326,13 @@ def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
             )
             for name, service in services_by_name(module, app_file).items()
         },
+        service_resources={} if db_config is None else db_config.service_resources(_base_path(target)),
         model_mismatch_reason=validate_models(needed, target),
         db_uri=catalog_path.uri_str,
         target_db_fingerprint=db_fingerprint(catalog_path),
-        local_fingerprint=project_fingerprint(project_root, db_config),
+        local_fingerprint=project_fingerprint(
+            project_root, db_config, project_config=Config.get().create_project_config(db_config)
+        ),
     )
 
 
@@ -351,6 +361,11 @@ def _service_diff(
         ops += compare_specs(running.spec, service.spec)
         if running.otel != otel:
             ops.append(ServiceChangeOp.otel(running.otel, otel))
+        declared = app_info.service_resources.get(name.lower())
+        if declared is not None:
+            current = running.record.resources
+            for field, value in current.changes(declared).model_dump(exclude_none=True).items():
+                ops.append(ServiceChangeOp.resources(field, getattr(current, field), value))
 
     target_db_fingerprint = app_info.target_db_fingerprint
     if target_db_fingerprint is None and app_info.db_uri != '':

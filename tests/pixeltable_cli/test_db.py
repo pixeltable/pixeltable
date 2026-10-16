@@ -228,7 +228,6 @@ class TestCloudDb:
         assert get_target_ops(db_diff(cli, other, test_db_uri), 'archive') != []
 
     def test_excluded_files(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
-        # the entry itself is a project file, so the database has to be given the rewritten one
         create_project_config(cli, project, test_db_uri, exclude=['notes/**'])
         db_update(cli, project, test_db_uri)
         assert_in_agreement(cli, project, test_db_uri)
@@ -322,7 +321,9 @@ class TestLocalLogs:
         r = cli('db', 'logs', db_root.prefix, check=False)
         log_file = proxy_daemon.log_path(proxy_daemon_db)
         assert r.returncode == EXIT_ERROR, r.stderr
-        assert f'not supported; the log is at {log_file}' in r.stderr, r.stderr
+        assert f'writes its log to {log_file}' in r.stderr, r.stderr
+        assert 'Pixeltable Cloud database' in r.stderr and 'pxt new' in r.stderr, r.stderr
+        assert "'pxt db update pxt://org:db'" in r.stderr, r.stderr
         assert log_file.is_file()
         # a local database writes its spans to the span_dump file, if one is set
         r = cli('db', 'spans', db_root.prefix, check=False)

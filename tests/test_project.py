@@ -1,11 +1,12 @@
 """The project's file selection and its fingerprint."""
 
 import pathlib
+from typing import Any
 
 import pytest
 
 from pixeltable import exceptions as excs
-from pixeltable.config import DatabaseConfig
+from pixeltable.config import ConfigSections, DatabaseConfig
 from pixeltable.utils.project import (
     ProjectPart,
     _archive_files,
@@ -17,11 +18,16 @@ from pixeltable.utils.project import (
 
 from .utils import pxt_raises
 
-ARCHIVE, IMAGE, BINDINGS = ProjectPart.ARCHIVE, ProjectPart.IMAGE, ProjectPart.BINDINGS
+ARCHIVE, IMAGE, CONFIG = ProjectPart.ARCHIVE, ProjectPart.IMAGE, ProjectPart.CONFIG
 
 
 def _some(files: dict[str, str], *paths: str) -> dict[str, str]:
     return {path: files[path] for path in paths}
+
+
+def _bound(dest: str, **sections: dict[str, Any]) -> ConfigSections:
+    """A project config that binds the var dest."""
+    return {'pixeltable': {'database': [{'name': 'pxt://acme:main', 'vars': {'dest': dest}}]}, **sections}
 
 
 class TestProject:
@@ -71,11 +77,19 @@ class TestProject:
         # include_only replaces the selection, and the lockfile is selected whatever the patterns say
         assert self._names(project, DatabaseConfig(include_only=['app.py'])) == ['app.py', 'uv.lock']
 
-    def test_project_config_always_selected(self, project: pathlib.Path) -> None:
-        """A pod reads its database entry out of the archive, so no pattern can drop the file holding it."""
+    def test_project_config_files(self, project: pathlib.Path) -> None:
+        """pyproject.toml is an image input, so no pattern drops it; pixeltable.toml is never selected."""
         (project / 'pixeltable.toml').write_text("[[pixeltable.database]]\nname = 'pxt://acme:main'\n")
-        assert 'pixeltable.toml' in self._names(project, DatabaseConfig(include_only=['app.py']))
-        assert 'pixeltable.toml' in self._names(project, DatabaseConfig(exclude=['*.toml']))
+        (project / 'pyproject.toml').write_text('[project]\nname = "app"\n')
+        assert self._names(project) == ['.gitignore', 'app.py', 'pyproject.toml', 'uv.lock']
+        assert self._names(project, DatabaseConfig(include_only=['app.py'])) == ['app.py', 'pyproject.toml', 'uv.lock']
+        assert self._names(project, DatabaseConfig(exclude=['*.toml'])) == [
+            '.gitignore',
+            'app.py',
+            'pyproject.toml',
+            'uv.lock',
+        ]
+        assert 'pixeltable.toml' not in self._names(project, DatabaseConfig(include=['pixeltable.toml']))
 
     def test_include_only_with_include(self, project: pathlib.Path) -> None:
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='include_only'):
@@ -116,6 +130,18 @@ class TestProject:
         # 'uv sync' reads pyproject.toml alongside the lockfile, so it declares the environment too
         assert after.compare(before) == {IMAGE, ARCHIVE}
         assert after.image_digest() != before.image_digest()
+
+        # [tool.pixeltable] reaches a pod through the fingerprint's config, so neither digest covers it
+        (project / 'pyproject.toml').write_text(
+            '[project]\ndependencies = ["pixeltable", "torch"]\n\n[tool.pixeltable]\noutput_media_dest = "s3://out"\n'
+        )
+        assert project_fingerprint(project, None).compare(after) == set()
+
+        # a TOML date and a string with the same text are different values
+        (project / 'pyproject.toml').write_text('[project]\nversion = "1979-05-27"\n')
+        string = project_fingerprint(project, None)
+        (project / 'pyproject.toml').write_text('[project]\nversion = 1979-05-27\n')
+        assert project_fingerprint(project, None).compare(string) == {IMAGE, ARCHIVE}
 
     def test_local_requirement(self, project: pathlib.Path) -> None:
         """Replacing a local wheel moves the image digest, though requirements.txt is unchanged."""
@@ -165,6 +191,8 @@ class TestProject:
         (project / 'pyproject.toml').write_text('[project\nname = "x"\n')
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='not valid TOML'):
             create_image_context(project)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='pyproject.toml is not valid TOML'):
+            project_fingerprint(project, None)
 
     def test_object_names(self, project: pathlib.Path) -> None:
         before = project_fingerprint(project, None)
@@ -191,22 +219,34 @@ class TestProject:
         assert with_deps.changes(before, {IMAGE}) == ['system_dependencies changed']
 
     def test_digests(self, project: pathlib.Path) -> None:
-        before = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://one'}))
+        before = project_fingerprint(project, None, project_config=_bound('s3://one'))
         # a changed binding restarts a service without sending either artifact
-        rebound = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://two'}))
+        rebound = project_fingerprint(project, None, project_config=_bound('s3://two'))
         assert rebound.archive_digest() == before.archive_digest()
         assert rebound.image_digest() == before.image_digest()
+        assert rebound.compare(before) == {CONFIG}
+        assert rebound.changes(before) == ['var dest changed']
+        limited = project_fingerprint(
+            project, None, project_config=_bound('s3://one', openai={'rate_limits': {'gpt-4o': 100}})
+        )
+        assert limited.changes(before) == ['openai.rate_limits changed']
 
         (project / 'app.py').write_text('x = 2\n')
-        edited = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://one'}))
+        edited = project_fingerprint(project, None, project_config=_bound('s3://one'))
         assert edited.archive_digest() != before.archive_digest()
         # one image serves every project declaring its environment, whatever their sources
         assert edited.image_digest() == before.image_digest()
 
         (project / 'app.py').write_text('x = 1\n')
-        reverted = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://one'}))
+        reverted = project_fingerprint(project, None, project_config=_bound('s3://one'))
         assert reverted.archive_digest() == before.archive_digest()
 
         with_deps = project_fingerprint(project, DatabaseConfig(system_dependencies=['ffmpeg']))
         assert with_deps.image_digest() != before.image_digest()
         assert with_deps.archive_digest() == before.archive_digest()
+
+        # pixeltable.toml reaches a pod through the fingerprint's config, so neither digest covers it
+        (project / 'pixeltable.toml').write_text('[openai]\nrate_limits = { gpt-4o = 100 }\n')
+        configured = project_fingerprint(project, None, project_config=_bound('s3://one'))
+        assert configured.archive_digest() == before.archive_digest()
+        assert configured.image_digest() == before.image_digest()

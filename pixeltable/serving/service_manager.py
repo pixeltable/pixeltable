@@ -187,8 +187,12 @@ class ServiceManager(ServiceManagerBase):
     ) -> Sequence[LogRecord]:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'Reading the log of a service on this machine is not supported; the log is at '
-            f'{self._log_path(instance.service_name, instance.base_path)}',
+            f'A service on this machine writes its log to '
+            f'{self._log_path(instance.service_name, instance.base_path)}. '
+            "'pxt service logs' reads the log of a service in a Pixeltable Cloud database, such as "
+            f"pxt://org:db/{instance.service_name}. Run 'pxt new' to get a free Pixeltable Cloud trial database. "
+            "To deploy to a Pixeltable Cloud database, run 'pxt db update pxt://org:db', then "
+            "'pxt schema update app.py pxt://org:db', then 'pxt service update app.py pxt://org:db'.",
         )
 
     def spans(

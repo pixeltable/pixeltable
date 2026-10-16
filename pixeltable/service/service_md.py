@@ -7,19 +7,11 @@ from __future__ import annotations
 
 import pydantic
 
+from pixeltable.service.resources import ServiceResources
 from pixeltable.utils.project import ProjectFingerprint
 from pixeltable_cli import types
 from pixeltable_cli.types import ServiceSpec, ServiceState
 from pixeltable_cli.utils import PxtPath
-
-
-class ServiceResources(pydantic.BaseModel):
-    """What one of a service instance's pods gets, and how many of them serve it."""
-
-    cpu: float = 0.5
-    memory_mb: int = 512
-    disk_gb: int = 10
-    workers_min: int = 1
 
 
 class ServiceInstanceRecord(pydantic.BaseModel):
@@ -77,6 +69,10 @@ class ServiceInstanceRecord(pydantic.BaseModel):
             pid=None,
             process_started_at=None,
             update_pending=self.update_pending,
+            cpu=self.resources.cpu,
+            memory_mb=self.resources.memory_mb,
+            workers=self.resources.workers,
+            file_cache_gb=self.resources.file_cache_gb,
         )
 
 
@@ -97,5 +93,13 @@ class LocalServiceInstanceRecord(ServiceInstanceRecord):
     def to_cli_instance(self, catalog_uri: str = '') -> types.ServiceInstance:
         instance = super().to_cli_instance(catalog_uri)
         return instance.model_copy(
-            update={'port': self.port, 'pid': self.pid, 'process_started_at': self.process_started_at}
+            update={
+                'port': self.port,
+                'pid': self.pid,
+                'process_started_at': self.process_started_at,
+                'cpu': None,
+                'memory_mb': None,
+                'workers': None,
+                'file_cache_gb': None,
+            }
         )
