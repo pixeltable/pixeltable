@@ -92,7 +92,6 @@ class LocalTable(Table):
     def _name(self) -> str:
         from pixeltable.catalog import retrying_read
 
-        # This can run outside a transaction while preparing an insert. Retry dropped connections in that case.
         return retrying_read(lambda: get_runtime().catalog.read_tbl_record(self._id).md['name'])
 
     def _dir_id(self) -> UUID | None:
