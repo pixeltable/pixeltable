@@ -172,7 +172,6 @@ class EmbeddingIndex(IndexBase):
         assert vector_length is not None
         assert vector_length > 0
 
-        # TODO(PXT-941): Revisit embedding index precision behavior for cloud launch
         match self.precision:
             case self.Precision.FP32:
                 if vector_length > MAX_EMBEDDING_VECTOR_LENGTH:

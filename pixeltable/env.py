@@ -33,7 +33,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
-from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
+from pixeltable.utils.dbms import Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
 from pixeltable.utils.object_stores import (
     ObjectPath,
@@ -547,14 +547,7 @@ class Env:
             self._db_url = db_url.render_as_string(hide_password=False)
             self._db_name = db_url.database  # use the dbname given in connect string
             dialect = db_url.get_dialect().name
-            if dialect == 'cockroachdb':
-                self._dbms = CockroachDbms(db_url)
-                # Check if database exists (CockroachDB exposes pg_database via the system DB)
-                if not self._store_db_exists(self._db_name):
-                    error = f'Database {self._db_name!r} does not exist'
-                    _logger.error(error)
-                    raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error)
-            elif dialect == 'postgresql':
+            if dialect == 'postgresql':
                 # Ensure psycopg v3 driver is used; the default postgresql:// scheme may resolve to psycopg2.
                 if db_url.drivername == 'postgresql':
                     db_url = db_url.set(drivername='postgresql+psycopg')

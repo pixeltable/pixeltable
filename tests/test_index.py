@@ -978,7 +978,6 @@ class TestIndex:
             sim = img_t.img.similarity(string='red truck')
             _ = img_t.order_by(sim, asc=False).limit(1).collect()
 
-        # TODO(PXT-941): Revisit embedding index precision behavior for cloud launch
         with pxt_raises(
             pxt.ErrorCode.INVALID_ARGUMENT,
             match="Embedding index's vector dimensionality 4001 exceeds maximum of 4000 for fp16 precision",
