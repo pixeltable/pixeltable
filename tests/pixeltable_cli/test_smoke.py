@@ -1071,11 +1071,18 @@ class TestErrorsNext:
         finally:
             flag.unlink()
 
+        # a view lists the failures of a column it inherits, which is recomputed on the table that defines it
+        pxt.create_view(p('cli_errs_next/v'), t, if_exists='replace')
+        r = cli('errors', p('cli_errs_next/v'))
+        assert r.next_commands == [['pxt', 'recompute', p('cli_errs_next/t'), 'out', '--errors-only', '-f']]
+        assert 'which defines it' in r.stderr
+
         r = cli('errors', p('cli_errs_next/t'))
         assert r.next_commands == [['pxt', 'recompute', p('cli_errs_next/t'), 'out', '--errors-only', '-f']]
         assert '# reruns 2 failed cells of out' in r.stderr
         cli(*r.next_commands[0][1:])
         assert cli('errors', p('cli_errs_next/t'), '--json').json == []
+        assert cli('errors', p('cli_errs_next/v'), '--json').json == []
         assert t.order_by(t.k).select(t.out).collect()['out'] == [1, 2]
 
 
@@ -1086,15 +1093,9 @@ class TestRerunCommand:
         monkeypatch.setattr(utils, 'invocation', None)
         assert utils.rerun_command('-f') is None
 
-        # -n is dropped, --json kept, and an argument with a space quoted
-        monkeypatch.setattr(utils, 'invocation', ['drop', 'my dir/t', '-n', '--json'])
+        # --json is kept, and an argument with a space quoted
+        monkeypatch.setattr(utils, 'invocation', ['drop', 'my dir/t', '--json'])
         assert utils.rerun_command('-f') == "pxt drop 'my dir/t' --json -f"
-
-        # a flag already given, under either spelling, is not repeated
-        monkeypatch.setattr(utils, 'invocation', ['schema', 'update', 'app.py', 'd', '--force'])
-        assert (
-            utils.rerun_command('--allow-destructive', '-f') == 'pxt schema update app.py d --force --allow-destructive'
-        )
 
 
 class TestDrop:

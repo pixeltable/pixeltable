@@ -66,15 +66,11 @@ def _print_help() -> None:
 
 
 def _suggestions(cmd: str) -> list[str]:
-    """Commands an unknown command may have meant: a close name, or each command with a subcommand of that name."""
-    with_verb = [f'{name} {cmd}' for name, help_text in COMMANDS.items() if cmd in _verbs(help_text)]
+    """Commands an unknown command may have meant: each command with a subcommand of that name, or a close name."""
+    # a help line lists its command's subcommands in parentheses, as in 'manage hosted databases (diff/update/...)'
+    verb = re.compile(rf'[(/]{re.escape(cmd)}[/)]')
+    with_verb = [f'{name} {cmd}' for name, help_text in COMMANDS.items() if verb.search(help_text)]
     return with_verb or difflib.get_close_matches(cmd, COMMANDS, n=3)
-
-
-def _verbs(help_text: str) -> list[str]:
-    # the subcommands a help line lists in parentheses, as in 'manage hosted databases (diff/update/...)'
-    match = re.search(r'\(([a-z-]+(?:/[a-z-]+)*)\)', help_text)
-    return match.group(1).split('/') if match else []
 
 
 def dispatch(cmd: str, argv: list[str]) -> None:

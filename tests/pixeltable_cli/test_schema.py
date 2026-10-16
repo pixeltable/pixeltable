@@ -223,6 +223,15 @@ class TestSchema:
         assert docs_plan['status'] == 'refused'
         assert [op['status'] for op in docs_plan['ops']] == ['refused', 'refused']
 
+        # permitted but not confirmed, the refusal is the same plan, not a separate error document
+        r = cli('schema', 'update', str(schema_file), target, '--allow-destructive', '--json', check=False)
+        assert r.returncode == 3
+        docs_plan = next(t for t in r.json['tables'] if t['path'] == f'{target}/docs')
+        assert [op['status'] for op in docs_plan['ops']] == ['refused', 'refused']
+        assert r.next_commands == [
+            ['pxt', 'schema', 'update', str(schema_file), target, '--allow-destructive', '--json', '-f']
+        ]
+
         r = cli('schema', 'update', str(schema_file), target, '-n', '--json', check=False)
         assert r.returncode == 2
         assert [op['status'] for t in r.json['tables'] for op in t['ops']] == ['skipped', 'skipped']
