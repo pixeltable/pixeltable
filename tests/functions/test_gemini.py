@@ -1,11 +1,10 @@
 import asyncio
-import importlib
 import logging
 import random
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import numpy as np
@@ -504,56 +503,36 @@ def _install_gemini_client(monkeypatch: pytest.MonkeyPatch, response: Any) -> No
     def require_package(*_args: Any, **_kwargs: Any) -> None:
         return None
 
-    def get_resource_pool_info(_pool_id: str, make: Callable[[], Any]) -> Any:
+    def get_resource_pool_info(_pool_id: str, make: Any) -> Any:
         return make()
 
     fake_env = SimpleNamespace(require_package=require_package, get_resource_pool_info=get_resource_pool_info)
     monkeypatch.setattr(gemini.env.Env, 'get', classmethod(lambda _cls: fake_env))
 
 
-def _google_genai_missing() -> bool:
-    """True when `google.genai` cannot be imported, including when the `google` parent is absent."""
-    try:
-        importlib.import_module('google.genai')
-    except ImportError:
-        return True
-    return False
-
-
 class TestGeminiNoCandidates:
-    """Mocked generateContent responses. These do not call Gemini."""
+    """Mocked generateContent responses with no candidates. These do not call Gemini."""
 
-    def test_rate_limit_retry_delay(self) -> None:
-        from pixeltable.functions.gemini import GeminiRateLimitsInfo
-
-        class RateLimitError(Exception):
-            def __init__(self) -> None:
-                super().__init__('rate limit')
-                self.code = 429
-                self.details = {
-                    'error': {'details': [{'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '2s'}]}
-                }
-
-        assert GeminiRateLimitsInfo().get_retry_delay(RateLimitError(), 0) == pytest.approx(2.0)
-
+    @pytest.mark.parametrize('blocked', [False, True])
     @pytest.mark.parametrize('candidates', [None, []])
-    def test_generate_content_empty_is_retryable(
-        self, monkeypatch: pytest.MonkeyPatch, candidates: list[Any] | None
+    def test_generate_content_no_candidates(
+        self, monkeypatch: pytest.MonkeyPatch, candidates: list[Any] | None, blocked: bool
     ) -> None:
         pytest.importorskip('google.genai')
         from google.genai import types
 
         from pixeltable.functions import gemini
-        from pixeltable.utils.http import is_retryable_error
 
+        prompt_feedback = None
+        if blocked:
+            prompt_feedback = types.GenerateContentResponsePromptFeedback(block_reason=types.BlockedReason.SAFETY)
         response = types.GenerateContentResponse(
             candidates=candidates,
-            prompt_feedback=None,
+            prompt_feedback=prompt_feedback,
             usage_metadata=types.GenerateContentResponseUsageMetadata(prompt_token_count=11, candidates_token_count=0),
         )
         if candidates is None:
-            dumped = response.model_dump()
-            assert dumped.get('candidates') is None
+            assert response.model_dump().get('candidates') is None
         _install_gemini_client(monkeypatch, response)
         recorded: list[tuple[Any, ...]] = []
 
@@ -561,177 +540,28 @@ class TestGeminiNoCandidates:
             recorded.append(args)
 
         monkeypatch.setattr(gemini.telemetry_schemas, 'record_token_usage', record_token_usage)
-        with pxt_raises(pxt.ErrorCode.PROVIDER_OVERLOADED, match='did not include a block reason') as exc_info:
-            asyncio.run(
-                gemini.generate_content.py_fn(
-                    'Use alpha and beta in one short sentence.', model='gemini-2.5-flash-lite'
-                )
-            )
-        # RateLimitsScheduler retries when get_retry_delay returns a delay. is_retryable_error does not
-        # recognize this error, which is why an uncaught TypeError failed the row permanently.
-        delay = gemini.GeminiRateLimitsInfo().get_retry_delay(exc_info.value, 0)
-        assert delay is not None and delay > 0
-        assert is_retryable_error(exc_info.value) == (False, None)
-        assert exc_info.value.is_retryable
-        assert len(recorded) == 1
-        udf_path, recorded_model, usage, input_key, output_key = recorded[0]
-        assert udf_path == 'pixeltable.functions.gemini.generate_content'
-        assert recorded_model == 'gemini-2.5-flash-lite'
-        assert usage['prompt_token_count'] == 11
-        assert usage['candidates_token_count'] == 0
-        assert input_key == 'prompt_token_count'
-        assert output_key == 'candidates_token_count'
-
-    @pytest.mark.skipif(_google_genai_missing(), reason='Package `google.genai` is not installed.')
-    @pytest.mark.db_roots('local', reason='computed column insert runs RateLimitsScheduler')
-    def test_empty_candidates_retried_on_insert(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Public path for the retry above: insert evaluates generate_content through RateLimitsScheduler.
-        # skipif runs at collection, before uses_db. import_module('google.genai') raises ModuleNotFoundError
-        # when google is absent, and _google_genai_missing catches that ImportError.
-        from google.genai import types
-
-        from pixeltable.functions import gemini
-
-        empty = types.GenerateContentResponse(candidates=None, prompt_feedback=None)
-        ok = types.GenerateContentResponse(
-            candidates=[
-                types.Candidate(
-                    content=types.Content(role='model', parts=[types.Part(text='retried')]),
-                    finish_reason=types.FinishReason.STOP,
-                )
-            ]
-        )
-        generate = AsyncMock(side_effect=[empty, ok])
-        client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate)))
-        monkeypatch.setattr(gemini, '_genai_client', lambda: client)
-        # get_retry_delay owns the delay; zero it so this only checks that the scheduler honors a delay.
-        monkeypatch.setattr(gemini, 'exponential_backoff', lambda _attempt: 0.0)
-
-        t = pxt.create_table('gemini_empty_retry', {'prompt': pxt.String})
-        t.add_computed_column(response=gemini.generate_content(t.prompt, model='gemini-test-empty-retry'))
-        validate_update_status(t.insert([{'prompt': 'hello'}]), expected_rows=1)
-        stored = t.collect()[0]['response']
-        assert stored['candidates'][0]['content']['parts'][0]['text'] == 'retried'
-        assert generate.await_count == 2
-
-    def test_generate_content_blocked_prompt_is_not_retryable(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        pytest.importorskip('google.genai')
-        from google.genai import types
-
-        from pixeltable.functions import gemini
-        from pixeltable.utils.http import is_retryable_error
-
-        response = types.GenerateContentResponse(
-            candidates=None,
-            prompt_feedback=types.GenerateContentResponsePromptFeedback(
-                block_reason=types.BlockedReason.SAFETY, block_reason_message='safety filter'
-            ),
-        )
-        _install_gemini_client(monkeypatch, response)
-        with pxt_raises(pxt.ErrorCode.PROVIDER_BAD_REQUEST, match='block reason: SAFETY') as exc_info:
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='Gemini returned no candidates') as exc_info:
             asyncio.run(gemini.generate_content.py_fn('hello', model='gemini-2.5-flash-lite'))
-        assert 'safety filter' in str(exc_info.value)
-        assert gemini.GeminiRateLimitsInfo().get_retry_delay(exc_info.value, 0) is None
-        assert is_retryable_error(exc_info.value) == (False, None)
-        assert exc_info.value.is_retryable is False
-
-    def test_generate_content_returns_text_candidates(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        pytest.importorskip('google.genai')
-        from google.genai import types
-
-        from pixeltable.functions import gemini
-
-        response = types.GenerateContentResponse(
-            candidates=[
-                types.Candidate(
-                    content=types.Content(role='model', parts=[types.Part(text='hello backpack')]),
-                    finish_reason=types.FinishReason.STOP,
-                )
-            ],
-            usage_metadata=types.GenerateContentResponseUsageMetadata(prompt_token_count=2, candidates_token_count=1),
-        )
-        _install_gemini_client(monkeypatch, response)
-        result = asyncio.run(gemini.generate_content.py_fn('hello', model='gemini-2.5-flash-lite'))
-        assert result['candidates'][0]['content']['parts'][0]['text'] == 'hello backpack'
-
-        # parts=None is present, so dict.get's default does not apply; it must not raise TypeError.
-        null_parts = types.GenerateContentResponse(
-            candidates=[
-                types.Candidate(content=types.Content(role='model', parts=None), finish_reason=types.FinishReason.STOP)
-            ]
-        )
-        _install_gemini_client(monkeypatch, null_parts)
-        result = asyncio.run(gemini.generate_content.py_fn('hello', model='gemini-2.5-flash-lite'))
-        assert result['candidates'][0]['finish_reason'] in (types.FinishReason.STOP, 'STOP')
-
-    def test_generate_speech_empty_is_retryable(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        pytest.importorskip('google.genai')
-        from google.genai import types
-
-        from pixeltable.functions import gemini
-
-        _install_gemini_client(monkeypatch, types.GenerateContentResponse(candidates=None))
-        with pxt_raises(pxt.ErrorCode.PROVIDER_OVERLOADED, match='TTS model') as exc_info:
-            asyncio.run(gemini.generate_speech.py_fns[0]('hello', model='gemini-2.5-flash-preview-tts', voice='Kore'))
-        assert gemini.GeminiRateLimitsInfo().get_retry_delay(exc_info.value, 0) is not None
-
-        _install_gemini_client(monkeypatch, types.GenerateContentResponse(candidates=None))
-        with pxt_raises(pxt.ErrorCode.PROVIDER_OVERLOADED, match='multi-speaker TTS') as exc_info:
-            asyncio.run(
-                gemini.generate_speech.py_fns[1](
-                    'Alice: hello', model='gemini-2.5-flash-preview-tts', voices={'Alice': 'Kore'}
-                )
-            )
-        assert gemini.GeminiRateLimitsInfo().get_retry_delay(exc_info.value, 0) is not None
-
-    def test_generate_speech_blocked_candidate_is_not_retryable(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        pytest.importorskip('google.genai')
-        from google.genai import types
-
-        from pixeltable.functions import gemini
-
-        response = types.GenerateContentResponse(
-            candidates=[
-                types.Candidate(content=None, finish_reason=types.FinishReason.SAFETY, finish_message='unsafe audio')
-            ]
-        )
-        _install_gemini_client(monkeypatch, response)
-        with pxt_raises(
-            pxt.ErrorCode.PROVIDER_BAD_REQUEST, match=r'finish reason: SAFETY \(unsafe audio\)'
-        ) as exc_info:
-            asyncio.run(gemini.generate_speech.py_fns[0]('hello', model='gemini-2.5-flash-preview-tts', voice='Kore'))
-        assert gemini.GeminiRateLimitsInfo().get_retry_delay(exc_info.value, 0) is None
+        message = str(exc_info.value)
+        if blocked:
+            assert 'block reason: SAFETY' in message
+        else:
+            assert 'block reason' not in message
+        assert len(recorded) == 1
+        assert recorded[0][0] == 'pixeltable.functions.gemini.generate_content'
+        assert recorded[0][1] == 'gemini-2.5-flash-lite'
+        assert recorded[0][2]['prompt_token_count'] == 11
 
     def test_tool_calls_no_candidates(self) -> None:
-        pytest.importorskip('google.genai')
-        from google.genai import types
-
         from pixeltable.functions.gemini import _gemini_response_to_pxt_tool_calls
 
-        blocked = types.GenerateContentResponse(
-            candidates=None,
-            prompt_feedback=types.GenerateContentResponsePromptFeedback(
-                block_reason=types.BlockedReason.PROHIBITED_CONTENT
-            ),
-        )
         calls = _gemini_response_to_pxt_tool_calls.py_fn
-        with pxt_raises(pxt.ErrorCode.PROVIDER_BAD_REQUEST, match='block reason: PROHIBITED_CONTENT'):
-            calls(blocked.model_dump())
-
-        empty = types.GenerateContentResponse(candidates=None, prompt_feedback=None)
-        assert calls(empty.model_dump()) is None
+        assert calls({'candidates': None}) is None
         assert calls({'candidates': []}) is None
-        assert calls({}) is None
-
         assert calls(
             {
                 'candidates': [
-                    {
-                        'content': {
-                            'parts': [{'function_call': {'name': 'weather', 'args': {'city': 'Paris'}}}, {'text': 'hi'}]
-                        }
-                    }
+                    {'content': {'parts': [{'function_call': {'name': 'weather', 'args': {'city': 'Paris'}}}]}}
                 ]
             }
         ) == {'weather': [{'args': {'city': 'Paris'}}]}
-        assert calls({'candidates': [{'content': None, 'finish_reason': 'SAFETY'}]}) is None

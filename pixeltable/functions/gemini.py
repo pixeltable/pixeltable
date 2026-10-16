@@ -82,10 +82,6 @@ class GeminiRateLimitsInfo(env.RateLimitsInfo):
         return True
 
     def get_retry_delay(self, exc: Exception, attempt: int) -> float | None:
-        # An empty generateContent body with no block reason is a transient provider failure under load.
-        # RateLimitsScheduler retries when this returns a delay. A blocked prompt is PROVIDER_BAD_REQUEST.
-        if isinstance(exc, excs.ExternalServiceError) and exc.error_code is excs.ErrorCode.PROVIDER_OVERLOADED:
-            return exponential_backoff(attempt)
         if hasattr(exc, 'code') and exc.code == 429:
             try:
                 for detail_dict in exc.details['error']['details']:  # type: ignore[attr-defined]
@@ -95,121 +91,6 @@ class GeminiRateLimitsInfo(env.RateLimitsInfo):
             except (AttributeError, KeyError, TypeError):
                 return exponential_backoff(attempt)
         return None
-
-
-# Content-filter finish reasons. STOP and MAX_TOKENS are not included: the model finished or hit the
-# output cap, and the candidate is still part of the response.
-_BLOCKING_FINISH_REASONS = frozenset(
-    {
-        'SAFETY',
-        'RECITATION',
-        'LANGUAGE',
-        'BLOCKLIST',
-        'PROHIBITED_CONTENT',
-        'SPII',
-        'IMAGE_SAFETY',
-        'IMAGE_PROHIBITED_CONTENT',
-        'IMAGE_RECITATION',
-    }
-)
-
-
-def _field(obj: Any, name: str) -> Any:
-    if isinstance(obj, dict):
-        return obj.get(name)
-    return getattr(obj, name, None)
-
-
-def _label(value: Any) -> str | None:
-    if value is None:
-        return None
-    raw = getattr(value, 'value', value)
-    if not isinstance(raw, str):
-        return None
-    text = raw.strip()
-    return text or None
-
-
-def _response_failure_detail(response: Any) -> tuple[str | None, bool, str]:
-    """Return `(block_reason, blocking_finish, detail)` for a response or its `model_dump()`."""
-    feedback = _field(response, 'prompt_feedback')
-    block_reason = _label(_field(feedback, 'block_reason'))
-    block_message = _field(feedback, 'block_reason_message')
-    details: list[str] = []
-    if block_reason is not None:
-        details.append(f'block reason: {block_reason}')
-    if isinstance(block_message, str) and block_message.strip():
-        details.append(f'block message: {block_message.strip()}')
-
-    blocking_finish = False
-    finish_reasons: list[str] = []
-    candidates = _field(response, 'candidates')
-    if isinstance(candidates, list):
-        for candidate in candidates:
-            reason = _label(_field(candidate, 'finish_reason'))
-            if reason is None:
-                continue
-            finish_message = _field(candidate, 'finish_message')
-            if isinstance(finish_message, str) and finish_message.strip():
-                finish_reasons.append(f'{reason} ({finish_message.strip()})')
-            else:
-                finish_reasons.append(reason)
-            if reason in _BLOCKING_FINISH_REASONS:
-                blocking_finish = True
-    if finish_reasons:
-        details.append(f'finish reason: {", ".join(finish_reasons)}')
-    return block_reason, blocking_finish, '; '.join(details)
-
-
-def _no_candidates_error(response: Any, *, what: str) -> excs.ExternalServiceError:
-    """A generateContent response whose `candidates` field is null or empty.
-
-    A prompt block (`prompt_feedback.block_reason`) is permanent. An empty body with no block reason is the
-    failure seen under concurrent load and is retryable (`PROVIDER_OVERLOADED`).
-    """
-    block_reason, _, detail = _response_failure_detail(response)
-    if block_reason is not None:
-        code = excs.ErrorCode.PROVIDER_BAD_REQUEST
-        message = f'Gemini returned no candidates for {what}'
-    else:
-        code = excs.ErrorCode.PROVIDER_OVERLOADED
-        message = f'Gemini returned no candidates for {what}; prompt_feedback did not include a block reason'
-    if detail:
-        message = f'{message} ({detail})'
-    return excs.ExternalServiceError(code, f'{message}.', provider='gemini')
-
-
-def _require_candidates(response: Any, *, what: str) -> list[Any]:
-    candidates = _field(response, 'candidates')
-    if not isinstance(candidates, list) or len(candidates) == 0:
-        raise _no_candidates_error(response, what=what)
-    return candidates
-
-
-def _speech_audio_bytes(response: Any, *, model: str, kind: str) -> bytes:
-    candidates = _require_candidates(response, what=f'{kind} model {model!r}')
-    try:
-        data = candidates[0].content.parts[0].inline_data.data
-    except (AttributeError, IndexError, TypeError) as exc:
-        raise _speech_structure_error(response, model=model, kind=kind) from exc
-    if isinstance(data, str):
-        data = base64.b64decode(data)
-    if not isinstance(data, bytes):
-        raise _speech_structure_error(response, model=model, kind=kind)
-    return data
-
-
-def _speech_structure_error(response: Any, *, model: str, kind: str) -> excs.ExternalServiceError:
-    block_reason, blocking_finish, detail = _response_failure_detail(response)
-    code = (
-        excs.ErrorCode.PROVIDER_BAD_REQUEST
-        if block_reason is not None or blocking_finish
-        else excs.ErrorCode.PROVIDER_ERROR
-    )
-    message = f'Gemini {kind} returned unexpected response structure for model {model}'
-    if detail:
-        message = f'{message}: {detail}'
-    return excs.ExternalServiceError(code, f'{message}.', provider='gemini')
 
 
 @pxt.udf(is_deterministic=False)
@@ -292,8 +173,9 @@ async def generate_content(
         contents = _replace_upload_placeholders(contents, uploaded)
         response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
         result = response.model_dump()
-        # Count tokens before rejecting an empty candidate list. record_token_usage returns when usage is
-        # missing, and a later PROVIDER_OVERLOADED retry still consumed these tokens.
+        # `model_dump()` (default mode) preserves `inline_data.data` as raw `bytes`; `mode='json'` would
+        # url-safe-base64-encode which is suboptimal as we'd have to convert it back to binary to convert to PIL image.
+        # Count tokens before rejecting an empty candidate list; the request already consumed them.
         telemetry_schemas.record_token_usage(
             f'{__name__}.generate_content',
             model,
@@ -301,20 +183,22 @@ async def generate_content(
             'prompt_token_count',
             'candidates_token_count',
         )
-        # `model_dump()` (default mode) preserves `inline_data.data` as raw `bytes`; `mode='json'` would
-        # url-safe-base64-encode which is suboptimal as we'd have to convert it back to binary to convert to PIL image.
-        # `candidates` is null, not absent, when the prompt is blocked or the body is empty.
-        candidates = _require_candidates(result, what=f'model {model!r}')
+        # `candidates` is null, not absent, when generateContent returns no candidates. dict.get's default
+        # applies only when the key is missing, so `result.get('candidates', [])` is still None.
+        candidates = result.get('candidates') or []
+        if len(candidates) == 0:
+            feedback = result.get('prompt_feedback') or {}
+            block_reason = feedback.get('block_reason') if isinstance(feedback, dict) else None
+            block_reason = getattr(block_reason, 'value', block_reason)
+            message = f'Gemini returned no candidates for model {model}'
+            if block_reason:
+                message = f'{message} (block reason: {block_reason})'
+            raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, f'{message}.', provider='gemini')
         for candidate in candidates:
-            content = candidate.get('content') if isinstance(candidate, dict) else None
-            if not isinstance(content, dict):
+            content = candidate.get('content')
+            if content is None:
                 continue
-            parts = content.get('parts') or []
-            if not isinstance(parts, list):
-                continue
-            for part in parts:
-                if not isinstance(part, dict):
-                    continue
+            for part in content.get('parts', []):
                 blob = part.get('inline_data')
                 if blob is not None and blob.get('mime_type', '').startswith('image/') and blob.get('data'):
                     img = PIL.Image.open(io.BytesIO(blob['data']))
@@ -372,22 +256,12 @@ def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDic
 
 @pxt.udf
 def _gemini_response_to_pxt_tool_calls(response: dict) -> dict | None:
-    candidates = _field(response, 'candidates')
-    if not isinstance(candidates, list) or len(candidates) == 0:
-        # This UDF has no resource pool, so PROVIDER_OVERLOADED would retry the same response dict.
-        # A prompt block is a permanent request error; an empty unblocked body has no tool calls.
-        block_reason, _, _ = _response_failure_detail(response)
-        if block_reason is not None:
-            raise _no_candidates_error(response, what='tool calls')
-        return None
-    content = candidates[0].get('content') if isinstance(candidates[0], dict) else None
-    parts = content.get('parts') if isinstance(content, dict) else None
-    if not isinstance(parts, list):
+    # Same null-candidates case as generate_content: the key is present and the value is None.
+    candidates = response.get('candidates') or []
+    if len(candidates) == 0:
         return None
     pxt_tool_calls: dict[str, list[dict]] = {}
-    for part in parts:
-        if not isinstance(part, dict):
-            continue
+    for part in candidates[0]['content']['parts']:
         tool_call = part.get('function_call')
         if tool_call is not None:
             tool_name = tool_call['name']
@@ -697,7 +571,18 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
     )
 
     response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
-    data = _speech_audio_bytes(response, model=model, kind='TTS')
+    # `candidates` is null, not an empty list, when generateContent returns no candidates.
+    candidates = response.candidates or []
+    try:
+        data = candidates[0].content.parts[0].inline_data.data
+    except (IndexError, AttributeError) as exc:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Gemini TTS returned unexpected response structure for model {model}.',
+            provider='gemini',
+        ) from exc
+    if isinstance(data, str):
+        data = base64.b64decode(data)
 
     output_path = str(TempStore.create_path(extension='.wav'))
     with wave.open(output_path, 'wb') as wf:
@@ -759,7 +644,18 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
     )
 
     response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
-    data = _speech_audio_bytes(response, model=model, kind='multi-speaker TTS')
+    # `candidates` is null, not an empty list, when generateContent returns no candidates.
+    candidates = response.candidates or []
+    try:
+        data = candidates[0].content.parts[0].inline_data.data
+    except (IndexError, AttributeError) as exc:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'Gemini multi-speaker TTS returned unexpected response structure for model {model}.',
+            provider='gemini',
+        ) from exc
+    if isinstance(data, str):
+        data = base64.b64decode(data)
 
     output_path = str(TempStore.create_path(extension='.wav'))
     with wave.open(output_path, 'wb') as wf:
