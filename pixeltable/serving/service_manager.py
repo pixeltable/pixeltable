@@ -53,10 +53,10 @@ _service_locks_guard = threading.Lock()
 
 
 def bind_service_port(service_name: str, port: int) -> socket.socket:
-    """A socket bound to port on loopback, for a service to listen on. Raises RequestError if the port is taken."""
+    """Bind port on loopback for a service to listen on. Raise RequestError if the port is taken."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # SO_REUSEADDR lets POSIX rebind a port a stopped service left in TIME_WAIT. On Windows it lets a socket bind a
-    # port that another is still listening on, so the service would share a busy port instead of refusing it.
+    # SO_REUSEADDR lets POSIX rebind a port left in TIME_WAIT by a stopped service. On Windows it lets a socket bind
+    # a port that another is still listening on, so the service would share a busy port instead of refusing it.
     if sys.platform != 'win32':
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
