@@ -71,7 +71,7 @@ class RowidRef(Expr):
 
     @property
     def tbl_key(self) -> catalog.TableVersionKey:
-        """The table version this rowid belongs to."""
+        """The table version that this rowid belongs to."""
         return self.tbl.key
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
