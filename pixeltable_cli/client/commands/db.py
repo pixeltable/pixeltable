@@ -1,4 +1,4 @@
-"""`pxt db {diff,update,list,status,logs,start,stop,restart,retry,build-image,delete}` - manage hosted databases."""
+"""`pxt db {diff,update,list,status,logs,spans,start,stop,restart,retry,build-image,delete}` - manage hosted dbs."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from ..hosted import (
     print_db,
     print_logs,
     print_receipt,
+    print_spans,
     resolve_db_uri,
     spinner,
 )
@@ -45,6 +46,8 @@ Examples:
   pxt db status --json-schema  # the schema of its --json output, on its own
   pxt db logs pxt://org:db              # what the database's pod logged in the last hour
   pxt db logs pxt://org:db --since 10m --tail 50
+  pxt db spans pxt://org:db             # the sampled trace spans of the database's pod in the last hour
+  pxt db spans pxt://org:db --trace 4bf92f3577b34da6a3ce929d0e0e4736
   pxt db start pxt://org:db
   pxt db stop pxt://org:db
   pxt db restart pxt://org:db   # cycle its pods onto the image and project it runs
@@ -111,6 +114,10 @@ def run(argv: list[str]) -> None:
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     add_logs_args(p)
 
+    p = sub.add_parser('spans', help="read the sampled trace spans of the database's pod")
+    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
+    add_logs_args(p, spans=True)
+
     for verb, help_text in (
         ('start', 'start (wake) a stopped hosted database'),
         ('stop', 'stop (sleep) a running hosted database'),
@@ -145,6 +152,8 @@ def run(argv: list[str]) -> None:
         _status(args)
     elif args.action == 'logs':
         _logs(args)
+    elif args.action == 'spans':
+        _spans(args)
     elif args.action in ('start', 'stop', 'restart', 'retry'):
         _change_lifecycle(args)
     elif args.action == 'build-image':
@@ -178,6 +187,11 @@ def _status(args: argparse.Namespace) -> None:
 def _logs(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db logs')
     print_logs({'org': org, 'db': db}, args)
+
+
+def _spans(args: argparse.Namespace) -> None:
+    org, db = resolve_db_uri(args.db_uri, prog='pxt db spans')
+    print_spans({'org': org, 'db': db}, args)
 
 
 def _add_no_wait(p: argparse.ArgumentParser) -> None:

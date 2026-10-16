@@ -48,6 +48,7 @@ class ManagementOperationType(str, Enum):
     RETRY = 'retry'
     GET_ARCHIVE = 'get_archive'
     GET_LOGS = 'get_logs'
+    GET_SPANS = 'get_spans'
 
     CREATE_ORG = 'create_org'
     LIST_ORGS = 'list_orgs'
@@ -431,6 +432,45 @@ class LogRecord(BaseModel):
 class GetLogsResponse(BaseModel):
     # oldest first
     records: list[LogRecord]
+
+
+# an OpenTelemetry trace id: 16 bytes as lowercase hex
+TRACE_ID_PATTERN = r'^[0-9a-f]{32}$'
+
+
+class GetSpansRequest(BaseModel):
+    """Read the sampled trace spans of the database pod, or of one service when service_name is given."""
+
+    operation_type: Literal[ManagementOperationType.GET_SPANS] = ManagementOperationType.GET_SPANS
+    org: str | None = None
+    db: str
+    service_name: str | None = None
+    base_path: str = ''
+    since_seconds: int = Field(default=3600, ge=1)
+    # only the newest limit spans of the window are returned
+    limit: int = Field(default=200, ge=1, le=10000)
+    # only the spans of this trace are returned
+    trace_id: str | None = Field(default=None, pattern=TRACE_ID_PATTERN)
+
+
+class SpanRecord(BaseModel):
+    trace_id: str
+    span_id: str
+    # None for the root span of a trace
+    parent_span_id: str | None
+    name: str
+    # the time the span started, in milliseconds since the epoch
+    start_ms: int
+    duration_ms: float
+    # the OTLP status code name: 'UNSET', 'OK' or 'ERROR'
+    status: str
+    # the span's attributes plus the keys CloudWatch adds (such as aws.local.service), with flat dotted keys
+    attributes: dict[str, Any]
+
+
+class GetSpansResponse(BaseModel):
+    # oldest first
+    spans: list[SpanRecord]
 
 
 # Secrets

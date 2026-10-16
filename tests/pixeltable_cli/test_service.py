@@ -1007,18 +1007,22 @@ class TestService:
         deploy(cli, app, target)
         assert_serving(cli, app, target, 'ingest')
 
-        # the daemon validates --since and --tail before resolving the service
-        r = cli('service', 'logs', f'{target}/ingest', '--since', 'bogus', check=False)
-        assert r.returncode == 1 and 'must be a duration' in r.stderr, r.stderr
-        r = cli('service', 'logs', f'{target}/ingest', '--tail', '50000', check=False)
-        assert r.returncode == 1 and "'limit' must be <= 10000" in r.stderr, r.stderr
-        r = cli('service', 'logs', f'{target}/nosuch', check=False)
-        assert r.returncode == 1 and 'No service' in r.stderr, r.stderr
+        # the daemon validates --since, --tail and --trace before resolving the service
+        for verb in ('logs', 'spans'):
+            r = cli('service', verb, f'{target}/ingest', '--since', 'bogus', check=False)
+            assert r.returncode == 1 and 'must be a duration' in r.stderr, r.stderr
+            r = cli('service', verb, f'{target}/ingest', '--tail', '50000', check=False)
+            assert r.returncode == 1 and "'limit' must be <= 10000" in r.stderr, r.stderr
+            r = cli('service', verb, f'{target}/nosuch', check=False)
+            assert r.returncode == 1 and 'No service' in r.stderr, r.stderr
+        r = cli('service', 'spans', f'{target}/ingest', '--trace', 'ABC', check=False)
+        assert r.returncode == 1 and 'must be 32 lowercase hex digits' in r.stderr, r.stderr
 
         if db_root.is_cloud:
             # a bare name reaches local services only
-            r = cli('service', 'logs', 'ingest', check=False)
-            assert r.returncode == 1 and "No service 'ingest' is running" in r.stderr, r.stderr
+            for verb in ('logs', 'spans'):
+                r = cli('service', verb, 'ingest', check=False)
+                assert r.returncode == 1 and "No service 'ingest' is running" in r.stderr, r.stderr
             return
 
         # a local service logs to a file, and the error gives the path of that file and points to the cloud, for a
@@ -1033,6 +1037,9 @@ class TestService:
             deploy_steps = "'pxt db update pxt://org:db', then 'pxt schema update app.py pxt://org:db', then "
             assert deploy_steps in r.stderr, r.stderr
             assert "'pxt service update app.py pxt://org:db'" in r.stderr, r.stderr
+            # a local service writes its spans to the span_dump file, if one is set
+            r = cli('service', 'spans', name, check=False)
+            assert r.returncode == 1 and 'not supported. Start it with --otel' in r.stderr, r.stderr
         assert log_file.is_file()
 
         # the same name at a second target makes the bare name ambiguous
@@ -1765,9 +1772,32 @@ class TestServiceUpdateRunning:
 class TestServiceOtel:
     @pytest.mark.otel
     @pytest.mark.db_roots('local', reason='run() is patched out, so it reaches no catalog')
-    def test_run_otel(self, tmp_path: pathlib.Path) -> None:
+    @pytest.mark.parametrize(
+        ('excluded_urls_env', 'excluded_urls'),
+        [
+            ({}, '/health$'),
+            # the fastapi variable wins over the general one
+            ({'OTEL_PYTHON_FASTAPI_EXCLUDED_URLS': '/ping', 'OTEL_PYTHON_EXCLUDED_URLS': '/other'}, '/ping,/health$'),
+            ({'OTEL_PYTHON_EXCLUDED_URLS': '/other'}, '/other,/health$'),
+            # blank patterns are dropped, because an empty pattern matches every URL
+            ({'OTEL_PYTHON_FASTAPI_EXCLUDED_URLS': ''}, '/health$'),
+            ({'OTEL_PYTHON_FASTAPI_EXCLUDED_URLS': '   '}, '/health$'),
+            ({'OTEL_PYTHON_FASTAPI_EXCLUDED_URLS': '/ping,'}, '/ping,/health$'),
+        ],
+    )
+    def test_run_otel(
+        self,
+        tmp_path: pathlib.Path,
+        monkeypatch: pytest.MonkeyPatch,
+        excluded_urls_env: dict[str, str],
+        excluded_urls: str,
+    ) -> None:
         """--otel resolves the instrumentation package and wires init()/instrument_fastapi() into run."""
         skip_test_if_not_installed('fastapi', 'uvicorn', 'opentelemetry.instrumentation.pixeltable')
+        for name in ('OTEL_PYTHON_FASTAPI_EXCLUDED_URLS', 'OTEL_PYTHON_EXCLUDED_URLS'):
+            monkeypatch.delenv(name, raising=False)
+        for name, value in excluded_urls_env.items():
+            monkeypatch.setenv(name, value)
         app_file = tmp_path / 'app.py'
         app_file.write_text('', encoding='utf-8')  # the app it declares is patched out below
         app = SimpleNamespace(routes=[])  # stands in for the FastAPI app, which run() counts the routes of
@@ -1777,11 +1807,17 @@ class TestServiceOtel:
             patch('uvicorn.run') as mock_run,
             patch('opentelemetry.instrumentation.pixeltable.init') as mock_otel_init,
             patch('opentelemetry.instrumentation.pixeltable.instrument_fastapi') as mock_instrument_fastapi,
+            patch('opentelemetry.instrumentation.pixeltable._sdk._gateway_span_app') as mock_gateway_span_app,
         ):
             service_cmd.run(['run', str(app_file), 'my_dir', 'ingest', '--otel'])
         mock_otel_init.assert_called_once_with()
-        mock_instrument_fastapi.assert_called_once_with(app)
-        mock_run.assert_called_once()
+        # the patterns from the environment stay excluded next to /health$
+        mock_instrument_fastapi.assert_called_once_with(
+            app, excluded_urls=excluded_urls, exclude_spans=['receive', 'send']
+        )
+        mock_gateway_span_app.assert_called_once_with(app, excluded_urls)
+        # uvicorn serves the wrapper, so that the gateway header starts the trace
+        assert mock_run.call_args.args == (mock_gateway_span_app.return_value,)
 
 
 class TestServiceStop:
