@@ -143,7 +143,6 @@ class InsertableTable(LocalTable):
             fail_on_exception=fail_on_exception,
             print_stats=print_stats,
             return_rows=return_rows,
-            prepare=True,
         )
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(status))
         return status
@@ -154,12 +153,8 @@ class InsertableTable(LocalTable):
         fail_on_exception: bool,
         print_stats: bool = False,
         return_rows: bool = False,
-        prepare: bool = False,
     ) -> pxt.UpdateStatus:
-        """Insert row batches into this table from a `TableDataConduit`.
-
-        With prepare=True, first checks and converts the source against this table's schema.
-        """
+        """Insert row batches into this table from a `TableDataConduit`."""
         from pixeltable.io.table_data_conduit import QueryTableDataConduit
 
         start_ts = time.perf_counter()
@@ -174,11 +169,10 @@ class InsertableTable(LocalTable):
             read_tbl_ids=query.referenced_tbl_ids() if query is not None else None,
             lock_mutable_tree=True,
         ):
-            if prepare:
-                # Only inside a transaction is the schema validated against the store; outside one, this thread's
-                # cached schema can predate a change that another thread or process made.
-                data_source.add_table_info(self)
-                data_source.prepare_for_insert_into_table()
+            # Only inside a transaction is the schema validated against the store; outside one, this thread's
+            # cached schema can predate a change that another thread or process made.
+            data_source.add_table_info(self)
+            data_source.prepare_for_insert_into_table()
             # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;
             # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
             try:
