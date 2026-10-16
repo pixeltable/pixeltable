@@ -243,7 +243,7 @@ class SpanRecord(BaseModel):
     duration_ms: float
     # the OTLP status code name: 'UNSET', 'OK' or 'ERROR'
     status: str
-    # the span's own attributes, with flat dotted keys
+    # the span's attributes plus the keys CloudWatch adds (such as aws.local.service), with flat dotted keys
     attributes: dict[str, Any]
 
 
