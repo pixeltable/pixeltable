@@ -18,6 +18,7 @@ from pixeltable import env, type_system as ts
 from pixeltable.runtime import get_runtime
 from pixeltable.utils import av as av_utils
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.http import is_retryable_error
 from pixeltable.utils.image import to_base64
 
 if TYPE_CHECKING:
@@ -26,6 +27,11 @@ if TYPE_CHECKING:
 
 
 TWELVELABS_INLINE_LIMIT_BYTES = 2 * 2**20
+
+# twelvelabs>=1.3.6 does not wait for asset readiness: wait_for_upload_completion() finishes the
+# multipart session, and wait_for_done() waits on an indexing task. Poll assets.retrieve instead.
+_ASSET_POLL_INTERVAL_SECS = 5.0
+_ASSET_READY_TIMEOUT_SECS = 600.0
 
 
 @env.register_client('twelvelabs', credential_param='api_key')
@@ -39,11 +45,60 @@ def _twelvelabs_client() -> 'twelvelabs.AsyncTwelveLabs':
     return get_runtime().get_client('twelvelabs')
 
 
+async def _poll_assets_until_ready(client: 'twelvelabs.AsyncTwelveLabs', asset_ids: Sequence[str]) -> None:
+    """Poll `assets.retrieve` until every asset is `ready`."""
+    pending = list(asset_ids)
+    while pending:
+        results = await asyncio.gather(
+            *(client.assets.retrieve(asset_id) for asset_id in pending), return_exceptions=True
+        )
+        still_pending: list[str] = []
+        # Longest Retry-After from this round. wait_for() in _wait_for_assets cancels a longer sleep.
+        provider_delay = 0.0
+        for asset_id, result in zip(pending, results, strict=True):
+            if isinstance(result, BaseException):
+                retryable, delay = is_retryable_error(result) if isinstance(result, Exception) else (False, None)
+                if not retryable:
+                    raise result
+                still_pending.append(asset_id)
+                if delay is not None:
+                    provider_delay = max(provider_delay, delay)
+                continue
+            if result.status == 'failed':
+                error = getattr(result, 'error', None)
+                reason = getattr(error, 'message', None) or error or 'unknown error'
+                # 502 is outside the retryable statuses, so an asset id or reason containing
+                # "429" or "timed out" cannot make RequestRateScheduler upload the file again.
+                raise pxt.ExternalServiceError(
+                    pxt.ErrorCode.PROVIDER_ERROR,
+                    f'TwelveLabs asset {asset_id} failed: {reason}',
+                    provider='twelvelabs',
+                    status_code=502,
+                )
+            if result.status != 'ready':
+                still_pending.append(asset_id)
+        if not still_pending:
+            return
+        pending = still_pending
+        await asyncio.sleep(max(_ASSET_POLL_INTERVAL_SECS, provider_delay))
+
+
+async def _wait_for_assets(client: 'twelvelabs.AsyncTwelveLabs', asset_ids: Sequence[str]) -> None:
+    """Wait until every asset is `ready`, or raise `PROVIDER_TIMEOUT` at `_ASSET_READY_TIMEOUT_SECS`."""
+    try:
+        await asyncio.wait_for(_poll_assets_until_ready(client, asset_ids), timeout=_ASSET_READY_TIMEOUT_SECS)
+    except asyncio.TimeoutError as exc:
+        # "timed out" is a retry token; this deadline must not upload the file again.
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_TIMEOUT,
+            f'TwelveLabs assets were not ready after {_ASSET_READY_TIMEOUT_SECS:g}s',
+            provider='twelvelabs',
+        ) from exc
+
+
 @asynccontextmanager
 async def _asset_uploads(input_type: Literal['audio', 'video'], files: list[str]) -> AsyncIterator[list[str]]:
-    """
-    Context manager that makes uploaded files temporarily available to Twelvelabs models, deleting them from the server
-    after use.
+    """Upload files, wait until each asset is `ready`, and delete those assets on exit.
 
     Returns:
         A list of asset IDs corresponding to the uploaded files.
@@ -61,8 +116,9 @@ async def _asset_uploads(input_type: Literal['audio', 'video'], files: list[str]
             tasks.append(client.multipart_upload.upload_file(file_path=file, file_type=input_type))  # type: ignore[attr-defined]
         upload_results = await asyncio.gather(*tasks)
         uploaded = [u.asset_id for u in upload_results]
+        await _wait_for_assets(client, uploaded)
 
-        yield uploaded
+        yield list(uploaded)
 
     finally:
         await asyncio.gather(*[client.assets.delete(asset_id) for asset_id in uploaded], return_exceptions=True)
