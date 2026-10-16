@@ -108,7 +108,7 @@ The collector sends every trace that contains an error or takes longer than one 
 
 The collector also sends traces to CloudWatch, sampled the same way. `OTEL_TRACES_SAMPLER_ARG__CLOUDWATCH` sets the share of the other traces that CloudWatch keeps. Without it, `OTEL_TRACES_SAMPLER_ARG` sets that share, and the default is 10%. You cannot name a backend `CLOUDWATCH`. Read the spans with `pxt db spans` and `pxt service spans`.
 
-The pods read these settings at startup, so run `pxt db restart` and `pxt service restart` after you change them.
+The pods read these settings at startup. The endpoint and protocol in the entry reach the pods with the project files, so after you change them, run `pxt db update` and then `pxt service restart`. After you change a secret, run `pxt db restart` and `pxt service restart`.
 
 ## API configuration
 
