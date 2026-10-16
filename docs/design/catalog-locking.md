@@ -144,9 +144,13 @@ row, leaving the waiter with stale directory contents and no serialization failu
 A table can be created between store table locking and directory locking. Post-lock validation must detect
 that the set is incomplete and retry before doing any work.
 
-The parent directory lock also protects names during creation, deletion, and moves. A new table's id is not
-visible until its metadata commits, so other transactions cannot yet lock its store table. Pure snapshots have
-no store table at all; their metadata is inserted or deleted under the parent directory lock.
+A directory's lock also protects the names of its entries: tables, views, snapshots, and subdirectories. Each name
+must be unique within its parent directory. Creating an entry or moving one into the directory requires the directory
+lock, so two transactions cannot claim the same name. Drops and moves also lock the directory they remove an entry from.
+
+For a table being created, the parent directory lock is the only protection as there is no store table to lock yet.
+A pure snapshot has no store table at all, so its metadata is always inserted or deleted under its parent directory
+lock.
 
 ## 6. Store tables and metadata commit together
 
