@@ -19,7 +19,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import psutil
 import pydantic
@@ -384,6 +384,28 @@ class RequestFailedError(Exception):
         self.detail = detail or message
         self.retry_after = retry_after
 
+    @classmethod
+    def from_response(cls, e: urllib.error.HTTPError) -> 'RequestFailedError':
+        """The error for a daemon's error response, from the fields of its JSON body."""
+        try:
+            parsed = json.loads(e.read() or b'null')
+        except ValueError:
+            parsed = None
+        body = parsed if isinstance(parsed, dict) else {}
+        detail = str(body.get('detail') or e.reason)
+        retryable = body.get('retryable')
+        error_code = body.get('error_code')
+        retry_after = body.get('retry_after')
+        return cls(
+            f'{e.code} {detail}',
+            e.code,
+            retryable=retryable if isinstance(retryable, bool) else None,
+            server_tb=body.get('traceback'),
+            error_code=error_code if isinstance(error_code, str) else None,
+            detail=detail,
+            retry_after=retry_after if isinstance(retry_after, (int, float)) else None,
+        )
+
     @property
     def transient(self) -> bool:
         """Whether resending the request may succeed.
@@ -444,24 +466,7 @@ def _send(method: str, path: str, body: dict[str, Any] | None, params: dict[str,
         with urllib.request.urlopen(req) as r:
             return json.loads(r.read() or b'null')
     except urllib.error.HTTPError as e:
-        try:
-            parsed = json.loads(e.read() or b'null')
-            body = parsed if isinstance(parsed, dict) else {}
-        except ValueError:
-            body = {}
-        detail = body.get('detail') or e.reason
-        retryable = body.get('retryable')
-        error_code = body.get('error_code')
-        retry_after = body.get('retry_after')
-        raise RequestFailedError(
-            f'{e.code} {detail}',
-            e.code,
-            retryable=retryable if isinstance(retryable, bool) else None,
-            server_tb=body.get('traceback'),
-            error_code=error_code if isinstance(error_code, str) else None,
-            detail=str(detail),
-            retry_after=retry_after if isinstance(retry_after, (int, float)) else None,
-        ) from e
+        raise RequestFailedError.from_response(e) from e
     except urllib.error.URLError as e:
         raise RequestFailedError(f'cannot reach daemon at {url}: {e.reason}') from e
     except http.client.HTTPException as e:
@@ -609,70 +614,70 @@ def plural(n: int, noun: str) -> str:
 # the command being run, as main.dispatch() received it, so a refusal can name the command that finishes the job
 invocation: list[str] | None = None
 
-# error_code of a refusal for want of -f; the CLI raises it and the daemon never does
-CONFIRMATION_REQUIRED = 'CONFIRMATION_REQUIRED'
-
-_FLAG_ALIASES = {'-f': '--force'}
-
 
 def rerun_command(*flags: str) -> str | None:
-    """The command being run as a shell command line, without -n/--dry-run and with flags; None outside dispatch()."""
+    """The command being run, with flags added before any '--', as a shell command line; None outside dispatch()."""
     if invocation is None:
         return None
-    args = [a for a in invocation if a not in ('-n', '--dry-run')]
-    args += [f for f in flags if f not in args and _FLAG_ALIASES.get(f) not in args]
-    return shlex.join(['pxt', *args])
+    end = invocation.index('--') if '--' in invocation else len(invocation)
+    return shlex.join(['pxt', *invocation[:end], *flags, *invocation[end:]])
 
 
 def print_next(command: str, when: str) -> None:
     print(f'next: {command}  # {when}', file=sys.stderr)
 
 
+def can_prompt() -> bool:
+    """Whether someone can answer a prompt: stdin is a TTY, and no coding agent runs the command."""
+    return stdin_is_a_tty() and not run_by_agent()
+
+
 def confirm_or_exit(
-    prompt: str,
-    force: bool,
-    *,
-    refused_exit_code: int = EXIT_REFUSED,
-    on_refusal: Callable[[], None] | None = None,
-    as_json: bool = False,
+    prompt: str, force: bool, *, on_refusal: Callable[[], None] | None = None, as_json: bool = False
 ) -> None:
-    """Prompt for yes/no on stdin; refuse unless --force when no one can answer. Both refusals exit with
-    refused_exit_code.
+    """Prompt for yes/no on stdin unless --force; exit with EXIT_REFUSED on anything but yes, or when no one can answer.
 
     No one can answer without a TTY, nor when a coding agent runs the command: an agent that runs it in a terminal
-    would otherwise wait on the prompt, or answer it itself. That refusal names the command to rerun with -f.
-    on_refusal runs just before it exits, for a caller that reports the refusal itself; otherwise, with as_json,
-    the refusal is an error document on stdout.
+    would otherwise wait on the prompt, or answer it itself. See _refuse_unanswered() for that refusal.
     """
     if force:
         return
-    agent = run_by_agent()
-    if agent or not stdin_is_a_tty():
-        reason = 'a coding agent cannot answer the prompt; ask the user' if agent else 'no TTY for confirmation'
-        message = f'refusing to proceed without --force/-f ({reason}): {prompt}'
-        command = rerun_command('-f')
-        when = prompt.removesuffix('?')
-        if on_refusal is not None:
-            on_refusal()
-        elif as_json:
-            steps = [] if command is None else [{'command': command, 'when': when}]
-            doc = {'error_code': CONFIRMATION_REQUIRED, 'message': message, 'retryable': False, 'next': steps}
-            print(json.dumps(doc, indent=2))
-        # stdout is block-buffered on a pipe; flush it before stderr emits the refusal line
-        try:
-            sys.stdout.flush()
-        except OSError:
-            pass
-        print(f'pxt: {message}', file=sys.stderr)
-        if command is not None:
-            print_next(command, when)
-        sys.exit(refused_exit_code)
+    if not can_prompt():
+        _refuse_unanswered(prompt, on_refusal=on_refusal, as_json=as_json)
     sys.stderr.write(f'{prompt} [y/N] ')
     sys.stderr.flush()
     ans = sys.stdin.readline().strip().lower()
     if ans not in ('y', 'yes'):
         print('aborted', file=sys.stderr)
-        sys.exit(refused_exit_code)
+        sys.exit(EXIT_REFUSED)
+
+
+def _refuse_unanswered(prompt: str, *, on_refusal: Callable[[], None] | None, as_json: bool) -> NoReturn:
+    """Refuse a prompt no one can answer, naming the command to rerun with -f.
+
+    on_refusal runs first, for a caller that reports the refusal itself; otherwise, with as_json, the refusal is an
+    error document on stdout.
+    """
+    reason = 'a coding agent cannot answer the prompt; ask the user' if run_by_agent() else 'no TTY for confirmation'
+    message = f'refusing to proceed without --force/-f ({reason}): {prompt}'
+    command = rerun_command('-f')
+    # the question says what the command does; what follows it, such as 'This is irreversible.', does not
+    when = prompt.partition('?')[0]
+    if on_refusal is not None:
+        on_refusal()
+    elif as_json:
+        steps = [] if command is None else [{'command': command, 'when': when}]
+        doc = {'error_code': 'CONFIRMATION_REQUIRED', 'message': message, 'retryable': False, 'next': steps}
+        print(json.dumps(doc, indent=2))
+    # stdout is block-buffered on a pipe; flush it before stderr emits the refusal line
+    try:
+        sys.stdout.flush()
+    except OSError:
+        pass
+    print(f'pxt: {message}', file=sys.stderr)
+    if command is not None:
+        print_next(command, when)
+    sys.exit(EXIT_REFUSED)
 
 
 def print_json_schema(adapter: pydantic.TypeAdapter) -> None:

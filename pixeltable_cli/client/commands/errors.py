@@ -40,6 +40,11 @@ def run(argv: list[str]) -> None:
             where = path if args.col is None else f'column {args.col} of {path}'
             print(f'no failed cells in {where}', file=sys.stderr)
     sys.stdout.flush()
-    for column, n in collections.Counter(e.column for e in resp.entries).most_common():
-        command = shlex.join(['pxt', 'recompute', path, column, '--errors-only', '-f'])
-        print_next(command, f'reruns {plural(n, "failed cell")} of {column} and the columns that depend on it')
+    failed = collections.Counter((e.defined_in, e.column) for e in resp.entries)
+    for (table, column), n in failed.most_common():
+        command = shlex.join(['pxt', 'recompute', table, column, '--errors-only', '-f'])
+        if table == path:
+            when = f'reruns {plural(n, "failed cell")} of {column} and the columns that depend on it'
+        else:
+            when = f'reruns every failed cell of {column} in {table}, which defines it; {n} of them are listed here'
+        print_next(command, when)
