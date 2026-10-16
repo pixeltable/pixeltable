@@ -1,4 +1,4 @@
-"""Unpack a hosted database's project archive before its pod starts.
+"""Prepare a hosted database's project for its pod: the unpacked archive, its fingerprint and the project config.
 
 A database's serving container cannot fetch its own archive. The image installs the project's
 dependencies but not the project itself (`uv sync --no-install-project`), because the image context
@@ -8,17 +8,23 @@ own pixeltable.
 
 Layout under --archive-dir, mounted by both containers:
 
-    project/          the unpacked project; absent until the database has one
-    fingerprint.json  the control plane's fingerprint for that archive
+    project/                 the unpacked project; absent until the database has one
+    project/pixeltable.toml  the project config, from the fingerprint's config
+    fingerprint.json         the control plane's fingerprint for that archive
 
 The fingerprint is written to disk rather than re-fetched: a pod reports which archive it loaded,
 and a second GetArchive call could return a different one.
+
+A pod whose template names its release (PXTCLOUD_ARCHIVE_DIGEST, PXTCLOUD_BUILD_ID) fetches that release's
+archive rather than the database's current one, so a restarted or scaled-up pod keeps the code it was deployed
+with. A pinned pod fails if its archive is missing.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
 import shutil
 import tarfile
 import tempfile
@@ -26,7 +32,10 @@ import time
 import urllib.request
 from pathlib import Path
 
+import toml
+
 from pixeltable import exceptions as excs
+from pixeltable.config import PROJECT_CONFIG_FILE
 from pixeltable.service import management_client
 from pixeltable.service.db import _validated_db_uri
 from pixeltable.service.management_protocol import GetArchiveRequest, GetArchiveResponse
@@ -42,6 +51,7 @@ _TARBALL_ROOT = 'project'
 # get_archive returns 404 both for a database with no project and for an archive uploaded moments ago
 # that is not readable yet. The retries tell the two apart.
 _ARCHIVE_FETCH_DELAYS = (0.0, 1.0, 2.0, 4.0)
+_PINNED_FETCH_DELAYS = (0.0, 1.0, 2.0, 4.0, 8.0, 16.0)
 
 _logger = logging.getLogger('pixeltable')
 
@@ -54,12 +64,33 @@ def fingerprint_path(archive_dir: Path) -> Path:
     return archive_dir / FINGERPRINT_FILE
 
 
-def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:
-    """Unpack db_uri's project archive into dest; returns the control plane's response."""
-    db_path = _validated_db_uri(db_uri)
-    response = GetArchiveResponse.model_validate(
-        management_client.api_call(GetArchiveRequest(org=db_path.org, db=db_path.db))
+def pinned_release() -> tuple[str | None, str | None, str | None]:
+    """The archive digest, build id and release key the pod's template names; all None for an unpinned pod."""
+    return (
+        os.environ.get('PXTCLOUD_ARCHIVE_DIGEST') or None,
+        os.environ.get('PXTCLOUD_BUILD_ID') or None,
+        os.environ.get('PXTCLOUD_RELEASE_KEY') or None,
     )
+
+
+def unpack_project_archive(
+    db_uri: str,
+    dest: Path,
+    *,
+    archive_digest: str | None = None,
+    build_id: str | None = None,
+    release_key: str | None = None,
+) -> GetArchiveResponse:
+    """Unpack a project archive of db_uri into dest; returns the control plane's response.
+
+    archive_digest, build_id, release_key: the release whose archive to unpack; None unpacks the database's current
+    one.
+    """
+    db_path = _validated_db_uri(db_uri)
+    request = GetArchiveRequest(
+        org=db_path.org, db=db_path.db, archive_digest=archive_digest, build_id=build_id, release_key=release_key
+    )
+    response = GetArchiveResponse.model_validate(management_client.api_call(request))
     dest.parent.mkdir(parents=True, exist_ok=True)
     # staged next to dest and moved into place, so that dest ends up with exactly the archive's files
     unpacking = Path(tempfile.mkdtemp(dir=dest.parent, prefix=f'.{dest.name}.'))
@@ -94,7 +125,9 @@ def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:
             tf.extractall(staged, members=members, filter='data')
 
         unpacked = unpacked_digest(staged)
-        if unpacked != response.digest:
+        # TODO: remove once every stored fingerprint has a config; older clients hashed pyproject.toml by its bytes
+        legacy = response.fingerprint is None or len(response.fingerprint.config) == 0
+        if unpacked != response.digest and not legacy:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_DATA_FORMAT,
                 f'{db_path.uri_str} served project {unpacked}, not {response.digest}',
@@ -108,14 +141,25 @@ def unpack_project_archive(db_uri: str, dest: Path) -> GetArchiveResponse:
     return response
 
 
-def fetch(db_uri: str, archive_dir: Path) -> bool:
-    """Unpack db_uri's project into archive_dir; False if the database has no project yet."""
+def prepare(db_uri: str, archive_dir: Path) -> bool:
+    """Prepare db_uri's project in archive_dir; False if the database has no project yet.
+
+    Raises if the pod is pinned to a release whose archive is not found.
+    """
     archive_dir.mkdir(parents=True, exist_ok=True)
-    for delay in _ARCHIVE_FETCH_DELAYS:
+    archive_digest, build_id, release_key = pinned_release()
+    pinned = archive_digest is not None or build_id is not None
+    for delay in _PINNED_FETCH_DELAYS if pinned else _ARCHIVE_FETCH_DELAYS:
         if delay > 0.0:
             time.sleep(delay)
         try:
-            response = unpack_project_archive(db_uri, project_dir(archive_dir))
+            response = unpack_project_archive(
+                db_uri,
+                project_dir(archive_dir),
+                archive_digest=archive_digest,
+                build_id=build_id,
+                release_key=release_key,
+            )
         except excs.ExternalServiceError as exc:
             if exc.provider_http_status_code != 404:
                 raise
@@ -125,7 +169,18 @@ def fetch(db_uri: str, archive_dir: Path) -> bool:
         fingerprint_path(archive_dir).unlink(missing_ok=True)
         if response.fingerprint is not None:
             fingerprint_path(archive_dir).write_text(response.fingerprint.model_dump_json(), encoding='utf-8')
+            # an empty config comes from an older client, whose archive contains the project's config
+            if len(response.fingerprint.config) > 0:
+                config_file = project_dir(archive_dir) / PROJECT_CONFIG_FILE
+                config_file.write_text(toml.dumps(response.fingerprint.config), encoding='utf-8')
         return True
+    if pinned:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f"{db_uri} has no archive for this pod's release (archive {archive_digest}, build {build_id})",
+            provider='pixeltable_cloud',
+            status_code=404,
+        )
     # the database has no project now, whatever an earlier run left here
     shutil.rmtree(project_dir(archive_dir), ignore_errors=True)
     fingerprint_path(archive_dir).unlink(missing_ok=True)
@@ -133,11 +188,11 @@ def fetch(db_uri: str, archive_dir: Path) -> bool:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog='pixeltable.service.fetch_archive')
+    parser = argparse.ArgumentParser(prog='pixeltable.service.prepare_project')
     parser.add_argument('--db', required=True, help='pxt://org:db, the database whose project to unpack')
     parser.add_argument('--archive-dir', type=Path, required=True, help='unpack the project under here')
     parsed = parser.parse_args(argv)
-    if not fetch(parsed.db, parsed.archive_dir):
+    if not prepare(parsed.db, parsed.archive_dir):
         # exit 0: a non-zero exit would crash-loop the pod, and a database with no project still serves
         _logger.warning('%s has no project; its udfs cannot be resolved', parsed.db)
 

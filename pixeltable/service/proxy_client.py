@@ -21,6 +21,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import weakref
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -135,6 +136,9 @@ class HttpTransport(Transport):
     def __init__(self, endpoint: str):
         self._endpoint = endpoint
         self._http = httpx.Client(base_url=endpoint, timeout=httpx.Timeout(120.0))
+        # closes the pooled connections when the transport is collected without close(), as when the runtime holding
+        # it is discarded
+        weakref.finalize(self, self._http.close)
 
     def post(self, body: bytes) -> bytes:
         # an explicit Content-Length keeps the request unchunked on the wire
@@ -208,6 +212,15 @@ def _is_server_closed(conn: http.client.HTTPConnection) -> bool:
         return True
 
 
+def _close_idle(idle: list[tuple[_TunnelHTTPConnection, float]]) -> None:
+    for conn, _ in idle:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    idle.clear()
+
+
 class _TunnelPool:
     """Thread-safe pool of TLS + PXT/1.0 tunnel connections."""
 
@@ -216,6 +229,9 @@ class _TunnelPool:
         self._max = max_size
         self._lock = threading.Lock()
         self._idle: list[tuple[_TunnelHTTPConnection, float]] = []  # with when each one's last response arrived
+        # closes the idle connections when GC collects the pool, in a cycle with its transport, without close(); it
+        # holds the list, since holding the pool would keep the pool alive
+        weakref.finalize(self, _close_idle, self._idle)
 
     @contextmanager
     def borrow(self) -> Iterator[_TunnelHTTPConnection]:
@@ -246,12 +262,7 @@ class _TunnelPool:
 
     def close(self) -> None:
         with self._lock:
-            for conn, _ in self._idle:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-            self._idle.clear()
+            _close_idle(self._idle)
 
 
 class TunnelTransport(Transport):
