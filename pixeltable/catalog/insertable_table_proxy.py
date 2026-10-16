@@ -88,6 +88,7 @@ class InsertableTableProxy(TableProxy):
                 )
                 data_source.src_pk = []
                 data_source.infer_schema()
+                data_source.prepare_for_insert_into_table()
                 rows = self._convert_local_paths(row for batch in data_source.valid_row_batch() for row in batch)
                 return self._dispatch(
                     'insert',
@@ -133,7 +134,8 @@ class InsertableTableProxy(TableProxy):
             rows = data_source.raw_rows
         elif isinstance(data_source, PandasTableDataConduit):
             data_source.src_pk = []
-            data_source.infer_schema()  # populates valid_rows (df -> pxt-native dicts)
+            data_source.infer_schema()
+            data_source.prepare_for_insert_into_table()  # populates valid_rows (df -> pxt-native dicts)
             assert data_source.valid_rows is not None
             rows = data_source.valid_rows
         else:

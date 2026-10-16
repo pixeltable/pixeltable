@@ -8,7 +8,7 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import DatabaseRoot, DummyIterator, validate_update_status
+from .utils import DatabaseRoot, DummyIterator, pxt_raises, validate_update_status
 
 
 @pxt.udf
@@ -444,3 +444,34 @@ class TestConcurrentOps:
 
         # Final count: initial row + writer's inserts.
         assert t.count() == 1 + n_inserts_per_writer
+
+    def test_insert_after_rename_on_another_thread(self, db_root: DatabaseRoot) -> None:
+        """Insert checks rows against the stored schema, not the copy this thread cached before another thread
+        renamed a column."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None})
+
+        def rename_on_another_thread(old: str, new: str) -> None:
+            assert t.columns() == [old]  # this thread now holds the table's metadata
+            self._assert_no_errors(_run_workers(lambda _tid: t.rename_column(old, new), n_threads=1))
+
+        rename_on_another_thread('c1', 'balloon')
+        validate_update_status(t.insert({'balloon': i} for i in range(2)), expected_rows=2)
+
+        rename_on_another_thread('balloon', 'zeppelin')
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column name balloon'):
+            t.insert(balloon=2)
+        assert sorted(t.select(t.zeppelin).collect()['zeppelin']) == [0, 1]
+
+    @pytest.mark.parametrize('select', [False, True])
+    def test_insert_query_on_another_thread(self, db_root: DatabaseRoot, select: bool) -> None:
+        """Inserting another table's rows works on a thread that has not read that table."""
+        p = db_root.make_catalog_path
+        src = pxt.create_table(p('src'), {'c': pxt.Int | None})
+        validate_update_status(src.insert({'c': i} for i in range(3)), expected_rows=3)
+        dst = pxt.create_table(p('dst'), {'c': pxt.Int | None})
+
+        source = src.select() if select else src
+        errors = _run_workers(lambda _tid: validate_update_status(dst.insert(source), expected_rows=3), n_threads=1)
+        self._assert_no_errors(errors)
+        assert dst.count() == 3

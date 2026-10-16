@@ -245,8 +245,6 @@ class RowDataTableDataConduit(TableDataConduit):
             self.normalize_pxt_schema_types()
         else:
             raise NotImplementedError()
-
-        self.prepare_for_insert_into_table()
         return self.pxt_schema
 
     def prepare_for_insert_into_table(self) -> None:
@@ -327,12 +325,12 @@ class PandasTableDataConduit(TableDataConduit):
         self.pxt_schema, self.pxt_pk = self.infer_schema_part1()
         self.normalize_pxt_schema_types()
         _df_check_primary_key_values(self.pd_df, self.src_pk)
-        self.prepare_insert()
         return self.pxt_schema
 
     def prepare_for_insert_into_table(self) -> None:
-        _, inferred_pk = self.infer_schema_part1()
-        assert len(inferred_pk) == 0
+        if self.source_column_map is None:  # infer_schema() has not run
+            _, inferred_pk = self.infer_schema_part1()
+            assert len(inferred_pk) == 0
         self.prepare_insert()
 
     def prepare_insert(self) -> None:
@@ -503,12 +501,12 @@ class HFTableDataConduit(TableDataConduit):
     def infer_schema(self) -> dict[str, Any]:
         self.pxt_schema, self.pxt_pk = self.infer_schema_part1()
         self.normalize_pxt_schema_types()
-        self.prepare_insert()
         return self.pxt_schema
 
     def prepare_for_insert_into_table(self) -> None:
-        _, inferred_pk = self.infer_schema_part1()
-        assert len(inferred_pk) == 0
+        if self.source_column_map is None:  # infer_schema() has not run
+            _, inferred_pk = self.infer_schema_part1()
+            assert len(inferred_pk) == 0
         self.prepare_insert()
 
     def prepare_insert(self) -> None:
@@ -737,12 +735,12 @@ class ParquetTableDataConduit(TableDataConduit):
     def infer_schema(self) -> dict[str, ts.ColumnType]:
         self.pxt_schema, self.pxt_pk = self.infer_schema_part1()
         self.normalize_pxt_schema_types()
-        self.prepare_insert()
         return self.pxt_schema
 
     def prepare_for_insert_into_table(self) -> None:
-        _, inferred_pk = self.infer_schema_part1()
-        assert len(inferred_pk) == 0
+        if self.source_column_map is None:  # infer_schema() has not run
+            _, inferred_pk = self.infer_schema_part1()
+            assert len(inferred_pk) == 0
         self.prepare_insert()
 
     def prepare_insert(self) -> None:
@@ -767,17 +765,17 @@ class ParquetTableDataConduit(TableDataConduit):
 
 @dataclass
 class PydanticTableDataConduit(TableDataConduit):
+    dumped_rows: list[dict[str, Any]] | None = None
     pxt_rows: list[dict[str, Any]] = field(default_factory=list)
 
-    def prepare_for_insert_into_table(self) -> None:
-        """Validates and converts the Pydantic models to dicts that can be inserted into the table"""
+    def dump_models(self) -> None:
+        """Serializes the models into dicts with folded keys, unless that has already been done"""
+        if self.dumped_rows is not None:
+            return
         rows = cast(Sequence[pydantic.BaseModel], self.source)
         assert len(rows) > 0, 'No rows to insert'
-        assert len(self.pxt_rows) == 0, 'prepare_for_insert_into_table should only be called once'
         model_class = type(rows[0])
-        self._validate_pydantic_model(model_class)
-        sorted_reqd_cols = sorted(self.reqd_col_names)
-        # convert rows one-by-one in order to be able to print meaningful error messages
+        dumped_rows: list[dict[str, Any]] = []
         for i, row in enumerate(rows):
             if type(row) is not model_class:
                 raise excs.RequestError(
@@ -786,14 +784,26 @@ class PydanticTableDataConduit(TableDataConduit):
                 )
             try:
                 # mode='python' (the default) keeps datetimes/dates as native objects and renders nested models
-                # as dicts, so that coercing each cell below yields the same values as the equivalent dict input
-                # (e.g. naive timestamps get localized to the session time zone, rather than left as ISO strings).
+                # as dicts, so that coercing each cell in prepare_for_insert_into_table() yields the same values as
+                # the equivalent dict input (e.g. naive timestamps get localized to the session time zone, rather
+                # than left as ISO strings).
                 dumped_row = row.model_dump()
             except pydantic_core.PydanticSerializationError as e:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Row {i}: error serializing pydantic model:\n{e}'
                 ) from e
-            raw_row = fold_mapping_keys(dumped_row)
+            dumped_rows.append(fold_mapping_keys(dumped_row))
+        self.dumped_rows = dumped_rows
+
+    def prepare_for_insert_into_table(self) -> None:
+        """Validates and converts the Pydantic models to dicts that can be inserted into the table"""
+        assert len(self.pxt_rows) == 0, 'prepare_for_insert_into_table should only be called once'
+        self.dump_models()
+        assert self.dumped_rows is not None
+        self._validate_pydantic_model(type(cast(Sequence[pydantic.BaseModel], self.source)[0]))
+        sorted_reqd_cols = sorted(self.reqd_col_names)
+        # convert rows one-by-one in order to be able to print meaningful error messages
+        for i, raw_row in enumerate(self.dumped_rows):
             # explicitly check that all required columns are present and non-None in the rows,
             # because we ignore nullability when validating the pydantic model
             for col_name in sorted_reqd_cols:

@@ -120,7 +120,7 @@ class InsertableTable(LocalTable):
         return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        from pixeltable.io.table_data_conduit import TableDataConduit
+        from pixeltable.io.table_data_conduit import PydanticTableDataConduit, TableDataConduit
 
         self._validate_insert_source(source)
         fail_on_exception = OnErrorParam.fail_on_exception(on_error)
@@ -134,8 +134,9 @@ class InsertableTable(LocalTable):
             data_source = TableDataConduit.create(
                 source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
             )
-            data_source.add_table_info(self)
-            data_source.prepare_for_insert_into_table()
+            if isinstance(data_source, PydanticTableDataConduit):
+                # model serializers are user code that can call Pixeltable, which the write transaction would refuse
+                data_source.dump_models()
 
         status = self._insert_table_data_source(
             data_source=data_source,
@@ -158,18 +159,26 @@ class InsertableTable(LocalTable):
 
         start_ts = time.perf_counter()
         status = pxt.UpdateStatus()
+        # the transaction can only load metadata for the tables it declares, and the query's tables can be new to
+        # this thread
+        query = data_source.pxt_query if isinstance(data_source, QueryTableDataConduit) else None
         with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+            for_write=True,
+            write_tvps=[self._tbl_version_path],
+            read_tvps=query._from_clause.tvps if query is not None else None,
+            read_tbl_ids=query.referenced_tbl_ids() if query is not None else None,
+            lock_mutable_tree=True,
         ):
+            # Only inside a transaction is the schema validated against the store; outside one, this thread's
+            # cached schema can predate a change that another thread or process made.
+            data_source.add_table_info(self)
+            data_source.prepare_for_insert_into_table()
             # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;
             # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
             try:
-                if isinstance(data_source, QueryTableDataConduit):
+                if query is not None:
                     status += self._tbl_version.get().insert(
-                        source=None,
-                        query=data_source.pxt_query,
-                        print_stats=print_stats,
-                        fail_on_exception=fail_on_exception,
+                        source=None, query=query, print_stats=print_stats, fail_on_exception=fail_on_exception
                     )
                 else:
                     for row_batch in data_source.valid_row_batch():
