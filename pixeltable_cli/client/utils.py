@@ -381,6 +381,26 @@ class RequestFailedError(Exception):
         self.error_code = error_code or ('DAEMON_UNREACHABLE' if status is None else 'INTERNAL_ERROR')
         self.detail = detail or message
 
+    @classmethod
+    def from_response(cls, e: urllib.error.HTTPError) -> 'RequestFailedError':
+        """The error for a daemon's error response, from the fields of its JSON body."""
+        try:
+            parsed = json.loads(e.read() or b'null')
+        except ValueError:
+            parsed = None
+        body = parsed if isinstance(parsed, dict) else {}
+        detail = str(body.get('detail') or e.reason)
+        retryable = body.get('retryable')
+        error_code = body.get('error_code')
+        return cls(
+            f'{e.code} {detail}',
+            e.code,
+            retryable=retryable if isinstance(retryable, bool) else None,
+            server_tb=body.get('traceback'),
+            error_code=error_code if isinstance(error_code, str) else None,
+            detail=detail,
+        )
+
     @property
     def transient(self) -> bool:
         """Whether resending the request may succeed.
@@ -439,22 +459,7 @@ def _send(method: str, path: str, body: dict[str, Any] | None, params: dict[str,
         with urllib.request.urlopen(req) as r:
             return json.loads(r.read() or b'null')
     except urllib.error.HTTPError as e:
-        try:
-            parsed = json.loads(e.read() or b'null')
-            body = parsed if isinstance(parsed, dict) else {}
-        except ValueError:
-            body = {}
-        detail = body.get('detail') or e.reason
-        retryable = body.get('retryable')
-        error_code = body.get('error_code')
-        raise RequestFailedError(
-            f'{e.code} {detail}',
-            e.code,
-            retryable=retryable if isinstance(retryable, bool) else None,
-            server_tb=body.get('traceback'),
-            error_code=error_code if isinstance(error_code, str) else None,
-            detail=str(detail),
-        ) from e
+        raise RequestFailedError.from_response(e) from e
     except urllib.error.URLError as e:
         raise RequestFailedError(f'cannot reach daemon at {url}: {e.reason}') from e
     except http.client.HTTPException as e:

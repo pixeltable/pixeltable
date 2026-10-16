@@ -153,10 +153,10 @@ def _print_restarts(org: str, db: str | None) -> None:
     """Names the restarts that make running pods read the changed secrets, which they read only at startup."""
     sys.stdout.flush()
     if db is None:
-        restart = f'pxt db restart pxt://{org}:DB'
+        restart = f'pxt db restart pxt://{org}:<db>'
         print_next('pxt db list', f'names the databases that read these secrets; run `{restart}` for each')
         return
     db_uri = f'pxt://{org}:{db}'
     print_next(f'pxt db restart {db_uri}', 'restarts its pods, so its tables read the new values')
-    restart = f'pxt service restart {db_uri}/NAME'
+    restart = f'pxt service restart {db_uri}/<name>'
     print_next(f'pxt service list {db_uri}', f'names its services, which read them too; run `{restart}` for each')

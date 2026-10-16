@@ -685,7 +685,7 @@ A request that fails ends its line with the error code, as in `pxt: 404 Director
 | `0` | Success, or nothing to do |
 | `1` | Error, including a usage error in the commands that give `2` another meaning (`schema`, `service`, `db`, `init`) |
 | `2` | A usage error elsewhere; for `diff`, `update -n` and `prune -n`, changes pending; for `db` and `service`, a change still under way when the three-hour wait ends |
-| `3` | Refused for want of consent: `-f` without a terminal, an answer other than `y`, or `--allow-destructive` |
+| `3` | Refused for want of consent: no `-f` without a terminal or under a coding agent, an answer other than `y`, or a destructive plan without `--allow-destructive` |
 | `130` | A wait stopped with Ctrl-C; the change continues in Pixeltable Cloud |
 
 ## Serving
