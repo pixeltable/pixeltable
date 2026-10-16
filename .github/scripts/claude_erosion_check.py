@@ -26,11 +26,11 @@ from typing import Any, Literal
 
 import anthropic
 import pydantic
+from plan_claude_review import SKIPPED, gh, pr_from_tests_run
 from scb_check.analysis.loc import sloc_line_numbers  # type: ignore[import-untyped]
 from scb_check.analysis.parse import ParseError, parse_file  # type: ignore[import-untyped]
-from scb_check.analysis.symbols import extract_functions  # type: ignore[import-untyped]
-
-from plan_claude_review import SKIPPED, gh, pr_from_tests_run
+from scb_check.analysis.symbols import CYC_COMPLEXITY_NODE_TYPES, extract_functions  # type: ignore[import-untyped]
+from scb_check.analysis.syntax import iter_nodes  # type: ignore[import-untyped]
 
 MARKER = '<!-- claude-erosion-check'
 # SlopCodeBench counts a function above this complexity as eroded.
@@ -131,14 +131,18 @@ def python_functions(path: Path) -> dict[str, Metrics]:
     try:
         module = ast.parse(source)
     except SyntaxError:
-        module = ast.Module(body=[], type_ignores=[])  # keep scb-check's bare names and every assert
+        module = ast.Module(body=[], type_ignores=[])  # keep scb-check's bare names
     names = qualified_names(module)
-    # scb-check counts each assert as a branch, including asserts in nested functions. An assert states an invariant,
-    # so the gate leaves them out.
-    asserts = [node.lineno for node in ast.walk(module) if isinstance(node, ast.Assert)]
+    # scb-check counts each assert, and each `and`, `or`, ternary, or comprehension inside it, as a branch of every
+    # function that contains it. An assert states an invariant, so the gate leaves all of them out.
+    asserts = [  # (line, branches)
+        (node.start_point.row + 1, sum(n.type in CYC_COMPLEXITY_NODE_TYPES for n in iter_nodes(node)))
+        for node in iter_nodes(tree.root_node)
+        if node.type == 'assert_statement'
+    ]
     functions: dict[str, Metrics] = {}
     for f in extract_functions(path, tree, sloc_line_numbers(source, tree)):
-        complexity = f.cyc_complexity - sum(f.start_line <= line <= f.end_line for line in asserts)
+        complexity = f.cyc_complexity - sum(n for line, n in asserts if f.start_line <= line <= f.end_line)
         add_unique(functions, names.get(f.start_line, f.name), Metrics(complexity, f.sloc, f.start_line, f.end_line))
     return functions
 
