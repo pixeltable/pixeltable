@@ -20,6 +20,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.service import auth, db, management_client, proxy_daemon, session_cache, trial
 from pixeltable.service.management_protocol import (
+    TRACE_ID_PATTERN,
     CreateKeyRequest,
     CreateOrgRequest,
     DeleteDbRequest,
@@ -38,7 +39,6 @@ from pixeltable.service.management_protocol import (
     SetSecretRequest,
     StartDbRequest,
     StopDbRequest,
-    TRACE_ID_PATTERN,
     UpdateKeyRequest,
 )
 from pixeltable.serving import service

@@ -354,8 +354,8 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
 
     test_mode: exposes the test-only endpoints and returns diagnostic detail with errors.
 
-    With an OTLP endpoint in the [otel] config section or its OTEL_* environment variables, the daemon exports
-    telemetry there.
+    With an OTLP endpoint in the database's entry (db_exporter_otlp_endpoint), in OTEL_EXPORTER_OTLP_ENDPOINT, or in
+    the [otel] config section, the daemon exports telemetry there.
     """
     # mark this process as a hosted-catalog server (no client-accessible local store) before the catalog inits
     os.environ['PIXELTABLE_PROXY_DAEMON'] = '1'

@@ -966,8 +966,11 @@ Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreeme
 
 `--otel` emits OpenTelemetry traces from the served application: Pixeltable's own spans, nested under the
 request spans of the FastAPI app. It needs the instrumentation package (`pip install 'pixeltable[otel]'`),
-and the endpoint and service name come from the `OTEL_*` environment variables or the `[otel]` config
-section, as they do for any Pixeltable process.
+and the endpoint and service name come from the same settings as for any Pixeltable process. The endpoint comes
+from `db_exporter_otlp_endpoint` in the database's `[[pixeltable.database]]` entry, then from
+`OTEL_EXPORTER_OTLP_ENDPOINT`, then from the `[otel]` config section (see
+[Configuration](/platform/configuration#per-database-settings)). The service name comes from `OTEL_SERVICE_NAME` or
+the `[otel]` config section.
 
 ```bash
 pxt service run app.py my_dir --otel       # traced, in this process
