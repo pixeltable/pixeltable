@@ -67,6 +67,8 @@ def pytest_addoption(parser: argparsing.Parser) -> None:
 def pytest_configure(config: PytestConfig) -> None:
     global DO_RERUN  # noqa: PLW0603
     DO_RERUN = not config.getoption('--no-rerun')
+    # the pxt CLI refuses to prompt under a coding agent; tests expect a person's CLI wherever they run
+    os.environ['PXT_AGENT'] = '0'
 
 
 # Fixtures that download a Hugging Face model. Any test requesting one of these is implicitly a

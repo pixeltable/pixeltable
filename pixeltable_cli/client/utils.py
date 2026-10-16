@@ -535,6 +535,47 @@ def stdin_is_a_tty() -> bool:
     return bool(ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode)))
 
 
+# Set by coding agents in the environment of the commands they run, as @vercel/detect-agent reads
+# them: variable -> agent. Left out: CURSOR_TRACE_ID and REPL_ID, which every Cursor terminal and
+# Replit shell carries, and the COPILOT_* settings, which a person's shell profile can export.
+_AGENT_MARKERS = {
+    'CURSOR_AGENT': 'cursor',
+    'GEMINI_CLI': 'gemini',
+    'CODEX_SANDBOX': 'codex',
+    'CODEX_CI': 'codex',
+    'CODEX_THREAD_ID': 'codex',
+    'ANTIGRAVITY_AGENT': 'antigravity',
+    'AUGMENT_AGENT': 'augment',
+    'OPENCODE_CLIENT': 'opencode',
+    'CLAUDECODE': 'claude',
+    'CLAUDE_CODE': 'claude',
+}
+
+
+def agent_name() -> str | None:
+    """The coding agent running this command, from the variables agents set, or None.
+
+    AI_AGENT, which any agent can set to its own name, comes first.
+    """
+    declared = os.environ.get('AI_AGENT', '').strip()
+    if declared != '':
+        return declared
+    if os.environ.get('CURSOR_EXTENSION_HOST_ROLE') == 'agent-exec':
+        return 'cursor'
+    return next((agent for marker, agent in _AGENT_MARKERS.items() if os.environ.get(marker)), None)
+
+
+def run_by_agent() -> bool:
+    """Whether a coding agent, rather than a person, is running this command.
+
+    PXT_AGENT=1 or PXT_AGENT=0 decides outright; otherwise, whether agent_name() names one.
+    """
+    forced = os.environ.get('PXT_AGENT', '').strip()
+    if forced in ('0', '1'):
+        return forced == '1'
+    return agent_name() is not None
+
+
 def plural(n: int, noun: str) -> str:
     """Count and noun, with an s on the noun for every count but one."""
     return f'{n} {noun}' if n == 1 else f'{n} {noun}s'
@@ -570,15 +611,20 @@ def confirm_or_exit(
     on_refusal: Callable[[], None] | None = None,
     as_json: bool = False,
 ) -> None:
-    """Prompt for yes/no on stdin; refuse non-tty unless --force. Both refusals exit with refused_exit_code.
+    """Prompt for yes/no on stdin; refuse unless --force when no one can answer. Both refusals exit with
+    refused_exit_code.
 
-    A non-tty refusal names the command to rerun with -f. on_refusal runs just before it exits, for a caller that
-    reports the refusal itself; otherwise, with as_json, the refusal is an error document on stdout.
+    No one can answer without a TTY, nor when a coding agent runs the command: an agent that runs it in a terminal
+    would otherwise wait on the prompt, or answer it itself. That refusal names the command to rerun with -f.
+    on_refusal runs just before it exits, for a caller that reports the refusal itself; otherwise, with as_json,
+    the refusal is an error document on stdout.
     """
     if force:
         return
-    if not stdin_is_a_tty():
-        message = f'refusing to proceed without --force/-f (no TTY for confirmation): {prompt}'
+    agent = run_by_agent()
+    if agent or not stdin_is_a_tty():
+        reason = 'a coding agent cannot answer the prompt; ask the user' if agent else 'no TTY for confirmation'
+        message = f'refusing to proceed without --force/-f ({reason}): {prompt}'
         command = rerun_command('-f')
         when = prompt.removesuffix('?')
         if on_refusal is not None:
