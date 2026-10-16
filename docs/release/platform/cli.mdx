@@ -678,6 +678,16 @@ The command is the one you ran, with `-n` dropped and `-f` (or `--allow-destruct
 
 The plan commands (`schema`, `service`, `db update`) keep printing their plan, with the refused operations marked `refused`. An unknown command exits `2` and suggests the commands it may have meant, such as `pxt db logs` and `pxt service logs` for `pxt logs`.
 
+A request that fails ends its line with the error code, as in `pxt: 404 Directory 'nope' does not exist. [DIRECTORY_NOT_FOUND]`; with `--json`, stdout gets `{"error_code": ..., "message": ..., "retryable": ...}`. A daemon that cannot be reached gives `DAEMON_UNREACHABLE`, and an unexpected daemon failure `INTERNAL_ERROR`.
+
+| Exit | Meaning |
+|---|---|
+| `0` | Success, or nothing to do |
+| `1` | Error, including a usage error in the commands that give `2` another meaning (`schema`, `service`, `db`, `init`) |
+| `2` | A usage error elsewhere; for `diff`, `update -n` and `prune -n`, changes pending; for `db` and `service`, a change still under way when the three-hour wait ends |
+| `3` | Refused for want of consent: `-f` without a terminal, an answer other than `y`, or `--allow-destructive` |
+| `130` | A wait stopped with Ctrl-C; the change continues in Pixeltable Cloud |
+
 ## Serving
 
 `pxt service` runs the services in an application file. An application file is any Python source file containing
@@ -1095,6 +1105,8 @@ Database URIs use the form `pxt://org:db`. Valid states: `PROVISIONING`, `STARTI
 
 The URI argument is optional: when it is omitted, these commands use `db_uri` from the Pixeltable config file (see [Configuration](/platform/configuration)), so a project that sets it can run `pxt db status` and the other `db` commands with no argument.
 
+A usage error, such as an unknown verb or a URI that is not `pxt://org:db`, exits `1`: in `pxt db`, `2` means changes pending (`diff`) or a change still under way when a wait ends. A failed update names `pxt db retry` on a `next:` line, and a wait that stops names `pxt db status`.
+
 #### `pxt db update`
 
 ```bash
@@ -1292,7 +1304,7 @@ With `--json`, each row is an object with `key` and `scope`, plus `"overrides_or
 
 `set` and `delete` print the keys they changed as the same `KEY` and `SCOPE` rows, without `NOTE`; with `--json`, as `key` and `scope` objects. Earlier releases printed bare key names, and `--json` printed an array of strings.
 
-A running database or service uses the values from its startup. Run `pxt db restart` for the database's tables process and `pxt service restart` for each service. A database or service started afterwards reads the current value at startup.
+A running database or service uses the values from its startup. Run `pxt db restart` for the database's tables process and `pxt service restart` for each service. A database or service started afterwards reads the current value at startup. `set` and `delete` name these on `next:` lines: for a database secret, `pxt db restart pxt://myorg:mydb` and `pxt service list pxt://myorg:mydb`, which names the services to restart; for an org secret, `pxt db list`, which names the databases.
 
 <Warning>
 A `[[pixeltable.database]]` entry no longer accepts `secrets`. A project config that still has

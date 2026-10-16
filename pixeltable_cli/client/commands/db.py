@@ -26,12 +26,14 @@ from ..hosted import (
 from ..parser import Parser
 from ..utils import (
     EXIT_CHANGES_PENDING,
+    EXIT_ERROR,
     EXIT_IN_AGREEMENT,
     EXIT_REFUSED,
     confirm_or_exit,
     get_request,
     post_request,
     print_json_schema,
+    print_next,
 )
 
 EPILOG = """\
@@ -71,7 +73,8 @@ Exit status of diff and update: 0 in agreement, 2 changes pending, 3 refused, 1 
 
 
 def run(argv: list[str]) -> None:
-    parser = Parser(prog='pxt db', description='manage hosted databases', epilog=EPILOG)
+    # a usage error exits 1, since 2 means changes pending (diff) or a change still under way (the waits)
+    parser = Parser(prog='pxt db', description='manage hosted databases', epilog=EPILOG, usage_exit_code=EXIT_ERROR)
     sub = parser.add_subparsers(dest='action', required=True)
 
     if argv == ['diff', '--json-schema']:
@@ -86,7 +89,9 @@ def run(argv: list[str]) -> None:
         return
 
     for verb in ('diff', 'update'):
-        p = sub.add_parser(verb, help=f'{"show" if verb == "diff" else "apply"} what the project defines')
+        p = sub.add_parser(
+            verb, usage_exit_code=EXIT_ERROR, help=f'{"show" if verb == "diff" else "apply"} what the project defines'
+        )
         p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
         p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
         if verb == 'update':
@@ -100,14 +105,14 @@ def run(argv: list[str]) -> None:
             )
             _add_no_wait(p)
 
-    p = sub.add_parser('list', help='list hosted databases')
+    p = sub.add_parser('list', usage_exit_code=EXIT_ERROR, help='list hosted databases')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
-    p = sub.add_parser('status', help='show status of a hosted database')
+    p = sub.add_parser('status', usage_exit_code=EXIT_ERROR, help='show status of a hosted database')
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
-    p = sub.add_parser('logs', help="read the database pod's log")
+    p = sub.add_parser('logs', usage_exit_code=EXIT_ERROR, help="read the database pod's log")
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     add_logs_args(p)
 
@@ -117,17 +122,19 @@ def run(argv: list[str]) -> None:
         ('restart', 'restart a hosted database'),
         ('retry', 'retry the failed current update of a hosted database'),
     ):
-        p = sub.add_parser(verb, help=help_text)
+        p = sub.add_parser(verb, usage_exit_code=EXIT_ERROR, help=help_text)
         p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
         p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
         _add_no_wait(p)
 
-    p = sub.add_parser('build-image', help='build the image a hosted database runs on, from a project')
+    p = sub.add_parser(
+        'build-image', usage_exit_code=EXIT_ERROR, help='build the image a hosted database runs on, from a project'
+    )
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     _add_no_wait(p)
 
-    p = sub.add_parser('delete', help='delete a hosted database')
+    p = sub.add_parser('delete', usage_exit_code=EXIT_ERROR, help='delete a hosted database')
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('-f', '--force', action='store_true', help='skip confirmation')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
@@ -271,7 +278,9 @@ def _print_receipts(db_uri: str, receipts: list[GenerationReceipt], *, waited: b
     for receipt in receipts:
         print_receipt(receipt)
     if not waited and len(receipts) > 0:
-        print(f'\nThe change continues in Pixeltable Cloud; run `pxt db status {db_uri}` to check its progress.')
+        print('\nThe change continues in Pixeltable Cloud.')
+        sys.stdout.flush()
+        print_next(f'pxt db status {db_uri}', 'shows its progress')
 
 
 def _await(db_uri: str, receipts: list[GenerationReceipt], args: argparse.Namespace) -> list[GenerationReceipt]:

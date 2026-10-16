@@ -10,7 +10,7 @@ from typing import Any
 from pixeltable_cli.utils import split_pxt_uri
 
 from ..parser import Parser
-from ..utils import get_request, post_request, print_aligned
+from ..utils import get_request, post_request, print_aligned, print_next
 
 EPILOG = """\
 Examples:
@@ -138,6 +138,7 @@ def _set(args: argparse.Namespace) -> None:
     for key, value in secrets.items():
         post_request('/api/secrets', {'org': org, 'db': db, 'key': key, 'value': value})
     _print_secrets(org, [{'key': key, 'db': db} for key in secrets], args.json_output, with_overrides=False)
+    _print_restarts(org, db)
 
 
 def _delete(args: argparse.Namespace) -> None:
@@ -145,3 +146,17 @@ def _delete(args: argparse.Namespace) -> None:
     for key in args.keys:
         post_request('/api/secrets/delete', {'org': org, 'db': db, 'key': key})
     _print_secrets(org, [{'key': key, 'db': db} for key in args.keys], args.json_output, with_overrides=False)
+    _print_restarts(org, db)
+
+
+def _print_restarts(org: str, db: str | None) -> None:
+    """Names the restarts that make running pods read the changed secrets, which they read only at startup."""
+    sys.stdout.flush()
+    if db is None:
+        restart = f'pxt db restart pxt://{org}:DB'
+        print_next('pxt db list', f'names the databases that read these secrets; run `{restart}` for each')
+        return
+    db_uri = f'pxt://{org}:{db}'
+    print_next(f'pxt db restart {db_uri}', 'restarts its pods, so its tables read the new values')
+    restart = f'pxt service restart {db_uri}/NAME'
+    print_next(f'pxt service list {db_uri}', f'names its services, which read them too; run `{restart}` for each')

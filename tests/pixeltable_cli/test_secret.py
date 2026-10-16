@@ -102,6 +102,11 @@ class TestSecret:
             {'key': 'CUSTOM_TOKEN', 'scope': 'pxt://acme:main'},
             {'key': 'OPENAI_API_KEY', 'scope': 'pxt://acme:main'},
         ]
+        # running pods read secrets only at startup, so it names the restarts
+        assert r.next_commands == [
+            ['pxt', 'db', 'restart', 'pxt://acme:main'],
+            ['pxt', 'service', 'list', 'pxt://acme:main'],
+        ]
         assert sent() == [
             {
                 'operation_type': 'set_secret',
@@ -121,6 +126,9 @@ class TestSecret:
         r = pxt_secret('set', 'pxt://acme', 'ORG_KEY=org-value')
         assert r.returncode == 0, r.stderr
         assert r.stdout.splitlines() == ['KEY      SCOPE', 'ORG_KEY  pxt://acme']
+        # an org secret reaches every database, which `pxt db list` names
+        assert r.next_commands == [['pxt', 'db', 'list']]
+        assert 'pxt db restart pxt://acme:DB' in r.stderr
         assert sent() == [
             {'operation_type': 'set_secret', 'org': 'acme', 'db': None, 'key': 'ORG_KEY', 'value': 'org-value'}
         ]
