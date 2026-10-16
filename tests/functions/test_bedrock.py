@@ -419,8 +419,8 @@ class TestBedrock:
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text']
 
-    # the account allows one concurrent Luma Ray request, and the nightly runs this test in several jobs at once: a
-    # throttled job waits for the other's generation, which takes up to a few minutes
+    # the account allows one concurrent Luma Ray request, so a run that overlaps another (a second CI run, or a local
+    # one) is throttled until the other's generation finishes, which takes up to a few minutes
     @rerun(reruns=3, reruns_delay=120, only_rerun=['ThrottlingException', *NETWORK_ERROR_PATTERNS])
     def test_invoke_model_luma_ray(self, uses_db: None, bedrock_us_west_2: None) -> None:
         skip_test_if_no_aws_credentials()
