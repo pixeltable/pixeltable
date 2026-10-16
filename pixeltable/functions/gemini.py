@@ -55,12 +55,34 @@ T = TypeVar('T', bound='genai.types.Operation')
 def _(api_key: str | None = None) -> 'genai.client.Client':
     from google import genai
 
+    class _ClosableClient(genai.client.Client):
+        """A `genai.Client` whose `close()` also closes the async transports the SDK leaves open."""
+
+        async def close(self) -> None:  # type: ignore[override]
+            # Client.close() closes the sync httpx client only. Async calls use another httpx client and an
+            # aiohttp session, and a failed request keeps this object reachable past reset_runtime().
+            try:
+                await self.aio.aclose()
+            finally:
+                super().close()
+
+        def __exit__(self, *args: object, **kwargs: Any) -> None:
+            del args, kwargs
+            super().close()
+
+        def __del__(self) -> None:
+            # Client.__del__ calls close(). That method is async here, and a destructor cannot await it.
+            try:
+                super().close()
+            except Exception:
+                pass
+
     try:
         if api_key is not None:
-            return genai.client.Client(api_key=api_key)
+            return _ClosableClient(api_key=api_key)
         # Vertex AI fall-through: rely on genai.client.Client to read its own env vars
         # (GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION)
-        return genai.client.Client()
+        return _ClosableClient()
     except Exception as e:
         raise excs.AuthorizationError(
             excs.ErrorCode.MISSING_CREDENTIALS,

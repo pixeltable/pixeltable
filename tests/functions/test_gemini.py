@@ -2,6 +2,7 @@ import logging
 import random
 import time
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import numpy as np
@@ -10,6 +11,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable.runtime import get_runtime, reset_runtime
 
 from ..utils import (
     ensure_s3_pytest_resources_access,
@@ -17,6 +19,7 @@ from ..utils import (
     get_image_files,
     get_test_video_files,
     get_video_files,
+    open_async_resources,
     pxt_raises,
     rerun_on_network_error,
     skip_test_if_no_client,
@@ -26,6 +29,35 @@ from ..utils import (
 from .tool_utils import run_tool_invocations_test
 
 _logger = logging.getLogger('pixeltable_test')
+
+
+class TestGeminiLocal:
+    def test_client_closed_on_reset(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('google.genai')
+        monkeypatch.setenv('GEMINI_API_KEY', 'test-key')
+        client = get_runtime().get_client('gemini')
+        api_client = client._api_client
+        sync_http = api_client._httpx_client
+        async_http = api_client._async_httpx_client
+
+        async def open_session() -> Any:
+            return await api_client._get_aiohttp_session()
+
+        session = get_runtime().event_loop.run_until_complete(open_session())
+        assert not sync_http.is_closed
+        assert not async_http.is_closed
+        assert not session.closed
+        reset_runtime()
+        # Still referenced, as a failed request's traceback keeps the client alive past teardown.
+        assert sync_http.is_closed
+        assert async_http.is_closed
+        assert session.closed
+        leaked = [
+            resource
+            for resource in open_async_resources()
+            if f'{id(async_http):#x}' in resource or f'{id(session):#x}' in resource
+        ]
+        assert leaked == []
 
 
 @pytest.mark.remote_api
