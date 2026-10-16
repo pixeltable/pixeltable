@@ -11,7 +11,6 @@ import copy
 import itertools
 from abc import ABC
 from typing import Any, Self, Sequence, cast, overload
-from uuid import UUID
 
 import pandas as pd
 
@@ -51,9 +50,8 @@ class QueryBase(ABC):
     offset_val: exprs.Expr | None
     sample_clause: SampleClause | None
 
-    # IDs of all tables referenced by this query (from-clause path + exprs). Computed once on
-    # first access, then cached: the value depends on the static query shape and never changes.
-    _referenced_tbl_ids: set[UUID] | None
+    # Table-version keys from the query's FROM paths and expressions, cached on first access.
+    _referenced_tbl_keys: set[catalog.TableVersionKey] | None
 
     def __init__(
         self,
@@ -93,7 +91,7 @@ class QueryBase(ABC):
         self.limit_val = limit
         self.offset_val = offset
         self.sample_clause = sample_clause
-        self._referenced_tbl_ids = None
+        self._referenced_tbl_keys = None
 
     @classmethod
     def _normalize_select_list(
@@ -282,14 +280,13 @@ class QueryBase(ABC):
             sample_clause=copy.deepcopy(self.sample_clause),
         )
 
-    def referenced_tbl_ids(self) -> set[UUID]:
-        """Returns the IDs of all tables referenced by this query.
+    def referenced_tbl_keys(self) -> set[catalog.TableVersionKey]:
+        """Return table-version keys referenced by the query's expressions and FROM paths, including bases.
 
-        Walks the query's static structure (exprs + from-clause path) on first call and caches
-        the result; the value depends on the static query shape and never changes.
+        Cache the result on first access; it depends only on the query's fixed structure.
         """
-        if self._referenced_tbl_ids is not None:
-            return self._referenced_tbl_ids
+        if self._referenced_tbl_keys is not None:
+            return self._referenced_tbl_keys
 
         all_exprs = itertools.chain(
             # _select_list_exprs is None: no external ColumnRefs without an explicit select list
@@ -298,12 +295,12 @@ class QueryBase(ABC):
             self.group_by_clause or [],
             [] if self.order_by_clause is None else (e for e, _ in self.order_by_clause),
         )
-        tbl_ids = exprs.Expr.list_tbl_ids(all_exprs)
+        tbl_keys = exprs.Expr.list_tbl_keys(all_exprs)
         for tp in self._from_clause.tbls:
-            tbl_ids.update(tp.tbl_ids)
+            tbl_keys.update(tp.tbl_keys)
 
-        self._referenced_tbl_ids = tbl_ids
-        return tbl_ids
+        self._referenced_tbl_keys = tbl_keys
+        return tbl_keys
 
     def _descriptors(self) -> DescriptionHelper:
         helper = DescriptionHelper()
