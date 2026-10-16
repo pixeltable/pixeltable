@@ -204,10 +204,21 @@ def _scene_end_for(
     duration_tag: str | None = None,
     container_duration: int | None = None,
     audio: bool = False,
+    secondary_video: bool = False,
+    subtitles: bool = False,
+    data: bool = False,
 ) -> float:
     stream = SimpleNamespace(duration=stream_duration, metadata={'DURATION': duration_tag} if duration_tag else {})
+    # 10s in the default 1/1000 time base. The guard keys off the track's presence; container
+    # duration is the longer end that track would contribute.
+    longer_stream = SimpleNamespace(duration=10_000, metadata={})
     container = SimpleNamespace(
-        streams=SimpleNamespace(video=[stream], audio=[object()] if audio else []),
+        streams=SimpleNamespace(
+            video=[stream, longer_stream] if secondary_video else [stream],
+            audio=[longer_stream] if audio else [],
+            subtitles=[longer_stream] if subtitles else [],
+            data=[longer_stream] if data else [],
+        ),
         duration=container_duration,
         format=SimpleNamespace(name=format_name),
     )
@@ -345,6 +356,20 @@ def test_scene_end_time_tiers() -> None:
         format_name='mov,mp4,m4a,3gp,3g2,mj2',
     )
     assert audio_end == pytest.approx(4.0 + 1 / 25)
+
+    # A longer secondary video, subtitle, or data track can set the container duration. Video 0 has
+    # no stream, frame, or tag duration, and its last frame is at 3.96s. At 25 fps the scene ends
+    # one frame later, not at the 10s container end.
+    for secondary_video, subtitles, data in ((True, False, False), (False, True, False), (False, False, True)):
+        end = _scene_end_for(
+            decoded_time=3.96,
+            yielded_time=3.96,
+            container_duration=10_000_000,
+            secondary_video=secondary_video,
+            subtitles=subtitles,
+            data=data,
+        )
+        assert end == pytest.approx(3.96 + 1 / 25), (secondary_video, subtitles, data, end)
 
     # No timing metadata: one average frame past the last decoded frame, including when only the yielded time is known.
     assert _scene_end_for(decoded_time=None, yielded_time=9.5, stream_duration=1_000) == pytest.approx(9.5 + 1 / 25)

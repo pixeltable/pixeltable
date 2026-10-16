@@ -564,15 +564,17 @@ def _presentation_end_from_stored_duration(
 def _metadata_presentation_end(frame_iter: av_utils.VideoFrames, not_before: float) -> float | None:
     """Absolute end from the video ``DURATION`` tag, then from the container duration.
 
-    Container duration covers every stream. It is used when the file has no audio stream,
-    as in ``get_video_duration()``. A reading that does not pass the last decoded frame is ignored.
+    Container duration covers every stream. It is used only when video 0 is the sole timed
+    stream, so a longer audio, subtitle, data, or secondary video track cannot supply the end.
+    A reading that does not pass the last decoded frame is ignored.
     """
     container = frame_iter.container
     if container is None or frame_iter.video_time_base is None:
         return None
     start_s = float((frame_iter.video_start_time or 0) * frame_iter.video_time_base)
     absolute = _stored_duration_is_absolute(container.format.name)
-    stream = container.streams.video[0]
+    streams = container.streams
+    stream = streams.video[0]
     tag = stream.metadata.get('DURATION') if stream.metadata else None
     if isinstance(tag, str):
         parsed = _parse_clock_duration(tag)
@@ -580,7 +582,14 @@ def _metadata_presentation_end(frame_iter: av_utils.VideoFrames, not_before: flo
             tag_end = _presentation_end_from_stored_duration(parsed, start_s, absolute=absolute, not_before=not_before)
             if tag_end is not None:
                 return tag_end
-    if len(container.streams.audio) > 0 or container.duration is None:
+    # Container duration is the longest timed stream. Attachments are not timed.
+    if (
+        container.duration is None
+        or len(streams.video) != 1
+        or len(streams.audio) > 0
+        or len(streams.subtitles) > 0
+        or len(streams.data) > 0
+    ):
         return None
     return _presentation_end_from_stored_duration(
         container.duration / 1_000_000, start_s, absolute=absolute, not_before=not_before
@@ -593,8 +602,8 @@ def _scene_end_time(frame_iter: av_utils.VideoFrames, *, scene_start: float, las
     A full decode and ``fps`` sampling use the same end. Stream duration counts when it extends
     past the last decoded frame. It is a length from the stream start, except for ASF, where it is
     already the absolute end. Next is that frame's own duration, recorded while decoding. Otherwise
-    the video ``DURATION`` tag, or the container duration when no audio stream can run longer than
-    the video. The last resort is one average frame after the last decoded frame. A stream end at
+    the video ``DURATION`` tag, or the container duration when video 0 is the only timed stream.
+    The last resort is one average frame after the last decoded frame. A stream end at
     or before the last decoded frame, such as a short MPEG-PS header duration, is ignored.
 
     The file is not opened again to scan packets. When PyAV reports a frame duration, the decode
