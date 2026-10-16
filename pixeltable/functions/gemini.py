@@ -175,7 +175,26 @@ async def generate_content(
         result = response.model_dump()
         # `model_dump()` (default mode) preserves `inline_data.data` as raw `bytes`; `mode='json'` would
         # url-safe-base64-encode which is suboptimal as we'd have to convert it back to binary to convert to PIL image.
-        for candidate in result.get('candidates', []):
+        # Count tokens before rejecting an empty candidate list; the request already consumed them.
+        telemetry_schemas.record_token_usage(
+            f'{__name__}.generate_content',
+            model,
+            result.get('usage_metadata'),
+            'prompt_token_count',
+            'candidates_token_count',
+        )
+        # `candidates` is null, not absent, when generateContent returns no candidates. dict.get's default
+        # applies only when the key is missing, so `result.get('candidates', [])` is still None.
+        candidates = result.get('candidates') or []
+        if len(candidates) == 0:
+            feedback = result.get('prompt_feedback') or {}
+            block_reason = feedback.get('block_reason') if isinstance(feedback, dict) else None
+            block_reason = getattr(block_reason, 'value', block_reason)
+            message = f'Gemini returned no candidates for model {model}'
+            if block_reason:
+                message = f'{message} (block reason: {block_reason})'
+            raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, f'{message}.', provider='gemini')
+        for candidate in candidates:
             content = candidate.get('content')
             if content is None:
                 continue
@@ -185,13 +204,6 @@ async def generate_content(
                     img = PIL.Image.open(io.BytesIO(blob['data']))
                     img.load()
                     blob['data'] = img
-        telemetry_schemas.record_token_usage(
-            f'{__name__}.generate_content',
-            model,
-            result.get('usage_metadata'),
-            'prompt_token_count',
-            'candidates_token_count',
-        )
         return result
 
 
@@ -244,8 +256,12 @@ def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDic
 
 @pxt.udf
 def _gemini_response_to_pxt_tool_calls(response: dict) -> dict | None:
+    # Same null-candidates case as generate_content(): the key is present and the value is None.
+    candidates = response.get('candidates') or []
+    if len(candidates) == 0:
+        return None
     pxt_tool_calls: dict[str, list[dict]] = {}
-    for part in response['candidates'][0]['content']['parts']:
+    for part in candidates[0]['content']['parts']:
         tool_call = part.get('function_call')
         if tool_call is not None:
             tool_name = tool_call['name']
@@ -555,8 +571,10 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
     )
 
     response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+    # `candidates` is null, not an empty list, when generateContent returns no candidates.
+    candidates = response.candidates or []
     try:
-        data = response.candidates[0].content.parts[0].inline_data.data
+        data = candidates[0].content.parts[0].inline_data.data
     except (IndexError, AttributeError) as exc:
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
@@ -626,8 +644,10 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
     )
 
     response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+    # `candidates` is null, not an empty list, when generateContent returns no candidates.
+    candidates = response.candidates or []
     try:
-        data = response.candidates[0].content.parts[0].inline_data.data
+        data = candidates[0].content.parts[0].inline_data.data
     except (IndexError, AttributeError) as exc:
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
