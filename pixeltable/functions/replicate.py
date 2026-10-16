@@ -20,7 +20,19 @@ if TYPE_CHECKING:
 def _(api_token: str) -> 'replicate.Client':
     import replicate
 
-    return replicate.Client(api_token=api_token)
+    class _ClosableClient(replicate.Client):
+        """A `replicate.Client` with the `close()` that the runtime calls on its clients and replicate lacks."""
+
+        async def close(self) -> None:
+            # replicate.Client opens its HTTP clients lazily and keeps them in name-mangled attributes
+            sync_client = getattr(self, '_Client__client', None)
+            if sync_client is not None:
+                sync_client.close()
+            async_client = getattr(self, '_Client__async_client', None)
+            if async_client is not None:
+                await async_client.aclose()
+
+    return _ClosableClient(api_token=api_token)
 
 
 def _replicate_client() -> 'replicate.Client':

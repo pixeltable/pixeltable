@@ -13,6 +13,7 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import VAR_SECTION, Config
+from pixeltable.service.resources import ServiceResources
 
 from .utils import get_image_files, pxt_raises
 
@@ -443,27 +444,28 @@ class TestConfig:
 
     def test_database_entries(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The bindings a process reads come from the [[pixeltable.database]] entry for the local database."""
+        project = tmp_path / 'proj'
+        project.mkdir()
 
-        def load(text: str) -> Config:
+        def load(text: str, project_text: str = '') -> Config:
             config_file = tmp_path / 'config.toml'
             config_file.write_text(text)
+            (project / 'pixeltable.toml').write_text(project_text)
             monkeypatch.setenv('PIXELTABLE_CONFIG', str(config_file))
-            Config.init(reinit=True)
+            Config.init(reinit=True, project_root=project)
             return Config.get()
 
-        # one entry per database: the local one binds the vars, the hosted one carries its image
+        # one entry per database: the local one binds the vars, and the project's hosted one sets system dependencies
         config = load(
+            "[[pixeltable.database]]\nvars.media_dest = 's3://local/bucket'\n",
             dedent(
                 """
-                [[pixeltable.database]]
-                vars.media_dest = 's3://local/bucket'
-
                 [[pixeltable.database]]
                 name = 'pxt://myorg:prod'
                 vars.media_dest = 's3://prod/bucket'
                 system_dependencies = ['ffmpeg']
                 """
-            )
+            ),
         )
         assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://local/bucket'
         local = config.get_database_config(PxtPath.parse('', allow_empty_path=True))
@@ -492,6 +494,132 @@ class TestConfig:
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid `DatabaseConfig`'):
             load("[[pixeltable.database]]\nnot_a_setting = 'x'\n")
 
+    def test_service_resources(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A hosted database entry sets its services' resources, each keyed by the service's path."""
+        home = tmp_path / 'home.toml'
+        project = tmp_path / 'proj'
+        project.mkdir()
+
+        def load(home_text: str, project_text: str) -> Config:
+            home.write_text(home_text)
+            (project / 'pixeltable.toml').write_text(project_text)
+            monkeypatch.setenv('PIXELTABLE_CONFIG', str(home))
+            Config.init(reinit=True, project_root=project)
+            return Config.get()
+
+        prod_uri = PxtPath.parse('pxt://myorg:prod', allow_empty_path=True)
+        config = load(
+            '',
+            dedent(
+                """
+                [[pixeltable.database]]
+                name = 'pxt://myorg:prod'
+                services.'search/api' = { cpu = 2.0, memory_mb = 4096 }
+                services.Ingest = { workers = 3, file_cache_gb = 4.0 }
+                """
+            ),
+        )
+        prod = config.get_database_config(prod_uri)
+        assert prod is not None
+        # a service at the root is keyed by its name, and paths are compared without case
+        assert prod.service_resources('') == {'ingest': ServiceResources(workers=3, file_cache_gb=4.0)}
+        assert prod.service_resources('Search') == {'api': ServiceResources(cpu=2.0, memory_mb=4096)}
+        assert prod.service_resources('other') == {}
+
+        # a hosted database is configured in its project only
+        with pxt_raises(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            match=r"Cannot configure 'pxt://myorg:prod' in .*home\.toml: .* the project's pixeltable\.toml",
+        ):
+            load("[[pixeltable.database]]\nname = 'pxt://myorg:prod'\nservices.ingest = { workers = 2 }\n", '')
+
+        for text, message in (
+            # a local service runs in-process, at whatever size its process has
+            ('[[pixeltable.database]]\nservices.api = { cpu = 1.0 }\n', r'`services` applies to a hosted database'),
+            (
+                "[[pixeltable.database]]\nname = 'pxt://myorg:prod'\nservices.api = { disk_gb = 10 }\n",
+                r'unknown settings: disk_gb',
+            ),
+            ("[[pixeltable.database]]\nname = 'pxt://myorg:prod'\nservices.api = { workers = 0 }\n", r'greater than 0'),
+            (
+                "[[pixeltable.database]]\nname = 'pxt://myorg:prod'\nservices.api = {}\nservices.API = {}\n",
+                r"'api' and 'API', which differ only in case",
+            ),
+            ("[[pixeltable.database]]\nname = 'pxt://myorg:prod'\nservices = ['api']\n", r'valid dictionary'),
+        ):
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=message):
+                load('', text)
+
+    def test_create_project_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        home = tmp_path / 'home.toml'
+        project = tmp_path / 'proj'
+        project.mkdir()
+
+        def load(project_text: str) -> Config:
+            home.write_text("[openai]\napi_key = 'sk-home'\n")
+            (project / 'pixeltable.toml').write_text(dedent(project_text))
+            monkeypatch.setenv('PIXELTABLE_CONFIG', str(home))
+            Config.init(reinit=True, project_root=project)
+            return Config.get()
+
+        prod_uri = PxtPath.parse('pxt://myorg:prod', allow_empty_path=True)
+        local_uri = PxtPath.parse('', allow_empty_path=True)
+        config = load(
+            """
+            [pixeltable]
+            output_media_dest = 's3://bucket/out'
+
+            [openai]
+            rate_limits = { gpt-4o = 100 }
+
+            [[pixeltable.database]]
+            name = 'pxt://myorg:prod'
+            vars.dest = 's3://bucket/media'
+            db_input_media_dest = 's3://bucket/in'
+            system_dependencies = ['ffmpeg']
+            services.api = { workers = 2 }
+
+            [[pixeltable.database]]
+            name = 'pxt://myorg:staging'
+            vars.dest = 's3://staging/media'
+            """
+        )
+        # the project's sections and the entry for the database; the home config's sections are left out
+        assert config.create_project_config(config.get_database_config(prod_uri)) == {
+            'pixeltable': {
+                'output_media_dest': 's3://bucket/out',
+                'database': [
+                    {
+                        'name': 'pxt://myorg:prod',
+                        'vars': {'dest': 's3://bucket/media'},
+                        'db_input_media_dest': 's3://bucket/in',
+                    }
+                ],
+            },
+            'openai': {'rate_limits': {'gpt-4o': 100}},
+        }
+
+        # a secret is hashed for the local database and refused for a hosted one
+        hosted = "\n[[pixeltable.database]]\nname = 'pxt://myorg:prod'\n"
+        local = []
+        for key in ('sk-project', 'sk-rotated'):
+            config = load(f"[openai]\napi_key = '{key}'\n\n[[pixeltable.database]]\nvars.dest = 's3://local'\n{hosted}")
+            local.append(config.create_project_config(config.get_database_config(local_uri)))
+        assert local[0]['pixeltable'] == {'database': [{'name': 'local', 'vars': {'dest': 's3://local'}}]}
+        assert local[0]['openai']['api_key'] != local[1]['openai']['api_key']
+        assert 'sk-project' not in str(local[0])
+        with pxt_raises(
+            excs.ErrorCode.INVALID_CONFIGURATION, match=r'pxt secret set pxt://myorg:prod OPENAI_API_KEY=<value>'
+        ):
+            config.create_project_config(config.get_database_config(prod_uri))
+
+        config = load(f"[otel]\nexporter_otlp_headers = 'Authorization=Basic abc'\n{hosted}")
+        with pxt_raises(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            match=r'pxt secret set pxt://myorg:prod OTEL_EXPORTER_OTLP_HEADERS=<value>',
+        ):
+            config.create_project_config(config.get_database_config(prod_uri))
+
     def test_database_settings(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A database entry sets the media destinations and the OTLP endpoint and protocol of its database."""
         for var in (
@@ -505,10 +633,13 @@ class TestConfig:
             monkeypatch.delenv(var, raising=False)
         config_file = tmp_path / 'config.toml'
         monkeypatch.setenv('PIXELTABLE_CONFIG', str(config_file))
+        project = tmp_path / 'proj'
+        project.mkdir()
 
-        def load(text: str) -> Config:
+        def load(text: str, project_text: str = '') -> Config:
             config_file.write_text(text)
-            Config.init(reinit=True)
+            (project / 'pixeltable.toml').write_text(project_text)
+            Config.init(reinit=True, project_root=project)
             return Config.get()
 
         # the entry's values are read under the section and key each setting has always had
@@ -521,14 +652,17 @@ class TestConfig:
                 db_exporter_otlp_endpoint = 'https://otlp.local.example'
                 db_exporter_otlp_protocol = 'grpc'
                 vars.media_dest = 's3://local/bucket'
-
+                """
+            ),
+            dedent(
+                """
                 [[pixeltable.database]]
                 name = 'pxt://myorg:prod'
                 db_input_media_dest = 's3://prod/input/'
                 db_exporter_otlp_endpoint = 'https://otlp.prod.example'
                 vars.media_dest = 's3://prod/bucket'
                 """
-            )
+            ),
         )
         assert config.get_string_value('input_media_dest') == 's3://local/input/'
         assert config.get_string_value('output_media_dest') == 's3://local/output/'

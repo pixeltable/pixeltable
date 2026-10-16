@@ -13,6 +13,7 @@ from typing import Sequence
 import httpx
 
 from pixeltable import catalog, exceptions as excs
+from pixeltable.config import Config
 from pixeltable.service import management_client, receipts
 from pixeltable.service.management_protocol import (
     DeleteServiceInstanceRequest,
@@ -33,6 +34,7 @@ from pixeltable.service.management_protocol import (
     StopServiceInstanceResponse,
     SubmitUpdateRequest,
 )
+from pixeltable.service.resources import ServiceResources
 from pixeltable.utils.app_module import load_app_module, module_name, module_routers, service_spec, services_by_name
 from pixeltable_cli.types import GenerationReceipt
 
@@ -92,8 +94,9 @@ class ServiceManagerProxy(ServiceManagerBase):
         unless keep_release is set, which keeps its current release. An available instance is not stopped: the
         control plane replaces its pods in place, and keeps the old ones serving until the new ones are ready.
 
-        The file sets the routes, the module and tracing; resources and description are kept from the instance's
-        desired spec, as read with the generation the submission is made against.
+        The file sets the routes, the module and tracing, and the project config the resources it declares. The other
+        resources and the description are kept from the instance's desired spec, as read with the generation the
+        submission is made against.
 
         expected_generation: the generation of the instance the caller's plan was computed against, 0 for an absent
             one; a submission against an older one is refused. None submits against the generation read here.
@@ -113,12 +116,14 @@ class ServiceManagerProxy(ServiceManagerBase):
                 excs.ErrorCode.SERVICE_NOT_FOUND, f'{app_file} defines no service named {name!r}; it defines: {defined}'
             )
         exists = self.get(name, base_path) is not None if expected_generation is None else expected_generation > 0
+        declared = self._declared_resources(name, base_path)
         mutation = ServiceMutation(
             service_name=name,
             base_path=base_path,
             spec=service_spec(name, services[name], module_routers(module)),
             app_module=module_name(app_file, subject='application file'),
             otel=otel,
+            resources=declared,
             pin=('keep' if keep_release else 'latest') if exists else None,
         )
         prepared = PrepareUpdateResponse.model_validate(
@@ -138,15 +143,10 @@ class ServiceManagerProxy(ServiceManagerBase):
                 f'Pixeltable Cloud reported service {name!r} at generation {generation} without its desired spec',
             )
         if desired is not None:
-            mutation = mutation.model_copy(
-                update={
-                    'workers': desired.workers,
-                    'cpu': desired.cpu,
-                    'memory_mb': desired.memory_mb,
-                    'disk_gb': desired.disk_gb,
-                    'description': desired.description,
-                }
+            resources = ServiceResources(
+                **(desired.resources.model_dump(exclude_none=True) | declared.model_dump(exclude_none=True))
             )
+            mutation = mutation.model_copy(update={'resources': resources, 'description': desired.description})
         expected = ServiceGeneration(
             service_name=name,
             base_path=base_path,
@@ -171,6 +171,11 @@ class ServiceManagerProxy(ServiceManagerBase):
             update={'receipt': self._required(name, next(iter(accepted), None))}
         )
         return submitted
+
+    def _declared_resources(self, name: str, base_path: str) -> ServiceResources:
+        db_config = Config.get().get_database_config(self.catalog_uri)
+        declared = None if db_config is None else db_config.service_resources(base_path).get(name.lower())
+        return ServiceResources() if declared is None else declared
 
     def stop(self, instance: ServiceInstance) -> None:
         stopped = StopServiceInstanceResponse.model_validate(

@@ -56,7 +56,9 @@ def _serve(app_file: str, service_name: str, base_path: str, otel: bool, port: i
         app_file=str(Path(app_file).resolve()),
         spec=spec,
         otel=otel,
-        fingerprint=project_fingerprint(project_root, db_config),
+        fingerprint=project_fingerprint(
+            project_root, db_config, project_config=Config.get().create_project_config(db_config)
+        ),
     )
 
     def _cleanup(*_: Any) -> None:

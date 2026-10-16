@@ -1,6 +1,10 @@
 .DS_Store
 .benchmarks
-.claude
+.claude/*
+!.claude/commands/
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/review-the-change/
 .coverage
 .idea
 .ipynb_checkpoints
@@ -27,6 +31,7 @@ pixeltable/**/*.pyi
 # Node.js
 node_modules/
 package-lock.json
+!.github/scripts/ts-functions/package-lock.json
 docs/release/package.json
 
 # Test sample app — lock file is regenerated fresh on each test run

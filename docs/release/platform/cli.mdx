@@ -1028,8 +1028,10 @@ db_exporter_otlp_endpoint = 'https://otlp.example.com'
 db_exporter_otlp_protocol = 'http/protobuf'  # or 'grpc'
 
 # which project files the database gets. Glob patterns relative to the project root; everything git
-# would not ignore is uploaded by default, and the lockfile always is. Patterns use git wildmatch, so
-# a bare `*.py` matches at every depth while a leading slash anchors it: `/*.py` is the root only.
+# would not ignore is uploaded by default, the lockfile and pyproject.toml always are, and pixeltable.toml
+# never is: pxt db update sends its settings, and the pods get them as their own pixeltable.toml. Patterns
+# use git wildmatch, so a bare `*.py` matches at every depth while a leading slash anchors it: `/*.py` is
+# the root only.
 include = ["app/**", "models/**"]
 exclude = ["__pycache__", "*.pyc", ".git", ".env", "*.egg-info", ".venv"]
 
@@ -1046,6 +1048,15 @@ workers = 2
 # fixed when the database is created
 location = 'aws'
 region = 'us-east-1'
+
+# resource configuration of a service, keyed by its path in the database: '<directory>/<service name>', or the service
+# name alone at the database's root. A setting left out keeps the service's current value; pxt service
+# update applies a change
+[pixeltable.database.services.'search/api']
+cpu = 2.0
+memory_mb = 4096
+workers = 3
+file_cache_gb = 4.0   # each pod's local cache of media files
 ```
 
 An entry with no `name` configures the local database. A hosted database is configured by the entry whose `name` is its URI.
@@ -1087,7 +1098,12 @@ pxt db update pxt://myorg:mydb
 
 The URI on the command line selects the entry by its `name`: an entry for another database configures that one, and a target with no entry is an error. The first run creates the database, builds the image for its environment and uploads the project files that the pods run; every later run applies whatever has changed since. The [cloud configuration reference](#cloud-configuration-reference) lists everything an entry can declare.
 
-`update` applies a new image if dependencies changed, then uploaded project files if sources changed, then one resize for any changed CPU, memory, disk, or worker counts so the pods restart only once. Secrets are set with [`pxt secret`](#pxt-secret) rather than from the project. The media destinations and the OTLP endpoint and protocol travel with the project files, which always include the project configuration.
+`update` applies a new image if dependencies changed, then uploaded project files if sources changed, then one resize
+for any changed CPU, memory, disk, or worker counts so the pods restart only once. The settings in the project
+configuration (the entry's `vars` and `db_*` settings, and sections such as `[openai]`) reach the database without an
+upload, and a change to them restarts its pods. Secrets are set with [`pxt secret`](#pxt-secret) rather than from the
+project: `pxt db update` refuses a key such as `[openai] api_key` in the project configuration, and prints the
+`pxt secret set` command to run instead.
 
 Pixeltable Cloud applies an accepted update, start, stop, restart, retry, image build or delete even if the command exits early. While the command waits, it shows the current step, what the change is waiting for, and the last error being retried. Ctrl-C only stops the waiting, and `--no-wait` returns once the change is accepted; `pxt db status` shows the progress. After three hours the command stops waiting and exits with status 2. Rerunning the same `update` reports the update already accepted instead of starting another, and retries it if it failed. An update is refused if the database changed after `update` computed its plan; run it again to plan against the new state.
 
@@ -1148,12 +1164,14 @@ pxt db diff pxt://myorg:mydb
 pxt db diff pxt://myorg:mydb --json
 ```
 
-`pxt db diff` compares the hosted database to that config entry (see the [cloud configuration reference](#cloud-configuration-reference)): capacity, the Python image, and the project file archive --
+`pxt db diff` compares the hosted database to that config entry (see the [cloud configuration
+reference](#cloud-configuration-reference)): capacity, the Python image, the project file archive, and the settings --
 
 | Artifact | Contents | Replaced when |
 |---|---|---|
 | the image | the Python environment, and no project code | the lockfile, `python_version`, `system_dependencies` or the Pixeltable version changes |
 | the project archive | every selected project file | any selected file changes |
+| the settings | `vars`, `db_*` settings, and sections such as `[openai]` | any setting changes; no upload |
 
 so an edit to a source file is uploaded in seconds, and only a dependency change costs an image build. Exit status is 0 in agreement and 2 with changes pending; nothing is built, resized or set.
 

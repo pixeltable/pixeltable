@@ -30,6 +30,7 @@ from pixeltable.service.management_protocol import (
     StopDbRequest,
     SubmitUpdateRequest,
 )
+from pixeltable.service.resources import DatabaseCapacity
 from pixeltable.utils.project import (
     ProjectFingerprint,
     ProjectPart,
@@ -95,14 +96,12 @@ def create_db_update_ops(target: DatabaseResources, current: DatabaseResources |
                 ops.append(
                     DbChangeOp.upload_archive(target.fingerprint.changes(current.fingerprint, {ProjectPart.ARCHIVE}))
                 )
-            if ProjectPart.BINDINGS in changed:
-                ops.append(DbChangeOp.rebind(target.fingerprint.changes(current.fingerprint, {ProjectPart.BINDINGS})))
+            if ProjectPart.CONFIG in changed:
+                ops.append(DbChangeOp.config(target.fingerprint.changes(current.fingerprint, {ProjectPart.CONFIG})))
 
-    current_capacity = {} if current is None else current.capacity()
-    combined = current_capacity | target.capacity()  # target settings take precedence
-    for name, val in combined.items():
-        if val != current_capacity.get(name):
-            ops.append(DbChangeOp.capacity(name, current_capacity.get(name), val))
+    current_capacity = DatabaseCapacity() if current is None else current.capacity()
+    for field, value in current_capacity.changes(target.capacity()).model_dump(exclude_none=True).items():
+        ops.append(DbChangeOp.capacity(field, getattr(current_capacity, field), value))
 
     return ops
 
@@ -167,15 +166,7 @@ def db_build_image(db_uri: str, *, wait: bool = True) -> tuple[list[DbChangeOp],
             excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'{db_path.uri_str} does not exist; run `pxt db update` to create it'
         )
     desired = prepared.report.target_resources or prepared.report.current.resources
-    target = target.model_copy(
-        update={
-            'cpu': desired.cpu,
-            'memory_mb': desired.memory_mb,
-            'disk_gb': desired.disk_gb,
-            'workers': desired.workers,
-            'force_build_nonce': uuid.uuid4().hex,
-        }
-    )
+    target = target.model_copy(update={**desired.capacity().model_dump(), 'force_build_nonce': uuid.uuid4().hex})
     accepted, uploaded = _submit(db_path, config, target, expected_generation=prepared.generations.database or 0)
     settled = _settle(db_path, accepted, wait=wait)
     image_op = DbChangeOp.build_image()
@@ -354,12 +345,11 @@ def _put_blob(upload: BlobUpload, path: Path, blob: BlobRef) -> None:
 
 def _db_target(config: DatabaseConfig) -> DatabaseTarget:
     return DatabaseTarget(
-        fingerprint=project_fingerprint(_validated_project_root(), config),
+        fingerprint=project_fingerprint(
+            _validated_project_root(), config, project_config=Config.get().create_project_config(config)
+        ),
         pxt_md_version=metadata.VERSION,
-        cpu=config.cpu,
-        memory_mb=config.memory_mb,
-        disk_gb=config.disk_gb,
-        workers=config.workers,
+        **config.capacity().model_dump(),
     )
 
 

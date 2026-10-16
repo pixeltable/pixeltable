@@ -1267,11 +1267,18 @@ def fetch_presigned(url: str, expires_s: int, host_suffix: str) -> bytes:
     parsed = urllib.parse.urlparse(url)
     assert parsed.scheme == 'https', url
     assert parsed.hostname is not None and parsed.hostname.endswith(host_suffix), url
-    assert urllib.parse.parse_qs(parsed.query).get('X-Amz-Expires') == [str(expires_s)], url
+    query = urllib.parse.parse_qs(parsed.query)
+    if 't' in query:
+        # a storage edge token, t=<expiry>.<hmac>, has an absolute expiry: allow for the time since signing
+        expiry = int(query['t'][0].split('.')[0])
+        assert abs(expiry - (time.time() + expires_s)) <= 300, url
+    else:
+        assert query.get('X-Amz-Expires') == [str(expires_s)], url
     resp = httpx.get(url, timeout=30)
     assert resp.status_code == 200, resp.text
     unsigned = httpx.get(parsed._replace(query='').geturl(), timeout=30)
-    # R2 answers a request that carries no signature with 400 InvalidArgument (Authorization); S3 with 403
+    # R2 answers a request that carries no signature with 400 InvalidArgument (Authorization); S3 and the storage
+    # edge with 403
     assert unsigned.status_code in (400, 401, 403), (unsigned.status_code, unsigned.text)
     return resp.content
 

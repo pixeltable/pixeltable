@@ -1145,8 +1145,10 @@ def get_logs(req: Request) -> dict[str, Any]:
     if org == 'local':
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'Reading the log of a database on this machine is not supported; the log is at '
-            f'{proxy_daemon.log_path(db_name)}',
+            f'A database on this machine writes its log to {proxy_daemon.log_path(db_name)}. '
+            "'pxt db logs' reads the log of a Pixeltable Cloud database, such as pxt://org:db. "
+            "Run 'pxt new' to get a free Pixeltable Cloud trial database. "
+            "To deploy to a Pixeltable Cloud database, run 'pxt db update pxt://org:db'.",
         )
     return management_client.api_call(
         GetLogsRequest(

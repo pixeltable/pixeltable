@@ -142,16 +142,20 @@ The restarts let running table and service processes read the new value. You can
 
 ## What the database runs
 
-A hosted database runs two things that come from your project, and they move independently.
+A hosted database runs three things that come from your project, and they move independently.
 
 - **The image** is the Python environment: your dependencies, the Python version, and any system packages. `pxt db update` rebuilds it only when that environment changed, which is the slow step. That version comes from the interpreter that runs `pxt db update`, unless the hosted `[[pixeltable.database]]` entry sets `python_version`.
 - **The project files** are your `app.py` and whatever else the entry selects. They are uploaded on their own, without a rebuild.
+- **The settings** are the hosted entry's `vars` and `db_*` settings, and sections such as `[openai]`, from
+  `pixeltable.toml` or from `[tool.pixeltable]` in `pyproject.toml`. `pxt db update` sends them without an upload or a
+  rebuild, and the database restarts with them.
 
-So editing a UDF costs an upload, while adding a line to `pyproject.toml` costs a build. Both are `pxt db update`. It works out which happened.
+So editing a UDF costs an upload, adding a dependency to `pyproject.toml` costs a build, and a settings change costs
+only a restart. All three are `pxt db update`. It works out which happened.
 
 The image gets its packages from `uv.lock` or `requirements.txt`. Without either, `pxt db update` warns, and the image has Pixeltable only. That is enough for the generated `app.py`. List anything else `app.py` imports in one of those files.
 
-`[[pixeltable.database]]` in `pixeltable.toml` declares which files are selected, what the image includes, and the CPU, memory, disk, and worker counts. See the [cloud configuration reference](/platform/cli#cloud-configuration-reference).
+`[[pixeltable.database]]` in `pixeltable.toml` declares which files are selected, what the image includes, the CPU, memory, disk, and worker counts, and each service's resources. See the [cloud configuration reference](/platform/cli#cloud-configuration-reference).
 
 ## What to run after a change
 
@@ -160,7 +164,9 @@ The image gets its packages from `uv.lock` or `requirements.txt`. Without either
 | A UDF body, a route, any `.py` the entry selects | `pxt db update pxt://org:main`, then `pxt service update app.py pxt://org:main` to move running services onto it |
 | A column or a table in `app.py` | `pxt db update pxt://org:main`, then `pxt schema update app.py pxt://org:main`, then `pxt service update app.py pxt://org:main` |
 | A dependency, the Python version, a system package | `pxt db update pxt://org:main`: the image rebuilds |
+| A setting in `pixeltable.toml` | `pxt db update pxt://org:main`, then `pxt service update app.py pxt://org:main` |
 | `cpu`, `memory_mb`, `disk_gb`, or `workers` | `pxt db update pxt://org:main`: one resize, pods restart once |
+| A service's `cpu`, `memory_mb`, `file_cache_gb`, or `workers` | `pxt service update app.py pxt://org:main`: a `workers` change adds or removes pods, any other change restarts them |
 | A secret | `pxt secret set pxt://org:main KEY=...`, then `pxt db restart pxt://org:main` and `pxt service restart pxt://org:main/ingest` |
 | Nothing, but the last update failed | `pxt db retry pxt://org:main` retries it; `pxt db build-image pxt://org:main` forces a rebuild |
 
@@ -184,6 +190,30 @@ pxt db list                      # every hosted database you can reach
 ```
 
 `pxt db delete pxt://org:db` deletes a database and its storage. The organization's default database, `main`, cannot be deleted. Full reference: [CLI](/platform/cli#cloud).
+
+## Network access
+
+On a network or in an agent sandbox that limits outbound traffic, allow all of these connections from the machine that runs `pxt`. Most commands use more than one:
+
+| Host | Port | Used by |
+|---|---|---|
+| `internal-api.pixeltable.com` | 443, HTTPS | `pxt login`, `pxt db`, `pxt secret`, `pxt key`, `pxt org`, `pxt service` |
+| `api.workos.com` | 443, HTTPS | `pxt login`, and renewing the session it starts |
+| `www.pixeltable.com`, `signin.pixeltable.com` | 443, HTTPS | `pxt new` |
+| `*.s3.amazonaws.com` | 443, HTTPS | `pxt db update`, to upload the project files |
+| `*.r2.cloudflarestorage.com` | 443, HTTPS | Media in the home bucket |
+| `*.svc.pxt.run` | 443, HTTPS | Requests to a hosted service, and `pxt service update` and `pxt service restart`, which wait for it to answer |
+| `*.pxt.run` | 443, TCP | Everything that uses tables: `pxt schema update`, `pxt service update`, `pxt ls`, `pxt.get_table()` |
+
+The connection to `{org}-{db}.pxt.run` is TLS on TCP port 443, opened directly rather than through an HTTP proxy. A network that blocks it still lets the other commands work, `pxt db update` included. A command that uses the tables fails: within about 40 s with `Cannot reach pxt://org:main: the TCP connection to org-main.pxt.run:443 timed out` where the network drops the connection, or after about 90 s with a connection error where it refuses it.
+
+To allow these hosts for a coding agent:
+
+- **Claude Code on the web**: edit the cloud environment, set **Network access** to **Custom**, and add each host to **Allowed domains**. `*.pxt.run` matches every database. Keep **Also include default list of common package managers** checked: that list already allows `*.r2.cloudflarestorage.com` and `*.amazonaws.com`.
+- **Codex cloud**: turn on **Allow Codex to access internet** for the environment, choose **Custom domains only** or **Package managers**, and add each host under **Additional allowed domains**. Codex does not document wildcards, so list the database's own host, such as `org-main.pxt.run`. If the environment limits HTTP methods, allow `POST` and `PUT`.
+- **GitHub Copilot cloud agent**: in the repository's **Settings > Copilot > Internet access**, add `pixeltable.com`, `workos.com`, `pxt.run`, `r2.cloudflarestorage.com` and `s3.amazonaws.com` to the custom allowlist. Each entry also allows its subdomains.
+
+Claude Code on the web and Codex cloud send all outbound traffic through an HTTP proxy, which the `*.pxt.run` connection does not use. There, the commands that use tables can fail even with `*.pxt.run` allowed; the other commands work.
 
 ## Media on the home bucket
 

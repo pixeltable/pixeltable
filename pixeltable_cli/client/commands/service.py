@@ -638,10 +638,14 @@ def _list(target: str | None, *, as_json: bool) -> None:
     width = max(len(f'{d.catalog_path}/{d.name}'.lstrip('/')) for d in running)
     for d in running:
         pid_or_state = f'pid {d.pid}' if d.pid is not None else d.state
-        # shown as the file it names: a catalog path never carries a .py suffix
         app_file = d.app_module.replace('.', '/') + '.py'
         where = f'{d.catalog_path}/{d.name}'.lstrip('/')
-        print(f'{where:<{width}s}  {d.endpoint}  {pid_or_state}  {app_file}')
+        size = (
+            ''
+            if d.workers is None
+            else f'  {d.workers} x {d.cpu} vCPU, {d.memory_mb} MB, {d.file_cache_gb} GB file cache'
+        )
+        print(f'{where:<{width}s}  {d.endpoint}  {pid_or_state}{size}  {app_file}')
         if d.error is not None:
             print(f'    {d.error}')
         if d.receipt is not None and not d.receipt.observed:

@@ -55,7 +55,8 @@ LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(
 T = TypeVar('T')
 
 _DEFAULT_PROXY_DOMAIN = 'pxt.run'
-_DEFAULT_PROXY_PORT = 9000
+# The tunnel load balancer also listens on 9000, the default before 443; PIXELTABLE_CLOUD_HOST=pxt.run:9000 picks it
+_DEFAULT_PROXY_PORT = 443
 
 
 def init_log_level(logger: logging.Logger, config: Config, config_key: str, *, default: int) -> None:
