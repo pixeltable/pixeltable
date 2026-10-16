@@ -13,16 +13,17 @@ import sys
 import urllib.error
 import urllib.request
 from textwrap import dedent
-from typing import Callable
+from typing import Any, Callable
 
 import pytest
 
 import pixeltable as pxt
-import pixeltable_cli.client.commands.db as db_cmd
 from pixeltable.utils.app_module import load_app_module
 from pixeltable_cli import types
-from pixeltable_cli.client import utils
+from pixeltable_cli.client import hosted, utils
+from pixeltable_cli.client.commands import db as db_cmd
 from pixeltable_cli.client.utils import display_path
+from pixeltable_cli.types import GenerationReceipt, ReceiptError, ReceiptOutcome, ResourcePhase
 
 from ..utils import DatabaseRoot, get_image_files
 from .conftest import PxtRunner
@@ -56,6 +57,108 @@ class TestDbJsonSchema:
         assert report['title'] == 'DatabaseReport'
         assert 'worker_status' not in report['properties']
         assert 'current' in report['properties']
+
+
+@pytest.mark.db_roots('local', reason='the daemon is faked, so no catalog is reached')
+class TestDbRetryDeletion:
+    """`pxt db retry` of a deletion: once the deletion releases the name, the database reads as absent."""
+
+    _URI = 'pxt://acme:gone'
+
+    def _run(
+        self, monkeypatch: pytest.MonkeyPatch, settled: GenerationReceipt, capsys: pytest.CaptureFixture[str]
+    ) -> tuple[int, str, str]:
+        accepted = settled.model_copy(update={'outcome': None, 'error': None, 'phase': ResourcePhase.DELETING})
+
+        def post_request(path: str, body: dict[str, Any], *, raise_on_error: bool = False) -> Any:
+            if path == '/api/db/retry':
+                return {'receipt': accepted.model_dump(mode='json')}
+            assert path == '/api/receipts', path
+            return {'receipts': [settled.model_dump(mode='json')]}
+
+        def get_request(path: str, params: dict[str, Any] | None = None) -> Any:
+            assert path == '/api/db' and params is not None
+            if not params.get('missing_ok'):
+                sys.exit(1)  # the daemon's 404 for a released name, as _request() reports it
+            return {'report': {}, 'worker_status': []}
+
+        monkeypatch.setattr(db_cmd, 'post_request', post_request)
+        monkeypatch.setattr(db_cmd, 'get_request', get_request)
+        monkeypatch.setattr(hosted, 'post_request', post_request)
+        monkeypatch.setattr(hosted, 'RECEIPT_POLL_INTERVAL', 0.0)
+        code = 0
+        try:
+            db_cmd.run(['retry', self._URI])
+        except SystemExit as exc:
+            code = int(exc.code or 0)
+        out, err = capsys.readouterr()
+        return code, out, err
+
+    def test_deleted(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+        receipt = GenerationReceipt(
+            kind='database', resource_id='db-uuid', generation=4, db='gone', outcome=ReceiptOutcome.OBSERVED
+        )
+        code, out, _ = self._run(monkeypatch, receipt, capsys)
+        assert (code, out.strip()) == (0, f'Deleted {self._URI}.')
+
+    def test_failed(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+        """A deletion that fails after releasing its name reports the failure, not the missing database."""
+        error = ReceiptError(message='the tenant role is still in use', retryable=False)
+        receipt = GenerationReceipt(kind='database', resource_id='db-uuid', generation=4, db='gone', error=error)
+        code, _, err = self._run(monkeypatch, receipt, capsys)
+        assert code == 1
+        assert 'failed: the tenant role is still in use' in err
+
+
+@pytest.mark.db_roots('local', reason='the daemon is faked, so no catalog is reached')
+class TestDbDeleteWait:
+    """`pxt db delete` waits on the deletion's receipt, through polls that fail."""
+
+    _URI = 'pxt://acme:gone'
+
+    @pytest.mark.parametrize(
+        ('failure', 'expected_code'),
+        [
+            (utils.RequestFailedError('502 Management API error 500', 502, retryable=True), 0),
+            (utils.RequestFailedError('403 not permitted to read a database', 403, retryable=False), 1),
+        ],
+        ids=['transient', 'refused'],
+    )
+    def test_poll_failure(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        failure: utils.RequestFailedError,
+        expected_code: int,
+    ) -> None:
+        settled = GenerationReceipt(
+            kind='database', resource_id='db-uuid', generation=4, db='gone', outcome=ReceiptOutcome.OBSERVED
+        )
+        accepted = settled.model_copy(update={'outcome': None, 'phase': ResourcePhase.DELETING})
+        failures = [failure]
+
+        def post_request(path: str, body: dict[str, Any], *, raise_on_error: bool = False) -> Any:
+            if path == '/api/db/delete':
+                return {'receipt': accepted.model_dump(mode='json')}
+            assert path == '/api/receipts' and raise_on_error, path
+            if len(failures) > 0:
+                raise failures.pop(0)
+            return {'receipts': [settled.model_dump(mode='json')]}
+
+        monkeypatch.setattr(db_cmd, 'post_request', post_request)
+        monkeypatch.setattr(hosted, 'post_request', post_request)
+        monkeypatch.setattr(hosted, 'RECEIPT_POLL_INTERVAL', 0.0)
+        code = 0
+        try:
+            db_cmd.run(['delete', self._URI, '-f'])
+        except SystemExit as exc:
+            code = int(exc.code or 0)
+        out, err = capsys.readouterr()
+        assert code == expected_code, err
+        if expected_code == 0:
+            assert out.strip() == "Deleted database 'gone'."
+        else:
+            assert 'the change continues in Pixeltable Cloud' in err
 
 
 @pytest.mark.db_roots('local', reason='confirmation refuses deletion before contacting the control plane')

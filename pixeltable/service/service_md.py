@@ -10,7 +10,7 @@ import pydantic
 from pixeltable.service.resources import ServiceResources
 from pixeltable.utils.project import ProjectFingerprint
 from pixeltable_cli import types
-from pixeltable_cli.types import ServiceSpec, ServiceState
+from pixeltable_cli.types import GenerationReceipt, ServiceSpec, ServiceState
 from pixeltable_cli.utils import PxtPath
 
 
@@ -50,11 +50,14 @@ class ServiceInstanceRecord(pydantic.BaseModel):
     fingerprint: ProjectFingerprint | None = None
 
     # whether its database has moved past the project this instance serves; derived on read, so a stored
-    # one is never read back. A restart moves the instance onto the new project.
+    # one is never read back. A restart keeps the instance's current release; an update moves it onto
+    # the new project.
     update_pending: bool = False
 
     resources: ServiceResources = pydantic.Field(default_factory=ServiceResources)
     description: str | None = None
+
+    receipt: GenerationReceipt | None = None
 
     def to_cli_instance(self, catalog_uri: str = '') -> types.ServiceInstance:
         return types.ServiceInstance(
@@ -73,6 +76,7 @@ class ServiceInstanceRecord(pydantic.BaseModel):
             memory_mb=self.resources.memory_mb,
             workers=self.resources.workers,
             file_cache_gb=self.resources.file_cache_gb,
+            receipt=self.receipt,
         )
 
 
