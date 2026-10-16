@@ -280,8 +280,7 @@ class TempStore:
     def _tmp_dir(cls) -> Path:
         """Returns the path to the temporary directory where files are stored.
 
-        Each process that shares a Pixeltable home has its own directory, so that Env.clear_tmp_dir() in a starting
-        process removes only the files of processes that have exited.
+        Each process that shares a Pixeltable home has its own directory.
         """
         return env.Env.get().tmp_dir / str(os.getpid())
 

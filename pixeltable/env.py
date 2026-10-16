@@ -1008,12 +1008,12 @@ class Env:
         for path in paths:
             if path.name in live_pids:
                 continue
-            # another process sharing this home can remove an entry between the listing and the delete, or (on
-            # Windows) hold a file open; what remains is removed by a later startup
-            if path.is_dir():
-                shutil.rmtree(path, ignore_errors=True)
-            else:
-                with contextlib.suppress(FileNotFoundError, PermissionError):
+            # best effort, per entry: another process sharing this home can remove an entry between the listing and the
+            # delete, or (on Windows) hold a file open; what remains is removed by a later startup
+            with contextlib.suppress(OSError):
+                if path.is_dir():
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
                     path.unlink()
 
     # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Type[T] | None) -> T:
