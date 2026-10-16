@@ -206,6 +206,9 @@ class TestSchema:
         assert r.returncode == 3
         assert 'refusing to apply 2 destructive operation(s)' in r.stderr
         assert 'body' in pxt.get_table(f'{target}/docs').columns()
+        # it names the command that applies the plan, which the apply below runs
+        assert r.next_commands == [['pxt', 'schema', 'update', str(schema_file), target, '--allow-destructive', '-f']]
+        apply_argv = r.next_commands[0][1:]
 
         # -n reports the same plan without applying it
         r = cli('schema', 'update', str(schema_file), target, '-n', check=False)
@@ -229,7 +232,7 @@ class TestSchema:
         assert r.returncode == 2
         assert 'body' in pxt.get_table(f'{target}/docs').columns()
 
-        r = cli('schema', 'update', str(schema_file), target, '--allow-destructive', '-f', '--json')
+        r = cli(*apply_argv, '--json')
         assert r.returncode == 0
         docs_plan = next(t for t in r.json['tables'] if t['path'] == f'{target}/docs')
         assert docs_plan['status'] == 'applied'

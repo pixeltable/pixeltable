@@ -17,7 +17,7 @@ import zlib
 from typing import IO, NoReturn
 
 from ..parser import Parser
-from ..utils import EXIT_ERROR, EXIT_REFUSED, confirm_or_exit
+from ..utils import EXIT_ERROR, confirm_or_exit
 
 ARCHIVE_URL = 'https://codeload.github.com/pixeltable/pixeltable-skill/tar.gz/refs/heads/main'
 
@@ -94,7 +94,7 @@ def _install(args: argparse.Namespace) -> None:
         _fail(f'could not read the copy already there: {e}')
     if len(differing) > 0:
         names = ' and '.join(t.relative_to(root).as_posix() for t in differing)
-        confirm_or_exit(f'replace the copy of the skill in {names}?', args.force, refused_exit_code=EXIT_REFUSED)
+        confirm_or_exit(f'replace the copy of the skill in {names}?', args.force, as_json=args.as_json)
 
     states: list[str] = []
     for target in targets:

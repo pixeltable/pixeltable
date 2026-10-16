@@ -8,6 +8,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import signal
 import socket
 import subprocess
@@ -539,24 +540,61 @@ def plural(n: int, noun: str) -> str:
     return f'{n} {noun}' if n == 1 else f'{n} {noun}s'
 
 
+# the command being run, as main.dispatch() received it, so a refusal can name the command that finishes the job
+invocation: list[str] | None = None
+
+# error_code of a refusal for want of -f; the CLI raises it and the daemon never does
+CONFIRMATION_REQUIRED = 'CONFIRMATION_REQUIRED'
+
+_FLAG_ALIASES = {'-f': '--force'}
+
+
+def rerun_command(*flags: str) -> str | None:
+    """The command being run as a shell command line, without -n/--dry-run and with flags; None outside dispatch()."""
+    if invocation is None:
+        return None
+    args = [a for a in invocation if a not in ('-n', '--dry-run')]
+    args += [f for f in flags if f not in args and _FLAG_ALIASES.get(f) not in args]
+    return shlex.join(['pxt', *args])
+
+
+def print_next(command: str, when: str) -> None:
+    print(f'next: {command}  # {when}', file=sys.stderr)
+
+
 def confirm_or_exit(
-    prompt: str, force: bool, *, refused_exit_code: int = 2, on_refusal: Callable[[], None] | None = None
+    prompt: str,
+    force: bool,
+    *,
+    refused_exit_code: int = EXIT_REFUSED,
+    on_refusal: Callable[[], None] | None = None,
+    as_json: bool = False,
 ) -> None:
     """Prompt for yes/no on stdin; refuse non-tty unless --force. Both refusals exit with refused_exit_code.
 
-    on_refusal runs just before the non-tty refusal exits, for a caller that reports the refusal itself.
+    A non-tty refusal names the command to rerun with -f. on_refusal runs just before it exits, for a caller that
+    reports the refusal itself; otherwise, with as_json, the refusal is an error document on stdout.
     """
     if force:
         return
     if not stdin_is_a_tty():
+        message = f'refusing to proceed without --force/-f (no TTY for confirmation): {prompt}'
+        command = rerun_command('-f')
+        when = prompt.removesuffix('?')
         if on_refusal is not None:
             on_refusal()
+        elif as_json:
+            steps = [] if command is None else [{'command': command, 'when': when}]
+            doc = {'error_code': CONFIRMATION_REQUIRED, 'message': message, 'retryable': False, 'next': steps}
+            print(json.dumps(doc, indent=2))
         # stdout is block-buffered on a pipe; flush it before stderr emits the refusal line
         try:
             sys.stdout.flush()
         except OSError:
             pass
-        print(f'pxt: refusing to proceed without --force/-f (no TTY for confirmation): {prompt}', file=sys.stderr)
+        print(f'pxt: {message}', file=sys.stderr)
+        if command is not None:
+            print_next(command, when)
         sys.exit(refused_exit_code)
     sys.stderr.write(f'{prompt} [y/N] ')
     sys.stderr.flush()
