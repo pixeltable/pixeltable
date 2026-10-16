@@ -94,7 +94,7 @@ The OTLP auth headers are a secret and do not go in the entry: set `OTEL_EXPORTE
 
 ### Telemetry from a hosted database
 
-Each pod of a hosted database runs an OpenTelemetry Collector. Pixeltable in the pod sends its traces, metrics, and logs to that collector, and the collector sends them to your OTLP backends. The first backend takes its endpoint and protocol from the database's entry (`db_exporter_otlp_endpoint`, `db_exporter_otlp_protocol`), or else from the secrets `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`. Its headers come from the secret `OTEL_EXPORTER_OTLP_HEADERS`.
+Each pod of a hosted database runs an OpenTelemetry Collector. Pixeltable in the pod sends its traces, metrics, and logs to that collector, and the collector sends them to your OTLP backends. The first backend takes its endpoint and protocol from the database's entry (`db_exporter_otlp_endpoint`, `db_exporter_otlp_protocol`), or else from the secrets `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`. Its headers come from the secret `OTEL_EXPORTER_OTLP_HEADERS`. Secrets whose names start with `OTEL_EXPORTER_OTLP_` or `OTEL_TRACES_SAMPLER_ARG` go only to the collector, so that Pixeltable in the pod keeps sending its telemetry to the collector.
 
 Each further backend is a set of secrets whose names end in `__<NAME>`:
 
