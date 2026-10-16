@@ -163,16 +163,17 @@ def _gateway_span_app(app: Any, excluded_urls: str) -> Any:
         except ValueError:
             sent_at = elapsed = math.nan
         now = time.time()
+        received_at = sent_at - elapsed
         # The gateway forwards a request within seconds of its receipt, and the pod receives it right after that.
         # A header that is missing or malformed (nan), or whose times are minutes away from that, starts no span.
         # For example, `1 0` would start the trace in 1970.
-        is_valid_timing = abs(now - sent_at) < 300 and 0 <= elapsed < 300
+        is_valid_timing = abs(now - sent_at) < 300 and elapsed >= 0 and abs(now - received_at) < 300
         # the patterns apply to the full URL, as in the asgi instrumentation
         if not is_valid_timing or excluded.url_disabled(get_host_port_url_tuple(scope)[2]):
             await app(scope, receive, send)
             return
         # a gateway clock ahead of this pod's clock would put the start after the end of the span
-        received_ns = int(min(sent_at - elapsed, now) * 1e9)
+        received_ns = int(min(received_at, now) * 1e9)
         # the http instrumentation nests its request span under a current span, ignoring any client traceparent
         with tracer.start_as_current_span('pixeltable.gateway', start_time=received_ns, kind=trace.SpanKind.SERVER):
             await app(scope, receive, send)

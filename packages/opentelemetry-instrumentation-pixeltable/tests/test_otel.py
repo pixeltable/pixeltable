@@ -367,13 +367,13 @@ class TestBridge:
             with TestClient(app) as client:
                 assert client.get('/health').status_code == 200
                 assert client.get('/health', headers={'x-pxt-gateway-time': f'{sent_at} 0.25'}).status_code == 200
-                # the first call creates the directory and the other five fail on it
+                # the first call creates the directory and the other six fail on it
                 assert client.post('/rpc', content=body).status_code == 200
                 assert client.post('/rpc', content=body).status_code == 200
                 gateway_headers = {'x-pxt-gateway-time': f'{sent_at} 0.25', 'traceparent': client_traceparent}
                 assert client.post('/rpc', content=body, headers=gateway_headers).status_code == 200
-                # a malformed gateway header, or one far from this pod's clock, counts as no header
-                for timing in ('nope', '1 0', f'{sent_at + 3600} 0'):
+                # a malformed gateway header, or one whose times are far from this pod's clock, counts as no header
+                for timing in ('nope', '1 0', f'{sent_at + 3600} 0', f'{sent_at - 299} 299'):
                     assert client.post('/rpc', content=body, headers={'x-pxt-gateway-time': timing}).status_code == 200
         finally:
             pxt.drop_dir('otel_rpc', force=True)
@@ -386,15 +386,15 @@ class TestBridge:
         # a request exports no span per ASGI message
         assert not any(s.name.endswith((' http send', ' http receive')) for s in spans)
         rpc_spans = sorted((s for s in spans if s.name == 'pixeltable.rpc'), key=lambda s: s.start_time)
-        assert [s.attributes['pxt.method'] for s in rpc_spans] == ['CatalogBase.create_dir'] * 6
+        assert [s.attributes['pxt.method'] for s in rpc_spans] == ['CatalogBase.create_dir'] * 7
         # a failed call marks its span, so that tail sampling keeps the trace
-        assert [s.status.status_code for s in rpc_spans] == [StatusCode.UNSET] + [StatusCode.ERROR] * 5
+        assert [s.status.status_code for s in rpc_spans] == [StatusCode.UNSET] + [StatusCode.ERROR] * 6
         request_spans = [span_ids[s.parent.span_id] for s in rpc_spans]
         assert {s.name for s in request_spans} == {'POST /rpc'}
         # catalog work of the call nests under its rpc span
         assert any(s.parent is not None and s.parent.span_id == rpc_spans[0].context.span_id for s in spans)
         # without a valid gateway header, the request span is the root of its trace
-        assert all(request_spans[i].parent is None for i in (0, 1, 3, 4, 5))
+        assert all(request_spans[i].parent is None for i in (0, 1, 3, 4, 5, 6))
         # with it, the trace starts when the gateway received the request, and the client's traceparent is ignored
         gateway_span = span_ids[request_spans[2].parent.span_id]
         assert gateway_span.name == 'pixeltable.gateway' and gateway_span.parent is None
