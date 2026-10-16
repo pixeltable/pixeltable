@@ -345,7 +345,9 @@ class ServiceManager(ServiceManagerBase):
             # bind here, so that a port already in use is reported by this call rather than read out of the
             # log of a child that exited; the child binds it for real a moment later
             probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            # with the options the service binds with (see service_runner), so the probe fails wherever it would
+            if sys.platform != 'win32':
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 probe.bind(('127.0.0.1', port))
             except OSError as e:

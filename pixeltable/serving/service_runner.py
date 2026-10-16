@@ -35,7 +35,10 @@ def _serve(app_file: str, service_name: str, base_path: str, otel: bool, port: i
         instrument_app(app)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # SO_REUSEADDR lets POSIX rebind a port a stopped service left in TIME_WAIT. On Windows it lets a socket bind a
+    # port that another is still listening on, so the service would share a busy port instead of refusing it.
+    if sys.platform != 'win32':
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         sock.bind(('127.0.0.1', port))
     except OSError as e:

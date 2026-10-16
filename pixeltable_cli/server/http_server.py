@@ -338,6 +338,11 @@ class _QuietServer(ThreadingHTTPServer):
 
     daemon_threads = True
 
+    # SO_REUSEADDR lets a POSIX daemon rebind a port its predecessor left in TIME_WAIT. On Windows it lets a
+    # socket bind a port that another is still listening on, so a second daemon would take over the port of a
+    # live one, and with it that daemon's clients, instead of failing to bind and deferring to it.
+    allow_reuse_address = sys.platform != 'win32'
+
     # the accepted values of a request's Host header, in lowercase; None accepts any, for a daemon bound
     # beyond loopback, which only a proxy that authenticates its callers may front
     allowed_hosts: tuple[str, ...] | None = None
