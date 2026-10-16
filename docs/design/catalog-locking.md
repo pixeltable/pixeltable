@@ -102,15 +102,16 @@ Both cached and stored results can become stale before lock acquisition.
 A table's ancestors, store table name, and versioning are fixed at creation, though an ancestor may have been
 dropped. Mutable views and catalog paths can change and must be checked after locking.
 
-### Why a stale lock set is safe
+### Why a tentative lock set is safe
 
 Before validation, the transaction only acquires locks, reads metadata, and checks for pending operations.
-It performs no caller data reads, row writes, metadata changes, or media I/O. Directory locking does issue
-an `UPDATE` to a dummy column (section 5), but that update rolls back with an abandoned attempt.
+It performs no caller data reads, row writes, metadata changes, or media I/O, so no costly work is lost if the tentative
+lock set turns out to be stale.
 
-Creating or dropping a mutable view requires `ACCESS EXCLUSIVE` on its base. Every table lock Pixeltable uses
-conflicts with that mode. Once a transaction has locked and validated the view tree, other transactions cannot
-add or remove mutable views until it ends.
+Validation runs once, so a validated set must stay valid until the transaction ends. Creating or dropping a mutable
+view requires `ACCESS EXCLUSIVE` on its base, which conflicts with every table lock Pixeltable uses, and changing a
+directory's entries requires its directory lock. Once the set is validated, other transactions cannot make changes
+that invalidate it until this transaction commits or rolls back.
 
 ### Retrying a stale set
 
