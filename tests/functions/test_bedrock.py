@@ -1,5 +1,6 @@
+import asyncio
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 import PIL.Image
 import pytest
@@ -12,6 +13,7 @@ from ..utils import (
     get_audio_files,
     get_image_files,
     get_video_files,
+    pxt_raises,
     rerun,
     rerun_on_network_error,
     skip_test_if_no_aws_credentials,
@@ -95,6 +97,22 @@ _UNAVAILABLE_VIDEO_MODEL_SNIPPETS = (
 )
 
 
+def _is_throttled_video_request(errortype: str | None, errormsg: str | None) -> bool:
+    """Return True when Bedrock rejected the video request because StartAsyncInvoke was throttled.
+
+    A low account quota is shared by concurrent nightly jobs. The async path retries with backoff;
+    a request that is still throttled is skipped rather than failed. Error type is enough for the
+    throttle exception classes. ExternalServiceError is the wrapped rate-limit error, so it skips
+    only when the message is that throttle.
+    """
+    if errortype in ('ThrottlingException', 'TooManyRequestsException', 'Throttling'):
+        return True
+    message = (errormsg or '').lower()
+    if 'throttlingexception' in message or 'throttled startasyncinvoke' in message:
+        return True
+    return 'too many requests' in message and 'startasyncinvoke' in message
+
+
 def _is_unavailable_video_model_error(_errortype: str | None, errormsg: str | None) -> bool:
     """Return True when the error message shows the video model is missing, retired, or not enabled.
 
@@ -150,6 +168,141 @@ def _converse_image_messages(t: pxt.Table) -> list:
             ],
         }
     ]
+
+
+def test_throttled_video_request() -> None:
+    nightly = (
+        'An error occurred (ThrottlingException) when calling the StartAsyncInvoke operation '
+        '(reached max retries: 4): Too many requests, please wait before trying again.'
+    )
+    assert _is_throttled_video_request('ThrottlingException', nightly)
+    assert _is_throttled_video_request('ClientError', nightly)
+    wrapped = f"Bedrock throttled StartAsyncInvoke for model 'luma.ray-v2:0': {nightly}"
+    assert _is_throttled_video_request('ExternalServiceError', wrapped)
+    assert not _is_throttled_video_request('ValidationException', 'Invalid input: resolution must be one of 540p, 720p')
+    assert not _is_throttled_video_request(
+        'ExternalServiceError', 'Async invocation abc failed: model returned an error'
+    )
+    # "too many requests" without the async operation is not this quota failure.
+    assert not _is_throttled_video_request('ClientError', 'Too many requests')
+    assert not _is_throttled_video_request('ValidationException', 'too many requests were supplied in the input list')
+
+
+def _throttle_error(code: str, message: str, *, cls_name: str | None = None) -> Exception:
+    from botocore.exceptions import ClientError
+
+    error_cls = ClientError
+    if cls_name is not None:
+        error_cls = type(cls_name, (ClientError,), {})
+    return error_cls(
+        {
+            'Error': {'Code': code, 'Message': message},
+            'ResponseMetadata': {'HTTPStatusCode': 429 if 'throttl' in code.lower() else 400},
+        },
+        'StartAsyncInvoke',
+    )
+
+
+def _patch_start_async(
+    monkeypatch: pytest.MonkeyPatch, outcomes: list[Exception | None]
+) -> tuple[list[float], list[int]]:
+    from pixeltable.functions import bedrock
+
+    sleeps: list[float] = []
+    calls = [0]
+
+    async def _sleep(delay: float) -> None:  # noqa: RUF029
+        sleeps.append(delay)
+
+    class _Client:
+        def start_async_invoke(self, **_kwargs: Any) -> dict[str, str]:
+            outcome = outcomes[calls[0]]
+            calls[0] += 1
+            if outcome is not None:
+                raise outcome
+            return {'invocationArn': 'arn:aws:bedrock:us-west-2:0:async-invoke/abc'}
+
+    monkeypatch.setattr(bedrock, '_bedrock_client', lambda: _Client())
+    monkeypatch.setattr(bedrock.asyncio, 'sleep', _sleep)
+    return sleeps, calls
+
+
+def test_luma_ray_start_async_invoke_retries_throttling(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pixeltable.functions import bedrock
+
+    nightly = 'Too many requests, please wait before trying again. (reached max retries: 4)'
+    sleeps, calls = _patch_start_async(
+        monkeypatch,
+        [
+            _throttle_error('ThrottlingException', nightly, cls_name='ThrottlingException'),
+            _throttle_error('ThrottlingException', nightly),
+            None,
+        ],
+    )
+    response = asyncio.run(bedrock._start_async_invoke('luma.ray-v2:0', {'prompt': 'a dog'}, 's3://bucket/out/'))
+    assert response['invocationArn'].endswith('/abc')
+    assert calls[0] == 3
+    assert len(sleeps) == bedrock._START_ASYNC_THROTTLE_RETRIES
+    assert (
+        bedrock._START_ASYNC_THROTTLE_BASE_DELAY_SECS <= sleeps[0] < bedrock._START_ASYNC_THROTTLE_BASE_DELAY_SECS * 2
+    )
+    assert (
+        bedrock._START_ASYNC_THROTTLE_BASE_DELAY_SECS * 2
+        <= sleeps[1]
+        < bedrock._START_ASYNC_THROTTLE_BASE_DELAY_SECS * 4
+    )
+
+
+def test_luma_ray_start_async_invoke_throttle_is_rate_limited(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pixeltable.functions import bedrock
+
+    nightly = (
+        'An error occurred (ThrottlingException) when calling the StartAsyncInvoke operation '
+        '(reached max retries: 4): Too many requests, please wait before trying again.'
+    )
+    sleeps, calls = _patch_start_async(
+        monkeypatch, [_throttle_error('ThrottlingException', nightly, cls_name='ThrottlingException')] * 3
+    )
+    with pxt_raises(pxt.ErrorCode.RATE_LIMITED, match='throttled StartAsyncInvoke') as info:
+        asyncio.run(bedrock._start_async_invoke('luma.ray-v2:0', {'prompt': 'a dog'}, 's3://bucket/out/'))
+    err = info.value
+    assert isinstance(err, pxt.ExternalServiceError)
+    assert err.is_retryable
+    assert err.provider == 'bedrock'
+    assert calls[0] == bedrock._START_ASYNC_THROTTLE_RETRIES + 1
+    assert len(sleeps) == bedrock._START_ASYNC_THROTTLE_RETRIES
+
+
+def test_luma_ray_start_async_invoke_does_not_retry_other_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    from botocore.exceptions import ClientError
+
+    from pixeltable.functions import bedrock
+
+    sleeps, calls = _patch_start_async(
+        monkeypatch, [_throttle_error('ValidationException', 'Invalid input: resolution must be one of 540p, 720p')]
+    )
+    with pytest.raises(ClientError, match='ValidationException'):
+        asyncio.run(bedrock._start_async_invoke('luma.ray-v2:0', {'prompt': 'a dog'}, 's3://bucket/out/'))
+    assert calls[0] == 1
+    assert sleeps == []
+
+
+def test_bedrock_throttling_classification() -> None:
+    from pixeltable.functions.bedrock import _is_bedrock_throttling
+
+    nightly = (
+        'An error occurred (ThrottlingException) when calling the StartAsyncInvoke operation '
+        '(reached max retries: 4): Too many requests, please wait before trying again.'
+    )
+    assert _is_bedrock_throttling(Exception(nightly))
+    assert _is_bedrock_throttling(_throttle_error('TooManyRequestsException', 'Too many requests'))
+    assert not _is_bedrock_throttling(
+        _throttle_error('ValidationException', 'too many requests were supplied in the input list')
+    )
+    assert not _is_bedrock_throttling(
+        _throttle_error('ServiceQuotaExceededException', 'The account quota has been exceeded')
+    )
+    assert not _is_bedrock_throttling(Exception('connection reset'))
 
 
 def test_unavailable_video_model_error() -> None:
@@ -434,6 +587,11 @@ class TestBedrock:
             row = t.select(errortype=t.video.errortype, errormsg=t.video.errormsg).collect()[0]
             errortype = row['errortype']
             errormsg = row['errormsg']
+            if _is_throttled_video_request(errortype, errormsg):
+                pytest.skip(
+                    f'Bedrock throttled StartAsyncInvoke for {_LUMA_RAY_MODEL_ID} in {_LUMA_RAY_REGION} '
+                    f'after retries: {errormsg}'
+                )
             if _is_unavailable_video_model_error(errortype, errormsg):
                 pytest.skip(f'Bedrock model {_LUMA_RAY_MODEL_ID} is not available in {_LUMA_RAY_REGION}: {errormsg}')
             raise AssertionError(f'invoke_model({_LUMA_RAY_MODEL_ID}) failed: {errortype}: {errormsg}')

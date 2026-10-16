@@ -9,9 +9,11 @@ import asyncio
 import base64
 import io
 import json
+import logging
 import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
+from random import random
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
 
 import numpy as np
@@ -32,9 +34,23 @@ if TYPE_CHECKING:
     from botocore.client import BaseClient
 
     from pixeltable.utils.s3_store import S3Store
+
+_logger = logging.getLogger(__name__)
+
 _ASYNC_INVOCATION_POLL_INTERVAL_SECS = 5.0
 
 _ASYNC_INVOCATION_TIMEOUT_SECS = 600.0
+
+# Bedrock error codes for a request that should be retried after a wait. ServiceQuotaExceededException
+# is not included: that is an account cap, not a short rate window.
+_BEDROCK_THROTTLE_CODES = frozenset({'ThrottlingException', 'TooManyRequestsException', 'Throttling'})
+
+# Retried here rather than by RequestRateScheduler. invoke_model has no resource pool: a pool would
+# pace every model, and a model id cannot be a pool key because ids contain ':'. Botocore has already
+# exhausted its short retries ("reached max retries: 4"); the scheduler's next attempts are only a few
+# seconds and would each re-enter that burst inside the same quota window.
+_START_ASYNC_THROTTLE_RETRIES = 2
+_START_ASYNC_THROTTLE_BASE_DELAY_SECS = 30.0
 
 # Models that always require StartAsyncInvoke and produce video output.
 _ASYNC_VIDEO_OUTPUT_MODEL_PREFIXES = ('amazon.nova-reel', 'luma.')
@@ -234,18 +250,76 @@ _embedding_dimensions: dict[str, int] = {
 }
 
 
+def _bedrock_error_code(exc: BaseException) -> str | None:
+    response = getattr(exc, 'response', None)
+    if not isinstance(response, dict):
+        return None
+    error = response.get('Error')
+    if not isinstance(error, dict):
+        return None
+    code = error.get('Code')
+    return code if isinstance(code, str) else None
+
+
+def _is_bedrock_throttling(exc: BaseException) -> bool:
+    """Return True when Bedrock rejected the call because the request rate exceeded the quota."""
+    code = _bedrock_error_code(exc)
+    if code in _BEDROCK_THROTTLE_CODES or type(exc).__name__ in _BEDROCK_THROTTLE_CODES:
+        return True
+    # A recognized non-throttle code is definitive. Otherwise fall back to the message botocore formats
+    # after its own retries: "(ThrottlingException) ... Too many requests".
+    if code is not None:
+        return False
+    message = str(exc).lower()
+    return 'throttlingexception' in message or 'too many requests' in message
+
+
+def _start_async_throttle_delay(attempt: int) -> float:
+    """Seconds to wait after a throttled StartAsyncInvoke. `attempt` is 0 for the first retry.
+
+    The delay starts at tens of seconds, after botocore's short retries, so it can cross a one-minute
+    quota window. Jitter keeps concurrent callers from retrying together.
+    """
+    base = _START_ASYNC_THROTTLE_BASE_DELAY_SECS * (2**attempt)
+    return base + random() * base
+
+
+async def _start_async_invoke(model_id: str, body: dict, output_location: str) -> dict[str, Any]:
+    """Submit StartAsyncInvoke, waiting out throttling that botocore's own retries already gave up on."""
+    for attempt in range(_START_ASYNC_THROTTLE_RETRIES + 1):
+        try:
+            response: dict[str, Any] = await asyncio.to_thread(
+                _bedrock_client().start_async_invoke,
+                modelId=model_id,
+                modelInput=body,
+                outputDataConfig={'s3OutputDataConfig': {'s3Uri': output_location}},
+            )
+            return response
+        except Exception as exc:
+            if not _is_bedrock_throttling(exc):
+                raise
+            if attempt == _START_ASYNC_THROTTLE_RETRIES:
+                raise pxt.ExternalServiceError(
+                    pxt.ErrorCode.RATE_LIMITED,
+                    f'Bedrock throttled StartAsyncInvoke for model {model_id!r}: {exc}',
+                    provider='bedrock',
+                ) from exc
+            delay = _start_async_throttle_delay(attempt)
+            _logger.info(
+                f'Bedrock StartAsyncInvoke throttled for {model_id}; retrying in {delay:.0f}s '
+                f'(attempt {attempt + 1} of {_START_ASYNC_THROTTLE_RETRIES})'
+            )
+            await asyncio.sleep(delay)
+    raise AssertionError('StartAsyncInvoke retry loop exited')
+
+
 @asynccontextmanager
 async def _bedrock_async_invocation(
     model_id: str, body: dict, soa: StorageObjectAddress, store: 'S3Store'
 ) -> AsyncIterator[str]:
     """Submit a Bedrock async job, poll until completion, yield result location and cleanup temp S3 objects on exit."""
     output_location = f'{soa.prefix_free_uri}{soa.prefix}'
-    response = await asyncio.to_thread(
-        _bedrock_client().start_async_invoke,
-        modelId=model_id,
-        modelInput=body,
-        outputDataConfig={'s3OutputDataConfig': {'s3Uri': output_location}},
-    )
+    response = await _start_async_invoke(model_id, body, output_location)
     invocation_arn: str = response['invocationArn']
     invocation_id: str = invocation_arn.rsplit('/', maxsplit=1)[-1]
 
@@ -338,7 +412,8 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
 
     For models that require async invocation, `bedrock.temp_location` must be configured
     (set environment variable `BEDROCK_TEMP_LOCATION` or add `temp_location` to the `[bedrock]` section of
-    your Pixeltable configuration file).
+    your Pixeltable configuration file). A throttled `StartAsyncInvoke` is retried with backoff, then
+    reported as a rate-limit error.
 
     Args:
         body: The prompt and inference parameters as a dictionary.
