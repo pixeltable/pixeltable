@@ -10,6 +10,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable.runtime import get_runtime, reset_runtime
 
 from ..utils import (
     ensure_s3_pytest_resources_access,
@@ -17,6 +18,7 @@ from ..utils import (
     get_image_files,
     get_test_video_files,
     get_video_files,
+    open_async_resources,
     pxt_raises,
     rerun_on_network_error,
     skip_test_if_no_client,
@@ -26,6 +28,18 @@ from ..utils import (
 from .tool_utils import run_tool_invocations_test
 
 _logger = logging.getLogger('pixeltable_test')
+
+
+class TestGeminiLocal:
+    def test_client_closed_on_reset(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('google.genai')
+        monkeypatch.setenv('GEMINI_API_KEY', 'test-key')
+        # The client stays referenced through the assertion, as a failed request's traceback
+        # keeps it alive past teardown. open_async_resources() is what session teardown checks.
+        client = get_runtime().get_client('gemini')
+        reset_runtime()
+        assert open_async_resources() == []
+        del client
 
 
 @pytest.mark.remote_api
