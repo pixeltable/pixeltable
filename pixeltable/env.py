@@ -35,7 +35,13 @@ from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
-from pixeltable.utils.object_stores import ObjectPath, StorageTarget, home_bucket_uri, warn_if_pxtfs
+from pixeltable.utils.object_stores import (
+    ObjectPath,
+    StorageTarget,
+    home_bucket_uri,
+    reject_local_dest_in_project,
+    warn_if_pxtfs,
+)
 from pixeltable.utils.sql import add_option_to_db_url, redact_db_url
 
 if TYPE_CHECKING:
@@ -49,7 +55,8 @@ LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(
 T = TypeVar('T')
 
 _DEFAULT_PROXY_DOMAIN = 'pxt.run'
-_DEFAULT_PROXY_PORT = 9000
+# The tunnel load balancer also listens on 9000, the default before 443; PIXELTABLE_CLOUD_HOST=pxt.run:9000 picks it
+_DEFAULT_PROXY_PORT = 443
 
 
 def init_log_level(logger: logging.Logger, config: Config, config_key: str, *, default: int) -> None:
@@ -412,6 +419,7 @@ class Env:
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid {mode} media destination URI: {uri}'
                     ) from e
+                reject_local_dest_in_project(uri, f'{mode}_media_dest', excs.ErrorCode.INVALID_CONFIGURATION)
                 # the home-bucket default above is spelled pxt://, and a daemon runs none of the user's code
                 if not self.is_proxy_daemon:
                     warn_if_pxtfs(uri, f'{mode}_media_dest')

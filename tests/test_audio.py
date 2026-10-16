@@ -214,6 +214,20 @@ class TestAudio:
         assert all(
             round(results[i]['segment_end'] - results[i]['segment_start']) == 5.0 for i in range(len(results) - 1)
         )
+        # a FLAC segment's own header states its duration, not the source file's
+        segment_durations = (
+            audio_segment_view.order_by(audio_segment_view.pos)
+            .select(
+                audio_segment_view.segment_start,
+                audio_segment_view.segment_end,
+                duration=audio_segment_view.audio_segment.get_metadata().streams[0].duration_seconds,
+            )
+            .collect()
+        )
+        assert all(
+            math.isclose(row['duration'], row['segment_end'] - row['segment_start'], abs_tol=1e-3)
+            for row in segment_durations
+        )
 
         # 60s / 7s leaves a 4s trailing segment; min_segment_duration=5 drops it, so 8 segments end at 56 rather than 9
         drop_view = pxt.create_view(

@@ -80,7 +80,7 @@ class TestProjectArchive:
             members = tar.getnames()
             assert 'project/a_include.txt' in members
             assert 'project/a_include.py' in members
-            assert 'project/pixeltable.toml' in members
+            assert 'project/pixeltable.toml' not in members
             assert 'project/a_exclude.py' not in members
             assert 'project/b_exclude.txt' not in members
 
@@ -179,6 +179,9 @@ class TestProjectArchive:
         (tmp_path / 'app.py').write_text('x = 1\n')
         (tmp_path / 'sub').mkdir()
         (tmp_path / 'sub' / 'mod.py').write_text('y = 2\n')
+        (tmp_path / 'pyproject.toml').write_text(
+            '[project]\nname = "app"\n\n[tool.pixeltable]\noutput_media_dest = "s3://out"\n'
+        )
 
         assert package_project_archive(tmp_path).files == project_fingerprint(tmp_path, None).files
 
@@ -194,7 +197,9 @@ class TestProjectArchive:
         """An unchanged project fingerprints to the context it packages, or an upload could never match."""
         (tmp_path / 'app.py').write_text('x = 1\n')
         (tmp_path / 'requirements.txt').write_text('pandas\n')
-        (tmp_path / 'pyproject.toml').write_text('[project]\nname = "app"\n')
+        (tmp_path / 'pyproject.toml').write_text(
+            '[project]\nname = "app"\n\n[tool.pixeltable]\noutput_media_dest = "s3://out"\n'
+        )
 
         assert package_image_context(tmp_path).files == project_fingerprint(tmp_path, None).image_files()
 
