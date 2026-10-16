@@ -549,7 +549,7 @@ class TestLocking:
         """A waiting schema change must read metadata committed by the preceding schema change.
 
         LOCK TABLE does not establish a snapshot. The metadata read after acquisition must therefore see the first
-        added column, so the second schema change preserves it. This applies to both table kinds.
+        added column, so the second schema change preserves it. This applies to data-versioned and operational tables.
         """
         t = self.make_tbl(is_data_versioned=is_data_versioned)
         fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.MD_WRITE)
@@ -817,7 +817,7 @@ class TestLocking:
         """Writes with empty metadata caches must choose EXCLUSIVE for a data-versioned table.
 
         Start both writers with fresh catalogs. The second must wait for the first, confirming that lock-set
-        discovery reads the table kind from the store rather than defaulting to operational ROW EXCLUSIVE.
+        discovery reads the table's versioning from the store rather than defaulting to operational ROW EXCLUSIVE.
         """
         t = self.make_tbl(is_data_versioned=True)
         fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.DATA_WRITE)
@@ -852,7 +852,7 @@ class TestLocking:
     def test_cold_cache_read_does_not_fail_fast(self, uses_db: None, fault_injection: None) -> None:
         """A read with an empty metadata cache must wait for a data-versioned table's schema change.
 
-        Lock-set discovery must read the table kind from the store and select the corresponding wait policy.
+        Lock-set discovery must read the table's versioning from the store and select the corresponding wait policy.
         """
         t = self.make_tbl(is_data_versioned=True)
         fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.MD_WRITE)

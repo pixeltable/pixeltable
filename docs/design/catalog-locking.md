@@ -23,7 +23,7 @@ Directory locks come later and need the retry mechanism described in section 5.
 ## 2. Lock modes and waiting
 
 The `Catalog.begin_*_xact()` methods and `retry_*_loop()` decorators select an operation class (`_TblOpClass`).
-That class determines the required lock mode.
+That class and the table's versioning, data-versioned or operational, determine the required lock mode.
 
 | Operation class | Operational table | Data-versioned table | Wait policy |
 | --- | --- | --- | --- |
@@ -44,7 +44,7 @@ its bases with `ACCESS SHARE`.
 The wait policy applies to the whole transaction. If a data read or write locks only operational tables,
 it uses `NOWAIT` for every table lock. A conflict reports `SCHEMA_CHANGE_IN_PROGRESS`. If any locked table
 is data-versioned, the transaction waits for every required table lock. Schema changes and finalization
-always wait, for either table kind.
+always wait, regardless of versioning.
 
 ### Metadata-only reads
 
@@ -92,14 +92,15 @@ lock set before opening the transaction:
 4. Check that the held locks cover the refreshed targets (`_validate_lock_set()`). Retry if they do not.
 5. Run the caller's operation.
 
-Use cached `TableVersion` metadata when available. It supplies store table names, bases, mutable views, and table
-kinds. On a cache miss, read raw `tables` rows in a separate metadata transaction (`_lock_set_from_store()`).
+Use cached `TableVersion` metadata when available. It supplies store table names, bases, mutable views, and each
+table's versioning. On a cache miss, read raw `tables` rows in a separate metadata transaction
+(`_lock_set_from_store()`).
 
 Catalog paths always require a store read because Catalog does not cache directory structure or path resolution.
 Both cached and stored results can become stale before lock acquisition.
 
-A table's ancestors, kind, and store table name are fixed at creation, though an ancestor may have been dropped.
-Mutable views and catalog paths can change and must be checked after locking.
+A table's ancestors, store table name, and versioning are fixed at creation, though an ancestor may have been
+dropped. Mutable views and catalog paths can change and must be checked after locking.
 
 ### Why a stale lock set is safe
 

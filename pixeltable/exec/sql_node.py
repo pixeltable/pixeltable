@@ -333,7 +333,7 @@ class SqlNode(ExecNode):
             assert exclude_deleted_at_current_version is None
         joined_tbls: list[catalog.TableVersionHandle] = [candidates[0]]
         for t in candidates[1:]:
-            # the tables in the path must either all be data-versioned or not
+            # all tables in the path have the same versioning
             assert t.get().is_data_versioned == is_data_versioned
             # a data-versioned table has to be joined even if nothing references its columns, in order to apply the
             # version predicate (= select only visible rows)
