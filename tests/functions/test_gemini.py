@@ -377,11 +377,11 @@ class TestGemini:
     def test_generate_content_scheduler(self, uses_db: None) -> None:
         """
         Scheduler stress test: 30 rows on gemini-2.5-flash free tier (~10 RPM) triggers 429s
-        and verifies that retry logic recovers all rows.
+        and verifies that retry logic recovers those rows.
 
-        Meant to be used in conjunction with a free tier gemini api key, to manually verify that
-        the retry logic in RateLimitsScheduler is working properly. If the test fails with a non-zero
-        number of exceptions, check the logs to see if they were 429 errors and if retries were attempted.
+        Meant to be used with a free-tier Gemini API key, to verify that RateLimitsScheduler retries
+        429s. A no-candidates ExternalServiceError is an expected row outcome and is not retried. Any
+        other exception fails the test.
         """
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -409,7 +409,23 @@ class TestGemini:
             f'elapsed={elapsed:.2f}s  ({succeeded / max(elapsed, 0.001):.2f} req/s)'
         )
 
-        assert status.num_excs == 0, f'{status.num_excs} rows failed permanently — retries did not recover them'
+        # No-candidates responses raise ExternalServiceError and are not retried. Anything else, such as
+        # an unrecovered 429, is a scheduler failure.
+        failures = (
+            t.where(t.response.errortype != None)
+            .select(errortype=t.response.errortype, errormsg=t.response.errormsg)
+            .collect()
+        )
+        no_candidates = 'Gemini returned no candidates'
+        unexpected = [
+            f'{row["errortype"]}: {row["errormsg"]}'
+            for row in failures
+            if row['errortype'] != 'ExternalServiceError' or no_candidates not in (row['errormsg'] or '')
+        ]
+        assert not unexpected, f'rows failed for reasons other than no candidates: {unexpected}'
+        assert status.num_excs == len(failures), (
+            f'{status.num_excs} exceptions recorded, but {len(failures)} response rows stored an error'
+        )
 
     def test_embed_content_multimodal(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
@@ -551,6 +567,40 @@ class TestGeminiNoCandidates:
         assert recorded[0][0] == 'pixeltable.functions.gemini.generate_content'
         assert recorded[0][1] == 'gemini-2.5-flash-lite'
         assert recorded[0][2]['prompt_token_count'] == 11
+
+    @pytest.mark.parametrize('candidates', [None, []])
+    @pytest.mark.parametrize(
+        ('signature_idx', 'call_kwargs', 'message'),
+        [
+            (0, {'voice': 'Kore'}, 'Gemini TTS returned unexpected response structure'),
+            (
+                1,
+                {'voices': {'Alice': 'Kore', 'Bob': 'Puck'}},
+                'Gemini multi-speaker TTS returned unexpected response structure',
+            ),
+        ],
+    )
+    def test_generate_speech_no_candidates(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        candidates: list[Any] | None,
+        signature_idx: int,
+        call_kwargs: dict[str, Any],
+        message: str,
+    ) -> None:
+        pytest.importorskip('google.genai')
+        from google.genai import types
+
+        from pixeltable.functions import gemini
+
+        response = types.GenerateContentResponse(candidates=candidates)
+        _install_gemini_client(monkeypatch, response)
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match=message):
+            asyncio.run(
+                gemini.generate_speech.py_fns[signature_idx](
+                    'Alice: hello', model='gemini-2.5-flash-preview-tts', **call_kwargs
+                )
+            )
 
     def test_tool_calls_no_candidates(self) -> None:
         from pixeltable.functions.gemini import _gemini_response_to_pxt_tool_calls

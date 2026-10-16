@@ -256,7 +256,7 @@ def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDic
 
 @pxt.udf
 def _gemini_response_to_pxt_tool_calls(response: dict) -> dict | None:
-    # Same null-candidates case as generate_content: the key is present and the value is None.
+    # Same null-candidates case as generate_content(): the key is present and the value is None.
     candidates = response.get('candidates') or []
     if len(candidates) == 0:
         return None
