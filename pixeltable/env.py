@@ -313,11 +313,6 @@ class Env:
         return self._dbms
 
     @property
-    def is_using_cockroachdb(self) -> bool:
-        assert self._dbms is not None
-        return isinstance(self._dbms, CockroachDbms)
-
-    @property
     def is_local(self) -> bool:
         assert self._db_url is not None  # is_local should be called only after db initialization
         return self._db_server is not None
@@ -648,12 +643,6 @@ class Env:
             assert isinstance(tz_name, str)
             _logger.info(f'Database time zone is now: {tz_name}')
             self._default_time_zone = ZoneInfo(tz_name)
-            if self.is_using_cockroachdb:
-                # This could be set when the database is created, but we set it now
-                conn.execute(sql.text('SET null_ordered_last = true;'))
-                null_ordered_last = conn.execute(sql.text('SHOW null_ordered_last')).scalar()
-                assert isinstance(null_ordered_last, str)
-                _logger.info(f'Database null_ordered_last is now: {null_ordered_last}')
 
     def _set_local_db(self, db_name: str) -> None:
         """Point this Env at `db_name` on the embedded server."""
