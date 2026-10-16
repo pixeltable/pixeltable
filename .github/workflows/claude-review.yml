@@ -4,7 +4,8 @@ name: Claude review
 # when someone with write access comments exactly "claude review" on it. An hourly sweep reviews PRs marked ready for
 # review in the last three hours, which start no "tests" run. Runs started by workflow_run, issue_comment, and schedule
 # attach to the default branch, not to the PR, so the review adds no check to the PR. They use this file from the
-# default branch with the repository's secrets, so fork PRs get reviewed too. Nothing from the PR runs.
+# default branch with the repository's secrets, so fork PRs get reviewed too. Nothing from the PR runs. The erosion job
+# checks the complexity of every commit of a PR.
 on:
   issue_comment:
     types: [created]
@@ -184,3 +185,77 @@ jobs:
           REPO: ${{ github.repository }}
           COMMENT_ID: ${{ github.event.comment.id }}
         run: gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=confused --silent
+
+  # Runs on every commit of a PR, next to plan and review. Measures how the PR changes code erosion and verbosity, as
+  # SlopCodeBench (arXiv 2603.24755) defines them, and has Claude judge up to 10 functions above complexity 10 that
+  # grew. Posts one comment once the PR leaves the bounds, then updates it on each commit. The script only parses the
+  # PR's files; nothing from the PR runs.
+  erosion:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request'
+    # A newer commit on the same branch replaces a running check.
+    concurrency:
+      group: claude-erosion-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          sparse-checkout: .github/scripts
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      # The job holds ANTHROPIC_API_KEY and a token that can comment, so every dependency is pinned by hash.
+      - run: |
+          pip install --quiet --require-hashes -r .github/scripts/claude_erosion_requirements.txt
+          npm ci --ignore-scripts --no-audit --no-fund --prefix .github/scripts/ts-functions
+      # Writes the PR's head commit and merge base, or nothing when there is nothing to check.
+      - id: target
+        run: python .github/scripts/claude_erosion_check.py target
+      # Checks out source files only: scb-check reads every Python file, and ts-functions reads TypeScript and
+      # JavaScript.
+      - if: steps.target.outputs.head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.target.outputs.head }}
+          path: erosion/head
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            *.py
+            *.ts
+            *.tsx
+            *.js
+            *.jsx
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true
+      - if: steps.target.outputs.head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.target.outputs.base }}
+          path: erosion/base
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            *.py
+            *.ts
+            *.tsx
+            *.js
+            *.jsx
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - if: steps.target.outputs.head
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python .github/scripts/claude_erosion_check.py report

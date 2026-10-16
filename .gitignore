@@ -31,6 +31,7 @@ pixeltable/**/*.pyi
 # Node.js
 node_modules/
 package-lock.json
+!.github/scripts/ts-functions/package-lock.json
 docs/release/package.json
 
 # Test sample app — lock file is regenerated fresh on each test run
