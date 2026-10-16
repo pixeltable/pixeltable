@@ -678,7 +678,7 @@ The command is the one you ran, with `-n` dropped and `-f` (or `--allow-destruct
 
 The plan commands (`schema`, `service`, `db update`) keep printing their plan, with the refused operations marked `refused`. An unknown command exits `2` and suggests the commands it may have meant, such as `pxt db logs` and `pxt service logs` for `pxt logs`.
 
-A request that fails ends its line with the error code, as in `pxt: 404 Directory 'nope' does not exist. [DIRECTORY_NOT_FOUND]`; with `--json`, stdout gets `{"error_code": ..., "message": ..., "retryable": ...}`. A daemon that cannot be reached gives `DAEMON_UNREACHABLE`, and an unexpected daemon failure `INTERNAL_ERROR`. A refusal Pixeltable Cloud names keeps its name, such as `PLAN_LIMIT`, `STORE_FULL` or `CLIENT_OUTDATED`, and an outage its `retry_after` in seconds.
+A request that fails ends its line with the error code, as in `pxt: 404 Directory 'nope' does not exist. [DIRECTORY_NOT_FOUND]`; with `--json`, stdout gets `{"error_code": ..., "message": ..., "retryable": ...}`. A daemon that cannot be reached gives `DAEMON_UNREACHABLE`, and an unexpected daemon failure `INTERNAL_ERROR`. A refusal that Pixeltable Cloud names keeps that name, such as `PLAN_LIMIT`, `STORE_FULL` or `CLIENT_OUTDATED`; an outage keeps its `retry_after` in seconds.
 
 | Exit | Meaning |
 |---|---|
