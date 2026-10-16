@@ -546,7 +546,8 @@ class Env:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error) from e
             self._db_url = db_url.render_as_string(hide_password=False)
             self._db_name = db_url.database  # use the dbname given in connect string
-            dialect = db_url.get_dialect().name
+            # Does not load a dialect plugin, so an unknown DBMS raises Unsupported DBMS below.
+            dialect = db_url.get_backend_name()
             if dialect == 'postgresql':
                 # Ensure psycopg v3 driver is used; the default postgresql:// scheme may resolve to psycopg2.
                 if db_url.drivername == 'postgresql':
