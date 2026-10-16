@@ -8,7 +8,7 @@ dependencies = [
     "beautifulsoup4",
     "httpx",
     "mistralai",
-    "mcp",
+    "mcp>=2",
     "python-dotenv",
     "requests",
     "sentence-transformers",

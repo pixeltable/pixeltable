@@ -8,6 +8,7 @@ from typing import Iterator
 
 import numpy as np
 import PIL.Image
+import pydantic
 import pytest
 
 import pixeltable as pxt
@@ -413,3 +414,22 @@ class TestApiClients:
         clients = _test_clients[n_clients:]
         assert len(clients) == 1
         assert (clients[0].closes, clients[0].loop_was_open) == (1, True)
+
+
+class TestRequirePackage:
+    def test_version_floor(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A release older than the floor is rejected; a pre-release of that floor is accepted.
+
+        pydantic is always installed, so this is Env's version check rather than one integration. The recorded
+        version is read once; a fresh Env reads it again.
+        """
+        _reset_env(reinit=False, db_name=None)
+        monkeypatch.setattr(pydantic, '__version__', '1.2.3')
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'is 1\.2\.3, but version >=2 is required'):
+            Env.get().require_package('pydantic', [2])
+
+        _reset_env(reinit=False, db_name=None)
+        monkeypatch.setattr(pydantic, '__version__', '2.0.0rc1')
+        Env.get().require_package('pydantic', [2])
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'is 2\.0\.0, but version >=3 is required'):
+            Env.get().require_package('pydantic', [3])

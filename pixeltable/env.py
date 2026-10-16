@@ -968,7 +968,7 @@ class Env:
                 version_str: str | None = getattr(module, '__version__', None)
                 if version_str is None:
                     version_str = importlib.metadata.version(package_info.library_name)
-                package_info.version = [int(x) for x in version_str.split('.')]
+                package_info.version = _version_components(version_str)
 
             if min_version > package_info.version:
                 raise excs.RequestError(
@@ -1150,6 +1150,21 @@ class ApiClientFactory:
     init_fn: Callable
     params: dict[str, inspect.Parameter]
     credential_param: str | None
+
+
+def _version_components(version_str: str) -> list[int]:
+    """Leading digits of each dot component, so '2.0.0rc1' is [2, 0, 0]."""
+    components: list[int] = []
+    for part in version_str.split('.'):
+        digits = ''
+        for char in part:
+            if not char.isdigit():
+                break
+            digits += char
+        if digits == '':
+            break
+        components.append(int(digits))
+    return components
 
 
 @dataclass
