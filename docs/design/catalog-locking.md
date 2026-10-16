@@ -113,16 +113,16 @@ view requires `ACCESS EXCLUSIVE` on its base, which conflicts with every table l
 directory's entries requires its directory lock. Once the set is validated, other transactions cannot make changes
 that invalidate it until this transaction commits or rolls back.
 
-### Retrying a stale set
+### Retrying a stale lock set
 
 Two conditions raise `_StaleLockSetError`:
 
 - A store table in the set no longer exists. `LOCK TABLE` raises Postgres `UndefinedTable`.
 - Refreshed metadata requires a table or directory lock that was not acquired, or a stronger table lock.
 
-Roll back, clear the cached metadata used to build the set, and rebuild it from the store. If the operation's
-own target was dropped, report `TABLE_NOT_FOUND`. If only a descendant view disappeared, retry the operation
-with that view removed from the set.
+Roll back, clear the cached metadata used to build the tentative lock set, and rebuild it from the store. If
+the operation's own target was dropped, report `TABLE_NOT_FOUND`. If only a descendant view disappeared, retry
+the operation with that view removed from the lock set.
 
 ## 5. Directory locks
 
