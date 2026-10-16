@@ -4239,14 +4239,14 @@ class TestTable:
         actual_schema = {col: val['type_'] for col, val in metadata['columns'].items()}
         assert expected_schema == actual_schema
 
-    def test_repr(
-        self, db_root: DatabaseRoot, test_tbl: pxt.Table, local_embed: pxt.Function, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_repr(self, db_root: DatabaseRoot, test_tbl: pxt.Table, local_embed: pxt.Function) -> None:
         p = db_root.make_catalog_path
 
         def loc(path: str) -> str:
             """Localized version of p(path), without the pxt://org:db/ prefix"""
             return pxt.catalog.Path.localize(p(path))
+
+        test_tbl.add_btree_index('c2', idx_name='c2_idx')
 
         validate_repr(
             test_tbl,
@@ -4263,7 +4263,11 @@ class TestTable:
                       c5             Timestamp  test_tbl
                       c6                  Json  test_tbl
                       c7                  Json  test_tbl
-                      c8  Array[(2, 3), int64]  test_tbl  [[1, 2, 3], [4, 5, 6]]""",
+                      c8  Array[(2, 3), int64]  test_tbl  [[1, 2, 3], [4, 5, 6]]
+
+             Index Name Column   Type
+            -------------------------
+                 c2_idx     c2  btree""",
         )
 
         v = pxt.create_view(p('test_view'), test_tbl)
@@ -4321,7 +4325,7 @@ class TestTable:
         validate_repr(
             s1,
             f"""
-            snapshot '{p('test_snap1')}' (of '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:2')}')
+            snapshot '{p('test_snap1')}' (of '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:3')}')
             Where: ~(c1 == None)
 
              Column Name                  Type        Source           Computed With                      Comment
@@ -4346,7 +4350,7 @@ class TestTable:
         validate_repr(
             s2,
             f"""
-            snapshot '{p('test_snap2')}' (of '{loc('test_tbl:2')}')
+            snapshot '{p('test_snap2')}' (of '{loc('test_tbl:3')}')
 
              Column Name                  Type    Source           Computed With                      Comment
             -------------------------------------------------------------------------------------------------
@@ -4366,7 +4370,7 @@ class TestTable:
         validate_repr(
             s3,
             f"""
-            snapshot '{p('test_snap3')}' (of '{loc('test_tbl:2')}')
+            snapshot '{p('test_snap3')}' (of '{loc('test_tbl:3')}')
 
              Column Name                  Type      Source           Computed With                      Comment
             ---------------------------------------------------------------------------------------------------
@@ -4382,17 +4386,6 @@ class TestTable:
                       c7                  Json    test_tbl
                       c8  Array[(2, 3), int64]    test_tbl  [[1, 2, 3], [4, 5, 6]]""",
         )
-
-        # B-tree indexes are part of the same describe()/repr output. Added after the snapshots above so their
-        # recorded versions stay put.
-        test_tbl.add_btree_index('c2', idx_name='c2_idx')
-        described = re.sub(r'-{3,}', '---', repr(test_tbl))
-        described = re.sub(r'\s+', ' ', described)
-        assert 'Index Name Column Type --- c2_idx c2 btree' in described
-        assert 'c2_idx' in test_tbl._repr_html_()
-        capsys.readouterr()
-        test_tbl.describe()
-        assert capsys.readouterr().out.strip() == repr(test_tbl)
 
         # The remaining cases aren't supported over a hosted (proxy) catalog yet:
         # - ColumnRef.__repr__ renders its owner table client-side via the local catalog plus the
@@ -4417,7 +4410,7 @@ class TestTable:
         validate_repr(
             iterator_view_1,
             f"""
-            view 'iterator_view_1' (of '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:2')}')
+            view 'iterator_view_1' (of '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:3')}')
 
              Column Name                  Type           Source           Computed With                      Comment
             --------------------------------------------------------------------------------------------------------
@@ -4448,7 +4441,7 @@ class TestTable:
         validate_repr(
             iterator_view_2,
             f"""
-            view 'iterator_view_2' (of '{loc('iterator_view_1')}', '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:2')}')
+            view 'iterator_view_2' (of '{loc('iterator_view_1')}', '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:3')}')
 
                         Column Name                  Type           Source                       Computed With                      Comment
             -------------------------------------------------------------------------------------------------------------------------------
