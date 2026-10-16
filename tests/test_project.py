@@ -257,7 +257,7 @@ class TestProject:
 
 
 def test_project_hashes_are_stable() -> None:
-    """Pixeltable Cloud recomputes these hashes from uploaded archives; a change here breaks every stored digest."""
+    """Stored fingerprints and digests depend on these values; a change breaks every one of them."""
     assert digest({'b': [1, 'x'], 'a': None}) == 'c22cb7b0353770e2b38094af641143ebf008ddf2d1f2dedb9d875996fcf245fa'
     assert (
         member_hash(hashlib.sha256(b'x = 1\n').hexdigest(), symlink=False)

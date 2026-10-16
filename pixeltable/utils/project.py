@@ -179,11 +179,11 @@ class PackagedContext:
 
 
 def member_hash(content_hash: str, *, symlink: bool) -> str:
-    """The hash a fingerprint records for one project file: content_hash is the SHA-256 of its bytes, of its
-    pyproject_hash() for pyproject.toml, or of the digest() of its target path for a symlink.
+    """Return the hash a fingerprint records for one project file.
 
-    Pixeltable Cloud recomputes fingerprints from an uploaded archive with this function, so its output must not
-    change for the same input.
+    content_hash is used as given, with no further hashing: the SHA-256 hex digest of the file's bytes,
+    pyproject_hash() of its bytes for pyproject.toml, or digest() of its target path for a symlink. The output must
+    not change for the same input.
     """
     return digest({'content': content_hash, 'symlink': symlink})
 
@@ -221,8 +221,7 @@ def _reproducible(info: tarfile.TarInfo) -> tarfile.TarInfo:
 def pyproject_hash(data: bytes) -> str:
     """Hash data, the contents of pyproject.toml, without the [tool.pixeltable] table.
 
-    The settings in that table are in the fingerprint's config. Pixeltable Cloud hashes an uploaded pyproject.toml
-    with this function, so its output must not change for the same input.
+    The settings in that table are in the fingerprint's config. The output must not change for the same input.
     """
     try:
         parsed = tomllib.loads(data.decode())
@@ -781,10 +780,9 @@ class ProjectFingerprint(pydantic.BaseModel):
 
 
 def digest(value: Any) -> str:
-    """The SHA-256 of value's canonical JSON (sorted keys, no whitespace), which project digests are built from.
+    """Return the SHA-256 of value's canonical JSON (sorted keys, no whitespace).
 
-    Pixeltable Cloud computes archive and image digests with this function, so its output must not change for the
-    same input.
+    The output must not change for the same input.
     """
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
