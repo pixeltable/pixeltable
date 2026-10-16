@@ -969,8 +969,10 @@ request spans of the FastAPI app. It needs the instrumentation package (`pip ins
 and the endpoint and service name come from the same settings as for any Pixeltable process. The endpoint comes
 from `db_exporter_otlp_endpoint` in the database's `[[pixeltable.database]]` entry, then from
 `OTEL_EXPORTER_OTLP_ENDPOINT`, then from the `[otel]` config section (see
-[Configuration](/platform/configuration#per-database-settings)). The service name comes from `OTEL_SERVICE_NAME` or
-the `[otel]` config section.
+[Configuration](/platform/configuration#per-database-settings)). A service on a hosted database skips the entry and
+sends its telemetry to the collector in its pod, and the collector sends it to your backends (see
+[Telemetry from a hosted database](/platform/configuration#telemetry-from-a-hosted-database)). The service name comes
+from `OTEL_SERVICE_NAME` or the `[otel]` config section.
 
 ```bash
 pxt service run app.py my_dir --otel       # traced, in this process
