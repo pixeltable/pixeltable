@@ -302,11 +302,18 @@ class PxtStore(ObjectStoreBase):
                 _refresh_credentials(self.soa.account, self.soa.account_extension, self.soa.container, entry)
             except excs.ExternalServiceError as e:
                 _logger.warning('Could not check the quota of %s: %s', self.soa.prefix_free_uri, e)
+        if entry.no_space_left and entry.no_space_detail is not None:
+            # the error raise_if_refused() raises for the control plane's STORE_FULL refusal of an upload URL
+            raise excs.ExternalServiceError(
+                ErrorCode.PROVIDER_BAD_REQUEST,
+                entry.no_space_detail,
+                provider='pixeltable_cloud',
+                provider_error_code='STORE_FULL',
+            )
         if entry.no_space_left:
             raise excs.ServiceUnavailableError(
                 ErrorCode.STORE_UNAVAILABLE,
-                entry.no_space_detail
-                or 'No space left in Pixeltable store. Only read and delete operations are allowed.',
+                'No space left in Pixeltable store. Only read and delete operations are allowed.',
             )
         # Inner S3 store reads dest.remote_key for the upload and returns dest.url; since
         # dest.url is already the logical (pxt://) URL, we can pass dest through unchanged.
