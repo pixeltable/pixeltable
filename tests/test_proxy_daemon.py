@@ -1167,6 +1167,41 @@ class TestTunnelRetries:
             transport.post(b'body')
         assert attempts == 1
 
+    @staticmethod
+    def _stopped_or(state: str, monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, Credential | None]]:
+        """Tunnels reset and the control plane answers `state`; returns its requests, with the credential of each."""
+        requests: list[tuple[Any, Credential | None]] = []
+
+        def get_db(request: Any, credential: Credential | None = None) -> dict[str, Any]:
+            requests.append((request, credential))
+            return {'report': {'db': 'db1', 'current': {'resources': {}, 'state': state}}}
+
+        def reset(*_args: Any, **_kwargs: Any) -> socket.socket:
+            raise ConnectionResetError
+
+        monkeypatch.setattr(socket, 'create_connection', reset)
+        monkeypatch.setattr(proxy_client.management_client, 'api_call', get_db)
+        return requests
+
+    def test_a_stopped_database_is_named_at_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The control plane is asked with the tunnel's credential, which need not be the configured one."""
+        requests = self._stopped_or('STOPPED', monkeypatch)
+        supplied = Credential('api_key', 'supplied', 'the caller')
+        transport = TunnelTransport('org1', 'db1', lambda: supplied, host='h', port=443)
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'pxt://org1:db1 is stopped; start it with `pxt db start'):
+            transport.post(b'body')
+        assert [credential for _, credential in requests] == [supplied]
+
+    def test_a_database_coming_up_is_retried_and_asked_about_once_an_interval(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        requests = self._stopped_or('STARTING', monkeypatch)
+        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
+        for _ in range(2):
+            with pytest.raises(ConnectionResetError):
+                transport._connect_tunnel()
+        assert len(requests) == 1
+
     def test_a_connect_that_times_out_names_the_blocked_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A network that allows only outbound 443 drops the connect: two short tries, then an error that says
         what to allow, rather than retrying for the whole budget and surfacing a bare TimeoutError."""
