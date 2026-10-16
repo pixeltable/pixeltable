@@ -1528,14 +1528,24 @@ class TestTunnelRetries:
             transport.post(b'body')
         assert addresses == [('org1-db1.pxt.invalid', 443)]
 
-    def test_an_invalid_proxy_port_is_a_configuration_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv('HTTPS_PROXY', 'http://agent:secret@127.0.0.1:99999')
+    @pytest.mark.parametrize(
+        ('proxy_url', 'error'),
+        [
+            ('http://agent:secret@127.0.0.1:99999', r'HTTPS_PROXY names 127\.0\.0\.1 with an invalid port\.'),
+            # a fullwidth colon fails urlsplit()'s NFKC check, whose own error repeats the netloc
+            ('http://agent:secret@proxy.invalid\uff1a3128', r'HTTPS_PROXY is not a valid URL\.'),
+        ],
+    )
+    def test_an_invalid_proxy_url_is_a_configuration_error(
+        self, proxy_url: str, error: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The error leaves out the URL, which can hold the proxy's password."""
+        monkeypatch.setenv('HTTPS_PROXY', proxy_url)
         transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='org1-db1.pxt.invalid', port=443)
-        with pxt_raises(
-            excs.ErrorCode.INVALID_CONFIGURATION, match=r'HTTPS_PROXY names 127\.0\.0\.1 with an invalid port'
-        ) as info:
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=error) as info:
             transport.post(b'body')
         assert 'secret' not in str(info.value)
+        assert info.value.__cause__ is None and info.value.__suppress_context__
 
     def test_a_proxy_that_cannot_be_reached_is_named(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A refused connection to the proxy is retried like any refused connection, then named for the proxy."""

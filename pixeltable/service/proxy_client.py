@@ -266,6 +266,18 @@ class _TunnelPool:
             _close_idle(self._idle)
 
 
+def _parse_proxy_url(url: str) -> urllib.parse.SplitResult:
+    """HTTPS_PROXY's URL, read as http:// when it names no scheme.
+
+    A URL that does not parse raises an error that leaves the URL out: urlsplit()'s own error repeats the netloc,
+    and that can hold the proxy's password.
+    """
+    try:
+        return urllib.parse.urlsplit(url if '://' in url else f'http://{url}')
+    except ValueError:
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, 'HTTPS_PROXY is not a valid URL.') from None
+
+
 def _https_proxy(host: str, port: int) -> urllib.parse.SplitResult | None:
     """The HTTP proxy that HTTPS_PROXY names for host:port, unless NO_PROXY exempts it; None for a direct connection.
 
@@ -278,7 +290,7 @@ def _https_proxy(host: str, port: int) -> urllib.parse.SplitResult | None:
     # host:port, it matches entries for the host, its domains, or that host and port
     if url is None or urllib.request.proxy_bypass(f'{host}:{port}'):
         return None
-    proxy = urllib.parse.urlsplit(url if '://' in url else f'http://{url}')
+    proxy = _parse_proxy_url(url)
     if proxy.scheme != 'http' or proxy.hostname is None:
         _logger.debug('Not using HTTPS_PROXY %s://%s for the tunnel to %s', proxy.scheme, proxy.hostname, host)
         return None
@@ -450,7 +462,7 @@ class TunnelTransport(Transport):
         if urllib.request.proxy_bypass(f'{self._host}:{self._port}'):
             return f'NO_PROXY exempts {self._host}:{self._port} from HTTPS_PROXY; remove it from NO_PROXY.'
         # only the scheme: the URL can hold the proxy's password
-        scheme = urllib.parse.urlsplit(url if '://' in url else f'http://{url}').scheme
+        scheme = _parse_proxy_url(url).scheme
         if scheme == 'http':
             return 'HTTPS_PROXY names no proxy host.'
         return f'The tunnel can use only an http:// proxy, and HTTPS_PROXY names a {scheme}:// one.'
