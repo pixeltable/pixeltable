@@ -2535,13 +2535,6 @@ class TestTable:
 
     @rerun_on_network_error()
     def test_create_video_table(self, db_root: DatabaseRoot) -> None:
-        if Env.get().is_using_cockroachdb:
-            # TODO(PXT-921): fix this on CockroachDB
-            pytest.skip(
-                'Skipped on CockroachDB due to: RETRY_SERIALIZABLE - failed preemptive refresh due to'
-                ' encountered recently written committed value...'
-            )
-
         p = db_root.make_catalog_path
         tbl = pxt.create_table(p('test_tbl'), {'payload': pxt.Int | None, 'video': pxt.Video | None})
         view = pxt.create_view(p('test_view'), tbl, iterator=legacy_frame_iterator(tbl.video))
@@ -3462,9 +3455,6 @@ class TestTable:
 
     def test_computed_col_exceptions(self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        if Env.get().is_using_cockroachdb:
-            # TODO Fix this on CockroachDB; it's a problem!
-            pytest.skip('Skipped on CockroachDB due to columns still being created when add_computed_column() fails.')
         # exception during insert()
         schema: dict[str, Any] = {'c2': pxt.Int | None}
         rows = list(test_tbl.select(test_tbl.c2).collect())

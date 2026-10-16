@@ -200,7 +200,6 @@ dev = [
     "lancedb>=0.30",
     "pylance>=6",
     "google-cloud-storage>=2.18.0",
-    "sqlalchemy-cockroachdb>=2.0.3",
     "psycopg2-binary>=2.9.11",
     "diffusers>=0.38",
     "accelerate>=1.10",

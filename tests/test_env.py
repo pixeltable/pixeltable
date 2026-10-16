@@ -289,6 +289,20 @@ class TestHostedMediaDefault:
                 Env._init_env(reinit_db=False)
 
 
+class TestDbConnectStr:
+    def test_cockroachdb_rejected(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A CockroachDB connect string is rejected as an unsupported DBMS."""
+        monkeypatch.setenv(
+            'PIXELTABLE_DB_CONNECT_STR', 'cockroachdb+psycopg://root@localhost:26257/pixeltable?sslmode=disable'
+        )
+        reset_runtime()
+        Config.init(reinit=True)
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='Unsupported DBMS cockroachdb'):
+            Env._init_env(reinit_db=False)
+        monkeypatch.undo()
+        _reset_env(reinit=False, db_name=None)
+
+
 class TestProxyEndpoint:
     @pytest.mark.parametrize(
         ('cloud_host', 'expected'),

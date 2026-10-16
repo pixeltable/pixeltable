@@ -6019,7 +6019,6 @@ dev = [
     { name = "snowflake-sqlalchemy" },
     { name = "soundfile" },
     { name = "spacy", marker = "python_full_version < '3.14'" },
-    { name = "sqlalchemy-cockroachdb" },
     { name = "tabulate" },
     { name = "tiktoken" },
     { name = "timm" },
@@ -6173,7 +6172,6 @@ dev = [
     { name = "snowflake-sqlalchemy", specifier = ">=1.7.0" },
     { name = "soundfile", specifier = ">=0.13" },
     { name = "spacy", marker = "python_full_version < '3.14'", specifier = ">=3.8.7,<3.9" },
-    { name = "sqlalchemy-cockroachdb", specifier = ">=2.0.3" },
     { name = "tabulate", specifier = ">=0.9" },
     { name = "tiktoken", specifier = ">=0.10" },
     { name = "timm", specifier = ">=1.0.11,<2" },
@@ -8913,18 +8911,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/95/32107c4d13be077a9cae61e9ae49966a35dc4bf442a8852dd871db31f62e/sqlalchemy-2.0.48-cp314-cp314t-win32.whl", hash = "sha256:b8438ec5594980d405251451c5b7ea9aa58dda38eb7ac35fb7e4c696712ee24f", size = 2147209, upload-time = "2026-03-02T15:52:54.274Z" },
     { url = "https://files.pythonhosted.org/packages/d2/d7/1e073da7a4bc645eb83c76067284a0374e643bc4be57f14cc6414656f92c/sqlalchemy-2.0.48-cp314-cp314t-win_amd64.whl", hash = "sha256:d854b3970067297f3a7fbd7a4683587134aa9b3877ee15aa29eea478dc68f933", size = 2182198, upload-time = "2026-03-02T15:52:55.606Z" },
     { url = "https://files.pythonhosted.org/packages/46/2c/9664130905f03db57961b8980b05cab624afd114bf2be2576628a9f22da4/sqlalchemy-2.0.48-py3-none-any.whl", hash = "sha256:a66fe406437dd65cacd96a72689a3aaaecaebbcd62d81c5ac1c0fdbeac835096", size = 1940202, upload-time = "2026-03-02T15:52:43.285Z" },
-]
-
-[[package]]
-name = "sqlalchemy-cockroachdb"
-version = "2.0.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "sqlalchemy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/32/02/2e2e6a0b47259f3c61f3a062653070302eea81f0ae9a57cd3ab7f1dc110e/sqlalchemy_cockroachdb-2.0.3.tar.gz", hash = "sha256:48b763ffd8b2a4dc9d56459934a56d7d5ffad415c6e68d114baee5d12cf79c1d", size = 28539, upload-time = "2025-06-11T00:34:53.619Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f1/61/ae638b8adaea4bcb5092b7fedad14d53ef2bef2b75877503019ddf06cd89/sqlalchemy_cockroachdb-2.0.3-py3-none-any.whl", hash = "sha256:cd1dca9a8c65ec8564c928ea26d154b7fc02f82948af200d965343894ca0c0f5", size = 22134, upload-time = "2025-06-11T00:34:52.736Z" },
 ]
 
 [[package]]
