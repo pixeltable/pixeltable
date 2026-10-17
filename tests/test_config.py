@@ -215,6 +215,29 @@ class TestConfig:
         assert 'did you mean PIXELTABLE_HOME' in stderr, stderr
         assert not (tmp_path / 'nope').exists(), 'the mis-cased variable was used as the home directory'
 
+    def test_pgdata(self, tmp_path: Path) -> None:
+        """PIXELTABLE_PGDATA sets the postgres data directory, and an empty value counts as unset."""
+        home = tmp_path / 'home'
+        home.mkdir()
+
+        def pgdata(env_vars: dict[str, str], overrides: dict[str, str] | None = None) -> str:
+            code = f'from pixeltable.config import Config\nConfig.init({overrides!r})\nprint(Config.get().pgdata)'
+            env = {name: value for name, value in os.environ.items() if name != 'PIXELTABLE_PGDATA'}
+            result = subprocess.run(
+                (sys.executable, '-c', code),
+                capture_output=True,
+                check=True,
+                env={**env, 'PIXELTABLE_HOME': str(home), 'PIXELTABLE_CONFIG': str(tmp_path / 'c.toml'), **env_vars},
+            )
+            return result.stdout.decode('utf-8').strip()
+
+        assert pgdata({}) == str(home / 'pgdata')
+        assert pgdata({'PIXELTABLE_PGDATA': ''}) == str(home / 'pgdata')
+        assert pgdata({'PIXELTABLE_PGDATA': str(tmp_path / 'pg')}) == str(tmp_path / 'pg')
+        # a config override wins over the environment
+        override = {'pixeltable.pgdata': str(tmp_path / 'override')}
+        assert pgdata({'PIXELTABLE_PGDATA': str(tmp_path / 'pg')}, override) == str(tmp_path / 'override')
+
     def test_project_discovery(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The project root is the nearest one at or above the working directory."""
 

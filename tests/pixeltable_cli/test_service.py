@@ -63,6 +63,7 @@ from ..utils import (
     new_db_uri,
     pxt_raises,
     skip_test_if_not_installed,
+    worker_db_name,
 )
 from .conftest import (
     BUILD_TIMEOUT,
@@ -1051,7 +1052,7 @@ class TestService:
 
         from pixeltable.service import proxy_daemon
 
-        db = 'test_handoff'
+        db = worker_db_name('handoff')
         original = Config.get().project_root
         assert original is not None
         try:
