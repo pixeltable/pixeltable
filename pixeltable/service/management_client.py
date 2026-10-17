@@ -6,7 +6,6 @@ Callers pass a request model from management_protocol and get back the raw respo
 from __future__ import annotations
 
 import dataclasses
-import http
 import http.client
 from pathlib import Path
 from typing import Any, Literal
@@ -160,14 +159,18 @@ def _reason(resp: requests.Response) -> str:
     return reason or phrase or f'HTTP {resp.status_code}'
 
 
-# the control plane names every error in X-Pixeltable-Error-Code, with its status's name when it has none more specific
-_STATUS_NAMES = frozenset(status.name for status in http.HTTPStatus)
+# X-Pixeltable-Error-Code values for refusals only the user can lift, whatever their status (STORE_FULL is a 507):
+# retrying cannot help. The same set as pixeltable/pixeltable#1738's.
+USER_ACTION_CODES = frozenset(('PAYMENT_REQUIRED', 'PLAN_LIMIT', 'STORE_FULL'))
+
+# the statuses refusal() maps to a core code of their own, which a bare status name in the header does not improve on
+_NAMED_BY_CORE = {401: 'UNAUTHORIZED', 403: 'FORBIDDEN', 409: 'CONFLICT'}
 
 
 def _provider_error_code(resp: requests.Response) -> str | None:
-    """The control plane's name for the error, when more specific than a status's (eg, PLAN_LIMIT for a 403)."""
+    """The control plane's X-Pixeltable-Error-Code, unless it only names a status refusal() already names."""
     code = resp.headers.get('X-Pixeltable-Error-Code')
-    return None if code in _STATUS_NAMES else code
+    return None if code == _NAMED_BY_CORE.get(resp.status_code) else code
 
 
 def _retry_after(resp: requests.Response) -> float | None:
@@ -179,13 +182,14 @@ def _retry_after(resp: requests.Response) -> float | None:
 
 
 def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) -> None:
-    """Raise for a 4xx other than 429; for a 401, or a 403 named only by its status, the error says which credential
-    the request sent.
+    """Raise for a 4xx other than 429, or a status with one of USER_ACTION_CODES; for a 401, or a 403 named only by
+    its status, the error says which credential the request sent.
 
     purpose is the verb phrase that completes "is not permitted to", such as 'list organizations'.
     """
-    if is_refusal(resp.status_code):
-        raise refusal(resp.status_code, _reason(resp), sent, purpose, provider_error_code=_provider_error_code(resp))
+    code = _provider_error_code(resp)
+    if is_refusal(resp.status_code) or code in USER_ACTION_CODES:
+        raise refusal(resp.status_code, _reason(resp), sent, purpose, provider_error_code=code)
 
 
 def is_refusal(status_code: int) -> bool:
@@ -199,9 +203,8 @@ def refusal(
     """The error for a refusal status (see is_refusal); for a 401, or a 403 named only by its status, it says which
     credential was sent.
 
-    reason is a sentence without its final period. provider_error_code is the control plane's name for the error when
-    it is more specific than the status's. Shared with the database tunnel, so that a credential refused there reads
-    the same as one the control plane refused.
+    reason is a sentence without its final period, and provider_error_code what _provider_error_code() read. Shared
+    with the database tunnel, so that a credential refused there reads the same as one the control plane refused.
     """
     if status_code == 409:
         return excs.ConcurrencyError(

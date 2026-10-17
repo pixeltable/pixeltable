@@ -38,3 +38,15 @@ class TestExceptions:
             (excs.ErrorCode.COLUMN_NOT_FOUND, excs.NotFoundError),
         ):
             assert type(excs.Error.from_dict(cls(code, 'a message').to_dict())) is cls
+
+
+def test_provider_error_code_round_trips() -> None:
+    """The control plane's name for an error survives to_dict() and from_dict()."""
+    err = excs.ExternalServiceError(
+        excs.ErrorCode.PROVIDER_BAD_REQUEST, 'store full', provider='pixeltable_cloud', provider_error_code='STORE_FULL'
+    )
+    d = err.to_dict()
+    assert d['provider_error_code'] == 'STORE_FULL'
+    back = excs.Error.from_dict(d)
+    assert isinstance(back, excs.ExternalServiceError)
+    assert back.provider_error_code == 'STORE_FULL'
