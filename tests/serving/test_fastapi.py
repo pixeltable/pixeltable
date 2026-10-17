@@ -316,8 +316,8 @@ def assert_correct_result_url(
     url: str, db_root: DatabaseRoot, always_external: bool, route_type: str | None = None
 ) -> None:
     if route_type != 'compute' and db_root.is_cloud:  # compute routes never return cloud URLs
-        # `image` is served as a presigned R2 URL from a cloud DB ...
-        assert 'r2.cloudflarestorage.com' in url, url
+        # `image` is served as a URL on the storage edge from a cloud DB ...
+        assert url.startswith(f'https://usercontent.{os.environ["PIXELTABLE_CLOUD_HOST"]}/'), url
     elif always_external or db_root.id != 'local':
         # ... or as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
         # be shipped to the daemon, ...
@@ -1662,6 +1662,8 @@ class TestFastAPI:
             'audio': assert_audio_bytes,
         }
 
+        edge_host = f'usercontent.{os.environ["PIXELTABLE_CLOUD_HOST"]}'
+
         resp = client.post(
             '/insert',
             json={'id': 1, 'image': get_image_files()[0], 'video': get_video_files()[0], 'audio': get_audio_files()[0]},
@@ -1669,14 +1671,14 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         body = resp.json()
         for col, decode in decoders.items():
-            decode(fetch_presigned(body[col], expires_s=3600, host_suffix='.r2.cloudflarestorage.com'))
+            decode(fetch_presigned(body[col], expires_s=3600, host_suffix=edge_host))
 
         resp = client.post('/all', json={})
         assert resp.status_code == 200, resp.text
         rows = resp.json()['rows']
         assert len(rows) == 1
         for col, decode in decoders.items():
-            decode(fetch_presigned(rows[0][col], expires_s=3600, host_suffix='.r2.cloudflarestorage.com'))
+            decode(fetch_presigned(rows[0][col], expires_s=3600, host_suffix=edge_host))
 
     @pytest.mark.very_expensive
     def test_s3_media_urls(self, db_root: DatabaseRoot) -> None:

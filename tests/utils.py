@@ -781,7 +781,7 @@ def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata
     """
     now = datetime.datetime.now(tz=datetime.timezone.utc)
     actual_created_at: datetime.datetime = actual['version_created']
-    assert (now - actual_created_at).total_seconds() <= (120 if Env.get().is_using_cockroachdb else 60)
+    assert (now - actual_created_at).total_seconds() <= 60
     assert isinstance(actual['id'], uuid.UUID)
 
     trimmed_actual = {k: v for k, v in actual.items() if k not in {'version_created', 'id'}}
@@ -1267,13 +1267,28 @@ def fetch_presigned(url: str, expires_s: int, host_suffix: str) -> bytes:
     parsed = urllib.parse.urlparse(url)
     assert parsed.scheme == 'https', url
     assert parsed.hostname is not None and parsed.hostname.endswith(host_suffix), url
-    assert urllib.parse.parse_qs(parsed.query).get('X-Amz-Expires') == [str(expires_s)], url
+    query = urllib.parse.parse_qs(parsed.query)
+    if 't' in query:
+        # a storage edge token, t=<expiry>.<hmac>, has an absolute expiry: allow for the time since signing
+        expiry = int(query['t'][0].split('.')[0])
+        assert abs(expiry - (time.time() + expires_s)) <= 300, url
+    else:
+        assert query.get('X-Amz-Expires') == [str(expires_s)], url
     resp = httpx.get(url, timeout=30)
     assert resp.status_code == 200, resp.text
     unsigned = httpx.get(parsed._replace(query='').geturl(), timeout=30)
-    # R2 answers a request that carries no signature with 400 InvalidArgument (Authorization); S3 with 403
+    # R2 answers a request that carries no signature with 400 InvalidArgument (Authorization); S3 and the storage
+    # edge with 403
     assert unsigned.status_code in (400, 401, 403), (unsigned.status_code, unsigned.text)
     return resp.content
+
+
+def _proxy_temp_store_count(db: str) -> int:
+    """Count the objects in the proxy daemon's temp store, which is a per-process directory under its tmp dir."""
+    tmp_dir = proxy_daemon.proxy_home(db) / 'tmp'
+    if not tmp_dir.is_dir():
+        return 0
+    return sum(LocalStore(path).count(None) for path in tmp_dir.iterdir() if path.is_dir())
 
 
 def get_temp_store_count(tbl: pxt.Table, db_root: DatabaseRoot) -> int:
@@ -1285,7 +1300,7 @@ def get_temp_store_count(tbl: pxt.Table, db_root: DatabaseRoot) -> int:
     if catalog_uri.db is None:
         return TempStore.count()
     else:
-        return LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
+        return _proxy_temp_store_count(catalog_uri.db)
 
 
 def check_temp_store_count(tbl: pxt.Table, expected_count: int, db_root: DatabaseRoot) -> None:
@@ -1299,7 +1314,7 @@ def check_temp_store_count(tbl: pxt.Table, expected_count: int, db_root: Databas
     if catalog_uri.db is None:
         actual = TempStore.count()
     else:
-        actual = LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
+        actual = _proxy_temp_store_count(catalog_uri.db)
 
     assert actual == expected_count, f'expected {expected_count} temp objects, found {actual}'
 

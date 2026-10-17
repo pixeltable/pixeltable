@@ -43,7 +43,7 @@ class TestPrepareProject:
         source.mkdir()
         (source / 'app.py').write_text('x = 1\n', encoding='utf-8')
 
-        def _unpack(db_uri: str, dest: Path) -> mock.Mock:
+        def _unpack(db_uri: str, dest: Path, **pin: str | None) -> mock.Mock:
             dest.mkdir(parents=True)
             (dest / 'app.py').write_text('x = 1\n', encoding='utf-8')
             return _served(source)
@@ -67,7 +67,7 @@ class TestPrepareProject:
         )
         (source / 'pyproject.toml').write_text(pyproject, encoding='utf-8')
 
-        def _unpack(db_uri: str, dest: Path) -> mock.Mock:
+        def _unpack(db_uri: str, dest: Path, **pin: str | None) -> mock.Mock:
             dest.mkdir(parents=True)
             (dest / 'pyproject.toml').write_text(pyproject, encoding='utf-8')
             return served
@@ -119,7 +119,7 @@ class TestPrepareProject:
 
         attempts = 0
 
-        def _unpack(db_uri: str, dest: Path) -> mock.Mock:
+        def _unpack(db_uri: str, dest: Path, **pin: str | None) -> mock.Mock:
             nonlocal attempts
             attempts += 1
             if attempts < 3:
@@ -141,7 +141,7 @@ class TestPrepareProject:
         prepare_project.fingerprint_path(archive_dir).parent.mkdir(parents=True)
         prepare_project.fingerprint_path(archive_dir).write_text('{}', encoding='utf-8')
 
-        def _unpack(db_uri: str, dest: Path) -> mock.Mock:
+        def _unpack(db_uri: str, dest: Path, **pin: str | None) -> mock.Mock:
             dest.mkdir(parents=True, exist_ok=True)
             return mock.Mock(fingerprint=None)
 
@@ -163,6 +163,25 @@ class TestPrepareProject:
             prepare_project.prepare(_DB_URI, archive_dir)
         assert unpack.call_count == 1  # not retried
 
+    def test_pinned_release(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A pod pinned to a release asks for that release's archive, and fails if it is never found."""
+        monkeypatch.setenv('PXTCLOUD_ARCHIVE_DIGEST', 'digest-7')
+        monkeypatch.setenv('PXTCLOUD_BUILD_ID', 'build-7')
+        monkeypatch.setenv('PXTCLOUD_RELEASE_KEY', 'release-7')
+        archive_dir = tmp_path / 'archive'
+        with (
+            mock.patch.object(prepare_project, 'unpack_project_archive', side_effect=_not_found()) as unpack,
+            mock.patch.object(prepare_project.time, 'sleep'),
+            pxt_raises(excs.ErrorCode.PROVIDER_ERROR, match="no archive for this pod's release"),
+        ):
+            prepare_project.prepare(_DB_URI, archive_dir)
+        assert unpack.call_count == len(prepare_project._PINNED_FETCH_DELAYS)
+        assert unpack.call_args.kwargs == {
+            'archive_digest': 'digest-7',
+            'build_id': 'build-7',
+            'release_key': 'release-7',
+        }
+
 
 class TestUnpack:
     def test_round_trip(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -182,7 +201,8 @@ class TestUnpack:
         )
 
         packaged = package_project_archive(project)
-        fingerprint = project_fingerprint(project, None)
+        project_config = {'pixeltable': {'database': [{'name': 'pxt://acme:main'}]}}
+        fingerprint = project_fingerprint(project, None, project_config=project_config)
         served = {
             'presigned_url': packaged.path.as_uri(),
             'digest': fingerprint.archive_digest(),
