@@ -1071,11 +1071,24 @@ class TestErrorsNext:
         finally:
             flag.unlink()
 
-        # a view lists the failures of a column it inherits, which is recomputed on the table that defines it
+        # a view lists the failures of a column it inherits, which is recomputed on the table that defines it,
+        # named absolute so that a working directory leaves it alone
         pxt.create_view(p('cli_errs_next/v'), t, if_exists='replace')
+        inherited = [['pxt', 'recompute', display_path(p('cli_errs_next/t')), 'out', '--errors-only', '-f']]
         r = cli('errors', p('cli_errs_next/v'))
-        assert r.next_commands == [['pxt', 'recompute', p('cli_errs_next/t'), 'out', '--errors-only', '-f']]
+        assert r.next_commands == inherited
         assert 'which defines it' in r.stderr
+        # a view with its base's name too
+        pxt.create_dir(p('cli_errs_next/views'), if_exists='ignore')
+        pxt.create_view(p('cli_errs_next/views/t'), t, if_exists='replace')
+        assert cli('errors', p('cli_errs_next/views/t')).next_commands == inherited
+        cli('cd', p('cli_errs_next'))
+        try:
+            assert cli('errors', 'v').next_commands == inherited
+            # the table's own column keeps the path as given, which resolves the same way
+            assert cli('errors', 't').next_commands == [['pxt', 'recompute', 't', 'out', '--errors-only', '-f']]
+        finally:
+            cli('cd')
 
         r = cli('errors', p('cli_errs_next/t'))
         assert r.next_commands == [['pxt', 'recompute', p('cli_errs_next/t'), 'out', '--errors-only', '-f']]
