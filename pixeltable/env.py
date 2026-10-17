@@ -566,7 +566,7 @@ class Env:
             if configured_name:
                 validate_db_name(configured_name)
             folded_name = fold_identifier(configured_name) if configured_name else 'pixeltable'
-            self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
+            self._pgdata_dir = config.pgdata
             self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
             self._set_local_db(folded_name)
             # Legacy database (with an unfolded name) fallback

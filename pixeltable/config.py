@@ -401,6 +401,10 @@ class Config:
         return self.__home
 
     @property
+    def pgdata(self) -> Path:
+        return Path(self.lookup_env('pixeltable', 'pgdata', str(self.__home / 'pgdata')))
+
+    @property
     def config_file(self) -> Path:
         return self.__config_file
 

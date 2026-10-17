@@ -141,12 +141,10 @@ def start(db: str, test_mode: bool = False) -> str:
             # serves the caller's project
             stop(db)
 
-    parent_home = Config.get().home
-    pgdata = os.environ.get('PIXELTABLE_PGDATA') or str(parent_home / 'pgdata')
     env = {
         **os.environ,
         'PIXELTABLE_HOME': str(proxy_home(db)),  # own media/tmp + port.lock
-        'PIXELTABLE_PGDATA': pgdata,  # shared postmaster
+        'PIXELTABLE_PGDATA': str(Config.get().pgdata),  # shared postmaster
         # intentionally using the raw db name (without case-folding): Env has a fallback for legacy (case-sensitive)
         # database names.
         'PIXELTABLE_DB': db,  # own database

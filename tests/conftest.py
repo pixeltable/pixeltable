@@ -26,6 +26,7 @@ import pixeltable as pxt
 import pixeltable.utils.fault_injection as prod_fault_injection
 import tests.fault_injection as test_fault_injection
 from pixeltable import exprs, functions as pxtf
+from pixeltable.catalog import fold_identifier
 from pixeltable.config import Config
 from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
@@ -167,9 +168,15 @@ def _set_up_external_db_schema(worker_id: int | str) -> str:
     return schema_name
 
 
+_CHECKOUT_DB = fold_identifier(os.environ.get('PIXELTABLE_DB', ''))  # before init_env() replaces it
+
+
 def _worker_db_name(worker_id: int | str) -> str:
-    """The db name used by both the pytest process and its proxy daemon."""
-    return f'test_{worker_id}'
+    """The db name used by both the pytest process and its proxy daemon.
+
+    With a PIXELTABLE_DB prefix, several checkouts can run tests against one PIXELTABLE_PGDATA.
+    """
+    return f'test_{worker_id}' if _CHECKOUT_DB == '' else f'{_CHECKOUT_DB}_test_{worker_id}'
 
 
 @pytest.fixture
@@ -225,15 +232,19 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
 
     # Set the relevant env vars for the test db.
-    # We use a single shared pgserver instance, running in the "true" home directory ($PIXELTABLE_HOME/pgdata).
+    # We use a single shared pgserver instance, running in $PIXELTABLE_PGDATA or else the "true" home directory
+    # ($PIXELTABLE_HOME/pgdata).
     # Each worker gets its own test db in this instance, along with its own home directory for everything else
     # (file cache, media store, etc).
-    shared_home = pathlib.Path(os.environ.get('PIXELTABLE_HOME', str(pathlib.Path.home() / '.pixeltable')))
+    # an empty variable counts as unset, as in Config.lookup_env()
+    home_var = os.environ.get('PIXELTABLE_HOME', '')
+    shared_home = pathlib.Path(home_var) if home_var != '' else pathlib.Path.home() / '.pixeltable'
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
     os.environ['PIXELTABLE_HOME'] = home_dir
     os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.toml')
     os.environ['PIXELTABLE_DB'] = _worker_db_name(worker_id)
-    os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
+    pgdata_var = os.environ.get('PIXELTABLE_PGDATA', '')
+    os.environ['PIXELTABLE_PGDATA'] = pgdata_var if pgdata_var != '' else str(shared_home / 'pgdata')
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
     # Verbose logging, for this process and for every pixeltable process it spawns (the proxy daemon, the pxt CLI
     # daemon)
