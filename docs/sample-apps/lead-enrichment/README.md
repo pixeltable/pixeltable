@@ -36,6 +36,10 @@ Supply a new `lead_id` for new work. Keep that ID and the same input on retries 
 
 Query routes return lists in a `rows` envelope. Insert, preview, and update return one object. JSON media fields contain absolute URLs. Use `voice_note` directly for playback; hosted media URLs expire, so query again to refresh them.
 
+## Try the offline demo
+
+Set `export LEAD_ENRICHMENT_DEMO=1` before the local commands below to run without provider keys or charges. The UI shows a demo banner. The demo uses synthetic website text, an explicitly labelled draft, no verified email address, and a silent WAV voice note. Unset `LEAD_ENRICHMENT_DEMO` and restart the daemon and service before using real provider keys. Missing keys and live provider failures raise errors; they never switch to demo data.
+
 ## Run locally
 
 Export keys before the first `pxt` command. The daemon reads its environment at startup. [Create a treg token](https://treg.to).

@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
 import os
 import time
 import uuid
+import wave
 from typing import Any
 
 import httpx
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+from pixeltable.functions.openai import chat_completions
 from pixeltable.utils.local_store import TempStore
 
 _TREG_NAMESPACE = uuid.UUID('6ba7b811-9dad-11d1-80b4-00c04fd430c8')
@@ -32,7 +35,7 @@ def _check_response(response: httpx.Response) -> None:
         error = excs.ExternalServiceError(code, f'treg returned HTTP {status}', provider='treg', status_code=status)
         # The scheduler reads the httpx response, not ExternalServiceError.is_retryable.
         # A 409 is an in-flight idempotency key; treat it like a busy provider.
-        error.response = httpx.Response(503, headers=response.headers) if status == 409 else response  # type: ignore[attr-defined]
+        error.response = httpx.Response(503, headers=response.headers) if status == 409 or status >= 500 else response  # type: ignore[attr-defined]
         raise error
     if response.headers.get('X-Treg-Upstream-Failed'):
         raise excs.ExternalServiceError(
@@ -215,6 +218,15 @@ async def treg_find_email(
     lead_id: uuid.UUID, full_name: str, domain: str, max_cost_usd: float = 0.03
 ) -> dict[str, Any]:
     """Find a work email and request mailbox verification within the spend ceiling."""
+    if os.environ.get('LEAD_ENRICHMENT_DEMO') == '1':
+        return {
+            'email': None,
+            'verified': False,
+            'verdict': 'unknown',
+            'served_by': 'demo fixture',
+            'call_id': f'demo:{lead_id}',
+            'cost_micro': 0,
+        }
     response = await _treg_post(
         'treg.people.email.find',
         {'full_name': full_name, 'domain': domain},
@@ -247,6 +259,14 @@ async def treg_find_email(
 @pxt.udf(is_deterministic=False)
 async def treg_extract_site(lead_id: uuid.UUID, domain: str, max_cost_usd: float = 0.02) -> dict[str, Any]:
     """Read text from the provider-native page objects in output.pages."""
+    if os.environ.get('LEAD_ENRICHMENT_DEMO') == '1':
+        return {
+            'url': domain,
+            'markdown': 'Demo company context. This is synthetic data, not a website extract.',
+            'served_by': 'demo fixture',
+            'call_id': f'demo:{lead_id}',
+            'cost_micro': 0,
+        }
     url = domain if domain.startswith(('http://', 'https://')) else f'https://{domain}'
     response = await _treg_post('treg.web.extract', {'url': url}, lead_id=lead_id, max_cost_usd=max_cost_usd)
     output = response.json()['output']
@@ -269,8 +289,29 @@ async def treg_extract_site(lead_id: uuid.UUID, domain: str, max_cost_usd: float
 
 
 @pxt.udf(is_deterministic=False)
+async def outreach_copywriter(prompt: str, model: str = 'gpt-4o-mini') -> dict[str, Any]:
+    """Return explicit demo copy or call the built-in OpenAI integration; propagate provider failures."""
+    if os.environ.get('LEAD_ENRICHMENT_DEMO') == '1':
+        return {'choices': [{'message': {'content': 'Demo outreach draft. Replace with live enrichment before use.'}}]}
+    return await chat_completions.py_fn(model=model, messages=[{'role': 'user', 'content': prompt}])
+
+
+@pxt.udf(is_deterministic=False)
 async def treg_voice_note(lead_id: uuid.UUID, script: str, max_cost_usd: float = 0.02) -> dict[str, Any]:
     """Keep the audio and billing receipt together so computing cost never repeats synthesis."""
+    if os.environ.get('LEAD_ENRICHMENT_DEMO') == '1':
+        audio = io.BytesIO()
+        with wave.open(audio, 'wb') as output:
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(8000)
+            output.writeframes(bytes(16000))
+        return {
+            'audio_base64': base64.b64encode(audio.getvalue()).decode('ascii'),
+            'format': 'wav',
+            'call_id': f'demo:{lead_id}',
+            'cost_micro': 0,
+        }
     response = await _treg_post(
         'fishaudio.tts.s2-1-pro',
         {'text': script, 'format': 'mp3'},
@@ -288,7 +329,7 @@ async def treg_voice_note(lead_id: uuid.UUID, script: str, max_cost_usd: float =
 @pxt.udf
 def voice_note_audio(receipt: dict[str, Any]) -> pxt.Audio:
     """Persist the audio from the stored receipt, including on later recomputations."""
-    output_path = TempStore.create_path(extension='.mp3')
+    output_path = TempStore.create_path(extension=f'.{receipt.get("format", "mp3")}')
     output_path.write_bytes(base64.b64decode(receipt['audio_base64']))
     return str(output_path)
 

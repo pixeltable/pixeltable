@@ -20,15 +20,15 @@ Run locally:
 
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
 
 from fastapi.responses import HTMLResponse
-from udfs import lead_tier, treg_extract_site, treg_find_email, treg_voice_note, voice_note_audio
+from udfs import lead_tier, outreach_copywriter, treg_extract_site, treg_find_email, treg_voice_note, voice_note_audio
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable.functions.openai import chat_completions
 from pixeltable.serving import FastAPIRouter
 
 UI_HTML = Path(__file__).resolve().parent / 'ui.html'
@@ -63,7 +63,7 @@ class Leads(TableModel, name='leads', has_default_idxs=False):
         domain,
         site_markdown,
     )
-    llm_response = chat_completions(model='gpt-4o-mini', messages=[{'role': 'user', 'content': prompt}])
+    llm_response = outreach_copywriter(prompt, model='gpt-4o-mini')
     cold_email = llm_response.choices[0].message.content.astype(pxt.String)
 
     voice = treg_voice_note(lead_id, cold_email)
@@ -179,7 +179,14 @@ leads_api = FastAPIRouter(name='leads_api')
 @leads_api.get('/', response_class=HTMLResponse, include_in_schema=False)
 def lead_studio_ui() -> HTMLResponse:
     """Serve the interactive Lead Enrichment & Outreach Studio UI."""
-    return HTMLResponse(UI_HTML.read_text(encoding='utf-8'))
+    html = UI_HTML.read_text(encoding='utf-8')
+    if os.environ.get('LEAD_ENRICHMENT_DEMO') == '1':
+        html = html.replace(
+            '<main class="shell">',
+            '<main class="shell"><p class="notice visible" role="status">'
+            'Demo mode: synthetic data, unverified contacts, silent audio, and no provider charges.</p>',
+        )
+    return HTMLResponse(html)
 
 
 leads_api.add_insert_route(

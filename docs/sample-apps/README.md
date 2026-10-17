@@ -2,7 +2,7 @@
 
 ## Applications in `app.py`
 
-Modern Pixeltable applications declare tables as `TableModel` classes, custom logic in `@pxt.udf` modules (`udfs.py`), and typed REST endpoints with `FastAPIRouter` in `app.py`: deployed locally or to Pixeltable Cloud with `pxt schema update` and `pxt service update`:
+Pixeltable applications declare `TableModel` tables and `FastAPIRouter` routes in `app.py`, with custom UDFs in importable modules. Run `pxt schema update` to create tables and `pxt service update` to start HTTP endpoints:
 
 - **[Awesome Pixeltable Apps (40+ Production-Style Example Apps)](https://github.com/pierrebrunelle/awesome-pixeltable-apps)** ([**Live Interactive Gallery ->**](https://pierrebrunelle.github.io/awesome-pixeltable-apps/)): Curated collection of 40+ self-contained Pixeltable apps across **Image & Vision**, **Video**, **Audio & Speech**, **Documents & Text**, and **Structured & Hybrid** workloads. Every app includes `app.py`, `udfs.py`, `pixeltable.toml` (local + Cloud), `seed.py`, `client_demo.py`, and 1-click GitHub Codespaces support.
 - **[Pixeltable Starter Kit (`pixeltable-starter-kit`)](https://github.com/pixeltable/pixeltable-starter-kit)** (`uvx pixeltable-new --list`): Official starter templates:

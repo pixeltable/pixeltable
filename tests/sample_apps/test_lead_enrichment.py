@@ -26,6 +26,7 @@ _AUDIO = pathlib.Path(__file__).parents[1] / 'data/audio/sample.mp3'
 def sample_app(
     init_env: None, project_env: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[types.ModuleType]:
+    monkeypatch.delenv('LEAD_ENRICHMENT_DEMO', raising=False)
     skip_test_if_not_installed('fastapi')
     skip_test_if_not_installed('openai')
     for name in ('app.py', 'udfs.py', 'ui.html'):
@@ -118,7 +119,18 @@ def test_site_pages(
 
 
 @pytest.mark.parametrize(
-    'status,retryable', [(401, False), (402, False), (409, True), (422, False), (429, True), (503, True)]
+    'status,retryable',
+    [
+        (401, False),
+        (402, False),
+        (409, True),
+        (422, False),
+        (429, True),
+        (500, True),
+        (502, True),
+        (503, True),
+        (504, True),
+    ],
 )
 def test_status_retry(
     sample_app: types.ModuleType, treg_transport: Callable[..., None], status: int, retryable: bool
@@ -257,7 +269,7 @@ def test_sample_api(sample_app: types.ModuleType, db_root: DatabaseRoot, monkeyp
         return {'choices': [{'message': {'content': 'Hello from the sample'}}]}
 
     monkeypatch.setattr(udfs, '_treg_post', post)
-    monkeypatch.setattr(sample_app.chat_completions, 'py_fns', [chat])
+    monkeypatch.setattr(udfs.chat_completions, 'py_fns', [chat])
     sample_app.TableModel.create_all(db_root.make_catalog_path(''))
     router = sample_app.leads_api
     router.bind(db_root.make_catalog_path(''))
@@ -361,3 +373,43 @@ def test_pending_mailbox_verification(sample_app: types.ModuleType, treg_transpo
     assert result['cost_micro'] == 1500
     assert seen.count('/call/treg.people.email.find') == 1
     assert seen.count('/call/bounceban.people.email.verify.status') == 1
+
+
+@pytest.mark.db_roots('local', reason='Validates the offline sample without provider calls')
+def test_explicit_demo(sample_app: types.ModuleType, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+    udfs = sys.modules['udfs']
+    monkeypatch.delenv('TREG_TOKEN', raising=False)
+    with pxt_raises(pxt.ErrorCode.MISSING_CREDENTIALS, match='TREG_TOKEN'):
+        asyncio.run(udfs.treg_find_email.py_fn(uuid.uuid4(), 'Test Person', 'example.com'))
+    monkeypatch.setenv('LEAD_ENRICHMENT_DEMO', '1')
+    contact = asyncio.run(udfs.treg_find_email.py_fn(uuid.uuid4(), 'Test Person', 'example.com'))
+    assert contact['email'] is None
+    assert contact['verified'] is False
+    assert contact['verdict'] == 'unknown'
+    assert contact['cost_micro'] == 0
+    site = asyncio.run(udfs.treg_extract_site.py_fn(uuid.uuid4(), 'example.com'))
+    assert 'synthetic' in site['markdown']
+    draft = asyncio.run(udfs.outreach_copywriter.py_fn('test prompt'))
+    assert 'Demo' in draft['choices'][0]['message']['content']
+    receipt = asyncio.run(udfs.treg_voice_note.py_fn(uuid.uuid4(), 'test script'))
+    assert receipt['cost_micro'] == 0
+    assert base64.b64decode(receipt['audio_base64']).startswith(b'RIFF')
+    assert pathlib.Path(udfs.voice_note_audio.py_fn(receipt)).suffix == '.wav'
+    assert 'Demo mode' in sample_app.lead_studio_ui().body.decode()
+    sample_app.TableModel.create_all(db_root.make_catalog_path(''))
+    table = pxt.get_table(db_root.make_catalog_path('leads'))
+    table.insert(
+        [
+            {
+                'lead_id': uuid.uuid4(),
+                'full_name': 'Demo Person',
+                'domain': 'example.com',
+                'role': 'Founder',
+                'stage': 'new',
+            }
+        ]
+    )
+    result = table.select(table.email, table.tier, table.cost_usd).collect()[0]
+    assert result['email'] is None
+    assert result['tier'] == 'review'
+    assert result['cost_usd'] == 0
