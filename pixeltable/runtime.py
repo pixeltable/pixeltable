@@ -317,9 +317,6 @@ class Runtime:
             for_write: unused (TODO use or remove)
             isolation_level: if specified, the isolation level for the new transaction. Can only be set when starting
                 the outermost transaction.
-
-        TODO: repeatable read is not available in Cockroachdb; instead, run queries against a snapshot TVP
-        that avoids tripping over any pending ops
         """
         from pixeltable.env import Env
 

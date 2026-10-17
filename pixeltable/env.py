@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import datetime
-import glob
 import http.server
 import importlib
 import importlib.metadata
@@ -25,6 +24,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
+import psutil
 import sqlalchemy as sql
 import tzlocal
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
@@ -33,7 +33,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
-from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
+from pixeltable.utils.dbms import Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
 from pixeltable.utils.object_stores import (
     ObjectPath,
@@ -123,7 +123,7 @@ class Env:
     _file_cache_dir: Path | None  # cached object files with external URL
     _dataset_cache_dir: Path | None  # cached datasets (eg, pytorch or COCO)
     _log_dir: Path | None  # log files
-    _tmp_dir: Path | None  # any tmp files
+    _tmp_dir: Path | None  # any tmp files, in one TempStore directory per process
     _services_dir: Path | None  # registry of local services
     _sa_engine: sql.engine.base.Engine | None
     _pgdata_dir: Path | None
@@ -311,11 +311,6 @@ class Env:
     def dbms(self) -> Dbms:
         assert self._dbms is not None
         return self._dbms
-
-    @property
-    def is_using_cockroachdb(self) -> bool:
-        assert self._dbms is not None
-        return isinstance(self._dbms, CockroachDbms)
 
     @property
     def is_local(self) -> bool:
@@ -551,15 +546,9 @@ class Env:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error) from e
             self._db_url = db_url.render_as_string(hide_password=False)
             self._db_name = db_url.database  # use the dbname given in connect string
-            dialect = db_url.get_dialect().name
-            if dialect == 'cockroachdb':
-                self._dbms = CockroachDbms(db_url)
-                # Check if database exists (CockroachDB exposes pg_database via the system DB)
-                if not self._store_db_exists(self._db_name):
-                    error = f'Database {self._db_name!r} does not exist'
-                    _logger.error(error)
-                    raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error)
-            elif dialect == 'postgresql':
+            # Does not load a dialect plugin, so an unknown DBMS raises Unsupported DBMS below.
+            dialect = db_url.get_backend_name()
+            if dialect == 'postgresql':
                 # Ensure psycopg v3 driver is used; the default postgresql:// scheme may resolve to psycopg2.
                 if db_url.drivername == 'postgresql':
                     db_url = db_url.set(drivername='postgresql+psycopg')
@@ -648,12 +637,6 @@ class Env:
             assert isinstance(tz_name, str)
             _logger.info(f'Database time zone is now: {tz_name}')
             self._default_time_zone = ZoneInfo(tz_name)
-            if self.is_using_cockroachdb:
-                # This could be set when the database is created, but we set it now
-                conn.execute(sql.text('SET null_ordered_last = true;'))
-                null_ordered_last = conn.execute(sql.text('SHOW null_ordered_last')).scalar()
-                assert isinstance(null_ordered_last, str)
-                _logger.info(f'Database null_ordered_last is now: {null_ordered_last}')
 
     def _set_local_db(self, db_name: str) -> None:
         """Point this Env at `db_name` on the embedded server."""
@@ -985,7 +968,7 @@ class Env:
                 version_str: str | None = getattr(module, '__version__', None)
                 if version_str is None:
                     version_str = importlib.metadata.version(package_info.library_name)
-                package_info.version = [int(x) for x in version_str.split('.')]
+                package_info.version = _version_components(version_str)
 
             if min_version > package_info.version:
                 raise excs.RequestError(
@@ -997,13 +980,25 @@ class Env:
                 )
 
     def clear_tmp_dir(self) -> None:
-        for path in glob.glob(f'{self._tmp_dir}/*'):
-            # another process sharing this home can remove an entry between the glob and the delete
-            if os.path.isdir(path):
-                shutil.rmtree(path, ignore_errors=True)
-            else:
-                with contextlib.suppress(FileNotFoundError):
-                    os.remove(path)
+        """Remove the tmp files of processes that have exited.
+
+        Processes that share this home each write to their own TempStore directory, named after the pid; the
+        directory of a live process stays. A reused pid keeps a stale directory until that process exits too.
+        """
+        # list the entries before the pids: a directory created after the listing is not considered, and one created
+        # before it belongs to a process that is in the pid list
+        paths = list(self._tmp_dir.iterdir())
+        live_pids = {str(pid) for pid in psutil.pids()}
+        for path in paths:
+            if path.name in live_pids:
+                continue
+            # best effort, per entry: another process sharing this home can remove an entry between the listing and the
+            # delete, or (on Windows) hold a file open; what remains is removed by a later startup
+            with contextlib.suppress(OSError):
+                if path.is_dir():
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
+                    path.unlink()
 
     # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Type[T] | None) -> T:
     def get_resource_pool_info(self, pool_id: str, make_pool_info: Callable[[], T] | None = None) -> T:
@@ -1155,6 +1150,21 @@ class ApiClientFactory:
     init_fn: Callable
     params: dict[str, inspect.Parameter]
     credential_param: str | None
+
+
+def _version_components(version_str: str) -> list[int]:
+    """Leading digits of each dot component, so '2.0.0rc1' is [2, 0, 0]."""
+    components: list[int] = []
+    for part in version_str.split('.'):
+        digits = ''
+        for char in part:
+            if not char.isdigit():
+                break
+            digits += char
+        if digits == '':
+            break
+        components.append(int(digits))
+    return components
 
 
 @dataclass

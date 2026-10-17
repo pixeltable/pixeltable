@@ -208,7 +208,6 @@ class TestCloudDb:
         assert get_target_ops(db_diff(cli, other, test_db_uri), 'archive') != []
 
     def test_excluded_files(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
-        # the entry itself is a project file, so the database has to be given the rewritten one
         create_project_config(cli, project, test_db_uri, exclude=['notes/**'])
         db_update(cli, project, test_db_uri)
         assert_in_agreement(cli, project, test_db_uri)

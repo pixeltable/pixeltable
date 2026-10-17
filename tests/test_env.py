@@ -1,9 +1,14 @@
 import asyncio
 import os
+import subprocess
+import sys
+import uuid
 from pathlib import Path
 from typing import Iterator
 
 import numpy as np
+import PIL.Image
+import pydantic
 import pytest
 
 import pixeltable as pxt
@@ -12,6 +17,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.local_store import LocalStore, TempStore
 
 from .utils import pxt_raises, skip_test_if_not_local
 
@@ -170,6 +176,37 @@ class TestEnvReset:
         assert result[0]['amount_doubled'] == 300.0
 
 
+class TestTmpDir:
+    def test_shared_home(self, uses_db: None) -> None:
+        """A process that starts on a shared home removes only the tmp files of processes that have exited."""
+        tmp_dir = Env.get().tmp_dir
+        in_use = TempStore.create_path(extension='.txt')
+        in_use.write_text('in use')
+        # no process can have this pid: it is above the Linux and macOS limits, and Windows pids are multiples of 4.
+        # (An exited child's pid won't do: on Windows, its process stays listed while a Popen holds its handle.)
+        stale = tmp_dir / str(2**31 - 1) / 'stale.txt'
+        stale.parent.mkdir()
+        stale.write_text('stale')
+        legacy = tmp_dir / f'{uuid.uuid4()}.txt'  # the layout before per-process directories
+        legacy.write_text('legacy')
+
+        subprocess.run((sys.executable, '-c', 'import pixeltable as pxt\npxt.init()'), check=True)
+
+        assert in_use.read_text() == 'in use'
+        assert not stale.parent.exists()
+        assert not legacy.exists()
+
+    def test_insert_other_process_tmp_file(self, uses_db: None) -> None:
+        """A tmp file that another process wrote is persisted to the media dir, not stored by reference."""
+        src = Env.get().tmp_dir / str(2**31 - 1) / 'img.png'
+        src.parent.mkdir()
+        PIL.Image.new('RGB', (8, 8)).save(src)
+        t = pxt.create_table('tmp_files', {'img': pxt.Image})
+        t.insert([{'img': str(src)}])
+        path = LocalStore.file_url_to_path(t.select(url=t.img.fileurl).collect()[0]['url'])
+        assert path is not None and path.is_relative_to(Env.get().media_dir), path
+
+
 class TestHostedMediaDefault:
     def test_home_bucket_default(self, uses_db: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """On a hosted db's pod, media that has no configured destination goes to the db's home bucket."""
@@ -251,6 +288,20 @@ class TestHostedMediaDefault:
             Config.init(reinit=True, project_root=tmp_path)
             with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='output_media_dest .* is inside the project'):
                 Env._init_env(reinit_db=False)
+
+
+class TestDbConnectStr:
+    def test_cockroachdb_rejected(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A CockroachDB connect string is rejected as an unsupported DBMS."""
+        monkeypatch.setenv(
+            'PIXELTABLE_DB_CONNECT_STR', 'cockroachdb+psycopg://root@localhost:26257/pixeltable?sslmode=disable'
+        )
+        reset_runtime()
+        Config.init(reinit=True)
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='Unsupported DBMS cockroachdb'):
+            Env._init_env(reinit_db=False)
+        monkeypatch.undo()
+        _reset_env(reinit=False, db_name=None)
 
 
 class TestProxyEndpoint:
@@ -398,3 +449,22 @@ class TestApiClients:
         reset_runtime()
         # a failing __aexit__() doesn't keep __exit__() from running
         assert (client.aexits, client.exits) == (1, 1)
+
+
+class TestRequirePackage:
+    def test_version_floor(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A release older than the floor is rejected; a pre-release of that floor is accepted.
+
+        pydantic is always installed, so this is Env's version check rather than one integration. The recorded
+        version is read once; a fresh Env reads it again.
+        """
+        _reset_env(reinit=False, db_name=None)
+        monkeypatch.setattr(pydantic, '__version__', '1.2.3')
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'is 1\.2\.3, but version >=2 is required'):
+            Env.get().require_package('pydantic', [2])
+
+        _reset_env(reinit=False, db_name=None)
+        monkeypatch.setattr(pydantic, '__version__', '2.0.0rc1')
+        Env.get().require_package('pydantic', [2])
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'is 2\.0\.0, but version >=3 is required'):
+            Env.get().require_package('pydantic', [3])
