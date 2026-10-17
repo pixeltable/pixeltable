@@ -26,6 +26,7 @@ import pixeltable as pxt
 import pixeltable.utils.fault_injection as prod_fault_injection
 import tests.fault_injection as test_fault_injection
 from pixeltable import exprs, functions as pxtf
+from pixeltable.catalog.globals import fold_identifier
 from pixeltable.config import Config
 from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
@@ -167,7 +168,7 @@ def _set_up_external_db_schema(worker_id: int | str) -> str:
     return schema_name
 
 
-_CHECKOUT_DB = os.environ.get('PIXELTABLE_DB', '')  # before init_env() replaces it
+_CHECKOUT_DB = fold_identifier(os.environ.get('PIXELTABLE_DB', ''))  # before init_env() replaces it
 
 
 def _worker_db_name(worker_id: int | str) -> str:
