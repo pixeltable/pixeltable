@@ -82,6 +82,10 @@ def _pxt_secret(port: int, cwd: pathlib.Path, control_plane: FakeControlPlane, *
     return PxtResult(r.returncode, r.stdout, r.stderr)
 
 
+# what set and delete ask the control plane to name the restarts
+_LISTINGS = ('get_db', 'list_dbs', 'list_services')
+
+
 class TestSecret:
     def test_set_list_delete(
         self, daemon_port: int, tmp_path: pathlib.Path, fake_control_plane: FakeControlPlane
@@ -91,9 +95,35 @@ class TestSecret:
             return _pxt_secret(daemon_port, tmp_path, fake_control_plane, *args)
 
         def sent() -> list[dict[str, Any]]:
-            requests = list(fake_control_plane.received_requests)
+            # the secret operations; set and delete also list what reads the secrets, which next_commands checks
+            requests = [r for r in fake_control_plane.received_requests if r['operation_type'] not in _LISTINGS]
             fake_control_plane.received_requests.clear()
             return requests
+
+        # main runs ingest and a stopped service; dev is stopped
+        instance = {'base_path': '', 'app_module': 'app', 'spec': {'name': 'ingest'}}
+        fake_control_plane.responses.update(
+            {
+                'get_db': {'report': {'db': 'main', 'current': {'state': 'AVAILABLE'}}},
+                'list_dbs': {
+                    'reports': [
+                        {'db': 'main', 'current': {'state': 'AVAILABLE'}},
+                        {'db': 'dev', 'current': {'state': 'STOPPED'}},
+                    ]
+                },
+                'list_services': {
+                    'instances': [
+                        {**instance, 'service_name': 'ingest', 'state': 'AVAILABLE'},
+                        {**instance, 'service_name': 'old', 'state': 'STOPPED'},
+                    ]
+                },
+            }
+        )
+        # running pods read secrets only at startup, so set and delete name a restart for each
+        restarts = [
+            ['pxt', 'db', 'restart', 'pxt://acme:main'],
+            ['pxt', 'service', 'restart', 'pxt://acme:main/ingest'],
+        ]
 
         # set
         r = pxt_secret('set', 'pxt://acme:main', 'OPENAI_API_KEY=test=value', 'CUSTOM_TOKEN=custom-value', '--json')
@@ -102,11 +132,7 @@ class TestSecret:
             {'key': 'CUSTOM_TOKEN', 'scope': 'pxt://acme:main'},
             {'key': 'OPENAI_API_KEY', 'scope': 'pxt://acme:main'},
         ]
-        # running pods read secrets only at startup, so it names the restarts
-        assert r.next_commands == [
-            ['pxt', 'db', 'restart', 'pxt://acme:main'],
-            ['pxt', 'service', 'list', 'pxt://acme:main'],
-        ]
+        assert r.next_commands == restarts
         assert sent() == [
             {
                 'operation_type': 'set_secret',
@@ -126,9 +152,8 @@ class TestSecret:
         r = pxt_secret('set', 'pxt://acme', 'ORG_KEY=org-value')
         assert r.returncode == 0, r.stderr
         assert r.stdout.splitlines() == ['KEY      SCOPE', 'ORG_KEY  pxt://acme']
-        # an org secret reaches every database, which `pxt db list` names
-        assert r.next_commands == [['pxt', 'db', 'list']]
-        assert 'pxt db restart pxt://acme:<db>' in r.stderr
+        # an org secret reaches every database; the stopped one reads it when it starts
+        assert r.next_commands == restarts
         assert sent() == [
             {'operation_type': 'set_secret', 'org': 'acme', 'db': None, 'key': 'ORG_KEY', 'value': 'org-value'}
         ]
@@ -136,6 +161,7 @@ class TestSecret:
         # delete
         r = pxt_secret('delete', 'pxt://acme', 'OLD_KEY', 'OLD_TOKEN')
         assert r.returncode == 0, r.stderr
+        assert r.next_commands == restarts
         assert r.stdout.splitlines() == ['KEY        SCOPE', 'OLD_KEY    pxt://acme', 'OLD_TOKEN  pxt://acme']
         assert sent() == [
             {'operation_type': 'delete_secret', 'org': 'acme', 'db': None, 'key': 'OLD_KEY'},

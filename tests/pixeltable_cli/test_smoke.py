@@ -4,7 +4,9 @@ Each class focuses on one cli command. Methods bundle related scenarios so a sin
 table can serve multiple assertions (JSON + text + flag variants) without re-creating it.
 """
 
+import http.client
 import importlib.metadata
+import io
 import json
 import os
 import pathlib
@@ -13,6 +15,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from email.message import Message
 from textwrap import dedent
 from typing import Any, Callable
 
@@ -126,6 +129,68 @@ class TestErrorCode:
         assert r.json['error_code'] == 'DIRECTORY_NOT_FOUND'
         assert r.json['retryable'] is False
         assert 'cli_code_missing' in r.json['message']
+
+
+@pytest.mark.db_roots('local', reason='the daemon is faked; no request leaves the process')
+class TestRequestFailures:
+    """A failed request names its cause in error_code, in text and in the --json document."""
+
+    _URL = 'http://127.0.0.1:1/api/ls'
+
+    @pytest.mark.parametrize(
+        ('failure', 'error_code', 'retryable'),
+        [
+            (urllib.error.URLError('Connection refused'), 'DAEMON_UNREACHABLE', True),
+            (
+                urllib.error.HTTPError(_URL, 500, 'Internal Server Error', Message(), io.BytesIO(b'not json')),
+                'INTERNAL_ERROR',
+                True,
+            ),
+            (
+                urllib.error.HTTPError(_URL, 404, 'Not Found', Message(), io.BytesIO(b'{"detail": "not found"}')),
+                'HTTP_404',
+                False,
+            ),
+            (http.client.RemoteDisconnected('closed'), 'INTERNAL_ERROR', True),
+            # the daemon did not start, so resending cannot help
+            (RuntimeError('the daemon did not start'), 'DAEMON_UNREACHABLE', False),
+        ],
+    )
+    def test_error_code(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        failure: Exception,
+        error_code: str,
+        retryable: bool,
+    ) -> None:
+        def fail(*args: Any, **kwargs: Any) -> Any:
+            raise failure
+
+        if isinstance(failure, RuntimeError):
+            monkeypatch.setattr(utils, 'ensure_running', fail)
+        else:
+            monkeypatch.setattr(utils, 'ensure_running', lambda: 'http://127.0.0.1:1')
+            monkeypatch.setattr(urllib.request, 'urlopen', fail)
+        monkeypatch.setattr(utils, 'invocation', ['ls', '--json'])
+        with pytest.raises(SystemExit) as exc:
+            utils.get_request('/api/ls')
+        assert exc.value.code == 1
+        out, err = capsys.readouterr()
+        assert err.rstrip().endswith(f'[{error_code}]'), err
+        doc = json.loads(out)
+        assert (doc['error_code'], doc['retryable']) == (error_code, retryable)
+
+
+@pytest.mark.db_roots('local', reason='prints only; no request is sent')
+class TestNoWait:
+    def test_names_the_status_command_in_any_mode(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """--no-wait names `pxt db status` on stderr, with --json too, where stdout holds only the document."""
+        receipt = GenerationReceipt(kind='database', resource_id='db-uuid', generation=4, db='main')
+        db_cmd._print_receipts('pxt://acme:main', [receipt], waited=False, show=False)
+        out, err = capsys.readouterr()
+        assert out == ''
+        assert err == 'next: pxt db status pxt://acme:main  # shows its progress\n'
 
 
 @pytest.mark.db_roots('local', reason='parses arguments only; no request is sent')
@@ -1102,11 +1167,24 @@ class TestErrorsNext:
         finally:
             flag.unlink()
 
-        # a view lists the failures of a column it inherits, which is recomputed on the table that defines it
+        # a view lists the failures of a column it inherits, which is recomputed on the table that defines it,
+        # named absolute so that a working directory leaves it alone
         pxt.create_view(p('cli_errs_next/v'), t, if_exists='replace')
+        inherited = [['pxt', 'recompute', display_path(p('cli_errs_next/t')), 'out', '--errors-only', '-f']]
         r = cli('errors', p('cli_errs_next/v'))
-        assert r.next_commands == [['pxt', 'recompute', p('cli_errs_next/t'), 'out', '--errors-only', '-f']]
+        assert r.next_commands == inherited
         assert 'which defines it' in r.stderr
+        # a view with its base's name too
+        pxt.create_dir(p('cli_errs_next/views'), if_exists='ignore')
+        pxt.create_view(p('cli_errs_next/views/t'), t, if_exists='replace')
+        assert cli('errors', p('cli_errs_next/views/t')).next_commands == inherited
+        cli('cd', p('cli_errs_next'))
+        try:
+            assert cli('errors', 'v').next_commands == inherited
+            # the table's own column keeps the path as given, which resolves the same way
+            assert cli('errors', 't').next_commands == [['pxt', 'recompute', 't', 'out', '--errors-only', '-f']]
+        finally:
+            cli('cd')
 
         r = cli('errors', p('cli_errs_next/t'))
         assert r.next_commands == [['pxt', 'recompute', p('cli_errs_next/t'), 'out', '--errors-only', '-f']]

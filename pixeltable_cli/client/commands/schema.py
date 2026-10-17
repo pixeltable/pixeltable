@@ -13,11 +13,11 @@ from ..utils import (
     EXIT_ERROR,
     EXIT_IN_AGREEMENT,
     EXIT_REFUSED,
+    can_prompt,
     check_file,
     confirm_or_exit,
     post_request,
     print_json_schema,
-    can_prompt,
     print_next,
     rerun_command,
 )
