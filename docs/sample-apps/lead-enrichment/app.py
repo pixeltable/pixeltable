@@ -26,9 +26,14 @@ from fastapi.responses import HTMLResponse
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable.functions.openai import chat_completions
 from pixeltable.serving import FastAPIRouter
-from udfs import lead_tier, treg_extract_site, treg_find_email, treg_voice_note
+from udfs import (
+    lead_tier,
+    outreach_copywriter,
+    treg_extract_site,
+    treg_find_email,
+    treg_voice_note,
+)
 
 UI_HTML = Path(__file__).resolve().parent / "ui.html"
 
@@ -51,34 +56,25 @@ class Leads(TableModel, name="leads", has_default_idxs=False):
 
     # 2. Live website scrape via treg.to routed web extractor
     site = treg_extract_site(domain)
-    site_markdown = site.markdown.astype(pxt.String)
+    site_markdown = site.markdown.astype(pxt.String | None)
 
     # 3. Lead routing tier (priority / ready / review / skip)
     tier = lead_tier(verdict, role)
 
     # 4. Personalized cold email grounded in scraped company context
-    prompt = pxtf.string.format(
-        "Write a concise 3-sentence cold outreach email to {0} ({1}) at {2}.\n"
-        "Ground the opener in something specific from their website below. No fluff or placeholders.\n\n"
-        "WEBSITE EXCERPT:\n{3}",
-        full_name,
-        role,
-        domain,
-        site_markdown,
-    )
-    llm_response = chat_completions(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-    )
-    cold_email = llm_response.choices[0].message.content.astype(pxt.String)
+    cold_email = outreach_copywriter(full_name, role, domain, site_markdown)
 
     # 5. Personalized AI audio voice note stored in Pixeltable's media store
     voice_note = treg_voice_note(cold_email)
 
     # 6. Settled enrichment cost in USD from X-Treg-Cost-Micro
     cost_usd = (
-        contact.cost_micro.astype(pxt.Float) + site.cost_micro.astype(pxt.Float)
-    ) / 1_000_000.0
+        (
+            contact.cost_micro.astype(pxt.Float | None)
+            + site.cost_micro.astype(pxt.Float | None)
+        )
+        / 1_000_000.0
+    ).astype(pxt.Float | None)
 
     __indexes__ = [
         pxt.BtreeIndex(domain),
@@ -160,20 +156,25 @@ def by_tier(tier: str, stage: str):
 @pxt.query
 def by_domain(domain: str):
     """Detail for one company domain (domain index)."""
-    return Leads.where(Leads.domain == domain).select(
-        Leads.lead_id,
-        Leads.full_name,
-        Leads.domain,
-        Leads.role,
-        Leads.stage,
-        Leads.email,
-        Leads.verdict,
-        Leads.served_by,
-        Leads.tier,
-        Leads.site_markdown,
-        Leads.cold_email,
-        Leads.voice_note,
-        Leads.cost_usd,
+    return (
+        Leads.where(Leads.domain == domain)
+        .order_by(Leads.lead_id, asc=False)
+        .limit(1)
+        .select(
+            Leads.lead_id,
+            Leads.full_name,
+            Leads.domain,
+            Leads.role,
+            Leads.stage,
+            Leads.email,
+            Leads.verdict,
+            Leads.served_by,
+            Leads.tier,
+            Leads.site_markdown,
+            Leads.cold_email,
+            Leads.voice_note,
+            Leads.cost_usd,
+        )
     )
 
 
