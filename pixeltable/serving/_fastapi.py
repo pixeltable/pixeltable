@@ -247,7 +247,9 @@ class _JobIds:
             # <instance>.<addr>.<uuid>.<mac>
             instance, addr_b64, job_uuid, mac = parts
             # a forged id, or one from another service, has the wrong MAC
-            if not hmac.compare_digest(mac, self._mac(f'{instance}.{addr_b64}.{job_uuid}')):
+            expected_mac = self._mac(f'{instance}.{addr_b64}.{job_uuid}')
+            # bytes: compare_digest() raises TypeError for a str with non-ASCII characters
+            if not hmac.compare_digest(mac.encode(), expected_mac.encode()):
                 return None
             try:
                 addr = self._decode_addr(addr_b64)
@@ -604,6 +606,7 @@ class FastAPIRouter(fastapi.APIRouter):
     _job_ids: _JobIds
     _server_root_path: str  # the server's root_path, which uvicorn prepends to scope['raw_path']; '' without forwarding
     _draining: bool  # set by _start_drain(); new background jobs are refused
+    _has_run_jobs: bool  # a background job ran; stays set after the job expires from _jobs
     _is_shut_down: bool
     _home_dir: Path
     _allowed_media_dirs: list[Path]
@@ -639,6 +642,7 @@ class FastAPIRouter(fastapi.APIRouter):
         self._job_ids = _JobIds()
         self._server_root_path = ''
         self._draining = False
+        self._has_run_jobs = False
         self._is_shut_down = False
         self._home_dir = Config.get().home.resolve()
         self._allowed_media_dirs = [
@@ -886,7 +890,7 @@ class FastAPIRouter(fastapi.APIRouter):
         if self._is_shut_down:
             return
         self._is_shut_down = True
-        if len(self._jobs) > 0:
+        if self._has_run_jobs:
             # cancel what we can, to speed up close_threadpool_runtimes()
             for job in list(self._jobs.values()):
                 job.future.cancel()
@@ -2888,6 +2892,7 @@ class FastAPIRouter(fastapi.APIRouter):
             else:
                 job = _Job(self._executor.submit(_run_endpoint_op, endpoint_op, kwargs, tmp_paths, media))
                 self._jobs[job_id] = job
+                self._has_run_jobs = True
         if refusal is not None:
             _unlink_tmp_paths(tmp_paths)
             raise refusal
@@ -2959,11 +2964,6 @@ class FastAPIRouter(fastapi.APIRouter):
             media_type=owner_resp.headers.get('Content-Type'),
             headers=None if retry_after is None else {'Retry-After': retry_after},
         )
-
-    def _has_jobs(self) -> bool:
-        with self._jobs_lock:
-            self._prune_jobs(time.monotonic())
-            return len(self._jobs) > 0
 
     def _start_drain(self) -> None:
         """Refuse new background jobs; jobs already submitted keep running and can be polled."""

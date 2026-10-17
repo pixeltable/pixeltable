@@ -81,12 +81,12 @@ class _DrainingServer(uvicorn.Server):
         super().handle_exit(sig, frame)
 
     def _drain(self, sig: int) -> None:
-        if any(router._has_jobs() for router in self.routers):
-            deadline = time.monotonic() + self.drain_s
-            for router in self.routers:
-                router._start_drain()
-            for router in self.routers:
-                router._wait_drained(deadline)
+        deadline = time.monotonic() + self.drain_s
+        # stop admission on all routers before waiting: a job admitted after its router's wait returned would be lost
+        for router in self.routers:
+            router._start_drain()
+        for router in self.routers:
+            router._wait_drained(deadline)
         # uvicorn's handle_exit() only records the signal and sets should_exit; both are safe on this thread
         super().handle_exit(sig, None)
 

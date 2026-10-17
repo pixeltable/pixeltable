@@ -1024,15 +1024,19 @@ class TestFastAPI:
     @pytest.mark.db_roots(
         'local', reason='a background job computes in the router process only for an in-process catalog'
     )
-    @pytest.mark.parametrize('busy_at_shutdown', [False, True])
-    def test_background_job_teardown(self, uses_db: None, busy_at_shutdown: bool) -> None:
+    @pytest.mark.parametrize('at_shutdown', ['busy', 'done', 'expired'])
+    def test_background_job_teardown(
+        self, uses_db: None, at_shutdown: Literal['busy', 'done', 'expired'], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A background job runs on a worker thread with an event loop of its own, which app shutdown closes."""
         skip_test_if_not_installed('fastapi')
-        from pixeltable.serving import FastAPIRouter
+        from pixeltable.serving import FastAPIRouter, _fastapi
 
+        # shortened, so that a fetched result expires within the test
+        monkeypatch.setattr(_fastapi, '_JOB_FETCHED_TTL_S', 0.1)
         t = pxt.create_table('bg_teardown', {'x': pxt.Int})
-        # in one scenario the job holds its worker until the shutdown, in the other it is done before it
-        t.add_computed_column(y=record_loop(t.x, 2.0 if busy_at_shutdown else 0.0))
+        # at shutdown, the job is still running, is done, or is done and its result expired
+        t.add_computed_column(y=record_loop(t.x, 2.0 if at_shutdown == 'busy' else 0.0))
         router = FastAPIRouter()
         router.add_insert_route(t, path='/bg', background=True)
         client = make_test_client(router)
@@ -1041,13 +1045,15 @@ class TestFastAPI:
         with client:
             resp = client.post('/bg', json={'x': 1})
             assert resp.status_code == 200, resp.text
-            if busy_at_shutdown:
+            if at_shutdown == 'busy':
                 # leave the context as soon as the job is on a worker, without waiting for it to finish
                 deadline = time.time() + 30.0
                 while len(_computation_loops) == n_loops and time.time() < deadline:
                     time.sleep(0.01)
             else:
                 await_background_job(client, resp.json(), require_pending=False)
+            if at_shutdown == 'expired':
+                assert wait_until(lambda: client.get(resp.json()['job_url']).status_code == 404, 10.0)
             loops = _computation_loops[n_loops:]
             assert len(loops) == 1, 'the job did not run on a worker thread of its own'
             assert not loops[0].is_closed()
@@ -1195,9 +1201,11 @@ class TestFastAPI:
                 assert single_row(body['result'], 'insert')['x'] == 1, body
 
                 # a changed address does not match the MAC; only a forged id can show that
-                instance, _, job_uuid, mac = job['id'].split('.')
+                instance, owner_addr_b64, job_uuid, mac = job['id'].split('.')
                 addr_b64 = base64.urlsafe_b64encode(b'127.0.0.1:2').decode().rstrip('=')
                 assert other.get(f'/_pxt/jobs/{instance}.{addr_b64}.{job_uuid}.{mac}').status_code == 404
+                # nor does a MAC with a non-ASCII character
+                assert other.get(f'/_pxt/jobs/{instance}.{owner_addr_b64}.{job_uuid}.%C3%A9').status_code == 404
                 # nor does the key of another service of the same database
                 stranger = make_test_client(jobs_router(addr='127.0.0.1:1', service_path='/other'))
                 assert stranger.get(poll_path, headers=api_key).status_code == 404

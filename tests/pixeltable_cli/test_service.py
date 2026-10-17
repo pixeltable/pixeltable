@@ -1849,7 +1849,7 @@ class TestServiceOtel:
         app = SimpleNamespace(routes=[])  # stands in for the FastAPI app, which run() counts the routes of
 
         with (
-            patch('pixeltable.serving._app.create_app', return_value=(app, {})),
+            patch('pixeltable.serving._app.create_app', return_value=(app, {}, [])),
             patch('uvicorn.run') as mock_run,
             patch('opentelemetry.instrumentation.pixeltable.init') as mock_otel_init,
             patch('opentelemetry.instrumentation.pixeltable.instrument_fastapi') as mock_instrument_fastapi,
