@@ -12,7 +12,7 @@ import threading
 import time
 import urllib.parse
 import uuid
-from typing import TYPE_CHECKING, Annotated, Any, Callable, Iterator, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Awaitable, Callable, Iterator, Literal
 
 import httpx
 import numpy as np
@@ -44,6 +44,7 @@ from tests.utils import (
 
 if TYPE_CHECKING:
     # fastapi is an optional dependency, so the tests that need it import it themselves and skip without it
+    import fastapi
     from fastapi.testclient import TestClient
 
     from pixeltable.serving import FastAPIRouter
@@ -217,16 +218,26 @@ class ServedRouter:
 
 @contextlib.contextmanager
 def serve_router(
-    router: 'FastAPIRouter', *, port: int = 0, job_secret: str | None = None, root_path: str = '', drain_s: float = 0.0
+    router: 'FastAPIRouter',
+    *,
+    app: 'fastapi.FastAPI | None' = None,
+    port: int = 0,
+    job_secret: str | None = None,
+    root_path: str = '',
+    drain_s: float = 0.0,
 ) -> Iterator[ServedRouter]:
-    """Serve router on a loopback port, on a thread of the test process, with the server of a hosted pod."""
+    """Serve router on a loopback port, on a thread of the test process, with the server of a hosted pod.
+
+    app is a custom app that includes router; without one, router is served alone.
+    """
     import fastapi
     import uvicorn
 
     from pixeltable.serving.pod_runner import _DrainingServer
 
-    app = fastapi.FastAPI()
-    app.include_router(router)
+    if app is None:
+        app = fastapi.FastAPI()
+        app.include_router(router)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(('127.0.0.1', port))
@@ -1165,6 +1176,7 @@ class TestFastAPI:
         """A poll that reaches a server other than the job's owner is forwarded to the owner."""
         skip_test_if_not_installed('fastapi')
         import fastapi
+        from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
         from pixeltable.serving import FastAPIRouter, _fastapi
 
@@ -1187,18 +1199,48 @@ class TestFastAPI:
                 router._configure_job_forwarding(addr, job_secret, service_path)
             return router
 
+        shedding = threading.Event()
+        public_host = {'Host': 'jobs.example.com'}
+
+        def jobs_app(router: FastAPIRouter) -> fastapi.FastAPI:
+            # a custom app that checks the Host, and whose middleware can answer before the router does
+            app = fastapi.FastAPI()
+            app.add_middleware(TrustedHostMiddleware, allowed_hosts=['jobs.example.com'])
+
+            @app.middleware('http')
+            async def shed_load(
+                request: fastapi.Request, call_next: Callable[[fastapi.Request], Awaitable[fastapi.Response]]
+            ) -> fastapi.Response:
+                if shedding.is_set():
+                    return fastapi.responses.JSONResponse(
+                        {'detail': 'overloaded'}, status_code=503, headers={'Retry-After': '7'}
+                    )
+                return await call_next(request)
+
+            app.include_router(router)
+            return app
+
+        owner_router = jobs_router()
         with (
             serve_router(jobs_router(), job_secret=job_secret, root_path=root_path) as served_other,
-            httpx.Client(base_url=f'http://{served_other.addr}', headers=api_key) as other,
+            httpx.Client(base_url=f'http://{served_other.addr}', headers={**api_key, **public_host}) as other,
         ):
             with (
-                serve_router(jobs_router(), job_secret=job_secret, root_path=root_path) as owner,
-                httpx.Client(base_url=f'http://{owner.addr}', headers=api_key) as c,
+                serve_router(
+                    owner_router, app=jobs_app(owner_router), job_secret=job_secret, root_path=root_path
+                ) as owner,
+                httpx.Client(base_url=f'http://{owner.addr}', headers={**api_key, **public_host}) as c,
             ):
                 job = c.post('/bg', json={'x': 1, 'secs': 0.5}).json()
                 poll_path = f'/_pxt/jobs/{job["id"]}'
                 body = await_background_job(other, {'id': job['id'], 'job_url': poll_path})
                 assert single_row(body['result'], 'insert')['x'] == 1, body
+
+                # the owner app's own answer reaches the client as it is, not as a lost job
+                shedding.set()
+                shed = other.get(poll_path)
+                assert shed.status_code == 503 and shed.headers['Retry-After'] == '7', shed.text
+                shedding.clear()
 
                 # a changed address does not match the MAC; only a forged id can show that
                 instance, owner_addr_b64, job_uuid, mac = job['id'].split('.')
@@ -1212,9 +1254,13 @@ class TestFastAPI:
 
             # the owner stopped
             assert other.get(poll_path).status_code == 410
-            # another server listens at the owner's address now
+            # a server of the same service at the owner's address now answers 410 itself
+            owner_port = int(owner.addr.split(':')[1])
+            with serve_router(jobs_router(), port=owner_port, job_secret=job_secret, root_path=root_path):
+                assert other.get(poll_path).status_code == 410
+            # a server of another service there answers 404, which the poll gets as 410
             with serve_router(
-                jobs_router(), port=int(owner.addr.split(':')[1]), job_secret=job_secret, root_path=root_path
+                jobs_router(service_path='/other'), port=owner_port, job_secret=job_secret, root_path='/other'
             ):
                 assert other.get(poll_path).status_code == 410
 

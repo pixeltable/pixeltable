@@ -159,7 +159,7 @@ _DRAINING_RETRY_AFTER_S = 1
 _JOB_INSTANCE_HEADER = 'X-Pxt-Job-Instance'
 _JOB_FORWARDED_HEADER = 'X-Pxt-Job-Forwarded'
 _FORWARD_TIMEOUT = httpx.Timeout(5.0, connect=1.0)
-# not forwarded with a job poll: the hop-by-hop headers, and the ones httpx sets itself
+# not forwarded with a job poll: the hop-by-hop headers, and the ones httpx sets itself, except Host
 _UNFORWARDED_HEADERS = frozenset(
     (
         'connection',
@@ -169,7 +169,6 @@ _UNFORWARDED_HEADERS = frozenset(
         'trailer',
         'transfer-encoding',
         'upgrade',
-        'host',
         'content-length',
         'accept-encoding',
     )
@@ -2939,7 +2938,8 @@ class FastAPIRouter(fastapi.APIRouter):
         assert self._job_ids.addr is not None
         # the path as this server received it: the owner's server prepends root_path again
         path = request.scope['raw_path'].decode().removeprefix(self._server_root_path)
-        # the owner's route dependencies and middleware see the client's headers
+        # the owner's route dependencies and middleware see the client's headers; httpx keeps the client's Host while it
+        # connects to addr
         headers = [(k, v) for k, v in request.headers.items() if k not in _UNFORWARDED_HEADERS]
         headers.append((_JOB_FORWARDED_HEADER, '1'))
         try:
@@ -2954,8 +2954,9 @@ class FastAPIRouter(fastapi.APIRouter):
         except httpx.TransportError as exc:
             raise HTTPException(status_code=410, detail=_STOPPED_INSTANCE) from exc
 
-        if owner_resp.headers.get(_JOB_INSTANCE_HEADER) != instance:
-            # another process listens at the owner's address now
+        # _job_status() puts the instance header on its 404s: a 404 without it comes from another process at the owner's
+        # address. Any other answer is the owner's, including a rejection by its app's middleware.
+        if owner_resp.status_code == 404 and owner_resp.headers.get(_JOB_INSTANCE_HEADER) != instance:
             raise HTTPException(status_code=410, detail=_STOPPED_INSTANCE)
         retry_after = owner_resp.headers.get('Retry-After')
         return fastapi.Response(

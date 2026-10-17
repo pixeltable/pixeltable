@@ -626,26 +626,48 @@ class TestService:
             cli('service', 'stop', f'{target}/ingest', check=False)
 
     @pytest.mark.db_roots('cloud-serving', reason='a local service runs one instance')
+    @pytest.mark.parametrize(
+        ('app_file', 'service', 'route_prefix', 'headers'),
+        [
+            ('background.py', 'jobs', '', {}),
+            # the custom app checks its header on every request to the router, forwarded polls included
+            ('background_app.py', 'background_app', '/api', {'X-Tenant': 'acme'}),
+        ],
+        ids=['router', 'custom-app'],
+    )
     def test_background_jobs(
-        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, session_project: pathlib.Path
+        self,
+        cli: PxtRunner,
+        apps: Callable[[str], str],
+        db_root: DatabaseRoot,
+        session_project: pathlib.Path,
+        app_file: str,
+        service: str,
+        route_prefix: str,
+        headers: dict[str, str],
     ) -> None:
         """Every background job of a service with 2 workers finishes, also when the service restarts meanwhile."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        app, target = apps('background.py'), db_root.make_catalog_path('background')
+        app, target = apps(app_file), db_root.make_catalog_path('background')
         base_path = target.removeprefix(f'{db_root.base_uri}/')
         config_file = session_project / 'pixeltable.toml'
         config = config_file.read_text(encoding='utf-8')
         # 2 instances, so a poll can reach the instance that did not run the job
         config_file.write_text(
-            f"{config}\n[pixeltable.database.services.'{base_path}/jobs']\nworkers = 2\n", encoding='utf-8'
+            f"{config}\n[pixeltable.database.services.'{base_path}/{service}']\nworkers = 2\n", encoding='utf-8'
         )
         # keyed by nap_id: the accepted jobs, and the results of the finished ones
         jobs: dict[int, dict[str, Any]] = {}
         results: dict[int, Any] = {}
 
         def submit(nap_id: int) -> None:
-            resp = httpx.post(f'{endpoint}/naps', json={'nap_id': nap_id, 'secs': 1.0}, timeout=_REQUEST_TIMEOUT)
+            resp = httpx.post(
+                f'{endpoint}{route_prefix}/naps',
+                json={'nap_id': nap_id, 'secs': 1.0},
+                headers=headers,
+                timeout=_REQUEST_TIMEOUT,
+            )
             # 503: the instance is at its job limit or shutting down
             if resp.status_code != 503:
                 assert resp.status_code == 200, resp.text
@@ -655,7 +677,7 @@ class TestService:
             for nap_id, job in jobs.items():
                 if nap_id in results:
                     continue
-                resp = httpx.get(job['job_url'], timeout=_REQUEST_TIMEOUT)
+                resp = httpx.get(job['job_url'], headers=headers, timeout=_REQUEST_TIMEOUT)
                 # 503: the instance that ran the job did not answer in time
                 if resp.status_code == 503:
                     continue
@@ -674,7 +696,7 @@ class TestService:
 
         try:
             deploy(cli, app, target)
-            endpoint = assert_serving(cli, app, target, 'jobs')['jobs']['endpoint']
+            endpoint = assert_serving(cli, app, target, service)[service]['endpoint']
             # a submit or a poll can reach either instance
             for nap_id in range(40):
                 submit(nap_id)
@@ -685,7 +707,7 @@ class TestService:
             # submit and poll during a restart: each stopping instance refuses new jobs and drains its own
             submitted = len(jobs)
             with ThreadPoolExecutor(max_workers=1) as pool:
-                restart = pool.submit(cli, 'service', 'restart', f'{target}/jobs')
+                restart = pool.submit(cli, 'service', 'restart', f'{target}/{service}')
                 while not restart.done():
                     submit(len(jobs))
                     poll()
@@ -698,7 +720,7 @@ class TestService:
         finally:
             # the other tests share the session project: restore its config without the workers setting
             config_file.write_text(config, encoding='utf-8')
-            cli('service', 'stop', f'{target}/jobs', check=False)
+            cli('service', 'stop', f'{target}/{service}', check=False)
 
     def test_prune(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """The same prune, driven by editing the served file rather than by serving another one."""
