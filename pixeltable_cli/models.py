@@ -91,7 +91,7 @@ class ErrorEntry(BaseModel):
     column: str
     errortype: str
     errormsg: str | None
-    defined_in: str  # path of the table that defines the column, which a view's base column is recomputed on
+    defined_in: str | None  # for a column a view inherits, the path of the base that defines it
 
 
 class ErrorsResponse(BaseModel):
