@@ -24,41 +24,116 @@ AUDIO_FORMATS: dict[str, tuple[str, str]] = {
 }
 
 
+def _format_name_in(format_name: str, names: frozenset[str]) -> bool:
+    return any(part.strip().lower() in names for part in format_name.split(','))
+
+
+def _parse_clock_duration(value: str) -> float | None:
+    """Parse an `HH:MM:SS[.fraction]` duration into seconds."""
+    parts = value.strip().split(':')
+    if len(parts) != 3:
+        return None
+    try:
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds = float(parts[2])
+    except ValueError:
+        return None
+    if hours < 0 or minutes < 0 or seconds < 0:
+        return None
+    return hours * 3600 + minutes * 60 + seconds
+
+
+# These formats store an absolute end instead of a length.
+_ABSOLUTE_END_FORMATS = frozenset({'asf', 'matroska', 'webm'})
+
+
+def _presentation_end(stored_s: float, start_s: float, *, absolute: bool) -> float | None:
+    if stored_s <= 0:
+        return None
+    return stored_s if absolute else start_s + stored_s
+
+
+def _sole_video_stream(container: av.container.input.InputContainer) -> bool:
+    streams = container.streams
+    return (
+        len(streams.video) == 1 and len(streams.audio) == 0 and len(streams.subtitles) == 0 and len(streams.data) == 0
+    )
+
+
+def video_time_range(container: av.container.input.InputContainer) -> tuple[float, float] | None:
+    """Return the first video stream's presentation start and end, in seconds."""
+    if len(container.streams.video) == 0:
+        return None
+    stream = container.streams.video[0]
+    if stream.time_base is None:
+        return None
+    start = float((stream.start_time or 0) * stream.time_base)
+    format_name = container.format.name or ''
+    absolute = _format_name_in(format_name, _ABSOLUTE_END_FORMATS)
+
+    if stream.duration is not None:
+        # AVStream.duration is an absolute end for ASF and a length for every other format.
+        # Zero is an empty stream. It is not an unknown duration.
+        if stream.duration == 0:
+            return start, start
+        stream_absolute = _format_name_in(format_name, frozenset({'asf'}))
+        end = _presentation_end(float(stream.duration * stream.time_base), start, absolute=stream_absolute)
+        if end is not None:
+            return start, end
+
+    tag = stream.metadata.get('DURATION') if stream.metadata else None
+    if isinstance(tag, str):
+        parsed = _parse_clock_duration(tag)
+        if parsed is not None:
+            end = _presentation_end(parsed, start, absolute=absolute)
+            if end is not None:
+                return start, end
+
+    if container.duration is not None and _sole_video_stream(container):
+        # Zero is an empty container, matching a zero stream duration above.
+        if container.duration <= 0:
+            return start, start
+        end = _presentation_end(container.duration / 1_000_000, start, absolute=absolute)
+        if end is not None:
+            return start, end
+    return None
+
+
 def get_video_duration(path: str) -> float | None:
     """Return video duration in seconds."""
     with av.open(path) as container:
+        assert isinstance(container, av.container.input.InputContainer)
+        time_range = video_time_range(container)
+        if time_range is not None:
+            start, end = time_range
+            return end - start if end >= start else None
+
         if len(container.streams.video) == 0:
             return None
         video_stream = container.streams.video[0]
+        if video_stream.time_base is None:
+            return None
+        start = float((video_stream.start_time or 0) * video_stream.time_base)
 
-        # Prefer stream-level duration from the header
-        if video_stream.duration is not None:
-            return float(video_stream.duration * video_stream.time_base)
-
-        # use container duration if we don't have audio streams (which might be longer than the video stream)
-        if len(container.streams.audio) == 0 and container.duration is not None:
-            return container.duration / 1_000_000
-
-        # Fall back to scanning packets to find the latest presentation timestamp.
-        # We track the maximum PTS rather than the last packet's PTS because B-frame reordering
-        # (common in h264/h265) means packets are demuxed in decode order, not presentation order.
-        # The last demuxed packet may be a B-frame that presents before the final I/P frame.
+        # Fall back to scanning packets. They are demuxed in decode order, so with B-frames
+        # the last packet can present before an earlier one. The end is that latest PTS plus
+        # the packet's duration.
         max_pts: int | None = None  # max observed packet.pts
         max_pts_duration: int | None = None  # duration of that packet
         for packet in container.demux(video_stream):
             if packet.pts is not None and (max_pts is None or packet.pts > max_pts):
                 max_pts = packet.pts
                 max_pts_duration = packet.duration
-        if max_pts is not None:
-            end_pts = max_pts + (max_pts_duration or 0)
-            result = float(end_pts * video_stream.time_base)
-            # the video stream can't be longer than the container, but some demuxers
-            # (e.g. MPEG) emit trailing packets past the real end
-            if container.duration is not None:
-                result = min(result, container.duration / 1_000_000)
-            return result
-
-        return None
+        if max_pts is None:
+            return None
+        end = float((max_pts + (max_pts_duration or 0)) * video_stream.time_base)
+        # Some demuxers, such as MPEG, emit trailing packets past the container's end.
+        if container.duration is not None:
+            stored = container.duration / 1_000_000
+            absolute = _format_name_in(container.format.name or '', _ABSOLUTE_END_FORMATS)
+            end = min(end, stored if absolute else start + stored)
+        return end - start if end >= start else None
 
 
 def get_audio_duration(path: str) -> float | None:
@@ -390,13 +465,10 @@ class VideoFrames:
     fps: float
     container: av.container.input.InputContainer | None
     video_framerate: Fraction | None
-    video_time_base: Fraction | None
-    video_start_time: int | None
-    # Presentation time of the latest frame, and that frame's end when its duration is known.
-    # fps sampling does not yield every frame; the latest one can still extend the video.
-    video_last_pts: int | None
-    video_last_time: float | None
-    video_end_time: float | None
+    # Presentation end recorded by the container, in seconds.
+    _video_end: float | None
+    # Presentation time of the latest decoded frame, in seconds.
+    last_frame_time: float | None
 
     @dataclass
     class Item:
@@ -415,18 +487,16 @@ class VideoFrames:
         self.fps = 0.0 if fps is None else fps
         self.container = None
         self.video_framerate = None
-        self.video_time_base = None
-        self.video_start_time = None
-        self.video_last_pts = None
-        self.video_last_time = None
-        self.video_end_time = None
+        self._video_end = None
+        self.last_frame_time = None
 
     def __enter__(self) -> Self:
         self.container = av.open(self.path)
+        assert isinstance(self.container, av.container.input.InputContainer)
         stream = self.container.streams.video[0]
         self.video_framerate = stream.average_rate
-        self.video_time_base = stream.time_base
-        self.video_start_time = stream.start_time or 0
+        time_range = video_time_range(self.container)
+        self._video_end = None if time_range is None else time_range[1]
         return self
 
     def __exit__(
@@ -436,31 +506,24 @@ class VideoFrames:
         if self.container:
             self.container.close()
 
+    def end_time(self) -> float:
+        """The time at which the video ends, in seconds. Valid after iteration is exhausted."""
+        assert self.last_frame_time is not None
+        if self._video_end is not None and self._video_end > self.last_frame_time:
+            return self._video_end
+        assert self.video_framerate is not None and self.video_framerate != 0
+        return self.last_frame_time + float(1 / self.video_framerate)
+
     def __iter__(self) -> Iterator[Item]:
-        # One decode() generator for this container. A fresh decode() per frame keeps only its first frame
-        # and drops the frame the decoder flushes at end of stream.
         assert self.container is not None
+        self.last_frame_time = None
         num_returned = 0
         frame_idx = -1
         try:
             for frame in self.container.decode(video=0):
                 frame_idx += 1
-                # B-frames are decoded out of presentation order, so the latest PTS wins.
-                # A missing duration must not keep an earlier frame's end as the video end.
-                if (
-                    frame.pts is not None
-                    and frame.time is not None
-                    and (self.video_last_pts is None or frame.pts >= self.video_last_pts)
-                ):
-                    self.video_last_pts = frame.pts
-                    self.video_last_time = float(frame.time)
-                    # Frame.duration was added in PyAV 14.4. av>=14.1 has no such attribute,
-                    # and a zero duration is not an end.
-                    frame_duration = getattr(frame, 'duration', None)
-                    if isinstance(frame_duration, int) and frame_duration > 0 and frame.time_base is not None:
-                        self.video_end_time = float((frame.pts + frame_duration) * frame.time_base)
-                    else:
-                        self.video_end_time = None
+                if frame.time is not None:
+                    self.last_frame_time = float(frame.time)
                 if self.fps == 0.0 or (num_returned <= frame.time * self.fps):
                     img = frame.to_image()
                     assert isinstance(img, PIL.Image.Image)

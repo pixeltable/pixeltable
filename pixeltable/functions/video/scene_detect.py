@@ -497,136 +497,6 @@ class _SceneDetectFrameInfo(NamedTuple):
     frame_time: float
 
 
-def _parse_clock_duration(value: str) -> float | None:
-    """Parse an ``HH:MM:SS[.fraction]`` duration tag into seconds."""
-    parts = value.strip().split(':')
-    if len(parts) != 3:
-        return None
-    try:
-        hours = int(parts[0])
-        minutes = int(parts[1])
-        seconds = float(parts[2])
-    except ValueError:
-        return None
-    if hours < 0 or minutes < 0 or seconds < 0:
-        return None
-    return hours * 3600 + minutes * 60 + seconds
-
-
-# PyAV reports ASF as ``asf``. ``wmv`` is the same container when that name is what
-# ``container.format.name`` contains.
-_ASF_FORMATS = frozenset({'asf', 'wmv'})
-# Matroska, WebM, and ASF store the presentation end in duration fields. MP4, MPEG-TS, and
-# MPEG store a length counted from the stream start. ASF also stores that end in
-# ``AVStream.duration``; Matroska leaves the stream duration unset.
-_ABSOLUTE_END_FORMATS = frozenset({'matroska', 'webm'}) | _ASF_FORMATS
-
-
-def _format_name_in(format_name: str, names: frozenset[str]) -> bool:
-    return any(part.strip().lower() in names for part in format_name.split(','))
-
-
-def _stored_duration_is_absolute(format_name: str) -> bool:
-    """True when this container's duration fields are absolute presentation ends."""
-    return _format_name_in(format_name, _ABSOLUTE_END_FORMATS)
-
-
-def _stream_presentation_end(frame_iter: av_utils.VideoFrames) -> float | None:
-    """Absolute end from ``AVStream.duration``.
-
-    The duration is a length from the stream start, except for ASF (``asf`` and ``wmv``),
-    where it is already the absolute end. A 5s-offset 2s clip stores 7s, and adding the
-    start runs the scene to 12s. Matroska leaves ``AVStream.duration`` unset.
-    """
-    if frame_iter.container is None or frame_iter.video_time_base is None:
-        return None
-    duration = frame_iter.container.streams.video[0].duration
-    if duration is None or duration <= 0:
-        return None
-    # ASF's stream duration is an absolute presentation timestamp. Adding the start counts the offset twice.
-    absolute_stream = _format_name_in(frame_iter.container.format.name, _ASF_FORMATS)
-    start_pts = 0 if absolute_stream else (frame_iter.video_start_time or 0)
-    return float((start_pts + duration) * frame_iter.video_time_base)
-
-
-def _presentation_end_from_stored_duration(
-    stored_s: float, start_s: float, *, absolute: bool, not_before: float
-) -> float | None:
-    """Absolute presentation end of a stored duration that passes the last decoded frame."""
-    if stored_s <= 0:
-        return None
-    end = stored_s if absolute else start_s + stored_s
-    if end <= not_before:
-        return None
-    return end
-
-
-def _metadata_presentation_end(frame_iter: av_utils.VideoFrames, not_before: float) -> float | None:
-    """Absolute end from the video ``DURATION`` tag, then from the container duration.
-
-    Container duration covers every stream. It is used only when video 0 is the sole timed
-    stream, so a longer audio, subtitle, data, or secondary video track cannot supply the end.
-    A reading that does not pass the last decoded frame is ignored.
-    """
-    container = frame_iter.container
-    if container is None or frame_iter.video_time_base is None:
-        return None
-    start_s = float((frame_iter.video_start_time or 0) * frame_iter.video_time_base)
-    absolute = _stored_duration_is_absolute(container.format.name)
-    streams = container.streams
-    stream = streams.video[0]
-    tag = stream.metadata.get('DURATION') if stream.metadata else None
-    if isinstance(tag, str):
-        parsed = _parse_clock_duration(tag)
-        if parsed is not None:
-            tag_end = _presentation_end_from_stored_duration(parsed, start_s, absolute=absolute, not_before=not_before)
-            if tag_end is not None:
-                return tag_end
-    # Container duration is the longest timed stream. Attachments are not timed.
-    if (
-        container.duration is None
-        or len(streams.video) != 1
-        or len(streams.audio) > 0
-        or len(streams.subtitles) > 0
-        or len(streams.data) > 0
-    ):
-        return None
-    return _presentation_end_from_stored_duration(
-        container.duration / 1_000_000, start_s, absolute=absolute, not_before=not_before
-    )
-
-
-def _scene_end_time(frame_iter: av_utils.VideoFrames, *, scene_start: float, last_frame_time: float) -> float:
-    """Absolute presentation time at which the final scene ends.
-
-    A full decode and ``fps`` sampling use the same end. Stream duration counts when it extends
-    past the last decoded frame. It is a length from the stream start, except for ASF, where it is
-    already the absolute end. Next is that frame's own duration, recorded while decoding. Otherwise
-    the video ``DURATION`` tag, or the container duration when video 0 is the only timed stream.
-    The last resort is one average frame after the last decoded frame. A stream end at
-    or before the last decoded frame, such as a short MPEG-PS header duration, is ignored.
-
-    The file is not opened again to scan packets. When PyAV reports a frame duration, the decode
-    already produced that end. Matroska files that omit ``AVStream.duration`` carry the same end
-    in the ``DURATION`` tag, and their packets often have no duration.
-    """
-    not_before = frame_iter.video_last_time if frame_iter.video_last_time is not None else last_frame_time
-
-    stream_end = _stream_presentation_end(frame_iter)
-    if stream_end is not None and stream_end > not_before:
-        return stream_end
-
-    if frame_iter.video_end_time is not None and frame_iter.video_end_time > not_before:
-        return frame_iter.video_end_time
-
-    metadata_end = _metadata_presentation_end(frame_iter, not_before)
-    if metadata_end is not None and metadata_end > scene_start:
-        return metadata_end
-
-    assert frame_iter.video_framerate is not None
-    return not_before + float(1 / frame_iter.video_framerate)
-
-
 def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> list[SceneInfo]:
     from scenedetect import FrameTimecode  # type: ignore[import-untyped]
 
@@ -646,7 +516,6 @@ def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> l
         # up by index; trying to derive frame times from frame indices isn't possible due to variable frame rates;
         # frame_info[0] is the first frame of the current scene
         frame_info: list[_SceneDetectFrameInfo] = []
-        last_frame_time: float | None = None
 
         def process_cuts(cuts: list[FrameTimecode]) -> None:
             nonlocal frame_info, start_time, start_pts
@@ -675,7 +544,6 @@ def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> l
             frame_info.append(_SceneDetectFrameInfo(item.frame_idx, item.pts, item.time))
             frame_array = np.array(item.frame.convert('RGB'))
             frame_idx = item.frame_idx
-            last_frame_time = item.time
             timecode = FrameTimecode(item.frame_idx, video_fps)
             cuts = detector.process_frame(timecode, frame_array)
             process_cuts(cuts)
@@ -686,10 +554,9 @@ def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> l
             final_cuts = detector.post_process(final_timecode)
             process_cuts(final_cuts)
 
-            # The scene that starts at the last cut (or at the first frame) runs through the end of the
-            # video, including a final frame that fps sampling did not yield.
-            assert start_time is not None and last_frame_time is not None
-            end_time = _scene_end_time(frame_iter, scene_start=start_time, last_frame_time=last_frame_time)
+            # The scene that starts at the last cut, or at the first frame, runs through the end of the video.
+            assert start_time is not None
+            end_time = frame_iter.end_time()
             scenes.append({'start_time': start_time, 'start_pts': start_pts, 'duration': end_time - start_time})
 
         return scenes

@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Iterator, Literal, TypedDict
 
 import av
-import pandas as pd
 import PIL.Image
 from av.container import InputContainer
 
@@ -119,6 +118,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     pos: int
     video_idx: int
     cur_frame: av.VideoFrame | None
+    # One decode generator for this container; a second decode() drops the frame flushed at the end.
     frame_gen: Iterator[av.VideoFrame]
 
     def __init__(
@@ -132,25 +132,15 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         self.num_frames = num_frames
         self.keyframes_only = keyframes_only
 
-        self.video_time_base = self.container.streams.video[0].time_base
-
-        start_time = self.container.streams.video[0].start_time or 0
-        self.video_start_time = float(start_time * self.video_time_base)
-
-        duration_pts: int | None = self.container.streams.video[0].duration
-        if duration_pts is not None:
-            self.video_duration = float(duration_pts * self.video_time_base)
+        stream = self.container.streams.video[0]
+        self.video_time_base = stream.time_base
+        time_range = av_utils.video_time_range(self.container)
+        if time_range is None:
+            self.video_start_time = float((stream.start_time or 0) * self.video_time_base)
+            self.video_duration = None
         else:
-            # As a backup, try to calculate duration from DURATION metadata field
-            metadata = self.container.streams.video[0].metadata
-            duration_field = metadata.get('DURATION')  # A string like "00:01:23"
-            if duration_field is not None:
-                assert isinstance(duration_field, str)
-                self.video_duration = pd.to_timedelta(duration_field).total_seconds()
-            else:
-                # TODO: Anything we can do here? Other methods of determining the duration are expensive and
-                #     not so appropriate for an iterator initializer.
-                self.video_duration = None
+            self.video_start_time, end = time_range
+            self.video_duration = end - self.video_start_time
 
         if self.video_duration is None and self.num_frames is not None:
             raise excs.RequestError(
@@ -168,7 +158,8 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         if self.num_frames is not None:
             # Divide the video duration into num_frames evenly spaced intervals. The extraction times are the midpoints
             # of those intervals.
-            self.extraction_step = (self.video_duration - self.video_start_time) / self.num_frames
+            assert self.video_duration is not None
+            self.extraction_step = self.video_duration / self.num_frames
             self.next_extraction_time = self.video_start_time + self.extraction_step / 2
         elif self.fps is not None:
             self.extraction_step = 1 / self.fps
@@ -185,8 +176,6 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         self.cur_frame = self.next_frame()
 
     def next_frame(self) -> av.VideoFrame | None:
-        # One generator per open container: a new decode() call keeps only its first frame, which drops the
-        # extra frame a decoder flushes at end of stream. next(..., None) also treats StopIteration as EOS.
         try:
             return next(self.frame_gen, None)
         except EOFError:
