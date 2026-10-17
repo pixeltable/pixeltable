@@ -217,7 +217,7 @@ class ServedRouter:
 
 @contextlib.contextmanager
 def serve_router(
-    router: 'FastAPIRouter', *, port: int = 0, job_key: bytes | None = None, root_path: str = '', drain_s: float = 0.0
+    router: 'FastAPIRouter', *, port: int = 0, job_secret: str | None = None, root_path: str = '', drain_s: float = 0.0
 ) -> Iterator[ServedRouter]:
     """Serve router on a loopback port, on a thread of the test process, with the server of a hosted pod."""
     import fastapi
@@ -231,8 +231,8 @@ def serve_router(
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(('127.0.0.1', port))
     addr = f'127.0.0.1:{sock.getsockname()[1]}'
-    if job_key is not None:
-        router._configure_job_forwarding(addr, job_key, root_path)
+    if job_secret is not None:
+        router._configure_job_forwarding(addr, job_secret, root_path)
     # loop='asyncio': the default installs uvloop's event loop policy for the whole test process
     config = uvicorn.Config(app, log_config=None, loop='asyncio', root_path=root_path)
     server = _DrainingServer(config, [router], drain_s)
@@ -1164,29 +1164,29 @@ class TestFastAPI:
 
         t = pxt.create_table('jobs', {'x': pxt.Int, 'secs': pxt.Float})
         t.add_computed_column(slept=sleep(t.secs))
-        job_key = b'k' * 32
+        job_secret = 'db-credential'
+        # served like the pods of a hosted service, whose gateway strips the root_path from the request path
+        root_path = '/svc'
         api_key = {'X-Api-Key': 'secret'}
 
         def check_api_key(x_api_key: Annotated[str, fastapi.Header()]) -> None:
             if x_api_key != 'secret':
                 raise fastapi.HTTPException(status_code=403)
 
-        def jobs_router(*, addr: str | None = None, key: bytes = job_key) -> FastAPIRouter:
+        def jobs_router(*, addr: str | None = None, service_path: str = root_path) -> FastAPIRouter:
             # an app's own authentication: the owner checks the client's headers on a forwarded poll as well
             router = FastAPIRouter(dependencies=[fastapi.Depends(check_api_key)])
             router.add_insert_route(t, path='/bg', background=True)
             if addr is not None:
-                router._configure_job_forwarding(addr, key, '')
+                router._configure_job_forwarding(addr, job_secret, service_path)
             return router
 
-        # served like the pods of a hosted service, whose gateway strips the root_path from the request path
-        root_path = '/svc'
         with (
-            serve_router(jobs_router(), job_key=job_key, root_path=root_path) as served_other,
+            serve_router(jobs_router(), job_secret=job_secret, root_path=root_path) as served_other,
             httpx.Client(base_url=f'http://{served_other.addr}', headers=api_key) as other,
         ):
             with (
-                serve_router(jobs_router(), job_key=job_key, root_path=root_path) as owner,
+                serve_router(jobs_router(), job_secret=job_secret, root_path=root_path) as owner,
                 httpx.Client(base_url=f'http://{owner.addr}', headers=api_key) as c,
             ):
                 job = c.post('/bg', json={'x': 1, 'secs': 0.5}).json()
@@ -1198,14 +1198,16 @@ class TestFastAPI:
                 instance, _, job_uuid, mac = job['id'].split('.')
                 addr_b64 = base64.urlsafe_b64encode(b'127.0.0.1:2').decode().rstrip('=')
                 assert other.get(f'/_pxt/jobs/{instance}.{addr_b64}.{job_uuid}.{mac}').status_code == 404
-                # nor does the key of another service
-                stranger = make_test_client(jobs_router(addr='127.0.0.1:1', key=b's' * 32))
+                # nor does the key of another service of the same database
+                stranger = make_test_client(jobs_router(addr='127.0.0.1:1', service_path='/other'))
                 assert stranger.get(poll_path, headers=api_key).status_code == 404
 
             # the owner stopped
             assert other.get(poll_path).status_code == 410
             # another server listens at the owner's address now
-            with serve_router(jobs_router(), port=int(owner.addr.split(':')[1]), job_key=job_key, root_path=root_path):
+            with serve_router(
+                jobs_router(), port=int(owner.addr.split(':')[1]), job_secret=job_secret, root_path=root_path
+            ):
                 assert other.get(poll_path).status_code == 410
 
             # an owner that does not answer in time

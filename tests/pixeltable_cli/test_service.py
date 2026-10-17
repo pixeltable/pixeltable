@@ -636,9 +636,11 @@ class TestService:
         base_path = target.removeprefix(f'{db_root.base_uri}/')
         config_file = session_project / 'pixeltable.toml'
         config = config_file.read_text(encoding='utf-8')
+        # 2 instances, so a poll can reach the instance that did not run the job
         config_file.write_text(
             f"{config}\n[pixeltable.database.services.'{base_path}/jobs']\nworkers = 2\n", encoding='utf-8'
         )
+        # keyed by nap_id: the accepted jobs, and the results of the finished ones
         jobs: dict[int, dict[str, Any]] = {}
         results: dict[int, Any] = {}
 
@@ -673,13 +675,14 @@ class TestService:
         try:
             deploy(cli, app, target)
             endpoint = assert_serving(cli, app, target, 'jobs')['jobs']['endpoint']
+            # a submit or a poll can reach either instance
             for nap_id in range(40):
                 submit(nap_id)
             await_jobs(120.0)
             # the id is opaque to users; its first part shows that both instances ran jobs, so polls were forwarded
             assert len({job['id'].split('.')[0] for job in jobs.values()}) == 2, list(jobs.values())
 
-            # jobs submitted while the service restarts
+            # submit and poll during a restart: each stopping instance refuses new jobs and drains its own
             submitted = len(jobs)
             with ThreadPoolExecutor(max_workers=1) as pool:
                 restart = pool.submit(cli, 'service', 'restart', f'{target}/jobs')
@@ -689,9 +692,11 @@ class TestService:
                     time.sleep(1.0)
                 restart.result()
             assert len(jobs) > submitted
+            # every accepted job finished, including the ones whose instance stopped before they were polled
             await_jobs(120.0)
             assert results == {nap_id: {'nap_id': nap_id, 'slept': 1.0} for nap_id in jobs}
         finally:
+            # the other tests share the session project: restore its config without the workers setting
             config_file.write_text(config, encoding='utf-8')
             cli('service', 'stop', f'{target}/jobs', check=False)
 

@@ -3,8 +3,6 @@
 
 import argparse
 import copy
-import hashlib
-import hmac
 import logging
 import os
 import signal
@@ -25,6 +23,10 @@ from pixeltable.utils.project import ProjectFingerprint
 
 if TYPE_CHECKING:
     import fastapi
+
+# how long a stopping pod waits for its background jobs after SIGTERM; the pod's terminationGracePeriodSeconds has to
+# cover its preStop sleep plus this wait
+_DRAIN_S = 300.0
 
 
 def _add_gateway_openapi_security(app: 'fastapi.FastAPI') -> None:
@@ -52,14 +54,6 @@ def _add_gateway_openapi_security(app: 'fastapi.FastAPI') -> None:
         return schema
 
     app.openapi = hosted_openapi  # type: ignore[method-assign]
-
-
-def _job_key(base_path: str, service_name: str) -> bytes:
-    """Derive the MAC key for the service's job ids from the database credential, which all its pods share."""
-    db_connect_str = Config.get().get_string_value('DB_CONNECT_STR')
-    if db_connect_str is None:
-        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, 'a pod needs PIXELTABLE_DB_CONNECT_STR')
-    return hmac.new(db_connect_str.encode(), f'pxt-job-id:{base_path}/{service_name}'.encode(), hashlib.sha256).digest()
 
 
 class _DrainingServer(uvicorn.Server):
@@ -135,13 +129,16 @@ def _serve(
     instance_host = os.environ.get('PIXELTABLE_SERVE_INSTANCE_HOST')
     if instance_host is not None:
         instance_addr = f'[{instance_host}]:{port}' if ':' in instance_host else f'{instance_host}:{port}'
-        key = _job_key(base_path, service_name)
+        # the pods of a service share the database credential, the secret for their job ids
+        db_connect_str = Config.get().get_string_value('DB_CONNECT_STR')
+        if db_connect_str is None:
+            raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, 'a pod needs PIXELTABLE_DB_CONNECT_STR')
         for router in routers:
-            router._configure_job_forwarding(instance_addr, key, root_path)
+            router._configure_job_forwarding(instance_addr, db_connect_str, root_path)
     config = uvicorn.Config(
         app, host=host, port=port, log_level=log_level, log_config=None, root_path=root_path, proxy_headers=False
     )
-    _DrainingServer(config, routers, float(os.environ.get('PIXELTABLE_SERVE_DRAIN_S', '0'))).run()
+    _DrainingServer(config, routers, _DRAIN_S).run()
 
 
 if __name__ == '__main__':

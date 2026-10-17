@@ -202,21 +202,78 @@ class _Job:
         return self.fetched_at is not None or now - self.finished_at > _DRAIN_COLLECT_S
 
 
-@dataclasses.dataclass(frozen=True)
-class _JobForwarding:
-    """Settings for forwarding job polls between the instances of a service."""
+class _JobIds:
+    """Issues and parses a router's background job ids; each id identifies the router instance that runs its job.
 
-    addr: str  # host:port of this process, reachable from the other pods of its service
-    key: bytes  # MAC key for job ids, shared by the pods of the service
-    root_path: str  # the server's root_path, which uvicorn prepends to scope['raw_path']
+    An id is <instance>.<uuid>, or <instance>.<addr>.<uuid>.<mac> once forwarding is enabled: the other instances of
+    the service forward a poll to addr, and the MAC keeps a client from choosing that address.
+    """
 
+    instance: str  # random, 16 hex digits
+    addr: str | None  # host:port of this process for the other instances of its service; None without forwarding
+    _key: bytes | None  # MAC key, shared by the instances of the service; set together with addr
 
-def _b64encode(s: str) -> str:
-    return base64.urlsafe_b64encode(s.encode()).decode().rstrip('=')
+    def __init__(self) -> None:
+        self.instance = secrets.token_hex(8)
+        self.addr = None
+        self._key = None
 
+    def enable_forwarding(self, addr: str, secret: str, service_path: str) -> None:
+        """Issue ids that the other instances of the service at service_path forward to addr.
 
-def _b64decode(s: str) -> str:
-    return base64.urlsafe_b64decode(s + '=' * (-len(s) % 4)).decode()
+        All instances of the service derive the same MAC key from secret and service_path; another service derives
+        a different one.
+        """
+        self.addr = addr
+        self._key = hmac.new(secret.encode(), f'pxt-job-id:{service_path}'.encode(), hashlib.sha256).digest()
+
+    def new_id(self) -> str:
+        job_uuid = uuid.uuid4().hex
+        if self.addr is None:
+            return f'{self.instance}.{job_uuid}'
+        # <instance>.<addr>.<uuid>.<mac>, e.g. for addr 10.0.0.7:8000:
+        # 3f2a9c1e5b7d4a60.MTAuMC4wLjc6ODAwMA.9b2e4c7a1f0d4e8b8c6a5d3f2e1b0a97.4a917dd7ad72ac47d91ed15ec0b5e600
+        signed = f'{self.instance}.{self._encode_addr(self.addr)}.{job_uuid}'
+        return f'{signed}.{self._mac(signed)}'
+
+    def owner(self, job_id: str) -> tuple[str, str | None] | None:
+        """Return the instance and the address in job_id; None if job_id is malformed or its MAC is wrong."""
+        parts = job_id.split('.')
+        addr: str | None = None
+        if len(parts) == 2:
+            # <instance>.<uuid>, from a router that does not forward polls
+            instance, job_uuid = parts
+        elif len(parts) == 4 and self._key is not None:
+            # <instance>.<addr>.<uuid>.<mac>
+            instance, addr_b64, job_uuid, mac = parts
+            # a forged id, or one from another service, has the wrong MAC
+            if not hmac.compare_digest(mac, self._mac(f'{instance}.{addr_b64}.{job_uuid}')):
+                return None
+            try:
+                addr = self._decode_addr(addr_b64)
+            except ValueError:
+                return None
+        else:
+            # a forwarding id at a router without forwarding, or no job id at all
+            return None
+        # the <instance>.<uuid> form has no MAC that vouches for its parts
+        if _INSTANCE_RE.fullmatch(instance) is None or _UUID_RE.fullmatch(job_uuid) is None:
+            return None
+        return instance, addr
+
+    def _mac(self, signed: str) -> str:
+        """Return the MAC of signed, a job id up to its MAC, such as 3f2a9c1e5b7d4a60.MTAuMC4wLjc6ODAwMA.9b2e...97."""
+        assert self._key is not None
+        # HMAC-SHA256, truncated to 128 bits (32 hex digits) to keep the id short
+        return hmac.new(self._key, signed.encode(), hashlib.sha256).hexdigest()[:32]
+
+    def _encode_addr(self, addr: str) -> str:
+        # URL-safe base64 without the '=' padding, which is redundant: the length determines it
+        return base64.urlsafe_b64encode(addr.encode()).decode().rstrip('=')
+
+    def _decode_addr(self, addr_b64: str) -> str:
+        # urlsafe_b64decode() requires the padding: append '=' until the length is a multiple of 4
+        return base64.urlsafe_b64decode(addr_b64 + '=' * (-len(addr_b64) % 4)).decode()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -518,7 +575,7 @@ class PxtEndpoint:
                     kwargs[input_name] = str(path)
 
         if self.route.spec.background:
-            job_id = self.router._new_job_id()
+            job_id = self.router._job_ids.new_id()
             job_url = str(request.url_for(_JOB_STATUS_ROUTE_NAME, job_id=job_id))
             public_origin = os.environ.get('PIXELTABLE_PUBLIC_ORIGIN')
             if public_origin is not None:
@@ -544,8 +601,8 @@ class FastAPIRouter(fastapi.APIRouter):
     _executor: ThreadPoolExecutor
     _jobs: dict[str, _Job]  # background requests, keyed by job id
     _jobs_lock: threading.Lock
-    _instance: str  # random, part of each job id; identifies the router that owns a job
-    _job_forwarding: _JobForwarding | None  # None for a server with one process, such as a local service
+    _job_ids: _JobIds
+    _server_root_path: str  # the server's root_path, which uvicorn prepends to scope['raw_path']; '' without forwarding
     _draining: bool  # set by _start_drain(); new background jobs are refused
     _is_shut_down: bool
     _home_dir: Path
@@ -579,8 +636,8 @@ class FastAPIRouter(fastapi.APIRouter):
         )
         self._jobs = {}
         self._jobs_lock = threading.Lock()
-        self._instance = secrets.token_hex(8)
-        self._job_forwarding = None
+        self._job_ids = _JobIds()
+        self._server_root_path = ''
         self._draining = False
         self._is_shut_down = False
         self._home_dir = Config.get().home.resolve()
@@ -2775,12 +2832,13 @@ class FastAPIRouter(fastapi.APIRouter):
         async def get_job_status(job_id: str, request: Request, response: fastapi.Response) -> Any:
             if _UUID_RE.fullmatch(job_id) is not None:
                 # a plain uuid: an id from an earlier pixeltable version
+                # TODO: remove
                 raise HTTPException(status_code=410, detail=_STOPPED_INSTANCE)
-            owner = self._job_owner(job_id)
+            owner = self._job_ids.owner(job_id)
             if owner is None:
                 raise HTTPException(status_code=404, detail=_UNKNOWN_JOB)
             instance, addr = owner
-            if instance == self._instance:
+            if instance == self._job_ids.instance:
                 return self._job_status(job_id, response)
             if addr is None or _JOB_FORWARDED_HEADER in request.headers:
                 # the server restarted, or the owner's address now belongs to a process without the job
@@ -2795,40 +2853,13 @@ class FastAPIRouter(fastapi.APIRouter):
             name=_JOB_STATUS_ROUTE_NAME,
         )
 
-    def _configure_job_forwarding(self, addr: str, key: bytes, root_path: str) -> None:
-        """Issue job ids that the other processes of the service forward to addr, signed with key."""
-        self._job_forwarding = _JobForwarding(addr, key, root_path)
+    def _configure_job_forwarding(self, addr: str, secret: str, root_path: str) -> None:
+        """Issue job ids that the other instances of the service forward to addr, signed with a key from secret.
 
-    def _new_job_id(self) -> str:
-        job_uuid = uuid.uuid4().hex
-        if self._job_forwarding is None:
-            return f'{self._instance}.{job_uuid}'
-        signed = f'{self._instance}.{_b64encode(self._job_forwarding.addr)}.{job_uuid}'
-        return f'{signed}.{self._job_mac(signed)}'
-
-    def _job_mac(self, signed: str) -> str:
-        assert self._job_forwarding is not None
-        return hmac.new(self._job_forwarding.key, signed.encode(), hashlib.sha256).hexdigest()[:32]
-
-    def _job_owner(self, job_id: str) -> tuple[str, str | None] | None:
-        """Return the instance and the address in job_id; None if job_id is malformed or its MAC is wrong."""
-        parts = job_id.split('.')
-        addr: str | None = None
-        if len(parts) == 2:
-            instance, job_uuid = parts
-        elif len(parts) == 4 and self._job_forwarding is not None:
-            instance, addr_b64, job_uuid, mac = parts
-            if not hmac.compare_digest(mac, self._job_mac(f'{instance}.{addr_b64}.{job_uuid}')):
-                return None
-            try:
-                addr = _b64decode(addr_b64)
-            except ValueError:
-                return None
-        else:
-            return None
-        if _INSTANCE_RE.fullmatch(instance) is None or _UUID_RE.fullmatch(job_uuid) is None:
-            return None
-        return instance, addr
+        root_path, the server's root_path, also identifies the service in the key.
+        """
+        self._job_ids.enable_forwarding(addr, secret, root_path)
+        self._server_root_path = root_path
 
     def _submit_job(
         self,
@@ -2839,10 +2870,22 @@ class FastAPIRouter(fastapi.APIRouter):
         media: _ResponseMedia,
     ) -> None:
         """Run endpoint_op as the background job job_id. Raises a 503 if this router takes no more jobs."""
+        refusal: HTTPException | None = None
         with self._jobs_lock:
             self._prune_jobs(time.monotonic())
-            refusal = self._job_refusal()
-            if refusal is None:
+            if self._draining:
+                refusal = HTTPException(
+                    status_code=503,
+                    detail='the service instance is shutting down',
+                    headers={'Retry-After': str(_DRAINING_RETRY_AFTER_S)},
+                )
+            elif sum(1 for job in self._jobs.values() if job.finished_at is None) >= _MAX_PENDING_JOBS:
+                refusal = HTTPException(
+                    status_code=503,
+                    detail=f'the service instance is at its limit of {_MAX_PENDING_JOBS} unfinished background jobs',
+                    headers={'Retry-After': str(_JOB_LIMIT_RETRY_AFTER_S)},
+                )
+            else:
                 job = _Job(self._executor.submit(_run_endpoint_op, endpoint_op, kwargs, tmp_paths, media))
                 self._jobs[job_id] = job
         if refusal is not None:
@@ -2851,61 +2894,46 @@ class FastAPIRouter(fastapi.APIRouter):
         # outside the lock: for a finished future, add_done_callback() calls _finish_job() at once, which takes the lock
         job.future.add_done_callback(lambda _: self._finish_job(job))
 
-    def _job_refusal(self) -> HTTPException | None:
-        """Return the 503 for a new job, or None if this router takes it. Called with _jobs_lock held."""
-        if self._draining:
-            return HTTPException(
-                status_code=503,
-                detail='the service instance is shutting down',
-                headers={'Retry-After': str(_DRAINING_RETRY_AFTER_S)},
-            )
-        if sum(1 for job in self._jobs.values() if job.finished_at is None) >= _MAX_PENDING_JOBS:
-            return HTTPException(
-                status_code=503,
-                detail=f'the service instance is at its limit of {_MAX_PENDING_JOBS} unfinished background jobs',
-                headers={'Retry-After': str(_JOB_LIMIT_RETRY_AFTER_S)},
-            )
-        return None
-
     def _finish_job(self, job: _Job) -> None:
         with self._jobs_lock:
             job.finished_at = time.monotonic()
 
     def _prune_jobs(self, now: float) -> None:
-        """Drop the jobs whose results expired. Called with _jobs_lock held."""
+        """Drop the jobs whose results expired."""
+        assert self._jobs_lock.locked()
         for job_id in [job_id for job_id, job in self._jobs.items() if job.is_expired(now)]:
             del self._jobs[job_id]
 
     def _job_status(self, job_id: str, response: fastapi.Response) -> JobStatusResponse:
         """Answer a poll for a job of this router."""
-        headers = {_JOB_INSTANCE_HEADER: self._instance}
+        headers = {_JOB_INSTANCE_HEADER: self._job_ids.instance}
         now = time.monotonic()
         with self._jobs_lock:
             self._prune_jobs(now)
             job = self._jobs.get(job_id)
-            if job is not None and job.future.done() and job.fetched_at is None:
+            if job is None:
+                raise HTTPException(status_code=404, detail=_UNKNOWN_JOB, headers=headers)
+            if job.future.done() and job.fetched_at is None:
                 job.fetched_at = now
-        if job is None:
-            raise HTTPException(status_code=404, detail=_UNKNOWN_JOB, headers=headers)
+
         response.headers.update(headers)
-        fut = job.future
-        if not fut.done():
+        if not job.future.done():
             response.headers['Retry-After'] = str(_PENDING_RETRY_AFTER_S)
             return JobStatusResponse(status='pending')
-        exc = fut.exception()
+        exc = job.future.exception()
         if exc is not None:
             # _run_endpoint_op() already turned a Pixeltable error into its HTTPException
             error_detail = exc.detail if isinstance(exc, HTTPException) else None
             return JobStatusResponse(status='error', error=str(exc), error_detail=error_detail)
         # FileResponse cannot be JSON-serialized; only response_model instances make it here
         # in practice (background+return_fileresponse is rejected at registration).
-        return JobStatusResponse(status='done', result=fut.result())
+        return JobStatusResponse(status='done', result=job.future.result())
 
     async def _forward_job_poll(self, addr: str, instance: str, request: Request) -> fastapi.Response:
         """Forward the poll to the job's owner at addr and relay its answer."""
-        assert self._job_forwarding is not None
+        assert self._job_ids.addr is not None
         # the path as this server received it: the owner's server prepends root_path again
-        path = request.scope['raw_path'].decode().removeprefix(self._job_forwarding.root_path)
+        path = request.scope['raw_path'].decode().removeprefix(self._server_root_path)
         # the owner's route dependencies and middleware see the client's headers
         headers = [(k, v) for k, v in request.headers.items() if k not in _UNFORWARDED_HEADERS]
         headers.append((_JOB_FORWARDED_HEADER, '1'))
@@ -2920,6 +2948,7 @@ class FastAPIRouter(fastapi.APIRouter):
             ) from exc
         except httpx.TransportError as exc:
             raise HTTPException(status_code=410, detail=_STOPPED_INSTANCE) from exc
+
         if owner_resp.headers.get(_JOB_INSTANCE_HEADER) != instance:
             # another process listens at the owner's address now
             raise HTTPException(status_code=410, detail=_STOPPED_INSTANCE)
