@@ -8,6 +8,7 @@ import importlib.metadata
 import json
 import os
 import pathlib
+import shlex
 import subprocess
 import sys
 import urllib.error
@@ -173,7 +174,13 @@ class TestDbDelete:
                 assert result.returncode == 3, result.stderr
                 assert f'delete {uri}? This is irreversible.' in result.stderr
                 assert '--force/-f' in result.stderr
-                assert result.stdout == ''
+                # it names the command that confirms the deletion, which this test leaves unrun
+                assert result.next_commands == [['pxt', 'db', 'delete', *uri_args, *output_args, '-f']]
+                if output_args:
+                    assert result.json['error_code'] == 'CONFIRMATION_REQUIRED'
+                    assert result.json['next'][0]['command'] == shlex.join(result.next_commands[0])
+                else:
+                    assert result.stdout == ''
 
     def test_update_json_prints_pending_plan(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -753,13 +760,17 @@ class TestGet:
         assert out['pk_columns'] == ['k']
         assert out['row']['v'] == 'two'
 
-        # --json: missing row -> row is None
-        out = cli('get', p('cli_get/t'), '99', '--json').json
-        assert out['row'] is None
+        # --json: missing row -> row is None, and the miss exits 1 as in text
+        r = cli('get', p('cli_get/t'), '99', '--json', check=False)
+        assert r.returncode == 1
+        assert r.json['row'] is None
 
-        # text: found shows the row, missing prints 'no row found'
+        # text: found shows the row; missing prints nothing on stdout and the reason on stderr
         assert 'two' in cli('get', p('cli_get/t'), '2').stdout
-        assert 'no row found' in cli('get', p('cli_get/t'), '99').stdout
+        r = cli('get', p('cli_get/t'), '99', check=False)
+        assert r.returncode == 1
+        assert r.stdout == ''
+        assert "no row found for {k='99'} [ROW_NOT_FOUND]" in r.stderr
 
         # --cols subset: only the named columns returned
         out = cli('get', p('cli_get/t'), '1', '--cols', 'a', '--json').json
@@ -975,15 +986,22 @@ class TestErrors:
         r = cli('errors', p('cli_errs/ok'))
         assert r.returncode == 0
         assert r.stdout.strip() == ''
+        assert f'no failed cells in {p("cli_errs/ok")}' in r.stderr
+        assert r.next_commands == []
 
         # Computed column that raises for k=0: row 0 shows up in the errors listing
         t = pxt.create_table(p('cli_errs/bad'), {'k': pxt.Int}, primary_key='k', if_exists='replace')
         t.add_computed_column(b=fail_on_zero(t.k), on_error='ignore')
         t.add_computed_column(c=fail_on_zero(t.k), on_error='ignore')
         t.insert([{'k': 0}, {'k': 1}], on_error='ignore')
-        text = cli('errors', p('cli_errs/bad')).stdout
-        assert 'k: 0' in text
-        assert 'b' in text
+        r = cli('errors', p('cli_errs/bad'))
+        assert 'k: 0' in r.stdout
+        assert 'b' in r.stdout
+        # one recompute per failed column, for its failed cells only
+        assert r.next_commands == [
+            ['pxt', 'recompute', p('cli_errs/bad'), 'b', '--errors-only', '-f'],
+            ['pxt', 'recompute', p('cli_errs/bad'), 'c', '--errors-only', '-f'],
+        ]
 
         # --col filters to one stored computed column: an existing column with errors comes back,
         # and asking for the other computed column also returns its errors.
@@ -1017,6 +1035,83 @@ class TestErrors:
         r = cli('errors', p('cli_errs_err/t'), '--col', 'plain', check=False)
         assert r.returncode != 0
         assert 'stored computed column' in r.stderr
+
+
+@pytest.mark.db_roots('local', reason='the udf reads a file on this machine, which a hosted pod cannot see')
+class TestErrorsNext:
+    def test_next_reruns_failed_cells(
+        self, cli: PxtRunner, db_root: DatabaseRoot, session_project: pathlib.Path
+    ) -> None:
+        """The recompute `pxt errors` names clears the errors once their cause is gone."""
+        flag = session_project / 'errors_next.flag'
+        udf_file = session_project / 'errors_next_udfs.py'
+        udf_file.write_text(
+            dedent(
+                f"""
+                import pathlib
+
+                import pixeltable as pxt
+
+
+                @pxt.udf
+                def flaky(k: int) -> int:
+                    # fails while the flag exists, as a model call fails during an outage
+                    if pathlib.Path({str(flag)!r}).exists():
+                        raise ValueError('outage')
+                    return k
+                """
+            ),
+            encoding='utf-8',
+        )
+        flaky = load_app_module(str(udf_file), subject='UDF module').flaky
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('cli_errs_next'), if_exists='ignore')
+        t = pxt.create_table(p('cli_errs_next/t'), {'k': pxt.Int}, primary_key='k', if_exists='replace')
+        t.add_computed_column(out=flaky(t.k), on_error='ignore')
+        flag.touch()
+        try:
+            t.insert([{'k': 1}, {'k': 2}], on_error='ignore')
+        finally:
+            flag.unlink()
+
+        # a view lists the failures of a column it inherits, which is recomputed on the table that defines it,
+        # named absolute so that a working directory leaves it alone
+        pxt.create_view(p('cli_errs_next/v'), t, if_exists='replace')
+        inherited = [['pxt', 'recompute', display_path(p('cli_errs_next/t')), 'out', '--errors-only', '-f']]
+        r = cli('errors', p('cli_errs_next/v'))
+        assert r.next_commands == inherited
+        assert 'which defines it' in r.stderr
+        # a view with its base's name too
+        pxt.create_dir(p('cli_errs_next/views'), if_exists='ignore')
+        pxt.create_view(p('cli_errs_next/views/t'), t, if_exists='replace')
+        assert cli('errors', p('cli_errs_next/views/t')).next_commands == inherited
+        cli('cd', p('cli_errs_next'))
+        try:
+            assert cli('errors', 'v').next_commands == inherited
+            # the table's own column keeps the path as given, which resolves the same way
+            assert cli('errors', 't').next_commands == [['pxt', 'recompute', 't', 'out', '--errors-only', '-f']]
+        finally:
+            cli('cd')
+
+        r = cli('errors', p('cli_errs_next/t'))
+        assert r.next_commands == [['pxt', 'recompute', p('cli_errs_next/t'), 'out', '--errors-only', '-f']]
+        assert '# reruns 2 failed cells of out' in r.stderr
+        cli(*r.next_commands[0][1:])
+        assert cli('errors', p('cli_errs_next/t'), '--json').json == []
+        assert cli('errors', p('cli_errs_next/v'), '--json').json == []
+        assert t.order_by(t.k).select(t.out).collect()['out'] == [1, 2]
+
+
+@pytest.mark.db_roots('local', reason='builds a command line; no catalog is reached')
+class TestRerunCommand:
+    def test_rerun_command(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # outside dispatch() there is no command to name
+        monkeypatch.setattr(utils, 'invocation', None)
+        assert utils.rerun_command('-f') is None
+
+        # --json is kept, and an argument with a space quoted
+        monkeypatch.setattr(utils, 'invocation', ['drop', 'my dir/t', '--json'])
+        assert utils.rerun_command('-f') == "pxt drop 'my dir/t' --json -f"
 
 
 class TestDrop:
@@ -1089,10 +1184,27 @@ class TestDrop:
         pxt.create_dir(p('cli_drop_err'), if_exists='ignore')
         pxt.create_table(p('cli_drop_err/protected'), {'a': pxt.Int | None}, if_exists='replace')
         r = cli('drop', p('cli_drop_err/protected'), check=False)
-        assert r.returncode != 0
+        assert r.returncode == 3
         assert '--force' in r.stderr
         # still exists
         assert pxt.get_table(p('cli_drop_err/protected'), if_not_exists='ignore') is not None
+
+        # --json: the refusal is an error document naming the same command, --json kept
+        r = cli('drop', p('cli_drop_err/protected'), '--json', check=False)
+        assert r.returncode == 3
+        assert r.json['error_code'] == 'CONFIRMATION_REQUIRED'
+        assert r.json['retryable'] is False
+        assert r.json['next'] == [
+            {
+                'command': shlex.join(['pxt', 'drop', p('cli_drop_err/protected'), '--json', '-f']),
+                'when': f'drop table {p("cli_drop_err/protected")}',
+            }
+        ]
+
+        # the command the refusal names drops the table
+        assert r.next_commands == [['pxt', 'drop', p('cli_drop_err/protected'), '--json', '-f']]
+        assert cli(*r.next_commands[0][1:]).json['dropped'] is True
+        assert pxt.get_table(p('cli_drop_err/protected'), if_not_exists='ignore') is None
 
         # drop on a directory is refused (server-side: drop_table on a dir errors)
         pxt.create_dir(p('cli_drop_err_dir'), if_exists='ignore')
@@ -1452,6 +1564,17 @@ class TestCli:
         r = cli('not_a_command', check=False)
         assert r.returncode == 2
         assert 'unknown command' in r.stderr
+        assert 'did you mean' not in r.stderr
+
+        # a misspelled command, and a verb typed without its command
+        for typed, expected in (('dorp', ['drop']), ('logs', ['db logs', 'service logs'])):
+            r = cli(typed, check=False)
+            assert r.returncode == 2
+            suggested = [line.removeprefix('did you mean: pxt ') for line in r.stderr.splitlines()[1:]]
+            assert suggested == expected
+            # each suggestion is a command pxt has
+            for suggestion in suggested:
+                assert cli(*suggestion.split(), '--help').returncode == 0
 
     def test_subcommand_arg_errors(self, cli: PxtRunner) -> None:
         # rows is missing the required path positional; argparse prints usage + epilog

@@ -8,6 +8,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import signal
 import socket
 import subprocess
@@ -18,7 +19,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import psutil
 import pydantic
@@ -534,36 +535,119 @@ def stdin_is_a_tty() -> bool:
     return bool(ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode)))
 
 
+# Set by coding agents in the environment of the commands they run, as @vercel/detect-agent reads
+# them: variable -> agent. Left out: CURSOR_TRACE_ID and REPL_ID, which every Cursor terminal and
+# Replit shell carries, and the COPILOT_* settings, which a person's shell profile can export.
+_AGENT_MARKERS = {
+    'CURSOR_AGENT': 'cursor',
+    'GEMINI_CLI': 'gemini',
+    'CODEX_SANDBOX': 'codex',
+    'CODEX_CI': 'codex',
+    'CODEX_THREAD_ID': 'codex',
+    'ANTIGRAVITY_AGENT': 'antigravity',
+    'AUGMENT_AGENT': 'augment',
+    'OPENCODE_CLIENT': 'opencode',
+    'CLAUDECODE': 'claude',
+    'CLAUDE_CODE': 'claude',
+}
+
+
+def agent_name() -> str | None:
+    """The coding agent running this command, from the variables agents set, or None.
+
+    AI_AGENT, which any agent can set to its own name, comes first.
+    """
+    declared = os.environ.get('AI_AGENT', '').strip()
+    if declared != '':
+        return declared
+    if os.environ.get('CURSOR_EXTENSION_HOST_ROLE') == 'agent-exec':
+        return 'cursor'
+    return next((agent for marker, agent in _AGENT_MARKERS.items() if os.environ.get(marker)), None)
+
+
+def run_by_agent() -> bool:
+    """Whether a coding agent, rather than a person, is running this command.
+
+    PXT_AGENT=1 or PXT_AGENT=0 decides outright; otherwise, whether agent_name() names one.
+    """
+    forced = os.environ.get('PXT_AGENT', '').strip()
+    if forced in ('0', '1'):
+        return forced == '1'
+    return agent_name() is not None
+
+
 def plural(n: int, noun: str) -> str:
     """Count and noun, with an s on the noun for every count but one."""
     return f'{n} {noun}' if n == 1 else f'{n} {noun}s'
 
 
-def confirm_or_exit(
-    prompt: str, force: bool, *, refused_exit_code: int = 2, on_refusal: Callable[[], None] | None = None
-) -> None:
-    """Prompt for yes/no on stdin; refuse non-tty unless --force. Both refusals exit with refused_exit_code.
+# the command being run, as main.dispatch() received it, so a refusal can name the command that finishes the job
+invocation: list[str] | None = None
 
-    on_refusal runs just before the non-tty refusal exits, for a caller that reports the refusal itself.
+
+def rerun_command(*flags: str) -> str | None:
+    """The command being run, with flags added before any '--', as a shell command line; None outside dispatch()."""
+    if invocation is None:
+        return None
+    end = invocation.index('--') if '--' in invocation else len(invocation)
+    return shlex.join(['pxt', *invocation[:end], *flags, *invocation[end:]])
+
+
+def print_next(command: str, when: str) -> None:
+    print(f'next: {command}  # {when}', file=sys.stderr)
+
+
+def can_prompt() -> bool:
+    """Whether someone can answer a prompt: stdin is a TTY, and no coding agent runs the command."""
+    return stdin_is_a_tty() and not run_by_agent()
+
+
+def confirm_or_exit(
+    prompt: str, force: bool, *, on_refusal: Callable[[], None] | None = None, as_json: bool = False
+) -> None:
+    """Prompt for yes/no on stdin unless --force; exit with EXIT_REFUSED on anything but yes, or when no one can answer.
+
+    No one can answer without a TTY, nor when a coding agent runs the command: an agent that runs it in a terminal
+    would otherwise wait on the prompt, or answer it itself. See _refuse_unanswered() for that refusal.
     """
     if force:
         return
-    if not stdin_is_a_tty():
-        if on_refusal is not None:
-            on_refusal()
-        # stdout is block-buffered on a pipe; flush it before stderr emits the refusal line
-        try:
-            sys.stdout.flush()
-        except OSError:
-            pass
-        print(f'pxt: refusing to proceed without --force/-f (no TTY for confirmation): {prompt}', file=sys.stderr)
-        sys.exit(refused_exit_code)
+    if not can_prompt():
+        _refuse_unanswered(prompt, on_refusal=on_refusal, as_json=as_json)
     sys.stderr.write(f'{prompt} [y/N] ')
     sys.stderr.flush()
     ans = sys.stdin.readline().strip().lower()
     if ans not in ('y', 'yes'):
         print('aborted', file=sys.stderr)
-        sys.exit(refused_exit_code)
+        sys.exit(EXIT_REFUSED)
+
+
+def _refuse_unanswered(prompt: str, *, on_refusal: Callable[[], None] | None, as_json: bool) -> NoReturn:
+    """Refuse a prompt no one can answer, naming the command to rerun with -f.
+
+    on_refusal runs first, for a caller that reports the refusal itself; otherwise, with as_json, the refusal is an
+    error document on stdout.
+    """
+    reason = 'a coding agent cannot answer the prompt; ask the user' if run_by_agent() else 'no TTY for confirmation'
+    message = f'refusing to proceed without --force/-f ({reason}): {prompt}'
+    command = rerun_command('-f')
+    # the question says what the command does; what follows it, such as 'This is irreversible.', does not
+    when = prompt.partition('?')[0]
+    if on_refusal is not None:
+        on_refusal()
+    elif as_json:
+        steps = [] if command is None else [{'command': command, 'when': when}]
+        doc = {'error_code': 'CONFIRMATION_REQUIRED', 'message': message, 'retryable': False, 'next': steps}
+        print(json.dumps(doc, indent=2))
+    # stdout is block-buffered on a pipe; flush it before stderr emits the refusal line
+    try:
+        sys.stdout.flush()
+    except OSError:
+        pass
+    print(f'pxt: {message}', file=sys.stderr)
+    if command is not None:
+        print_next(command, when)
+    sys.exit(EXIT_REFUSED)
 
 
 def print_json_schema(adapter: pydantic.TypeAdapter) -> None:

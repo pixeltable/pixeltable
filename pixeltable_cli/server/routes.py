@@ -13,7 +13,7 @@ import PIL.Image
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.catalog import Path, fold_identifier
+from pixeltable.catalog import Path, TableMetadata, fold_identifier
 from pixeltable.catalog.model import schema
 from pixeltable.config import Config
 from pixeltable.env import Env
@@ -309,23 +309,7 @@ def table_errors(req: Request) -> models.ErrorsResponse:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT, f'{path}: no primary key defined; errors view requires one'
         )
-
-    if col is not None:
-        col_md = md['columns'].get(col)
-        if col_md is None:
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'unknown column: {col}')
-        if not (col_md['is_computed'] and col_md.get('is_stored')):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                f'{col}: not a stored computed column (errors view only addresses those)',
-            )
-
-    # errortype/errormsg only apply to stored computed columns
-    computed = [
-        name
-        for name, c in md['columns'].items()
-        if c['is_computed'] and c.get('is_stored') and (col is None or name == col)
-    ]
+    computed = _stored_computed_columns(md, col)
     if len(computed) == 0:
         return models.ErrorsResponse(entries=[])
 
@@ -339,6 +323,7 @@ def table_errors(req: Request) -> models.ErrorsResponse:
         select_args += [t[c_name].errortype, t[c_name].errormsg]
     rows = t.where(where).select(*select_args).collect()
 
+    defined_in = {c_name: _defining_base(md, c_name) for c_name in computed}
     entries: list[models.ErrorEntry] = []
     for r in rows:
         pk = {name: r[name] for name in pk_names}
@@ -346,8 +331,41 @@ def table_errors(req: Request) -> models.ErrorsResponse:
             etype = r[f'{c_name}_errortype']
             emsg = r[f'{c_name}_errormsg']
             if etype is not None:
-                entries.append(models.ErrorEntry(pk=pk, column=c_name, errortype=etype, errormsg=emsg))
+                entries.append(
+                    models.ErrorEntry(
+                        pk=pk, column=c_name, errortype=etype, errormsg=emsg, defined_in=defined_in[c_name]
+                    )
+                )
     return models.ErrorsResponse(entries=entries)
+
+
+def _stored_computed_columns(md: TableMetadata, col: str | None) -> list[str]:
+    """The columns whose errors are listed: every stored computed column, or col, which must be one."""
+    if col is None:
+        # errortype/errormsg only apply to stored computed columns
+        return [name for name, c in md['columns'].items() if c['is_computed'] and c.get('is_stored')]
+    col_md = md['columns'].get(col)
+    if col_md is None:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'unknown column: {col}')
+    if not (col_md['is_computed'] and col_md.get('is_stored')):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'{col}: not a stored computed column (errors view only addresses those)'
+        )
+    return [col]
+
+
+def _defining_base(md: TableMetadata, column: str) -> str | None:
+    """For a column a view inherits, the path of the base that defines it; None for the table's own column.
+
+    The defining base is the furthest one up that still has the column, since a view cannot redefine a base column.
+    """
+    path = None
+    while md['base'] is not None:
+        base_md = pxt.get_table(md['base']).get_metadata()
+        if column not in base_md['columns']:
+            break
+        path, md = md['base'], base_md
+    return path
 
 
 @router.get('/api/tables/history', checks_env=False)

@@ -27,7 +27,6 @@ from ..parser import Parser
 from ..utils import (
     EXIT_CHANGES_PENDING,
     EXIT_IN_AGREEMENT,
-    EXIT_REFUSED,
     confirm_or_exit,
     get_request,
     post_request,
@@ -241,7 +240,6 @@ def _update(args: argparse.Namespace) -> None:
     confirm_or_exit(
         f'apply {what} to {plan.db_uri}{minutes}?',
         args.force,
-        refused_exit_code=EXIT_REFUSED,
         # text mode printed the pending plan above; --json skipped it, so a refusal still emits it
         on_refusal=lambda: _print_plan(plan, as_json=True) if args.json_output else None,
     )
@@ -324,7 +322,7 @@ def _print_plan(plan: DbPlan, *, as_json: bool, applied: bool = False) -> None:
 def _delete(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db delete')
     db_uri = f'pxt://{org}:{db}'
-    confirm_or_exit(f'delete {db_uri}? This is irreversible.', args.force, refused_exit_code=EXIT_REFUSED)
+    confirm_or_exit(f'delete {db_uri}? This is irreversible.', args.force, as_json=args.json_output)
     with spinner(None if args.json_output else f'Submitting the deletion of {db_uri} ...'):
         accepted = DbLifecycleResponse.model_validate(post_request('/api/db/delete', {'db_uri': db_uri, 'wait': False}))
     settled = _await(db_uri, [accepted.receipt], args)
