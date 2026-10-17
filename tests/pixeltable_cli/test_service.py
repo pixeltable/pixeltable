@@ -676,7 +676,7 @@ class TestService:
             for nap_id in range(40):
                 submit(nap_id)
             await_jobs(120.0)
-            # a job id begins with the instance that ran the job
+            # the id is opaque to users; its first part shows that both instances ran jobs, so polls were forwarded
             assert len({job['id'].split('.')[0] for job in jobs.values()}) == 2, list(jobs.values())
 
             # jobs submitted while the service restarts

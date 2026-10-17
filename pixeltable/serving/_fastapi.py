@@ -146,7 +146,7 @@ _MAX_PENDING_JOBS = 4 * _N_BACKGROUND_WORKERS
 _JOB_RESULT_TTL_S = 600.0
 _JOB_FETCHED_TTL_S = 60.0
 
-# while draining, how long a finished job's result waits for a poll
+# how long a drain waits for a poll of a finished job's result
 _DRAIN_COLLECT_S = 30.0
 
 # Retry-After values, in seconds
@@ -155,16 +155,31 @@ _FORWARD_RETRY_AFTER_S = 2
 _JOB_LIMIT_RETRY_AFTER_S = 5
 _DRAINING_RETRY_AFTER_S = 1
 
-# set to the router's instance on its answers to polls for its own jobs
+# _job_status() sets it to the router's instance
 _JOB_INSTANCE_HEADER = 'X-Pxt-Job-Instance'
 _JOB_FORWARDED_HEADER = 'X-Pxt-Job-Forwarded'
 _FORWARD_TIMEOUT = httpx.Timeout(5.0, connect=1.0)
+# not forwarded with a job poll: the hop-by-hop headers, and the ones httpx sets itself
+_UNFORWARDED_HEADERS = frozenset(
+    (
+        'connection',
+        'keep-alive',
+        'proxy-authorization',
+        'te',
+        'trailer',
+        'transfer-encoding',
+        'upgrade',
+        'host',
+        'content-length',
+        'accept-encoding',
+    )
+)
 
 _UNKNOWN_JOB = 'unknown or expired job'
 _STOPPED_INSTANCE = 'the service instance that ran this job has stopped'
 
-_HEX16 = re.compile(r'[0-9a-f]{16}')
-_HEX32 = re.compile(r'[0-9a-f]{32}')
+_INSTANCE_RE = re.compile(r'[0-9a-f]{16}')
+_UUID_RE = re.compile(r'[0-9a-f]{32}')
 
 
 @dataclasses.dataclass
@@ -181,7 +196,7 @@ class _Job:
         return self.finished_at is not None and now - self.finished_at > _JOB_RESULT_TTL_S
 
     def is_collected(self, now: float) -> bool:
-        """Whether a drain can stop waiting for this job."""
+        """Return whether the job finished and its result was fetched or has been kept for _DRAIN_COLLECT_S."""
         if self.finished_at is None:
             return False
         return self.fetched_at is not None or now - self.finished_at > _DRAIN_COLLECT_S
@@ -511,7 +526,7 @@ class PxtEndpoint:
                 if origin.scheme != 'https' or not origin.netloc or origin.path or origin.query or origin.fragment:
                     raise ValueError('PIXELTABLE_PUBLIC_ORIGIN must be an HTTPS origin')
                 job_url = f'{public_origin}{urllib.parse.urlsplit(job_url).path}'
-            self.router._submit_job(job_id, tmp_paths, self.endpoint_op, kwargs, media)
+            self.router._submit_job(job_id, self.endpoint_op, kwargs, tmp_paths, media)
             return BackgroundJobResponse(id=job_id, job_url=job_url)
         else:
             return _run_endpoint_op(self.endpoint_op, kwargs, tmp_paths, media)
@@ -2758,7 +2773,7 @@ class FastAPIRouter(fastapi.APIRouter):
 
     def _register_jobs_route(self) -> None:
         async def get_job_status(job_id: str, request: Request, response: fastapi.Response) -> Any:
-            if _HEX32.fullmatch(job_id) is not None:
+            if _UUID_RE.fullmatch(job_id) is not None:
                 # a plain uuid: an id from an earlier pixeltable version
                 raise HTTPException(status_code=410, detail=_STOPPED_INSTANCE)
             owner = self._job_owner(job_id)
@@ -2811,20 +2826,21 @@ class FastAPIRouter(fastapi.APIRouter):
                 return None
         else:
             return None
-        if _HEX16.fullmatch(instance) is None or _HEX32.fullmatch(job_uuid) is None:
+        if _INSTANCE_RE.fullmatch(instance) is None or _UUID_RE.fullmatch(job_uuid) is None:
             return None
         return instance, addr
 
     def _submit_job(
         self,
         job_id: str,
-        tmp_paths: list[Path],
         endpoint_op: Callable[..., Any],
         kwargs: dict[str, Any],
+        tmp_paths: list[Path],
         media: _ResponseMedia,
     ) -> None:
         """Run endpoint_op as the background job job_id. Raises a 503 if this router takes no more jobs."""
         with self._jobs_lock:
+            self._prune_jobs(time.monotonic())
             refusal = self._job_refusal()
             if refusal is None:
                 job = _Job(self._executor.submit(_run_endpoint_op, endpoint_op, kwargs, tmp_paths, media))
@@ -2843,11 +2859,10 @@ class FastAPIRouter(fastapi.APIRouter):
                 detail='the service instance is shutting down',
                 headers={'Retry-After': str(_DRAINING_RETRY_AFTER_S)},
             )
-        self._prune_jobs(time.monotonic())
         if sum(1 for job in self._jobs.values() if job.finished_at is None) >= _MAX_PENDING_JOBS:
             return HTTPException(
                 status_code=503,
-                detail=f'the service instance has {_MAX_PENDING_JOBS} unfinished background jobs, its limit',
+                detail=f'the service instance is at its limit of {_MAX_PENDING_JOBS} unfinished background jobs',
                 headers={'Retry-After': str(_JOB_LIMIT_RETRY_AFTER_S)},
             )
         return None
@@ -2891,9 +2906,12 @@ class FastAPIRouter(fastapi.APIRouter):
         assert self._job_forwarding is not None
         # the path as this server received it: the owner's server prepends root_path again
         path = request.scope['raw_path'].decode().removeprefix(self._job_forwarding.root_path)
+        # the owner's route dependencies and middleware see the client's headers
+        headers = [(k, v) for k, v in request.headers.items() if k not in _UNFORWARDED_HEADERS]
+        headers.append((_JOB_FORWARDED_HEADER, '1'))
         try:
             async with httpx.AsyncClient(timeout=_FORWARD_TIMEOUT) as client:
-                owner_resp = await client.get(f'http://{addr}{path}', headers={_JOB_FORWARDED_HEADER: '1'})
+                owner_resp = await client.get(f'http://{addr}{path}', headers=headers)
         except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout) as exc:
             raise HTTPException(
                 status_code=503,
@@ -2924,10 +2942,7 @@ class FastAPIRouter(fastapi.APIRouter):
             self._draining = True
 
     def _wait_drained(self, deadline: float) -> None:
-        """Return once every job has finished and its result was fetched or waited _DRAIN_COLLECT_S, or at deadline.
-
-        deadline is a time.monotonic() value.
-        """
+        """Wait until every job is collected (_Job.is_collected()) or until deadline, a time.monotonic() value."""
         while (now := time.monotonic()) < deadline:
             with self._jobs_lock:
                 if all(job.is_collected(now) for job in self._jobs.values()):

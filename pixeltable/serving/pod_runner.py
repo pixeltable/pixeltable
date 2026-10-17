@@ -65,7 +65,7 @@ def _job_key(base_path: str, service_name: str) -> bytes:
 class _DrainingServer(uvicorn.Server):
     """A uvicorn server that, on the first SIGTERM, waits for the routers' background jobs before shutting down.
 
-    It keeps serving during the wait, so clients can still poll the jobs.
+    It keeps serving during the wait, so clients can still poll the jobs. A drain_s of 0 disables the wait.
     """
 
     routers: list[FastAPIRouter]
