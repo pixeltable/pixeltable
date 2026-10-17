@@ -46,6 +46,7 @@ PROJECT_EXTRAS = tuple(_requirements_in())
 EXIT_IN_AGREEMENT = 0
 EXIT_ERROR = 1
 EXIT_CHANGES_PENDING = 2
+EXIT_REFUSED = 3
 
 # a publish that rebuilds the image waits on CodeBuild, far longer than the default cli timeout allows
 APPLY_TIMEOUT = 2400.0
@@ -203,9 +204,9 @@ _RUN_TIMEOUT_SECS = 300
 _WHEEL_SUBDIR = 'wheels'
 
 
-def db_diff(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> dict[str, Any]:
+def db_diff(cli: PxtRunner, project: pathlib.Path, db_uri: str, *flags: str) -> dict[str, Any]:
     """What `pxt db diff` reports, its exit status under 'returncode'."""
-    r = cli('db', 'diff', db_uri, '--json', cwd=project, check=False)
+    r = cli('db', 'diff', db_uri, '--json', *flags, cwd=project, check=False)
     assert r.returncode in (EXIT_IN_AGREEMENT, EXIT_CHANGES_PENDING), r.stderr
     return {**r.json, 'returncode': r.returncode}
 

@@ -24,8 +24,10 @@ from ..hosted import (
     spinner,
 )
 from ..parser import Parser
+from ..project_config import add_database_entry
 from ..utils import (
     EXIT_CHANGES_PENDING,
+    EXIT_ERROR,
     EXIT_IN_AGREEMENT,
     EXIT_REFUSED,
     confirm_or_exit,
@@ -37,6 +39,7 @@ from ..utils import (
 EPILOG = """\
 Examples:
   pxt db diff pxt://org:db     # what update would change; exit 2 if anything is pending
+  pxt db diff pxt://org:db --add-config-entry   # first append the database's entry to the project configuration
   pxt db diff --json-schema    # the schema of the --json output, on its own
   pxt db update pxt://org:db   # apply it: the artifacts, then capacity
   pxt db update pxt://org:db --no-wait   # submit it and return without waiting
@@ -57,6 +60,8 @@ The uri selects the matching [[pixeltable.database]] entry in the project config
   [[pixeltable.database]]
   name = 'pxt://org:db'      # what 'pxt db update pxt://org:db' looks for
 
+--add-config-entry on diff or update appends this entry to the project configuration, unless it is
+already there.
 The entry says which of the project's files the database gets (include/exclude), what goes into
 the image (system_dependencies, python_version), and what the database runs on (cpu, memory_mb,
 disk_gb, workers). 'diff' compares the entry against the database; 'update' applies the difference.
@@ -89,6 +94,13 @@ def run(argv: list[str]) -> None:
         p = sub.add_parser(verb, help=f'{"show" if verb == "diff" else "apply"} what the project defines')
         p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
         p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+        p.add_argument(
+            '--add-config-entry',
+            action='store_true',
+            dest='add_config_entry',
+            help='append a [[pixeltable.database]] entry for the URI to the project configuration, unless it is '
+            'already there',
+        )
         if verb == 'update':
             p.add_argument('-f', '--force', action='store_true', help='skip confirmation')
             p.add_argument('-n', '--dry-run', action='store_true', dest='dry_run')
@@ -217,15 +229,40 @@ def _db_uri(args: argparse.Namespace, prog: str) -> str:
     return f'pxt://{org}:{db}'
 
 
+def _add_config_entry(args: argparse.Namespace, db_uri: str) -> str | None:
+    """Under --add-config-entry, append db_uri's entry to the project configuration, and return the file's path.
+
+    Returns None without --add-config-entry, or when the project configuration already has the entry.
+    """
+    if not args.add_config_entry:
+        return None
+    try:
+        config_file = add_database_entry(db_uri)
+    except RuntimeError as e:
+        print(f'pxt db {args.action}: {e}', file=sys.stderr)
+        sys.exit(EXIT_ERROR)
+    if config_file is None:
+        return None
+    if not args.json_output:
+        print(f'added {db_uri} to {config_file.name}')
+    return str(config_file)
+
+
 def _diff(args: argparse.Namespace) -> None:
-    plan = DbPlan.model_validate(post_request('/api/db/diff', {'db_uri': _db_uri(args, 'pxt db diff')}))
+    db_uri = _db_uri(args, 'pxt db diff')
+    entry_added_to = _add_config_entry(args, db_uri)
+    plan = DbPlan.model_validate(post_request('/api/db/diff', {'db_uri': db_uri}))
+    plan.entry_added_to = entry_added_to
     _print_plan(plan, as_json=args.json_output)
     sys.exit(EXIT_IN_AGREEMENT if plan.in_agreement else EXIT_CHANGES_PENDING)
 
 
 def _update(args: argparse.Namespace) -> None:
-    body: dict[str, Any] = {'db_uri': _db_uri(args, 'pxt db update')}
+    db_uri = _db_uri(args, 'pxt db update')
+    entry_added_to = _add_config_entry(args, db_uri)
+    body: dict[str, Any] = {'db_uri': db_uri}
     plan = DbPlan.model_validate(post_request('/api/db/diff', body))
+    plan.entry_added_to = entry_added_to
     if plan.in_agreement:
         _print_plan(plan, as_json=args.json_output)
         sys.exit(EXIT_IN_AGREEMENT)
@@ -254,6 +291,7 @@ def _update(args: argparse.Namespace) -> None:
     }
     with spinner(None if args.json_output else f'Submitting the update of {plan.db_uri} ...'):
         applied = DbPlan.model_validate(post_request('/api/db/update', update))
+    applied.entry_added_to = entry_added_to
     applied.receipts = _await(plan.db_uri, applied.receipts, args)
     if args.wait and all(r.observed for r in applied.receipts):
         for op in applied.ops:

@@ -1545,8 +1545,12 @@ class TestNew:
         assert f'\n  {uri}\n' in r.stdout
         assert f'Claim it at {claim_url}, or it is deleted at ' in r.stdout
         assert '\nAnyone with this link can claim the organization.\n' in r.stdout
-        assert f"  [[pixeltable.database]]\n  name = '{uri}'\n" in r.stdout
-        for command in (f'pxt db update {uri}', f'pxt schema update app.py {uri}', f'pxt service update app.py {uri}'):
+        for command in (
+            f'pxt db diff {uri} --add-config-entry',
+            f'pxt db update {uri}',
+            f'pxt schema update app.py {uri}',
+            f'pxt service update app.py {uri}',
+        ):
             assert f'  {command}\n' in r.stdout
         assert r.stderr == ''
 
