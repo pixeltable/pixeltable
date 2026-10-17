@@ -159,13 +159,37 @@ def _reason(resp: requests.Response) -> str:
     return reason or phrase or f'HTTP {resp.status_code}'
 
 
+# X-Pixeltable-Error-Code values for refusals only the user can lift, whatever their status (STORE_FULL is a 507):
+# retrying cannot help. The same set as pixeltable/pixeltable#1738's.
+USER_ACTION_CODES = frozenset(('PAYMENT_REQUIRED', 'PLAN_LIMIT', 'STORE_FULL'))
+
+# the statuses refusal() maps to a core code of their own, which a bare status name in the header does not improve on
+_NAMED_BY_CORE = {401: 'UNAUTHORIZED', 403: 'FORBIDDEN', 409: 'CONFLICT'}
+
+
+def _provider_error_code(resp: requests.Response) -> str | None:
+    """The control plane's X-Pixeltable-Error-Code, unless it only names a status refusal() already names."""
+    code = resp.headers.get('X-Pixeltable-Error-Code')
+    return None if code == _NAMED_BY_CORE.get(resp.status_code) else code
+
+
+def _retry_after(resp: requests.Response) -> float | None:
+    """Retry-After in seconds; None when absent, or given as a date, which the control plane never sends."""
+    try:
+        return float(resp.headers['Retry-After'])
+    except (KeyError, ValueError):
+        return None
+
+
 def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) -> None:
-    """Raise for a 4xx other than 429; for a 401 or a 403, the error says which credential the request sent.
+    """Raise for a 4xx other than 429, or a status with one of USER_ACTION_CODES; for a 401, or a 403 named only by
+    its status, the error says which credential the request sent.
 
     purpose is the verb phrase that completes "is not permitted to", such as 'list organizations'.
     """
-    if is_refusal(resp.status_code):
-        raise refusal(resp.status_code, _reason(resp), sent, purpose)
+    code = _provider_error_code(resp)
+    if is_refusal(resp.status_code) or code in USER_ACTION_CODES:
+        raise refusal(resp.status_code, _reason(resp), sent, purpose, provider_error_code=code)
 
 
 def is_refusal(status_code: int) -> bool:
@@ -173,22 +197,27 @@ def is_refusal(status_code: int) -> bool:
     return 400 <= status_code < 500 and status_code != 429
 
 
-def refusal(status_code: int, reason: str, sent: Credential, purpose: str) -> excs.Error:
-    """The error for a refusal status (see is_refusal); for a 401 or a 403, it says which credential was sent.
+def refusal(
+    status_code: int, reason: str, sent: Credential, purpose: str, *, provider_error_code: str | None = None
+) -> excs.Error:
+    """The error for a refusal status (see is_refusal); for a 401, or a 403 named only by its status, it says which
+    credential was sent.
 
-    reason is a sentence without its final period. Shared with the database tunnel, so that a credential
-    refused there reads the same as one the control plane refused.
+    reason is a sentence without its final period, and provider_error_code what _provider_error_code() read. Shared
+    with the database tunnel, so that a credential refused there reads the same as one the control plane refused.
     """
     if status_code == 409:
         return excs.ConcurrencyError(
             excs.ErrorCode.CONCURRENT_MODIFICATION, f'Pixeltable Cloud refused this request: {reason}.'
         )
-    if status_code not in (401, 403):
+    # a 403 with a name of its own, such as PLAN_LIMIT, refuses the request rather than the credential
+    if status_code not in (401, 403) or (status_code == 403 and provider_error_code is not None):
         return excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_BAD_REQUEST,
             f'Pixeltable Cloud refused this request: {reason}.',
             provider='pixeltable_cloud',
             status_code=status_code,
+            provider_error_code=provider_error_code,
         )
     if status_code == 403:
         # the control plane accepted the credential and refused the operation, so signing in again cannot help
@@ -210,7 +239,11 @@ def refusal(status_code: int, reason: str, sent: Credential, purpose: str) -> ex
     # one only delays the error. A 401 is always the control plane's own decision -- it answers 503,
     # never 401, when WorkOS is the thing that could not be reached.
     return excs.ExternalServiceError(
-        excs.ErrorCode.PROVIDER_AUTH_ERROR, message, provider='pixeltable_cloud', status_code=status_code
+        excs.ErrorCode.PROVIDER_AUTH_ERROR,
+        message,
+        provider='pixeltable_cloud',
+        status_code=status_code,
+        provider_error_code=provider_error_code,
     )
 
 
@@ -239,7 +272,9 @@ def api_call(request: Any, credential: Credential | None = None) -> dict[str, An
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
             f'Management API error {resp.status_code}: {resp.text}',
+            retry_after=_retry_after(resp),
             provider='pixeltable_cloud',
             status_code=resp.status_code,
+            provider_error_code=_provider_error_code(resp),
         )
     return resp.json()

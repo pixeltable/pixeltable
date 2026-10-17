@@ -16,7 +16,6 @@ from ..utils import (
     EXIT_CHANGES_PENDING,
     EXIT_ERROR,
     EXIT_IN_AGREEMENT,
-    EXIT_REFUSED,
     check_file,
     confirm_or_exit,
     get_request,
@@ -470,7 +469,6 @@ def _update(
     confirm_or_exit(
         f'start or restart {s.create + s.update_additive + s.update_destructive} service(s){restarts}?',
         force,
-        refused_exit_code=EXIT_REFUSED,
         on_refusal=lambda: _print_plan(plan, as_json=as_json),
     )
 
@@ -607,7 +605,6 @@ def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_ru
     confirm_or_exit(
         f'stop {len(planned.ops)} service(s)?',
         force,
-        refused_exit_code=EXIT_REFUSED,
         on_refusal=lambda: _print_ops(refused, as_json=as_json, verb='would stop'),
     )
     pruned = ServicePlan.model_validate(post_request('/api/service/prune', body))

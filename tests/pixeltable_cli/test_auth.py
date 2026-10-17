@@ -99,6 +99,8 @@ class ControlPlane:
     seen: list[dict[str, Any]] = field(default_factory=list)
     credentials_seen: list[dict[str, str]] = field(default_factory=list)
     status: int = 200
+    error_code: str | None = None  # sent as X-Pixeltable-Error-Code with an error status, as Cloud names its errors
+    retry_after: str = '1'  # sent as Retry-After with a 429 or a 503
     client_id: str = 'client_01TEST'
     # the status and body of the discovery document; None answers with client_id and this stub's address,
     # and a bytes body is sent as it is
@@ -186,7 +188,9 @@ def _serve(plane: ControlPlane) -> HTTPServer:
             if redirect:
                 self.send_header('Location', answer)
             if status in (429, 503):
-                self.send_header('Retry-After', '1')  # as throttled and unavailable services send it
+                self.send_header('Retry-After', plane.retry_after)  # as throttled and unavailable services send it
+            if status >= 400 and plane.error_code is not None:
+                self.send_header('X-Pixeltable-Error-Code', plane.error_code)
             self.end_headers()
             self.wfile.write(payload)
 
@@ -705,6 +709,65 @@ class TestKey:
         assert r.returncode == 1
         assert 'pxt: 400 Pixeltable Cloud refused this request: Keys with grants are not available yet.' in r.stderr
         assert 'Bad Request' not in r.stderr
+
+    @pytest.mark.parametrize(
+        ('status', 'error_code', 'expected'),
+        [
+            # a refusal Cloud names reaches the caller by that name
+            (
+                403,
+                'PLAN_LIMIT',
+                {
+                    'error_code': 'PLAN_LIMIT',
+                    'message': 'Pixeltable Cloud refused this request: Community allows 2 keys.',
+                    'retryable': False,
+                },
+            ),
+            # a name that is only the status's says nothing more, so core's code stands
+            (403, 'FORBIDDEN', {'error_code': 'INSUFFICIENT_PRIVILEGES', 'retryable': False}),
+            # an outage keeps its wait
+            (503, 'BUSY', {'error_code': 'BUSY', 'retryable': True, 'retry_after': 1.0}),
+            # refusals only the user can lift, whatever their status: no retry helps
+            (402, 'PAYMENT_REQUIRED', {'error_code': 'PAYMENT_REQUIRED', 'retryable': False}),
+            (507, 'STORE_FULL', {'error_code': 'STORE_FULL', 'retryable': False}),
+            # a credential refused with a name keeps it; with the bare status name, core's code stands
+            (401, 'TOKEN_EXPIRED', {'error_code': 'TOKEN_EXPIRED', 'retryable': False}),
+            (401, 'UNAUTHORIZED', {'error_code': 'PROVIDER_AUTH_ERROR', 'retryable': False}),
+            (409, 'CONFLICT', {'error_code': 'CONCURRENT_MODIFICATION', 'retryable': True}),
+        ],
+    )
+    def test_cloud_error_code(
+        self, cloud_cli: PxtRunner, control_plane: ControlPlane, status: int, error_code: str, expected: dict[str, Any]
+    ) -> None:
+        """Cloud's X-Pixeltable-Error-Code reaches the caller: at the end of the text line, and in --json."""
+        control_plane.answers['create_key'] = b'Community allows 2 keys'
+        control_plane.status = status
+        control_plane.error_code = error_code
+        try:
+            r = cloud_cli('key', 'create', 'app', check=False)
+            r_json = cloud_cli('key', 'create', 'app', '--json', check=False)
+        finally:
+            control_plane.status = 200
+            control_plane.error_code = None
+
+        assert r.returncode == 1
+        assert r.stderr.rstrip().endswith(f'[{expected["error_code"]}]'), r.stderr
+        assert r_json.returncode == 1
+        assert {k: r_json.json[k] for k in expected} == expected
+        assert ('retry_after' in r_json.json) == ('retry_after' in expected)
+
+    def test_retry_after_as_a_date_is_left_out(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """Retry-After may be an HTTP date, which is not seconds; the error then carries no wait."""
+        control_plane.answers['create_key'] = b'busy'
+        control_plane.status, control_plane.error_code = 503, 'BUSY'
+        control_plane.retry_after = 'Wed, 21 Oct 2026 07:28:00 GMT'
+        try:
+            r = cloud_cli('key', 'create', 'app', '--json', check=False)
+        finally:
+            control_plane.status, control_plane.error_code, control_plane.retry_after = 200, None, '1'
+        assert r.returncode == 1
+        assert r.json['error_code'] == 'BUSY'
+        assert 'retry_after' not in r.json
 
     def test_key_update_no_args(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         before = len(control_plane.seen)
@@ -1619,7 +1682,7 @@ class TestNew:
         assert r.returncode == 1
         assert r.stderr == (
             f'pxt: 429 No trial databases are available right now; try again later, or sign up at '
-            f'{control_plane.url}/signup.\n'
+            f'{control_plane.url}/signup. [RATE_LIMITED]\n'
         )
         assert 'Not signed in' in cloud_cli('whoami', check=False).stderr
 

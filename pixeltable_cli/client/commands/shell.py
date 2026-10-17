@@ -11,7 +11,7 @@ import traceback
 from pixeltable_cli import models
 
 from ..parser import Parser
-from ..utils import display_path, get_request
+from ..utils import EXIT_ERROR, display_path, get_request, run_by_agent
 
 EPILOG = """\
 Inside the shell:
@@ -37,6 +37,10 @@ def _prompt() -> str:
 def run(argv: list[str]) -> None:
     ap = Parser(prog='pxt shell', epilog=EPILOG)
     ap.parse_args(argv)
+    if run_by_agent():
+        # an agent cannot type into the REPL, and one that runs it in a terminal would wait on its prompt
+        print("pxt shell: a coding agent cannot type into it; run each command as 'pxt <command>'", file=sys.stderr)
+        sys.exit(EXIT_ERROR)
 
     # Lazy: only touch readline if it's available (POSIX); Windows users get a
     # no-history fallback without crashing.

@@ -60,7 +60,7 @@ def run(argv: list[str]) -> None:
         return
 
     cascade = ', including all dependents' if args.cascade else ', without their dependents'
-    confirm_or_exit(f'recompute {columns} on {path}{cascade}?', args.force)
+    confirm_or_exit(f'recompute {columns} on {path}{cascade}?', args.force, as_json=args.as_json)
 
     resp = models.RecomputeResponse.model_validate(
         post_request(
