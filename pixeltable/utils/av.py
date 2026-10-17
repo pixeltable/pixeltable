@@ -44,8 +44,9 @@ def _parse_clock_duration(value: str) -> float | None:
     return hours * 3600 + minutes * 60 + seconds
 
 
-# These formats store an absolute end instead of a length.
-_ABSOLUTE_END_FORMATS = frozenset({'asf', 'matroska', 'webm'})
+# These formats store an absolute end instead of a length. NUT's container duration is the
+# last presentation timestamp, not a length measured from the start.
+_ABSOLUTE_END_FORMATS = frozenset({'asf', 'matroska', 'webm', 'nut'})
 
 
 def _presentation_end(stored_s: float, start_s: float, *, absolute: bool) -> float | None:
@@ -469,6 +470,8 @@ class VideoFrames:
     _video_end: float | None
     # Presentation time of the latest decoded frame, in seconds.
     last_frame_time: float | None
+    # Duration of that frame, in seconds. None when PyAV omits it or reports zero.
+    last_frame_duration: float | None
 
     @dataclass
     class Item:
@@ -489,6 +492,7 @@ class VideoFrames:
         self.video_framerate = None
         self._video_end = None
         self.last_frame_time = None
+        self.last_frame_duration = None
 
     def __enter__(self) -> Self:
         self.container = av.open(self.path)
@@ -511,19 +515,36 @@ class VideoFrames:
         assert self.last_frame_time is not None
         if self._video_end is not None and self._video_end > self.last_frame_time:
             return self._video_end
+        # The stored end is missing or not past the last frame. That frame's own duration is the
+        # end; one average frame interval is only a guess.
+        if self.last_frame_duration is not None:
+            return self.last_frame_time + self.last_frame_duration
         assert self.video_framerate is not None and self.video_framerate != 0
         return self.last_frame_time + float(1 / self.video_framerate)
 
     def __iter__(self) -> Iterator[Item]:
         assert self.container is not None
         self.last_frame_time = None
+        self.last_frame_duration = None
+        latest_pts: int | None = None
         num_returned = 0
         frame_idx = -1
         try:
             for frame in self.container.decode(video=0):
                 frame_idx += 1
-                if frame.time is not None:
+                # The latest presentation time wins, including a frame fps sampling does not yield.
+                # A missing duration must not keep an earlier frame's end.
+                if frame.pts is not None and frame.time is not None and (latest_pts is None or frame.pts >= latest_pts):
+                    latest_pts = frame.pts
                     self.last_frame_time = float(frame.time)
+                    # Frame.duration was added in PyAV 14.4. av>=14.1 has no such attribute,
+                    # and a zero duration is not an end.
+                    frame_duration = getattr(frame, 'duration', None)
+                    time_base = frame.time_base
+                    if isinstance(frame_duration, int) and frame_duration > 0 and time_base is not None:
+                        self.last_frame_duration = float(frame_duration * time_base)
+                    else:
+                        self.last_frame_duration = None
                 if self.fps == 0.0 or (num_returned <= frame.time * self.fps):
                     img = frame.to_image()
                     assert isinstance(img, PIL.Image.Image)

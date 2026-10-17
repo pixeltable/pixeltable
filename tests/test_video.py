@@ -2,8 +2,9 @@ import math
 import os
 import platform
 import subprocess
+from fractions import Fraction
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Iterator, Literal, cast
 
 import av
 import numpy as np
@@ -113,8 +114,10 @@ def _ffmpeg(args: list[str]) -> None:
         raise subprocess.CalledProcessError(result.returncode, args, result.stdout, result.stderr)
 
 
-# name, ffmpeg args with the output path appended, presentation start, presentation end
-_VIDEO_TIME_RANGES: tuple[tuple[str, list[str], float, float], ...] = (
+# name, ffmpeg args with the output path appended, presentation start, stored end, playback end.
+# playback end is what VideoFrames.end_time() and the last scene report. It matches the stored
+# end unless that value is only the last presentation timestamp.
+_VIDEO_TIME_RANGES: tuple[tuple[str, list[str], float, float, float], ...] = (
     (
         'vfr.mp4',
         [
@@ -136,6 +139,7 @@ _VIDEO_TIME_RANGES: tuple[tuple[str, list[str], float, float], ...] = (
             'yuv420p',
         ],
         0.0,
+        3.0,
         3.0,
     ),
     (
@@ -162,6 +166,7 @@ _VIDEO_TIME_RANGES: tuple[tuple[str, list[str], float, float], ...] = (
         ],
         0.5,
         1.9,
+        1.9,
     ),
     (
         'offset.asf',
@@ -178,6 +183,7 @@ _VIDEO_TIME_RANGES: tuple[tuple[str, list[str], float, float], ...] = (
             'asf',
         ],
         5.0,
+        7.0,
         7.0,
     ),
     (
@@ -203,6 +209,7 @@ _VIDEO_TIME_RANGES: tuple[tuple[str, list[str], float, float], ...] = (
             '0.5',
         ],
         0.5,
+        3.5,
         3.5,
     ),
     # The audio track continues past the picture. The recorded end is the picture.
@@ -240,6 +247,28 @@ _VIDEO_TIME_RANGES: tuple[tuple[str, list[str], float, float], ...] = (
         ],
         0.5,
         1.9,
+        1.9,
+    ),
+    # Container duration is the last PTS (6.96s). The last frame is shown until 7.0s.
+    (
+        'offset.nut',
+        [
+            '-f',
+            'lavfi',
+            '-i',
+            'color=c=red:s=64x64:d=2:r=25',
+            '-output_ts_offset',
+            '5',
+            '-c:v',
+            'libx264',
+            '-pix_fmt',
+            'yuv420p',
+            '-f',
+            'nut',
+        ],
+        5.0,
+        6.96,
+        7.0,
     ),
 )
 
@@ -2136,37 +2165,117 @@ class TestVideo:
         _assert_scenes_cover_video(t, pxtf.video.scene_detect_content, content_expected, sample_fps=2.0)
         _assert_scenes_cover_video(t, pxtf.video.scene_detect_histogram, {'solid': 1, 'one_cut': 2, 'two_cuts': 3})
 
+    def test_end_time_uses_last_frame_duration(self) -> None:
+        """A missing or early container end uses the last decoded frame, even when fps sampling skips it."""
+
+        class StubFrame:
+            pts: int
+            dts: int
+            time: float
+            time_base: Fraction
+            is_corrupt: bool
+            key_frame: bool
+            pict_type: int
+            interlaced_frame: bool
+            duration: int
+
+            def __init__(self, pts: int, duration: int | None) -> None:
+                self.pts = pts
+                self.dts = pts
+                self.time_base = Fraction(1, 10)
+                self.time = float(pts) * self.time_base.numerator / self.time_base.denominator
+                self.is_corrupt = False
+                self.key_frame = True
+                self.pict_type = 1
+                self.interlaced_frame = False
+                if duration is not None:
+                    self.duration = duration
+
+            def to_image(self) -> PIL.Image.Image:
+                return PIL.Image.new('RGB', (1, 1))
+
+        class StubContainer:
+            def __init__(self, frames: list[StubFrame]) -> None:
+                self.frames = frames
+
+            def decode(self, video: int = 0) -> Iterator[StubFrame]:
+                del video
+                return iter(self.frames)
+
+        # Final frame at 0.6s lasting 1.4s. Average rate 1.5 fps would end at 1.2667s.
+        frames = [StubFrame(0, 5), StubFrame(5, 1), StubFrame(6, 14)]
+
+        def end_time(decoded: list[StubFrame], *, fps: float | None, stored_end: float | None) -> tuple[float, int]:
+            video = av_utils.VideoFrames(Path('unused.mp4'), fps=fps)
+            video.container = cast(av.container.input.InputContainer, StubContainer(decoded))
+            video.video_framerate = Fraction(3, 2)
+            video._video_end = stored_end
+            items = list(video)
+            return video.end_time(), len(items)
+
+        for fps, n_yielded in ((None, 3), (2.0, 2)):
+            for stored_end in (None, 0.6, 0.5):
+                ended, yielded = end_time(frames, fps=fps, stored_end=stored_end)
+                assert yielded == n_yielded, (fps, stored_end)
+                assert ended == pytest.approx(2.0), (fps, stored_end, ended)
+
+        # A stored end past the last frame still wins over that frame's duration.
+        ended, yielded = end_time(frames, fps=2.0, stored_end=4.0)
+        assert yielded == 2
+        assert ended == pytest.approx(4.0)
+
+        # No Frame.duration attribute: one average frame after the last PTS.
+        bare = [StubFrame(0, 5), StubFrame(5, 1), StubFrame(6, None)]
+        ended, yielded = end_time(bare, fps=2.0, stored_end=None)
+        assert yielded == 2
+        assert ended == pytest.approx(0.6 + float(1 / Fraction(3, 2)))
+
     @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_video_time_range(self, uses_db: None, tmp_path: Path) -> None:
-        """Duration, frame extraction, and scene detection share each fixture's start and end."""
-        skip_test_if_not_installed('scenedetect')
+        """Duration and frame extraction use the stored end; scene detection uses the playback end."""
         rows: list[dict[str, str]] = []
-        expected: dict[str, tuple[float, float]] = {}
-        for name, args, start, end in _VIDEO_TIME_RANGES:
+        expected: dict[str, tuple[float, float, float]] = {}
+        for name, args, start, stored_end, playback_end in _VIDEO_TIME_RANGES:
             path = tmp_path / name
             _ffmpeg([*args, str(path)])
             with av.open(str(path)) as container:
                 assert isinstance(container, av.container.input.InputContainer)
                 time_range = av_utils.video_time_range(container)
             assert time_range is not None, name
-            assert time_range == pytest.approx((start, end), abs=1e-3), (name, time_range)
+            assert time_range == pytest.approx((start, stored_end), abs=1e-3), (name, time_range)
             rows.append({'name': name, 'video': str(path)})
-            expected[name] = (start, end)
+            expected[name] = (start, stored_end, playback_end)
 
             frames = frame_iterator.decorated_callable(video=str(path), num_frames=4)  # type: ignore[attr-defined]
             try:
                 assert frames.video_start_time == pytest.approx(start, abs=1e-3), name
-                assert frames.video_duration == pytest.approx(end - start, abs=1e-3), name
-                assert frames.extraction_step == pytest.approx((end - start) / 4, abs=1e-3), name
+                assert frames.video_duration == pytest.approx(stored_end - start, abs=1e-3), name
+                assert frames.extraction_step == pytest.approx((stored_end - start) / 4, abs=1e-3), name
+                if name == 'offset_vfr.mp4':
+                    step = frames.extraction_step
+                    assert step is not None
+                    # Idealized sample times. 3.125s is after the last PTS, 2.5s.
+                    samples = [start + (i + 0.5) * step for i in range(4)]
+                    assert samples == pytest.approx([0.875, 1.625, 2.375, 3.125], abs=1e-3)
+                    # That PTS is displayed until the stored end, 3.5s, but the frame duration is 0,
+                    # so __next__ stops and yields the three earlier frames.
+                    yielded = [float(item['frame_attrs']['time']) for item in frames]
+                    assert yielded == pytest.approx([0.86, 1.62, 2.38], abs=1e-3)
             finally:
                 frames.close()
+
+            for fps in (None, 2.0):
+                with av_utils.VideoFrames(path, fps=fps) as decoded:
+                    _ = list(decoded)
+                    assert decoded.end_time() == pytest.approx(playback_end, abs=1e-3), (name, fps)
 
         t = pxt.create_table('scene_end_clips', {'name': pxt.String, 'video': pxt.Video})
         validate_update_status(t.insert(rows), expected_rows=len(rows))
         for row in t.select(t.name, duration=t.video.get_duration()).collect():
-            range_start, range_end = expected[row['name']]
-            assert row['duration'] == pytest.approx(range_end - range_start, abs=1e-3), row
+            range_start, stored_end, _playback_end = expected[row['name']]
+            assert row['duration'] == pytest.approx(stored_end - range_start, abs=1e-3), row
 
+        skip_test_if_not_installed('scenedetect')
         for sample_fps in (None, 2.0):
             scenes_expr = (
                 pxtf.video.scene_detect_content(t.video)
@@ -2179,9 +2288,9 @@ class TestVideo:
                 name = row['name']
                 seen.add(name)
                 scene_start, scene_end = _scene_span(row['scenes'])
-                range_start, range_end = expected[name]
+                range_start, _stored_end, playback_end = expected[name]
                 assert scene_start == pytest.approx(range_start, abs=0.05), (name, sample_fps, row['scenes'])
-                assert scene_end == pytest.approx(range_end, abs=0.05), (name, sample_fps, row['scenes'])
+                assert scene_end == pytest.approx(playback_end, abs=0.05), (name, sample_fps, row['scenes'])
             assert seen == set(expected)
 
     @pytest.mark.db_roots('local', reason='pure UDF test')
