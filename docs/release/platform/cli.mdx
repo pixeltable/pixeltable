@@ -470,9 +470,9 @@ When Pixeltable cannot do what a task needs, a coding agent drafts a report for 
 pxt feedback --kind gap "What the task needed, what was tried, what happened"   # prints what would be sent; sends nothing
 ```
 
-`--kind` is `bug`, `gap` or `docs`. The text is one quoted argument of 1 to 4000 characters.
+`--kind` is `bug`, `gap` or `docs`. The text is one quoted argument of 1 to 4000 characters; it may hold newlines and tabs, a carriage return becomes a newline, and any other control character is refused.
 
-Without `--send`, the command prints the destination and every field it would send, and sends nothing. With `--send`, it sends these fields and nothing else: the kind, the text, the Pixeltable version, the Python version, the OS, and the coding agent it runs under, when it can tell. It sends no paths, hostnames, organization or file contents. With `DO_NOT_TRACK` set to `1`, `true` or `yes`, `--send` prints the preview, sends nothing and exits 3.
+Without `--send`, the command prints the destination and every field it would send, and sends nothing. With `--send`, it sends these fields and nothing else: the kind, the text, the Pixeltable version, the Python version, the OS, and the coding agent it runs under, when it can tell. It sends no paths, hostnames, organization or file contents. With `DO_NOT_TRACK` set to `1`, `true` or `yes`, `--send` prints the preview (with `--json`, an error document with `error_code` `DO_NOT_TRACK`), sends nothing and exits 3.
 
 The text comes from your project, so an agent should show you the preview and wait for your yes before it adds `--send`.
 

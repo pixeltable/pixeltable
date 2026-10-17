@@ -1,9 +1,11 @@
 """Tests for 'pxt feedback', against a stand-in for requests.post: nothing reaches the network."""
 
 import importlib.metadata
+import io
 import json
 import platform
 import shlex
+import sys
 from typing import Any
 
 import pytest
@@ -65,7 +67,7 @@ def _expected_fields(kind: str = 'gap', agent: str | None = None) -> dict[str, s
         'message': _MESSAGE,
         'pixeltable_version': importlib.metadata.version('pixeltable'),
         'python_version': platform.python_version(),
-        'os': feedback.os_name(),
+        'os': feedback._os_name(),
         'agent': agent,
     }
 
@@ -120,7 +122,7 @@ class TestFeedback:
         assert capsys.readouterr().out == 'Sent to the Pixeltable team (reference fb_123).\n'
 
     def test_non_ascii_sent_unescaped(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The limit counts code points, and the body is UTF-8 without \\u escapes, so it fits the site's 16 KB cap."""
+        """The limit counts code points, and the body is UTF-8 without \\u escapes, so it fits the site's body cap."""
         message = '\U0001f600' * 4000  # 4 bytes each in UTF-8; 12 as an escaped surrogate pair
         posted = _serve(monkeypatch, _response(202, {'id': 'fb_7'}))
         feedback.run(['--kind', 'gap', message, '--send'])
@@ -133,6 +135,29 @@ class TestFeedback:
         _serve(monkeypatch, _response(202, {'id': 'fb_123'}))
         feedback.run(['--kind', 'gap', _MESSAGE, '--send', '--json'])
         assert json.loads(capsys.readouterr().out) == {'sent': True, 'id': 'fb_123'}
+
+    @pytest.mark.parametrize('body', [{}, 'not json'], ids=['no id', 'not an object'])
+    def test_sent_without_a_reference(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, body: Any
+    ) -> None:
+        _serve(monkeypatch, _response(202, body))
+        feedback.run(['--kind', 'gap', _MESSAGE, '--send'])
+        assert capsys.readouterr().out == 'Sent to the Pixeltable team.\n'
+        _serve(monkeypatch, _response(202, body))
+        feedback.run(['--kind', 'gap', _MESSAGE, '--send', '--json'])
+        assert json.loads(capsys.readouterr().out) == {'sent': True}
+
+    def test_url_with_a_backslash_is_refused(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """requests would connect to evil.example, while the preview would name www.pixeltable.com."""
+        monkeypatch.setenv('PIXELTABLE_FEEDBACK_URL', 'https://evil.example\\@www.pixeltable.com/api/v1/feedback')
+        with pytest.raises(SystemExit) as exc:
+            feedback.run(['--kind', 'gap', _MESSAGE])
+        assert exc.value.code == utils.EXIT_ERROR
+        captured = capsys.readouterr()
+        assert captured.err == 'pxt feedback: PIXELTABLE_FEEDBACK_URL contains a backslash\n'
+        assert captured.out == ''
 
     def test_url_override(self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv('PIXELTABLE_FEEDBACK_URL', 'http://user:pw@localhost:3000/api/v1/feedback')
@@ -158,19 +183,46 @@ class TestFeedback:
         assert 'Sending needs --send' not in captured.out
         assert captured.err == 'pxt feedback: DO_NOT_TRACK is set, so nothing was sent.\n'
 
+    def test_do_not_track_refuses_json(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Under --json, the refusal is the one document on stdout."""
+        monkeypatch.setenv('DO_NOT_TRACK', '1')
+        with pytest.raises(SystemExit) as exc:
+            feedback.run(['--kind', 'gap', _MESSAGE, '--send', '--json'])
+        assert exc.value.code == utils.EXIT_REFUSED
+        assert json.loads(capsys.readouterr().out) == {
+            'error_code': 'DO_NOT_TRACK',
+            'message': 'DO_NOT_TRACK is set, so nothing was sent.',
+            'retryable': False,
+        }
+
     def test_do_not_track_off_sends(self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv('DO_NOT_TRACK', '0')
         posted = _serve(monkeypatch, _response(202, {'id': 'fb_9'}))
         feedback.run(['--kind', 'gap', _MESSAGE, '--send'])
         assert len(posted) == 1
 
-    def test_rate_limited(self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
-        body = {'error_code': 'RATE_LIMITED', 'message': 'slow down', 'retry_after': 42}
-        _serve(monkeypatch, _response(429, body, {'Retry-After': '42'}))
+    @pytest.mark.parametrize(
+        ('headers', 'printed'),
+        [
+            # the wait comes from Retry-After, not from the body's retry_after
+            ({'Retry-After': '42'}, 'not sent (rate limited); try again in 42 s.'),
+            ({}, 'not sent (rate limited).'),
+            # an HTTP date is not seconds
+            ({'Retry-After': 'Wed, 21 Oct 2026 07:28:00 GMT'}, 'not sent (rate limited).'),
+        ],
+        ids=['header', 'body only', 'date'],
+    )
+    def test_rate_limited(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, headers: dict[str, str], printed: str
+    ) -> None:
+        body = {'error_code': 'RATE_LIMITED', 'message': 'slow down', 'retry_after': 7}
+        _serve(monkeypatch, _response(429, body, headers))
         with pytest.raises(SystemExit) as exc:
             feedback.run(['--kind', 'gap', _MESSAGE, '--send'])
         assert exc.value.code == utils.EXIT_ERROR
-        assert capsys.readouterr().err == 'pxt feedback: not sent (rate limited); try again in 42 s.\n'
+        assert capsys.readouterr().err == f'pxt feedback: {printed}\n'
 
     @pytest.mark.parametrize(
         ('answer', 'cause'),
@@ -200,14 +252,44 @@ class TestFeedback:
         assert captured.err == f'pxt feedback: could not send ({cause})\n'
         assert captured.out == ''
 
-    @pytest.mark.parametrize('text', ['', ' \n\t', 'x' * 4001], ids=['empty', 'blank', 'too long'])
-    def test_text_out_of_bounds(self, capsys: pytest.CaptureFixture[str], text: str) -> None:
+    @pytest.mark.parametrize(
+        ('text', 'problem'),
+        [
+            ('', 'TEXT is empty'),
+            (' \n\t', 'TEXT is empty'),
+            ('x' * 4001, 'TEXT is 4001 characters; the limit is 4000'),
+            ('fine\x1b[2Khidden', 'TEXT contains a control character other than a newline or a tab'),
+        ],
+        ids=['empty', 'blank', 'too long', 'control character'],
+    )
+    def test_text_out_of_bounds(self, capsys: pytest.CaptureFixture[str], text: str, problem: str) -> None:
         # refused before a send: the autouse stand-in would fail any POST
         with pytest.raises(SystemExit) as exc:
             feedback.run(['--kind', 'gap', text, '--send'])
         assert exc.value.code == 2
-        err = capsys.readouterr().err
-        assert 'TEXT is empty' in err or 'TEXT is 4001 characters; the limit is 4000' in err
+        assert problem in capsys.readouterr().err
+
+    def test_carriage_returns_become_newlines(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """A carriage return would hide the start of its line in the preview, yet be sent."""
+        feedback.run(['--kind', 'gap', 'shown\rhidden\r\nnext', '--json'])
+        assert json.loads(capsys.readouterr().out)['fields']['message'] == 'shown\nhidden\nnext'
+
+    def test_preview_survives_a_narrow_encoding(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A Windows pipe encodes with the locale's code page; a character it lacks is escaped, not fatal."""
+        out = io.TextIOWrapper(io.BytesIO(), encoding='ascii')
+        monkeypatch.setattr(sys, 'stdout', out)
+        feedback.run(['--kind', 'gap', 'caf\u00e9 \u2192 \u6587'])
+        out.flush()
+        assert b'caf\\xe9 \\u2192 \\u6587' in out.buffer.getvalue()
+
+    def test_os_field(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(feedback.platform, 'platform', lambda terse: 'macOS-15.1')
+        monkeypatch.setattr(feedback.platform, 'machine', lambda: 'arm64')
+        assert feedback._os_name() == 'macOS-15.1-arm64'
+        # Linux's string already names the machine
+        monkeypatch.setattr(feedback.platform, 'platform', lambda terse: 'Linux-6.8-x86_64-with-glibc2.39')
+        monkeypatch.setattr(feedback.platform, 'machine', lambda: 'x86_64')
+        assert feedback._os_name() == 'Linux-6.8-x86_64-with-glibc2.39'
 
     def test_text_at_limit(self, capsys: pytest.CaptureFixture[str]) -> None:
         """The limit applies after stripping, so surrounding whitespace does not count."""
@@ -229,6 +311,10 @@ class TestAgentName:
     def test_cut_to_what_the_site_accepts(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv('AI_AGENT', 'a' * 50)
         assert feedback._agent() == 'a' * 40
+
+    def test_kept_on_one_line(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv('AI_AGENT', 'agent\nnext: pxt feedback --send')
+        assert feedback._agent() == 'agent next: pxt feedback --send'
 
 
 class TestAfterTraceback:
