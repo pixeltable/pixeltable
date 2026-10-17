@@ -4,9 +4,12 @@ import pathlib
 import tomllib
 from typing import Any
 
+from fasteners import InterProcessLock  # type: ignore[import-untyped]
+
 from pixeltable_cli.utils import (
     PROJECT_CONFIG_FILE,
     PYPROJECT_FILE,
+    _resolve_pixeltable_home,
     find_project_root,
     is_valid_identifier,
     split_pxt_uri,
@@ -64,7 +67,7 @@ def add_database_entry(db_uri: str) -> pathlib.Path | None:
     """Append a [[pixeltable.database]] entry named db_uri to the project configuration, and return its file.
 
     Returns None, leaving the file as it is, if an entry already matches db_uri. Entry names match in any case,
-    as in pixeltable.config.DatabaseConfig.
+    as in pixeltable.config.DatabaseConfig. Concurrent calls in several processes append the entry once.
     """
     parts = split_pxt_uri(db_uri)
     assert parts is not None and parts.db is not None, db_uri
@@ -76,38 +79,43 @@ def add_database_entry(db_uri: str) -> pathlib.Path | None:
     config_file = find_project_config(pathlib.Path.cwd())
     if config_file is None:
         raise RuntimeError("no project configuration here; run 'pxt init' to write one")
-    # find_project_root() already refused a file that does not parse
-    text = config_file.read_text(encoding='utf-8')
-    key, databases = _database_option(tomllib.loads(text), config_file)
-    entries: list[Any] = []
-    if isinstance(databases, list):
-        entries = databases
-    elif isinstance(databases, dict):  # a single [pixeltable.database] table is one entry
-        entries = [databases]
-    if any(isinstance(e, dict) and isinstance(e.get('name'), str) and e['name'].lower() == entry_name for e in entries):
-        return None
+    # serialize the read, check and append across processes; the lock file sits in the Pixeltable home
+    # because a file in the project would go into its archive
+    with InterProcessLock(str(pathlib.Path(_resolve_pixeltable_home()) / 'project-config.lock')):
+        # find_project_root() already refused a file that does not parse
+        text = config_file.read_text(encoding='utf-8')
+        key, databases = _database_option(tomllib.loads(text), config_file)
+        entries: list[Any] = []
+        if isinstance(databases, list):
+            entries = databases
+        elif isinstance(databases, dict):  # a single [pixeltable.database] table is one entry
+            entries = [databases]
+        if any(
+            isinstance(e, dict) and isinstance(e.get('name'), str) and e['name'].lower() == entry_name for e in entries
+        ):
+            return None
 
-    header = f'[[{key}]]'
-    separator = '' if text == '' else '\n' if text.endswith('\n') else '\n\n'
-    addition = f"{separator}{header}\nname = '{entry_name}'\n"
-    try:
-        tomllib.loads(text + addition)
-    except tomllib.TOMLDecodeError as e:
-        # an appended header extends an array of tables, and conflicts with a single table or an inline array
-        if isinstance(databases, dict):
-            form = 'a single table'
-        elif isinstance(databases, list):
-            form = 'an inline array'
-        else:
-            raise RuntimeError(f'{config_file.name} does not parse with {header} appended: {e}') from e
-        raise RuntimeError(
-            f'{config_file.name} declares {key} as {form}; rewrite it as an array of {header} tables and run again'
-        ) from e
-    try:
-        with open(config_file, 'a', encoding='utf-8') as fp:
-            fp.write(addition)
-    except OSError as e:
-        raise RuntimeError(f'{config_file} could not be written: {e}') from e
+        header = f'[[{key}]]'
+        separator = '' if text == '' else '\n' if text.endswith('\n') else '\n\n'
+        addition = f"{separator}{header}\nname = '{entry_name}'\n"
+        try:
+            tomllib.loads(text + addition)
+        except tomllib.TOMLDecodeError as e:
+            # an appended header extends an array of tables, and conflicts with a single table or an inline array
+            if isinstance(databases, dict):
+                form = 'a single table'
+            elif isinstance(databases, list):
+                form = 'an inline array'
+            else:
+                raise RuntimeError(f'{config_file.name} does not parse with {header} appended: {e}') from e
+            raise RuntimeError(
+                f'{config_file.name} declares {key} as {form}; rewrite it as an array of {header} tables and run again'
+            ) from e
+        try:
+            with open(config_file, 'a', encoding='utf-8') as fp:
+                fp.write(addition)
+        except OSError as e:
+            raise RuntimeError(f'{config_file} could not be written: {e}') from e
     return config_file
 
 

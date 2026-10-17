@@ -11,6 +11,7 @@ import shutil
 import time
 import tomllib
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Iterator
 
 import pytest
@@ -344,6 +345,18 @@ class TestCloudDb:
             config_file.write_text(text, encoding='utf-8')
             assert db_diff(cli, layout, absent, '--add-config-entry')['entry_added_to'] == str(config_file)
             assert tomllib.loads(config_file.read_text(encoding='utf-8')) == expected
+
+        # concurrent commands append the entry once; a plain diff first moves the daemon onto this project, so
+        # that the concurrent commands don't each restart it
+        concurrent = tmp_path / 'concurrent'
+        concurrent.mkdir()
+        (concurrent / 'pixeltable.toml').write_text('', encoding='utf-8')
+        assert cli('db', 'diff', absent, cwd=concurrent, check=False).returncode == EXIT_ERROR
+        with ThreadPoolExecutor(4) as pool:
+            futures = [pool.submit(db_diff, cli, concurrent, absent, '--add-config-entry') for _ in range(4)]
+        assert sorted(f.result()['entry_added_to'] is None for f in futures) == [False, True, True, True]
+        config = tomllib.loads((concurrent / 'pixeltable.toml').read_text(encoding='utf-8'))
+        assert config == {'pixeltable': {'database': [entry]}}
 
         # a single [pixeltable.database] table for the database is its entry
         single = tmp_path / 'single'
