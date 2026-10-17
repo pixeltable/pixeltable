@@ -10,7 +10,7 @@ from typing import Any
 from pixeltable_cli.utils import split_pxt_uri
 
 from ..parser import Parser
-from ..utils import get_request, post_request, print_aligned
+from ..utils import RequestFailedError, get_request, post_request, print_aligned, print_next
 
 EPILOG = """\
 Examples:
@@ -40,6 +40,9 @@ A process reads its secrets once, at startup, so a running one keeps the values 
 """
 
 _OVERRIDES_ORG_NOTE = 'overrides an organization secret'
+
+# the states in which a database or service has pods that have read their secrets
+_RUNNING = ('AVAILABLE', 'UPDATING')
 
 
 def run(argv: list[str]) -> None:
@@ -138,6 +141,7 @@ def _set(args: argparse.Namespace) -> None:
     for key, value in secrets.items():
         post_request('/api/secrets', {'org': org, 'db': db, 'key': key, 'value': value})
     _print_secrets(org, [{'key': key, 'db': db} for key in secrets], args.json_output, with_overrides=False)
+    _print_restarts(org, db)
 
 
 def _delete(args: argparse.Namespace) -> None:
@@ -145,3 +149,34 @@ def _delete(args: argparse.Namespace) -> None:
     for key in args.keys:
         post_request('/api/secrets/delete', {'org': org, 'db': db, 'key': key})
     _print_secrets(org, [{'key': key, 'db': db} for key in args.keys], args.json_output, with_overrides=False)
+    _print_restarts(org, db)
+
+
+def _print_restarts(org: str, db: str | None) -> None:
+    """Names a restart for each running database and service that reads the changed secrets.
+
+    A pod reads its secrets when it starts, so a running one keeps the old values until restarted; a stopped one
+    reads the new values when it next starts, so it needs nothing.
+    """
+    sys.stdout.flush()
+    try:
+        if db is None:
+            reports = get_request('/api/dbs', {'org': org}, raise_on_error=True).get('reports', [])
+        else:
+            reports = [get_request('/api/db', {'org': org, 'db': db}, raise_on_error=True).get('report', {})]
+        running = [r['db'] for r in reports if (r.get('current') or {}).get('state') in _RUNNING]
+        services = {
+            d: get_request('/api/service/list', {'target': f'pxt://{org}:{d}'}, raise_on_error=True) for d in running
+        }
+    except RequestFailedError as e:
+        print(
+            f'pxt: could not list what reads these secrets ({e}); restart each running database and service',
+            file=sys.stderr,
+        )
+        return
+    for d in running:
+        print_next(f'pxt db restart pxt://{org}:{d}', 'restarts its tables, so they read the new values')
+        for service in services[d]:
+            if service['state'] in _RUNNING:
+                where = f'{service["catalog_path"]}/{service["name"]}'
+                print_next(f'pxt service restart {where}', 'restarts it, so it reads the new values')

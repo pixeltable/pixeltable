@@ -1619,7 +1619,7 @@ class TestNew:
         assert r.returncode == 1
         assert r.stderr == (
             f'pxt: 429 No trial databases are available right now; try again later, or sign up at '
-            f'{control_plane.url}/signup.\n'
+            f'{control_plane.url}/signup. [RATE_LIMITED]\n'
         )
         assert 'Not signed in' in cloud_cli('whoami', check=False).stderr
 

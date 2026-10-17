@@ -11,6 +11,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -77,6 +78,12 @@ class PxtResult:
             # a command that failed wrote its reason to stderr, and parsing '' would discard it
             raise AssertionError(f'pxt produced no output (rc={self.returncode}): {self.stderr.strip()}')
         return json.loads(self.stdout)
+
+    @property
+    def next_commands(self) -> list[list[str]]:
+        """The commands the 'next:' lines on stderr name, as argv, each without its trailing '# ...' comment."""
+        lines = [line.removeprefix('next: ') for line in self.stderr.splitlines() if line.startswith('next: ')]
+        return [shlex.split(line, comments=True) for line in lines]
 
 
 @pytest.fixture(scope='session', autouse=True)

@@ -32,7 +32,7 @@ def run(argv: list[str]) -> None:
         print(f'would drop {args.path} (if it is a table or view){suffix}')
         return
 
-    confirm_or_exit(f'drop table {args.path}?', args.force)
+    confirm_or_exit(f'drop table {args.path}?', args.force, as_json=args.as_json)
 
     resp = models.DropResponse.model_validate(
         post_request('/api/tables/drop', {'path': validate_path_arg(args.path), 'cascade': args.cascade})
