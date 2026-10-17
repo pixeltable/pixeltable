@@ -1,12 +1,14 @@
 # Sample Apps & Examples
 
-## 1. Canonical Onboarding: Single-File `app.py` Starter Kit
+## 1. Declarative `app.py` Sample Apps (`TableModel` + `@pxt.udf` + `FastAPIRouter`)
 
-Start with the **[Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit)** (`uvx pixeltable-new --list`). Each application is a single declarative `app.py` (`TableModel` + `@pxt.udf` + `FastAPIRouter`) deployed locally or to Pixeltable Cloud with `pxt schema update` and `pxt service update`:
+Modern Pixeltable applications declare tables as `TableModel` classes, custom logic in `@pxt.udf` modules (`udfs.py`), and typed REST endpoints with `FastAPIRouter` in `app.py` — deployed locally or to Pixeltable Cloud with `pxt schema update` and `pxt service update`:
 
-- **[Chat Agent (`chat-agent`)](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/chat-agent)** (`uvx pixeltable-new myapp`) — Knowledge base chunking, sentence embeddings, conversation memory, and Anthropic tool/chat routes.
-- **[Video Search (`video-search`)](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/video-search)** (`uvx pixeltable-new myapp --video`) — Frame extraction, multimodal CLIP embeddings, and cross-modal text/image/video search routes.
-- **[Lead Enrichment & Outreach (`lead-enrichment/`)](lead-enrichment/)** — Programmable Clay + Lemlist alternative in one `app.py`: custom `@pxt.udf` functions over [`treg.to`](https://treg.to) for waterfall email discovery, inline mailbox verification, live website extraction, OpenAI cold outreach, and Fish Audio voice notes with per-row cost tracking.
+- **[Awesome Pixeltable Apps (40+ Production-Style Example Apps)](https://github.com/pierrebrunelle/awesome-pixeltable-apps)** ([**Live Interactive Gallery ->**](https://pierrebrunelle.github.io/awesome-pixeltable-apps/)) — Curated collection of 40+ self-contained Pixeltable apps across **Image & Vision**, **Video**, **Audio & Speech**, **Documents & Text**, and **Structured & Hybrid** workloads. Every app includes `app.py`, `udfs.py`, `pixeltable.toml` (local + Cloud), `seed.py`, `client_demo.py`, and 1-click GitHub Codespaces support.
+- **[Pixeltable Starter Kit (`pixeltable-starter-kit`)](https://github.com/pixeltable/pixeltable-starter-kit)** (`uvx pixeltable-new --list`) — Official starter templates:
+  - **[Chat Agent (`chat-agent`)](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/chat-agent)** (`uvx pixeltable-new myapp`) — Knowledge base chunking, sentence embeddings, conversation memory, and Anthropic tool/chat routes.
+  - **[Video Search (`video-search`)](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/video-search)** (`uvx pixeltable-new myapp --video`) — Frame extraction, multimodal CLIP embeddings, and cross-modal text/image/video search routes.
+- **[Lead Enrichment & Outreach Ledger (`lead-enrichment/`)](lead-enrichment/)** — Programmable Clay + Lemlist alternative in this directory (`app.py`, `udfs.py`, `ui.html`, `seed.py`, `client_demo.py`, `pixeltable.toml`): custom `@pxt.udf` functions over [`treg.to`](https://treg.to) for waterfall email discovery, inline mailbox verification, live website extraction, OpenAI cold outreach, Fish Audio voice notes (`pxt.Audio`), stateless `/preview` dry-runs, and per-row cost tracking with an interactive web UI.
 
 ---
 
@@ -14,6 +16,7 @@ Start with the **[Pixeltable Starter Kit](https://github.com/pixeltable/pixeltab
 
 | Resource | What You'll Find |
 |---|---|
+| **[Awesome Pixeltable Apps Gallery](https://pierrebrunelle.github.io/awesome-pixeltable-apps/)** | Searchable gallery of 40+ complete `app.py` + `udfs.py` + `FastAPIRouter` apps ([GitHub index](https://github.com/pierrebrunelle/awesome-pixeltable-apps)). |
 | **[Documentation & Quickstart](https://docs.pixeltable.com/overview/quick-start)** | Core concepts, CLI reference (`pxt schema`, `pxt service`, `pxt db`), [Cloud deployment](https://docs.pixeltable.com/howto/deployment/cloud), and [HTTP serving](https://docs.pixeltable.com/howto/deployment/serving). |
 | **[Interactive Cookbooks (`docs/release/howto/cookbooks/`)](../release/howto/cookbooks/)** | 40+ runnable notebooks covering [Agents & Tool Calling](../release/howto/cookbooks/agents/), [Video](../release/howto/cookbooks/video/), [Audio](../release/howto/cookbooks/audio/), [Images](../release/howto/cookbooks/images/), [Text & Documents](../release/howto/cookbooks/text/), [Semantic Search](../release/howto/cookbooks/search/), [Data Import/Export](../release/howto/cookbooks/data/), and [Core Workflows](../release/howto/cookbooks/core/). Also browseable at [pixeltable.com/notebooks](https://www.pixeltable.com/notebooks). |
 | **[Provider Guides (`docs/release/howto/providers/`)](../release/howto/providers/)** | Dedicated notebooks for OpenAI, Anthropic, Google Gemini, RunwayML, vLLM, and local models. |
@@ -25,7 +28,7 @@ Start with the **[Pixeltable Starter Kit](https://github.com/pixeltable/pixeltab
 
 ---
 
-## 3. Older Full-Stack & Multi-Service Showcases in This Folder
+## 3. Earlier Full-Stack & Multi-Service Showcases in This Folder
 
 The remaining directories next to this file are earlier full-stack showcases (predating single-file `app.py` + `pxt schema update` / `pxt service update`):
 

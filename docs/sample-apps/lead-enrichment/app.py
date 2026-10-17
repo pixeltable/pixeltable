@@ -1,211 +1,248 @@
-"""pxt schema update app.py leads && pxt service update app.py leads -f
+"""Lead Enrichment & Multimodal Outreach API built with Pixeltable and treg.to.
 
-Export TREG_TOKEN and OPENAI_API_KEY before the first pxt command; the service inherits the daemon's environment.
-Exported them later? The CLI refuses with STALE_CONFIG: run pxt daemon restart, then pxt service update app.py leads -f.
+Insert a prospect (full_name, domain, role, stage). Pixeltable runs a declarative
+enrichment DAG: waterfall email discovery + BounceBan mailbox verification via treg.to,
+live website extraction via treg.to, a personalized 3-sentence cold email via OpenAI,
+a personalized Fish Audio MP3 voice note stored as a pxt.Audio column, lead tiering,
+and exact per-row USD cost calculation from X-Treg-Cost-Micro headers.
+
+Layout: UDFs live in udfs.py; this file holds table models, @pxt.query functions,
+FastAPIRouter routes, and the interactive Lead Studio UI at GET /.
+
+Run locally:
+    export TREG_TOKEN=treg_...
+    export OPENAI_API_KEY=sk-...
+    pxt schema update app.py leads
+    pxt service run app.py leads --port 8000
 """
 
 # ruff: noqa: F821
 
 from __future__ import annotations
 
-import os
-import uuid
-from typing import Any
+from pathlib import Path
 
-import httpx
+from fastapi.responses import HTMLResponse
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
 from pixeltable.functions.openai import chat_completions
 from pixeltable.serving import FastAPIRouter
-from pixeltable.utils.local_store import TempStore
+from udfs import lead_tier, treg_extract_site, treg_find_email, treg_voice_note
 
+UI_HTML = Path(__file__).resolve().parent / "ui.html"
+
+# ---- tables ----
 TableModel = pxt.model_base()
 
-_TREG_NAMESPACE = uuid.UUID('6ba7b811-9dad-11d1-80b4-00c04fd430c8')
 
-
-async def _treg_post(
-    endpoint: str,
-    body: dict[str, Any],
-    *,
-    idempotency_seed: str,
-    max_cost_usd: float,
-    verify: bool = False,
-    timeout_s: float = 90.0,
-) -> httpx.Response:
-    """Single call site for treg.to requests with idempotency, spend ceiling, and Pixeltable error mapping."""
-    token = os.environ.get('TREG_TOKEN', '')
-    if not token:
-        raise excs.AuthorizationError(
-            excs.ErrorCode.MISSING_CREDENTIALS,
-            'TREG_TOKEN is not set. Export TREG_TOKEN before starting the Pixeltable daemon.',
-        )
-    base_url = os.environ.get('TREG_BASE_URL', 'https://treg.to').rstrip('/')
-    headers = {
-        'X-Treg-Token': token,
-        'Idempotency-Key': str(uuid.uuid5(_TREG_NAMESPACE, idempotency_seed)),
-        'X-Treg-Route-Max-Cost': str(max_cost_usd),
-    }
-    if verify:
-        headers['X-Treg-Route-Verify'] = 'true'
-    if org := os.environ.get('TREG_ORG'):
-        headers['X-Treg-Org'] = org
-
-    async with httpx.AsyncClient(timeout=timeout_s) as client:
-        r = await client.post(f'{base_url}/call/{endpoint}', headers=headers, json=body)
-
-    if r.status_code >= 400:
-        detail = r.text[:300]
-        retry_hdr = r.headers.get('Retry-After')
-        retry_after = float(retry_hdr) if retry_hdr and retry_hdr.isdigit() else None
-        if r.status_code in (401, 403):
-            raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_AUTH_ERROR, f'treg {r.status_code}: {detail}')
-        if r.status_code == 429:
-            raise excs.ExternalServiceError(
-                excs.ErrorCode.RATE_LIMITED, f'treg 429: {detail}', retry_after=retry_after
-            )
-        if r.status_code == 503:
-            raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_OVERLOADED, f'treg 503: {detail}', retry_after=retry_after
-            )
-        if r.status_code >= 500:
-            raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_ERROR, f'treg {r.status_code}: {detail}', retry_after=retry_after
-            )
-        raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_BAD_REQUEST, f'treg {r.status_code}: {detail}')
-
-    if upstream_failed := r.headers.get('X-Treg-Upstream-Failed'):
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_BAD_REQUEST,
-            f'treg upstream task failed ({upstream_failed}) on {endpoint}',
-        )
-    return r
-
-
-@pxt.udf(is_deterministic=False)
-async def treg_find_email(full_name: str, domain: str, max_cost_usd: float = 0.03) -> dict[str, Any]:
-    """Find a work email across treg's provider waterfall and verify deliverability in one call."""
-    r = await _treg_post(
-        'treg.people.email.find',
-        {'full_name': full_name, 'domain': domain},
-        idempotency_seed=f'email.find:{full_name}:{domain}',
-        max_cost_usd=max_cost_usd,
-        verify=True,
-    )
-    data: dict[str, Any] = r.json()
-    output = data.get('output') or {}
-    treg_meta = data.get('_treg') or {}
-    verification = treg_meta.get('verification') or {}
-    return {
-        'email': output.get('email'),
-        'verified': bool(output.get('verified')),
-        'verdict': verification.get('verdict'),
-        'served_by': r.headers.get('X-Treg-Served-By') or treg_meta.get('served_by'),
-        'call_id': r.headers.get('X-Treg-Call-Id'),
-        'cost_micro': int(r.headers.get('X-Treg-Cost-Micro', treg_meta.get('charged_micro') or 0)),
-    }
-
-
-@pxt.udf(is_deterministic=False)
-async def treg_extract_site(domain: str, max_cost_usd: float = 0.02) -> dict[str, Any]:
-    """Extract live company website markdown via treg's routed web extractor."""
-    url = domain if domain.startswith(('http://', 'https://')) else f'https://{domain}'
-    r = await _treg_post(
-        'treg.web.extract',
-        {'url': url},
-        idempotency_seed=f'web.extract:{url}',
-        max_cost_usd=max_cost_usd,
-        timeout_s=60.0,
-    )
-    data: dict[str, Any] = r.json()
-    output = data.get('output') or data
-    markdown = (output.get('markdown') or output.get('text') or '')[:4000]
-    return {
-        'url': url,
-        'markdown': markdown,
-        'served_by': r.headers.get('X-Treg-Served-By'),
-        'call_id': r.headers.get('X-Treg-Call-Id'),
-        'cost_micro': int(r.headers.get('X-Treg-Cost-Micro', 0)),
-    }
-
-
-@pxt.udf(is_deterministic=False)
-async def treg_voice_note(script: str, max_cost_usd: float = 0.02) -> pxt.Audio:
-    """Synthesize a personalized MP3 voice note via Fish Audio on treg and write it to TempStore."""
-    r = await _treg_post(
-        'fishaudio.tts.s2-1-pro',
-        {'text': script, 'format': 'mp3'},
-        idempotency_seed=f'tts:{script[:120]}',
-        max_cost_usd=max_cost_usd,
-        timeout_s=60.0,
-    )
-    output_path = TempStore.create_path(extension='.mp3')
-    output_path.write_bytes(r.content)
-    return str(output_path)
-
-
-class Leads(TableModel, name='leads'):
-    uuid = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
+class Leads(TableModel, name="leads", has_default_idxs=False):
+    lead_id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
     full_name: pxt.String
     domain: pxt.String
+    role: pxt.String | None
+    stage: pxt.String  # new / queued / sent / replied
 
     # 1. Waterfall email enrichment + BounceBan verification via treg.to
     contact = treg_find_email(full_name, domain)
     email = contact.email.astype(pxt.String | None)
     verdict = contact.verdict.astype(pxt.String | None)
+    served_by = contact.served_by.astype(pxt.String | None)
 
     # 2. Live website scrape via treg.to routed web extractor
     site = treg_extract_site(domain)
     site_markdown = site.markdown.astype(pxt.String)
 
-    # 3. Personalized cold email grounded in scraped company context
+    # 3. Lead routing tier (priority / ready / review / skip)
+    tier = lead_tier(verdict, role)
+
+    # 4. Personalized cold email grounded in scraped company context
     prompt = pxtf.string.format(
-        'Write a concise 3-sentence cold outreach email to {0} at {1}.\n'
-        'Ground the opener in something specific from their website below. No fluff or placeholders.\n\n'
-        'WEBSITE EXCERPT:\n{2}',
+        "Write a concise 3-sentence cold outreach email to {0} ({1}) at {2}.\n"
+        "Ground the opener in something specific from their website below. No fluff or placeholders.\n\n"
+        "WEBSITE EXCERPT:\n{3}",
         full_name,
+        role,
         domain,
         site_markdown,
     )
     llm_response = chat_completions(
-        model='gpt-4o-mini',
-        messages=[{'role': 'user', 'content': prompt}],
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
     )
     cold_email = llm_response.choices[0].message.content.astype(pxt.String)
 
-    # 4. Personalized AI audio voice note stored in Pixeltable's media store
+    # 5. Personalized AI audio voice note stored in Pixeltable's media store
     voice_note = treg_voice_note(cold_email)
 
-    # 5. Settled enrichment cost in USD from X-Treg-Cost-Micro
-    cost_usd = (contact.cost_micro.astype(pxt.Float) + site.cost_micro.astype(pxt.Float)) / 1_000_000.0
+    # 6. Settled enrichment cost in USD from X-Treg-Cost-Micro
+    cost_usd = (
+        contact.cost_micro.astype(pxt.Float) + site.cost_micro.astype(pxt.Float)
+    ) / 1_000_000.0
+
+    __indexes__ = [
+        pxt.BtreeIndex(domain),
+        pxt.BtreeIndex(verdict),
+        pxt.BtreeIndex(stage),
+        pxt.BtreeIndex(tier),
+    ]
 
 
+# ---- queries ----
 @pxt.query
-def list_verified_leads(limit: int = 50) -> pxt.Query:
+def all_leads(limit: int = 50):
+    """All enriched leads, most recent first."""
     return (
-        Leads.where(Leads.verdict == 'valid')
-        .select(
-            uuid=Leads.uuid,
-            full_name=Leads.full_name,
-            domain=Leads.domain,
-            email=Leads.email,
-            verdict=Leads.verdict,
-            cold_email=Leads.cold_email,
-            voice_note=Leads.voice_note,
-            cost_usd=Leads.cost_usd,
-        )
+        Leads.order_by(Leads.lead_id, asc=False)
         .limit(limit)
+        .select(
+            Leads.lead_id,
+            Leads.full_name,
+            Leads.domain,
+            Leads.role,
+            Leads.stage,
+            Leads.email,
+            Leads.verdict,
+            Leads.served_by,
+            Leads.tier,
+            Leads.cold_email,
+            Leads.voice_note,
+            Leads.cost_usd,
+        )
     )
 
 
-api = FastAPIRouter(name='leads', prefix='/api')
-api.add_insert_route(
+@pxt.query
+def by_verdict(verdict: str):
+    """Leads matching a mailbox verification verdict (verdict index)."""
+    return (
+        Leads.where(Leads.verdict == verdict)
+        .order_by(Leads.lead_id, asc=False)
+        .select(
+            Leads.lead_id,
+            Leads.full_name,
+            Leads.domain,
+            Leads.role,
+            Leads.stage,
+            Leads.email,
+            Leads.verdict,
+            Leads.served_by,
+            Leads.tier,
+            Leads.cold_email,
+            Leads.voice_note,
+            Leads.cost_usd,
+        )
+    )
+
+
+@pxt.query
+def by_tier(tier: str, stage: str):
+    """Leads in a readiness tier and outreach stage (tier + stage indexes)."""
+    return (
+        Leads.where((Leads.tier == tier) & (Leads.stage == stage))
+        .order_by(Leads.full_name)
+        .select(
+            Leads.lead_id,
+            Leads.full_name,
+            Leads.domain,
+            Leads.role,
+            Leads.stage,
+            Leads.email,
+            Leads.verdict,
+            Leads.served_by,
+            Leads.tier,
+            Leads.cold_email,
+            Leads.cost_usd,
+        )
+    )
+
+
+@pxt.query
+def by_domain(domain: str):
+    """Detail for one company domain (domain index)."""
+    return Leads.where(Leads.domain == domain).select(
+        Leads.lead_id,
+        Leads.full_name,
+        Leads.domain,
+        Leads.role,
+        Leads.stage,
+        Leads.email,
+        Leads.verdict,
+        Leads.served_by,
+        Leads.tier,
+        Leads.site_markdown,
+        Leads.cold_email,
+        Leads.voice_note,
+        Leads.cost_usd,
+    )
+
+
+@pxt.query
+def lead_voice_note(domain: str):
+    """Stream the generated MP3 voice note for a domain."""
+    return (
+        Leads.where(Leads.domain == domain)
+        .order_by(Leads.lead_id, asc=False)
+        .limit(1)
+        .select(Leads.voice_note)
+    )
+
+
+# ---- routes ----
+leads_api = FastAPIRouter(name="leads_api")
+
+
+@leads_api.get("/", response_class=HTMLResponse, include_in_schema=False)
+def lead_studio_ui() -> HTMLResponse:
+    """Serve the interactive Lead Enrichment & Outreach Studio UI."""
+    return HTMLResponse(UI_HTML.read_text(encoding="utf-8"))
+
+
+leads_api.add_insert_route(
     Leads,
-    path='/leads',
-    inputs=[Leads.full_name, Leads.domain],
-    outputs=[Leads.uuid, Leads.email, Leads.verdict, Leads.cold_email, Leads.voice_note, Leads.cost_usd],
+    path="/leads",
+    inputs=[Leads.full_name, Leads.domain, Leads.role, Leads.stage],
+    outputs=[
+        Leads.lead_id,
+        Leads.email,
+        Leads.verdict,
+        Leads.served_by,
+        Leads.tier,
+        Leads.cold_email,
+        Leads.voice_note,
+        Leads.cost_usd,
+    ],
 )
-api.add_query_route(path='/leads/verified', query=list_verified_leads, method='get')
-api.add_delete_route(Leads, path='/delete/lead')
+leads_api.add_compute_route(
+    Leads,
+    path="/preview",
+    inputs=[Leads.full_name, Leads.domain, Leads.role, Leads.stage],
+    outputs=[
+        Leads.email,
+        Leads.verdict,
+        Leads.served_by,
+        Leads.tier,
+        Leads.cold_email,
+        Leads.cost_usd,
+    ],
+)
+leads_api.add_update_route(
+    Leads,
+    path="/leads/stage",
+    inputs=[Leads.stage],
+    outputs=[Leads.lead_id, Leads.full_name, Leads.stage, Leads.tier],
+)
+leads_api.add_delete_route(Leads, path="/leads/delete")
+leads_api.add_query_route(path="/leads/all", query=all_leads, method="get")
+leads_api.add_query_route(path="/leads/by-verdict", query=by_verdict, method="get")
+leads_api.add_query_route(path="/leads/by-tier", query=by_tier, method="get")
+leads_api.add_query_route(
+    path="/leads/by-domain", query=by_domain, method="get", one_row=True
+)
+leads_api.add_query_route(
+    path="/leads/voice-note",
+    query=lead_voice_note,
+    method="get",
+    one_row=True,
+    return_fileresponse=True,
+)
