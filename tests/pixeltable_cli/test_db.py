@@ -318,19 +318,32 @@ class TestCloudDb:
         assert rerun['entry_added_to'] is None
         assert config_file.read_text(encoding='utf-8') == appended
 
-        # in a pyproject.toml, the entry goes in [tool.pixeltable], or in [tool.pixeltable.pixeltable] if there is one
-        for i, (text, expected) in enumerate(
+        # the entry goes into Config's database array, whatever the file's layout
+        entry = {'name': absent}
+        for i, (file_name, text, expected) in enumerate(
             (
-                ('[tool.pixeltable]', {'database': [{'name': absent}]}),  # without a trailing newline
-                ('[tool.pixeltable.pixeltable]\n', {'pixeltable': {'database': [{'name': absent}]}}),
+                # without a trailing newline
+                ('pyproject.toml', '[tool.pixeltable]', {'tool': {'pixeltable': {'database': [entry]}}}),
+                (
+                    'pyproject.toml',
+                    '[tool.pixeltable.pixeltable]\n',
+                    {'tool': {'pixeltable': {'pixeltable': {'database': [entry]}}}},
+                ),
+                # a database array outside any section replaces the one in the [pixeltable] section
+                (
+                    'pyproject.toml',
+                    '[tool.pixeltable.pixeltable]\n\n[[tool.pixeltable.database]]\n',
+                    {'tool': {'pixeltable': {'pixeltable': {}, 'database': [{}, entry]}}},
+                ),
+                ('pixeltable.toml', '[[database]]\n', {'database': [{}, entry]}),
             )
         ):
-            in_pyproject = tmp_path / f'in_pyproject{i}'
-            in_pyproject.mkdir()
-            pyproject = in_pyproject / 'pyproject.toml'
-            pyproject.write_text(f"[project]\nname = 'app'\n\n{text}", encoding='utf-8')
-            assert db_diff(cli, in_pyproject, absent, '--add-config-entry')['entry_added_to'] == str(pyproject)
-            assert tomllib.loads(pyproject.read_text(encoding='utf-8'))['tool']['pixeltable'] == expected
+            layout = tmp_path / f'layout{i}'
+            layout.mkdir()
+            config_file = layout / file_name
+            config_file.write_text(text, encoding='utf-8')
+            assert db_diff(cli, layout, absent, '--add-config-entry')['entry_added_to'] == str(config_file)
+            assert tomllib.loads(config_file.read_text(encoding='utf-8')) == expected
 
         # a single [pixeltable.database] table for the database is its entry
         single = tmp_path / 'single'

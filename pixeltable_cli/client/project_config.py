@@ -87,20 +87,22 @@ def add_database_entry(db_uri: str) -> pathlib.Path | None:
     if any(isinstance(e, dict) and isinstance(e.get('name'), str) and e['name'].lower() == entry_name for e in entries):
         return None
 
-    header = f'[[{key}.database]]'
+    header = f'[[{key}]]'
     separator = '' if text == '' else '\n' if text.endswith('\n') else '\n\n'
     addition = f"{separator}{header}\nname = '{entry_name}'\n"
     try:
         tomllib.loads(text + addition)
     except tomllib.TOMLDecodeError as e:
         # an appended header extends an array of tables, and conflicts with a single table or an inline array
-        if isinstance(databases, (dict, list)):
-            form = 'a single table' if isinstance(databases, dict) else 'an inline array'
-            raise RuntimeError(
-                f'{config_file.name} declares {key}.database as {form}; rewrite it as an array of {header} tables '
-                'and run again'
-            ) from e
-        raise RuntimeError(f'{config_file.name} does not parse with {header} appended: {e}') from e
+        if isinstance(databases, dict):
+            form = 'a single table'
+        elif isinstance(databases, list):
+            form = 'an inline array'
+        else:
+            raise RuntimeError(f'{config_file.name} does not parse with {header} appended: {e}') from e
+        raise RuntimeError(
+            f'{config_file.name} declares {key} as {form}; rewrite it as an array of {header} tables and run again'
+        ) from e
     try:
         with open(config_file, 'a', encoding='utf-8') as fp:
             fp.write(addition)
@@ -110,17 +112,20 @@ def add_database_entry(db_uri: str) -> pathlib.Path | None:
 
 
 def _database_option(parsed: dict[str, Any], config_file: pathlib.Path) -> tuple[str, Any]:
-    """Return the dotted key of the [pixeltable] section in config_file and the value of its database option.
+    """Return the dotted key and the value of the database option in parsed, the contents of config_file.
 
-    Mirrors pixeltable.config.Config.__load_project_config(), which cannot be imported here.
+    Mirrors Config.__load_project_config() and Config.__validate_config(), which cannot be imported here.
     """
     if config_file.name != PYPROJECT_FILE:
-        key, section = 'pixeltable', parsed.get('pixeltable')
+        prefix, sections = '', parsed
     else:
         tool = parsed.get('tool', {}).get('pixeltable')
         # tool.pixeltable contains either the settings of the [pixeltable] section or the sections themselves
-        if isinstance(tool, dict) and isinstance(tool.get('pixeltable'), dict):
-            key, section = 'tool.pixeltable.pixeltable', tool['pixeltable']
-        else:
-            key, section = 'tool.pixeltable', tool
-    return key, section.get('database') if isinstance(section, dict) else None
+        if not (isinstance(tool, dict) and isinstance(tool.get('pixeltable'), dict)):
+            return 'tool.pixeltable.database', tool.get('database') if isinstance(tool, dict) else None
+        prefix, sections = 'tool.pixeltable.', tool
+    # a database key outside any section moves into the [pixeltable] section, replacing its database option
+    if 'database' in sections:
+        return f'{prefix}database', sections['database']
+    section = sections.get('pixeltable')
+    return f'{prefix}pixeltable.database', section.get('database') if isinstance(section, dict) else None
