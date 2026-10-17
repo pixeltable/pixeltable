@@ -678,14 +678,14 @@ The command is the one you ran, with `-n` dropped and `-f` (or `--allow-destruct
 
 The plan commands (`schema`, `service`, `db update`) keep printing their plan, with the refused operations marked `refused`. An unknown command exits `2` and suggests the commands it may have meant, such as `pxt db logs` and `pxt service logs` for `pxt logs`.
 
-A request that fails ends its line with the error code, as in `pxt: 404 Directory 'nope' does not exist. [DIRECTORY_NOT_FOUND]`; with `--json`, stdout gets `{"error_code": ..., "message": ..., "retryable": ...}`. A daemon that cannot be reached gives `DAEMON_UNREACHABLE`, and an unexpected daemon failure `INTERNAL_ERROR`.
+A request that fails ends its line with the error code, as in `pxt: 404 Directory 'nope' does not exist. [DIRECTORY_NOT_FOUND]`; with `--json`, stdout gets `{"error_code": ..., "message": ..., "retryable": ...}`. A daemon that does not start or cannot be reached gives `DAEMON_UNREACHABLE`; an answer without a code gives `HTTP_<status>` for a 4xx and `INTERNAL_ERROR` otherwise.
 
 | Exit | Meaning |
 |---|---|
 | `0` | Success, or nothing to do |
 | `1` | Error, including a usage error in the commands that give `2` another meaning (`schema`, `service`, `db`, `init`) |
 | `2` | A usage error elsewhere; for `diff`, `update -n` and `prune -n`, changes pending; for `db` and `service`, a change still under way when the three-hour wait ends |
-| `3` | Refused for want of consent: no `-f` without a terminal or under a coding agent, an answer other than `y`, or a destructive plan without `--allow-destructive` |
+| `3` | Refused for want of consent: no `-f` without a terminal or under a coding agent, an answer other than `y`, or a destructive `schema update` without `--allow-destructive`. A destructive `db update` or `service update` without it exits `1` with `DESTRUCTIVE_SCHEMA_CHANGE` |
 | `130` | A wait stopped with Ctrl-C; the change continues in Pixeltable Cloud |
 
 ## Serving
@@ -1304,7 +1304,7 @@ With `--json`, each row is an object with `key` and `scope`, plus `"overrides_or
 
 `set` and `delete` print the keys they changed as the same `KEY` and `SCOPE` rows, without `NOTE`; with `--json`, as `key` and `scope` objects. Earlier releases printed bare key names, and `--json` printed an array of strings.
 
-A running database or service uses the values from its startup. Run `pxt db restart` for the database's tables process and `pxt service restart` for each service. A database or service started afterwards reads the current value at startup. `set` and `delete` name these on `next:` lines: for a database secret, `pxt db restart pxt://myorg:mydb` and `pxt service list pxt://myorg:mydb`, which names the services to restart; for an org secret, `pxt db list`, which names the databases.
+A running database or service uses the values from its startup. Run `pxt db restart` for the database's tables process and `pxt service restart` for each service. A database or service started afterwards reads the current value at startup. `set` and `delete` name each of these on a `next:` line, for every running database the secret reaches (one for a database secret, all of the organization's for an org secret) and every running service in it; a stopped one needs no restart.
 
 <Warning>
 A `[[pixeltable.database]]` entry no longer accepts `secrets`. A project config that still has

@@ -218,7 +218,7 @@ def _change_lifecycle(args: argparse.Namespace) -> None:
         print(json.dumps(report))
     else:
         print_db(report, workers)
-        _print_receipts(db_uri, settled, waited=args.wait)
+    _print_receipts(db_uri, settled, waited=args.wait, show=not args.json_output)
     exit_unless_observed(settled, retry_command=f'pxt db retry {db_uri}')
 
 
@@ -272,16 +272,18 @@ def _update(args: argparse.Namespace) -> None:
         applied.resolution = 'up_to_date'
         applied.state = (_db_report(plan.db_uri)[0].get('current') or {}).get('state')
     _print_plan(applied, as_json=args.json_output, applied=True)
-    if not args.json_output:
-        _print_receipts(plan.db_uri, applied.receipts, waited=args.wait)
+    _print_receipts(plan.db_uri, applied.receipts, waited=args.wait, show=not args.json_output)
     exit_unless_observed(applied.receipts, retry_command=f'pxt db retry {plan.db_uri}')
 
 
-def _print_receipts(db_uri: str, receipts: list[GenerationReceipt], *, waited: bool) -> None:
-    for receipt in receipts:
-        print_receipt(receipt)
+def _print_receipts(db_uri: str, receipts: list[GenerationReceipt], *, waited: bool, show: bool) -> None:
+    """Prints the receipts if show; under --no-wait, also names the command that follows the change, in any mode."""
+    if show:
+        for receipt in receipts:
+            print_receipt(receipt)
     if not waited and len(receipts) > 0:
-        print('\nThe change continues in Pixeltable Cloud.')
+        if show:
+            print('\nThe change continues in Pixeltable Cloud.')
         sys.stdout.flush()
         print_next(f'pxt db status {db_uri}', 'shows its progress')
 
@@ -348,7 +350,8 @@ def _delete(args: argparse.Namespace) -> None:
         print(f"Deleted database '{db}'.")
     else:
         print(f"Deleting database '{db}'; its name stays taken until its teardown finishes.")
-        _print_receipts(db_uri, settled, waited=args.wait)
+    if not deleted:
+        _print_receipts(db_uri, settled, waited=args.wait, show=not args.json_output)
 
 
 def _build_image(args: argparse.Namespace) -> None:
@@ -374,4 +377,5 @@ def _build_image(args: argparse.Namespace) -> None:
             statuses.get('image') or '', 'reused the existing image'
         )
         print(f'{db_uri}: {archive}, {image}.')
+    _print_receipts(db_uri, settled, waited=args.wait, show=False)
     exit_unless_observed(settled, retry_command=f'pxt db retry {db_uri}')
