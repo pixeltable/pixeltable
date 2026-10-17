@@ -1,12 +1,18 @@
 import asyncio
+import base64
+import contextlib
+import dataclasses
 import hashlib
 import json
 import os
 import pathlib
+import signal
+import socket
+import threading
 import time
 import urllib.parse
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Iterator, Literal
 
 import httpx
 import numpy as np
@@ -39,6 +45,9 @@ from tests.utils import (
 if TYPE_CHECKING:
     # fastapi is an optional dependency, so the tests that need it import it themselves and skip without it
     from fastapi.testclient import TestClient
+
+    from pixeltable.serving import FastAPIRouter
+    from pixeltable.serving.pod_runner import _DrainingServer
 
 
 @pxt.udf
@@ -186,6 +195,56 @@ def await_background_job(
         if require_pending:
             assert saw_pending, 'polling never observed pending - sleep column not delaying'
         return body
+
+
+def wait_until(condition: Callable[[], bool], timeout: float) -> bool:
+    """Poll condition until it is true or timeout passes; return its last value."""
+    deadline = time.time() + timeout
+    while not condition():
+        if time.time() > deadline:
+            return False
+        time.sleep(0.05)
+    return True
+
+
+@dataclasses.dataclass
+class ServedRouter:
+    """A router served on a loopback port."""
+
+    server: '_DrainingServer'
+    addr: str  # host:port
+
+
+@contextlib.contextmanager
+def serve_router(
+    router: 'FastAPIRouter', *, port: int = 0, job_secret: str | None = None, root_path: str = '', drain_s: float = 0.0
+) -> Iterator[ServedRouter]:
+    """Serve router on a loopback port, on a thread of the test process, with the server of a hosted pod."""
+    import fastapi
+    import uvicorn
+
+    from pixeltable.serving.pod_runner import _DrainingServer
+
+    app = fastapi.FastAPI()
+    app.include_router(router)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(('127.0.0.1', port))
+    addr = f'127.0.0.1:{sock.getsockname()[1]}'
+    if job_secret is not None:
+        router._configure_job_forwarding(addr, job_secret, root_path)
+    # loop='asyncio': the default installs uvloop's event loop policy for the whole test process
+    config = uvicorn.Config(app, log_config=None, loop='asyncio', root_path=root_path)
+    server = _DrainingServer(config, [router], drain_s)
+    thread = threading.Thread(target=server.run, kwargs={'sockets': [sock]}, daemon=True)
+    thread.start()
+    try:
+        assert wait_until(lambda: server.started, 30.0), 'the server did not start'
+        yield ServedRouter(server, addr)
+    finally:
+        server.should_exit = True
+        thread.join(timeout=60.0)
+        sock.close()
 
 
 def get_media(client: Any, url: str) -> Any:
@@ -965,15 +1024,19 @@ class TestFastAPI:
     @pytest.mark.db_roots(
         'local', reason='a background job computes in the router process only for an in-process catalog'
     )
-    @pytest.mark.parametrize('busy_at_shutdown', [False, True])
-    def test_background_job_teardown(self, uses_db: None, busy_at_shutdown: bool) -> None:
+    @pytest.mark.parametrize('at_shutdown', ['busy', 'done', 'expired'])
+    def test_background_job_teardown(
+        self, uses_db: None, at_shutdown: Literal['busy', 'done', 'expired'], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A background job runs on a worker thread with an event loop of its own, which app shutdown closes."""
         skip_test_if_not_installed('fastapi')
-        from pixeltable.serving import FastAPIRouter
+        from pixeltable.serving import FastAPIRouter, _fastapi
 
+        # shortened, so that a fetched result expires within the test
+        monkeypatch.setattr(_fastapi, '_JOB_FETCHED_TTL_S', 0.1)
         t = pxt.create_table('bg_teardown', {'x': pxt.Int})
-        # in one scenario the job holds its worker until the shutdown, in the other it is done before it
-        t.add_computed_column(y=record_loop(t.x, 2.0 if busy_at_shutdown else 0.0))
+        # at shutdown, the job is still running, is done, or is done and its result expired
+        t.add_computed_column(y=record_loop(t.x, 2.0 if at_shutdown == 'busy' else 0.0))
         router = FastAPIRouter()
         router.add_insert_route(t, path='/bg', background=True)
         client = make_test_client(router)
@@ -982,13 +1045,15 @@ class TestFastAPI:
         with client:
             resp = client.post('/bg', json={'x': 1})
             assert resp.status_code == 200, resp.text
-            if busy_at_shutdown:
+            if at_shutdown == 'busy':
                 # leave the context as soon as the job is on a worker, without waiting for it to finish
                 deadline = time.time() + 30.0
                 while len(_computation_loops) == n_loops and time.time() < deadline:
                     time.sleep(0.01)
             else:
                 await_background_job(client, resp.json(), require_pending=False)
+            if at_shutdown == 'expired':
+                assert wait_until(lambda: client.get(resp.json()['job_url']).status_code == 404, 10.0)
             loops = _computation_loops[n_loops:]
             assert len(loops) == 1, 'the job did not run on a worker thread of its own'
             assert not loops[0].is_closed()
@@ -1046,6 +1111,162 @@ class TestFastAPI:
             monkeypatch.setenv('PIXELTABLE_PUBLIC_ORIGIN', 'http://org-db.svc.pxt.run')
             with pytest.raises(ValueError, match='must be an HTTPS origin'):
                 client.post('/bg', json={'id': 2})
+
+    @pytest.mark.db_roots(
+        'local', reason='a background job computes in the router process only for an in-process catalog'
+    )
+    def test_background_job_limit_and_retention(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter, _fastapi
+
+        # shortened, so the test reaches the limit and the TTLs in seconds
+        monkeypatch.setattr(_fastapi, '_MAX_PENDING_JOBS', 2)
+        monkeypatch.setattr(_fastapi, '_JOB_RESULT_TTL_S', 1.0)
+        monkeypatch.setattr(_fastapi, '_JOB_FETCHED_TTL_S', 0.5)
+        t = pxt.create_table('jobs', {'x': pxt.Int, 'secs': pxt.Float})
+        t.add_computed_column(slept=sleep(t.secs))
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/bg', background=True)
+        client = make_test_client(router)
+
+        jobs = [client.post('/bg', json={'x': i, 'secs': 1.0}).json() for i in range(2)]
+        refused = client.post('/bg', json={'x': 2, 'secs': 0.0})
+        assert refused.status_code == 503 and refused.headers['Retry-After'] == '5', refused.text
+        pending = client.get(jobs[0]['job_url'])
+        assert pending.json()['status'] == 'pending' and pending.headers['Retry-After'] == '2'
+        for job in jobs:
+            await_background_job(client, job, require_pending=False)
+
+        # a fetched result is kept for _JOB_FETCHED_TTL_S
+        assert client.get(jobs[-1]['job_url']).json()['status'] == 'done'
+        time.sleep(0.6)
+        expired = client.get(jobs[-1]['job_url'])
+        assert expired.status_code == 404 and expired.json()['detail'] == 'unknown or expired job'
+
+        # finished jobs do not count against the limit; a result expires _JOB_RESULT_TTL_S after its job finishes
+        # (polling fetches the result, so _JOB_FETCHED_TTL_S is raised above _JOB_RESULT_TTL_S)
+        monkeypatch.setattr(_fastapi, '_JOB_FETCHED_TTL_S', 60.0)
+        late = client.post('/bg', json={'x': 3, 'secs': 0.0})
+        assert late.status_code == 200, late.text
+        assert wait_until(lambda: client.get(late.json()['job_url']).status_code == 404, 10.0)
+
+        # an id from an earlier pixeltable version, and one from a server that restarted since
+        for job_id in (uuid.uuid4().hex, f'{"0" * 16}.{uuid.uuid4().hex}'):
+            stopped = client.get(f'/_pxt/jobs/{job_id}')
+            assert stopped.status_code == 410, job_id
+            assert stopped.json()['detail'] == 'the service instance that ran this job has stopped'
+        for job_id in ('nonexistent', f'{"0" * 16}.nonexistent', f'{"0" * 16}.YQ.{uuid.uuid4().hex}.{"0" * 32}'):
+            assert client.get(f'/_pxt/jobs/{job_id}').status_code == 404, job_id
+
+    @pytest.mark.db_roots(
+        'local', reason='a background job computes in the router process only for an in-process catalog'
+    )
+    def test_background_job_forwarding(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A poll that reaches a server other than the job's owner is forwarded to the owner."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+
+        from pixeltable.serving import FastAPIRouter, _fastapi
+
+        t = pxt.create_table('jobs', {'x': pxt.Int, 'secs': pxt.Float})
+        t.add_computed_column(slept=sleep(t.secs))
+        job_secret = 'db-credential'
+        # served like the pods of a hosted service, whose gateway strips the root_path from the request path
+        root_path = '/svc'
+        api_key = {'X-Api-Key': 'secret'}
+
+        def check_api_key(x_api_key: Annotated[str, fastapi.Header()]) -> None:
+            if x_api_key != 'secret':
+                raise fastapi.HTTPException(status_code=403)
+
+        def jobs_router(*, addr: str | None = None, service_path: str = root_path) -> FastAPIRouter:
+            # an app's own authentication: the owner checks the client's headers on a forwarded poll as well
+            router = FastAPIRouter(dependencies=[fastapi.Depends(check_api_key)])
+            router.add_insert_route(t, path='/bg', background=True)
+            if addr is not None:
+                router._configure_job_forwarding(addr, job_secret, service_path)
+            return router
+
+        with (
+            serve_router(jobs_router(), job_secret=job_secret, root_path=root_path) as served_other,
+            httpx.Client(base_url=f'http://{served_other.addr}', headers=api_key) as other,
+        ):
+            with (
+                serve_router(jobs_router(), job_secret=job_secret, root_path=root_path) as owner,
+                httpx.Client(base_url=f'http://{owner.addr}', headers=api_key) as c,
+            ):
+                job = c.post('/bg', json={'x': 1, 'secs': 0.5}).json()
+                poll_path = f'/_pxt/jobs/{job["id"]}'
+                body = await_background_job(other, {'id': job['id'], 'job_url': poll_path})
+                assert single_row(body['result'], 'insert')['x'] == 1, body
+
+                # a changed address does not match the MAC; only a forged id can show that
+                instance, owner_addr_b64, job_uuid, mac = job['id'].split('.')
+                addr_b64 = base64.urlsafe_b64encode(b'127.0.0.1:2').decode().rstrip('=')
+                assert other.get(f'/_pxt/jobs/{instance}.{addr_b64}.{job_uuid}.{mac}').status_code == 404
+                # nor does a MAC with a non-ASCII character
+                assert other.get(f'/_pxt/jobs/{instance}.{owner_addr_b64}.{job_uuid}.%C3%A9').status_code == 404
+                # nor does the key of another service of the same database
+                stranger = make_test_client(jobs_router(addr='127.0.0.1:1', service_path='/other'))
+                assert stranger.get(poll_path, headers=api_key).status_code == 404
+
+            # the owner stopped
+            assert other.get(poll_path).status_code == 410
+            # another server listens at the owner's address now
+            with serve_router(
+                jobs_router(), port=int(owner.addr.split(':')[1]), job_secret=job_secret, root_path=root_path
+            ):
+                assert other.get(poll_path).status_code == 410
+
+            # an owner that does not answer in time
+            monkeypatch.setattr(_fastapi, '_FORWARD_TIMEOUT', httpx.Timeout(0.2, connect=1.0))
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as silent:
+                silent.bind(('127.0.0.1', 0))
+                silent.listen()
+                slow = make_test_client(jobs_router(addr=f'127.0.0.1:{silent.getsockname()[1]}'))
+                slow_job = slow.post('/bg', json={'x': 2, 'secs': 0.0}, headers=api_key).json()
+                unanswered = other.get(f'/_pxt/jobs/{slow_job["id"]}')
+                assert unanswered.status_code == 503 and unanswered.headers['Retry-After'] == '2', unanswered.text
+
+    @pytest.mark.db_roots(
+        'local', reason='a background job computes in the router process only for an in-process catalog'
+    )
+    def test_background_job_drain(self, uses_db: None) -> None:
+        """On SIGTERM, a pod's server refuses new jobs and stops once the results of its jobs are fetched."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        t = pxt.create_table('jobs', {'x': pxt.Int, 'secs': pxt.Float})
+        t.add_computed_column(slept=sleep(t.secs))
+
+        def jobs_router() -> FastAPIRouter:
+            router = FastAPIRouter()
+            router.add_insert_route(t, path='/bg', background=True)
+            return router
+
+        # handle_exit() is the server's SIGTERM handler; without jobs, the server stops at once
+        with serve_router(jobs_router(), drain_s=60.0) as served:
+            served.server.handle_exit(signal.SIGTERM, None)
+            assert wait_until(lambda: served.server.should_exit, 5.0)
+
+        router = jobs_router()
+        with serve_router(router, drain_s=60.0) as served, httpx.Client(base_url=f'http://{served.addr}') as c:
+            job = c.post('/bg', json={'x': 1, 'secs': 1.0}).json()
+            served.server.handle_exit(signal.SIGTERM, None)
+            # the drain starts on a thread of its own
+            assert wait_until(lambda: router._draining, 5.0)
+            refused = c.post('/bg', json={'x': 2, 'secs': 0.0})
+            assert refused.status_code == 503 and refused.headers['Retry-After'] == '1', refused.text
+            assert refused.json()['detail'] == 'the service instance is shutting down'
+            await_background_job(c, job)
+            assert wait_until(lambda: served.server.should_exit, 5.0)
+
+        # a second SIGTERM stops the server without waiting
+        with serve_router(jobs_router(), drain_s=5.0) as served, httpx.Client(base_url=f'http://{served.addr}') as c:
+            assert c.post('/bg', json={'x': 3, 'secs': 1.0}).status_code == 200
+            served.server.handle_exit(signal.SIGTERM, None)
+            served.server.handle_exit(signal.SIGTERM, None)
+            assert served.server.should_exit
 
     def test_openapi(self, db_root: DatabaseRoot) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""

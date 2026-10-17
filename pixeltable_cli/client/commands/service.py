@@ -576,7 +576,7 @@ def _run_foreground(
             )
             sys.exit(EXIT_ERROR)
         service_name = next(iter(services))
-    app, _ = create_app(app_file, service_name, target)
+    app, _, _ = create_app(app_file, service_name, target)
     if otel:
         instrument_app(app)
     n_routes = len(app.routes)
