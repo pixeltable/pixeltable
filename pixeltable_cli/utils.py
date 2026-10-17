@@ -33,7 +33,7 @@ def _resolve_pixeltable_home() -> str:
 
 
 def _resolve_pixeltable_pgdata(home: str) -> str:
-    """Mirrors Config.pgdata: PIXELTABLE_PGDATA if non-empty, else {home}/pgdata."""
+    """Mirrors Config.pgdata, except for pxt.init() overrides."""
     return str(Path(os.environ.get('PIXELTABLE_PGDATA') or f'{home}/pgdata').expanduser().resolve())
 
 
