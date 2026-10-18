@@ -280,6 +280,10 @@ class TestCloudDb:
             assert r.returncode == 2 and 'URI must be pxt://org:db' in r.stderr, r.stderr
         org_with_db = cli('org', 'status', test_db_uri, cwd=project, check=False)
         assert org_with_db.returncode == 2 and 'URI must be pxt://org,' in org_with_db.stderr, org_with_db.stderr
+        # the daemon refuses an invalid hosted name itself, before any request to the control plane
+        not_hosted = cli('db', 'diff', 'pxt://pixeltable:my_db', cwd=project, check=False)
+        assert not_hosted.returncode == EXIT_ERROR and "database name 'my_db' is invalid" in not_hosted.stderr
+        assert 'Traceback' not in not_hosted.stderr, not_hosted.stderr
 
         # the daemon validates --since and --tail before reading anything
         r = cli('db', 'logs', test_db_uri, '--since', 'bogus', cwd=project, check=False)
@@ -373,7 +377,7 @@ class TestLocalConfigEntry:
 
         r = cli('db', 'update', "pxt://acme:it's", '--add-config-entry', cwd=tmp_path, check=False)
         assert r.returncode == EXIT_ERROR
-        assert 'pxt db update: invalid database name: "it\'s"' in r.stderr, r.stderr
+        assert 'pxt db update: database name "it\'s" is invalid' in r.stderr, r.stderr
 
         config_file = tmp_path / 'pixeltable.toml'
         for text, error in (

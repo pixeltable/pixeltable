@@ -103,6 +103,17 @@ def is_valid_identifier(name: str, *, allow_hyphens: bool = False) -> bool:
     return adj_name.isidentifier() and name.isascii() and not name.startswith('-') and not name.startswith('_')
 
 
+def hosted_db_uri_error(org: str, db: str) -> str | None:
+    """Return why pxt://org:db cannot refer to a hosted database, or None if it can."""
+    for name, kind in ((org.lower(), 'organization name'), (db.lower(), 'database name')):
+        error = hosted_name_error(name, kind)
+        if error is None and not is_valid_identifier(name, allow_hyphens=True):
+            error = f'{kind} {name!r} is invalid: start it with a letter'
+        if error is not None:
+            return error
+    return None
+
+
 def validate_path_shape(path: str) -> str | None:
     """Return an error message if path violates pxt path shape rules, else None. Empty is allowed.
 

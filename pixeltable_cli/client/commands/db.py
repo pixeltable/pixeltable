@@ -243,8 +243,7 @@ def _add_config_entry(args: argparse.Namespace, db_uri: str) -> str | None:
         sys.exit(EXIT_ERROR)
     if config_file is None:
         return None
-    if not args.json_output:
-        print(f'added {db_uri} to {config_file.name}')
+    print(f'added {db_uri} to {config_file.name}', file=sys.stderr if args.json_output else sys.stdout)
     return str(config_file)
 
 

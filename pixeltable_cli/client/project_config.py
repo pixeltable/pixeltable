@@ -11,7 +11,7 @@ from pixeltable_cli.utils import (
     PYPROJECT_FILE,
     _resolve_pixeltable_home,
     find_project_root,
-    is_valid_identifier,
+    hosted_db_uri_error,
     split_pxt_uri,
 )
 
@@ -71,9 +71,9 @@ def add_database_entry(db_uri: str) -> pathlib.Path | None:
     """
     parts = split_pxt_uri(db_uri)
     assert parts is not None and parts.db is not None, db_uri
-    for kind, name in (('organization', parts.org), ('database', parts.db)):
-        if not is_valid_identifier(name, allow_hyphens=True):
-            raise RuntimeError(f'invalid {kind} name: {name!r}')
+    uri_error = hosted_db_uri_error(parts.org, parts.db)
+    if uri_error is not None:
+        raise RuntimeError(uri_error)
     entry_name = db_uri.lower()
 
     config_file = find_project_config(pathlib.Path.cwd())

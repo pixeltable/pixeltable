@@ -40,6 +40,7 @@ from pixeltable.utils.project import (
     project_fingerprint,
 )
 from pixeltable_cli.types import DbChangeOp, DbPlan, GenerationReceipt, OpStatus
+from pixeltable_cli.utils import hosted_db_uri_error
 
 _logger = logging.getLogger('pixeltable')
 
@@ -373,6 +374,9 @@ def _validated_db_uri(db_uri_str: str) -> catalog.Path:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT, f'{db_uri_str!r} does not name a hosted database; write pxt://org:db'
         )
+    uri_error = hosted_db_uri_error(path.org, path.db)
+    if uri_error is not None:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, uri_error)
     return path
 
 
