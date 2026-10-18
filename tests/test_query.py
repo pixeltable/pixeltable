@@ -1159,6 +1159,17 @@ class TestQuery:
         assert filtered[0]['depot'] == 'south'
         assert len(t.select(parity=t.n % 2, depot=t.depot).distinct().collect()) == 2
 
+    def test_distinct_docstring_states_execution_raises_request_error(self) -> None:
+        """Query.distinct() documents that execution raises RequestError.
+
+        The SQL-groupable check runs in Analyzer._analyze_agg() when the query is planned, so
+        distinct() itself returns a Query. The public docstring must say that, and name RequestError.
+        """
+        doc = pxt.Query.distinct.__doc__
+        assert doc is not None
+        assert 'Executing the query raises `RequestError` rather than returning duplicate rows.' in doc
+        assert 'distinct() raises `Error`' not in doc
+
     def test_to_pydantic(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
 
