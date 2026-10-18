@@ -1,7 +1,10 @@
+import builtins
 import logging
 import random
+import sys
 import time
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import numpy as np
@@ -33,13 +36,40 @@ _logger = logging.getLogger('pixeltable_test')
 class TestGeminiLocal:
     def test_client_closed_on_reset(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         skip_test_if_not_installed('google.genai')
+        from google.genai import Client
+
         monkeypatch.setenv('GEMINI_API_KEY', 'test-key')
-        # The client stays referenced through the assertion, as a failed request's traceback
-        # keeps it alive past teardown. open_async_resources() is what session teardown checks.
+        # The client stays referenced through the assertion: a failed request's traceback keeps it
+        # alive past teardown, so the registered cleanup has to run before the reference is dropped.
+        # open_async_resources() is what session teardown checks.
         client = get_runtime().get_client('gemini')
+        assert type(client) is Client
         reset_runtime()
         assert open_async_resources() == []
         del client
+
+    def test_missing_genai_package_raises_authorization_error(
+        self, init_env: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Drop a client cached by an earlier test before imports start failing.
+        monkeypatch.setenv('GEMINI_API_KEY', 'test-key')
+        reset_runtime()
+
+        real_import = builtins.__import__
+
+        def guarded_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == 'google' or name.startswith('google.'):
+                raise ImportError(f'No module named {name}')
+            return real_import(name, *args, **kwargs)
+
+        for key in list(sys.modules):
+            if key == 'google' or key.startswith('google.'):
+                monkeypatch.delitem(sys.modules, key)
+        monkeypatch.setattr(builtins, '__import__', guarded_import)
+
+        with pxt_raises(pxt.ErrorCode.MISSING_CREDENTIALS, match='Gemini client not initialized') as exc_info:
+            get_runtime().get_client('gemini')
+        assert isinstance(exc_info.value.__cause__, ImportError)
 
 
 @pytest.mark.remote_api

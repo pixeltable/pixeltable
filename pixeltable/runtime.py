@@ -30,6 +30,18 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 _thread_local = threading.local()
 
+
+def _client_close_result(name: str, client: Any) -> Any:
+    """Call the client's registered cleanup, or its close() method when it has no cleanup."""
+    cleanup = Env.client_cleanup(name)
+    if cleanup is not None:
+        return cleanup(client)
+    close = getattr(client, 'close', None)
+    if close is None:
+        return None
+    return close()
+
+
 _XACT_ISOLATION_LEVEL = 'REPEATABLE READ'
 
 # run_coro() runs one coroutine at a time, on a thread with an event loop that outlives the single call
@@ -208,15 +220,16 @@ class Runtime:
         - async clients are bound to that loop, and closing them there releases their sockets in order
         - otherwise the sockets are left for GC to close on an already-closed loop, which raises
 
+        A client whose factory registered a cleanup callback is closed by that callback. If the callback
+        returns an awaitable, it is awaited here, on this loop. Every other client is closed by its `close()`
+        method, awaited when that call returns an awaitable.
+
         This is the only place that is allowed to remove entries from _clients, so that no client is ever dropped
         without being closed first.
         """
-        for client in self._clients.values():
-            close = getattr(client, 'close', None)
-            if close is None:
-                continue
+        for name, client in self._clients.items():
             try:
-                result = close()
+                result = _client_close_result(name, client)
                 if inspect.isawaitable(result):
                     await result
             except Exception as e:
@@ -240,7 +253,7 @@ class Runtime:
         self._event_loop = None
 
         if loop is None or loop.is_closed():
-            # no loop of ours is left to close the clients on; a temporary one drives their close() and is
+            # no loop of ours is left to close the clients on; a temporary one drives close_clients() and is
             # correct for a client that was created outside any loop, which is how the sync clients arrive here
             if len(self._clients) > 0:
                 tmp_loop = asyncio.new_event_loop()

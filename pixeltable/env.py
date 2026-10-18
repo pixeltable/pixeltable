@@ -782,6 +782,15 @@ class Env:
         _logger.info(f'Initialized `{name}` client with parameters: {redacted}.')
         return client
 
+    @staticmethod
+    def client_cleanup(name: str) -> Callable[..., Any] | None:
+        """The shutdown callback registered for `name`, or None when the client closes itself."""
+        with _client_factories_lock:
+            factory = _client_factories.get(name)
+        if factory is None:
+            return None
+        return factory.cleanup
+
     def get_client_credential_params(self) -> dict[str, str]:
         """Return the credential-bearing init param for each registered API client.
 
@@ -1094,7 +1103,7 @@ class Env:
         self._managed_logging_handlers.clear()
 
 
-def register_client(name: str, *, credential_param: str | None) -> Callable:
+def register_client(name: str, *, credential_param: str | None, cleanup: Callable[..., Any] | None = None) -> Callable:
     """Decorator that registers a third-party API client for use by Pixeltable.
 
     The decorated function is an initialization wrapper for the client, and can have
@@ -1120,6 +1129,10 @@ def register_client(name: str, *, credential_param: str | None) -> Callable:
         credential_param: The factory parameter whose value must be treated as a secret, or
             None for factories whose parameters carry no credentials (e.g. object-store clients
             that read their auth from the surrounding AWS_*/GCS_* environment).
+        cleanup: Optional callback that closes this client when the runtime that owns it shuts
+            down. The runtime calls it on that runtime's event loop and awaits the result when
+            the callback returns an awaitable. When omitted, the runtime calls the client's
+            `close()` method, awaiting it if that call returns an awaitable.
     """
 
     def decorator(fn: Callable) -> None:
@@ -1130,7 +1143,9 @@ def register_client(name: str, *, credential_param: str | None) -> Callable:
                 f'register_client({name!r}): credential_param {credential_param!r} is not a factory parameter'
             )
         with _client_factories_lock:
-            _client_factories[name] = ApiClientFactory(init_fn=fn, params=params, credential_param=credential_param)
+            _client_factories[name] = ApiClientFactory(
+                init_fn=fn, params=params, credential_param=credential_param, cleanup=cleanup
+            )
 
     return decorator
 
@@ -1155,6 +1170,7 @@ class ApiClientFactory:
     init_fn: Callable
     params: dict[str, inspect.Parameter]
     credential_param: str | None
+    cleanup: Callable[..., Any] | None = None
 
 
 @dataclass

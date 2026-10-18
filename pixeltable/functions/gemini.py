@@ -15,7 +15,6 @@ Supports two authentication methods:
 
 import asyncio
 import base64
-import functools
 import io
 import logging
 import mimetypes
@@ -52,48 +51,26 @@ _UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
 T = TypeVar('T', bound='genai.types.Operation')
 
 
-@functools.cache
-def _async_closing_client_class() -> type['genai.client.Client']:
-    """The google-genai client subclass, imported and created once.
-
-    `google.genai` stays out of the module import so Pixeltable can load without that package.
-    """
-    from google import genai
-
-    class _AsyncClosingClient(genai.client.Client):
-        """A `genai.Client` whose `close()` also closes the async transports the SDK leaves open."""
-
-        async def close(self) -> None:  # type: ignore[override]
-            # Client.close() closes the sync httpx client only. Async calls use another httpx client and an
-            # aiohttp session, and a failed request keeps this object reachable past reset_runtime().
-            try:
-                await self.aio.aclose()
-            finally:
-                super().close()
-
-        def __exit__(self, *args: object, **kwargs: Any) -> None:
-            del args, kwargs
-            super().close()
-
-        def __del__(self) -> None:
-            # Client.__del__ calls close(). That method is async here, and a destructor cannot await it.
-            try:
-                super().close()
-            except Exception:
-                pass
-
-    return _AsyncClosingClient
-
-
-@env.register_client('gemini', credential_param='api_key')
-def _(api_key: str | None = None) -> 'genai.client.Client':
-    client_cls = _async_closing_client_class()
+async def _close_client(client: 'genai.client.Client') -> None:
+    # Client.close() closes the sync httpx client only. Async calls use another httpx client and an
+    # aiohttp session, which stay open for as long as this object is referenced.
     try:
+        await client.aio.aclose()
+    finally:
+        client.close()
+
+
+@env.register_client('gemini', credential_param='api_key', cleanup=_close_client)
+def _(api_key: str | None = None) -> 'genai.client.Client':
+    try:
+        # Inside the try: a missing google-genai is the setup error below, not a raw ImportError.
+        from google import genai
+
         if api_key is not None:
-            return client_cls(api_key=api_key)
+            return genai.Client(api_key=api_key)
         # Vertex AI fall-through: rely on genai.client.Client to read its own env vars
         # (GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION)
-        return client_cls()
+        return genai.Client()
     except Exception as e:
         raise excs.AuthorizationError(
             excs.ErrorCode.MISSING_CREDENTIALS,

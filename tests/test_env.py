@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from pathlib import Path
 from typing import Iterator
@@ -328,8 +329,55 @@ async def client_embedding(text: str) -> pxt.Array[(4,), np.float32]:
     return np.full(4, float(len(text)), dtype=np.float32)
 
 
+class _CleanupProbe:
+    """A stand-in client whose close() is distinct from a registered cleanup callback."""
+
+    def __init__(self) -> None:
+        self.closes = 0
+        self.cleanups = 0
+        self.loop_id: int | None = None
+
+    def close(self) -> None:
+        self.closes += 1
+
+
 class TestApiClients:
     """The clients of an API integration are closed on the event loop they were created on."""
+
+    def test_cleanup_callback_while_referenced(self, uses_db: None, caplog: pytest.LogCaptureFixture) -> None:
+        async_client = _CleanupProbe()
+        sync_client = _CleanupProbe()
+
+        async def async_cleanup(client: _CleanupProbe) -> None:
+            await asyncio.sleep(0)
+            client.cleanups += 1
+            client.loop_id = id(asyncio.get_running_loop())
+
+        def sync_cleanup(client: _CleanupProbe) -> None:
+            client.cleanups += 1
+
+        @env.register_client('cleanup_callback_sdk', credential_param=None, cleanup=async_cleanup)
+        def _async_factory() -> _CleanupProbe:
+            return async_client
+
+        @env.register_client('sync_cleanup_sdk', credential_param=None, cleanup=sync_cleanup)
+        def _sync_factory() -> _CleanupProbe:
+            return sync_client
+
+        runtime = get_runtime()
+        loop_id = id(runtime.event_loop)
+        assert runtime.get_client('cleanup_callback_sdk') is async_client
+        assert runtime.get_client('sync_cleanup_sdk') is sync_client
+        caplog.clear()
+        with caplog.at_level(logging.DEBUG, logger='pixeltable.runtime'):
+            reset_runtime()
+
+        assert async_client.cleanups == 1
+        assert async_client.closes == 0
+        assert async_client.loop_id == loop_id
+        assert sync_client.cleanups == 1
+        assert sync_client.closes == 0
+        assert not any(rec.message.startswith('Error closing client') for rec in caplog.records)
 
     def test_closed_on_reset(self, uses_db: None) -> None:
         t = pxt.create_table('clients', {'n': pxt.Int, 's': pxt.String})
