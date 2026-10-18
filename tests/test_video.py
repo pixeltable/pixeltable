@@ -527,6 +527,115 @@ class TestVideo:
                         # Ensure we get the bitmap-identical frame
                         assert selected_frame == frames[pos]
 
+    def test_fps_grid_and_stored_frame_reload(self, tmp_path: Path) -> None:
+        """fps samples are start + pos * step, and seek() reloads the frame it is given."""
+        one_second = tmp_path / 'one_second_30fps.mp4'
+        ten_seconds = tmp_path / 'ten_second_30fps.mp4'
+        for path, duration in ((one_second, 1), (ten_seconds, 10)):
+            _ffmpeg(
+                [
+                    '-f',
+                    'lavfi',
+                    '-i',
+                    f'color=c=red:s=64x64:d={duration}:r=30',
+                    '-c:v',
+                    'libx264',
+                    '-pix_fmt',
+                    'yuv420p',
+                    str(path),
+                ]
+            )
+
+        def collect(path: Path, **kwargs: Any) -> list[dict[str, Any]]:
+            frames = frame_iterator.decorated_callable(video=str(path), **kwargs)  # type: ignore[attr-defined]
+            try:
+                return list(frames)
+            finally:
+                frames.close()
+
+        one_rows = collect(one_second, fps=10)
+        ten_rows = collect(ten_seconds, fps=10)
+        assert len(one_rows) == 10
+        assert len(ten_rows) == 100
+        assert one_rows[-1]['frame_attrs']['time'] == pytest.approx(0.9, abs=1e-3)
+        assert ten_rows[-1]['frame_attrs']['time'] == pytest.approx(9.9, abs=1e-3)
+        # The sample at 1.0s is the end, so expansion stops. A stored row on the last frame still reloads.
+        one_last = collect(one_second)[-1]['frame_attrs']
+        fps_reload = frame_iterator.decorated_callable(video=str(one_second), fps=10)  # type: ignore[attr-defined]
+        try:
+            assert len(list(fps_reload)) == 10
+            fps_reload.seek(10, frame_attrs=one_last)
+            got = next(fps_reload)
+        finally:
+            fps_reload.close()
+        assert got['frame_attrs']['index'] == one_last['index']
+        assert got['frame_attrs']['time'] == pytest.approx(one_last['time'], abs=1e-3)
+
+        # MPEG-PS reports a short duration and still has frames past num_frames. Reloading one
+        # returns that frame. A fresh iteration stops at num_frames.
+        mpeg = tmp_path / 'two_second.mpeg'
+        _ffmpeg(['-f', 'lavfi', '-i', 'color=c=red:s=64x64:d=2:r=10', '-c:v', 'mpeg2video', '-f', 'mpeg', str(mpeg)])
+        mpeg_rows = collect(mpeg, num_frames=10)
+        assert len(mpeg_rows) == 10
+        decoded = collect(mpeg)
+        assert len(decoded) > 10
+        stored = decoded[-1]['frame_attrs']
+        reloaded = frame_iterator.decorated_callable(video=str(mpeg), num_frames=10)  # type: ignore[attr-defined]
+        try:
+            reloaded.seek(10, frame_attrs=stored)
+            got = next(reloaded)
+        finally:
+            reloaded.close()
+        assert got['frame_attrs']['index'] == stored['index']
+        assert got['frame_attrs']['time'] == pytest.approx(stored['time'], abs=1e-3)
+
+        # Once pos already matches, seek() leaves the decoder where it is. The following next()
+        # still returns the stored frame.
+        scanned = frame_iterator.decorated_callable(video=str(mpeg), num_frames=10)  # type: ignore[attr-defined]
+        try:
+            assert len(list(scanned)) == 10
+            scanned.seek(10, frame_attrs=stored)
+            got = next(scanned)
+        finally:
+            scanned.close()
+        assert got['frame_attrs']['index'] == stored['index']
+        assert got['frame_attrs']['time'] == pytest.approx(stored['time'], abs=1e-3)
+
+        # pos already matches, and the stored frame is not the frame the current sample would choose.
+        offset = tmp_path / 'offset.mp4'
+        _ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'color=c=red:s=64x64:d=2:r=25',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                '-output_ts_offset',
+                '0.5',
+                str(offset),
+            ]
+        )
+        sampled = collect(offset, num_frames=10)
+        offset_decoded = collect(offset)
+        gap = next(
+            item['frame_attrs']
+            for item in offset_decoded
+            if sampled[0]['frame_attrs']['index'] < item['frame_attrs']['index'] < sampled[1]['frame_attrs']['index']
+        )
+        offset_iter = frame_iterator.decorated_callable(video=str(offset), num_frames=10)  # type: ignore[attr-defined]
+        try:
+            first = next(offset_iter)
+            assert first['frame_attrs']['index'] == sampled[0]['frame_attrs']['index']
+            offset_iter.seek(1, frame_attrs=gap)
+            got = next(offset_iter)
+        finally:
+            offset_iter.close()
+        assert got['frame_attrs']['index'] == gap['index']
+        assert got['frame_attrs']['time'] == pytest.approx(gap['time'], abs=1e-3)
+
     @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
     def test_keyframes_only(self, uses_db: None) -> None:
         path = get_video_files()[0]
