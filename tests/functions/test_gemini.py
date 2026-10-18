@@ -511,3 +511,36 @@ def test_tool_calls_no_candidates() -> None:
     assert calls(
         {'candidates': [{'content': {'parts': [{'function_call': {'name': 'weather', 'args': {'city': 'Paris'}}}]}}]}
     ) == {'weather': [{'args': {'city': 'Paris'}}]}
+
+
+def test_no_candidates_block_reason_is_not_retryable() -> None:
+    from types import SimpleNamespace
+
+    from pixeltable.exceptions import ErrorCode
+    from pixeltable.functions.gemini import _no_candidates_error
+
+    blocked = _no_candidates_error('gemini-2.5-flash', {'block_reason': 'SAFETY'})
+    assert blocked.error_code == ErrorCode.PROVIDER_BAD_REQUEST
+    assert blocked.is_retryable is False
+    assert blocked.to_dict()['retryable'] is False
+    assert blocked.provider == 'gemini'
+    assert blocked.message == 'Gemini returned no candidates for model gemini-2.5-flash (block reason: SAFETY).'
+
+    # model_dump() leaves BlockedReason as an enum; the error uses its .value.
+    enum_blocked = _no_candidates_error(
+        'gemini-2.5-flash', {'block_reason': SimpleNamespace(value='PROHIBITED_CONTENT')}
+    )
+    assert enum_blocked.error_code == ErrorCode.PROVIDER_BAD_REQUEST
+    assert enum_blocked.is_retryable is False
+    assert 'block reason: PROHIBITED_CONTENT' in enum_blocked.message
+
+    unspecified = _no_candidates_error('gemini-2.5-flash', {'block_reason': 'BLOCKED_REASON_UNSPECIFIED'})
+    assert unspecified.error_code == ErrorCode.PROVIDER_BAD_REQUEST
+    assert unspecified.is_retryable is False
+
+    for feedback in ({}, {'block_reason': None}, {'block_reason': ''}, None, 'not-a-dict'):
+        empty = _no_candidates_error('gemini-2.5-flash', feedback)
+        assert empty.error_code == ErrorCode.PROVIDER_ERROR, feedback
+        assert empty.is_retryable is True
+        assert empty.to_dict()['retryable'] is True
+        assert empty.message == 'Gemini returned no candidates for model gemini-2.5-flash.'

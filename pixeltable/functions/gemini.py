@@ -186,13 +186,7 @@ async def generate_content(
         # 'candidates' can be null
         candidates = result.get('candidates') or []
         if len(candidates) == 0:
-            feedback = result.get('prompt_feedback') or {}
-            block_reason = feedback.get('block_reason') if isinstance(feedback, dict) else None
-            block_reason = getattr(block_reason, 'value', block_reason)
-            message = f'Gemini returned no candidates for model {model}'
-            if block_reason:
-                message = f'{message} (block reason: {block_reason})'
-            raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, f'{message}.', provider='gemini')
+            raise _no_candidates_error(model, result.get('prompt_feedback'))
         for candidate in candidates:
             content = candidate.get('content')
             if content is None:
@@ -204,6 +198,20 @@ async def generate_content(
                     img.load()
                     blob['data'] = img
         return result
+
+
+def _no_candidates_error(model: str, prompt_feedback: Any) -> excs.ExternalServiceError:
+    """Error for generate_content() with no candidates. A block reason is not retryable."""
+    feedback = prompt_feedback or {}
+    block_reason = feedback.get('block_reason') if isinstance(feedback, dict) else None
+    block_reason = getattr(block_reason, 'value', block_reason)
+    message = f'Gemini returned no candidates for model {model}'
+    if block_reason:
+        message = f'{message} (block reason: {block_reason})'
+        error_code = excs.ErrorCode.PROVIDER_BAD_REQUEST
+    else:
+        error_code = excs.ErrorCode.PROVIDER_ERROR
+    return excs.ExternalServiceError(error_code, f'{message}.', provider='gemini')
 
 
 @asynccontextmanager
