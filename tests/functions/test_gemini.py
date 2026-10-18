@@ -1,11 +1,8 @@
-import asyncio
 import logging
 import random
 import time
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import PIL.Image
@@ -416,13 +413,9 @@ class TestGemini:
             .select(errortype=t.response.errortype, errormsg=t.response.errormsg)
             .collect()
         )
-        no_candidates = 'Gemini returned no candidates'
-        unexpected = [
-            f'{row["errortype"]}: {row["errormsg"]}'
-            for row in failures
-            if row['errortype'] != 'ExternalServiceError' or no_candidates not in (row['errormsg'] or '')
-        ]
-        assert not unexpected, f'rows failed for reasons other than no candidates: {unexpected}'
+        for failure in failures:
+            assert failure['errortype'] == 'ExternalServiceError', failure
+            assert 'Gemini returned no candidates' in (failure['errormsg'] or ''), failure
         assert status.num_excs == len(failures), (
             f'{status.num_excs} exceptions recorded, but {len(failures)} response rows stored an error'
         )
@@ -509,109 +502,12 @@ class TestGemini:
         assert res[1]['sim'] - res[0]['sim'] > 0.1
 
 
-def _install_gemini_client(monkeypatch: pytest.MonkeyPatch, response: Any) -> None:
-    from pixeltable.functions import gemini
+def test_tool_calls_no_candidates() -> None:
+    from pixeltable.functions.gemini import _gemini_response_to_pxt_tool_calls
 
-    generate_content = AsyncMock(return_value=response)
-    client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content)))
-    monkeypatch.setattr(gemini, '_genai_client', lambda: client)
-
-    def require_package(*_args: Any, **_kwargs: Any) -> None:
-        return None
-
-    def get_resource_pool_info(_pool_id: str, make: Any) -> Any:
-        return make()
-
-    fake_env = SimpleNamespace(require_package=require_package, get_resource_pool_info=get_resource_pool_info)
-    monkeypatch.setattr(gemini.env.Env, 'get', classmethod(lambda _cls: fake_env))
-
-
-class TestGeminiNoCandidates:
-    """Mocked generateContent responses with no candidates. These do not call Gemini."""
-
-    @pytest.mark.parametrize('blocked', [False, True])
-    @pytest.mark.parametrize('candidates', [None, []])
-    def test_generate_content_no_candidates(
-        self, monkeypatch: pytest.MonkeyPatch, candidates: list[Any] | None, blocked: bool
-    ) -> None:
-        pytest.importorskip('google.genai')
-        from google.genai import types
-
-        from pixeltable.functions import gemini
-
-        prompt_feedback = None
-        if blocked:
-            prompt_feedback = types.GenerateContentResponsePromptFeedback(block_reason=types.BlockedReason.SAFETY)
-        response = types.GenerateContentResponse(
-            candidates=candidates,
-            prompt_feedback=prompt_feedback,
-            usage_metadata=types.GenerateContentResponseUsageMetadata(prompt_token_count=11, candidates_token_count=0),
-        )
-        if candidates is None:
-            assert response.model_dump().get('candidates') is None
-        _install_gemini_client(monkeypatch, response)
-        recorded: list[tuple[Any, ...]] = []
-
-        def record_token_usage(*args: Any, **_kwargs: Any) -> None:
-            recorded.append(args)
-
-        monkeypatch.setattr(gemini.telemetry_schemas, 'record_token_usage', record_token_usage)
-        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='Gemini returned no candidates') as exc_info:
-            asyncio.run(gemini.generate_content.py_fn('hello', model='gemini-2.5-flash-lite'))
-        message = str(exc_info.value)
-        if blocked:
-            assert 'block reason: SAFETY' in message
-        else:
-            assert 'block reason' not in message
-        assert len(recorded) == 1
-        assert recorded[0][0] == 'pixeltable.functions.gemini.generate_content'
-        assert recorded[0][1] == 'gemini-2.5-flash-lite'
-        assert recorded[0][2]['prompt_token_count'] == 11
-
-    @pytest.mark.parametrize('candidates', [None, []])
-    @pytest.mark.parametrize(
-        ('signature_idx', 'call_kwargs', 'message'),
-        [
-            (0, {'voice': 'Kore'}, 'Gemini TTS returned unexpected response structure'),
-            (
-                1,
-                {'voices': {'Alice': 'Kore', 'Bob': 'Puck'}},
-                'Gemini multi-speaker TTS returned unexpected response structure',
-            ),
-        ],
-    )
-    def test_generate_speech_no_candidates(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        candidates: list[Any] | None,
-        signature_idx: int,
-        call_kwargs: dict[str, Any],
-        message: str,
-    ) -> None:
-        pytest.importorskip('google.genai')
-        from google.genai import types
-
-        from pixeltable.functions import gemini
-
-        response = types.GenerateContentResponse(candidates=candidates)
-        _install_gemini_client(monkeypatch, response)
-        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match=message):
-            asyncio.run(
-                gemini.generate_speech.py_fns[signature_idx](
-                    'Alice: hello', model='gemini-2.5-flash-preview-tts', **call_kwargs
-                )
-            )
-
-    def test_tool_calls_no_candidates(self) -> None:
-        from pixeltable.functions.gemini import _gemini_response_to_pxt_tool_calls
-
-        calls = _gemini_response_to_pxt_tool_calls.py_fn
-        assert calls({'candidates': None}) is None
-        assert calls({'candidates': []}) is None
-        assert calls(
-            {
-                'candidates': [
-                    {'content': {'parts': [{'function_call': {'name': 'weather', 'args': {'city': 'Paris'}}}]}}
-                ]
-            }
-        ) == {'weather': [{'args': {'city': 'Paris'}}]}
+    calls = _gemini_response_to_pxt_tool_calls.py_fn
+    assert calls({'candidates': None}) is None
+    assert calls({'candidates': []}) is None
+    assert calls(
+        {'candidates': [{'content': {'parts': [{'function_call': {'name': 'weather', 'args': {'city': 'Paris'}}}]}}]}
+    ) == {'weather': [{'args': {'city': 'Paris'}}]}

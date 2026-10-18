@@ -183,8 +183,7 @@ async def generate_content(
             'prompt_token_count',
             'candidates_token_count',
         )
-        # `candidates` is null, not absent, when generateContent returns no candidates. dict.get's default
-        # applies only when the key is missing, so `result.get('candidates', [])` is still None.
+        # 'candidates' can be null
         candidates = result.get('candidates') or []
         if len(candidates) == 0:
             feedback = result.get('prompt_feedback') or {}
@@ -256,7 +255,6 @@ def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDic
 
 @pxt.udf
 def _gemini_response_to_pxt_tool_calls(response: dict) -> dict | None:
-    # Same null-candidates case as generate_content(): the key is present and the value is None.
     candidates = response.get('candidates') or []
     if len(candidates) == 0:
         return None
@@ -571,7 +569,6 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
     )
 
     response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
-    # `candidates` is null, not an empty list, when generateContent returns no candidates.
     candidates = response.candidates or []
     try:
         data = candidates[0].content.parts[0].inline_data.data
@@ -644,7 +641,6 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
     )
 
     response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
-    # `candidates` is null, not an empty list, when generateContent returns no candidates.
     candidates = response.candidates or []
     try:
         data = candidates[0].content.parts[0].inline_data.data
