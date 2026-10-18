@@ -1132,7 +1132,6 @@ class TestFastAPI:
 
         # shortened, so the test reaches the limit and the TTLs in seconds
         monkeypatch.setattr(_fastapi, '_MAX_PENDING_JOBS', 2)
-        monkeypatch.setattr(_fastapi, '_JOB_RESULT_TTL_S', 1.0)
         monkeypatch.setattr(_fastapi, '_JOB_FETCHED_TTL_S', 0.5)
         t = pxt.create_table('jobs', {'x': pxt.Int, 'secs': pxt.Float})
         t.add_computed_column(slept=sleep(t.secs))
@@ -1156,6 +1155,8 @@ class TestFastAPI:
 
         # finished jobs do not count against the limit; a result expires _JOB_RESULT_TTL_S after its job finishes
         # (polling fetches the result, so _JOB_FETCHED_TTL_S is raised above _JOB_RESULT_TTL_S)
+        # shortened only here: above, a finished result waits unfetched while the loop polls the other job
+        monkeypatch.setattr(_fastapi, '_JOB_RESULT_TTL_S', 1.0)
         monkeypatch.setattr(_fastapi, '_JOB_FETCHED_TTL_S', 60.0)
         late = client.post('/bg', json={'x': 3, 'secs': 0.0})
         assert late.status_code == 200, late.text
@@ -1277,10 +1278,11 @@ class TestFastAPI:
     @pytest.mark.db_roots(
         'local', reason='a background job computes in the router process only for an in-process catalog'
     )
-    def test_background_job_drain(self, uses_db: None) -> None:
-        """On SIGTERM, a pod's server refuses new jobs and stops once the results of its jobs are fetched."""
+    def test_background_job_drain(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """On SIGTERM, a pod's server refuses new jobs, and stops once its jobs' results are fetched or have been kept
+        for _DRAIN_COLLECT_S, or at the drain deadline."""
         skip_test_if_not_installed('fastapi')
-        from pixeltable.serving import FastAPIRouter
+        from pixeltable.serving import FastAPIRouter, _fastapi
 
         t = pxt.create_table('jobs', {'x': pxt.Int, 'secs': pxt.Float})
         t.add_computed_column(slept=sleep(t.secs))
@@ -1313,6 +1315,21 @@ class TestFastAPI:
             served.server.handle_exit(signal.SIGTERM, None)
             served.server.handle_exit(signal.SIGTERM, None)
             assert served.server.should_exit
+
+        # at the deadline, the server stops although a job still runs
+        with serve_router(jobs_router(), drain_s=0.5) as served, httpx.Client(base_url=f'http://{served.addr}') as c:
+            assert c.post('/bg', json={'x': 4, 'secs': 4.0}).status_code == 200
+            served.server.handle_exit(signal.SIGTERM, None)
+            assert wait_until(lambda: served.server.should_exit, 3.0)
+
+        # a finished unfetched result keeps the server for _DRAIN_COLLECT_S, not until the deadline
+        monkeypatch.setattr(_fastapi, '_DRAIN_COLLECT_S', 0.5)
+        with serve_router(jobs_router(), drain_s=60.0) as served, httpx.Client(base_url=f'http://{served.addr}') as c:
+            assert c.post('/bg', json={'x': 5, 'secs': 0.0}).status_code == 200
+            # the inserted row shows that the job finished, without a poll that would fetch its result
+            assert wait_until(lambda: t.where(t.x == 5).count() == 1, 10.0)
+            served.server.handle_exit(signal.SIGTERM, None)
+            assert wait_until(lambda: served.server.should_exit, 5.0)
 
     def test_openapi(self, db_root: DatabaseRoot) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""

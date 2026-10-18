@@ -165,12 +165,13 @@ def get_services(cli: PxtRunner, target: str | None = None) -> dict[str, dict[st
     return {s['name']: s for s in cli(*args).json}
 
 
-def deploy(cli: PxtRunner, app: str, target: str, port: int | None = None) -> None:
+def deploy(cli: PxtRunner, app: str, target: str, port: int | None = None, schema_file: str | None = None) -> None:
     """Create the tables the models declare, then serve the file's services against them.
 
     port: the port for the file's one service; None lets the OS choose.
+    schema_file: the file with the model base, if it is not app.
     """
-    cli('schema', 'update', app, target)
+    cli('schema', 'update', app if schema_file is None else schema_file, target)
     cli('service', 'update', app, target, '-f', *([] if port is None else ['--port', str(port)]))
 
 
@@ -695,7 +696,8 @@ class TestService:
                 time.sleep(0.5)
 
         try:
-            deploy(cli, app, target)
+            # background_app.py imports its router from background.py, which has the model base
+            deploy(cli, app, target, schema_file=apps('background.py'))
             endpoint = assert_serving(cli, app, target, service)[service]['endpoint']
             # a submit or a poll can reach either instance
             for nap_id in range(40):

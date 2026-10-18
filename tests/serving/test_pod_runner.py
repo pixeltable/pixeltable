@@ -3,7 +3,8 @@ from unittest import mock
 
 import pytest
 
-from tests.utils import skip_test_if_not_installed
+import pixeltable as pxt
+from tests.utils import pxt_raises, skip_test_if_not_installed
 
 
 class TestPodRunner:
@@ -47,3 +48,16 @@ class TestPodRunner:
         router._configure_job_forwarding.assert_called_once_with(
             '10.0.0.7:8000', 'postgresql://u:p@db/pxt', '/nested/svc'
         )
+
+        # an IPv6 pod address gets brackets in <host>:<port>
+        router.reset_mock()
+        monkeypatch.setenv('PIXELTABLE_SERVE_INSTANCE_HOST', 'fd00::7')
+        pod_runner._serve('pxt://org:db', 'app.py', 'svc', 'nested', tmp_path, fingerprint_file, '0.0.0.0', 8000, False)
+        assert router._configure_job_forwarding.call_args.args[0] == '[fd00::7]:8000'
+
+        # a hosted pod without the db credential has no secret for its job ids
+        monkeypatch.delenv('PIXELTABLE_DB_CONNECT_STR')
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match='a pod needs PIXELTABLE_DB_CONNECT_STR'):
+            pod_runner._serve(
+                'pxt://org:db', 'app.py', 'svc', 'nested', tmp_path, fingerprint_file, '0.0.0.0', 8000, False
+            )

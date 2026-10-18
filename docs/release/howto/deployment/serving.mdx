@@ -343,8 +343,8 @@ does:
 | 410 | the service instance that ran the job stopped (a restart, a redeploy or a crash); the job may not have finished |
 | 503 with `Retry-After` | the instance is at its limit of unfinished jobs or is shutting down, or the instance that runs the job did not answer in time; retry after the interval |
 
-When a hosted service redeploys or scales down, a stopping instance first finishes its running jobs and serves
-their results, for up to about 5 minutes.
+When a hosted service redeploys or scales down, a stopping instance first finishes its running jobs, for up to
+about 5 minutes. It keeps each finished result until a poll returns it, or for 30 seconds after the job finished.
 
 `background` cannot combine with `return_fileresponse`.
 
