@@ -49,25 +49,39 @@ def _parse_clock_duration(value: str) -> float | None:
 _ABSOLUTE_END_FORMATS = frozenset({'asf', 'matroska', 'webm', 'nut'})
 
 
-def _presentation_end(stored_s: float, start_s: float, *, absolute: bool) -> float | None:
+def _stored_end(stored_s: float, start_s: float, *, absolute: bool) -> float | None:
+    """Return the stored end in seconds. `stored_s` is that absolute end, or a length from `start_s`."""
     if stored_s <= 0:
         return None
     return stored_s if absolute else start_s + stored_s
 
 
-def _display_end(
+def frame_duration_seconds(frame: av.VideoFrame, time_base: Fraction | None = None) -> float | None:
+    """Return this frame's duration in seconds.
+
+    PyAV before 14.4 has no duration attribute. A missing or zero duration is not an end.
+    """
+    raw_duration = getattr(frame, 'duration', None)
+    base = frame.time_base if frame.time_base is not None else time_base
+    if isinstance(raw_duration, int) and raw_duration > 0 and base is not None:
+        return float(raw_duration * base)
+    return None
+
+
+def display_end(
     stored_end: float | None, frame_time: float, frame_duration: float | None, average_rate: Fraction | None
 ) -> float:
-    """Time at which the last frame stops being shown.
+    """Time at which a frame stops being shown.
 
     A stored end past that frame's timestamp wins. Otherwise the frame's own duration is the end.
-    One average frame interval is only a fallback.
+    One average frame interval is only a fallback. With no rate, the end stays at the frame timestamp.
     """
     if stored_end is not None and stored_end > frame_time:
         return stored_end
     if frame_duration is not None:
         return frame_time + frame_duration
-    assert average_rate is not None and average_rate != 0
+    if average_rate is None or average_rate == 0:
+        return frame_time
     return frame_time + float(1 / average_rate)
 
 
@@ -79,7 +93,11 @@ def _sole_video_stream(container: av.container.input.InputContainer) -> bool:
 
 
 def video_time_range(container: av.container.input.InputContainer) -> tuple[float, float] | None:
-    """Return the first video stream's presentation start and end, in seconds."""
+    """Return the first video stream's stored start and end, in seconds.
+
+    The stored end is the end recorded for that stream. For NUT that is the last
+    presentation timestamp, which can be earlier than when the last frame stops being shown.
+    """
     if len(container.streams.video) == 0:
         return None
     stream = container.streams.video[0]
@@ -94,16 +112,19 @@ def video_time_range(container: av.container.input.InputContainer) -> tuple[floa
         # Zero is an empty stream. It is not an unknown duration.
         if stream.duration == 0:
             return start, start
-        stream_absolute = _format_name_in(format_name, frozenset({'asf'}))
-        end = _presentation_end(float(stream.duration * stream.time_base), start, absolute=stream_absolute)
-        if end is not None:
-            return start, end
+        # ASF copies the file end onto every stream. A longer audio track then outlasts
+        # the picture, so use that end only when this video is the file's only stream.
+        asf = _format_name_in(format_name, frozenset({'asf'}))
+        if not asf or _sole_video_stream(container):
+            end = _stored_end(float(stream.duration * stream.time_base), start, absolute=asf)
+            if end is not None:
+                return start, end
 
     tag = stream.metadata.get('DURATION') if stream.metadata else None
     if isinstance(tag, str):
         parsed = _parse_clock_duration(tag)
         if parsed is not None:
-            end = _presentation_end(parsed, start, absolute=absolute)
+            end = _stored_end(parsed, start, absolute=absolute)
             if end is not None:
                 return start, end
 
@@ -111,7 +132,7 @@ def video_time_range(container: av.container.input.InputContainer) -> tuple[floa
         # Zero is an empty container, matching a zero stream duration above.
         if container.duration <= 0:
             return start, start
-        end = _presentation_end(container.duration / 1_000_000, start, absolute=absolute)
+        end = _stored_end(container.duration / 1_000_000, start, absolute=absolute)
         if end is not None:
             return start, end
     return None
@@ -482,11 +503,11 @@ class VideoFrames:
     fps: float
     container: av.container.input.InputContainer | None
     video_framerate: Fraction | None
-    # Presentation start of the stream, in seconds. fps sampling counts from here.
+    # Stored start of the stream, in seconds. fps sampling counts from here.
     _video_start: float
-    # Presentation end recorded by the container, in seconds.
+    # Stored end recorded for the stream, in seconds. None when the container has no video end.
     _video_end: float | None
-    # Presentation time of the latest decoded frame, in seconds.
+    # Time of the latest decoded frame, in seconds.
     last_frame_time: float | None
     # Duration of that frame, in seconds. None when PyAV omits it or reports zero.
     last_frame_duration: float | None
@@ -538,7 +559,7 @@ class VideoFrames:
     def end_time(self) -> float:
         """The time at which the video ends, in seconds. Valid after iteration is exhausted."""
         assert self.last_frame_time is not None
-        return _display_end(self._video_end, self.last_frame_time, self.last_frame_duration, self.video_framerate)
+        return display_end(self._video_end, self.last_frame_time, self.last_frame_duration, self.video_framerate)
 
     def __iter__(self) -> Iterator[Item]:
         assert self.container is not None
@@ -550,22 +571,16 @@ class VideoFrames:
         try:
             for frame in self.container.decode(video=0):
                 frame_idx += 1
-                # The latest presentation time wins, including a frame fps sampling does not yield.
+                # The latest frame time wins, including a frame fps sampling does not yield.
                 # A missing duration must not keep an earlier frame's end.
                 if frame.pts is not None and frame.time is not None and (latest_pts is None or frame.pts >= latest_pts):
                     latest_pts = frame.pts
                     self.last_frame_time = float(frame.time)
-                    # Frame.duration was added in PyAV 14.4. av>=14.1 has no such attribute,
-                    # and a zero duration is not an end.
-                    frame_duration = getattr(frame, 'duration', None)
-                    time_base = frame.time_base
-                    if isinstance(frame_duration, int) and frame_duration > 0 and time_base is not None:
-                        self.last_frame_duration = float(frame_duration * time_base)
-                    else:
-                        self.last_frame_duration = None
+                    self.last_frame_duration = frame_duration_seconds(frame)
                 # frame.time is absolute. An offset stream has to be counted from its start,
                 # or the first samples all fall in the opening fraction of a second.
-                if self.fps == 0.0 or num_returned <= (frame.time - self._video_start) * self.fps:
+                # (frame.time - start) * fps can land just under an integer and drop that frame.
+                if self.fps == 0.0 or num_returned <= (frame.time - self._video_start) * self.fps + 1e-6:
                     img = frame.to_image()
                     assert isinstance(img, PIL.Image.Image)
                     yield VideoFrames.Item(

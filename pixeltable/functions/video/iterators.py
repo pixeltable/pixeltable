@@ -140,9 +140,11 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         time_range = av_utils.video_time_range(self.container)
         if time_range is None:
             self.video_start_time = float((stream.start_time or 0) * self.video_time_base)
-            # Header timing can be missing, or it can belong to a longer audio stream.
-            # The packet scan still returns this video's length.
-            self.video_duration = av_utils.get_video_duration(str(self.video_path))
+            # num_frames spaces its samples before decoding, so it needs the packet scan now.
+            # fps learns the end on the last frame. All frames and keyframes never read it.
+            self.video_duration = (
+                av_utils.get_video_duration(str(self.video_path)) if self.num_frames is not None else None
+            )
         else:
             self.video_start_time, end = time_range
             self.video_duration = end - self.video_start_time
@@ -254,17 +256,17 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         """True when sample_time is at or after the end of the video.
 
         The end matches VideoFrames.end_time(): the stored range when it runs past this frame,
-        otherwise this frame's duration, otherwise one average frame.
+        otherwise this frame's duration, otherwise one average frame. With no rate, the end
+        stays at the frame timestamp.
         """
         assert self.cur_frame is not None
+        if self.video_duration is None and self.fps is not None:
+            # Header timing did not give an end. Only the last frame needs it.
+            self.video_duration = av_utils.get_video_duration(str(self.video_path))
         stored_end = None if self.video_duration is None else self.video_start_time + self.video_duration
-        raw_duration = getattr(self.cur_frame, 'duration', None)
-        time_base = self.cur_frame.time_base if self.cur_frame.time_base is not None else self.video_time_base
-        duration_s: float | None = None
-        if isinstance(raw_duration, int) and raw_duration > 0 and time_base is not None:
-            duration_s = float(raw_duration * time_base)
+        duration_s = av_utils.frame_duration_seconds(self.cur_frame, self.video_time_base)
         rate = self.container.streams.video[0].average_rate
-        end = av_utils._display_end(stored_end, frame_time, duration_s, None if rate == 0 else rate)
+        end = av_utils.display_end(stored_end, frame_time, duration_s, None if rate == 0 else rate)
         # A sample at the only known timestamp still belongs to the frame.
         if end > frame_time:
             return sample_time >= end
