@@ -29,7 +29,7 @@ def _format_name_in(format_name: str, names: frozenset[str]) -> bool:
 
 
 def _parse_clock_duration(value: str) -> float | None:
-    """Parse an `HH:MM:SS[.fraction]` duration into seconds."""
+    """Parse an HH:MM:SS[.fraction] duration into seconds."""
     parts = value.strip().split(':')
     if len(parts) != 3:
         return None
@@ -50,7 +50,7 @@ _ABSOLUTE_END_FORMATS = frozenset({'asf', 'matroska', 'webm', 'nut'})
 
 
 def _stored_end(stored_s: float, start_s: float, *, absolute: bool) -> float | None:
-    """Return the stored end in seconds. `stored_s` is that absolute end, or a length from `start_s`."""
+    """Return the stored end in seconds. stored_s is that absolute end, or a length from start_s."""
     if stored_s <= 0:
         return None
     return stored_s if absolute else start_s + stored_s
@@ -73,10 +73,13 @@ def display_end(
 ) -> float:
     """Time at which a frame stops being shown.
 
-    A stored end past that frame's timestamp wins. Otherwise the frame's own duration is the end.
+    A stored end more than a microsecond past that frame's timestamp wins. Container metadata
+    is recorded in microseconds, so a stored end that only rounds up to that resolution is the
+    same timestamp and the frame duration applies. Otherwise the frame's own duration is the end.
     One average frame interval is only a fallback. With no rate, the end stays at the frame timestamp.
     """
-    if stored_end is not None and stored_end > frame_time:
+    # One microsecond is the container metadata resolution.
+    if stored_end is not None and stored_end > frame_time + 1e-6:
         return stored_end
     if frame_duration is not None:
         return frame_time + frame_duration

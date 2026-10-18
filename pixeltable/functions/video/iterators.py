@@ -94,7 +94,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         ...     'one_fps_frames', tbl, iterator=frame_iterator(tbl.video, fps=1.0)
         ... )
 
-        Create a view that extracts exactly 10 frames from each video:
+        Create a view that extracts 10 evenly spaced frames from each video:
 
         >>> pxt.create_view(
         ...     'ten_frames', tbl, iterator=frame_iterator(tbl.video, num_frames=10)
@@ -206,6 +206,11 @@ class frame_iterator(pxt.PxtIterator[Frame]):
             if self.extraction_step is not None:
                 # We are targeting a specified list of extraction times (because fps or num_frames was specified).
                 assert self.next_extraction_time is not None
+                # Stop at the requested count before either branch. A later sample can still
+                # land on a real frame: NUT's stored end is the last PTS, and MPEG-PS keeps
+                # packets past the duration it reports.
+                if self.num_frames is not None and self.pos >= self.num_frames:
+                    raise StopIteration
 
                 if next_frame is None:
                     # The last frame stays up until the video ends. A sample after its PTS still belongs

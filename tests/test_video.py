@@ -280,6 +280,7 @@ _VIDEO_TIME_RANGES: tuple[tuple[str, list[str], float, float, float], ...] = (
         1.9,
     ),
     # Container duration is the last PTS (6.96s). The last frame is shown until 7.0s.
+    # 25fps lands on an exact microsecond, so this row does not catch rounding.
     (
         'offset.nut',
         [
@@ -298,6 +299,48 @@ _VIDEO_TIME_RANGES: tuple[tuple[str, list[str], float, float, float], ...] = (
         ],
         5.0,
         6.96,
+        7.0,
+    ),
+    # 30fps does not land on a microsecond. The container stores 6.966667s, above the
+    # last PTS 6.9666...s. That frame is shown until 7.0s.
+    (
+        'offset_30fps.nut',
+        [
+            '-f',
+            'lavfi',
+            '-i',
+            'color=c=red:s=64x64:d=2:r=30',
+            '-output_ts_offset',
+            '5',
+            '-c:v',
+            'libx264',
+            '-pix_fmt',
+            'yuv420p',
+            '-f',
+            'nut',
+        ],
+        5.0,
+        6.966667,
+        7.0,
+    ),
+    # MPEG-PS (format name mpeg) reports a 1.52s stream duration. Packets continue
+    # through the frame shown until 7.0s.
+    (
+        'offset.mpeg',
+        [
+            '-f',
+            'lavfi',
+            '-i',
+            'color=c=red:s=64x64:d=2:r=25',
+            '-output_ts_offset',
+            '5',
+            '-c:v',
+            'mpeg2video',
+            '-f',
+            'mpeg',
+        ],
+        5.0,
+        6.52,
         7.0,
     ),
 )
@@ -2211,6 +2254,12 @@ class TestVideo:
         assert av_utils.display_end(None, 0.6, None, None) == 0.6
         assert av_utils.display_end(None, 0.6, None, Fraction(0, 1)) == 0.6
         assert av_utils.display_end(0.6, 0.6, None, None) == 0.6
+        # 30fps, 5s offset, 2s. The stored end rounds the last PTS up to microseconds.
+        last_pts = 5 + 59 / 30
+        assert av_utils.display_end(6.966667, last_pts, 1 / 30, Fraction(30, 1)) == pytest.approx(7.0)
+        assert av_utils.display_end(last_pts + 1e-3, last_pts, 1 / 30, Fraction(30, 1)) == pytest.approx(
+            last_pts + 1e-3
+        )
 
     def test_end_time_uses_last_frame_duration(self, tmp_path: Path) -> None:
         """A stored end that stops at the last PTS still uses that frame, even when fps sampling skips it."""
@@ -2294,6 +2343,20 @@ class TestVideo:
                     sampled_times = [item.time for item in decoded]
                 assert len(sampled_times) == _decoded_frame_count(path)
                 assert any(abs(frame_time - 5.52) < 1e-3 for frame_time in sampled_times)
+                # The last frame's display window would otherwise add a 26th row at 6.96s.
+                nut_count = frame_iterator.decorated_callable(video=str(path), num_frames=25)  # type: ignore[attr-defined]
+                try:
+                    assert sum(1 for _ in nut_count) == 25
+                finally:
+                    nut_count.close()
+            elif name == 'offset.mpeg':
+                # A short reported duration used to keep yielding past num_frames (5 and 13).
+                assert len(yielded) == 4
+                mpeg_count = frame_iterator.decorated_callable(video=str(path), num_frames=10)  # type: ignore[attr-defined]
+                try:
+                    assert sum(1 for _ in mpeg_count) == 10
+                finally:
+                    mpeg_count.close()
 
             for fps in (None, 2.0):
                 with av_utils.VideoFrames(path, fps=fps) as decoded:
@@ -2424,6 +2487,9 @@ class TestVideo:
                 range_start, _stored_end, playback_end = expected[name]
                 assert scene_start == pytest.approx(range_start, abs=0.05), (name, sample_fps, row['scenes'])
                 assert scene_end == pytest.approx(playback_end, abs=0.05), (name, sample_fps, row['scenes'])
+                # The 0.05s band is wider than one 30fps frame, so check this end on its own.
+                if name == 'offset_30fps.nut':
+                    assert scene_end == pytest.approx(7.0, abs=1e-3), (sample_fps, row['scenes'])
             assert seen == set(expected)
 
     @pytest.mark.db_roots('local', reason='pure UDF test')
