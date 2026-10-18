@@ -587,6 +587,24 @@ class TestVideo:
         assert len(fps49_two) == 98
         assert fps49_one[-1]['frame_attrs']['time'] == pytest.approx(0.98, abs=1e-3)
         assert fps49_two[-1]['frame_attrs']['time'] == pytest.approx(1.98, abs=1e-3)
+        # 33 / 1.1 is 29.999999999999996, just under a 30s end. That sample is the end.
+        thirty = tmp_path / 'thirty_seconds_30fps.mp4'
+        _ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'color=c=red:s=64x64:d=30:r=30',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                str(thirty),
+            ]
+        )
+        fps_eleventh = collect(thirty, fps=1.1)
+        assert len(fps_eleventh) == 33
+        assert fps_eleventh[-1]['frame_attrs']['time'] == pytest.approx(29.1, abs=1e-3)
         # The sample at 1.0s is the end, so expansion stops. A stored row on the last frame still reloads.
         one_last = collect(one_second)[-1]['frame_attrs']
         fps_reload = frame_iterator.decorated_callable(video=str(one_second), fps=10)  # type: ignore[attr-defined]
@@ -733,6 +751,78 @@ class TestVideo:
         assert got['frame_idx'] == stored['frame_idx']
         assert got['pos_msec'] == pytest.approx(stored['pos_msec'], abs=1e-3)
         assert got['frame'] == stored['frame']
+
+        # v0.5.6-v0.5.18 stored frame_time * 1000 - start_seconds. On this mpg the
+        # start is 0.5s, and adding the full start seeks to a different frame.
+        mpg = TESTS_DIR / 'data' / 'videos' / 'v_shooting_01_01.mpg'
+        decoded = frame_iterator.decorated_callable(video=str(mpg))  # type: ignore[attr-defined]
+        try:
+            mpg_rows = list(decoded)
+            mpg_start = float(decoded.video_start_time)
+        finally:
+            decoded.close()
+        assert mpg_start == pytest.approx(0.5, abs=1e-3)
+        historical = legacy_frame_iterator.decorated_callable(video=str(mpg))  # type: ignore[attr-defined]
+        try:
+            for row in mpg_rows:
+                frame_time = float(row['frame_attrs']['time'])
+                frame_index = int(row['frame_attrs']['index'])
+                pos_msec = frame_time * 1000.0 - mpg_start
+                historical.seek(frame_index, pos_msec=pos_msec, pos_frame=frame_index, frame_idx=frame_index)
+                got = next(historical)
+                assert got['pos_frame'] == frame_index
+                assert got['frame'] == row['frame']
+        finally:
+            historical.close()
+
+        # A 0.4s offset at 25fps puts both formulas on real frames, 1.4s and 1.8s.
+        quarter = tmp_path / 'legacy_quarter.mp4'
+        _ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'color=c=red:s=64x64:d=2:r=25',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                '-output_ts_offset',
+                '0.4',
+                str(quarter),
+            ]
+        )
+        quarter_frames = frame_iterator.decorated_callable(video=str(quarter))  # type: ignore[attr-defined]
+        try:
+            quarter_rows = list(quarter_frames)
+            quarter_start = float(quarter_frames.video_start_time)
+        finally:
+            quarter_frames.close()
+        assert quarter_start == pytest.approx(0.4, abs=1e-3)
+        stored_row = quarter_rows[25]
+        stored_frame_time = float(stored_row['frame_attrs']['time'])
+        stored_index = int(stored_row['frame_attrs']['index'])
+        assert stored_frame_time == pytest.approx(1.4, abs=1e-3)
+        old_pos_msec = stored_frame_time * 1000.0 - quarter_start
+        new_pos_msec = (stored_frame_time - quarter_start) * 1000.0
+        with av.open(str(quarter)) as container:
+            stream = container.streams.video[0]
+            assert stream.time_base is not None
+            frame_times = [float(frame.pts * stream.time_base) for frame in container.decode(video=0)]
+        # Adding the full start lands on the frame at 1.8s, which is also a real frame.
+        wrong_time = quarter_start + old_pos_msec / 1000.0
+        nearest_wrong = min(frame_times, key=lambda frame_time: abs(frame_time - wrong_time))
+        assert abs(nearest_wrong - wrong_time) < 1e-3
+        assert abs(nearest_wrong - stored_frame_time) > 1e-2
+        quarter_reload = legacy_frame_iterator.decorated_callable(video=str(quarter))  # type: ignore[attr-defined]
+        try:
+            for pos_msec in (old_pos_msec, new_pos_msec):
+                quarter_reload.seek(stored_index, pos_msec=pos_msec, pos_frame=stored_index, frame_idx=stored_index)
+                got = next(quarter_reload)
+                assert got['pos_frame'] == stored_index
+                assert got['frame'] == stored_row['frame']
+        finally:
+            quarter_reload.close()
 
     @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
     def test_keyframes_only(self, uses_db: None) -> None:
@@ -2444,6 +2534,48 @@ class TestVideo:
         _assert_scenes_cover_video(t, pxtf.video.scene_detect_content, content_expected)
         _assert_scenes_cover_video(t, pxtf.video.scene_detect_content, content_expected, sample_fps=2.0)
         _assert_scenes_cover_video(t, pxtf.video.scene_detect_histogram, {'solid': 1, 'one_cut': 2, 'two_cuts': 3})
+
+    def test_packet_scan_keeps_offset_start(self, tmp_path: Path) -> None:
+        """The packet-scan clamp treats container duration as a length and keeps the stream offset."""
+        path = tmp_path / 'offset_short_audio.flv'
+        _ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'color=c=red:s=64x64:d=2:r=25',
+                '-f',
+                'lavfi',
+                '-i',
+                'sine=frequency=440:duration=0.4',
+                '-map',
+                '0:v',
+                '-map',
+                '1:a',
+                '-output_ts_offset',
+                '0.5',
+                '-c:v',
+                'flv1',
+                '-c:a',
+                'aac',
+                '-f',
+                'flv',
+                str(path),
+            ]
+        )
+        with av.open(str(path)) as container:
+            assert isinstance(container, av.container.input.InputContainer)
+            # No stream duration and a second stream, so get_video_duration scans packets.
+            assert av_utils.video_time_range(container) is None
+            stream = container.streams.video[0]
+            assert stream.time_base is not None
+            start = float((stream.start_time or 0) * stream.time_base)
+            assert container.duration is not None
+            stored = container.duration / 1_000_000
+        assert start == pytest.approx(0.5, abs=1e-2)
+        # The container value is the file length, about 2s, not the absolute end at 2.5s.
+        assert stored == pytest.approx(2.0, abs=0.1)
+        assert av_utils.get_video_duration(str(path)) == pytest.approx(2.0, abs=1e-2)
 
     def test_display_end(self) -> None:
         """Stored end, frame duration, average rate, and a missing rate each pick one end."""

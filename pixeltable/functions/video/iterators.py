@@ -39,13 +39,13 @@ class Frame(TypedDict):
 class _ReloadTarget(NamedTuple):
     """Stored frame for the next() that follows seek().
 
-    absolute_time is False for legacy pos_msec. That seek time includes the stream start,
-    and the match checks the frame index.
+    check_time gates the extra time comparison in _current_frame_matches(). The time is
+    absolute on both seek paths. Legacy pos_msec matches on the frame index.
     """
 
     time: float
     frame_index: int
-    absolute_time: bool
+    check_time: bool
 
 
 @pxt.iterator(unstored_cols=['frame'])
@@ -53,9 +53,9 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     """
     Iterator over frames of a video. At most one of `fps`, `num_frames` or `keyframes_only` may be specified. If `fps`
     is specified, then frames will be extracted at the specified rate (frames per second). If `num_frames` is specified,
-    then frames are extracted at that many evenly spaced times. The result has one row per frame, so it is shorter
-    than `num_frames` when several of those times fall on one frame. If neither is specified, then all frames will be
-    extracted.
+    then frames are extracted at that many evenly spaced times. A frame held mid-video moves later samples onto later
+    frames, so the result is shorter than `num_frames` only when samples run past the last frame. If neither is
+    specified, then all frames will be extracted.
 
     __Outputs:__
 
@@ -80,9 +80,9 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
             If omitted, or if greater than the native framerate of the video,
             then the framerate of the video will be used (all frames will be extracted).
-        num_frames: Number of evenly spaced frames to extract. The iterator returns that many frames unless
-            several sample times fall on one frame, in which case that frame is returned once. If `num_frames`
-            is greater than the number of frames in the video, all frames are extracted.
+        num_frames: Number of evenly spaced frames to extract. A frame held mid-video moves later samples onto
+            later frames, so the iterator returns that many frames unless samples run past the last frame. If
+            `num_frames` is greater than the number of frames in the video, all frames are extracted.
         keyframes_only: If True, only extract keyframes.
 
     Examples:
@@ -204,14 +204,19 @@ class frame_iterator(pxt.PxtIterator[Frame]):
             return None
 
     def __next__(self) -> Frame:
-        # seek() reloads one stored row. Expansion leaves this unset, so the num_frames cap still applies.
+        # seek() reloads one stored row before sampling. A stale next_extraction_time would
+        # decode past that frame, or to EOF, and then seek again. Expansion leaves this unset,
+        # so the num_frames cap still applies.
         target = self._reload_target
         self._reload_target = None
+        if target is not None:
+            if self.cur_frame is not None and self._current_frame_matches(target):
+                return self._emit_current(self.next_frame())
+            return self._emit_stored_frame(target)
+
         while True:
             if self.cur_frame is None:
-                if target is None:
-                    raise StopIteration
-                return self._emit_stored_frame(target)
+                raise StopIteration
 
             next_frame = self.next_frame()
 
@@ -228,8 +233,8 @@ class frame_iterator(pxt.PxtIterator[Frame]):
                 assert self.next_extraction_time is not None
                 # Stop at the requested count before either branch. A later sample can still
                 # land on a real frame: NUT's stored end is the last PTS, and MPEG-PS keeps
-                # packets past the duration it reports. A stored row may already be past that count.
-                if self.num_frames is not None and self.pos >= self.num_frames and target is None:
+                # packets past the duration it reports.
+                if self.num_frames is not None and self.pos >= self.num_frames:
                     raise StopIteration
 
                 if next_frame is None:
@@ -237,9 +242,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
                     # to it. Stop only once the sample is past that end. Yielding once covers later
                     # samples that land on this same frame.
                     if self._sample_past_end(self.next_extraction_time, cur_frame_time):
-                        if target is None:
-                            raise StopIteration
-                        return self._emit_stored_frame(target)
+                        raise StopIteration
                 else:
                     # The extraction time represents the idealized timestamp of the next frame we want to extract.
                     # If next_frame is *closer* to it than cur_frame, then we skip cur_frame.
@@ -254,15 +257,13 @@ class frame_iterator(pxt.PxtIterator[Frame]):
                         self.video_idx += 1
                         continue
 
-            if target is not None and not self._current_frame_matches(target):
-                return self._emit_stored_frame(target)
             return self._emit_current(next_frame)
 
     def _current_frame_matches(self, target: _ReloadTarget) -> bool:
         assert self.cur_frame is not None
         if self.video_idx != target.frame_index:
             return False
-        if not target.absolute_time:
+        if not target.check_time:
             return True
         frame_time = float(self.cur_frame.pts * self.video_time_base)
         return abs(frame_time - target.time) < 1e-3
@@ -304,11 +305,11 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         return self._emit_current(self.next_frame())
 
     def _sample_past_end(self, sample_time: float, frame_time: float) -> bool:
-        """True when sample_time is at or after the end of the video.
+        """True when the sample is past the end of the video.
 
         The end matches VideoFrames.end_time(): the stored range when it runs past this frame,
-        otherwise this frame's duration, otherwise one average frame. With no rate, the end
-        stays at the frame timestamp.
+        otherwise this frame's duration, otherwise one average frame. The sample is then at or
+        after that end. With no rate, the end stays at the frame timestamp and the sample is past it.
         """
         assert self.cur_frame is not None
         if self.video_duration is None and self.fps is not None:
@@ -320,6 +321,10 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         end = av_utils.display_end(stored_end, frame_time, duration_s, None if rate == 0 else rate)
         # A sample at the only known timestamp still belongs to the frame.
         if end > frame_time:
+            if self.fps is not None:
+                # pos / fps can land just under an exact end. 33 / 1.1 is 29.999999999999996.
+                span = end - self.video_start_time
+                return self.pos + 1e-6 >= span * self.fps
             return sample_time >= end
         return sample_time > frame_time
 
@@ -330,25 +335,107 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         assert next(iter(kwargs.values()), None) is not None
 
         seek_time: float
+        probed = False
         if 'pos_msec' in kwargs:
             video_idx = kwargs['pos_frame']
-            # pos_msec counts milliseconds from the stream start. Frame PTS is absolute.
-            seek_time = self.video_start_time + kwargs['pos_msec'] / 1000.0
-            absolute_time = False
+            # Both formulas can name a real frame. Resolving them may seek.
+            seek_time, probed = self._pos_msec_seek_time(float(kwargs['pos_msec']), video_idx)
+            check_time = False
         else:
             assert 'frame_attrs' in kwargs
             video_idx = kwargs['frame_attrs']['index']
             seek_time = kwargs['frame_attrs']['time']
-            absolute_time = True
+            check_time = True
 
         assert isinstance(video_idx, int)
         assert isinstance(seek_time, float)
-        self._reload_target = _ReloadTarget(seek_time, video_idx, absolute_time)
+        self._reload_target = _ReloadTarget(seek_time, video_idx, check_time)
 
-        if self.pos == pos and self.cur_frame is not None:
+        # A probe leaves the decoder off the current frame, so this shortcut is only safe
+        # when the two pos_msec formulas already agreed.
+        if not probed and self.pos == pos and self.cur_frame is not None:
             return
 
         self._position_at_frame(pos, seek_time, video_idx)
+
+    def _pos_msec_seek_time(self, pos_msec: float, frame_index: int) -> tuple[float, bool]:
+        """Absolute time for a stored pos_msec, and whether resolving it seeked.
+
+        Rows since the decorator store (frame_time - start) * 1000 and seek at
+        start + pos_msec / 1000. v0.5.6 through v0.5.18 stored frame_time * 1000 - start,
+        with start in seconds, and seek at pos_msec / 1000 + start / 1000. The two times
+        differ by about start * 0.999 and can both be real frames, so the stored frame index decides.
+        """
+        start = self.video_start_time
+        current = start + pos_msec / 1000.0
+        historical = pos_msec / 1000.0 + start / 1000.0
+        if abs(current - historical) < 1e-3:
+            return current, False
+
+        hits = [candidate for candidate in (current, historical) if self._frame_time_near(candidate) is not None]
+        if len(hits) == 1:
+            return hits[0], True
+        if len(hits) == 0:
+            return current, True
+
+        frame_time = self._time_of_frame_index(frame_index)
+        if frame_time is None:
+            return current, True
+        for candidate in hits:
+            if abs(candidate - frame_time) < 1e-3:
+                return candidate, True
+        return current, True
+
+    def _frame_time_near(self, seek_time: float) -> float | None:
+        """PTS, in seconds, of the frame within 1ms of seek_time."""
+        seek_offset = math.floor((seek_time - self.video_start_time) / self.video_time_base)
+        frame = self._first_frame_at(max(seek_offset, 0), seek_time)
+        if frame is None or frame.pts is None:
+            return None
+        frame_time = float(frame.pts * self.video_time_base)
+        if abs(frame_time - seek_time) < 1e-3:
+            return frame_time
+        return None
+
+    def _time_of_frame_index(self, frame_index: int) -> float | None:
+        """PTS, in seconds, of decoded frame frame_index, counted from the start of the stream."""
+        if frame_index < 0:
+            return None
+        stream = self.container.streams.video[0]
+        # 0 is at or before the first packet. start_time can sit on a later frame.
+        self.container.seek(0, backward=True, stream=stream)
+        index = 0
+        frame: av.VideoFrame | None = None
+        frame_gen = self.container.decode(video=0)
+        while index <= frame_index:
+            try:
+                frame = next(frame_gen)
+            except (StopIteration, EOFError):
+                return None
+            if index == frame_index:
+                break
+            index += 1
+        if frame is None or frame.pts is None:
+            return None
+        return float(frame.pts * self.video_time_base)
+
+    def _first_frame_at(self, seek_offset: int, seek_time: float) -> av.VideoFrame | None:
+        stream = self.container.streams.video[0]
+        self.container.seek(seek_offset, backward=True, stream=stream)
+        frame_gen = self.container.decode(video=0)
+        frame: av.VideoFrame | None
+        try:
+            frame = next(frame_gen)
+        except (StopIteration, EOFError):
+            return None
+        while (
+            frame is not None and frame.pts is not None and float(frame.pts * self.video_time_base) < seek_time - 1e-3
+        ):
+            try:
+                frame = next(frame_gen)
+            except (StopIteration, EOFError):
+                return None
+        return frame
 
     def _position_at_frame(self, pos: int, seek_time: float, video_idx: int) -> None:
         self.pos = pos

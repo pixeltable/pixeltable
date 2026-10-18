@@ -169,7 +169,9 @@ def get_video_duration(path: str) -> float | None:
         if max_pts is None:
             return None
         end = float((max_pts + (max_pts_duration or 0)) * video_stream.time_base)
-        # Some demuxers, such as MPEG, emit trailing packets past the container's end.
+        # Packet PTS is absolute. Non-absolute container.duration is a length, so the file end
+        # is start + stored. Capping at stored alone drops the stream offset. MPEG still emits
+        # packets past that end.
         if container.duration is not None:
             stored = container.duration / 1_000_000
             absolute = _format_name_in(container.format.name or '', _ABSOLUTE_END_FORMATS)
