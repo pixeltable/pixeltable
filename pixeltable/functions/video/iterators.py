@@ -137,6 +137,8 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     frame_gen: Iterator[av.VideoFrame]
     # seek() sets this. The following next() returns that stored frame.
     _reload_target: _ReloadTarget | None
+    # Which stored pos_msec formula this video uses, once a row has resolved it.
+    _pos_msec_formula: Literal['current', 'historical'] | None
 
     def __init__(
         self, video: pxt.Video, *, fps: float | None = None, num_frames: int | None = None, keyframes_only: bool = False
@@ -177,6 +179,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         self.pos = 0
         self.video_idx = 0
         self._reload_target = None
+        self._pos_msec_formula = None
         if self.num_frames is not None:
             # Divide the video duration into num_frames evenly spaced intervals. The extraction times are the midpoints
             # of those intervals.
@@ -323,8 +326,10 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         if end > frame_time:
             if self.fps is not None:
                 # pos / fps can land just under an exact end. 33 / 1.1 is 29.999999999999996.
-                span = end - self.video_start_time
-                return self.pos + 1e-6 >= span * self.fps
+                # The allowance scales with the end index. An absolute bump treats pos 0 as past
+                # a tiny positive end, so fps=1e-5 on a 0.04s frame yields nothing.
+                end_index = (end - self.video_start_time) * self.fps
+                return self.pos >= end_index * (1.0 - 1e-9)
             return sample_time >= end
         return sample_time > frame_time
 
@@ -335,11 +340,12 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         assert next(iter(kwargs.values()), None) is not None
 
         seek_time: float
-        probed = False
+        candidates: tuple[float, float] | None = None
         if 'pos_msec' in kwargs:
             video_idx = kwargs['pos_frame']
-            # Both formulas can name a real frame. Resolving them may seek.
-            seek_time, probed = self._pos_msec_seek_time(float(kwargs['pos_msec']), video_idx)
+            assert isinstance(video_idx, int)
+            candidates = self._pos_msec_candidates(float(kwargs['pos_msec']))
+            seek_time = self._pos_msec_seek_time(candidates, video_idx)
             check_time = False
         else:
             assert 'frame_attrs' in kwargs
@@ -351,93 +357,182 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         assert isinstance(seek_time, float)
         self._reload_target = _ReloadTarget(seek_time, video_idx, check_time)
 
-        # A probe leaves the decoder off the current frame, so this shortcut is only safe
-        # when the two pos_msec formulas already agreed.
-        if not probed and self.pos == pos and self.cur_frame is not None:
+        # pos already matches on a sequential read. Formula probes use another container,
+        # so this decoder is still on cur_frame. next() seeks when that frame is not the stored one.
+        if self.pos == pos and self.cur_frame is not None:
             return
 
+        found = self._position_at_frame(pos, seek_time, video_idx)
+        if candidates is None or found is None or found == video_idx or self._pos_msec_formula is None:
+            return
+        # This row used the other stored formula. Reposition once; later rows reuse that choice.
+        current, historical = candidates
+        self._pos_msec_formula = 'historical' if self._pos_msec_formula == 'current' else 'current'
+        seek_time = current if self._pos_msec_formula == 'current' else historical
+        self._reload_target = _ReloadTarget(seek_time, video_idx, False)
         self._position_at_frame(pos, seek_time, video_idx)
 
-    def _pos_msec_seek_time(self, pos_msec: float, frame_index: int) -> tuple[float, bool]:
-        """Absolute time for a stored pos_msec, and whether resolving it seeked.
+    def _pos_msec_candidates(self, pos_msec: float) -> tuple[float, float]:
+        """Decorator time, then the v0.5.6-v0.5.18 time, both in absolute seconds."""
+        start = self.video_start_time
+        return start + pos_msec / 1000.0, pos_msec / 1000.0 + start / 1000.0
+
+    def _pos_msec_seek_time(self, candidates: tuple[float, float], frame_index: int) -> float:
+        """Absolute time for a stored pos_msec.
 
         Rows since the decorator store (frame_time - start) * 1000 and seek at
         start + pos_msec / 1000. v0.5.6 through v0.5.18 stored frame_time * 1000 - start,
         with start in seconds, and seek at pos_msec / 1000 + start / 1000. The two times
         differ by about start * 0.999 and can both be real frames, so the stored frame index decides.
+        A resolved formula is reused. Probes do not move this iterator's decoder.
         """
-        start = self.video_start_time
-        current = start + pos_msec / 1000.0
-        historical = pos_msec / 1000.0 + start / 1000.0
+        current, historical = candidates
         if abs(current - historical) < 1e-3:
-            return current, False
+            return current
 
-        hits = [candidate for candidate in (current, historical) if self._frame_time_near(candidate) is not None]
-        if len(hits) == 1:
-            return hits[0], True
-        if len(hits) == 0:
-            return current, True
+        matched = self._candidate_on_current_frame(frame_index, current, historical)
+        if matched is not None:
+            return matched
+        if self._pos_msec_formula == 'current':
+            return current
+        if self._pos_msec_formula == 'historical':
+            return historical
+        return self._resolve_pos_msec_formula(frame_index, current, historical)
 
-        frame_time = self._time_of_frame_index(frame_index)
-        if frame_time is None:
-            return current, True
-        for candidate in hits:
-            if abs(candidate - frame_time) < 1e-3:
-                return candidate, True
-        return current, True
-
-    def _frame_time_near(self, seek_time: float) -> float | None:
-        """PTS, in seconds, of the frame within 1ms of seek_time."""
-        seek_offset = math.floor((seek_time - self.video_start_time) / self.video_time_base)
-        frame = self._first_frame_at(max(seek_offset, 0), seek_time)
-        if frame is None or frame.pts is None:
+    def _candidate_on_current_frame(self, frame_index: int, current: float, historical: float) -> float | None:
+        """The candidate within 1ms of cur_frame, when that frame is already frame_index."""
+        if self.cur_frame is None or self.cur_frame.pts is None or self.video_idx != frame_index:
             return None
-        frame_time = float(frame.pts * self.video_time_base)
-        if abs(frame_time - seek_time) < 1e-3:
-            return frame_time
+        frame_time = float(self.cur_frame.pts * self.video_time_base)
+        if abs(frame_time - current) < 1e-3:
+            self._pos_msec_formula = 'current'
+            return current
+        if abs(frame_time - historical) < 1e-3:
+            self._pos_msec_formula = 'historical'
+            return historical
         return None
 
+    def _resolve_pos_msec_formula(self, frame_index: int, current: float, historical: float) -> float:
+        # New rows store the decorator time. Accept it when the frame it decodes is pos_frame,
+        # before scanning from frame 0. Only then try the v0.5.6-v0.5.18 time.
+        if self._index_from_first_frame(current) == frame_index:
+            self._pos_msec_formula = 'current'
+            return current
+        if self._index_from_first_frame(historical) == frame_index:
+            self._pos_msec_formula = 'historical'
+            return historical
+        frame_time = self._time_of_frame_index(frame_index)
+        if frame_time is not None and abs(current - frame_time) < 1e-3:
+            self._pos_msec_formula = 'current'
+            return current
+        if frame_time is not None and abs(historical - frame_time) < 1e-3:
+            self._pos_msec_formula = 'historical'
+            return historical
+        self._pos_msec_formula = 'current'
+        return current
+
+    def _index_from_first_frame(self, seek_time: float) -> int | None:
+        """Decoded index of the frame within 1ms of seek_time, if this seek starts on the first frame.
+
+        A seek that lands on a later keyframe does not reveal the absolute index. None also covers
+        a relative seek that returns no packet. The caller then scans once from frame 0.
+        """
+        with av.open(str(self.video_path)) as container:
+            stream = container.streams.video[0]
+            seek_offset = math.floor((seek_time - self.video_start_time) / self.video_time_base)
+            container.seek(max(seek_offset, 0), backward=True, stream=stream)
+            frame_gen = container.decode(video=0)
+            try:
+                frame: av.VideoFrame | None = next(frame_gen)
+            except (StopIteration, EOFError):
+                return None
+            if frame is None or frame.pts is None:
+                return None
+            if abs(float(frame.pts * self.video_time_base) - self.video_start_time) >= 1e-3:
+                return None
+            index = 0
+            while frame is not None and float(frame.pts * self.video_time_base) < seek_time - 1e-3:
+                try:
+                    frame = next(frame_gen)
+                except (StopIteration, EOFError):
+                    return None
+                index += 1
+            if frame is None or frame.pts is None:
+                return None
+            if abs(float(frame.pts * self.video_time_base) - seek_time) >= 1e-3:
+                return None
+            return index
+
     def _time_of_frame_index(self, frame_index: int) -> float | None:
-        """PTS, in seconds, of decoded frame frame_index, counted from the start of the stream."""
+        """PTS, in seconds, of decoded frame frame_index, counted from the start of the stream.
+
+        Uses its own container so the iterator's decoder stays where the caller left it.
+        """
         if frame_index < 0:
             return None
-        stream = self.container.streams.video[0]
-        # 0 is at or before the first packet. start_time can sit on a later frame.
-        self.container.seek(0, backward=True, stream=stream)
-        index = 0
-        frame: av.VideoFrame | None = None
-        frame_gen = self.container.decode(video=0)
-        while index <= frame_index:
-            try:
-                frame = next(frame_gen)
-            except (StopIteration, EOFError):
+        with av.open(str(self.video_path)) as container:
+            stream = container.streams.video[0]
+            # 0 is at or before the first packet. start_time can sit on a later frame.
+            container.seek(0, backward=True, stream=stream)
+            frame_gen = container.decode(video=0)
+            frame: av.VideoFrame | None = None
+            index = 0
+            while index <= frame_index:
+                try:
+                    frame = next(frame_gen)
+                except (StopIteration, EOFError):
+                    return None
+                if index == frame_index:
+                    break
+                index += 1
+            if frame is None or frame.pts is None:
                 return None
-            if index == frame_index:
-                break
+            return float(frame.pts * self.video_time_base)
+
+    def _advance_to_stored_frame(self, pos: int, seek_time: float, video_idx: int) -> bool:
+        """Walk the open generator to video_idx when that frame is still ahead.
+
+        A backward seek would re-decode the same prefix. A timestamp that is not this frame's
+        leaves the seek path to run.
+        """
+        if self.cur_frame is None or self.video_idx > video_idx or self.cur_frame.pts is None:
+            return False
+        frame = self.cur_frame
+        index = self.video_idx
+        while index < video_idx:
+            nxt = self.next_frame()
+            if nxt is None or nxt.pts is None:
+                return False
+            frame = nxt
             index += 1
-        if frame is None or frame.pts is None:
-            return None
-        return float(frame.pts * self.video_time_base)
+        if abs(float(frame.pts * self.video_time_base) - seek_time) >= 1e-3:
+            return False
+        self.cur_frame = frame
+        self.video_idx = index
+        self.pos = pos
+        return True
 
-    def _first_frame_at(self, seek_offset: int, seek_time: float) -> av.VideoFrame | None:
+    def _decode_to_index(self, video_idx: int) -> None:
+        """Replace frame_gen with one generator from the start and decode through video_idx."""
         stream = self.container.streams.video[0]
-        self.container.seek(seek_offset, backward=True, stream=stream)
-        frame_gen = self.container.decode(video=0)
-        frame: av.VideoFrame | None
-        try:
-            frame = next(frame_gen)
-        except (StopIteration, EOFError):
-            return None
-        while (
-            frame is not None and frame.pts is not None and float(frame.pts * self.video_time_base) < seek_time - 1e-3
-        ):
-            try:
-                frame = next(frame_gen)
-            except (StopIteration, EOFError):
-                return None
-        return frame
+        self.container.seek(0, backward=True, stream=stream)
+        self.frame_gen = self.container.decode(video=0)
+        self.cur_frame = self.next_frame()
+        index = 0
+        while self.cur_frame is not None and index < video_idx:
+            self.cur_frame = self.next_frame()
+            index += 1
 
-    def _position_at_frame(self, pos: int, seek_time: float, video_idx: int) -> None:
+    def _position_at_frame(self, pos: int, seek_time: float, video_idx: int) -> int | None:
+        """Move to seek_time.
+
+        Returns video_idx when the open generator walked to that frame, or when an empty
+        relative seek decoded that index from the start. Returns the counted index when
+        the seek itself started on the first frame. None means the count is not absolute.
+        """
+        if self._advance_to_stored_frame(pos, seek_time, video_idx):
+            return video_idx
+
         self.pos = pos
         self.video_idx = video_idx
 
@@ -447,9 +542,22 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         self.frame_gen = self.container.decode(video=0)
 
         self.cur_frame = self.next_frame()
+        if self.cur_frame is None:
+            # A default-GOP MPEG-TS returns no packet once the offset reaches the stream start.
+            # seek(0) and this one generator still decode that index, including the last frame.
+            self._decode_to_index(video_idx)
+            return video_idx if self.cur_frame is not None else None
+
+        first_time = float(self.cur_frame.pts * self.video_time_base)
+        started_at_first = abs(first_time - self.video_start_time) < 1e-3
+        index = 0
         while self.cur_frame is not None and float(self.cur_frame.pts * self.video_time_base) < seek_time - 1e-3:
             self.cur_frame = self.next_frame()
+            index += 1
         assert self.cur_frame is None or abs(float(self.cur_frame.pts * self.video_time_base) - seek_time) < 1e-3
+        if self.cur_frame is None or not started_at_first:
+            return None
+        return index
 
     @classmethod
     def validate(cls, bound_args: dict[str, Any]) -> None:

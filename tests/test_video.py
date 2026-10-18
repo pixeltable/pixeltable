@@ -820,9 +820,181 @@ class TestVideo:
                 quarter_reload.seek(stored_index, pos_msec=pos_msec, pos_frame=stored_index, frame_idx=stored_index)
                 got = next(quarter_reload)
                 assert got['pos_frame'] == stored_index
+                # The iterator reports the decorator pos_msec of the picture it reloaded.
+                assert got['pos_msec'] == pytest.approx(new_pos_msec, abs=1e-3)
                 assert got['frame'] == stored_row['frame']
         finally:
             quarter_reload.close()
+
+    def test_legacy_pos_msec_reuses_resolved_formula(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Sequential legacy reload does not scan from frame 0 on every row."""
+        path = tmp_path / 'legacy_quarter_seq.mp4'
+        _ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'color=c=red:s=64x64:d=2:r=25',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                '-output_ts_offset',
+                '0.4',
+                str(path),
+            ]
+        )
+        frames = legacy_frame_iterator.decorated_callable(video=str(path))  # type: ignore[attr-defined]
+        try:
+            rows = list(frames)
+        finally:
+            frames.close()
+        assert len(rows) > 10
+        with av.open(str(path)) as container:
+            assert sum(frame.key_frame for frame in container.decode(video=0)) == 1
+
+        scans = 0
+        probes = 0
+        iterator_cls = frame_iterator.decorated_callable  # type: ignore[attr-defined]
+        orig_scan = iterator_cls._time_of_frame_index
+        orig_probe = iterator_cls._index_from_first_frame
+
+        def scan(self: Any, frame_index: int) -> float | None:
+            nonlocal scans
+            scans += 1
+            return orig_scan(self, frame_index)
+
+        def probe(self: Any, seek_time: float) -> int | None:
+            nonlocal probes
+            probes += 1
+            return orig_probe(self, seek_time)
+
+        monkeypatch.setattr(iterator_cls, '_time_of_frame_index', scan)
+        monkeypatch.setattr(iterator_cls, '_index_from_first_frame', probe)
+
+        reloaded = legacy_frame_iterator.decorated_callable(video=str(path))  # type: ignore[attr-defined]
+        try:
+            for row in rows:
+                reloaded.seek(
+                    row['frame_idx'], pos_msec=row['pos_msec'], pos_frame=row['pos_frame'], frame_idx=row['frame_idx']
+                )
+                got = next(reloaded)
+                assert got['pos_frame'] == row['pos_frame']
+                assert got['pos_msec'] == pytest.approx(row['pos_msec'], abs=1e-3)
+                assert got['frame'] == row['frame']
+            assert reloaded.underlying._pos_msec_formula == 'current'
+        finally:
+            reloaded.close()
+        # The decoder is already on each stored frame, so neither probe runs.
+        assert scans == 0
+        assert probes == 0
+
+        # A late row still accepts the decorator time from its decoded index, without the frame-0 scan.
+        scans = 0
+        probes = 0
+        late = rows[25]
+        direct = legacy_frame_iterator.decorated_callable(video=str(path))  # type: ignore[attr-defined]
+        try:
+            direct.seek(
+                late['frame_idx'], pos_msec=late['pos_msec'], pos_frame=late['pos_frame'], frame_idx=late['frame_idx']
+            )
+            got = next(direct)
+        finally:
+            direct.close()
+        assert got['pos_frame'] == late['pos_frame']
+        assert got['pos_msec'] == pytest.approx(late['pos_msec'], abs=1e-3)
+        assert scans == 0
+        assert probes == 1
+
+    def test_mpegts_reload_after_empty_relative_seek(self, tmp_path: Path) -> None:
+        """Reload a default-GOP MPEG-TS frame whose relative seek returns no packet."""
+        path = tmp_path / 'offset.ts'
+        _ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'testsrc=size=64x64:rate=25:duration=8',
+                '-output_ts_offset',
+                '1.48',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                '-f',
+                'mpegts',
+                str(path),
+            ]
+        )
+        ordered = frame_iterator.decorated_callable(video=str(path))  # type: ignore[attr-defined]
+        try:
+            rows = list(ordered)
+            start = float(ordered.video_start_time)
+        finally:
+            ordered.close()
+        assert start > 0
+        assert len(rows) > 2
+        twice = min(rows, key=lambda row: abs(float(row['frame_attrs']['time']) - 2 * start))
+        assert int(twice['frame_attrs']['index']) > 0
+        assert abs(float(twice['frame_attrs']['time']) - 2 * start) < 0.5 / 25
+
+        def reload(pos: int, row: dict[str, Any]) -> dict[str, Any]:
+            frames = frame_iterator.decorated_callable(video=str(path))  # type: ignore[attr-defined]
+            try:
+                frames.seek(pos, frame_attrs=row['frame_attrs'])
+                return next(frames)
+            finally:
+                frames.close()
+
+        last = rows[-1]
+        for pos, row in ((len(rows) - 1, last), (int(twice['frame_attrs']['index']), twice)):
+            got = reload(pos, row)
+            assert got['frame_attrs']['index'] == row['frame_attrs']['index']
+            assert got['frame_attrs']['time'] == pytest.approx(row['frame_attrs']['time'], abs=1e-3)
+            assert got['frame'] == row['frame']
+
+        # The twice-start frame is behind the decoder after the last frame, so this seek cannot walk forward.
+        backward = frame_iterator.decorated_callable(video=str(path))  # type: ignore[attr-defined]
+        try:
+            backward.seek(len(rows) - 1, frame_attrs=last['frame_attrs'])
+            got_last = next(backward)
+            assert got_last['frame'] == last['frame']
+            backward.seek(int(twice['frame_attrs']['index']), frame_attrs=twice['frame_attrs'])
+            got_twice = next(backward)
+        finally:
+            backward.close()
+        assert got_twice['frame'] == twice['frame']
+        assert got_twice['frame_attrs']['index'] == twice['frame_attrs']['index']
+        assert got_twice['frame_attrs']['time'] == pytest.approx(twice['frame_attrs']['time'], abs=1e-3)
+
+    def test_low_fps_keeps_first_frame(self, tmp_path: Path) -> None:
+        """fps=1e-5 on a one-frame 25fps clip still returns the sample at the stream start."""
+        path = tmp_path / 'one_frame.mp4'
+        _ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'color=c=red:s=64x64:d=0.04:r=25',
+                '-frames:v',
+                '1',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                str(path),
+            ]
+        )
+        assert _decoded_frame_count(path) == 1
+        frames = frame_iterator.decorated_callable(video=str(path), fps=1e-5)  # type: ignore[attr-defined]
+        try:
+            start = float(frames.video_start_time)
+            rows = list(frames)
+        finally:
+            frames.close()
+        assert len(rows) == 1
+        assert rows[0]['frame_attrs']['index'] == 0
+        assert rows[0]['frame_attrs']['time'] == pytest.approx(start, abs=1e-3)
 
     @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
     def test_keyframes_only(self, uses_db: None) -> None:
