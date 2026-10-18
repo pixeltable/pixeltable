@@ -157,7 +157,6 @@ _DRAINING_RETRY_AFTER_S = 1
 
 # _job_status() sets it to the router's instance
 _JOB_INSTANCE_HEADER = 'X-Pxt-Job-Instance'
-_JOB_FORWARDED_HEADER = 'X-Pxt-Job-Forwarded'
 _FORWARD_TIMEOUT = httpx.Timeout(5.0, connect=1.0)
 # not forwarded with a job poll: the hop-by-hop headers, and the ones httpx sets itself, except Host
 _UNFORWARDED_HEADERS = frozenset(
@@ -2847,8 +2846,8 @@ class FastAPIRouter(fastapi.APIRouter):
             instance, addr = owner
             if instance == self._job_ids.instance:
                 return self._job_status(job_id, response)
-            if addr is None or _JOB_FORWARDED_HEADER in request.headers:
-                # the server restarted, or the owner's address now belongs to a process without the job
+            if addr is None or addr == self._job_ids.addr:
+                # the owner served alone and its server restarted, or this process now has the owner's address
                 raise HTTPException(status_code=410, detail=_STOPPED_INSTANCE)
             return await self._forward_job_poll(addr, instance, request)
 
@@ -2946,17 +2945,25 @@ class FastAPIRouter(fastapi.APIRouter):
         # the owner's route dependencies and middleware see the client's headers; httpx keeps the client's Host while it
         # connects to addr
         headers = [(k, v) for k, v in request.headers.items() if k not in _UNFORWARDED_HEADERS]
-        headers.append((_JOB_FORWARDED_HEADER, '1'))
         try:
             async with httpx.AsyncClient(timeout=_FORWARD_TIMEOUT) as client:
                 owner_resp = await client.get(f'http://{addr}{path}', headers=headers)
-        except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout) as exc:
+        except (
+            httpx.ReadTimeout,
+            httpx.WriteTimeout,
+            httpx.PoolTimeout,
+            httpx.ReadError,
+            httpx.WriteError,
+            httpx.RemoteProtocolError,
+        ) as exc:
+            # the owner accepted the connection and may still run the job: a retry reaches it, or fails to connect
             raise HTTPException(
                 status_code=503,
-                detail='the service instance that runs this job did not answer in time',
+                detail='the service instance that runs this job did not answer',
                 headers={'Retry-After': str(_FORWARD_RETRY_AFTER_S)},
             ) from exc
         except httpx.TransportError as exc:
+            # no connection, ConnectTimeout included: the owner is gone, and a retry would fail the same way
             raise HTTPException(status_code=410, detail=_STOPPED_INSTANCE) from exc
 
         # _job_status() puts the instance header on its 404s: a 404 without it comes from another process at the owner's

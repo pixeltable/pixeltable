@@ -340,8 +340,8 @@ does:
 | 200 `pending` | the job has not finished; poll again after the `Retry-After` interval |
 | 200 `done` or `error` | the job finished; the result is kept 10 minutes, or 1 minute after the first poll that returns it |
 | 404 | the id is unknown, or the result has expired |
-| 410 | the service instance that ran the job stopped (a restart, a redeploy or a crash); the job may not have finished |
-| 503 with `Retry-After` | the instance is at its limit of unfinished jobs or is shutting down, or the instance that runs the job did not answer in time; retry after the interval |
+| 410 | the service instance that ran the job stopped (a restart, a redeploy or a crash); the job may not have finished, or may have finished without a poll returning its result, so resubmitting an insert, update or delete can repeat a write |
+| 503 with `Retry-After` | the instance is at its limit of unfinished jobs or is shutting down, or the instance that runs the job did not answer; retry after the interval |
 
 When a hosted service redeploys or scales down, a stopping instance first finishes its running jobs, for up to
 about 5 minutes. It keeps each finished result until a poll returns it, or for 30 seconds after the job finished.

@@ -1292,6 +1292,18 @@ class TestFastAPI:
                 unanswered = other.get(f'/_pxt/jobs/{slow_job["id"]}')
                 assert unanswered.status_code == 503 and unanswered.headers['Retry-After'] == '2', unanswered.text
 
+            # an owner that accepts the connection and closes it without an answer, as one does while it shuts down
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as hasty:
+                hasty.bind(('127.0.0.1', 0))
+                hasty.listen()
+                closer = threading.Thread(target=lambda: hasty.accept()[0].close(), daemon=True)
+                closer.start()
+                dropping = make_test_client(jobs_router(addr=f'127.0.0.1:{hasty.getsockname()[1]}'))
+                dropped_job = dropping.post('/bg', json={'x': 4, 'secs': 0.0}, headers=api_key).json()
+                dropped = other.get(f'/_pxt/jobs/{dropped_job["id"]}')
+                assert dropped.status_code == 503 and dropped.headers['Retry-After'] == '2', dropped.text
+                closer.join(timeout=5.0)
+
     @pytest.mark.db_roots(
         'local', reason='a background job computes in the router process only for an in-process catalog'
     )
