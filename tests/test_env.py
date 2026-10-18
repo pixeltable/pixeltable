@@ -379,6 +379,44 @@ class TestApiClients:
         assert sync_client.closes == 0
         assert not any(rec.message.startswith('Error closing client') for rec in caplog.records)
 
+    def test_reregister_keeps_cleanup_of_existing_client(self, uses_db: None) -> None:
+        """A client keeps the cleanup registered when it was created.
+
+        Re-registering the same name replaces the factory for clients created later. It does not
+        change the callback that closes a client already cached on the runtime.
+        """
+        original = _CleanupProbe()
+        replacement = _CleanupProbe()
+        closed_by: list[tuple[_CleanupProbe, str]] = []
+
+        def cleanup_a(client: _CleanupProbe) -> None:
+            closed_by.append((client, 'A'))
+
+        def cleanup_b(client: _CleanupProbe) -> None:
+            closed_by.append((client, 'B'))
+
+        @env.register_client('demo', credential_param=None, cleanup=cleanup_a)
+        def _factory_a() -> _CleanupProbe:
+            return original
+
+        runtime = get_runtime()
+        assert runtime.get_client('demo') is original
+
+        @env.register_client('demo', credential_param=None, cleanup=cleanup_b)
+        def _factory_b() -> _CleanupProbe:
+            return replacement
+
+        assert runtime.get_client('demo') is original
+        reset_runtime()
+        assert closed_by == [(original, 'A')]
+        assert original.closes == 0
+        assert replacement.closes == 0
+
+        runtime = get_runtime()
+        assert runtime.get_client('demo') is replacement
+        reset_runtime()
+        assert closed_by == [(original, 'A'), (replacement, 'B')]
+
     def test_closed_on_reset(self, uses_db: None) -> None:
         t = pxt.create_table('clients', {'n': pxt.Int, 's': pxt.String})
         t.add_computed_column(m=uses_client(t.n))

@@ -1,4 +1,5 @@
 import builtins
+import importlib
 import logging
 import random
 import sys
@@ -13,6 +14,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 
 from ..utils import (
@@ -48,9 +50,10 @@ class TestGeminiLocal:
         assert open_async_resources() == []
         del client
 
-    def test_missing_genai_package_raises_authorization_error(
+    def test_missing_genai_package_raises_missing_package_error(
         self, init_env: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # An API key is set, so a missing install must not be reported as missing credentials.
         # Drop a client cached by an earlier test before imports start failing.
         monkeypatch.setenv('GEMINI_API_KEY', 'test-key')
         reset_runtime()
@@ -67,9 +70,23 @@ class TestGeminiLocal:
                 monkeypatch.delitem(sys.modules, key)
         monkeypatch.setattr(builtins, '__import__', guarded_import)
 
-        with pxt_raises(pxt.ErrorCode.MISSING_CREDENTIALS, match='Gemini client not initialized') as exc_info:
+        # require_package trusts its cached flag and only rechecks through find_spec.
+        package_info = getattr(Env.get(), '_Env__optional_packages')['google.genai']
+        monkeypatch.setattr(package_info, 'is_installed', False)
+        real_find_spec = importlib.util.find_spec
+
+        def hidden_find_spec(name: str, package: str | None = None) -> Any:
+            if name == 'google.genai':
+                return None
+            return real_find_spec(name, package)
+
+        monkeypatch.setattr(importlib.util, 'find_spec', hidden_find_spec)
+
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'This feature requires the `google\.genai` package.*pip install -U google-genai',
+        ):
             get_runtime().get_client('gemini')
-        assert isinstance(exc_info.value.__cause__, ImportError)
 
 
 @pytest.mark.remote_api

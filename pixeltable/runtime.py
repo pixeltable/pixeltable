@@ -31,9 +31,8 @@ _logger = logging.getLogger(__name__)
 _thread_local = threading.local()
 
 
-def _client_close_result(name: str, client: Any) -> Any:
-    """Call the client's registered cleanup, or its close() method when it has no cleanup."""
-    cleanup = Env.client_cleanup(name)
+def _client_close_result(client: Any, cleanup: Callable[..., Any] | None) -> Any:
+    """Call the cleanup captured when the client was created, or its close() method when it has none."""
     if cleanup is not None:
         return cleanup(client)
     close = getattr(client, 'close', None)
@@ -76,9 +75,10 @@ class Runtime:
     # True if this thread's runtime was populated from another thread via copy_db_context()
     context_inherited: bool
 
-    # we need to cache client instances on a per-thread basis because some of them are thread-specific (eg, async
-    # clients which are tied to an event loop)
-    _clients: dict[str, Any]
+    # Per-thread client cache. Some clients are thread-specific (eg, async clients bound to an event loop).
+    # The cleanup is the callback of the factory that created the client, so a later re-registration of the
+    # same name does not close this instance with a different callback.
+    _clients: dict[str, tuple[Any, Callable[..., Any] | None]]
 
     # Per-thread cache of compiled query plans, keyed by Query identity. Entries auto-expire when the Query is
     # garbage-collected.
@@ -206,11 +206,11 @@ class Runtime:
 
     def get_client(self, name: str) -> Any:
         """Gets the client with the specified name, initializing it if necessary."""
-        client = self._clients.get(name)
-        if client is not None:
-            return client
-        client = Env.get().create_client(name)
-        self._clients[name] = client
+        cached = self._clients.get(name)
+        if cached is not None:
+            return cached[0]
+        client, cleanup = Env.get()._create_client(name)
+        self._clients[name] = (client, cleanup)
         return client
 
     async def close_clients(self) -> None:
@@ -220,16 +220,16 @@ class Runtime:
         - async clients are bound to that loop, and closing them there releases their sockets in order
         - otherwise the sockets are left for GC to close on an already-closed loop, which raises
 
-        A client whose factory registered a cleanup callback is closed by that callback. If the callback
-        returns an awaitable, it is awaited here, on this loop. Every other client is closed by its `close()`
-        method, awaited when that call returns an awaitable.
+        A client is closed by the cleanup callback captured from its factory when the client was created.
+        If the callback returns an awaitable, it is awaited here, on this loop. A client created without a
+        callback is closed by its `close()` method, awaited when that call returns an awaitable.
 
         This is the only place that is allowed to remove entries from _clients, so that no client is ever dropped
         without being closed first.
         """
-        for name, client in self._clients.items():
+        for client, cleanup in self._clients.values():
             try:
-                result = _client_close_result(name, client)
+                result = _client_close_result(client, cleanup)
                 if inspect.isawaitable(result):
                     await result
             except Exception as e:

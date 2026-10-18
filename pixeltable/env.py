@@ -747,6 +747,16 @@ class Env:
         """
         Resolves config parameters and calls the registered init function to create a new client instance.
         """
+        client, _cleanup = self._create_client(name)
+        return client
+
+    def _create_client(self, name: str) -> tuple[Any, Callable[..., Any] | None]:
+        """Create a client and return the cleanup callback of the factory that built it.
+
+        The callback is taken from that factory object, not from a later lookup by name. Re-registering
+        the same name replaces the factory for clients created afterwards and leaves this client alone.
+        None means the runtime calls the client's `close()` method.
+        """
         with _client_factories_lock:
             client_factory = _client_factories[name]
 
@@ -780,16 +790,9 @@ class Env:
         if client_factory.credential_param is not None and client_factory.credential_param in redacted:
             redacted[client_factory.credential_param] = '<redacted>'
         _logger.info(f'Initialized `{name}` client with parameters: {redacted}.')
-        return client
-
-    @staticmethod
-    def client_cleanup(name: str) -> Callable[..., Any] | None:
-        """The shutdown callback registered for `name`, or None when the client closes itself."""
-        with _client_factories_lock:
-            factory = _client_factories.get(name)
-        if factory is None:
-            return None
-        return factory.cleanup
+        # cleanup is read from the factory captured above, so a re-registration during init_fn
+        # cannot swap the callback of the client this call just built
+        return client, client_factory.cleanup
 
     def get_client_credential_params(self) -> dict[str, str]:
         """Return the credential-bearing init param for each registered API client.
@@ -1130,9 +1133,11 @@ def register_client(name: str, *, credential_param: str | None, cleanup: Callabl
             None for factories whose parameters carry no credentials (e.g. object-store clients
             that read their auth from the surrounding AWS_*/GCS_* environment).
         cleanup: Optional callback that closes this client when the runtime that owns it shuts
-            down. The runtime calls it on that runtime's event loop and awaits the result when
-            the callback returns an awaitable. When omitted, the runtime calls the client's
-            `close()` method, awaiting it if that call returns an awaitable.
+            down. The runtime keeps the callback that was registered when that client was created,
+            calls it on that runtime's event loop, and awaits the result when the callback returns
+            an awaitable. A later registration of the same name does not change an existing client.
+            When omitted, the runtime calls the client's `close()` method, awaiting it if that
+            call returns an awaitable.
     """
 
     def decorator(fn: Callable) -> None:

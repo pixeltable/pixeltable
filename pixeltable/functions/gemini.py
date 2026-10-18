@@ -62,8 +62,10 @@ async def _close_client(client: 'genai.client.Client') -> None:
 
 @env.register_client('gemini', credential_param='api_key', cleanup=_close_client)
 def _(api_key: str | None = None) -> 'genai.client.Client':
+    # The same missing-package error other integrations raise. The import stays inside the try so a
+    # failure there is still a Pixeltable error, not a raw ImportError.
+    env.Env.get().require_package('google.genai')
     try:
-        # Inside the try: a missing google-genai is the setup error below, not a raw ImportError.
         from google import genai
 
         if api_key is not None:
