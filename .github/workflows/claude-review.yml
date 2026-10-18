@@ -4,8 +4,8 @@ name: Claude review
 # when someone with write access comments exactly "claude review" on it. An hourly sweep reviews PRs marked ready for
 # review in the last three hours, which start no "tests" run. Runs started by workflow_run, issue_comment, and schedule
 # attach to the default branch, not to the PR, so the review adds no check to the PR. They use this file from the
-# default branch with the repository's secrets, so fork PRs get reviewed too. Nothing from the PR runs. The erosion job
-# checks the complexity of every commit of a PR.
+# default branch with the repository's secrets, so fork PRs get reviewed too. Nothing from the PR runs. The erosion job,
+# currently commented out, checks the complexity of every commit of a PR.
 on:
   issue_comment:
     types: [created]
@@ -190,7 +190,7 @@ jobs:
   # SlopCodeBench (arXiv 2603.24755) defines them, and has Claude judge up to 10 functions above complexity 10 that
   # grew. Posts one comment once the PR leaves the bounds, then updates it on each commit. The script only parses the
   # PR's files; nothing from the PR runs.
-  # Disabled for now: the job is commented out, not deleted; restore it by uncommenting.
+  # Paused for now: the job stays commented rather than deleted so it can be restored quickly.
   # erosion:
   #   if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request'
   #   # A newer commit on the same branch replaces a running check.
