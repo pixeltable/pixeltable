@@ -1,6 +1,7 @@
 import json
 import os
 import pathlib
+import re
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -210,9 +211,11 @@ def assert_serving(cli: PxtRunner, app: str, target: str, *names: str) -> dict[s
         served_paths = set(served.json()['paths'])
         # the listed paths are being served, as per the docs endpoint
         assert listed_paths <= served_paths, (listed_paths, sorted(served_paths))
-        # of the internal paths, only the one that polls background jobs is exposed
+        # of the internal paths, only the routes that poll background jobs are exposed, one per router that has some
         internal_paths = [path for path in served_paths if '/_pxt/' in path]
-        assert all(path.endswith('/_pxt/jobs/{job_id}') for path in internal_paths), sorted(served_paths)
+        assert all(re.search(r'/_pxt/jobs(/[\w-]+)?/\{job_id\}$', path) for path in internal_paths), sorted(
+            served_paths
+        )
     return running
 
 
@@ -628,11 +631,12 @@ class TestService:
 
     @pytest.mark.db_roots('cloud-serving', reason='a local service runs one instance')
     @pytest.mark.parametrize(
-        ('app_file', 'service', 'route_prefix', 'headers'),
+        ('app_file', 'service', 'insert_paths', 'headers'),
         [
-            ('background.py', 'jobs', '', {}),
-            # the custom app checks its header on every request to the router, forwarded polls included
-            ('background_app.py', 'background_app', '/api', {'X-Tenant': 'acme'}),
+            ('background.py', 'jobs', ('/naps',), {}),
+            # the custom app has two routers under one prefix, and checks its header on every request to them,
+            # forwarded polls included
+            ('background_app.py', 'background_app', ('/api/naps', '/api/more-naps'), {'X-Tenant': 'acme'}),
         ],
         ids=['router', 'custom-app'],
     )
@@ -644,7 +648,7 @@ class TestService:
         session_project: pathlib.Path,
         app_file: str,
         service: str,
-        route_prefix: str,
+        insert_paths: tuple[str, ...],
         headers: dict[str, str],
     ) -> None:
         """Every background job of a service with 2 workers finishes, also when the service restarts meanwhile."""
@@ -662,9 +666,13 @@ class TestService:
         jobs: dict[int, dict[str, Any]] = {}
         results: dict[int, Any] = {}
 
+        def insert_path(nap_id: int) -> str:
+            # the jobs alternate between the routers
+            return insert_paths[nap_id % len(insert_paths)]
+
         def submit(nap_id: int) -> None:
             resp = httpx.post(
-                f'{endpoint}{route_prefix}/naps',
+                f'{endpoint}{insert_path(nap_id)}',
                 json={'nap_id': nap_id, 'secs': 1.0},
                 headers=headers,
                 timeout=_REQUEST_TIMEOUT,
@@ -703,8 +711,11 @@ class TestService:
             for nap_id in range(40):
                 submit(nap_id)
             await_jobs(120.0)
-            # the id is opaque to users; its first part shows that both instances ran jobs, so polls were forwarded
-            assert len({job['id'].split('.')[0] for job in jobs.values()}) == 2, list(jobs.values())
+            # the id is opaque to users; its first part shows that both instances ran each router's jobs, so polls
+            # were forwarded
+            for path in insert_paths:
+                instances = {job['id'].split('.')[0] for nap_id, job in jobs.items() if insert_path(nap_id) == path}
+                assert len(instances) == 2, (path, list(jobs.values()))
 
             # submit and poll during a restart: each stopping instance refuses new jobs and drains its own
             submitted = len(jobs)
@@ -1001,6 +1012,32 @@ class TestService:
         assert httpx.get(f'{endpoint}/hand-written', timeout=_REQUEST_TIMEOUT).json() == {'written': 'by hand'}
         assert _post(endpoint, '/notes', note_id=1, text='hello').status_code == 200
         assert pxt.get_table(f'{target}/notes').select().collect()['text_upper'] == ['HELLO']
+
+        # an app cannot include two unnamed routers with background routes, which would share their job route
+        unnamed_file = pathlib.Path(app).parent / 'unnamed_routers_app.py'
+        unnamed_file.write_text(
+            dedent("""
+                import fastapi
+
+                from apps.background import Naps
+                from pixeltable.serving import FastAPIRouter
+
+                first, second = FastAPIRouter(), FastAPIRouter()
+                first.add_insert_route(Naps, path='/naps', inputs=[Naps.nap_id, Naps.secs], background=True)
+                second.add_insert_route(Naps, path='/more-naps', inputs=[Naps.nap_id, Naps.secs], background=True)
+                app = fastapi.FastAPI()
+                app.include_router(first)
+                app.include_router(second)
+                """),
+            encoding='utf-8',
+        )
+        try:
+            r = cli('service', 'diff', str(unnamed_file), target, check=False)
+            assert r.returncode == 1, r.stdout
+            assert "the routers 'first', 'second' have background routes but no name" in r.stderr, r.stderr
+        finally:
+            # the other tests share the session project
+            unnamed_file.unlink()
 
     def test_custom_app_prefixed_router(
         self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot

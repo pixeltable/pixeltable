@@ -313,23 +313,23 @@ After `.collect()`, use `to_pydantic()`. After `return_rows=True`, use `model_va
 
 ```json
 {
-  "id": "abc123",
-  "job_url": "http://127.0.0.1:<port>/_pxt/jobs/abc123"
+  "id": "<job id>",
+  "job_url": "<the URL that polls this job>"
 }
 ```
 
-Poll `job_url` (`pxt service list` prints the base URL):
+Poll `job_url`:
 
 ```bash
-curl http://127.0.0.1:<port>/_pxt/jobs/abc123
+curl "<job_url>"
 # {"status": "pending"}
 # {"status": "done", "result": {...}}
 # {"status": "error", "error": "...", "error_detail": {...}}
 ```
 
-Poll through your application server with the same Cloud key when hosted. Cloud returns an HTTPS `job_url`. The polling path is in the generated schema, so polling is a typed call on the same [TypeScript client](#call-from-a-typescript-app-server): `pixeltable.GET('/_pxt/jobs/{job_id}', { params: { path: { job_id: id } } })`. A failed job's `error_detail` has the same shape as an HTTP error's `detail`, so the same retry rule applies.
+Poll through your application server with the same Cloud key when hosted. Cloud returns an HTTPS `job_url`. The polling route is in the generated schema, so polling is also a typed call on the same [TypeScript client](#call-from-a-typescript-app-server). A failed job's `error_detail` has the same shape as an HTTP error's `detail`, so the same retry rule applies.
 
-Treat the job id as opaque: its form can change between releases.
+Treat the job id and `job_url` as opaque: their form can change between releases.
 
 A background job runs in the memory of the service instance that accepted it. Like a synchronous request, it
 does not survive the loss of that instance. A local `pxt service` answers polls the same way a hosted service

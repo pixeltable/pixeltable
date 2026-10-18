@@ -577,7 +577,7 @@ class PxtEndpoint:
 
         if self.route.spec.background:
             job_id = self.router._job_ids.new_id()
-            job_url = str(request.url_for(_JOB_STATUS_ROUTE_NAME, job_id=job_id))
+            job_url = str(request.url_for(self.router._job_route_name, job_id=job_id))
             public_origin = os.environ.get('PIXELTABLE_PUBLIC_ORIGIN')
             if public_origin is not None:
                 origin = urllib.parse.urlsplit(public_origin)
@@ -597,12 +597,15 @@ class FastAPIRouter(fastapi.APIRouter):
     `FastAPIRouter` is for apps that already have a FastAPI server. If you do
     not have one, use `pxt service` from the CLI; Pixeltable creates and runs the
     FastAPI app for you. Learn more here: [HTTP Serving](https://docs.pixeltable.com/howto/deployment/serving).
+
+    An app can include several routers with background routes if at most one of them is unnamed.
     """
 
     _executor: ThreadPoolExecutor
     _jobs: dict[str, _Job]  # background requests, keyed by job id
     _jobs_lock: threading.Lock
     _job_ids: _JobIds
+    _job_route_name: str  # the name of the route that polls this router's jobs, unique per router name
     _server_root_path: str  # the server's root_path, which uvicorn prepends to scope['raw_path']; '' without forwarding
     _draining: bool  # set by _start_drain(); new background jobs are refused
     _has_run_jobs: bool  # a background job ran; stays set after the job expires from _jobs
@@ -632,6 +635,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 'hyphens, starting with a letter or digit',
             )
         self._name = name
+        self._job_route_name = _JOB_STATUS_ROUTE_NAME if name is None else f'{_JOB_STATUS_ROUTE_NAME}.{name}'
         super().__init__(*args, **kwargs)
         self._executor = ThreadPoolExecutor(
             max_workers=_N_BACKGROUND_WORKERS, thread_name_prefix='pxt-serve-background'
@@ -2848,12 +2852,13 @@ class FastAPIRouter(fastapi.APIRouter):
                 raise HTTPException(status_code=410, detail=_STOPPED_INSTANCE)
             return await self._forward_job_poll(addr, instance, request)
 
+        # with its name in the path, a router's poll route stays apart from those of other routers in the app, also
+        # under one prefix
+        path = (
+            f'{_PXT_SEGMENT}/jobs/{{job_id}}' if self._name is None else f'{_PXT_SEGMENT}/jobs/{self._name}/{{job_id}}'
+        )
         self.add_api_route(
-            f'{_PXT_SEGMENT}/jobs/{{job_id}}',
-            get_job_status,
-            methods=['GET'],
-            response_model=JobStatusResponse,
-            name=_JOB_STATUS_ROUTE_NAME,
+            path, get_job_status, methods=['GET'], response_model=JobStatusResponse, name=self._job_route_name
         )
 
     def _configure_job_forwarding(self, addr: str, secret: str, root_path: str) -> None:

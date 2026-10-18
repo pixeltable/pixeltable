@@ -210,7 +210,7 @@ def wait_until(condition: Callable[[], bool], timeout: float) -> bool:
 
 @dataclasses.dataclass
 class ServedRouter:
-    """A router served on a loopback port."""
+    """Routers served on a loopback port."""
 
     server: '_DrainingServer'
     addr: str  # host:port
@@ -218,7 +218,7 @@ class ServedRouter:
 
 @contextlib.contextmanager
 def serve_router(
-    router: 'FastAPIRouter',
+    routers: list['FastAPIRouter'],
     *,
     app: 'fastapi.FastAPI | None' = None,
     port: int = 0,
@@ -226,9 +226,9 @@ def serve_router(
     root_path: str = '',
     drain_s: float = 0.0,
 ) -> Iterator[ServedRouter]:
-    """Serve router on a loopback port, on a thread of the test process, with the server of a hosted pod.
+    """Serve routers on a loopback port, on a thread of the test process, with the server of a hosted pod.
 
-    app is a custom app that includes router; without one, router is served alone.
+    app is a custom app that includes routers; without one, the routers are served in an app of their own.
     """
     import fastapi
     import uvicorn
@@ -237,16 +237,18 @@ def serve_router(
 
     if app is None:
         app = fastapi.FastAPI()
-        app.include_router(router)
+        for router in routers:
+            app.include_router(router)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(('127.0.0.1', port))
     addr = f'127.0.0.1:{sock.getsockname()[1]}'
     if job_secret is not None:
-        router._configure_job_forwarding(addr, job_secret, root_path)
+        for router in routers:
+            router._configure_job_forwarding(addr, job_secret, root_path)
     # loop='asyncio': the default installs uvloop's event loop policy for the whole test process
     config = uvicorn.Config(app, log_config=None, loop='asyncio', root_path=root_path)
-    server = _DrainingServer(config, [router], drain_s)
+    server = _DrainingServer(config, routers, drain_s)
     thread = threading.Thread(target=server.run, kwargs={'sockets': [sock]}, daemon=True)
     thread.start()
     try:
@@ -1192,10 +1194,12 @@ class TestFastAPI:
             if x_api_key != 'secret':
                 raise fastapi.HTTPException(status_code=403)
 
-        def jobs_router(*, addr: str | None = None, service_path: str = root_path) -> FastAPIRouter:
+        def jobs_router(
+            *, name: str | None = None, path: str = '/bg', addr: str | None = None, service_path: str = root_path
+        ) -> FastAPIRouter:
             # an app's own authentication: the owner checks the client's headers on a forwarded poll as well
-            router = FastAPIRouter(dependencies=[fastapi.Depends(check_api_key)])
-            router.add_insert_route(t, path='/bg', background=True)
+            router = FastAPIRouter(name=name, dependencies=[fastapi.Depends(check_api_key)])
+            router.add_insert_route(t, path=path, background=True)
             if addr is not None:
                 router._configure_job_forwarding(addr, job_secret, service_path)
             return router
@@ -1203,8 +1207,8 @@ class TestFastAPI:
         shedding = threading.Event()
         public_host = {'Host': 'jobs.example.com'}
 
-        def jobs_app(router: FastAPIRouter) -> fastapi.FastAPI:
-            # a custom app that checks the Host, and whose middleware can answer before the router does
+        def jobs_app(routers: list[FastAPIRouter]) -> fastapi.FastAPI:
+            # a custom app that checks the Host, and whose middleware can answer before the routers do
             app = fastapi.FastAPI()
             app.add_middleware(TrustedHostMiddleware, allowed_hosts=['jobs.example.com'])
 
@@ -1218,28 +1222,41 @@ class TestFastAPI:
                     )
                 return await call_next(request)
 
-            app.include_router(router)
+            for router in routers:
+                app.include_router(router)
             return app
 
-        owner_router = jobs_router()
+        def poll_path(job: dict[str, Any]) -> str:
+            return urllib.parse.urlsplit(job['job_url']).path.removeprefix(root_path)
+
+        # each server has a second router with a background route, under the same prefix: a named one, whose jobs
+        # have a poll route of their own
+        other_routers = [jobs_router(), jobs_router(name='more', path='/more-bg')]
+        owner_routers = [jobs_router(), jobs_router(name='more', path='/more-bg')]
         with (
-            serve_router(jobs_router(), job_secret=job_secret, root_path=root_path) as served_other,
+            serve_router(other_routers, job_secret=job_secret, root_path=root_path) as served_other,
             httpx.Client(base_url=f'http://{served_other.addr}', headers={**api_key, **public_host}) as other,
         ):
             with (
                 serve_router(
-                    owner_router, app=jobs_app(owner_router), job_secret=job_secret, root_path=root_path
+                    owner_routers, app=jobs_app(owner_routers), job_secret=job_secret, root_path=root_path
                 ) as owner,
                 httpx.Client(base_url=f'http://{owner.addr}', headers={**api_key, **public_host}) as c,
             ):
                 job = c.post('/bg', json={'x': 1, 'secs': 0.5}).json()
-                poll_path = f'/_pxt/jobs/{job["id"]}'
-                body = await_background_job(other, {'id': job['id'], 'job_url': poll_path})
+                body = await_background_job(other, {'id': job['id'], 'job_url': poll_path(job)})
                 assert single_row(body['result'], 'insert')['x'] == 1, body
+                # the second router's job, on its owner and forwarded
+                more_job = c.post('/more-bg', json={'x': 3, 'secs': 0.0}).json()
+                for client in (c, other):
+                    more_body = await_background_job(
+                        client, {'id': more_job['id'], 'job_url': poll_path(more_job)}, require_pending=False
+                    )
+                    assert single_row(more_body['result'], 'insert')['x'] == 3, more_body
 
                 # the owner app's own answer reaches the client as it is, not as a lost job
                 shedding.set()
-                shed = other.get(poll_path)
+                shed = other.get(poll_path(job))
                 assert shed.status_code == 503 and shed.headers['Retry-After'] == '7', shed.text
                 shedding.clear()
 
@@ -1251,19 +1268,19 @@ class TestFastAPI:
                 assert other.get(f'/_pxt/jobs/{instance}.{owner_addr_b64}.{job_uuid}.%C3%A9').status_code == 404
                 # nor does the key of another service of the same database
                 stranger = make_test_client(jobs_router(addr='127.0.0.1:1', service_path='/other'))
-                assert stranger.get(poll_path, headers=api_key).status_code == 404
+                assert stranger.get(poll_path(job), headers=api_key).status_code == 404
 
             # the owner stopped
-            assert other.get(poll_path).status_code == 410
+            assert other.get(poll_path(job)).status_code == 410
             # a server of the same service at the owner's address now answers 410 itself
             owner_port = int(owner.addr.split(':')[1])
-            with serve_router(jobs_router(), port=owner_port, job_secret=job_secret, root_path=root_path):
-                assert other.get(poll_path).status_code == 410
+            with serve_router([jobs_router()], port=owner_port, job_secret=job_secret, root_path=root_path):
+                assert other.get(poll_path(job)).status_code == 410
             # a server of another service there answers 404, which the poll gets as 410
             with serve_router(
-                jobs_router(service_path='/other'), port=owner_port, job_secret=job_secret, root_path='/other'
+                [jobs_router(service_path='/other')], port=owner_port, job_secret=job_secret, root_path='/other'
             ):
-                assert other.get(poll_path).status_code == 410
+                assert other.get(poll_path(job)).status_code == 410
 
             # an owner that does not answer in time
             monkeypatch.setattr(_fastapi, '_FORWARD_TIMEOUT', httpx.Timeout(0.2, connect=1.0))
@@ -1293,12 +1310,12 @@ class TestFastAPI:
             return router
 
         # handle_exit() is the server's SIGTERM handler; without jobs, the server stops at once
-        with serve_router(jobs_router(), drain_s=60.0) as served:
+        with serve_router([jobs_router()], drain_s=60.0) as served:
             served.server.handle_exit(signal.SIGTERM, None)
             assert wait_until(lambda: served.server.should_exit, 5.0)
 
         router = jobs_router()
-        with serve_router(router, drain_s=60.0) as served, httpx.Client(base_url=f'http://{served.addr}') as c:
+        with serve_router([router], drain_s=60.0) as served, httpx.Client(base_url=f'http://{served.addr}') as c:
             job = c.post('/bg', json={'x': 1, 'secs': 1.0}).json()
             served.server.handle_exit(signal.SIGTERM, None)
             # the drain starts on a thread of its own
@@ -1310,21 +1327,21 @@ class TestFastAPI:
             assert wait_until(lambda: served.server.should_exit, 5.0)
 
         # a second SIGTERM stops the server without waiting
-        with serve_router(jobs_router(), drain_s=5.0) as served, httpx.Client(base_url=f'http://{served.addr}') as c:
+        with serve_router([jobs_router()], drain_s=5.0) as served, httpx.Client(base_url=f'http://{served.addr}') as c:
             assert c.post('/bg', json={'x': 3, 'secs': 1.0}).status_code == 200
             served.server.handle_exit(signal.SIGTERM, None)
             served.server.handle_exit(signal.SIGTERM, None)
             assert served.server.should_exit
 
         # at the deadline, the server stops although a job still runs
-        with serve_router(jobs_router(), drain_s=0.5) as served, httpx.Client(base_url=f'http://{served.addr}') as c:
+        with serve_router([jobs_router()], drain_s=0.5) as served, httpx.Client(base_url=f'http://{served.addr}') as c:
             assert c.post('/bg', json={'x': 4, 'secs': 4.0}).status_code == 200
             served.server.handle_exit(signal.SIGTERM, None)
             assert wait_until(lambda: served.server.should_exit, 3.0)
 
         # a finished unfetched result keeps the server for _DRAIN_COLLECT_S, not until the deadline
         monkeypatch.setattr(_fastapi, '_DRAIN_COLLECT_S', 0.5)
-        with serve_router(jobs_router(), drain_s=60.0) as served, httpx.Client(base_url=f'http://{served.addr}') as c:
+        with serve_router([jobs_router()], drain_s=60.0) as served, httpx.Client(base_url=f'http://{served.addr}') as c:
             assert c.post('/bg', json={'x': 5, 'secs': 0.0}).status_code == 200
             # the inserted row shows that the job finished, without a poll that would fetch its result
             assert wait_until(lambda: t.where(t.x == 5).count() == 1, 10.0)
