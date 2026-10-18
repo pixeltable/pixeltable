@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import mimetypes
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from random import random
@@ -26,6 +27,7 @@ from pixeltable.config import Config
 from pixeltable.func import Tools
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.http import _RETRIABLE_ERROR_INDICATORS, is_retryable_error
 from pixeltable.utils.image import default_format, to_base64, to_bytes
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageObjectAddress
@@ -41,16 +43,18 @@ _ASYNC_INVOCATION_POLL_INTERVAL_SECS = 5.0
 
 _ASYNC_INVOCATION_TIMEOUT_SECS = 600.0
 
-# Bedrock error codes for a request that should be retried after a wait. ServiceQuotaExceededException
-# is not included: that is an account cap, not a short rate window.
+# Bedrock error codes the rate-limit scheduler should retry. ServiceQuotaExceededException is not included:
+# that is an account cap, not a short rate window.
 _BEDROCK_THROTTLE_CODES = frozenset({'ThrottlingException', 'TooManyRequestsException', 'Throttling'})
 
-# Retried here rather than by RequestRateScheduler. invoke_model has no resource pool: a pool would
-# pace every model, and a model id cannot be a pool key because ids contain ':'. Botocore has already
-# exhausted its short retries ("reached max retries: 4"); the scheduler's next attempts are only a few
-# seconds and would each re-enter that burst inside the same quota window.
-_START_ASYNC_THROTTLE_RETRIES = 2
-_START_ASYNC_THROTTLE_BASE_DELAY_SECS = 30.0
+# One pool for every invoke_model call. A request-rate pool id is split on ':', so a model id such as
+# 'luma.ray-v2:0' cannot be one of its segments. RateLimitsScheduler keeps this id intact.
+_BEDROCK_RATE_POOL = 'rate-limits:bedrock'
+
+# Botocore has already used its short retries inside the current quota window. The scheduler wait starts
+# at half a minute so the next attempt falls in a later window.
+_THROTTLE_RETRY_BASE_SECS = 30.0
+_THROTTLE_RETRY_MAX_SECS = 120.0
 
 # Models that always require StartAsyncInvoke and produce video output.
 _ASYNC_VIDEO_OUTPUT_MODEL_PREFIXES = ('amazon.nova-reel', 'luma.')
@@ -274,43 +278,108 @@ def _is_bedrock_throttling(exc: BaseException) -> bool:
     return 'throttlingexception' in message or 'too many requests' in message
 
 
-def _start_async_throttle_delay(attempt: int) -> float:
-    """Seconds to wait after a throttled StartAsyncInvoke. `attempt` is 0 for the first retry.
+def _throttle_retry_delay(attempt: int) -> float:
+    """Seconds the scheduler waits before retrying a throttled call. `attempt` is 0 on the first retry."""
+    base = min(_THROTTLE_RETRY_MAX_SECS, _THROTTLE_RETRY_BASE_SECS * (2**attempt))
+    return base + random() * _THROTTLE_RETRY_BASE_SECS
 
-    The delay starts at tens of seconds, after botocore's short retries, so it can cross a one-minute
-    quota window. Jitter keeps concurrent callers from retrying together.
+
+class BedrockRateLimitsInfo(env.RateLimitsInfo):
+    # Bedrock does not send quota headers. The pool exists so the scheduler can ask get_retry_delay,
+    # the same way GeminiRateLimitsInfo supplies a delay without rate-limit headers.
+    def is_initialized(self) -> bool:
+        return True
+
+    def get_retry_delay(self, exc: Exception, attempt: int) -> float | None:
+        if not _is_bedrock_throttling(exc):
+            return None
+        return _throttle_retry_delay(attempt)
+
+
+def _scrub_retry_indicators(text: str) -> str:
+    """Drop substrings that would make the scheduler run the UDF again."""
+    scrubbed = text
+    # Longest first so a code such as ThrottlingException is replaced before Throttling.
+    for code in sorted(_BEDROCK_THROTTLE_CODES, key=len, reverse=True):
+        scrubbed = re.sub(re.escape(code), 'throttle', scrubbed, flags=re.IGNORECASE)
+    for indicator in sorted(_RETRIABLE_ERROR_INDICATORS, key=len, reverse=True):
+        scrubbed = re.sub(re.escape(indicator), ' ', scrubbed, flags=re.IGNORECASE)
+    return ' '.join(scrubbed.split())
+
+
+def _terminal_async_error(invocation_id: str, exc: Exception) -> pxt.ExternalServiceError:
+    """An error after Bedrock has accepted the invocation.
+
+    The scheduler retries a failed UDF from the beginning. That would submit another billed generation,
+    so this error must not match the retry classifier or the Bedrock throttle delay.
     """
-    base = _START_ASYNC_THROTTLE_BASE_DELAY_SECS * (2**attempt)
-    return base + random() * base
+    detail = _scrub_retry_indicators(str(exc))
+    message = f'Async invocation {invocation_id} failed after it was accepted: {detail}'
+    err = pxt.ExternalServiceError(pxt.ErrorCode.PROVIDER_ERROR, message, provider='bedrock')
+    if is_retryable_error(err)[0] or _is_bedrock_throttling(err):
+        err = pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_ERROR,
+            f'Async invocation {invocation_id} failed after it was accepted',
+            provider='bedrock',
+        )
+    assert not is_retryable_error(err)[0]
+    assert not _is_bedrock_throttling(err)
+    return err
 
 
 async def _start_async_invoke(model_id: str, body: dict, output_location: str) -> dict[str, Any]:
-    """Submit StartAsyncInvoke, waiting out throttling that botocore's own retries already gave up on."""
-    for attempt in range(_START_ASYNC_THROTTLE_RETRIES + 1):
-        try:
-            response: dict[str, Any] = await asyncio.to_thread(
-                _bedrock_client().start_async_invoke,
-                modelId=model_id,
-                modelInput=body,
-                outputDataConfig={'s3OutputDataConfig': {'s3Uri': output_location}},
+    """Submit StartAsyncInvoke. A throttle propagates so the rate-limit scheduler can retry it."""
+    response: dict[str, Any] = await asyncio.to_thread(
+        _bedrock_client().start_async_invoke,
+        modelId=model_id,
+        modelInput=body,
+        outputDataConfig={'s3OutputDataConfig': {'s3Uri': output_location}},
+    )
+    return response
+
+
+async def _wait_for_async_result(
+    invocation_arn: str, invocation_id: str, output_location: str, result_prefix: str, store: 'S3Store', keys: list[str]
+) -> str:
+    """Poll until the job finishes and return the output key. `keys` receives every object under the job prefix."""
+    elapsed = 0.0
+    while True:
+        await asyncio.sleep(_ASYNC_INVOCATION_POLL_INTERVAL_SECS)
+        elapsed += _ASYNC_INVOCATION_POLL_INTERVAL_SECS
+        if elapsed > _ASYNC_INVOCATION_TIMEOUT_SECS:
+            raise pxt.ExternalServiceError(
+                pxt.ErrorCode.PROVIDER_TIMEOUT,
+                f'Async invocation {invocation_id} did not finish within {_ASYNC_INVOCATION_TIMEOUT_SECS}s',
+                provider='bedrock',
             )
-            return response
-        except Exception as exc:
-            if not _is_bedrock_throttling(exc):
-                raise
-            if attempt == _START_ASYNC_THROTTLE_RETRIES:
-                raise pxt.ExternalServiceError(
-                    pxt.ErrorCode.RATE_LIMITED,
-                    f'Bedrock throttled StartAsyncInvoke for model {model_id!r}: {exc}',
-                    provider='bedrock',
-                ) from exc
-            delay = _start_async_throttle_delay(attempt)
-            _logger.info(
-                f'Bedrock StartAsyncInvoke throttled for {model_id}; retrying in {delay:.0f}s '
-                f'(attempt {attempt + 1} of {_START_ASYNC_THROTTLE_RETRIES})'
+        job: dict[str, Any] = await asyncio.to_thread(_bedrock_client().get_async_invoke, invocationArn=invocation_arn)
+        status: str = job['status']
+        if status == 'Completed':
+            break
+        if status == 'Failed':
+            raise pxt.ExternalServiceError(
+                pxt.ErrorCode.PROVIDER_ERROR,
+                f'Async invocation {invocation_id} failed: {job.get("failureMessage", "unknown error")}',
+                provider='bedrock',
             )
-            await asyncio.sleep(delay)
-    raise AssertionError('StartAsyncInvoke retry loop exited')
+
+    listed = await asyncio.to_thread(store.client().list_objects_v2, Bucket=store.bucket_name, Prefix=result_prefix)
+    keys.extend(obj['Key'] for obj in listed.get('Contents', []))
+    if not keys:
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_ERROR,
+            f'No output found at {output_location}/{invocation_id} after job {invocation_id} completed',
+            provider='bedrock',
+        )
+
+    result_key = next((k for k in keys if not k.endswith('manifest.json')), None)
+    if result_key is None:
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_ERROR,
+            f'No output file (only manifest) found for job {invocation_id}',
+            provider='bedrock',
+        )
+    return result_key
 
 
 @asynccontextmanager
@@ -323,53 +392,24 @@ async def _bedrock_async_invocation(
     invocation_arn: str = response['invocationArn']
     invocation_id: str = invocation_arn.rsplit('/', maxsplit=1)[-1]
 
-    elapsed = 0.0
     result_prefix = f'{soa.prefix}{invocation_id}/'
     keys: list[str] = []
     try:
-        while True:
-            await asyncio.sleep(_ASYNC_INVOCATION_POLL_INTERVAL_SECS)
-            elapsed += _ASYNC_INVOCATION_POLL_INTERVAL_SECS
-            if elapsed > _ASYNC_INVOCATION_TIMEOUT_SECS:
-                raise pxt.ExternalServiceError(
-                    pxt.ErrorCode.PROVIDER_TIMEOUT,
-                    f'Async invocation {invocation_id} timed out after {_ASYNC_INVOCATION_TIMEOUT_SECS}s',
-                    provider='bedrock',
-                )
-            job: dict[str, Any] = await asyncio.to_thread(
-                _bedrock_client().get_async_invoke, invocationArn=invocation_arn
-            )
-            status: str = job['status']
-            if status == 'Completed':
-                break
-            if status == 'Failed':
-                raise pxt.ExternalServiceError(
-                    pxt.ErrorCode.PROVIDER_ERROR,
-                    f'Async invocation {invocation_id} failed: {job.get("failureMessage", "unknown error")}',
-                    provider='bedrock',
-                )
-
-        listed = await asyncio.to_thread(store.client().list_objects_v2, Bucket=store.bucket_name, Prefix=result_prefix)
-        keys = [obj['Key'] for obj in listed.get('Contents', [])]
-        if not keys:
-            raise pxt.ExternalServiceError(
-                pxt.ErrorCode.PROVIDER_ERROR,
-                f'No output found at {output_location}/{invocation_id} after job {invocation_id} completed',
-                provider='bedrock',
-            )
-
-        result_key = next((k for k in keys if not k.endswith('manifest.json')), None)
-        if result_key is None:
-            raise pxt.ExternalServiceError(
-                pxt.ErrorCode.PROVIDER_ERROR,
-                f'No output file (only manifest) found for job {invocation_id}',
-                provider='bedrock',
-            )
-
+        result_key = await _wait_for_async_result(
+            invocation_arn, invocation_id, output_location, result_prefix, store, keys
+        )
         yield result_key
+    except Exception as exc:
+        # Retrying here would run StartAsyncInvoke again and bill another generation.
+        if _is_bedrock_throttling(exc) or is_retryable_error(exc)[0]:
+            raise _terminal_async_error(invocation_id, exc) from exc
+        raise
     finally:
         for key in keys:
-            await asyncio.to_thread(store.client().delete_object, Bucket=store.bucket_name, Key=key)
+            try:
+                await asyncio.to_thread(store.client().delete_object, Bucket=store.bucket_name, Key=key)
+            except Exception as cleanup_exc:
+                _logger.warning(f'Could not remove Bedrock output {key} for invocation {invocation_id}: {cleanup_exc}')
 
 
 async def _invoke_model_async(body: dict, model_id: str) -> Any:
@@ -395,7 +435,7 @@ async def _invoke_model_async(body: dict, model_id: str) -> Any:
             return json.loads(obj_bytes.decode('utf-8'))
 
 
-@pxt.udf(is_deterministic=False)
+@pxt.udf(is_deterministic=False, resource_pool=_BEDROCK_RATE_POOL)
 async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
     """
     Invoke a Bedrock model.
@@ -412,8 +452,11 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
 
     For models that require async invocation, `bedrock.temp_location` must be configured
     (set environment variable `BEDROCK_TEMP_LOCATION` or add `temp_location` to the `[bedrock]` section of
-    your Pixeltable configuration file). A throttled `StartAsyncInvoke` is retried with backoff, then
-    reported as a rate-limit error.
+    your Pixeltable configuration file).
+
+    Request throttling:
+    Throttled calls are retried by the rate-limit scheduler. A failure after Bedrock has accepted an async
+    invocation is not retried, so that failure does not start another generation.
 
     Args:
         body: The prompt and inference parameters as a dictionary.
@@ -532,6 +575,7 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
         ...     video=invoke_model(body, model_id='luma.ray-v2:0')
         ... )
     """
+    env.Env.get().get_resource_pool_info(_BEDROCK_RATE_POOL, BedrockRateLimitsInfo)
     body = _apply_invoke_model_request_conversions(body, model_id)
 
     if _requires_async(body, model_id):

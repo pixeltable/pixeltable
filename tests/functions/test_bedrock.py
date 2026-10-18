@@ -1,4 +1,3 @@
-import asyncio
 from pathlib import Path
 from typing import Any, Iterator, cast
 
@@ -13,7 +12,6 @@ from ..utils import (
     get_audio_files,
     get_image_files,
     get_video_files,
-    pxt_raises,
     rerun,
     rerun_on_network_error,
     skip_test_if_no_aws_credentials,
@@ -100,19 +98,15 @@ _UNAVAILABLE_VIDEO_MODEL_SNIPPETS = (
 def _is_throttled_video_request(errortype: str | None, errormsg: str | None) -> bool:
     """Return True when Bedrock rejected the video request because StartAsyncInvoke was throttled.
 
-    A low account quota is shared by concurrent nightly jobs. The async path retries with backoff;
-    a request that is still throttled is skipped rather than failed. Error type is enough for the
-    throttle exception classes. ExternalServiceError is the wrapped rate-limit error, so it skips
-    only when the message is that throttle.
+    A low account quota is shared by concurrent nightly jobs. The rate-limit scheduler retries a
+    throttled call; a request that is still throttled after those retries is skipped rather than failed.
+    Error type is enough for the throttle exception classes. ExternalServiceError is skipped only when
+    its message is that throttle.
     """
-    # Share the production classifier's codes. If bedrock cannot be imported, the message checks
-    # below still skip a throttled StartAsyncInvoke instead of failing at import time.
-    try:
-        from pixeltable.functions import bedrock
-    except ImportError:
-        throttle_codes: frozenset[str] = frozenset()
-    else:
-        throttle_codes = bedrock._BEDROCK_THROTTLE_CODES
+    # Share the production classifier's codes.
+    from pixeltable.functions import bedrock
+
+    throttle_codes = bedrock._BEDROCK_THROTTLE_CODES
     if errortype in throttle_codes:
         return True
     message = (errormsg or '').lower()
@@ -221,90 +215,6 @@ def _throttle_error(code: str, message: str, *, cls_name: str | None = None) -> 
     )
 
 
-def _patch_start_async(
-    monkeypatch: pytest.MonkeyPatch, outcomes: list[Exception | None]
-) -> tuple[list[float], list[int]]:
-    from pixeltable.functions import bedrock
-
-    sleeps: list[float] = []
-    calls = [0]
-
-    async def _sleep(delay: float) -> None:  # noqa: RUF029
-        sleeps.append(delay)
-
-    class _Client:
-        def start_async_invoke(self, **_kwargs: Any) -> dict[str, str]:
-            outcome = outcomes[calls[0]]
-            calls[0] += 1
-            if outcome is not None:
-                raise outcome
-            return {'invocationArn': 'arn:aws:bedrock:us-west-2:0:async-invoke/abc'}
-
-    monkeypatch.setattr(bedrock, '_bedrock_client', lambda: _Client())
-    monkeypatch.setattr(bedrock.asyncio, 'sleep', _sleep)
-    return sleeps, calls
-
-
-def test_luma_ray_start_async_invoke_retries_throttling(monkeypatch: pytest.MonkeyPatch) -> None:
-    from pixeltable.functions import bedrock
-
-    nightly = 'Too many requests, please wait before trying again. (reached max retries: 4)'
-    sleeps, calls = _patch_start_async(
-        monkeypatch,
-        [
-            _throttle_error('ThrottlingException', nightly, cls_name='ThrottlingException'),
-            _throttle_error('ThrottlingException', nightly),
-            None,
-        ],
-    )
-    response = asyncio.run(bedrock._start_async_invoke('luma.ray-v2:0', {'prompt': 'a dog'}, 's3://bucket/out/'))
-    assert response['invocationArn'].endswith('/abc')
-    assert calls[0] == 3
-    assert len(sleeps) == bedrock._START_ASYNC_THROTTLE_RETRIES
-    assert (
-        bedrock._START_ASYNC_THROTTLE_BASE_DELAY_SECS <= sleeps[0] < bedrock._START_ASYNC_THROTTLE_BASE_DELAY_SECS * 2
-    )
-    assert (
-        bedrock._START_ASYNC_THROTTLE_BASE_DELAY_SECS * 2
-        <= sleeps[1]
-        < bedrock._START_ASYNC_THROTTLE_BASE_DELAY_SECS * 4
-    )
-
-
-def test_luma_ray_start_async_invoke_throttle_is_rate_limited(monkeypatch: pytest.MonkeyPatch) -> None:
-    from pixeltable.functions import bedrock
-
-    nightly = (
-        'An error occurred (ThrottlingException) when calling the StartAsyncInvoke operation '
-        '(reached max retries: 4): Too many requests, please wait before trying again.'
-    )
-    sleeps, calls = _patch_start_async(
-        monkeypatch, [_throttle_error('ThrottlingException', nightly, cls_name='ThrottlingException')] * 3
-    )
-    with pxt_raises(pxt.ErrorCode.RATE_LIMITED, match='throttled StartAsyncInvoke') as info:
-        asyncio.run(bedrock._start_async_invoke('luma.ray-v2:0', {'prompt': 'a dog'}, 's3://bucket/out/'))
-    err = info.value
-    assert isinstance(err, pxt.ExternalServiceError)
-    assert err.is_retryable
-    assert err.provider == 'bedrock'
-    assert calls[0] == bedrock._START_ASYNC_THROTTLE_RETRIES + 1
-    assert len(sleeps) == bedrock._START_ASYNC_THROTTLE_RETRIES
-
-
-def test_luma_ray_start_async_invoke_does_not_retry_other_errors(monkeypatch: pytest.MonkeyPatch) -> None:
-    from botocore.exceptions import ClientError
-
-    from pixeltable.functions import bedrock
-
-    sleeps, calls = _patch_start_async(
-        monkeypatch, [_throttle_error('ValidationException', 'Invalid input: resolution must be one of 540p, 720p')]
-    )
-    with pytest.raises(ClientError, match='ValidationException'):
-        asyncio.run(bedrock._start_async_invoke('luma.ray-v2:0', {'prompt': 'a dog'}, 's3://bucket/out/'))
-    assert calls[0] == 1
-    assert sleeps == []
-
-
 def test_bedrock_throttling_classification() -> None:
     from pixeltable.functions.bedrock import _is_bedrock_throttling
 
@@ -321,6 +231,204 @@ def test_bedrock_throttling_classification() -> None:
         _throttle_error('ServiceQuotaExceededException', 'The account quota has been exceeded')
     )
     assert not _is_bedrock_throttling(Exception('connection reset'))
+
+
+def test_bedrock_throttle_retry_delay() -> None:
+    """The rate-limit pool waits out a throttle and does not retry a failure after the job was accepted."""
+    from pixeltable.functions import bedrock
+    from pixeltable.utils.http import is_retryable_error
+
+    info = bedrock.BedrockRateLimitsInfo()
+    nightly = _throttle_error(
+        'ThrottlingException', 'Too many requests, please wait before trying again.', cls_name='ThrottlingException'
+    )
+    delay = info.get_retry_delay(nightly, 0)
+    assert delay is not None
+    assert bedrock._THROTTLE_RETRY_BASE_SECS <= delay < bedrock._THROTTLE_RETRY_BASE_SECS * 2
+    capped = info.get_retry_delay(nightly, 5)
+    assert capped is not None
+    assert (
+        bedrock._THROTTLE_RETRY_MAX_SECS
+        <= capped
+        < bedrock._THROTTLE_RETRY_MAX_SECS + bedrock._THROTTLE_RETRY_BASE_SECS
+    )
+    assert (
+        info.get_retry_delay(
+            _throttle_error('ValidationException', 'too many requests were supplied in the input list'), 0
+        )
+        is None
+    )
+    assert (
+        info.get_retry_delay(_throttle_error('ServiceQuotaExceededException', 'The account quota has been exceeded'), 0)
+        is None
+    )
+
+    deadline = pxt.ExternalServiceError(
+        pxt.ErrorCode.PROVIDER_TIMEOUT, 'Async invocation abc did not finish within 600.0s', provider='bedrock'
+    )
+    assert not is_retryable_error(deadline)[0]
+    accepted = bedrock._terminal_async_error(
+        'abc', _throttle_error('ThrottlingException', 'Too many requests, timed out reading the output object')
+    )
+    assert not is_retryable_error(accepted)[0]
+    assert info.get_retry_delay(accepted, 0) is None
+    assert bedrock.invoke_model._resource_pool() == bedrock._BEDROCK_RATE_POOL
+
+
+def _patch_async_clocks(monkeypatch: pytest.MonkeyPatch) -> tuple[list[float], list[float]]:
+    """Record scheduler and Bedrock sleeps and return immediately.
+
+    Both modules call asyncio.sleep on the same function, so one wrapper classifies the caller.
+    """
+    import asyncio
+    import inspect
+
+    scheduler_sleeps: list[float] = []
+    bedrock_sleeps: list[float] = []
+
+    async def _sleep(delay: float) -> None:  # noqa: RUF029
+        caller = inspect.stack()[1].filename
+        if caller.endswith('schedulers.py'):
+            scheduler_sleeps.append(delay)
+        else:
+            bedrock_sleeps.append(delay)
+
+    monkeypatch.setattr(asyncio, 'sleep', _sleep)
+    return scheduler_sleeps, bedrock_sleeps
+
+
+class _StartCounter:
+    def __init__(self, *, throttles_before_success: int, in_progress: bool) -> None:
+        self.throttles_before_success = throttles_before_success
+        self.in_progress = in_progress
+        self.start_calls = 0
+
+    def start_async_invoke(self, **_kwargs: Any) -> dict[str, str]:
+        self.start_calls += 1
+        if self.start_calls <= self.throttles_before_success:
+            raise _throttle_error(
+                'ThrottlingException',
+                'Too many requests, please wait before trying again. (reached max retries: 4)',
+                cls_name='ThrottlingException',
+            )
+        return {'invocationArn': 'arn:aws:bedrock:us-west-2:0:async-invoke/abc'}
+
+    def get_async_invoke(self, **_kwargs: Any) -> dict[str, str]:
+        if self.in_progress:
+            return {'status': 'InProgress'}
+        return {'status': 'Completed'}
+
+
+def _install_async_output_mocks(monkeypatch: pytest.MonkeyPatch, *, list_error: Exception | None) -> None:
+    import shutil
+
+    from pixeltable.functions import bedrock
+    from pixeltable.utils.object_stores import ObjectPath
+    from pixeltable.utils.s3_store import S3Store
+
+    sample = Path(__file__).resolve().parents[1] / 'data' / 'test_videos' / 'test_13_frames.mp4'
+
+    class _S3Client:
+        def list_objects_v2(self, **kwargs: Any) -> dict[str, Any]:
+            if list_error is not None:
+                raise list_error
+            prefix = kwargs['Prefix']
+            return {'Contents': [{'Key': f'{prefix}out.mp4'}]}
+
+        def delete_object(self, **_kwargs: Any) -> dict[str, Any]:
+            return {}
+
+    class _Store(S3Store):
+        def client(self) -> _S3Client:
+            return _S3Client()
+
+    store = _Store(ObjectPath.parse_object_storage_addr('s3://bucket/prefix/', allow_obj_name=False))
+    # Capture the bound classmethods before replacing them. Column setup still validates other buckets.
+    original_get_store = bedrock.ObjectOps.get_store
+    original_copy = bedrock.ObjectOps.copy_object_to_local_file
+
+    def _is_test_bucket(dest: Any) -> bool:
+        if isinstance(dest, str):
+            return dest.startswith('s3://bucket/')
+        return getattr(dest, 'container', None) == 'bucket' and getattr(dest, 'scheme', None) == 's3'
+
+    def _get_store(
+        dest: Any, allow_obj_name: bool, col_name: str | None = None, *, scope_credentials: bool = False
+    ) -> Any:
+        if _is_test_bucket(dest):
+            return store
+        return original_get_store(dest, allow_obj_name, col_name, scope_credentials=scope_credentials)
+
+    def _copy(src: str, dest: Path) -> None:
+        if src.startswith('s3://bucket/'):
+            shutil.copyfile(sample, dest)
+            return
+        original_copy(src, dest)
+
+    monkeypatch.setattr(bedrock, '_get_temp_location', lambda: 's3://bucket/prefix/')
+    monkeypatch.setattr(bedrock.ObjectOps, 'get_store', _get_store)
+    monkeypatch.setattr(bedrock.ObjectOps, 'copy_object_to_local_file', _copy)
+
+
+def _insert_luma_ray(client: _StartCounter) -> tuple[Any, str | None, str | None]:
+    from pixeltable.functions.bedrock import invoke_model
+
+    t = pxt.create_table('bedrock_sched', {'prompt': pxt.String})
+    t.add_computed_column(
+        video=invoke_model(
+            {'prompt': t.prompt, 'aspect_ratio': '16:9', 'duration': '5s', 'resolution': '540p'},
+            model_id=_LUMA_RAY_MODEL_ID,
+        )
+    )
+    status = t.insert(prompt='a dog running on a beach', on_error='ignore')
+    row = t.select(errortype=t.video.errortype, errormsg=t.video.errormsg).collect()[0]
+    return status, row['errortype'], row['errormsg']
+
+
+def test_scheduler_retries_throttled_bedrock_invoke(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A throttled StartAsyncInvoke is waited out by the rate-limit scheduler, then retried."""
+    from pixeltable.functions import bedrock
+
+    scheduler_sleeps, bedrock_sleeps = _patch_async_clocks(monkeypatch)
+    client = _StartCounter(throttles_before_success=1, in_progress=False)
+    monkeypatch.setattr(bedrock, '_bedrock_client', lambda: client)
+    _install_async_output_mocks(monkeypatch, list_error=None)
+
+    status, errortype, errormsg = _insert_luma_ray(client)
+    assert status.num_excs == 0, f'{errortype}: {errormsg}'
+    assert client.start_calls == 2
+    # The first retry has to clear a one-minute quota window, so the scheduler wait is at least 30s.
+    assert any(delay >= 30.0 for delay in scheduler_sleeps)
+    assert not any(delay >= 30.0 for delay in bedrock_sleeps)
+
+
+@pytest.mark.parametrize('failure', ['deadline', 'output_read'])
+def test_accepted_bedrock_invocation_is_not_retried(
+    failure: str, uses_db: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure after StartAsyncInvoke has an invocation ARN does not submit another generation."""
+    from pixeltable.functions import bedrock
+    from pixeltable.utils.http import is_retryable_error
+
+    _patch_async_clocks(monkeypatch)
+    client = _StartCounter(throttles_before_success=0, in_progress=failure == 'deadline')
+    monkeypatch.setattr(bedrock, '_bedrock_client', lambda: client)
+    if failure == 'deadline':
+        monkeypatch.setattr(bedrock, '_ASYNC_INVOCATION_TIMEOUT_SECS', 0.0)
+        list_error: Exception | None = None
+    else:
+        list_error = _throttle_error(
+            'ThrottlingException',
+            'Too many requests, timed out reading the output object',
+            cls_name='ThrottlingException',
+        )
+    _install_async_output_mocks(monkeypatch, list_error=list_error)
+
+    status, errortype, errormsg = _insert_luma_ray(client)
+    assert status.num_excs == 1, f'expected a cell error, got {errortype}: {errormsg}'
+    assert client.start_calls == 1
+    assert errormsg is not None
+    assert not is_retryable_error(Exception(errormsg))[0]
 
 
 def test_unavailable_video_model_error() -> None:
