@@ -39,7 +39,8 @@ class Frame(TypedDict):
 class _ReloadTarget(NamedTuple):
     """Stored frame for the next() that follows seek().
 
-    absolute_time is False for legacy pos_msec, which is not an absolute timestamp.
+    absolute_time is False for legacy pos_msec. That seek time includes the stream start,
+    and the match checks the frame index.
     """
 
     time: float
@@ -289,12 +290,11 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         self.video_idx += 1
         self.pos += 1
         if self.fps is not None:
-            # pos * step stays on the grid. A running sum of 0.1 reaches 0.9999999999999999.
-            assert self.extraction_step is not None
-            self.next_extraction_time = self.video_start_time + self.pos * self.extraction_step
+            # pos / fps stays on the grid. pos * (1/fps) is 0.9999999999999999 at fps=49.
+            self.next_extraction_time = self.video_start_time + self.pos / self.fps
         elif self.extraction_step is not None:
-            assert self.next_extraction_time is not None
-            self.next_extraction_time += self.extraction_step
+            # (pos + 1/2) * step stays on the grid after seek() jumps pos. A running sum stays behind.
+            self.next_extraction_time = self.video_start_time + (self.pos + 0.5) * self.extraction_step
         return result
 
     def _emit_stored_frame(self, target: _ReloadTarget) -> Frame:
@@ -332,7 +332,8 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         seek_time: float
         if 'pos_msec' in kwargs:
             video_idx = kwargs['pos_frame']
-            seek_time = kwargs['pos_msec'] / 1000.0
+            # pos_msec counts milliseconds from the stream start. Frame PTS is absolute.
+            seek_time = self.video_start_time + kwargs['pos_msec'] / 1000.0
             absolute_time = False
         else:
             assert 'frame_attrs' in kwargs

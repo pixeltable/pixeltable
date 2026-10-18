@@ -528,7 +528,7 @@ class TestVideo:
                         assert selected_frame == frames[pos]
 
     def test_fps_grid_and_stored_frame_reload(self, tmp_path: Path) -> None:
-        """fps samples are start + pos * step, and seek() reloads the frame it is given."""
+        """fps samples are start + pos / fps, and seek() reloads the frame it is given."""
         one_second = tmp_path / 'one_second_30fps.mp4'
         ten_seconds = tmp_path / 'ten_second_30fps.mp4'
         for path, duration in ((one_second, 1), (ten_seconds, 10)):
@@ -559,6 +559,34 @@ class TestVideo:
         assert len(ten_rows) == 100
         assert one_rows[-1]['frame_attrs']['time'] == pytest.approx(0.9, abs=1e-3)
         assert ten_rows[-1]['frame_attrs']['time'] == pytest.approx(9.9, abs=1e-3)
+
+        # pos * (1/49) undershoots 1.0 and 2.0, so the old grid returned 50 and 99 rows.
+        hundred_one = tmp_path / 'one_second_100fps.mp4'
+        hundred_two = tmp_path / 'two_second_100fps.mp4'
+        for path, duration in ((hundred_one, 1), (hundred_two, 2)):
+            _ffmpeg(
+                [
+                    '-f',
+                    'lavfi',
+                    '-i',
+                    f'color=c=red:s=64x64:d={duration}:r=100',
+                    '-frames:v',
+                    str(duration * 100),
+                    '-c:v',
+                    'libx264',
+                    '-pix_fmt',
+                    'yuv420p',
+                    str(path),
+                ]
+            )
+        assert av_utils.get_video_duration(str(hundred_one)) == pytest.approx(1.0, abs=1e-3)
+        assert av_utils.get_video_duration(str(hundred_two)) == pytest.approx(2.0, abs=1e-3)
+        fps49_one = collect(hundred_one, fps=49)
+        fps49_two = collect(hundred_two, fps=49)
+        assert len(fps49_one) == 49
+        assert len(fps49_two) == 98
+        assert fps49_one[-1]['frame_attrs']['time'] == pytest.approx(0.98, abs=1e-3)
+        assert fps49_two[-1]['frame_attrs']['time'] == pytest.approx(1.98, abs=1e-3)
         # The sample at 1.0s is the end, so expansion stops. A stored row on the last frame still reloads.
         one_last = collect(one_second)[-1]['frame_attrs']
         fps_reload = frame_iterator.decorated_callable(video=str(one_second), fps=10)  # type: ignore[attr-defined]
@@ -635,6 +663,76 @@ class TestVideo:
             offset_iter.close()
         assert got['frame_attrs']['index'] == gap['index']
         assert got['frame_attrs']['time'] == pytest.approx(gap['time'], abs=1e-3)
+
+        # seek() to a later sample used to leave the running sum behind, so the rows after it
+        # were consecutive decoded frames. They stay on the num_frames grid.
+        continued = frame_iterator.decorated_callable(video=str(offset), num_frames=10)  # type: ignore[attr-defined]
+        try:
+            _ = next(continued)
+            continued.seek(4, frame_attrs=sampled[4]['frame_attrs'])
+            got = next(continued)
+            assert got['frame_attrs']['index'] == sampled[4]['frame_attrs']['index']
+            rest = [item['frame_attrs']['index'] for item in continued]
+        finally:
+            continued.close()
+        assert rest == [item['frame_attrs']['index'] for item in sampled[5:]]
+
+    def test_legacy_pos_msec_reload(self, tmp_path: Path) -> None:
+        """A legacy view stores pos_msec from the stream start. Reloading an offset video adds that start back."""
+        offset = tmp_path / 'legacy_offset.mp4'
+        _ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'color=c=red:s=64x64:d=2:r=25',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                '-output_ts_offset',
+                '5',
+                str(offset),
+            ]
+        )
+        with av.open(str(offset)) as container:
+            stream = container.streams.video[0]
+            assert stream.time_base is not None
+            start = float((stream.start_time or 0) * stream.time_base)
+        assert start == pytest.approx(5.0, abs=1e-2)
+
+        absolute = frame_iterator.decorated_callable(video=str(offset), num_frames=10)  # type: ignore[attr-defined]
+        try:
+            video_start = absolute.video_start_time
+            absolute_rows = list(absolute)
+        finally:
+            absolute.close()
+        frames = legacy_frame_iterator.decorated_callable(video=str(offset), num_frames=10)  # type: ignore[attr-defined]
+        try:
+            rows = list(frames)
+        finally:
+            frames.close()
+        assert video_start == pytest.approx(start, abs=1e-3)
+        assert len(rows) == len(absolute_rows) == 10
+        # pos_msec is measured from the stream start. The first frame is a fraction of a second in,
+        # far below the 5s container offset.
+        assert 0.0 <= rows[0]['pos_msec'] < 1000.0
+        stored = rows[4]
+        stored_time = float(absolute_rows[4]['frame_attrs']['time'])
+        assert stored['pos_msec'] == pytest.approx((stored_time - video_start) * 1000.0, abs=1e-3)
+        assert stored['pos_frame'] == absolute_rows[4]['frame_attrs']['index']
+        assert stored['frame'] == absolute_rows[4]['frame']
+        # The same kwargs a migrated view passes from its stored columns.
+        reloaded = legacy_frame_iterator.decorated_callable(video=str(offset), num_frames=10)  # type: ignore[attr-defined]
+        try:
+            reloaded.seek(4, pos_msec=stored['pos_msec'], pos_frame=stored['pos_frame'], frame_idx=stored['frame_idx'])
+            got = next(reloaded)
+        finally:
+            reloaded.close()
+        assert got['pos_frame'] == stored['pos_frame']
+        assert got['frame_idx'] == stored['frame_idx']
+        assert got['pos_msec'] == pytest.approx(stored['pos_msec'], abs=1e-3)
+        assert got['frame'] == stored['frame']
 
     @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
     def test_keyframes_only(self, uses_db: None) -> None:
