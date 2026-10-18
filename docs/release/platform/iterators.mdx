@@ -135,7 +135,7 @@ Iterators are powerful tools for processing large media files. They work seamles
         )
     )
 
-    # Extract exact number of frames (evenly spaced)
+    # Extract evenly spaced frames
     frames_view = pxt.create_view(
         'videos/sampled',
         videos_table,
@@ -158,7 +158,7 @@ Iterators are powerful tools for processing large media files. They work seamles
 
     ### Parameters
     - `fps`: Frames per second to extract (can be fractional)
-    - `num_frames`: Exact number of frames to extract
+    - `num_frames`: Number of evenly spaced frames to extract. Times that share a frame return that frame once.
     - `keyframes_only`: Extract only keyframes (I-frames) - efficient for quick video scanning
     - Only one of `fps`, `num_frames`, or `keyframes_only` can be specified
   </Tab>

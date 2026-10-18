@@ -41,7 +41,9 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     """
     Iterator over frames of a video. At most one of `fps`, `num_frames` or `keyframes_only` may be specified. If `fps`
     is specified, then frames will be extracted at the specified rate (frames per second). If `num_frames` is specified,
-    then the exact number of frames will be extracted. If neither is specified, then all frames will be extracted.
+    then frames are extracted at that many evenly spaced times. The result has one row per frame, so it is shorter
+    than `num_frames` when several of those times fall on one frame. If neither is specified, then all frames will be
+    extracted.
 
     __Outputs:__
 
@@ -66,8 +68,9 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
             If omitted, or if greater than the native framerate of the video,
             then the framerate of the video will be used (all frames will be extracted).
-        num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
-            `num_frames` is greater than the number of frames in the video, all frames will be extracted.
+        num_frames: Number of evenly spaced frames to extract. The iterator returns that many frames unless
+            several sample times fall on one frame, in which case that frame is returned once. If `num_frames`
+            is greater than the number of frames in the video, all frames are extracted.
         keyframes_only: If True, only extract keyframes.
 
     Examples:
@@ -137,7 +140,9 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         time_range = av_utils.video_time_range(self.container)
         if time_range is None:
             self.video_start_time = float((stream.start_time or 0) * self.video_time_base)
-            self.video_duration = None
+            # Header timing can be missing, or it can belong to a longer audio stream.
+            # The packet scan still returns this video's length.
+            self.video_duration = av_utils.get_video_duration(str(self.video_path))
         else:
             self.video_start_time, end = time_range
             self.video_duration = end - self.video_start_time
@@ -201,9 +206,10 @@ class frame_iterator(pxt.PxtIterator[Frame]):
                 assert self.next_extraction_time is not None
 
                 if next_frame is None:
-                    # cur_frame is the last frame of the video. If it is before the next extraction time, then we
-                    # have reached the end of the video.
-                    if cur_frame_time < self.next_extraction_time:
+                    # The last frame stays up until the video ends. A sample after its PTS still belongs
+                    # to it. Stop only once the sample is past that end. Yielding once covers later
+                    # samples that land on this same frame.
+                    if self._sample_past_end(self.next_extraction_time, cur_frame_time):
                         raise StopIteration
                 else:
                     # The extraction time represents the idealized timestamp of the next frame we want to extract.
@@ -243,6 +249,26 @@ class frame_iterator(pxt.PxtIterator[Frame]):
                 self.next_extraction_time += self.extraction_step
 
             return result
+
+    def _sample_past_end(self, sample_time: float, frame_time: float) -> bool:
+        """True when sample_time is at or after the end of the video.
+
+        The end matches VideoFrames.end_time(): the stored range when it runs past this frame,
+        otherwise this frame's duration, otherwise one average frame.
+        """
+        assert self.cur_frame is not None
+        stored_end = None if self.video_duration is None else self.video_start_time + self.video_duration
+        raw_duration = getattr(self.cur_frame, 'duration', None)
+        time_base = self.cur_frame.time_base if self.cur_frame.time_base is not None else self.video_time_base
+        duration_s: float | None = None
+        if isinstance(raw_duration, int) and raw_duration > 0 and time_base is not None:
+            duration_s = float(raw_duration * time_base)
+        rate = self.container.streams.video[0].average_rate
+        end = av_utils._display_end(stored_end, frame_time, duration_s, None if rate == 0 else rate)
+        # A sample at the only known timestamp still belongs to the frame.
+        if end > frame_time:
+            return sample_time >= end
+        return sample_time > frame_time
 
     def close(self) -> None:
         self.container.close()

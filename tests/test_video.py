@@ -2250,24 +2250,97 @@ class TestVideo:
             try:
                 assert frames.video_start_time == pytest.approx(start, abs=1e-3), name
                 assert frames.video_duration == pytest.approx(stored_end - start, abs=1e-3), name
-                assert frames.extraction_step == pytest.approx((stored_end - start) / 4, abs=1e-3), name
-                if name == 'offset_vfr.mp4':
-                    step = frames.extraction_step
-                    assert step is not None
-                    # Idealized sample times. 3.125s is after the last PTS, 2.5s.
-                    samples = [start + (i + 0.5) * step for i in range(4)]
-                    assert samples == pytest.approx([0.875, 1.625, 2.375, 3.125], abs=1e-3)
-                    # That PTS is displayed until the stored end, 3.5s, but the frame duration is 0,
-                    # so __next__ stops and yields the three earlier frames.
-                    yielded = [float(item['frame_attrs']['time']) for item in frames]
-                    assert yielded == pytest.approx([0.86, 1.62, 2.38], abs=1e-3)
+                yielded = [float(item['frame_attrs']['time']) for item in frames]
             finally:
                 frames.close()
+            # 3.125s is after the last PTS, 2.5s, and inside the stored end, 3.5s.
+            if name == 'offset_vfr.mp4':
+                assert yielded == pytest.approx([0.86, 1.62, 2.38, 2.5], abs=1e-3)
+            # Samples at 1.025s, 1.375s, and 1.725s share the frame that runs to 1.9s.
+            elif name == 'offset_vfr.mkv':
+                assert yielded == pytest.approx([0.66, 0.9], abs=1e-3)
+                fps_frames = frame_iterator.decorated_callable(video=str(path), fps=1)  # type: ignore[attr-defined]
+                try:
+                    fps_times = [float(item['frame_attrs']['time']) for item in fps_frames]
+                finally:
+                    fps_frames.close()
+                # 1.5s is inside [0.5, 1.9). The next sample, 2.5s, is past the end.
+                assert fps_times == pytest.approx([0.5, 0.9], abs=1e-3)
+            elif name == 'offset.nut':
+                # The stored end is the last PTS. The frame's own duration runs to 7.0s,
+                # so a sample at that PTS is still inside the video.
+                nut_frames = frame_iterator.decorated_callable(video=str(path), fps=25)  # type: ignore[attr-defined]
+                try:
+                    nut_times = [float(item['frame_attrs']['time']) for item in nut_frames]
+                finally:
+                    nut_frames.close()
+                assert nut_times[-1] == pytest.approx(6.96, abs=1e-3)
 
             for fps in (None, 2.0):
                 with av_utils.VideoFrames(path, fps=fps) as decoded:
-                    _ = list(decoded)
+                    items = list(decoded)
                     assert decoded.end_time() == pytest.approx(playback_end, abs=1e-3), (name, fps)
+                    if name == 'offset.asf' and fps is not None:
+                        assert [item.time for item in items] == pytest.approx([5.0, 5.52, 6.0, 6.52], abs=1e-3)
+
+        # A 1 fps clip has a frame at 3s that is shown until 4s. The last sample is 3.5s.
+        one_fps = tmp_path / 'one_fps.mp4'
+        _ffmpeg(
+            ['-f', 'lavfi', '-i', 'color=c=red:s=64x64:d=4:r=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(one_fps)]
+        )
+        one_fps_frames = frame_iterator.decorated_callable(video=str(one_fps), num_frames=4)  # type: ignore[attr-defined]
+        try:
+            one_fps_times = [float(item['frame_attrs']['time']) for item in one_fps_frames]
+        finally:
+            one_fps_frames.close()
+        assert one_fps_times == pytest.approx([0.0, 1.0, 2.0, 3.0], abs=1e-3)
+        # Samples that share one frame stay one row.
+        held = frame_iterator.decorated_callable(video=str(one_fps), num_frames=1000)  # type: ignore[attr-defined]
+        try:
+            assert sum(1 for _ in held) == 4
+        finally:
+            held.close()
+
+        # Audio outlasts the picture, so the container duration is not a video range.
+        # The packet scan still reports the 2s picture.
+        offset_audio = tmp_path / 'offset_audio.nut'
+        _ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'color=c=red:s=64x64:d=2:r=25',
+                '-f',
+                'lavfi',
+                '-i',
+                'sine=frequency=440:duration=5',
+                '-map',
+                '0:v',
+                '-map',
+                '1:a',
+                '-output_ts_offset',
+                '5',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                '-c:a',
+                'aac',
+                '-f',
+                'nut',
+                str(offset_audio),
+            ]
+        )
+        with av.open(str(offset_audio)) as container:
+            assert isinstance(container, av.container.input.InputContainer)
+            assert av_utils.video_time_range(container) is None
+        assert av_utils.get_video_duration(str(offset_audio)) == pytest.approx(2.0, abs=1e-3)
+        audio_nut_frames = frame_iterator.decorated_callable(video=str(offset_audio), num_frames=4)  # type: ignore[attr-defined]
+        try:
+            audio_nut_times = [float(item['frame_attrs']['time']) for item in audio_nut_frames]
+        finally:
+            audio_nut_frames.close()
+        assert audio_nut_times == pytest.approx([5.24, 5.76, 6.24, 6.76], abs=1e-3)
 
         t = pxt.create_table('scene_end_clips', {'name': pxt.String, 'video': pxt.Video})
         validate_update_status(t.insert(rows), expected_rows=len(rows))

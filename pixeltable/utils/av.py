@@ -55,6 +55,22 @@ def _presentation_end(stored_s: float, start_s: float, *, absolute: bool) -> flo
     return stored_s if absolute else start_s + stored_s
 
 
+def _display_end(
+    stored_end: float | None, frame_time: float, frame_duration: float | None, average_rate: Fraction | None
+) -> float:
+    """Time at which the last frame stops being shown.
+
+    A stored end past that frame's timestamp wins. Otherwise the frame's own duration is the end.
+    One average frame interval is only a fallback.
+    """
+    if stored_end is not None and stored_end > frame_time:
+        return stored_end
+    if frame_duration is not None:
+        return frame_time + frame_duration
+    assert average_rate is not None and average_rate != 0
+    return frame_time + float(1 / average_rate)
+
+
 def _sole_video_stream(container: av.container.input.InputContainer) -> bool:
     streams = container.streams
     return (
@@ -466,6 +482,8 @@ class VideoFrames:
     fps: float
     container: av.container.input.InputContainer | None
     video_framerate: Fraction | None
+    # Presentation start of the stream, in seconds. fps sampling counts from here.
+    _video_start: float
     # Presentation end recorded by the container, in seconds.
     _video_end: float | None
     # Presentation time of the latest decoded frame, in seconds.
@@ -490,6 +508,7 @@ class VideoFrames:
         self.fps = 0.0 if fps is None else fps
         self.container = None
         self.video_framerate = None
+        self._video_start = 0.0
         self._video_end = None
         self.last_frame_time = None
         self.last_frame_duration = None
@@ -500,7 +519,13 @@ class VideoFrames:
         stream = self.container.streams.video[0]
         self.video_framerate = stream.average_rate
         time_range = video_time_range(self.container)
-        self._video_end = None if time_range is None else time_range[1]
+        if time_range is None:
+            self._video_start = (
+                float((stream.start_time or 0) * stream.time_base) if stream.time_base is not None else 0.0
+            )
+            self._video_end = None
+        else:
+            self._video_start, self._video_end = time_range
         return self
 
     def __exit__(
@@ -513,14 +538,7 @@ class VideoFrames:
     def end_time(self) -> float:
         """The time at which the video ends, in seconds. Valid after iteration is exhausted."""
         assert self.last_frame_time is not None
-        if self._video_end is not None and self._video_end > self.last_frame_time:
-            return self._video_end
-        # The stored end is missing or not past the last frame. That frame's own duration is the
-        # end; one average frame interval is only a guess.
-        if self.last_frame_duration is not None:
-            return self.last_frame_time + self.last_frame_duration
-        assert self.video_framerate is not None and self.video_framerate != 0
-        return self.last_frame_time + float(1 / self.video_framerate)
+        return _display_end(self._video_end, self.last_frame_time, self.last_frame_duration, self.video_framerate)
 
     def __iter__(self) -> Iterator[Item]:
         assert self.container is not None
@@ -545,7 +563,9 @@ class VideoFrames:
                         self.last_frame_duration = float(frame_duration * time_base)
                     else:
                         self.last_frame_duration = None
-                if self.fps == 0.0 or (num_returned <= frame.time * self.fps):
+                # frame.time is absolute. An offset stream has to be counted from its start,
+                # or the first samples all fall in the opening fraction of a second.
+                if self.fps == 0.0 or num_returned <= (frame.time - self._video_start) * self.fps:
                     img = frame.to_image()
                     assert isinstance(img, PIL.Image.Image)
                     yield VideoFrames.Item(
