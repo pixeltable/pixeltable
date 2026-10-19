@@ -421,6 +421,8 @@ class TunnelTransport(Transport):
         except Exception:
             return  # no answer: keep retrying
         if current is not None and current.state in (DbState.STOPPED, DbState.STOPPING):
+            # the next failure asks again, so a call made within the interval is not retried until it ends
+            self._state_checked_at = None
             uri = f'pxt://{self._org}:{self._db}'
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_STATE, f'{uri} is stopped; start it with `pxt db start {uri}`.'

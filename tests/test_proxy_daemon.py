@@ -1271,6 +1271,14 @@ class TestTunnelRetries:
             transport.post(b'body')
         assert [credential for _, credential in requests] == [supplied]
 
+    def test_a_stopped_database_is_named_at_once_again(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        requests = self._stopped_or('STOPPED', monkeypatch)
+        transport = TunnelTransport('org1', 'db1', lambda: _KEY, host='h', port=443)
+        for _ in range(2):
+            with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'pxt://org1:db1 is stopped'):
+                transport._connect_tunnel()
+        assert len(requests) == 2
+
     def test_a_database_coming_up_is_retried_and_asked_about_once_an_interval(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
