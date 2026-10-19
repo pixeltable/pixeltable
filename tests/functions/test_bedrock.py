@@ -316,9 +316,10 @@ def _patch_async_clocks(monkeypatch: pytest.MonkeyPatch) -> tuple[list[float], l
 
 
 class _StartCounter:
-    def __init__(self, *, throttles_before_success: int, in_progress: bool) -> None:
+    def __init__(self, *, throttles_before_success: int, in_progress: bool, failure_message: str | None = None) -> None:
         self.throttles_before_success = throttles_before_success
         self.in_progress = in_progress
+        self.failure_message = failure_message
         self.start_calls = 0
 
     def start_async_invoke(self, **_kwargs: Any) -> dict[str, str]:
@@ -332,12 +333,16 @@ class _StartCounter:
         return {'invocationArn': 'arn:aws:bedrock:us-west-2:0:async-invoke/abc'}
 
     def get_async_invoke(self, **_kwargs: Any) -> dict[str, str]:
+        if self.failure_message is not None:
+            return {'status': 'Failed', 'failureMessage': self.failure_message}
         if self.in_progress:
             return {'status': 'InProgress'}
         return {'status': 'Completed'}
 
 
-def _install_async_output_mocks(monkeypatch: pytest.MonkeyPatch, *, list_error: Exception | None) -> None:
+def _install_async_output_mocks(
+    monkeypatch: pytest.MonkeyPatch, *, list_error: Exception | None, object_names: list[str] | None = None
+) -> tuple[list[str], list[str]]:
     import shutil
 
     from pixeltable.functions import bedrock
@@ -345,15 +350,23 @@ def _install_async_output_mocks(monkeypatch: pytest.MonkeyPatch, *, list_error: 
     from pixeltable.utils.s3_store import S3Store
 
     sample = Path(__file__).resolve().parents[1] / 'data' / 'test_videos' / 'test_13_frames.mp4'
+    listed: list[str] = []
+    deleted: list[str] = []
 
     class _S3Client:
         def list_objects_v2(self, **kwargs: Any) -> dict[str, Any]:
             if list_error is not None:
                 raise list_error
             prefix = kwargs['Prefix']
-            return {'Contents': [{'Key': f'{prefix}out.mp4'}]}
+            names = ['out.mp4'] if object_names is None else object_names
+            keys = [f'{prefix}{name}' for name in names]
+            listed.extend(keys)
+            if not keys:
+                return {}
+            return {'Contents': [{'Key': key} for key in keys]}
 
-        def delete_object(self, **_kwargs: Any) -> dict[str, Any]:
+        def delete_object(self, **kwargs: Any) -> dict[str, Any]:
+            deleted.append(kwargs['Key'])
             return {}
 
     class _Store(S3Store):
@@ -386,6 +399,7 @@ def _install_async_output_mocks(monkeypatch: pytest.MonkeyPatch, *, list_error: 
     monkeypatch.setattr(bedrock, '_get_temp_location', lambda: 's3://bucket/prefix/')
     monkeypatch.setattr(bedrock.ObjectOps, 'get_store', _get_store)
     monkeypatch.setattr(bedrock.ObjectOps, 'copy_object_to_local_file', _copy)
+    return listed, deleted
 
 
 def _insert_luma_ray() -> tuple[Any, str | None, str | None]:
@@ -465,6 +479,39 @@ def test_accepted_bedrock_invocation_is_not_retried(
     assert client.start_calls == 1
     assert errormsg is not None
     assert not is_retryable_error(Exception(errormsg))[0]
+
+
+@pytest.mark.parametrize(
+    ('failure_message', 'object_names', 'message'),
+    [
+        (None, [], 'No output found'),
+        (None, ['manifest.json'], 'only manifest'),
+        ('model rejected the prompt', ['manifest.json', 'partial.mp4'], 'model rejected the prompt'),
+    ],
+)
+def test_async_s3_cleanup_deletes_listed_keys(
+    failure_message: str | None, object_names: list[str], message: str, uses_db: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every listed output key is deleted when the job fails or completes without an output file.
+
+    A failed job raises before listing, so there is nothing to delete. Listing and then dropping those
+    keys would leave the manifest (and any partial object) in the bucket.
+    """
+    from pixeltable.functions import bedrock
+
+    _patch_async_clocks(monkeypatch)
+    client = _StartCounter(throttles_before_success=0, in_progress=False, failure_message=failure_message)
+    monkeypatch.setattr(bedrock, '_bedrock_client', lambda: client)
+    listed, deleted = _install_async_output_mocks(monkeypatch, list_error=None, object_names=object_names)
+
+    status, errortype, errormsg = _insert_luma_ray()
+    assert status.num_excs == 1, f'expected a cell error, got {errortype}: {errormsg}'
+    assert client.start_calls == 1
+    assert errormsg is not None
+    assert message in errormsg
+    if failure_message is None:
+        assert listed == [f'prefix/abc/{name}' for name in object_names]
+    assert deleted == listed
 
 
 def test_validation_exception_with_too_many_requests_is_not_retried(

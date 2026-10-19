@@ -388,9 +388,14 @@ async def _start_async_invoke(model_id: str, body: dict, output_location: str) -
 
 
 async def _wait_for_async_result(
-    invocation_arn: str, invocation_id: str, output_location: str, result_prefix: str, store: 'S3Store', keys: list[str]
-) -> str:
-    """Poll until the job finishes and return the output key. `keys` receives every object under the job prefix."""
+    invocation_arn: str, invocation_id: str, result_prefix: str, store: 'S3Store'
+) -> tuple[str | None, list[str]]:
+    """Poll until the job finishes and return `(result_key, keys)`.
+
+    `keys` is every object under the job prefix. `result_key` is the output object, or None when
+    that prefix is empty or contains only a manifest. A timeout or a failed job raises before any
+    objects are listed.
+    """
     elapsed = 0.0
     while True:
         await asyncio.sleep(_ASYNC_INVOCATION_POLL_INTERVAL_SECS)
@@ -413,22 +418,9 @@ async def _wait_for_async_result(
             )
 
     listed = await asyncio.to_thread(store.client().list_objects_v2, Bucket=store.bucket_name, Prefix=result_prefix)
-    keys.extend(obj['Key'] for obj in listed.get('Contents', []))
-    if not keys:
-        raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR,
-            f'No output found at {output_location}/{invocation_id} after job {invocation_id} completed',
-            provider='bedrock',
-        )
-
+    keys = [obj['Key'] for obj in listed.get('Contents', [])]
     result_key = next((k for k in keys if not k.endswith('manifest.json')), None)
-    if result_key is None:
-        raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR,
-            f'No output file (only manifest) found for job {invocation_id}',
-            provider='bedrock',
-        )
-    return result_key
+    return result_key, keys
 
 
 @asynccontextmanager
@@ -444,9 +436,20 @@ async def _bedrock_async_invocation(
     result_prefix = f'{soa.prefix}{invocation_id}/'
     keys: list[str] = []
     try:
-        result_key = await _wait_for_async_result(
-            invocation_arn, invocation_id, output_location, result_prefix, store, keys
-        )
+        # Bind keys before these raises so finally still deletes a prefix that has no output file.
+        result_key, keys = await _wait_for_async_result(invocation_arn, invocation_id, result_prefix, store)
+        if not keys:
+            raise pxt.ExternalServiceError(
+                pxt.ErrorCode.PROVIDER_ERROR,
+                f'No output found at {output_location}/{invocation_id} after job {invocation_id} completed',
+                provider='bedrock',
+            )
+        if result_key is None:
+            raise pxt.ExternalServiceError(
+                pxt.ErrorCode.PROVIDER_ERROR,
+                f'No output file (only manifest) found for job {invocation_id}',
+                provider='bedrock',
+            )
         yield result_key
     except Exception as exc:
         # Retrying here would run StartAsyncInvoke again and bill another generation.
