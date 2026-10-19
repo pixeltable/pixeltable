@@ -1,9 +1,10 @@
 """Decide whether a PR comment asks Claude for a review, and extract the focus it names.
 
-Handles the "issue_comment" event. A comment asks for a review when it starts with "claude review", "agent review", or
-"agents review", in any case, and the rest of the comment names the focus, such as "focus on function signatures". Only
-a commenter with write access can ask. Reads GITHUB_EVENT_PATH, GITHUB_OUTPUT, REPO, and ACTOR from the environment;
-`gh` authenticates with GH_TOKEN. Writes pr and focus to GITHUB_OUTPUT, or nothing when no review runs.
+Handles the "issue_comment" event. A comment asks for a review when it is "claude review", "agent review", or "agents
+review", in any case, alone or followed by a focus. The focus follows a colon, a comma, a dash between spaces, or a line
+break, or starts with the word "focus": "claude review focus on function signatures" or "claude review: error paths".
+Only a commenter with write access can ask. Reads GITHUB_EVENT_PATH, GITHUB_OUTPUT, REPO, and ACTOR from the
+environment; `gh` authenticates with GH_TOKEN. Writes pr and focus to GITHUB_OUTPUT, or nothing when no review runs.
 """
 
 import json
@@ -12,9 +13,12 @@ import re
 import subprocess
 import sys
 
-# After the phrase, one separator is dropped: a colon or comma, or a dash between spaces. Punctuation that starts the
-# focus itself, as in ".github/workflows" or "--strict", stays.
-REQUEST = re.compile(r'(?:claude|agents?)\s+review\b(?:\s*[:,]|\s+-+(?=\s))?\s*(.*)', re.IGNORECASE | re.DOTALL)
+# Without a separator or the word "focus", a comment such as "Claude review missed the null case" is a remark, not a
+# request. The separator is dropped; punctuation that starts the focus, as in ": .github/workflows", stays.
+REQUEST = re.compile(
+    r'(?:claude|agents?)\s+review(?:[\s.!]*$|\s*[:,]\s*|\s+-+\s+|[ \t]*\r?\n\s*|\s+(?=focus\b))(.*)',
+    re.IGNORECASE | re.DOTALL,
+)
 # The focus becomes the last argument of the review command, on one line.
 MAX_FOCUS_CHARS = 500
 

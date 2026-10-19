@@ -1,8 +1,7 @@
 name: Claude review
 
-# Reviews a PR when someone with write access comments on it with a request that starts with "claude review", "agent
-# review", or "agents review". The rest of the comment names a focus, as in "claude review focus on function
-# signatures". Runs started by issue_comment attach to the default branch, not to the PR, so the review adds no check to
+# Reviews a PR when someone with write access comments "claude review", "agent review", or "agents review" on it,
+# alone or followed by a focus, as in "claude review focus on function signatures" or "claude review: error paths". Runs started by issue_comment attach to the default branch, not to the PR, so the review adds no check to
 # the PR. They use this file from the default branch with the repository's secrets, so fork PRs get reviewed too.
 # Nothing from the PR runs. The erosion job, currently commented out, checks the complexity of every commit of a PR.
 on:
@@ -13,7 +12,7 @@ jobs:
   # Checks the request and the commenter's access, and extracts the focus. It runs outside the review's concurrency
   # group, so a comment from someone without write access cannot cancel a running review.
   plan:
-    # startsWith() ignores case; plan_claude_review.py checks the whole phrase.
+    # startsWith() ignores case; plan_claude_review.py tells a request from a remark that starts the same way.
     if: >-
       github.event.issue.pull_request && (startsWith(github.event.comment.body, 'claude review') ||
       startsWith(github.event.comment.body, 'agent review') || startsWith(github.event.comment.body, 'agents review'))
@@ -142,7 +141,8 @@ jobs:
           REPO: ${{ github.repository }}
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: python3 .github/scripts/post_claude_review.py
-      - if: always() && (steps.claude.outcome != 'success' || steps.post.outcome != 'success')
+      # A newer request that replaces this run cancels it, which is no failure.
+      - if: always() && !cancelled() && (steps.claude.outcome != 'success' || steps.post.outcome != 'success')
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

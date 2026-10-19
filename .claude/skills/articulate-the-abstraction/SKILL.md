@@ -1,5 +1,5 @@
 ---
-name: marcel-review
+name: articulate-the-abstraction
 description: >
   Review a Pixeltable pull request, branch or diff the way Marcel Kornacker reviews it. The review asks what
   the change will cost its future readers: can each class and function be stated as a crisp abstraction,

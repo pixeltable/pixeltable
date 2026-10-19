@@ -4,7 +4,7 @@
 !.claude/commands/
 !.claude/skills/
 .claude/skills/*
-!.claude/skills/marcel-review/
+!.claude/skills/articulate-the-abstraction/
 !.claude/skills/challenge-the-design/
 !.claude/skills/walk-the-job/
 !.claude/skills/blast-radius/
