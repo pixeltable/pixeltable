@@ -90,6 +90,11 @@ class RateLimitsScheduler(Scheduler):
                 if item.num_retries > 0:
                     self.total_retried += 1
 
+            if self.pool_info is None:
+                # Use pool info registered before dispatch. The inline bootstrap would otherwise hold
+                # every other row in this pool until the first request returns.
+                self._set_pool_info()
+
             if self.pool_info is None or not self.pool_info.is_initialized():
                 # wait for a single request to get rate limits
                 _logger.debug(f'initializing rate limits for {self.resource_pool}')

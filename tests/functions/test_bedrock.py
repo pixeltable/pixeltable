@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import Any, Iterator, cast
 
@@ -95,23 +96,27 @@ _UNAVAILABLE_VIDEO_MODEL_SNIPPETS = (
 )
 
 
+# botocore ClientError: "An error occurred (ErrorCode) when calling the Operation operation: message"
+_BOTOCORE_ERROR_CODE_RE = re.compile(r'An error occurred \(([^)]+)\) when calling the ')
+
+
 def _is_throttled_video_request(errortype: str | None, errormsg: str | None) -> bool:
     """Return True when Bedrock rejected the video request because StartAsyncInvoke was throttled.
 
     A low account quota is shared by concurrent nightly jobs. The rate-limit scheduler retries a
     throttled call up to its own limit. A request that is still throttled after those retries is stored
     as the original botocore error and skipped rather than failed.
+
+    A generic ClientError keeps the service code in the first parenthetical, not in errortype. That code
+    is checked against the same set production retries. The text after the colon is not a signal.
     """
-    # Share the production classifier's codes.
     from pixeltable.functions import bedrock
 
     throttle_codes = bedrock._BEDROCK_THROTTLE_CODES
     if errortype in throttle_codes:
         return True
-    message = (errormsg or '').lower()
-    if 'throttlingexception' in message:
-        return True
-    return 'too many requests' in message and 'startasyncinvoke' in message
+    match = _BOTOCORE_ERROR_CODE_RE.search(errormsg or '')
+    return match is not None and match.group(1) in throttle_codes
 
 
 def _is_unavailable_video_model_error(_errortype: str | None, errormsg: str | None) -> bool:
@@ -178,6 +183,14 @@ def test_throttled_video_request() -> None:
     )
     assert _is_throttled_video_request('ThrottlingException', nightly)
     assert _is_throttled_video_request('ClientError', nightly)
+    # A generic ClientError stores the service code only in the parenthetical.
+    # "Rate exceeded" is not itself a throttle signal.
+    throttling = 'An error occurred (Throttling) when calling the StartAsyncInvoke operation: Rate exceeded.'
+    too_many = (
+        'An error occurred (TooManyRequestsException) when calling the StartAsyncInvoke operation: Rate exceeded.'
+    )
+    assert _is_throttled_video_request('ClientError', throttling)
+    assert _is_throttled_video_request('ClientError', too_many)
     # Type alone comes from the production code set, so a bland message still skips.
     assert _is_throttled_video_request('TooManyRequestsException', 'please retry')
     assert _is_throttled_video_request('Throttling', None)
@@ -432,6 +445,56 @@ def test_scheduler_retries_throttled_bedrock_invoke(uses_db: None, monkeypatch: 
     # The first retry has to clear a one-minute quota window, so the scheduler wait is at least 30s.
     assert any(delay >= 30.0 for delay in scheduler_sleeps)
     assert not any(delay >= 30.0 for delay in bedrock_sleeps)
+
+
+def test_invoke_model_rows_overlap(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two rows of one insert run StartAsyncInvoke at the same time.
+
+    RateLimitsScheduler runs the first request inline while its pool info is missing. A video call
+    holds that request for the whole generation, so the other row cannot start. The pool info is
+    registered before dispatch and is already initialized, so both rows are scheduled as tasks.
+    """
+    import threading
+
+    from pixeltable.functions import bedrock
+    from pixeltable.functions.bedrock import invoke_model
+
+    _patch_async_clocks(monkeypatch)
+    entered = 0
+    max_entered = 0
+    both_entered = threading.Event()
+    lock = threading.Lock()
+
+    class _OverlapClient:
+        def start_async_invoke(self, **_kwargs: Any) -> dict[str, str]:
+            nonlocal entered, max_entered
+            with lock:
+                entered += 1
+                max_entered = max(max_entered, entered)
+                if entered >= 2:
+                    both_entered.set()
+            # The other row has to arrive while this call is still inside StartAsyncInvoke.
+            both_entered.wait(timeout=5.0)
+            with lock:
+                entered -= 1
+            return {'invocationArn': 'arn:aws:bedrock:us-west-2:0:async-invoke/abc'}
+
+        def get_async_invoke(self, **_kwargs: Any) -> dict[str, str]:
+            return {'status': 'Completed'}
+
+    monkeypatch.setattr(bedrock, '_bedrock_client', lambda: _OverlapClient())
+    _install_async_output_mocks(monkeypatch, list_error=None)
+
+    t = pxt.create_table('bedrock_overlap', {'prompt': pxt.String})
+    t.add_computed_column(
+        video=invoke_model(
+            {'prompt': t.prompt, 'aspect_ratio': '16:9', 'duration': '5s', 'resolution': '540p'},
+            model_id=_LUMA_RAY_MODEL_ID,
+        )
+    )
+    status = t.insert([{'prompt': 'a dog running'}, {'prompt': 'a cat sleeping'}])
+    assert status.num_excs == 0, status
+    assert max_entered == 2, f'rows did not overlap; max in flight was {max_entered}'
 
 
 def test_scheduler_stores_throttle_after_max_retries(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:

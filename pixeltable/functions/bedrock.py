@@ -316,6 +316,13 @@ class BedrockRateLimitsInfo(env.RateLimitsInfo):
         return _throttle_retry_delay(attempt)
 
 
+def _register_bedrock_rate_limits() -> None:
+    # Building a call must not create the process environment. Query execution already has one.
+    if env.Env._instance is None:
+        return
+    env.Env._instance.get_resource_pool_info(_BEDROCK_RATE_POOL, BedrockRateLimitsInfo)
+
+
 def _scrub_retry_indicators(text: str) -> str:
     """Drop substrings that would make the scheduler run the UDF again."""
     scrubbed = text
@@ -494,7 +501,7 @@ async def _invoke_model_async(body: dict, model_id: str) -> Any:
             return json.loads(obj_bytes.decode('utf-8'))
 
 
-@pxt.udf(is_deterministic=False, resource_pool=_BEDROCK_RATE_POOL)
+@pxt.udf(is_deterministic=False)
 async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
     """
     Invoke a Bedrock model.
@@ -637,7 +644,7 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
         ...     video=invoke_model(body, model_id='luma.ray-v2:0')
         ... )
     """
-    env.Env.get().get_resource_pool_info(_BEDROCK_RATE_POOL, BedrockRateLimitsInfo)
+    _register_bedrock_rate_limits()
     body = _apply_invoke_model_request_conversions(body, model_id)
 
     if _requires_async(body, model_id):
@@ -684,6 +691,14 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
         if visible is exc:
             raise
         raise visible from exc
+
+
+@invoke_model.resource_pool
+def _invoke_model_resource_pool() -> str:
+    # Runs when the call is built, before RateLimitsScheduler starts. The pool is already
+    # initialized, so the scheduler does not hold every other row behind the first generation.
+    _register_bedrock_rate_limits()
+    return _BEDROCK_RATE_POOL
 
 
 @invoke_model.conditional_return_type
