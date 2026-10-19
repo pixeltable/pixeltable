@@ -238,8 +238,12 @@ def _pid_cmdline(pid: int) -> str | None:
     except OSError:
         pass
     if _IS_WINDOWS:
-        # No cheap stdlib argv source; the caller falls back to refusing to kill.
-        return None
+        # Windows has neither /proc nor ps; psutil reads the command line out of the process itself
+        try:
+            args = psutil.Process(pid).cmdline()
+        except (psutil.Error, OSError):
+            return None
+        return ' '.join(args) if len(args) > 0 else None
     # macOS/BSD (and Linux without a readable /proc entry): ask ps for the full command line.
     try:
         out = subprocess.run(
@@ -259,19 +263,10 @@ def _pid_is_our_daemon(pid: int) -> bool:
 
 def _pid_alive(pid: int) -> bool:
     assert pid > 0, pid
-    try:
-        # signal 0 is the 'are you there?' probe (doesn't kill, just raises if the PID is gone)
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        # PID exists but is owned by another user; treat as alive (we can't kill it anyway).
-        return True
-    except (OSError, SystemError):
-        # SystemError surfaces on Windows when os.kill(pid, 0) hits an internal CPython
-        # result-handling edge case for an unknown PID; treat the same as OSError ("gone").
-        return False
-    return True
+    # On POSIX this is the os.kill(pid, 0) probe, counting a pid owned by another user as alive. Windows can't
+    # use that probe: signal 0 is CTRL_C_EVENT there, and when the event can't be sent, CPython 3.11 goes on to
+    # call TerminateProcess on the pid, killing the process it was only meant to probe.
+    return psutil.pid_exists(pid)
 
 
 def kill_and_wait(pid: int, timeout: float = 5.0) -> None:
