@@ -1,9 +1,9 @@
-import builtins
 import importlib
 import logging
 import random
 import sys
 import time
+import types
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -54,38 +54,44 @@ class TestGeminiLocal:
         self, init_env: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # An API key is set, so a missing install must not be reported as missing credentials.
-        # Drop a client cached by an earlier test before imports start failing.
+        # Drop a client cached by an earlier test before the package check runs.
         monkeypatch.setenv('GEMINI_API_KEY', 'test-key')
         reset_runtime()
 
-        real_import = builtins.__import__
-
-        def guarded_import(name: str, *args: Any, **kwargs: Any) -> Any:
-            if name == 'google' or name.startswith('google.'):
-                raise ImportError(f'No module named {name}')
-            return real_import(name, *args, **kwargs)
-
-        for key in list(sys.modules):
-            if key == 'google' or key.startswith('google.'):
-                monkeypatch.delitem(sys.modules, key)
-        monkeypatch.setattr(builtins, '__import__', guarded_import)
-
         # require_package trusts its cached flag and only rechecks through find_spec.
-        package_info = getattr(Env.get(), '_Env__optional_packages')['google.genai']
+        # A missing parent package makes that recheck raise ModuleNotFoundError; an install
+        # of google-genai would make the real find_spec succeed, so the test raises it.
+        package_info = Env.get()._Env__optional_packages['google.genai']  # type: ignore[attr-defined]
         monkeypatch.setattr(package_info, 'is_installed', False)
         real_find_spec = importlib.util.find_spec
 
-        def hidden_find_spec(name: str, package: str | None = None) -> Any:
+        def missing_parent(name: str, package: str | None = None) -> Any:
             if name == 'google.genai':
-                return None
+                raise ModuleNotFoundError("No module named 'google'")
             return real_find_spec(name, package)
 
-        monkeypatch.setattr(importlib.util, 'find_spec', hidden_find_spec)
+        monkeypatch.setattr(importlib.util, 'find_spec', missing_parent)
 
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
             match=r'This feature requires the `google\.genai` package.*pip install -U google-genai',
         ):
+            get_runtime().get_client('gemini')
+
+    def test_broken_genai_import_is_not_missing_credentials(
+        self, init_env: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The package check passes. A failure importing google.genai is a broken install, not a missing API key.
+        monkeypatch.setenv('GEMINI_API_KEY', 'test-key')
+        reset_runtime()
+        package_info = Env.get()._Env__optional_packages['google.genai']  # type: ignore[attr-defined]
+        monkeypatch.setattr(package_info, 'is_installed', True)
+        monkeypatch.setitem(sys.modules, 'google', types.ModuleType('google'))
+        for key in list(sys.modules):
+            if key == 'google.genai' or key.startswith('google.genai.'):
+                monkeypatch.delitem(sys.modules, key)
+
+        with pytest.raises(ImportError, match='genai'):
             get_runtime().get_client('gemini')
 
 

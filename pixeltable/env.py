@@ -743,13 +743,6 @@ class Env:
                 self._object_store_clients[key] = S3CompatClientDict(profile=profile, clients={})
             return self._object_store_clients[key]
 
-    def create_client(self, name: str) -> Any:
-        """
-        Resolves config parameters and calls the registered init function to create a new client instance.
-        """
-        client, _cleanup = self._create_client(name)
-        return client
-
     def _create_client(self, name: str) -> tuple[Any, Callable[..., Any] | None]:
         """Create a client and return the cleanup callback of the factory that built it.
 
@@ -978,7 +971,11 @@ class Env:
                 # We do this so that if a user gets an "optional library not found" error message, they can
                 # `pip install` the library and re-run the Pixeltable operation without having to restart
                 # their Python session.
-                package_info.is_installed = importlib.util.find_spec(package_name) is not None
+                try:
+                    package_info.is_installed = importlib.util.find_spec(package_name) is not None
+                except ModuleNotFoundError:
+                    # This can happen if the parent of `package_name` is not installed.
+                    package_info.is_installed = False
                 if not package_info.is_installed:
                     # Still not found.
                     if not_installed_msg is None:

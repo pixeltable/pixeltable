@@ -285,6 +285,29 @@ class TestProxyEndpoint:
             Env.get().proxy_endpoint('acme', 'main')
 
 
+class TestOptionalPackages:
+    def test_require_package_missing_parent(self, init_env: None) -> None:
+        """A missing parent package is an absent optional dependency, not a raw import error.
+
+        find_spec raises ModuleNotFoundError when the parent is not installed. Registration already
+        records that as absent; the recheck in require_package has to do the same.
+        """
+        env = Env.get()
+        name = 'missing_parent.child'
+        env._Env__register_package(name)  # type: ignore[attr-defined]
+        try:
+            with pxt_raises(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                match=(
+                    r'This feature requires the `missing_parent\.child` package'
+                    r'.*pip install -U missing_parent\.child'
+                ),
+            ):
+                env.require_package(name)
+        finally:
+            del env._Env__optional_packages[name]  # type: ignore[attr-defined]
+
+
 class _TestClient:
     """Stands in for an async SDK client, recording how it was closed."""
 
@@ -332,10 +355,14 @@ async def client_embedding(text: str) -> pxt.Array[(4,), np.float32]:
 class _CleanupProbe:
     """A stand-in client whose close() is distinct from a registered cleanup callback."""
 
+    closes: int
+    cleanups: int
+    loop_id: int | None
+
     def __init__(self) -> None:
         self.closes = 0
         self.cleanups = 0
-        self.loop_id: int | None = None
+        self.loop_id = None
 
     def close(self) -> None:
         self.closes += 1

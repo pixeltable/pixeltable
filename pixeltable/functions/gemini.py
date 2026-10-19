@@ -62,12 +62,12 @@ async def _close_client(client: 'genai.client.Client') -> None:
 
 @env.register_client('gemini', credential_param='api_key', cleanup=_close_client)
 def _(api_key: str | None = None) -> 'genai.client.Client':
-    # The same missing-package error other integrations raise. The import stays inside the try so a
-    # failure there is still a Pixeltable error, not a raw ImportError.
+    # Missing google-genai is the usual install error. The import stays outside the credentials
+    # handler so a broken install is not reported as a missing API key.
     env.Env.get().require_package('google.genai')
-    try:
-        from google import genai
+    from google import genai
 
+    try:
         if api_key is not None:
             return genai.Client(api_key=api_key)
         # Vertex AI fall-through: rely on genai.client.Client to read its own env vars
