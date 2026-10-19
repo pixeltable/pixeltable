@@ -54,9 +54,11 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.http import DOWNLOAD_USER_AGENT, fetch_url, retry_if_retryable_error, tcp_keepalive_options
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectPath, StorageTarget
+from pixeltable_cli.types import DbState
 
-from . import proxy_protocol
+from . import management_client, proxy_protocol
 from .management_client import Credential, is_refusal, refusal
+from .management_protocol import GetDbRequest, GetDbResponse
 from .proxy_protocol import (
     InlinePartSink,
     MediaPath,
@@ -174,6 +176,7 @@ _MAX_IDLE_S = 4.0  # below the proxy daemon's 5 s keep-alive, so no connection i
 # Failures that leave the request undelivered (connect, handshake, writing it); retried with backoff.
 _TUNNEL_TRANSIENT_EXC = (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError)
 _TUNNEL_RETRY_MAX_DELAY = 90.0  # seconds; > _HANDSHAKE_TIMEOUT so a hung handshake still leaves retry budget
+_STATE_CHECK_INTERVAL_S = 30.0  # how often a failing tunnel asks the control plane whether the database is stopped
 
 
 class _TunnelHTTPConnection(http.client.HTTPConnection):
@@ -387,13 +390,46 @@ class TunnelTransport(Transport):
         self._host = host
         self._port = port
         self._pool = _TunnelPool(self._connect_tunnel)
+        self._state_checked_at: float | None = None
         # media URLs are formed against this endpoint; they are reachable only through the tunnel (see fetch())
         self._endpoint = f'https://{self._host}:{self._port}'
 
     def _connect_tunnel(self) -> _TunnelHTTPConnection:
-        """Open one tunnel connection: TCP + TLS + PXT/1.0 CONNECT handshake."""
         # before connecting: renewing a session is a round trip of its own, and a refused credential needs no socket
         credential = self._credential_cb()
+        try:
+            return self._open_tunnel(credential)
+        except PermissionError:
+            raise
+        except _TUNNEL_TRANSIENT_EXC:
+            self._raise_if_stopped(credential)
+            raise
+
+    def _raise_if_stopped(self, credential: Credential) -> None:
+        """A stopped database resets tunnels without a word, which no retry fixes: ask the control plane.
+
+        credential is the one the tunnel presented, since none may be configured.
+        """
+        now = time.monotonic()
+        if self._state_checked_at is not None and now - self._state_checked_at < _STATE_CHECK_INTERVAL_S:
+            return
+        self._state_checked_at = now
+        try:
+            current = GetDbResponse.model_validate(
+                management_client.api_call(GetDbRequest(org=self._org, db=self._db), credential)
+            ).report.current
+        except Exception:
+            return  # no answer: keep retrying
+        if current is not None and current.state in (DbState.STOPPED, DbState.STOPPING):
+            # the next failure asks again, so a call made within the interval is not retried until it ends
+            self._state_checked_at = None
+            uri = f'pxt://{self._org}:{self._db}'
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE, f'{uri} is stopped; start it with `pxt db start {uri}`.'
+            )
+
+    def _open_tunnel(self, credential: Credential) -> _TunnelHTTPConnection:
+        """Open one tunnel connection: TCP + TLS + PXT/1.0 CONNECT handshake."""
         ctx = ssl.create_default_context()
         raw_sock = self._open_socket()
         ssl_sock: ssl.SSLSocket | None = None
