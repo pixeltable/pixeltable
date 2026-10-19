@@ -9,8 +9,8 @@ on:
     types: [created]
 
 jobs:
-  # Checks the request and the commenter's access, and extracts the focus. It runs outside the review's concurrency
-  # group, so a comment from someone without write access cannot cancel a running review.
+  # Checks the request, the PR's state, the commenter's access, and whether a review of the PR already runs, and
+  # extracts the focus.
   plan:
     # startsWith() ignores case; plan_claude_review.py tells a request from a remark that starts the same way.
     if: >-
@@ -20,6 +20,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      # plan_claude_review.py lists this workflow's runs and their jobs to find a running review.
+      actions: read
     outputs:
       pr: ${{ steps.plan.outputs.pr }}
       focus: ${{ steps.plan.outputs.focus }}
@@ -36,12 +38,14 @@ jobs:
         run: python3 .github/scripts/plan_claude_review.py
 
   review:
+    # plan_claude_review.py finds a running review by this name.
+    name: 'review #${{ needs.plan.outputs.pr }}'
     needs: plan
     if: needs.plan.outputs.pr
-    # A newer request on the same PR replaces a running review.
+    # Two requests that pass the plan's check at the same moment run one after the other.
     concurrency:
       group: claude-review-${{ needs.plan.outputs.pr }}
-      cancel-in-progress: true
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 45
     # Claude gets only GITHUB_TOKEN, passed as github_token below. Without it, the action uses the Claude GitHub App
@@ -141,7 +145,7 @@ jobs:
           REPO: ${{ github.repository }}
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: python3 .github/scripts/post_claude_review.py
-      # A newer request that replaces this run cancels it, which is no failure.
+      # A cancelled run is no failure of the review.
       - if: always() && !cancelled() && (steps.claude.outcome != 'success' || steps.post.outcome != 'success')
         continue-on-error: true
         env:
