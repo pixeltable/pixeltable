@@ -634,6 +634,46 @@ def test_sync_response_body_timeout_is_not_retried(uses_db: None, monkeypatch: p
     assert not is_retryable_error(Exception(row['errormsg']))[0]
 
 
+def test_sync_malformed_json_response_is_not_retried(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A JSONDecodeError at char 429 after invoke_model returns does not call Bedrock again.
+
+    json.loads reports the offset as "(char 429)". The scheduler treats that substring as a status
+    code and would resubmit an accepted request unless decoding stays inside the no-retry guard.
+    """
+    from pixeltable.functions import bedrock
+    from pixeltable.functions.bedrock import invoke_model
+    from pixeltable.utils.http import is_retryable_error
+
+    _patch_async_clocks(monkeypatch)
+
+    # '[' + '1,' * 214 + 'oops]' fails at column 430 (char 429).
+    malformed = b'[' + b'1,' * 214 + b'oops]'
+
+    class _MalformedBody:
+        def read(self) -> bytes:
+            return malformed
+
+    class _SyncClient:
+        def __init__(self) -> None:
+            self.invoke_calls = 0
+
+        def invoke_model(self, **_kwargs: Any) -> dict[str, Any]:
+            self.invoke_calls += 1
+            return {'body': _MalformedBody()}
+
+    client = _SyncClient()
+    monkeypatch.setattr(bedrock, '_bedrock_client', lambda: client)
+    t = pxt.create_table('bedrock_sync_malformed', {'text': pxt.String})
+    t.add_computed_column(response=invoke_model({'inputText': t.text}, model_id='amazon.titan-embed-text-v2:0'))
+    status = t.insert(text='hello', on_error='ignore')
+    row = t.select(errortype=t.response.errortype, errormsg=t.response.errormsg).collect()[0]
+    assert status.num_excs == 1, f'expected a cell error, got {row["errortype"]}: {row["errormsg"]}'
+    assert client.invoke_calls == 1
+    assert row['errormsg'] is not None
+    assert '429' not in row['errormsg']
+    assert not is_retryable_error(Exception(row['errormsg']))[0]
+
+
 def test_sync_bedrock_throttle_is_retried(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
     """An explicit throttle on a synchronous invoke_model is retried by the scheduler."""
     from pixeltable.functions import bedrock

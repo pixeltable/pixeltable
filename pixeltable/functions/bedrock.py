@@ -266,7 +266,14 @@ def _bedrock_error_code(exc: BaseException) -> str | None:
 
 
 def _is_bedrock_throttling(exc: BaseException) -> bool:
-    """Return True when Bedrock rejected the call because the request rate exceeded the quota."""
+    """Return True when this error looks like a Bedrock request-rate throttle.
+
+    A recognized error code is definitive. Throttle codes match, and any other code does not,
+    including a ValidationException whose text says "too many requests". With no code, the check
+    falls back to the message botocore leaves after its own retries: "ThrottlingException" or
+    "too many requests". Scheduler retries use `_is_bedrock_request_throttle()`, which accepts
+    only a botocore ClientError from the request call.
+    """
     code = _bedrock_error_code(exc)
     if code in _BEDROCK_THROTTLE_CODES or type(exc).__name__ in _BEDROCK_THROTTLE_CODES:
         return True
@@ -509,8 +516,9 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
     Request throttling:
     An explicit Bedrock throttle is retried by the rate-limit scheduler, which waits at least 30 seconds
     and retries up to its own limit. The cell then stores the original error. Any other failure is not
-    retried. That includes a timeout while reading a response body Bedrock has already returned, and any
-    failure after an async invocation has been accepted, so a retry does not start another generation.
+    retried. That includes a failure while reading or decoding a response body Bedrock has already
+    returned, and any failure after an async invocation has been accepted, so a retry does not start
+    another generation.
 
     Args:
         body: The prompt and inference parameters as a dictionary.
@@ -662,19 +670,20 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
             raise
         raise visible from exc
     try:
-        # The service has already accepted the call. A failure while reading the body must not submit it again.
+        # The service has already accepted the call. Reading or decoding the body must not submit it
+        # again: JSONDecodeError reports the offset as "(char N)", and N can be 429.
         response_bytes = await asyncio.to_thread(response['body'].read)
+        result = json.loads(response_bytes)
+        return _decode_invoke_model_response(result, model_id)
     except Exception as exc:
         visible = _scheduler_visible_error(
             exc,
-            fallback='invoke_model could not read the response body after the request was accepted',
+            fallback='invoke_model failed after the response was accepted, so it was not retried',
             retry_throttle=False,
         )
         if visible is exc:
             raise
         raise visible from exc
-    result = json.loads(response_bytes)
-    return _decode_invoke_model_response(result, model_id)
 
 
 @invoke_model.conditional_return_type
