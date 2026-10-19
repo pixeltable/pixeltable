@@ -826,6 +826,62 @@ class TestVideo:
         finally:
             quarter_reload.close()
 
+        # Past the first keyframe the two formulas still name different pictures. A cached
+        # formula must not be applied to the other row: the open decoder is no longer on
+        # that index, and a seek from a later keyframe cannot count it.
+        gop = tmp_path / 'legacy_gop.mp4'
+        _ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'testsrc=size=64x64:rate=25:duration=8',
+                '-output_ts_offset',
+                '0.4',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                '-g',
+                '12',
+                '-keyint_min',
+                '12',
+                '-bf',
+                '0',
+                '-x264-params',
+                'scenecut=0:bframes=0',
+                str(gop),
+            ]
+        )
+        gop_frames = frame_iterator.decorated_callable(video=str(gop))  # type: ignore[attr-defined]
+        try:
+            gop_rows = list(gop_frames)
+            gop_start = float(gop_frames.video_start_time)
+        finally:
+            gop_frames.close()
+        with av.open(str(gop)) as container:
+            keyframes = [index for index, frame in enumerate(container.decode(video=0)) if frame.key_frame]
+        assert len(keyframes) > 2
+        frame_index = 100
+        assert frame_index > keyframes[1]
+        gop_row = gop_rows[frame_index]
+        gop_time = float(gop_row['frame_attrs']['time'])
+        assert gop_row['frame_attrs']['index'] == frame_index
+        assert gop_row['frame'] != gop_rows[frame_index - 12]['frame']
+        historical_msec = gop_time * 1000.0 - gop_start
+        decorator_msec = (gop_time - gop_start) * 1000.0
+        for first_msec, second_msec in ((historical_msec, decorator_msec), (decorator_msec, historical_msec)):
+            mixed = legacy_frame_iterator.decorated_callable(video=str(gop))  # type: ignore[attr-defined]
+            try:
+                for pos_msec in (first_msec, second_msec):
+                    mixed.seek(frame_index, pos_msec=pos_msec, pos_frame=frame_index, frame_idx=frame_index)
+                    got = next(mixed)
+                    assert got['pos_frame'] == frame_index
+                    assert got['pos_msec'] == pytest.approx(decorator_msec, abs=1e-3)
+                    assert got['frame'] == gop_row['frame']
+            finally:
+                mixed.close()
+
     def test_legacy_pos_msec_reuses_resolved_formula(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Sequential legacy reload does not scan from frame 0 on every row."""
         path = tmp_path / 'legacy_quarter_seq.mp4'
@@ -966,6 +1022,88 @@ class TestVideo:
         assert got_twice['frame'] == twice['frame']
         assert got_twice['frame_attrs']['index'] == twice['frame_attrs']['index']
         assert got_twice['frame_attrs']['time'] == pytest.approx(twice['frame_attrs']['time'], abs=1e-3)
+
+        # A cached historical formula must not be applied to this frame's decorator timestamp.
+        # The relative seek does not start on frame 0, and the mis-converted time is not a picture.
+        frame_index = 100
+        assert len(rows) > frame_index
+        stored = rows[frame_index]
+        assert int(stored['frame_attrs']['index']) > 0
+        assert stored['frame'] != rows[0]['frame']
+        frame_time = float(stored['frame_attrs']['time'])
+        historical_msec = frame_time * 1000.0 - start
+        decorator_msec = (frame_time - start) * 1000.0
+        for first_msec, second_msec in ((historical_msec, decorator_msec), (decorator_msec, historical_msec)):
+            legacy = legacy_frame_iterator.decorated_callable(video=str(path))  # type: ignore[attr-defined]
+            try:
+                for pos_msec in (first_msec, second_msec):
+                    legacy.seek(frame_index, pos_msec=pos_msec, pos_frame=frame_index, frame_idx=frame_index)
+                    got = next(legacy)
+                    assert got['pos_frame'] == frame_index
+                    assert got['pos_msec'] == pytest.approx(decorator_msec, abs=1e-3)
+                    assert got['frame'] == stored['frame']
+            finally:
+                legacy.close()
+
+    def test_late_frame_reload_decodes_one_gop(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Reloading the last frame of a multi-keyframe video decodes that GOP, not the prefix."""
+        path = tmp_path / 'gop.mp4'
+        _ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'testsrc=size=64x64:rate=25:duration=4',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                '-g',
+                '12',
+                '-keyint_min',
+                '12',
+                '-bf',
+                '0',
+                '-x264-params',
+                'scenecut=0:bframes=0',
+                str(path),
+            ]
+        )
+        ordered = frame_iterator.decorated_callable(video=str(path))  # type: ignore[attr-defined]
+        try:
+            rows = list(ordered)
+        finally:
+            ordered.close()
+        assert len(rows) > 12
+        with av.open(str(path)) as container:
+            keyframes = [index for index, frame in enumerate(container.decode(video=0)) if frame.key_frame]
+        assert len(keyframes) > 1
+        last = len(rows) - 1
+        gop = last - max(index for index in keyframes if index <= last) + 1
+        assert gop <= 12
+        assert rows[last]['frame'] != rows[0]['frame']
+
+        calls = 0
+        iterator_cls = frame_iterator.decorated_callable  # type: ignore[attr-defined]
+        orig_next = iterator_cls.next_frame
+
+        def counting(self: Any) -> av.VideoFrame | None:
+            nonlocal calls
+            calls += 1
+            return orig_next(self)
+
+        monkeypatch.setattr(iterator_cls, 'next_frame', counting)
+        reloaded = frame_iterator.decorated_callable(video=str(path))  # type: ignore[attr-defined]
+        try:
+            calls = 0
+            reloaded.seek(last, frame_attrs=rows[last]['frame_attrs'])
+            assert calls <= gop
+            got = next(reloaded)
+        finally:
+            reloaded.close()
+        assert got['frame_attrs']['index'] == rows[last]['frame_attrs']['index']
+        assert got['frame_attrs']['time'] == pytest.approx(rows[last]['frame_attrs']['time'], abs=1e-3)
+        assert got['frame'] == rows[last]['frame']
 
     def test_low_fps_keeps_first_frame(self, tmp_path: Path) -> None:
         """fps=1e-5 on a one-frame 25fps clip still returns the sample at the stream start."""

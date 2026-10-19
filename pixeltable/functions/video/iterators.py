@@ -19,6 +19,10 @@ from pixeltable.utils.local_store import TempStore
 
 _logger = logging.getLogger(__name__)
 
+# A fresh iterator is on frame 0. Walking farther than this decodes the prefix, so a later
+# target keyframe-seeks. Empty relative seeks still fall back to decoding from the start.
+_MAX_FORWARD_WALK = 8
+
 
 class FrameAttrs(TypedDict):
     index: int
@@ -137,7 +141,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     frame_gen: Iterator[av.VideoFrame]
     # seek() sets this. The following next() returns that stored frame.
     _reload_target: _ReloadTarget | None
-    # Which stored pos_msec formula this video uses, once a row has resolved it.
+    # Formula that matched the open frame. A different index resolves again; rows can mix formulas.
     _pos_msec_formula: Literal['current', 'historical'] | None
 
     def __init__(
@@ -363,9 +367,12 @@ class frame_iterator(pxt.PxtIterator[Frame]):
             return
 
         found = self._position_at_frame(pos, seek_time, video_idx)
+        # None means the seek did not start on frame 0. For pos_msec, seek_time was already
+        # resolved from that frame, so the picture is the stored one. video_idx means the
+        # forward walk or the empty-seek fallback decoded that index.
         if candidates is None or found is None or found == video_idx or self._pos_msec_formula is None:
             return
-        # This row used the other stored formula. Reposition once; later rows reuse that choice.
+        # The counted index belongs to the other formula.
         current, historical = candidates
         self._pos_msec_formula = 'historical' if self._pos_msec_formula == 'current' else 'current'
         seek_time = current if self._pos_msec_formula == 'current' else historical
@@ -384,7 +391,9 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         start + pos_msec / 1000. v0.5.6 through v0.5.18 stored frame_time * 1000 - start,
         with start in seconds, and seek at pos_msec / 1000 + start / 1000. The two times
         differ by about start * 0.999 and can both be real frames, so the stored frame index decides.
-        A resolved formula is reused. Probes do not move this iterator's decoder.
+        The open frame reuses a formula only when its index is already that frame. Any other index
+        resolves again, so a cached formula is not applied to a row stored with the other one.
+        Probes do not move this iterator's decoder.
         """
         current, historical = candidates
         if abs(current - historical) < 1e-3:
@@ -393,10 +402,6 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         matched = self._candidate_on_current_frame(frame_index, current, historical)
         if matched is not None:
             return matched
-        if self._pos_msec_formula == 'current':
-            return current
-        if self._pos_msec_formula == 'historical':
-            return historical
         return self._resolve_pos_msec_formula(frame_index, current, historical)
 
     def _candidate_on_current_frame(self, frame_index: int, current: float, historical: float) -> float | None:
@@ -490,12 +495,14 @@ class frame_iterator(pxt.PxtIterator[Frame]):
             return float(frame.pts * self.video_time_base)
 
     def _advance_to_stored_frame(self, pos: int, seek_time: float, video_idx: int) -> bool:
-        """Walk the open generator to video_idx when that frame is still ahead.
+        """Walk the open generator to video_idx when that frame is only a few frames ahead.
 
-        A backward seek would re-decode the same prefix. A timestamp that is not this frame's
-        leaves the seek path to run.
+        A farther target keyframe-seeks, so a fresh iterator does not decode the prefix.
+        A backward seek leaves the seek path to run. A timestamp that is not this frame's does too.
         """
         if self.cur_frame is None or self.video_idx > video_idx or self.cur_frame.pts is None:
+            return False
+        if video_idx - self.video_idx > _MAX_FORWARD_WALK:
             return False
         frame = self.cur_frame
         index = self.video_idx
