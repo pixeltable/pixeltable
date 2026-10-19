@@ -12,7 +12,9 @@ import re
 import subprocess
 import sys
 
-REQUEST = re.compile(r'(?:claude|agents?)\s+review\b[\s:,.-]*(.*)', re.IGNORECASE | re.DOTALL)
+# After the phrase, one separator is dropped: a colon or comma, or a dash between spaces. Punctuation that starts the
+# focus itself, as in ".github/workflows" or "--strict", stays.
+REQUEST = re.compile(r'(?:claude|agents?)\s+review\b(?:\s*[:,]|\s+-+(?=\s))?\s*(.*)', re.IGNORECASE | re.DOTALL)
 # The focus becomes the last argument of the review command, on one line.
 MAX_FOCUS_CHARS = 500
 
@@ -35,7 +37,9 @@ def focus_of(body: str) -> str | None:
     match = REQUEST.match(body.strip())
     if match is None:
         return None
-    return ' '.join(match.group(1).split())[:MAX_FOCUS_CHARS]
+    focus = ' '.join(match.group(1).split())[:MAX_FOCUS_CHARS]
+    # A focus without a letter or digit, as in "claude review.", names nothing.
+    return focus if re.search(r'\w', focus) else ''
 
 
 def main() -> int:
