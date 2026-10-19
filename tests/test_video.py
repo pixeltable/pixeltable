@@ -949,10 +949,11 @@ class TestVideo:
         assert scans == 0
         assert probes == 0
 
-        # A late row still accepts the decorator time from its decoded index, without the frame-0 scan.
+        # A row past the one-second walk still accepts the decorator time. This clip's only
+        # keyframe is frame 0, so the gap is walked and neither probe scans from the start.
         scans = 0
         probes = 0
-        late = rows[25]
+        late = next(row for row in rows if int(row['pos_frame']) > 26)
         direct = legacy_frame_iterator.decorated_callable(video=str(path))  # type: ignore[attr-defined]
         try:
             direct.seek(
@@ -964,7 +965,7 @@ class TestVideo:
         assert got['pos_frame'] == late['pos_frame']
         assert got['pos_msec'] == pytest.approx(late['pos_msec'], abs=1e-3)
         assert scans == 0
-        assert probes == 1
+        assert probes == 0
 
         # fps=1 leaves the decoder on the next frame. The walked frame's PTS picks the formula.
         gop = tmp_path / 'legacy_fps_gop.mp4'
@@ -1013,6 +1014,32 @@ class TestVideo:
             fps_reload.close()
         assert scans == 0
         assert probes == 0
+
+        # num_frames=10 on this 20s clip leaves rows farther apart than the one-second walk.
+        # The formula from the first row covers the later ones, so none of them scan from frame 0.
+        counted = legacy_frame_iterator.decorated_callable(video=str(gop), num_frames=10)  # type: ignore[attr-defined]
+        try:
+            counted_rows = list(counted)
+        finally:
+            counted.close()
+        assert len(counted_rows) == 10
+        indexes = [int(row['pos_frame']) for row in counted_rows]
+        assert any(indexes[i + 1] - indexes[i] > 26 for i in range(len(indexes) - 1))
+        scans = 0
+        probes = 0
+        sparse = legacy_frame_iterator.decorated_callable(video=str(gop), num_frames=10)  # type: ignore[attr-defined]
+        try:
+            for row in counted_rows:
+                sparse.seek(
+                    row['frame_idx'], pos_msec=row['pos_msec'], pos_frame=row['pos_frame'], frame_idx=row['frame_idx']
+                )
+                got = next(sparse)
+                assert got['pos_frame'] == row['pos_frame']
+                assert got['pos_msec'] == pytest.approx(row['pos_msec'], abs=1e-3)
+                assert got['frame'] == row['frame']
+        finally:
+            sparse.close()
+        assert scans == 0
 
     def test_mpegts_reload_after_empty_relative_seek(self, tmp_path: Path) -> None:
         """Reload a default-GOP MPEG-TS frame whose relative seek returns no packet."""
@@ -1097,7 +1124,7 @@ class TestVideo:
             finally:
                 legacy.close()
 
-    def test_mpegts_default_gop_seek_past_target(self, tmp_path: Path) -> None:
+    def test_mpegts_default_gop_seek_past_target(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A default-GOP MPEG-TS seek that lands past the target still returns that frame.
 
         x264's default keyint is 250. An 8s file never builds that keyframe, so an early relative
@@ -1160,6 +1187,38 @@ class TestVideo:
         assert got_earlier['frame_attrs']['index'] == 100
         assert got_earlier['frame_attrs']['time'] == pytest.approx(target['frame_attrs']['time'], abs=1e-3)
         assert got_earlier['frame'] == target['frame']
+
+        # Frame 400 and the last frame are past the keyframe at 250. An empty relative read
+        # must decode forward from that keyframe, not from frame 0.
+        calls = 0
+        iterator_cls = frame_iterator.decorated_callable  # type: ignore[attr-defined]
+        orig_next = iterator_cls.next_frame
+
+        def counting(self: Any) -> av.VideoFrame | None:
+            nonlocal calls
+            calls += 1
+            return orig_next(self)
+
+        monkeypatch.setattr(iterator_cls, 'next_frame', counting)
+
+        def fresh_seek(index: int) -> None:
+            preceding = max(key for key in keyframes if key <= index)
+            gap = index - preceding + 1
+            reloaded = frame_iterator.decorated_callable(video=str(path))  # type: ignore[attr-defined]
+            try:
+                nonlocal calls
+                calls = 0
+                reloaded.seek(index, frame_attrs=rows[index]['frame_attrs'])
+                assert calls <= gap, (index, calls, gap, preceding)
+                got_row = next(reloaded)
+            finally:
+                reloaded.close()
+            assert got_row['frame_attrs']['index'] == rows[index]['frame_attrs']['index']
+            assert got_row['frame_attrs']['time'] == pytest.approx(rows[index]['frame_attrs']['time'], abs=1e-3)
+            assert got_row['frame'] == rows[index]['frame']
+
+        fresh_seek(400)
+        fresh_seek(len(rows) - 1)
 
     def test_late_frame_reload_decodes_one_gop(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Reloading the last frame of a multi-keyframe video decodes that GOP, not the prefix.
@@ -1288,15 +1347,15 @@ class TestVideo:
             ]
         )
 
-        def reload_fps_rows(path: Path) -> None:
+        def reload_fps_rows(path: Path, fps: float = 1) -> None:
             frame_count = _decoded_frame_count(path)
-            sampled = frame_iterator.decorated_callable(video=str(path), fps=1)  # type: ignore[attr-defined]
+            sampled = frame_iterator.decorated_callable(video=str(path), fps=fps)  # type: ignore[attr-defined]
             try:
                 fps_rows = list(sampled)
             finally:
                 sampled.close()
-            assert len(fps_rows) >= 7
-            fps_reloaded = frame_iterator.decorated_callable(video=str(path), fps=1)  # type: ignore[attr-defined]
+            assert len(fps_rows) >= 4
+            fps_reloaded = frame_iterator.decorated_callable(video=str(path), fps=fps)  # type: ignore[attr-defined]
             try:
                 nonlocal calls
                 calls = 0
@@ -1307,12 +1366,15 @@ class TestVideo:
                     assert got_row['frame_attrs']['time'] == pytest.approx(row['frame_attrs']['time'], abs=1e-3)
                     assert got_row['frame'] == row['frame']
                 # One forward pass, plus the frame prefetched after each stored row.
-                assert calls <= frame_count + len(fps_rows), (calls, frame_count, len(fps_rows))
+                assert calls <= frame_count + len(fps_rows), (calls, frame_count, len(fps_rows), fps)
             finally:
                 fps_reloaded.close()
 
         reload_fps_rows(single_key)
         reload_fps_rows(mpegts)
+        # fps=0.5 is about 50 frames apart, past the one-second walk. On one keyframe a seek
+        # starts at frame 0, so the forward walk has to keep going or the read is quadratic.
+        reload_fps_rows(single_key, fps=0.5)
 
     def test_low_fps_keeps_first_frame(self, tmp_path: Path) -> None:
         """fps=1e-5 on a one-frame 25fps clip still returns the sample at the stream start."""

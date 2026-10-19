@@ -556,11 +556,7 @@ def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> l
             end_time = frame_iter.end_time()
             start = frame_info[0]
             scenes.append(
-                {
-                    'start_time': start.frame_time,
-                    'start_pts': start.frame_pts,
-                    'duration': end_time - start.frame_time,
-                }
+                {'start_time': start.frame_time, 'start_pts': start.frame_pts, 'duration': end_time - start.frame_time}
             )
 
         return scenes

@@ -19,10 +19,10 @@ from pixeltable.utils.local_store import TempStore
 
 _logger = logging.getLogger(__name__)
 
-# A fresh iterator is on frame 0. Walking farther than this decodes the prefix, so that
-# target keyframe-seeks. An open index walks about one second and keyframe-seeks a
-# longer gap. An empty relative seek, or one that lands past the target, decodes from
-# the start.
+# About one second of frames, the gap between consecutive fps=1 samples. A longer
+# forward gap seeks to the latest offset whose first frame is at or before the target
+# when that frame is after the open one. The gap is walked when the seek would start
+# at or before the open frame, because seeking would replay the prefix.
 _MAX_FORWARD_WALK = 8
 
 
@@ -143,8 +143,11 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     frame_gen: Iterator[av.VideoFrame]
     # seek() sets this. The following next() returns that stored frame.
     _reload_target: _ReloadTarget | None
-    # Formula that matched the frame last landed on. An index this decoder does not walk to resolves again.
+    # Formula that matched the frame last landed on. Reused for a row ahead of the decoder.
+    # A row behind it resolves again.
     _pos_msec_formula: Literal['current', 'historical'] | None
+    # Latest seek offset whose first frame is at or before a timestamp. The file does not change.
+    _placement_cache: dict[float, tuple[int, float | None]]
 
     def __init__(
         self, video: pxt.Video, *, fps: float | None = None, num_frames: int | None = None, keyframes_only: bool = False
@@ -186,6 +189,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         self.video_idx = 0
         self._reload_target = None
         self._pos_msec_formula = None
+        self._placement_cache = {}
         if self.num_frames is not None:
             # Divide the video duration into num_frames evenly spaced intervals. The extraction times are the midpoints
             # of those intervals.
@@ -370,8 +374,8 @@ class frame_iterator(pxt.PxtIterator[Frame]):
 
         found = self._position_at_frame(pos, seek_time, video_idx)
         # None means the seek did not start on frame 0. For pos_msec, seek_time was already
-        # resolved from that frame, so the picture is the stored one. video_idx means the
-        # forward walk or the empty-seek fallback decoded that index.
+        # resolved, so the picture is the stored one. video_idx means the forward walk
+        # reached that frame, or the seek counted it from the first frame.
         if candidates is None or found is None or found == video_idx or self._pos_msec_formula is None:
             return
         # The counted index belongs to the other formula.
@@ -394,8 +398,9 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         with start in seconds, and seek at pos_msec / 1000 + start / 1000. The two times
         differ by about start * 0.999 and can both be real frames, so the stored frame index decides.
         The open frame, or a frame walked to from it, supplies the PTS that picks the formula.
-        An index behind the decoder, or farther ahead than the forward walk, resolves on its own.
-        A cached formula is not applied to a row this decoder does not land on. Probes use another container.
+        A resolved formula is reused for a later row ahead of the decoder. A row behind the
+        decoder resolves again. A walked frame whose PTS matches neither candidate keeps that
+        PTS, so the reload does not seek away from the stored index. Probes use another container.
         """
         current, historical = candidates
         if abs(current - historical) < 1e-3:
@@ -406,7 +411,9 @@ class frame_iterator(pxt.PxtIterator[Frame]):
             return matched
         # A sampled row leaves the decoder on the next frame, not on pos_frame. The frame
         # walked to has the PTS; resolving that gap would scan from frame 0.
-        if self.video_idx < frame_index and self._walk_forward(frame_index):
+        # current is the decorator time, which is what a view stored since that change.
+        # A long gap walks only when seeking to it would replay the prefix.
+        if self.video_idx < frame_index and self._walk_forward(frame_index, seek_time=current):
             assert self.cur_frame is not None and self.cur_frame.pts is not None
             frame_time = float(self.cur_frame.pts * self.video_time_base)
             if abs(frame_time - current) < 1e-3:
@@ -418,6 +425,8 @@ class frame_iterator(pxt.PxtIterator[Frame]):
             # The stored index is this frame. Keep its PTS so a later check does not seek away.
             self._pos_msec_formula = 'current'
             return frame_time
+        if self.video_idx < frame_index and self._pos_msec_formula is not None:
+            return current if self._pos_msec_formula == 'current' else historical
         return self._resolve_pos_msec_formula(frame_index, current, historical)
 
     def _candidate_on_current_frame(self, frame_index: int, current: float, historical: float) -> float | None:
@@ -511,31 +520,98 @@ class frame_iterator(pxt.PxtIterator[Frame]):
             return float(frame.pts * self.video_time_base)
 
     def _forward_walk_limit(self) -> int:
-        """Frames seek() may decode forward before it keyframe-seeks.
+        """Frames seek() may decode forward before it looks for a keyframe.
 
-        Frame 0 stops at _MAX_FORWARD_WALK so a late frame does not decode the prefix.
-        An open index walks about one second, the gap between consecutive fps=1 samples,
-        and keyframe-seeks a longer gap.
+        About one second: the gap between consecutive fps=1 samples. The previous
+        sample leaves the next frame decoded, and one more frame covers a sample
+        that lands on the frame after that. A longer gap seeks when a keyframe lies
+        after the open frame, and keeps walking when that seek would replay the prefix.
         """
-        if self.video_idx == 0:
-            return _MAX_FORWARD_WALK
         rate = self.container.streams.video[0].average_rate
         if rate is None or rate == 0:
             return _MAX_FORWARD_WALK
-        # ceil(rate) is one second of frames. fps=1 leaves the decoder one frame past the
-        # previous sample, and the extra frame covers a sample that lands one frame later.
         return max(_MAX_FORWARD_WALK, math.ceil(float(rate)) + 1)
 
-    def _walk_forward(self, video_idx: int) -> bool:
+    def _relative_offset(self, seek_time: float) -> int:
+        # The offset passed to seek() is the pts adjusted for the video start time.
+        return max(math.floor((seek_time - self.video_start_time) / self.video_time_base), 0)
+
+    def _preceding_placement(self, seek_time: float) -> tuple[int, float | None]:
+        """Latest seek offset whose first decoded frame is at or before seek_time.
+
+        A backward seek usually lands on the preceding keyframe. A default-GOP MPEG-TS
+        seek can instead return no packet, or a keyframe after the target. The offset
+        returned here is the latest one that still starts at or before seek_time, so
+        decoding forward reaches the target from that keyframe. The first-frame time
+        is None when no offset through the target decodes a frame.
+        """
+        cached = self._placement_cache.get(seek_time)
+        if cached is not None:
+            return cached
+
+        direct = self._relative_offset(seek_time)
+
+        def first_time(offset: int) -> float | None:
+            # A new container per probe. Seeking again on an open decode drops frames.
+            with av.open(str(self.video_path)) as container:
+                stream = container.streams.video[0]
+                container.seek(offset, backward=True, stream=stream)
+                try:
+                    frame = next(container.decode(video=0))
+                except (StopIteration, EOFError):
+                    return None
+                if frame.pts is None:
+                    return None
+                return float(frame.pts * stream.time_base)
+
+        direct_time = first_time(direct)
+        if direct_time is not None and direct_time <= seek_time + 1e-3:
+            result = (direct, direct_time)
+        else:
+            # First-frame time is non-decreasing in the offset: it stays on a keyframe,
+            # then jumps to the next one or to no packet. The latest success is the
+            # preceding keyframe.
+            origin = first_time(0)
+            best_offset, best_time = 0, origin
+            if origin is not None and origin <= seek_time + 1e-3:
+                low, high = 0, direct
+                while low <= high:
+                    mid = (low + high) // 2
+                    found = first_time(mid)
+                    if found is not None and found <= seek_time + 1e-3:
+                        best_offset, best_time = mid, found
+                        low = mid + 1
+                    else:
+                        high = mid - 1
+            result = (best_offset, best_time)
+        self._placement_cache[seek_time] = result
+        return result
+
+    def _seek_replays_prefix(self, seek_time: float | None) -> bool:
+        """True when a seek to seek_time would start at or before the open frame.
+
+        No keyframe then lies between the decoder and the target. Seeking would
+        replay frames this generator has already passed, so walking is cheaper.
+        """
+        if seek_time is None or self.cur_frame is None or self.cur_frame.pts is None:
+            return False
+        _offset, first_time = self._preceding_placement(seek_time)
+        if first_time is None:
+            return True
+        current_time = float(self.cur_frame.pts * self.video_time_base)
+        return first_time <= current_time + 1e-3
+
+    def _walk_forward(self, video_idx: int, *, seek_time: float | None = None) -> bool:
         """Decode the open generator forward to video_idx.
 
-        Returns False without decoding when the target is behind the open index, or farther
-        ahead than _forward_walk_limit(). On success cur_frame is that frame. If the stream
-        ends first, cur_frame is cleared and the caller seeks.
+        Returns False without decoding when the target is behind the open index, or
+        farther ahead than _forward_walk_limit() and a seek would land after this
+        frame. On success cur_frame is that frame. If the stream ends first,
+        cur_frame is cleared and the caller seeks.
         """
         if self.cur_frame is None or self.cur_frame.pts is None or self.video_idx > video_idx:
             return False
-        if video_idx - self.video_idx > self._forward_walk_limit():
+        if video_idx - self.video_idx > self._forward_walk_limit() and not self._seek_replays_prefix(seek_time):
             return False
         frame = self.cur_frame
         index = self.video_idx
@@ -553,11 +629,11 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     def _advance_to_stored_frame(self, pos: int, seek_time: float, video_idx: int) -> bool:
         """Walk the open generator to video_idx when that frame is ahead.
 
-        A fresh iterator keyframe-seeks past _MAX_FORWARD_WALK. An open index walks about a
-        second and keyframe-seeks a longer gap. A backward seek, or a timestamp that is not
-        this frame's, leaves the seek path to run.
+        A gap of about a second is walked. A longer gap is walked only when a
+        timestamp seek would start at or before the open frame. A backward seek,
+        or a timestamp that is not this frame's, leaves the seek path to run.
         """
-        if not self._walk_forward(video_idx):
+        if not self._walk_forward(video_idx, seek_time=seek_time):
             return False
         assert self.cur_frame is not None and self.cur_frame.pts is not None
         if abs(float(self.cur_frame.pts * self.video_time_base) - seek_time) >= 1e-3:
@@ -576,38 +652,21 @@ class frame_iterator(pxt.PxtIterator[Frame]):
             self.cur_frame = self.next_frame()
             index += 1
 
-    def _position_at_frame(self, pos: int, seek_time: float, video_idx: int) -> int | None:
-        """Move to seek_time.
+    def _finish_at_time(self, seek_time: float, video_idx: int) -> int | None:
+        """Decode the generator opened by the caller forward to seek_time.
 
-        Returns video_idx when the open generator walked to that frame, or when an empty
-        relative seek or a seek that landed past the target decoded that index from the
-        start. Returns the counted index when the seek itself started on the first frame.
-        None means the count is not absolute.
+        The caller seeks the latest offset whose first frame is at or before the
+        target. An empty read, or a frame already past the target, means that
+        search found nothing usable, so this decodes from the start.
         """
-        if self._advance_to_stored_frame(pos, seek_time, video_idx):
-            return video_idx
-
-        self.pos = pos
-        self.video_idx = video_idx
-
-        # Subtlety: The offset passed in to seek() is not the pts, but rather the pts adjusted for the video start time.
-        seek_offset = math.floor((seek_time - self.video_start_time) / self.video_time_base)
-        self.container.seek(seek_offset, backward=True, stream=self.container.streams.video[0])
-        self.frame_gen = self.container.decode(video=0)
-
         self.cur_frame = self.next_frame()
         if self.cur_frame is None:
-            # A default-GOP MPEG-TS returns no packet once the offset reaches the stream start.
-            # seek(0) and this one generator still decode that index, including the last frame.
             self._decode_to_index(video_idx)
             return video_idx if self.cur_frame is not None else None
 
         first_time = float(self.cur_frame.pts * self.video_time_base)
         started_at_first = abs(first_time - self.video_start_time) < 1e-3
         if not started_at_first and first_time >= seek_time + 1e-3:
-            # This keyframe is already past the target. A 20s default-GOP MPEG-TS seeks
-            # frame 100 to the keyframe at frame 250. Decoding from the start reaches it.
-            # Doing that again cannot help a seek that already read the first frame.
             self._decode_to_index(video_idx)
             assert self.cur_frame is None or abs(float(self.cur_frame.pts * self.video_time_base) - seek_time) < 1e-3
             return video_idx if self.cur_frame is not None else None
@@ -619,6 +678,23 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         if self.cur_frame is None or not started_at_first:
             return None
         return index
+
+    def _position_at_frame(self, pos: int, seek_time: float, video_idx: int) -> int | None:
+        """Move to seek_time.
+
+        Returns video_idx when the open generator walked to that frame. Returns the
+        counted index when the seek itself started on the first frame. None means
+        the count is not absolute.
+        """
+        if self._advance_to_stored_frame(pos, seek_time, video_idx):
+            return video_idx
+
+        self.pos = pos
+        self.video_idx = video_idx
+        offset, _first_time = self._preceding_placement(seek_time)
+        self.container.seek(offset, backward=True, stream=self.container.streams.video[0])
+        self.frame_gen = self.container.decode(video=0)
+        return self._finish_at_time(seek_time, video_idx)
 
     @classmethod
     def validate(cls, bound_args: dict[str, Any]) -> None:
