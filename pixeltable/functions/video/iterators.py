@@ -20,8 +20,9 @@ from pixeltable.utils.local_store import TempStore
 _logger = logging.getLogger(__name__)
 
 # A fresh iterator is on frame 0. Walking farther than this decodes the prefix, so that
-# target keyframe-seeks. A later index walks a forward gap. Empty relative seeks still
-# fall back to decoding from the start.
+# target keyframe-seeks. An open index walks about one second and keyframe-seeks a
+# longer gap. An empty relative seek, or one that lands past the target, decodes from
+# the start.
 _MAX_FORWARD_WALK = 8
 
 
@@ -393,7 +394,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         with start in seconds, and seek at pos_msec / 1000 + start / 1000. The two times
         differ by about start * 0.999 and can both be real frames, so the stored frame index decides.
         The open frame, or a frame walked to from it, supplies the PTS that picks the formula.
-        An index behind the decoder, or past the fresh-iterator walk, resolves on its own.
+        An index behind the decoder, or farther ahead than the forward walk, resolves on its own.
         A cached formula is not applied to a row this decoder does not land on. Probes use another container.
         """
         current, historical = candidates
@@ -509,16 +510,32 @@ class frame_iterator(pxt.PxtIterator[Frame]):
                 return None
             return float(frame.pts * self.video_time_base)
 
+    def _forward_walk_limit(self) -> int:
+        """Frames seek() may decode forward before it keyframe-seeks.
+
+        Frame 0 stops at _MAX_FORWARD_WALK so a late frame does not decode the prefix.
+        An open index walks about one second, the gap between consecutive fps=1 samples,
+        and keyframe-seeks a longer gap.
+        """
+        if self.video_idx == 0:
+            return _MAX_FORWARD_WALK
+        rate = self.container.streams.video[0].average_rate
+        if rate is None or rate == 0:
+            return _MAX_FORWARD_WALK
+        # ceil(rate) is one second of frames. fps=1 leaves the decoder one frame past the
+        # previous sample, and the extra frame covers a sample that lands one frame later.
+        return max(_MAX_FORWARD_WALK, math.ceil(float(rate)) + 1)
+
     def _walk_forward(self, video_idx: int) -> bool:
         """Decode the open generator forward to video_idx.
 
-        Returns False without decoding when the target is behind the open index, or when a fresh
-        iterator would walk farther than _MAX_FORWARD_WALK. On success cur_frame is that frame.
-        If the stream ends first, cur_frame is cleared and the caller seeks.
+        Returns False without decoding when the target is behind the open index, or farther
+        ahead than _forward_walk_limit(). On success cur_frame is that frame. If the stream
+        ends first, cur_frame is cleared and the caller seeks.
         """
         if self.cur_frame is None or self.cur_frame.pts is None or self.video_idx > video_idx:
             return False
-        if self.video_idx == 0 and video_idx - self.video_idx > _MAX_FORWARD_WALK:
+        if video_idx - self.video_idx > self._forward_walk_limit():
             return False
         frame = self.cur_frame
         index = self.video_idx
@@ -536,8 +553,9 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     def _advance_to_stored_frame(self, pos: int, seek_time: float, video_idx: int) -> bool:
         """Walk the open generator to video_idx when that frame is ahead.
 
-        A fresh iterator keyframe-seeks past _MAX_FORWARD_WALK. An open index walks the gap.
-        A backward seek, or a timestamp that is not this frame's, leaves the seek path to run.
+        A fresh iterator keyframe-seeks past _MAX_FORWARD_WALK. An open index walks about a
+        second and keyframe-seeks a longer gap. A backward seek, or a timestamp that is not
+        this frame's, leaves the seek path to run.
         """
         if not self._walk_forward(video_idx):
             return False
@@ -562,8 +580,9 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         """Move to seek_time.
 
         Returns video_idx when the open generator walked to that frame, or when an empty
-        relative seek decoded that index from the start. Returns the counted index when
-        the seek itself started on the first frame. None means the count is not absolute.
+        relative seek or a seek that landed past the target decoded that index from the
+        start. Returns the counted index when the seek itself started on the first frame.
+        None means the count is not absolute.
         """
         if self._advance_to_stored_frame(pos, seek_time, video_idx):
             return video_idx
@@ -585,6 +604,13 @@ class frame_iterator(pxt.PxtIterator[Frame]):
 
         first_time = float(self.cur_frame.pts * self.video_time_base)
         started_at_first = abs(first_time - self.video_start_time) < 1e-3
+        if not started_at_first and first_time >= seek_time + 1e-3:
+            # This keyframe is already past the target. A 20s default-GOP MPEG-TS seeks
+            # frame 100 to the keyframe at frame 250. Decoding from the start reaches it.
+            # Doing that again cannot help a seek that already read the first frame.
+            self._decode_to_index(video_idx)
+            assert self.cur_frame is None or abs(float(self.cur_frame.pts * self.video_time_base) - seek_time) < 1e-3
+            return video_idx if self.cur_frame is not None else None
         index = 0
         while self.cur_frame is not None and float(self.cur_frame.pts * self.video_time_base) < seek_time - 1e-3:
             self.cur_frame = self.next_frame()

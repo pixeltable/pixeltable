@@ -1097,11 +1097,76 @@ class TestVideo:
             finally:
                 legacy.close()
 
+    def test_mpegts_default_gop_seek_past_target(self, tmp_path: Path) -> None:
+        """A default-GOP MPEG-TS seek that lands past the target still returns that frame.
+
+        x264's default keyint is 250. An 8s file never builds that keyframe, so an early relative
+        seek returns no packet. This 20s file has its next keyframe after frame 100. A fresh seek
+        of frame 100, and a seek of frame 400 then frame 100, both land on that later keyframe.
+        """
+        path = tmp_path / 'long_offset.ts'
+        _ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'testsrc=size=64x64:rate=25:duration=20',
+                '-output_ts_offset',
+                '1.48',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                '-f',
+                'mpegts',
+                str(path),
+            ]
+        )
+        ordered = frame_iterator.decorated_callable(video=str(path))  # type: ignore[attr-defined]
+        try:
+            rows = list(ordered)
+        finally:
+            ordered.close()
+        assert len(rows) > 400
+        with av.open(str(path)) as container:
+            keyframes = [index for index, frame in enumerate(container.decode(video=0)) if frame.key_frame]
+        assert keyframes[0] == 0
+        # The next keyframe is after frame 100, so that seek is not the empty read an 8s file
+        # produces. Frame 400 is past the same keyframe.
+        assert 100 < keyframes[1] < 400
+        target = rows[100]
+        assert int(target['frame_attrs']['index']) == 100
+        assert target['frame'] != rows[0]['frame']
+
+        fresh = frame_iterator.decorated_callable(video=str(path))  # type: ignore[attr-defined]
+        try:
+            fresh.seek(100, frame_attrs=target['frame_attrs'])
+            got = next(fresh)
+        finally:
+            fresh.close()
+        assert got['frame_attrs']['index'] == 100
+        assert got['frame_attrs']['time'] == pytest.approx(target['frame_attrs']['time'], abs=1e-3)
+        assert got['frame'] == target['frame']
+
+        backward = frame_iterator.decorated_callable(video=str(path))  # type: ignore[attr-defined]
+        try:
+            backward.seek(400, frame_attrs=rows[400]['frame_attrs'])
+            got_later = next(backward)
+            assert got_later['frame'] == rows[400]['frame']
+            backward.seek(100, frame_attrs=target['frame_attrs'])
+            got_earlier = next(backward)
+        finally:
+            backward.close()
+        assert got_earlier['frame_attrs']['index'] == 100
+        assert got_earlier['frame_attrs']['time'] == pytest.approx(target['frame_attrs']['time'], abs=1e-3)
+        assert got_earlier['frame'] == target['frame']
+
     def test_late_frame_reload_decodes_one_gop(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Reloading the last frame of a multi-keyframe video decodes that GOP, not the prefix.
 
         Sequential fps=1 reloads of a single-keyframe file and a default-GOP MPEG-TS walk from the
-        open index, so the decoded count stays on the order of the frame count.
+        open index, so the decoded count stays on the order of the frame count. Frame 0 and then
+        the last frame, on that same iterator, stay within a fresh seek of the last frame.
         """
         path = tmp_path / 'gop.mp4'
         _ffmpeg(
@@ -1153,13 +1218,31 @@ class TestVideo:
         try:
             calls = 0
             reloaded.seek(last, frame_attrs=rows[last]['frame_attrs'])
-            assert calls <= gop
+            fresh_calls = calls
+            assert fresh_calls <= gop
             got = next(reloaded)
         finally:
             reloaded.close()
         assert got['frame_attrs']['index'] == rows[last]['frame_attrs']['index']
         assert got['frame_attrs']['time'] == pytest.approx(rows[last]['frame_attrs']['time'], abs=1e-3)
         assert got['frame'] == rows[last]['frame']
+
+        # Frame 0 leaves the decoder open. Walking from there to the last frame decodes the
+        # whole file; a fresh seek of that frame only decodes its GOP.
+        spanned = frame_iterator.decorated_callable(video=str(path))  # type: ignore[attr-defined]
+        try:
+            spanned.seek(0, frame_attrs=rows[0]['frame_attrs'])
+            got_first = next(spanned)
+            assert got_first['frame'] == rows[0]['frame']
+            calls = 0
+            spanned.seek(last, frame_attrs=rows[last]['frame_attrs'])
+            assert calls <= fresh_calls, (calls, fresh_calls)
+            got_last = next(spanned)
+        finally:
+            spanned.close()
+        assert got_last['frame_attrs']['index'] == rows[last]['frame_attrs']['index']
+        assert got_last['frame_attrs']['time'] == pytest.approx(rows[last]['frame_attrs']['time'], abs=1e-3)
+        assert got_last['frame'] == rows[last]['frame']
 
         single_key = tmp_path / 'single_key.mp4'
         _ffmpeg(
