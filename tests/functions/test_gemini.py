@@ -2,6 +2,7 @@ import logging
 import random
 import time
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import numpy as np
@@ -501,6 +502,40 @@ class TestGemini:
             .collect()
         )
         assert res[1]['sim'] - res[0]['sim'] > 0.1
+
+
+def test_generate_content_no_candidates_records_usage_once() -> None:
+    from pixeltable import telemetry, telemetry_schemas
+    from pixeltable.exceptions import ErrorCode
+    from pixeltable.functions.gemini import _generate_content_candidates
+    from pixeltable.telemetry import SubscriberRegistry
+
+    class _Usage(telemetry.Subscriber):
+        def __init__(self) -> None:
+            self.counter_adds: list[tuple[telemetry.Counter, int | float, dict[str, Any]]] = []
+
+        def on_counter_add(self, counter: telemetry.Counter, value: int | float, attrs: dict[str, Any]) -> None:
+            self.counter_adds.append((counter, value, attrs))
+
+    model = 'gemini-2.5-flash'
+    path = 'pixeltable.functions.gemini.generate_content'
+    dims = {'pxt.udf': 'generate_content', 'pxt.udf_path': path, 'pxt.model': model}
+    usage = {'prompt_token_count': 4, 'candidates_token_count': 0}
+    expected = [(telemetry_schemas.udf_input_tokens, 4, dims), (telemetry_schemas.udf_output_tokens, 0, dims)]
+    responses: tuple[dict[str, Any], ...] = (
+        {'candidates': None, 'usage_metadata': usage},
+        {'candidates': [], 'usage_metadata': usage},
+    )
+    sub = _Usage()
+    SubscriberRegistry.get().subscribe(sub)
+    try:
+        for result in responses:
+            sub.counter_adds.clear()
+            with pxt_raises(ErrorCode.PROVIDER_ERROR, match=f'Gemini returned no candidates for model {model}'):
+                _generate_content_candidates(model, result)
+            assert sub.counter_adds == expected, result['candidates']
+    finally:
+        SubscriberRegistry.get().unsubscribe(sub)
 
 
 def test_tool_calls_no_candidates() -> None:

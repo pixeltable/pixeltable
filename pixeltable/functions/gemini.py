@@ -175,18 +175,7 @@ async def generate_content(
         result = response.model_dump()
         # `model_dump()` (default mode) preserves `inline_data.data` as raw `bytes`; `mode='json'` would
         # url-safe-base64-encode which is suboptimal as we'd have to convert it back to binary to convert to PIL image.
-        # Count tokens before rejecting an empty candidate list; the request already consumed them.
-        telemetry_schemas.record_token_usage(
-            f'{__name__}.generate_content',
-            model,
-            result.get('usage_metadata'),
-            'prompt_token_count',
-            'candidates_token_count',
-        )
-        # 'candidates' can be null
-        candidates = result.get('candidates') or []
-        if len(candidates) == 0:
-            raise _no_candidates_error(model, result.get('prompt_feedback'))
+        candidates = _generate_content_candidates(model, result)
         for candidate in candidates:
             content = candidate.get('content')
             if content is None:
@@ -198,6 +187,23 @@ async def generate_content(
                     img.load()
                     blob['data'] = img
         return result
+
+
+def _generate_content_candidates(model: str, result: dict[str, Any]) -> list[Any]:
+    """Record generate_content() token usage, then return candidates or raise if there are none."""
+    # Count tokens before rejecting an empty candidate list; the request already consumed them.
+    telemetry_schemas.record_token_usage(
+        f'{__name__}.generate_content',
+        model,
+        result.get('usage_metadata'),
+        'prompt_token_count',
+        'candidates_token_count',
+    )
+    # 'candidates' can be null
+    candidates = result.get('candidates') or []
+    if len(candidates) == 0:
+        raise _no_candidates_error(model, result.get('prompt_feedback'))
+    return candidates
 
 
 def _no_candidates_error(model: str, prompt_feedback: Any) -> excs.ExternalServiceError:
