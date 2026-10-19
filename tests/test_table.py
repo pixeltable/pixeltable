@@ -2535,13 +2535,6 @@ class TestTable:
 
     @rerun_on_network_error()
     def test_create_video_table(self, db_root: DatabaseRoot) -> None:
-        if Env.get().is_using_cockroachdb:
-            # TODO(PXT-921): fix this on CockroachDB
-            pytest.skip(
-                'Skipped on CockroachDB due to: RETRY_SERIALIZABLE - failed preemptive refresh due to'
-                ' encountered recently written committed value...'
-            )
-
         p = db_root.make_catalog_path
         tbl = pxt.create_table(p('test_tbl'), {'payload': pxt.Int | None, 'video': pxt.Video | None})
         view = pxt.create_view(p('test_view'), tbl, iterator=legacy_frame_iterator(tbl.video))
@@ -3462,9 +3455,6 @@ class TestTable:
 
     def test_computed_col_exceptions(self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        if Env.get().is_using_cockroachdb:
-            # TODO Fix this on CockroachDB; it's a problem!
-            pytest.skip('Skipped on CockroachDB due to columns still being created when add_computed_column() fails.')
         # exception during insert()
         schema: dict[str, Any] = {'c2': pxt.Int | None}
         rows = list(test_tbl.select(test_tbl.c2).collect())
@@ -4246,6 +4236,8 @@ class TestTable:
             """Localized version of p(path), without the pxt://org:db/ prefix"""
             return pxt.catalog.Path.localize(p(path))
 
+        test_tbl.add_btree_index('c2', idx_name='c2_idx')
+
         validate_repr(
             test_tbl,
             f"""
@@ -4261,7 +4253,11 @@ class TestTable:
                       c5             Timestamp  test_tbl
                       c6                  Json  test_tbl
                       c7                  Json  test_tbl
-                      c8  Array[(2, 3), int64]  test_tbl  [[1, 2, 3], [4, 5, 6]]""",
+                      c8  Array[(2, 3), int64]  test_tbl  [[1, 2, 3], [4, 5, 6]]
+
+             Index Name Column   Type
+            -------------------------
+                 c2_idx     c2  btree""",
         )
 
         v = pxt.create_view(p('test_view'), test_tbl)
@@ -4319,7 +4315,7 @@ class TestTable:
         validate_repr(
             s1,
             f"""
-            snapshot '{p('test_snap1')}' (of '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:2')}')
+            snapshot '{p('test_snap1')}' (of '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:3')}')
             Where: ~(c1 == None)
 
              Column Name                  Type        Source           Computed With                      Comment
@@ -4344,7 +4340,7 @@ class TestTable:
         validate_repr(
             s2,
             f"""
-            snapshot '{p('test_snap2')}' (of '{loc('test_tbl:2')}')
+            snapshot '{p('test_snap2')}' (of '{loc('test_tbl:3')}')
 
              Column Name                  Type    Source           Computed With                      Comment
             -------------------------------------------------------------------------------------------------
@@ -4364,7 +4360,7 @@ class TestTable:
         validate_repr(
             s3,
             f"""
-            snapshot '{p('test_snap3')}' (of '{loc('test_tbl:2')}')
+            snapshot '{p('test_snap3')}' (of '{loc('test_tbl:3')}')
 
              Column Name                  Type      Source           Computed With                      Comment
             ---------------------------------------------------------------------------------------------------
@@ -4404,7 +4400,7 @@ class TestTable:
         validate_repr(
             iterator_view_1,
             f"""
-            view 'iterator_view_1' (of '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:2')}')
+            view 'iterator_view_1' (of '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:3')}')
 
              Column Name                  Type           Source           Computed With                      Comment
             --------------------------------------------------------------------------------------------------------
@@ -4435,7 +4431,7 @@ class TestTable:
         validate_repr(
             iterator_view_2,
             f"""
-            view 'iterator_view_2' (of '{loc('iterator_view_1')}', '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:2')}')
+            view 'iterator_view_2' (of '{loc('iterator_view_1')}', '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:3')}')
 
                         Column Name                  Type           Source                       Computed With                      Comment
             -------------------------------------------------------------------------------------------------------------------------------

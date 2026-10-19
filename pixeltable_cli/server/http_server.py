@@ -108,7 +108,9 @@ class _DaemonHandler(BaseHTTPRequestHandler):
                 if Config.reload_if_changed():
                     _logger.info('Reloaded %s', Config.get().config_file)
             except excs.Error as e:
-                self._send_json({'detail': str(e), 'error_code': e.error_code.name}, e.http_status)
+                self._send_json(
+                    {'detail': str(e), 'error_code': e.error_code.name, 'retryable': e.is_retryable}, e.http_status
+                )
                 return
             except Exception as e:
                 self._send_json(
@@ -145,7 +147,9 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         try:
             result = handler(req)
         except excs.Error as e:
-            self._send_json({'detail': str(e), 'error_code': _error_code(e)}, e.http_status)
+            self._send_json(
+                {'detail': str(e), 'error_code': _error_code(e), 'retryable': e.is_retryable}, e.http_status
+            )
             return
         except Exception as e:
             # log the full request target (self.path includes the query string) plus the resolved catalog

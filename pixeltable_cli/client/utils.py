@@ -357,7 +357,55 @@ def ensure_running() -> str:
     return base_url()
 
 
+class RequestFailedError(Exception):
+    """A daemon request that failed; status is None when no response came back."""
+
+    status: int | None
+    retryable: bool | None
+    server_tb: str | None
+    as_written: bool  # the message is the control plane's reason, printed without a prefix
+
+    def __init__(
+        self,
+        message: str,
+        status: int | None = None,
+        retryable: bool | None = None,
+        server_tb: str | None = None,
+        as_written: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.retryable = retryable
+        self.server_tb = server_tb
+        self.as_written = as_written
+
+    @property
+    def transient(self) -> bool:
+        """Whether resending the request may succeed.
+
+        True if the daemon was unreachable, or reported the error retryable; an unexpected daemon error carries no
+        such flag, and counts as transient when its status is a server error.
+        """
+        if self.status is None:
+            return True
+        return self.retryable if self.retryable is not None else self.status >= 500
+
+    def report(self) -> None:
+        print(str(self) if self.as_written else f'pxt: {self}', file=sys.stderr)
+        if self.server_tb is not None:
+            # an unexpected daemon failure carries its traceback; show it so the user can report the error
+            print(f'\n--- daemon traceback ---\n{self.server_tb}', file=sys.stderr)
+
+
 def _request(method: str, path: str, body: dict[str, Any] | None = None, params: dict[str, Any] | None = None) -> Any:
+    try:
+        return _send(method, path, body, params)
+    except RequestFailedError as e:
+        e.report()
+        sys.exit(1)
+
+
+def _send(method: str, path: str, body: dict[str, Any] | None, params: dict[str, Any] | None) -> Any:
     try:
         base = ensure_running()
     except RuntimeError as e:
@@ -391,29 +439,34 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None, params:
         except ValueError:
             body = {}
         detail = body.get('detail') or e.reason
-        if body.get('error_code') in USER_ACTION_CODES:
-            print(detail, file=sys.stderr)
-        else:
-            print(f'pxt: {e.code} {detail}', file=sys.stderr)
-        server_tb = body.get('traceback')
-        if server_tb is not None:
-            # an unexpected daemon failure carries its traceback; show it so the user can report the error
-            print(f'\n--- daemon traceback ---\n{server_tb}', file=sys.stderr)
-        sys.exit(1)
+        retryable = body.get('retryable')
+        # a refusal only the user can lift: its reason is printed as the control plane wrote it
+        as_written = body.get('error_code') in USER_ACTION_CODES
+        raise RequestFailedError(
+            detail if as_written else f'{e.code} {detail}',
+            e.code,
+            retryable=retryable if isinstance(retryable, bool) else None,
+            server_tb=body.get('traceback'),
+            as_written=as_written,
+        ) from e
     except urllib.error.URLError as e:
-        print(f'pxt: cannot reach daemon at {url}: {e.reason}', file=sys.stderr)
-        sys.exit(1)
+        raise RequestFailedError(f'cannot reach daemon at {url}: {e.reason}') from e
     except http.client.HTTPException as e:
         # a truncated or malformed response, eg. the daemon writing headers and then dropping the connection
-        print(f'pxt: bad response from daemon at {url}: {type(e).__name__}: {e}', file=sys.stderr)
-        sys.exit(1)
+        raise RequestFailedError(f'bad response from daemon at {url}: {type(e).__name__}: {e}') from e
 
 
 def get_request(path: str, params: dict[str, Any] | None = None) -> Any:
     return _request('GET', path, params=params)
 
 
-def post_request(path: str, body: dict[str, Any]) -> Any:
+def post_request(path: str, body: dict[str, Any], *, raise_on_error: bool = False) -> Any:
+    """POST body to the daemon and return its response; on an error, exit 1 unless raise_on_error is set.
+
+    raise_on_error: raise RequestFailedError instead of exiting.
+    """
+    if raise_on_error:
+        return _send('POST', path, body, None)
     return _request('POST', path, body=body)
 
 

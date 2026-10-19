@@ -168,7 +168,8 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
         if you have write access to the repository. Anyone with write access can request another review by commenting
         `claude review` on the PR. Claude reacts to that comment with a thumbs-up when the review starts, and posts its
         summary and inline comments as one review.
-    * On every commit, a check measures how your PR changes code erosion and verbosity, as defined in
+    * The erosion check is currently commented out in `claude-review.yml`. When it runs, on every commit it measures
+        how your PR changes code erosion and verbosity, as defined in
         [SlopCodeBench](https://arxiv.org/abs/2603.24755), and Claude judges up to 10 functions whose complexity, not
         counting asserts, is above 10 and grew. If Claude suggests restructuring a function, or leaves one unjudged,
         the check posts one comment and updates it on later commits.

@@ -65,9 +65,7 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     Leave the entry `pxt init` wrote. It has no `name`, and that entry is the local database. A second entry with no `name` fails to load: both are named `local`. If your project has a `pyproject.toml`, `pxt init` adds its entry there instead. Use `[[tool.pixeltable.database]]` for the hosted entry.
   </Step>
   <Step title="Upload the project, create tables, and start the service">
-    After `pxt org create` or `pxt new`, wait until `pxt db status pxt://org:main` shows `AVAILABLE`, then run these commands from the project directory, in order. While the database is `PROVISIONING`, `pxt db update` is refused.
-
-    If `pxt db update` stops while `pxt db status` shows `UPDATING`, run `pxt db update pxt://org:main` again from the same project. That resumes the update. When the hosted entry omits `python_version`, run it with the same Python version: a different interpreter is a different update, and it is refused while the database is `UPDATING`. When the entry sets `python_version`, that value is the image Python, and another interpreter is the same update. A build that finishes and fails uses `pxt db build-image`, in [What to run after a change](#what-to-run-after-a-change).
+    Run these commands from the project directory, in order:
 
     ```bash
     pxt db update pxt://org:main
@@ -76,7 +74,7 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     pxt service list pxt://org:main
     ```
 
-    `pxt db update` and `pxt service update` ask for confirmation. Without a terminal to answer, as in a notebook or a script, add `-f`. The first `pxt db update` builds the image, which takes several minutes, and returns when the database is ready.
+    `pxt db update` and `pxt service update` ask for confirmation. Without a terminal to answer, as in a notebook or a script, add `-f`. The first `pxt db update` builds the image, which takes several minutes, and returns when the database is ready. If you interrupt it after it uploads the project, Pixeltable Cloud finishes the update anyway: `pxt db status pxt://org:main` shows its progress, and running `pxt db update` again reports it rather than starting another.
 
     `pxt org create` already provisioned `main`. `pxt db update` uploads the project onto that database and updates its image and size. It does not insert rows and does not start app endpoints. `pxt schema update` creates the tables. It does not start the endpoints. `pxt service update` starts hosted endpoints. Do not use `pxt service run` for Cloud. That command only starts endpoints in your local terminal.
 
@@ -170,8 +168,7 @@ The image gets its packages from `uv.lock` or `requirements.txt`. Without either
 | `cpu`, `memory_mb`, `disk_gb`, or `workers` | `pxt db update pxt://org:main`: one resize, pods restart once |
 | A service's `cpu`, `memory_mb`, `file_cache_gb`, or `workers` | `pxt service update app.py pxt://org:main`: a `workers` change adds or removes pods, any other change restarts them |
 | A secret | `pxt secret set pxt://org:main KEY=...`, then `pxt db restart pxt://org:main` and `pxt service restart pxt://org:main/ingest` |
-| Nothing, but the last build failed | `pxt db build-image pxt://org:main` forces a rebuild |
-| Nothing, but `pxt db update` stopped and `pxt db status` shows `UPDATING` | `pxt db update pxt://org:main` again from the same project. With no `python_version` on the hosted entry, use the same Python version |
+| Nothing, but the last update failed | `pxt db retry pxt://org:main` retries it; `pxt db build-image pxt://org:main` forces a rebuild |
 
 `pxt db diff pxt://org:main` prints what `update` would do without doing it.
 
@@ -208,7 +205,7 @@ On a network or in an agent sandbox that limits outbound traffic, allow all of t
 | `*.svc.pxt.run` | 443, HTTPS | Requests to a hosted service, and `pxt service update` and `pxt service restart`, which wait for it to answer |
 | `*.pxt.run` | 443, TCP | Everything that uses tables: `pxt schema update`, `pxt service update`, `pxt ls`, `pxt.get_table()` |
 
-The connection to `{org}-{db}.pxt.run` is TLS on TCP port 443, opened directly rather than through an HTTP proxy. A network that blocks it still lets the other commands work, `pxt db update` included. A command that uses the tables fails: within about 40 s with `Cannot reach pxt://org:main: the TCP connection to org-main.pxt.run:443 timed out` where the network drops the connection, or after about 90 s with a connection error where it refuses it.
+The connection to `{org}-{db}.pxt.run` is TLS on TCP port 443. It goes through the `http://` proxy that `HTTPS_PROXY` names, unless `NO_PROXY` lists the host. With any other kind of proxy, such as `socks5://`, or a proxy set only in the system settings, it connects directly. A network that blocks it still lets the other commands work, `pxt db update` included. A command that uses the tables fails: within about 40 s with `Cannot reach pxt://org:main: the TCP connection to org-main.pxt.run:443 timed out` where the network drops the connection, or after about 90 s with a connection error where it refuses it.
 
 To allow these hosts for a coding agent:
 
@@ -216,7 +213,7 @@ To allow these hosts for a coding agent:
 - **Codex cloud**: turn on **Allow Codex to access internet** for the environment, choose **Custom domains only** or **Package managers**, and add each host under **Additional allowed domains**. Codex does not document wildcards, so list the database's own host, such as `org-main.pxt.run`. If the environment limits HTTP methods, allow `POST` and `PUT`.
 - **GitHub Copilot cloud agent**: in the repository's **Settings > Copilot > Internet access**, add `pixeltable.com`, `workos.com`, `pxt.run`, `r2.cloudflarestorage.com` and `s3.amazonaws.com` to the custom allowlist. Each entry also allows its subdomains.
 
-Claude Code on the web and Codex cloud send all outbound traffic through an HTTP proxy, which the `*.pxt.run` connection does not use. There, the commands that use tables can fail even with `*.pxt.run` allowed; the other commands work.
+Claude Code on the web sends all outbound traffic through an HTTP proxy and sets `HTTPS_PROXY` to it, so `pxt` needs no proxy settings of its own there.
 
 ## Media on the home bucket
 
