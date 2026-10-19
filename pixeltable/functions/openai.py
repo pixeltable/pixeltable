@@ -987,8 +987,7 @@ def _decode_image_response(result: dict) -> dict:
 # Exception: data is non-null here even though the SDK declares it Optional[List[Image]] = None,
 # because _decode_image_response() raises on a missing payload, so callers can rely on a populated list.
 # safety_identifier (openai>=3.33) is not declared. Adding a key widens the stored return type, so
-# existing image computed columns fail the catalog-reload supertype check. A missing key reads as
-# null via JsonPath, the same rule as size.
+# existing image computed columns fail the catalog-reload supertype check.
 
 
 class UsageInputTokensDetails(TypedDict):

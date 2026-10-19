@@ -1010,24 +1010,24 @@ class TestOpenaiTypedDictAdherence:
 
         assert ours_optional == frozenset(ours_fields.keys())
 
-    def test_images_response(self) -> None:
-        """ImagesResponse mirrors SDK ImagesResponse field-for-field, except data is non-null
-        (we guarantee a populated list in _decode_image_response)."""
-        skip_test_if_not_installed('openai')
-        from openai.types.images_response import ImagesResponse as SdkImagesResponse
+    def _assert_images_response(self, sdk_model: type) -> None:
+        """ImagesResponse mirrors `sdk_model` except `data` is non-null and `safety_identifier` is omitted."""
+        import pydantic
 
         from pixeltable.functions.openai import ImagesResponse
 
+        assert issubclass(sdk_model, pydantic.BaseModel)
         ours_fields, ours_optional = self._td_fields(ImagesResponse)
-        sdk_fields = self._pydantic_fields(SdkImagesResponse)
+        sdk_fields = self._pydantic_fields(sdk_model)
 
         overrides = {'data'}  # we re-type and guarantee non-null
         # openai 3.24 no longer declares size; a missing key reads as null, which size allows
         dropped_by_sdk = {'size'} - set(sdk_fields)
         # openai>=3.33 declares safety_identifier. ImagesResponse omits it: adding a key widens the stored
-        # return type and invalidates existing image computed columns. A missing key reads as null, the same
-        # rule as size. Skip it in the field loop, but still check its SDK type so a rename or retype fails.
-        sdk_only = {'safety_identifier'} & set(sdk_fields)
+        # return type and invalidates existing image computed columns. Skip it in the field-set comparison.
+        # Presence is the raw model_fields entry, so an annotation _pydantic_fields() cannot convert still fails.
+        raw_sdk_fields = set(sdk_model.model_fields)
+        sdk_only = {'safety_identifier'} & raw_sdk_fields
         assert set(ours_fields) - dropped_by_sdk == set(sdk_fields) - sdk_only, (
             f'ImagesResponse field set drifted: ours={set(ours_fields)} sdk={set(sdk_fields)}'
         )
@@ -1037,9 +1037,63 @@ class TestOpenaiTypedDictAdherence:
             assert self._normalize(ours_fields[name]) == self._normalize(sdk_type), (
                 f'ImagesResponse field {name!r} drifted: ours={ours_fields[name]} sdk={sdk_type}'
             )
-        if 'safety_identifier' in sdk_fields:
-            assert self._normalize(sdk_fields['safety_identifier']) == self._normalize(ts.StringType(nullable=True)), (
-                f'SDK safety_identifier is no longer a nullable string: {sdk_fields["safety_identifier"]}'
+        if 'safety_identifier' in raw_sdk_fields:
+            annotation = sdk_model.model_fields['safety_identifier'].annotation
+            try:
+                converted = ts.ColumnType.normalize_type(annotation)
+            except Exception as exc:
+                raise AssertionError(
+                    'SDK safety_identifier is present but cannot be converted to a Pixeltable type: '
+                    f'{annotation!r} ({exc})'
+                ) from exc
+            assert self._normalize(converted) == self._normalize(ts.StringType(nullable=True)), (
+                f'SDK safety_identifier is no longer a nullable string: {converted}'
             )
         # all fields always present
         assert ours_optional == frozenset()
+
+    def _with_model_fields(self, model: type, fields: dict[str, Any]) -> type:
+        """Subclass `model` with a replaced `model_fields` dict.
+
+        Pydantic types `model_fields` as a property, so the test assigns it through Any.
+        """
+        clone = type(model.__name__, (model,), {})
+        holder: Any = clone
+        holder.model_fields = fields
+        return clone
+
+    def test_images_response(self) -> None:
+        """ImagesResponse mirrors SDK ImagesResponse field-for-field, except data is non-null
+        (we guarantee a populated list in _decode_image_response)."""
+        skip_test_if_not_installed('openai')
+        from openai.types.images_response import ImagesResponse as SdkImagesResponse
+
+        self._assert_images_response(SdkImagesResponse)
+
+    def test_images_response_unconvertible_safety_identifier(self) -> None:
+        """A safety_identifier annotation that is not a Pixeltable type must fail the adherence guard.
+
+        `_pydantic_fields()` drops annotations it cannot convert, so the field-set comparison alone misses
+        a retype such as `str | int | None`.
+        """
+        skip_test_if_not_installed('openai')
+        import pydantic
+        from openai.types.images_response import ImagesResponse as SdkImagesResponse
+
+        fields: dict[str, Any] = dict(SdkImagesResponse.model_fields)
+        retyped_annotation: Any = str | int | None
+        fields['safety_identifier'] = pydantic.fields.FieldInfo(annotation=retyped_annotation, default=None)
+        retyped = self._with_model_fields(SdkImagesResponse, fields)
+
+        with pytest.raises(AssertionError, match='cannot be converted'):
+            self._assert_images_response(retyped)
+
+    def test_images_response_without_safety_identifier(self) -> None:
+        """Older SDKs that do not declare safety_identifier still match ImagesResponse."""
+        skip_test_if_not_installed('openai')
+        from openai.types.images_response import ImagesResponse as SdkImagesResponse
+
+        fields: dict[str, Any] = {
+            name: info for name, info in SdkImagesResponse.model_fields.items() if name != 'safety_identifier'
+        }
+        self._assert_images_response(self._with_model_fields(SdkImagesResponse, fields))
