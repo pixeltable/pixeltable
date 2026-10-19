@@ -33,6 +33,7 @@ class FocusOfTest(unittest.TestCase):
             'claude review-the-change is great',
             'claude review .github/workflows',
             'claude reviewer',
+            'claude reviews',
             '## Claude review',
         ]
         for body in remarks:
