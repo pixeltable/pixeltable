@@ -975,6 +975,8 @@ def _decode_image_response(result: dict) -> dict:
         img = PIL.Image.open(io.BytesIO(b64_bytes))
         img.load()
         data[i] = img
+    # openai<3.33 does not declare safety_identifier, so model_dump() omits it. ImagesResponse requires the key.
+    result.setdefault('safety_identifier', None)
     return result
 
 
@@ -1013,6 +1015,7 @@ class ImagesResponse(TypedDict):
     background: str | None
     output_format: str | None
     quality: str | None
+    safety_identifier: str | None
     size: str | None
 
 

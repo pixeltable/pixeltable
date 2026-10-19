@@ -952,7 +952,10 @@ class TestOpenaiTypedDictAdherence:
         overrides = {'data'}  # we re-type and guarantee non-null
         # openai 3.24 no longer declares size; a missing key reads as null, which size allows
         dropped_by_sdk = {'size'} - set(sdk_fields)
-        assert set(ours_fields) - dropped_by_sdk == set(sdk_fields), (
+        # openai 3.33 added safety_identifier. Older releases omit it; we still declare it and
+        # _decode_image_response fills None so every output dict has the key.
+        declared_ahead = {'safety_identifier'} - set(sdk_fields)
+        assert set(ours_fields) - dropped_by_sdk - declared_ahead == set(sdk_fields), (
             f'ImagesResponse field set drifted: ours={set(ours_fields)} sdk={set(sdk_fields)}'
         )
         for name, sdk_type in sdk_fields.items():
@@ -963,3 +966,35 @@ class TestOpenaiTypedDictAdherence:
             )
         # all fields always present
         assert ours_optional == frozenset()
+
+    def test_decode_image_response_fills_omitted_safety_identifier(self) -> None:
+        """Older SDKs omit safety_identifier; the decoded dict still has the key."""
+        import base64
+        import io
+
+        from pixeltable.functions.openai import _decode_image_response
+
+        buf = io.BytesIO()
+        PIL.Image.new('RGB', (1, 1)).save(buf, format='PNG')
+        b64 = base64.b64encode(buf.getvalue()).decode()
+
+        omitted = _decode_image_response({'created': 1, 'data': [{'b64_json': b64}]})
+        assert 'safety_identifier' in omitted
+        assert omitted['safety_identifier'] is None
+        assert isinstance(omitted['data'][0], PIL.Image.Image)
+
+        kept = _decode_image_response({'created': 2, 'data': [{'b64_json': b64}], 'safety_identifier': 'user_123'})
+        assert kept['safety_identifier'] == 'user_123'
+
+        try:
+            from openai.types.image import Image as SdkImage
+            from openai.types.images_response import ImagesResponse as SdkImagesResponse
+        except ImportError:
+            return
+
+        # 3.33+ model_dump includes the default None; older SDKs omit the field and the decoder fills it.
+        from_sdk = _decode_image_response(
+            SdkImagesResponse(created=3, data=[SdkImage(b64_json=b64)]).model_dump(mode='json')
+        )
+        assert from_sdk['safety_identifier'] is None
+        assert isinstance(from_sdk['data'][0], PIL.Image.Image)
