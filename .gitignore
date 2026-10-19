@@ -4,7 +4,10 @@
 !.claude/commands/
 !.claude/skills/
 .claude/skills/*
-!.claude/skills/review-360/
+!.claude/skills/marcel-review/
+!.claude/skills/challenge-the-design/
+!.claude/skills/walk-the-job/
+!.claude/skills/blast-radius/
 .coverage
 .idea
 .ipynb_checkpoints
