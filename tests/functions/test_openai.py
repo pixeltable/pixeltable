@@ -1025,7 +1025,8 @@ class TestOpenaiTypedDictAdherence:
         dropped_by_sdk = {'size'} - set(sdk_fields)
         # openai>=3.33 declares safety_identifier. ImagesResponse omits it: adding a key widens the stored
         # return type and invalidates existing image computed columns. Skip it in the field-set comparison.
-        # Presence is the raw model_fields entry, so an annotation _pydantic_fields() cannot convert still fails.
+        # Take presence from the raw model_fields entry, so an annotation that
+        # _pydantic_fields() cannot convert still fails this guard.
         raw_sdk_fields = set(sdk_model.model_fields)
         sdk_only = {'safety_identifier'} & raw_sdk_fields
         assert set(ours_fields) - dropped_by_sdk == set(sdk_fields) - sdk_only, (
@@ -1063,7 +1064,7 @@ class TestOpenaiTypedDictAdherence:
         return clone
 
     def test_images_response(self) -> None:
-        """ImagesResponse mirrors SDK ImagesResponse field-for-field, except data is non-null
+        """ImagesResponse mirrors SDK ImagesResponse, except data is non-null and safety_identifier is omitted
         (we guarantee a populated list in _decode_image_response)."""
         skip_test_if_not_installed('openai')
         from openai.types.images_response import ImagesResponse as SdkImagesResponse
