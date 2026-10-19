@@ -377,8 +377,8 @@ class TestGemini:
         and verifies that retry logic recovers those rows.
 
         Meant to be used with a free-tier Gemini API key, to verify that RateLimitsScheduler retries
-        429s. A no-candidates ExternalServiceError is an expected row outcome and is not retried. Any
-        other exception fails the test.
+        429s. A no-candidates ExternalServiceError is an expected row outcome and is not retried. The
+        test fails if no row succeeds, or if any row fails for another reason.
         """
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -419,6 +419,7 @@ class TestGemini:
         assert status.num_excs == len(failures), (
             f'{status.num_excs} exceptions recorded, but {len(failures)} response rows stored an error'
         )
+        assert succeeded > 0, 'scheduler test recorded no successful rows'
 
     def test_embed_content_multimodal(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
