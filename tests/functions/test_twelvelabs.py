@@ -1,4 +1,7 @@
+# type: ignore
+
 import asyncio
+import time
 from base64 import b64decode
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +15,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.functions.audio import audio_splitter
 from pixeltable.functions.video import video_splitter
+from pixeltable.utils.http import is_retryable_error
 
 from ..utils import (
     get_audio_files,
@@ -27,6 +31,25 @@ from ..utils import (
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
+class _RetrieveHttpError(Exception):
+    """Duck-typed TwelveLabs retrieve failure with an HTTP status."""
+
+    def __init__(self, status_code: int, message: str, *, headers: dict[str, str] | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        if headers is not None:
+            self.headers = headers
+
+
+def _fast_polls(monkeypatch: pytest.MonkeyPatch, *, timeout: float | None = None) -> None:
+    """Make the readiness poll return without waiting out the real interval."""
+    from pixeltable.functions import twelvelabs
+
+    monkeypatch.setattr(twelvelabs, '_ASSET_POLL_INTERVAL_SECS', 0.0)
+    if timeout is not None:
+        monkeypatch.setattr(twelvelabs, '_ASSET_READY_TIMEOUT_SECS', timeout)
+
+
 @pytest.fixture
 def mock_embeddings(init_env: None, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     skip_test_if_not_installed('twelvelabs')
@@ -36,10 +59,47 @@ def mock_embeddings(init_env: None, monkeypatch: pytest.MonkeyPatch) -> AsyncMoc
     client = SimpleNamespace(
         embed=SimpleNamespace(v_2=SimpleNamespace(create=create)),
         multipart_upload=SimpleNamespace(upload_file=AsyncMock(return_value=SimpleNamespace(asset_id='test-asset'))),
-        assets=SimpleNamespace(delete=AsyncMock()),
+        assets=SimpleNamespace(
+            delete=AsyncMock(), retrieve=AsyncMock(return_value=SimpleNamespace(status='ready', error=None))
+        ),
     )
     monkeypatch.setattr(twelvelabs, '_twelvelabs_client', lambda: client)
     return create
+
+
+class _LargeMediaClient:
+    """Upload client and media file shared by the large-media embed tests."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch, media: Path) -> None:
+        self._monkeypatch = monkeypatch
+        self.media = media
+
+    def install(self, *, upload_file: Any, retrieve: Any, create: Any, delete: Any) -> SimpleNamespace:
+        from pixeltable.functions import twelvelabs
+
+        client = SimpleNamespace(
+            embed=SimpleNamespace(v_2=SimpleNamespace(create=self._mock(create))),
+            multipart_upload=SimpleNamespace(upload_file=self._mock(upload_file)),
+            assets=SimpleNamespace(retrieve=self._mock(retrieve), delete=self._mock(delete)),
+        )
+        self._monkeypatch.setattr(twelvelabs, '_twelvelabs_client', lambda: client)
+        return client
+
+    @staticmethod
+    def _mock(fn: Any) -> AsyncMock:
+        return fn if isinstance(fn, AsyncMock) else AsyncMock(side_effect=fn)
+
+
+@pytest.fixture
+def large_media_client(init_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _LargeMediaClient:
+    """One TwelveLabs client for embed tests that upload instead of inlining the media."""
+    skip_test_if_not_installed('twelvelabs')
+    from pixeltable.functions import twelvelabs
+
+    media = tmp_path / 'media.mp4'
+    media.write_bytes(b'media')
+    monkeypatch.setattr(twelvelabs, 'TWELVELABS_INLINE_LIMIT_BYTES', 0)
+    return _LargeMediaClient(monkeypatch, media)
 
 
 class TestTwelveLabsLocal:
@@ -191,6 +251,295 @@ class TestTwelveLabsLocal:
         asyncio.run(twelvelabs.embed.py_fns[0](text='test', model_name='marengo3.0'))
         mock_embeddings.assert_awaited_once()
 
+    def test_embed_waits_until_asset_is_ready(
+        self, large_media_client: _LargeMediaClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pixeltable.functions import twelvelabs
+
+        _fast_polls(monkeypatch)
+        events: list[str] = []
+        statuses = ['processing', 'processing', 'ready']
+
+        def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
+            events.append('upload')
+            return SimpleNamespace(asset_id='asset-1')
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            status = statuses.pop(0)
+            events.append(f'retrieve:{status}')
+            return SimpleNamespace(status=status, error=None)
+
+        def create(**kwargs: Any) -> SimpleNamespace:
+            events.append('create')
+            assert kwargs['video'].media_source.asset_id == 'asset-1'
+            return SimpleNamespace(data=[SimpleNamespace(embedding=[0.5] * 512)])
+
+        def delete(asset_id: str) -> None:
+            events.append(f'delete:{asset_id}')
+
+        large_media_client.install(upload_file=upload_file, retrieve=retrieve, create=create, delete=delete)
+
+        vector = asyncio.run(twelvelabs.embed.py_fns[3](str(large_media_client.media), model_name='marengo3.0'))
+        assert vector.shape == (512,)
+        assert vector.dtype == np.float32
+        assert events == [
+            'upload',
+            'retrieve:processing',
+            'retrieve:processing',
+            'retrieve:ready',
+            'create',
+            'delete:asset-1',
+        ]
+
+    def test_embed_failed_asset_names_reason_and_is_deleted(
+        self, large_media_client: _LargeMediaClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pixeltable.functions import twelvelabs
+
+        events: list[str] = []
+
+        def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
+            return SimpleNamespace(asset_id='ee429ff')
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            events.append(f'retrieve:{asset_id}')
+            return SimpleNamespace(status='failed', error=SimpleNamespace(message='processing timed out'))
+
+        def create(**kwargs: Any) -> SimpleNamespace:
+            events.append('create')
+            raise AssertionError('embed should not run when the asset failed')
+
+        def delete(asset_id: str) -> None:
+            events.append(f'delete:{asset_id}')
+
+        large_media_client.install(upload_file=upload_file, retrieve=retrieve, create=create, delete=delete)
+
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='ee429ff') as exc_info:
+            asyncio.run(twelvelabs.embed.py_fns[3](str(large_media_client.media), model_name='marengo3.0'))
+        assert 'processing timed out' in str(exc_info.value)
+        assert exc_info.value.provider_http_status_code == 502
+        assert is_retryable_error(exc_info.value) == (False, None)
+        assert 'create' not in events
+        assert events == ['retrieve:ee429ff', 'delete:ee429ff']
+
+    def test_embed_readiness_deadline_deletes_asset(
+        self, large_media_client: _LargeMediaClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pixeltable.functions import twelvelabs
+
+        _fast_polls(monkeypatch, timeout=0.05)
+        events: list[str] = []
+
+        def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
+            return SimpleNamespace(asset_id='asset-1')
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            events.append('retrieve')
+            return SimpleNamespace(status='processing', error=None)
+
+        def create(**kwargs: Any) -> SimpleNamespace:
+            events.append('create')
+            raise AssertionError('embed should not run when the asset is not ready')
+
+        def delete(asset_id: str) -> None:
+            events.append(f'delete:{asset_id}')
+
+        large_media_client.install(upload_file=upload_file, retrieve=retrieve, create=create, delete=delete)
+
+        started = time.monotonic()
+        with pxt_raises(pxt.ErrorCode.PROVIDER_TIMEOUT, match='not ready') as exc_info:
+            asyncio.run(twelvelabs.embed.py_fns[3](str(large_media_client.media), model_name='marengo3.0'))
+        assert is_retryable_error(exc_info.value) == (False, None)
+        assert time.monotonic() - started < 1
+        assert 'create' not in events
+        assert events[0] == 'retrieve'
+        assert events[-1] == 'delete:asset-1'
+
+    def test_stalled_retrieve_reaches_the_deadline(
+        self, large_media_client: _LargeMediaClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pixeltable.functions import twelvelabs
+
+        _fast_polls(monkeypatch, timeout=0.05)
+        events: list[str] = []
+
+        def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
+            return SimpleNamespace(asset_id='asset-1')
+
+        async def retrieve(asset_id: str) -> SimpleNamespace:
+            events.append('retrieve')
+            await asyncio.sleep(5)
+            events.append('retrieve-finished')
+            return SimpleNamespace(status='ready', error=None)
+
+        def create(**kwargs: Any) -> SimpleNamespace:
+            events.append('create')
+            raise AssertionError('embed should not run when retrieve does not return')
+
+        def delete(asset_id: str) -> None:
+            events.append(f'delete:{asset_id}')
+
+        large_media_client.install(upload_file=upload_file, retrieve=retrieve, create=create, delete=delete)
+
+        started = time.monotonic()
+        with pxt_raises(pxt.ErrorCode.PROVIDER_TIMEOUT, match='not ready') as exc_info:
+            asyncio.run(twelvelabs.embed.py_fns[3](str(large_media_client.media), model_name='marengo3.0'))
+        assert is_retryable_error(exc_info.value) == (False, None)
+        assert time.monotonic() - started < 1
+        assert events == ['retrieve', 'delete:asset-1']
+
+    def test_rate_limited_retrieve_is_polled_again(
+        self, large_media_client: _LargeMediaClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pixeltable.functions import twelvelabs
+
+        _fast_polls(monkeypatch)
+        calls = 0
+
+        def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
+            return SimpleNamespace(asset_id='asset-1')
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise _RetrieveHttpError(429, 'slow down')
+            return SimpleNamespace(status='ready', error=None)
+
+        def create(**kwargs: Any) -> SimpleNamespace:
+            return SimpleNamespace(data=[SimpleNamespace(embedding=[0.5] * 512)])
+
+        deleted: list[str] = []
+
+        def delete(asset_id: str) -> None:
+            deleted.append(asset_id)
+
+        large_media_client.install(upload_file=upload_file, retrieve=retrieve, create=create, delete=delete)
+
+        vector = asyncio.run(twelvelabs.embed.py_fns[3](str(large_media_client.media), model_name='marengo3.0'))
+        assert vector.shape == (512,)
+        assert calls == 2
+        assert deleted == ['asset-1']
+
+    def test_retry_after_retrieve_is_polled_again(
+        self, large_media_client: _LargeMediaClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pixeltable.functions import twelvelabs
+
+        _fast_polls(monkeypatch)
+        calls = 0
+        slept: list[float] = []
+        limited = _RetrieveHttpError(429, 'slow down', headers={'Retry-After': '60'})
+        assert is_retryable_error(limited) == (True, 60.0)
+        real_sleep = asyncio.sleep
+
+        async def capture_sleep(delay: float) -> None:
+            slept.append(delay)
+            await real_sleep(0)
+
+        # The poll interval is already 0. Record the provider delay instead of waiting it out.
+        monkeypatch.setattr(twelvelabs.asyncio, 'sleep', capture_sleep)
+
+        def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
+            return SimpleNamespace(asset_id='asset-1')
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise limited
+            return SimpleNamespace(status='ready', error=None)
+
+        def create(**kwargs: Any) -> SimpleNamespace:
+            return SimpleNamespace(data=[SimpleNamespace(embedding=[0.5] * 512)])
+
+        deleted: list[str] = []
+
+        def delete(asset_id: str) -> None:
+            deleted.append(asset_id)
+
+        large_media_client.install(upload_file=upload_file, retrieve=retrieve, create=create, delete=delete)
+
+        vector = asyncio.run(twelvelabs.embed.py_fns[3](str(large_media_client.media), model_name='marengo3.0'))
+        assert vector.shape == (512,)
+        assert calls == 2
+        assert deleted == ['asset-1']
+        assert max(slept) >= 60
+
+    def test_missing_asset_is_not_polled_again(
+        self, large_media_client: _LargeMediaClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pixeltable.functions import twelvelabs
+
+        _fast_polls(monkeypatch, timeout=0.5)
+        calls = 0
+        deleted: list[str] = []
+
+        def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
+            return SimpleNamespace(asset_id='ee429ff')
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            nonlocal calls
+            calls += 1
+            raise _RetrieveHttpError(404, 'asset ee429ff was not found')
+
+        def create(**kwargs: Any) -> SimpleNamespace:
+            raise AssertionError('embed should not run when retrieve fails')
+
+        def delete(asset_id: str) -> None:
+            deleted.append(asset_id)
+
+        large_media_client.install(upload_file=upload_file, retrieve=retrieve, create=create, delete=delete)
+
+        with pytest.raises(_RetrieveHttpError, match='ee429ff') as exc_info:
+            asyncio.run(twelvelabs.embed.py_fns[3](str(large_media_client.media), model_name='marengo3.0'))
+        assert calls == 1
+        assert deleted == ['ee429ff']
+        assert is_retryable_error(exc_info.value) == (False, None)
+
+    def test_asset_uploads_waits_for_each_asset(
+        self, init_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        from pixeltable.functions import twelvelabs
+
+        _fast_polls(monkeypatch)
+        files: list[str] = []
+        for name in ('a.mp4', 'b.mp4'):
+            path = tmp_path / name
+            path.write_bytes(b'media')
+            files.append(str(path))
+        statuses = {'a.mp4': ['processing', 'ready'], 'b.mp4': ['ready']}
+        seen: list[tuple[str, str]] = []
+        deleted: list[str] = []
+
+        def upload_file(file_path: str, file_type: str) -> SimpleNamespace:
+            return SimpleNamespace(asset_id=Path(file_path).name)
+
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            status = statuses[asset_id].pop(0)
+            seen.append((asset_id, status))
+            return SimpleNamespace(status=status, error=None)
+
+        def delete(asset_id: str) -> None:
+            deleted.append(asset_id)
+
+        client = SimpleNamespace(
+            multipart_upload=SimpleNamespace(upload_file=AsyncMock(side_effect=upload_file)),
+            assets=SimpleNamespace(retrieve=AsyncMock(side_effect=retrieve), delete=AsyncMock(side_effect=delete)),
+        )
+        monkeypatch.setattr(twelvelabs, '_twelvelabs_client', lambda: client)
+
+        async def run() -> list[str]:
+            async with twelvelabs._asset_uploads('video', files) as asset_ids:
+                return list(asset_ids)
+
+        assert asyncio.run(run()) == ['a.mp4', 'b.mp4']
+        assert seen.count(('a.mp4', 'processing')) == 1
+        assert seen.index(('a.mp4', 'processing')) < seen.index(('a.mp4', 'ready'))
+        assert seen.count(('b.mp4', 'ready')) == 1
+        assert sorted(deleted) == ['a.mp4', 'b.mp4']
+
     def test_embedding_indexes(self, uses_db: None, mock_embeddings: AsyncMock) -> None:
         from pixeltable.functions import twelvelabs
 
@@ -292,7 +641,6 @@ class TestTwelveLabs:
         res = v.select(embedding=v.video_segment.embedding()).collect()
         assert res['embedding'][0].shape == (512,)
 
-    @pytest.mark.skip(reason='feature broken: PXT-1234')
     def test_embed_large_media(self, uses_db: None, model_name: str) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
