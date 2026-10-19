@@ -13,13 +13,13 @@ from ..utils import (
     EXIT_ERROR,
     EXIT_IN_AGREEMENT,
     EXIT_REFUSED,
-    can_prompt,
     check_file,
     confirm_or_exit,
     post_request,
     print_json_schema,
     print_next,
     rerun_command,
+    stdin_is_a_tty,
 )
 
 # a working schema file: written verbatim by 'pxt schema example', and shown indented in every verb's epilog,
@@ -508,7 +508,7 @@ def _decide_update(app_file: str, catalog_dir: PxtPath, *, as_json: bool, force:
             file=sys.stderr,
         )
         # add -f too when the confirmation that follows would refuse in turn
-        flags = ('--allow-destructive',) if force or can_prompt() else ('--allow-destructive', '-f')
+        flags = ('--allow-destructive',) if force or stdin_is_a_tty() else ('--allow-destructive', '-f')
         command = rerun_command(*flags)
         if command is not None:
             print_next(command, f'applies {destructive} destructive operation(s), deleting the data they drop')

@@ -52,13 +52,7 @@ These flags work the same way across the catalog commands that support them and 
 | `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs other than `example`, plus `init`, `skills install`, `login`, `whoami`, `db`, `secret`, `org`, `key`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), `schema example` and `service example` (which print an example file), or the commands that print plain status lines (`logout`, `daemon start`/`stop`/`restart`). |
 | `--json-schema` | `schema diff`, `service diff`, `db diff`, `db status`, `service list` | Print the JSON Schema of that command's `--json` output, with descriptions of every field and enum value, and exit. |
 | `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), plus `schema update`, `schema prune`, `service update` and `service prune` | Print the intended action; don't execute. |
-| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`, `db update`, `db delete`, `skills install`) | Skip the `[y/N]` prompt. Required in non-interactive contexts and when a [coding agent](#under-a-coding-agent) runs the command: without it the command exits `3` and names the command to run with `-f` on a `next:` line (see [Output and scripting](#output-and-scripting)). `rename` and `mv` don't prompt and don't accept `-f`. |
-
-### Under a coding agent
-
-A coding agent that runs `pxt` has no one to answer a `[y/N]` prompt, and one that runs it in a terminal would wait on the prompt or answer it itself. So under an agent, `pxt` never prompts: a command that would ask for confirmation refuses unless it has `-f`/`--force`, names the command to run with `-f`, and the agent asks its user before running it. `pxt shell` does not start.
-
-`pxt` recognizes an agent by the environment variables agents set for the commands they run, such as `CLAUDECODE` (Claude Code), `CURSOR_AGENT` (Cursor), `GEMINI_CLI`, `CODEX_CI` (Codex), `OPENCODE_CLIENT` and `AUGMENT_AGENT`, or by `AI_AGENT`, which any agent can set to its name. Set `PXT_AGENT=1` to treat a session as an agent's, or `PXT_AGENT=0` to treat it as a person's.
+| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`, `db update`, `db delete`, `skills install`) | Skip the `[y/N]` prompt. Required in non-interactive contexts: without it the command exits `3` and names the command to run with `-f` on a `next:` line (see [Output and scripting](#output-and-scripting)). `rename` and `mv` don't prompt and don't accept `-f`. |
 
 ### Working directory
 
@@ -313,7 +307,7 @@ For each failed column, a `next:` line names the `pxt recompute ... --errors-onl
 
 ## Mutation commands
 
-Every mutation accepts the universal `-n`/`--dry-run` and `--json` flags. The destructive ones (`drop`, `drop-dir`, `recompute`, `revert`) also prompt `[y/N]` with a TTY and accept `-f`/`--force` to skip the prompt; in non-interactive contexts, and under a [coding agent](#under-a-coding-agent), they exit `3` without `-f`. `rename` and `mv` don't prompt: renaming or moving a catalog entry is reversible and doesn't lose data.
+Every mutation accepts the universal `-n`/`--dry-run` and `--json` flags. The destructive ones (`drop`, `drop-dir`, `recompute`, `revert`) also prompt `[y/N]` with a TTY and accept `-f`/`--force` to skip the prompt; in non-interactive contexts they exit `3` without `-f`. `rename` and `mv` don't prompt: renaming or moving a catalog entry is reversible and doesn't lose data.
 
 ### `pxt drop`
 
@@ -632,7 +626,7 @@ Pruning is irreversible. Run it with `-n` first.
 
 ## Interactive shell
 
-For a person or a script that issues many commands in sequence, `pxt shell` amortizes Python startup over the session. It does not start under a [coding agent](#under-a-coding-agent), which cannot type into it:
+For scripted workloads that issue many commands in sequence, `pxt shell` amortizes Python startup over the session:
 
 ```text
 $ pxt shell
