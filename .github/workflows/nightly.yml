@@ -59,7 +59,7 @@ jobs:
           - "anthropic fireworks-ai 'google-genai<1.72.0' groq jina mistralai openai replicate together"
           - "fal-client runwayml twelvelabs voyageai"
           - "huggingface-hub llama-cpp-python openai-whisper"
-          - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
+          - "datasets openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
           - "pixeltable-yolox"
         os: [ubuntu-24.04]
         include:
@@ -145,8 +145,7 @@ jobs:
       - name: Run the unit tests
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
-        # boto3 is a core dependency, so Bedrock's live tests would run in every job; run them only where boto3 is named
-        run: pytest -v -m '' ${{ !contains(matrix.package-configs, 'boto3') && '--ignore=tests/functions/test_bedrock.py' || '' }} --junitxml=junit-report.xml tests
+        run: pytest -v -m 'not very_expensive' --junitxml=junit-report.xml tests
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
