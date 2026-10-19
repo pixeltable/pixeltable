@@ -14,7 +14,7 @@ import urllib.parse
 from typing import NoReturn
 
 from ..parser import Parser
-from ..utils import EXIT_ERROR, EXIT_REFUSED, agent_name
+from ..utils import EXIT_ERROR, EXIT_REFUSED
 
 DEFAULT_URL = 'https://www.pixeltable.com/api/v1/feedback'
 
@@ -24,6 +24,22 @@ MAX_MESSAGE_CHARS = 4000
 _MAX_OS_CHARS = 80
 _MAX_AGENT_CHARS = 40
 _SEND_TIMEOUT_SECS = 15
+
+# Set by coding agents in the environment of the commands they run, as @vercel/detect-agent reads
+# them: variable -> agent. Left out: CURSOR_TRACE_ID and REPL_ID, which every Cursor terminal and
+# Replit shell carries, and the COPILOT_* settings, which a person's shell profile can export.
+_AGENT_MARKERS = {
+    'CURSOR_AGENT': 'cursor',
+    'GEMINI_CLI': 'gemini',
+    'CODEX_SANDBOX': 'codex',
+    'CODEX_CI': 'codex',
+    'CODEX_THREAD_ID': 'codex',
+    'ANTIGRAVITY_AGENT': 'antigravity',
+    'AUGMENT_AGENT': 'augment',
+    'OPENCODE_CLIENT': 'opencode',
+    'CLAUDECODE': 'claude',
+    'CLAUDE_CODE': 'claude',
+}
 
 EPILOG = f"""\
 Examples:
@@ -104,10 +120,17 @@ def run(argv: list[str]) -> None:
 
 
 def _agent() -> str | None:
-    """The coding agent this runs under, as utils.agent_name() names it, cut to the length the site accepts."""
-    name = agent_name()
+    """The coding agent this runs under, on one line and cut to the length the site accepts; None for none.
+
+    AI_AGENT, which any agent can set to its own name, comes first. It only names the agent in the report.
+    """
     # on one line: a newline in AI_AGENT would print a line of its choosing into the preview
-    return None if name is None else ' '.join(name.split())[:_MAX_AGENT_CHARS]
+    declared = ' '.join(os.environ.get('AI_AGENT', '').split())
+    if declared != '':
+        return declared[:_MAX_AGENT_CHARS]
+    if os.environ.get('CURSOR_EXTENSION_HOST_ROLE') == 'agent-exec':
+        return 'cursor'
+    return next((agent for marker, agent in _AGENT_MARKERS.items() if os.environ.get(marker)), None)
 
 
 def _os_name() -> str:

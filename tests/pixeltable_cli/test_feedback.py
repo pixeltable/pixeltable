@@ -18,7 +18,7 @@ _MESSAGE = 'No way to diff two catalogs.\nTried pxt schema diff on both.'
 
 # every variable that could name an agent, and those a person's own terminal sets too
 _AGENT_ENV = (
-    *utils._AGENT_MARKERS,
+    *feedback._AGENT_MARKERS,
     'AI_AGENT',
     'CURSOR_EXTENSION_HOST_ROLE',
     'CURSOR_TRACE_ID',
@@ -304,9 +304,39 @@ class TestFeedback:
 
 
 class TestAgentName:
-    def test_named_as_utils_names_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        ('variable', 'value', 'agent'),
+        [
+            ('CLAUDECODE', '1', 'claude'),
+            ('CLAUDE_CODE', '1', 'claude'),
+            ('CODEX_CI', '1', 'codex'),
+            ('CODEX_SANDBOX', 'seatbelt', 'codex'),
+            ('CODEX_THREAD_ID', 'abc', 'codex'),
+            ('CURSOR_AGENT', '1', 'cursor'),
+            ('CURSOR_EXTENSION_HOST_ROLE', 'agent-exec', 'cursor'),
+            ('GEMINI_CLI', '1', 'gemini'),
+            ('ANTIGRAVITY_AGENT', '1', 'antigravity'),
+            ('AUGMENT_AGENT', '1', 'augment'),
+            ('OPENCODE_CLIENT', 'cli', 'opencode'),
+        ],
+    )
+    def test_detected(self, monkeypatch: pytest.MonkeyPatch, variable: str, value: str, agent: str) -> None:
+        monkeypatch.setenv(variable, value)
+        assert feedback._agent() == agent
+
+    @pytest.mark.parametrize(
+        ('variable', 'value'),
+        [('CURSOR_TRACE_ID', 'abc'), ('REPL_ID', 'abc'), ('COPILOT_AGENT', '1'), ('CLAUDECODE', ''), ('AI_AGENT', ' ')],
+    )
+    def test_not_an_agent(self, monkeypatch: pytest.MonkeyPatch, variable: str, value: str) -> None:
+        """What a person's own terminal also sets, and empty values."""
+        monkeypatch.setenv(variable, value)
+        assert feedback._agent() is None
+
+    def test_declared_name_comes_first(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv('CLAUDECODE', '1')
-        assert feedback._agent() == 'claude'
+        monkeypatch.setenv('AI_AGENT', 'claude-code_2-1-299_agent')
+        assert feedback._agent() == 'claude-code_2-1-299_agent'
 
     def test_cut_to_what_the_site_accepts(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv('AI_AGENT', 'a' * 50)
