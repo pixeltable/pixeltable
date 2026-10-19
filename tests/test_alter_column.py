@@ -1,12 +1,9 @@
-import threading
-
 import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable.runtime import get_runtime
 
-from .utils import DatabaseRoot, pxt_raises, reload_catalog, validate_update_status
+from .utils import DatabaseRoot, pxt_raises, reload_catalog, run_workers, validate_update_status
 
 
 class TestAlterColumn:
@@ -47,24 +44,9 @@ class TestAlterColumn:
         validate_update_status(t.insert(c1='a'), 1)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected non-None'):
             t.insert(c1=None)
-        # this runtime holds the non-nullable schema when another runtime widens the column
-        assert t.columns() == ['c1']
 
-        errors: list[BaseException] = []
-
-        def alter() -> None:
-            try:
-                pxt.get_table(path).alter_column('c1', type_=pxt.String | None)
-            except BaseException as exc:
-                errors.append(exc)
-            finally:
-                get_runtime().close()
-
-        thread = threading.Thread(target=alter)
-        thread.start()
-        thread.join()
-        if len(errors) > 0:
-            raise errors[0]
+        errors = run_workers(lambda _tid: pxt.get_table(path).alter_column('c1', type_=pxt.String | None), n_threads=1)
+        assert len(errors) == 0, errors
 
         validate_update_status(t.insert(c1=None), 1)
         assert t.select(t.c1).order_by(t.c1).collect()['c1'] == ['a', None]

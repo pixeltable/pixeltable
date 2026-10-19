@@ -120,7 +120,7 @@ class InsertableTable(LocalTable):
         return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        from pixeltable.io.table_data_conduit import PydanticTableDataConduit, TableDataConduit
+        from pixeltable.io.table_data_conduit import TableDataConduit
 
         self._validate_insert_source(source)
         fail_on_exception = OnErrorParam.fail_on_exception(on_error)
@@ -134,9 +134,6 @@ class InsertableTable(LocalTable):
             data_source = TableDataConduit.create(
                 source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
             )
-            if isinstance(data_source, PydanticTableDataConduit):
-                # model serializers are user code that can call Pixeltable, which the write transaction would refuse
-                data_source.dump_models()
 
         status = self._insert_table_data_source(
             data_source=data_source,
@@ -159,8 +156,6 @@ class InsertableTable(LocalTable):
 
         start_ts = time.perf_counter()
         status = pxt.UpdateStatus()
-        # the transaction can only load metadata for the tables it declares, and the query's tables can be new to
-        # this thread
         query = data_source.pxt_query if isinstance(data_source, QueryTableDataConduit) else None
         with get_runtime().catalog.begin_xact(
             for_write=True,
@@ -169,8 +164,6 @@ class InsertableTable(LocalTable):
             read_tbl_ids=query.referenced_tbl_ids() if query is not None else None,
             lock_mutable_tree=True,
         ):
-            # Only inside a transaction is the schema validated against the store; outside one, this thread's
-            # cached schema can predate a change that another thread or process made.
             data_source.add_table_info(self)
             data_source.prepare_for_insert_into_table()
             # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;

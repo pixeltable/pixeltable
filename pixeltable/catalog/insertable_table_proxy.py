@@ -128,7 +128,7 @@ class InsertableTableProxy(TableProxy):
 
         # in-memory data sources are sent as row dicts
         if isinstance(data_source, PydanticTableDataConduit):
-            rows = self._pydantic_to_rows(cast('list[Any]', source))
+            rows = self._pydantic_to_rows(data_source)
         elif isinstance(data_source, RowDataTableDataConduit):
             assert data_source.raw_rows is not None
             rows = data_source.raw_rows

@@ -1327,8 +1327,8 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='Expected an instance of `TestModel1`; got `TestModel2`'):
             _ = t.insert(cast(list[pydantic.BaseModel], rows1 + rows2))
 
-    def test_insert_pydantic_serializer_reads_table(self, db_root: DatabaseRoot) -> None:
-        """A model serializer can call Pixeltable during insert()."""
+    def test_pydantic_serializer_reads_table(self, db_root: DatabaseRoot) -> None:
+        """A model serializer can call Pixeltable during insert() and compute()."""
         p = db_root.make_catalog_path
         lookup = pxt.create_table(p('lookup'), {'name': pxt.String})
         validate_update_status(lookup.insert(name='a'), expected_rows=1)
@@ -1343,6 +1343,7 @@ class TestTable:
 
         validate_update_status(t.insert([Row(s='x')]), expected_rows=1)
         assert t.select(t.s).collect()['s'] == ['x1']
+        assert [out['s'] for out in t.compute([Row(s='y')])] == ['y1']
 
     def test_compute_with_errors(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

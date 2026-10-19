@@ -8,7 +8,7 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import DatabaseRoot, DummyIterator, pxt_raises, validate_update_status
+from .utils import DatabaseRoot, DummyIterator, pxt_raises, run_workers, validate_update_status
 
 
 @pxt.udf
@@ -19,26 +19,6 @@ def _make_label(s: str) -> str:
 @pxt.udf
 def _combine(n: int, double: int, s: str) -> str:
     return f'{s}:{n}:{double}'
-
-
-def _run_workers(target: Callable[[int], None], n_threads: int) -> list[tuple[int, BaseException]]:
-    """Run target(tid) on n_threads workers; return any exceptions raised."""
-    errors: list[tuple[int, BaseException]] = []
-    lock = threading.Lock()
-
-    def runner(tid: int) -> None:
-        try:
-            target(tid)
-        except BaseException as e:
-            with lock:
-                errors.append((tid, e))
-
-    threads = [threading.Thread(target=runner, args=(i,)) for i in range(n_threads)]
-    for th in threads:
-        th.start()
-    for th in threads:
-        th.join()
-    return errors
 
 
 class TestConcurrentOps:
@@ -115,7 +95,7 @@ class TestConcurrentOps:
                 assert all(row['a'] >= 50 for row in rows)
                 assert all(row['b'] == row['a'] * 10 for row in rows)
 
-        errors = _run_workers(worker1, n_threads=self.NUM_THREADS)
+        errors = run_workers(worker1, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
         q = t.where(t.a > 50).select(sum_ab=t.a + t.b, double_a=t.a * 2).order_by(t.a)
@@ -128,7 +108,7 @@ class TestConcurrentOps:
                 assert rows[0]['double_a'] == 102
                 assert rows[0]['sum_ab'] == 51 + 510
 
-        errors = _run_workers(worker2, n_threads=self.NUM_THREADS)
+        errors = run_workers(worker2, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
     def test_shared_query_extended(self, db_root: DatabaseRoot) -> None:
@@ -145,7 +125,7 @@ class TestConcurrentOps:
                 assert len(rows) == 10
                 assert rows[0]['a'] == 50
 
-        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        errors = run_workers(worker, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
     def test_shared_colrefs(self, db_root: DatabaseRoot) -> None:
@@ -160,7 +140,7 @@ class TestConcurrentOps:
                 rows = t.select(a_ref, b_ref).collect()
                 assert len(rows) == 100
 
-        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        errors = run_workers(worker, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
     def test_shared_view_query1(self, db_root: DatabaseRoot) -> None:
@@ -176,7 +156,7 @@ class TestConcurrentOps:
                 rows = q.collect()
                 assert len(rows) == 50
 
-        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        errors = run_workers(worker, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
     def test_shared_view_query2(self, db_root: DatabaseRoot) -> None:
@@ -192,7 +172,7 @@ class TestConcurrentOps:
                 rows = q.collect()
                 assert len(rows) == 3 + 5
 
-        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        errors = run_workers(worker, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
     def test_non_collect_queries(self, db_root: DatabaseRoot) -> None:
@@ -208,7 +188,7 @@ class TestConcurrentOps:
                 assert len(q.show(5)) == 5
                 assert len(q.tail(5)) == 5
 
-        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        errors = run_workers(worker, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
     def test_shared_query_udf(self, db_root: DatabaseRoot) -> None:
@@ -232,7 +212,7 @@ class TestConcurrentOps:
                 assert len(result) == n_rows
                 assert all(len(result[i, 'rows']) == 11 for i in range(n_rows))
 
-        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        errors = run_workers(worker, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
     def test_shared_query_udf_cross_table(self, db_root: DatabaseRoot) -> None:
@@ -254,7 +234,7 @@ class TestConcurrentOps:
                 assert len(result) == n_rows
                 assert all(len(result[i, 'rows']) == 11 for i in range(n_rows))
 
-        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        errors = run_workers(worker, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
     def test_concurrent_select_insert(self, db_root: DatabaseRoot) -> None:
@@ -365,7 +345,7 @@ class TestConcurrentOps:
                 assert len(rows) == 20
                 assert all(row['out'] == row['i'] + row['f'] for row in rows)
 
-        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        errors = run_workers(worker, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
     def test_shared_join2(self, db_root: DatabaseRoot) -> None:
@@ -380,7 +360,7 @@ class TestConcurrentOps:
             assert len(t1.join(t2, on=t1.id == t2.id).collect()) == 5
             assert len(t1.select().join(t2, on=t1.id == t2.id).collect()) == 5
 
-        errors = _run_workers(worker, n_threads=1)
+        errors = run_workers(worker, n_threads=1)
         self._assert_no_errors(errors)
 
     def test_shared_snapshot_query(self, db_root: DatabaseRoot) -> None:
@@ -395,7 +375,7 @@ class TestConcurrentOps:
             for _ in range(self.ITERATIONS):
                 assert len(q.collect()) == 10
 
-        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        errors = run_workers(worker, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
     def test_table_methods(self, db_root: DatabaseRoot) -> None:
@@ -439,7 +419,7 @@ class TestConcurrentOps:
             # tid 0 mutates; everyone else reads
             (writer if tid == 0 else reader)(tid)
 
-        errors = _run_workers(worker, n_threads=self.NUM_THREADS)
+        errors = run_workers(worker, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
         # Final count: initial row + writer's inserts.
@@ -453,7 +433,7 @@ class TestConcurrentOps:
 
         def rename_on_another_thread(old: str, new: str) -> None:
             assert t.columns() == [old]  # this thread now holds the table's metadata
-            self._assert_no_errors(_run_workers(lambda _tid: t.rename_column(old, new), n_threads=1))
+            self._assert_no_errors(run_workers(lambda _tid: t.rename_column(old, new), n_threads=1))
 
         rename_on_another_thread('c1', 'balloon')
         validate_update_status(t.insert({'balloon': i} for i in range(2)), expected_rows=2)
@@ -472,6 +452,6 @@ class TestConcurrentOps:
         dst = pxt.create_table(p('dst'), {'c': pxt.Int | None})
 
         source = src.select() if select else src
-        errors = _run_workers(lambda _tid: validate_update_status(dst.insert(source), expected_rows=3), n_threads=1)
+        errors = run_workers(lambda _tid: validate_update_status(dst.insert(source), expected_rows=3), n_threads=1)
         self._assert_no_errors(errors)
         assert dst.count() == 3
