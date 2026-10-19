@@ -4,7 +4,7 @@
 !.claude/commands/
 !.claude/skills/
 .claude/skills/*
-!.claude/skills/review-the-change/
+!.claude/skills/review-360/
 .coverage
 .idea
 .ipynb_checkpoints
