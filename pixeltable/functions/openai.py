@@ -975,8 +975,6 @@ def _decode_image_response(result: dict) -> dict:
         img = PIL.Image.open(io.BytesIO(b64_bytes))
         img.load()
         data[i] = img
-    # openai<3.33 does not declare safety_identifier, so model_dump() omits it. ImagesResponse requires the key.
-    result.setdefault('safety_identifier', None)
     return result
 
 
@@ -988,6 +986,9 @@ def _decode_image_response(result: dict) -> dict:
 # Every output dict has all keys present and nullability per field matches the SDK Pydantic model.
 # Exception: data is non-null here even though the SDK declares it Optional[List[Image]] = None,
 # because _decode_image_response() raises on a missing payload, so callers can rely on a populated list.
+# safety_identifier (openai>=3.33) is not declared. Adding a key widens the stored return type, so
+# existing image computed columns fail the catalog-reload supertype check. A missing key reads as
+# null via JsonPath, the same rule as size.
 
 
 class UsageInputTokensDetails(TypedDict):
@@ -1015,7 +1016,6 @@ class ImagesResponse(TypedDict):
     background: str | None
     output_format: str | None
     quality: str | None
-    safety_identifier: str | None
     size: str | None
 
 

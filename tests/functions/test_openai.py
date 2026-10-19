@@ -2,6 +2,8 @@ import logging
 import os
 import random
 import time
+import warnings
+from typing import Any
 
 import PIL.Image
 import pytest
@@ -15,6 +17,7 @@ from ..conftest import SampleFileServer
 from ..utils import (
     SAMPLE_IMAGE_FILE_PATH,
     pxt_raises,
+    reload_catalog,
     rerun,
     rerun_on_network_error,
     skip_test_if_no_client,
@@ -797,6 +800,75 @@ class TestOpenai:
             assert len(row['response']) > 0
 
 
+def _images_response_type_without_safety_identifier(full: ts.ColumnType) -> ts.ColumnType:
+    """ImagesResponse as stored with no safety_identifier key. Drops the key if a later edit adds it back."""
+    assert isinstance(full, ts.JsonType)
+    schema = full.type_schema
+    assert schema is not None and isinstance(schema.type_spec, dict)
+    if 'safety_identifier' not in schema.type_spec:
+        return full
+    return ts.JsonType(
+        ts.JsonType.TypeSchema(
+            type_spec={key: col_type for key, col_type in schema.type_spec.items() if key != 'safety_identifier'},
+            optional_keys=schema.optional_keys - {'safety_identifier'},
+        ),
+        nullable=full.nullable,
+    )
+
+
+class TestImagesResponseBackwardCompatibility:
+    """A computed column stored with the pre-change ImagesResponse must still accept inserts after reload.
+
+    image_generations, image_edits, and image_variations share this return type.
+    """
+
+    def test_prechange_return_type_survives_reload(self, uses_db: None) -> None:
+        from pixeltable.functions.openai import ImagesResponse, image_generations
+
+        full = ts.ColumnType.from_python_type(ImagesResponse)
+        assert full is not None
+        historical = _images_response_type_without_safety_identifier(full)
+
+        saved_return_type = image_generations.signature.return_type
+        image_generations.signature.return_type = historical
+        try:
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+            t.add_computed_column(img=image_generations(t.prompt, model='gpt-image-1'))
+        finally:
+            image_generations.signature.return_type = saved_return_type
+
+        # Coroutine on purpose: image_generations is async, and is_async checks iscoroutinefunction.
+        async def _stub_image_generations(  # noqa: RUF029
+            prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None
+        ) -> dict[str, Any]:
+            del prompt, model, model_kwargs
+            return {
+                'created': 1,
+                'data': [PIL.Image.new('RGB', (1, 1))],
+                'usage': None,
+                'background': None,
+                'output_format': None,
+                'quality': None,
+                'size': None,
+                # openai>=3.33 may emit this key. The column type does not declare it.
+                'safety_identifier': 'user_123',
+            }
+
+        original_py_fn = image_generations.py_fns[0]
+        image_generations.py_fns[0] = _stub_image_generations
+        try:
+            reload_catalog()
+            with warnings.catch_warnings():
+                warnings.simplefilter('error', pxt.PixeltableWarning)
+                reloaded = pxt.get_table('test_tbl')
+                validate_update_status(reloaded.insert(prompt='a red circle'), 1)
+            result = reloaded.collect()
+            assert isinstance(result['img'][0]['data'][0], PIL.Image.Image)
+            assert result['img'][0]['safety_identifier'] == 'user_123'
+        finally:
+            image_generations.py_fns[0] = original_py_fn
+
+
 class TestOpenaiTypedDictAdherence:
     """Detect drift between our TypedDict mirrors and the SDK Pydantic models. Doesn't need credentials."""
 
@@ -952,49 +1024,22 @@ class TestOpenaiTypedDictAdherence:
         overrides = {'data'}  # we re-type and guarantee non-null
         # openai 3.24 no longer declares size; a missing key reads as null, which size allows
         dropped_by_sdk = {'size'} - set(sdk_fields)
-        # openai 3.33 added safety_identifier. Older releases omit it; we still declare it and
-        # _decode_image_response fills None so every output dict has the key.
-        declared_ahead = {'safety_identifier'} - set(sdk_fields)
-        assert set(ours_fields) - dropped_by_sdk - declared_ahead == set(sdk_fields), (
+        # openai>=3.33 declares safety_identifier. ImagesResponse omits it: adding a key widens the stored
+        # return type and invalidates existing image computed columns. A missing key reads as null, the same
+        # rule as size. Skip it in the field loop, but still check its SDK type so a rename or retype fails.
+        sdk_only = {'safety_identifier'} & set(sdk_fields)
+        assert set(ours_fields) - dropped_by_sdk == set(sdk_fields) - sdk_only, (
             f'ImagesResponse field set drifted: ours={set(ours_fields)} sdk={set(sdk_fields)}'
         )
         for name, sdk_type in sdk_fields.items():
-            if name in overrides:
+            if name in overrides or name in sdk_only:
                 continue
             assert self._normalize(ours_fields[name]) == self._normalize(sdk_type), (
                 f'ImagesResponse field {name!r} drifted: ours={ours_fields[name]} sdk={sdk_type}'
             )
+        if 'safety_identifier' in sdk_fields:
+            assert self._normalize(sdk_fields['safety_identifier']) == self._normalize(ts.StringType(nullable=True)), (
+                f'SDK safety_identifier is no longer a nullable string: {sdk_fields["safety_identifier"]}'
+            )
         # all fields always present
         assert ours_optional == frozenset()
-
-    def test_decode_image_response_fills_omitted_safety_identifier(self) -> None:
-        """Older SDKs omit safety_identifier; the decoded dict still has the key."""
-        import base64
-        import io
-
-        from pixeltable.functions.openai import _decode_image_response
-
-        buf = io.BytesIO()
-        PIL.Image.new('RGB', (1, 1)).save(buf, format='PNG')
-        b64 = base64.b64encode(buf.getvalue()).decode()
-
-        omitted = _decode_image_response({'created': 1, 'data': [{'b64_json': b64}]})
-        assert 'safety_identifier' in omitted
-        assert omitted['safety_identifier'] is None
-        assert isinstance(omitted['data'][0], PIL.Image.Image)
-
-        kept = _decode_image_response({'created': 2, 'data': [{'b64_json': b64}], 'safety_identifier': 'user_123'})
-        assert kept['safety_identifier'] == 'user_123'
-
-        try:
-            from openai.types.image import Image as SdkImage
-            from openai.types.images_response import ImagesResponse as SdkImagesResponse
-        except ImportError:
-            return
-
-        # 3.33+ model_dump includes the default None; older SDKs omit the field and the decoder fills it.
-        from_sdk = _decode_image_response(
-            SdkImagesResponse(created=3, data=[SdkImage(b64_json=b64)]).model_dump(mode='json')
-        )
-        assert from_sdk['safety_identifier'] is None
-        assert isinstance(from_sdk['data'][0], PIL.Image.Image)
