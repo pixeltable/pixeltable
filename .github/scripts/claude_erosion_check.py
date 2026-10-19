@@ -26,7 +26,6 @@ from typing import Any, Literal
 
 import anthropic
 import pydantic
-from plan_claude_review import SKIPPED, gh, pr_from_tests_run
 from scb_check.analysis.loc import sloc_line_numbers  # type: ignore[import-untyped]
 from scb_check.analysis.parse import ParseError, parse_file  # type: ignore[import-untyped]
 from scb_check.analysis.symbols import CYC_COMPLEXITY_NODE_TYPES, extract_functions  # type: ignore[import-untyped]
@@ -45,6 +44,11 @@ MAX_SOURCE_CHARS = 20_000
 MODEL = 'claude-sonnet-5-5'
 PYTHON = ('.py',)
 TYPESCRIPT = ('.js', '.jsx', '.ts', '.tsx')
+# Lockfiles, minified bundles, and test snapshots, which no one writes by hand.
+SKIPPED = re.compile(
+    r'(^|/)(uv\.lock|poetry\.lock|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|go\.sum)$'
+    r'|\.min\.(js|css)$|(^|/)__snapshots__/|\.snap$'
+)
 # Test functions are long runs of cases and asserts, and scb-check counts each assert as a branch.
 TESTS = re.compile(r'(^|/)tests?/|(^|/)test_[^/]*\.py$|_test\.py$|\.(test|spec)\.[jt]sx?$')
 # Nobody edits generated files by hand, so a verdict on them has no one to act on it.
@@ -171,6 +175,42 @@ def codebase_metrics(root: Path) -> dict[str, Any] | None:
     cmd = ['scb-check', 'check', '--report', '--include-all', str(root)]
     report: dict[str, Any] = json.loads(subprocess.run(cmd, check=True, capture_output=True, text=True).stdout)
     return report
+
+
+OPEN_PRS_QUERY = """
+query($owner: String!, $name: String!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, first: 100, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes { number headRefOid }
+    }
+  }
+}
+"""
+
+
+def gh(*args: str) -> str:
+    return subprocess.run(['gh', *args], check=True, capture_output=True, text=True).stdout
+
+
+def pr_from_tests_run(event: dict[str, Any], repo: str) -> str | None:
+    run = event['workflow_run']
+    if run['pull_requests']:
+        return str(run['pull_requests'][0]['number'])
+    # GitHub leaves pull_requests empty for a PR from a fork, so find the open PR by its head commit.
+    owner, name = repo.split('/')
+    cursor: str | None = None
+    while True:
+        args = ['api', 'graphql', '-f', f'query={OPEN_PRS_QUERY}', '-F', f'owner={owner}', '-F', f'name={name}']
+        if cursor is not None:
+            args += ['-f', f'cursor={cursor}']
+        page = json.loads(gh(*args))['data']['repository']['pullRequests']
+        for pr in page['nodes']:
+            if pr['headRefOid'] == run['head_sha']:
+                return str(pr['number'])
+        if not page['pageInfo']['hasNextPage']:
+            return None
+        cursor = page['pageInfo']['endCursor']
 
 
 def changed_files(repo: str, pr: str) -> list[dict[str, Any]]:
