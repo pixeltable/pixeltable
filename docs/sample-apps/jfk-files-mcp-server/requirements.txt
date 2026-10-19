@@ -1,7 +1,7 @@
 beautifulsoup4
 httpx
 mistralai
-mcp
+mcp>=2
 pixeltable>=0.7.4
 requests
 sentence-transformers

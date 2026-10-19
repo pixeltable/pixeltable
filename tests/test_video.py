@@ -3377,6 +3377,8 @@ class TestVideo:
 
     def test_scene_detect_cut_at_scene_start(self, init_env: None) -> None:
         skip_test_if_not_installed('scenedetect')
+        from scenedetect import FrameTimecode  # type: ignore[import-untyped]
+
         from pixeltable.functions.video.scene_detect import _scene_detect
 
         class StubDetector:
@@ -3384,33 +3386,34 @@ class TestVideo:
 
             frame_cuts: set[int]  # positions at which process_frame() reports a cut at the current frame
             final_cuts: list[int]  # positions of the cuts that post_process() reports
-            timecodes: list[Any]
+            timecodes: list[FrameTimecode]  # of the frames passed to process_frame()
 
             def __init__(self, frame_cuts: set[int], final_cuts: list[int]) -> None:
                 self.frame_cuts = frame_cuts
                 self.final_cuts = final_cuts
                 self.timecodes = []
 
-            def process_frame(self, timecode: Any, frame_img: Any) -> list[Any]:
+            def process_frame(self, timecode: FrameTimecode, frame_img: Any) -> list[FrameTimecode]:
                 self.timecodes.append(timecode)
                 return [timecode] if len(self.timecodes) - 1 in self.frame_cuts else []
 
-            def post_process(self, timecode: Any) -> list[Any]:
+            def post_process(self, timecode: FrameTimecode) -> list[FrameTimecode]:
                 return [self.timecodes[i] for i in self.final_cuts]
 
         video = get_video_files()[0]
 
         # scenedetect >= 0.7.2 reports a cut at the first frame of a video that starts faded out: the cut doesn't
-        # produce an empty scene, and without other cuts the whole video is one scene
+        # produce a zero-duration scene, and without other cuts the whole video is one scene
         scenes = _scene_detect(video, 2.0, StubDetector(frame_cuts=set(), final_cuts=[0]))
         assert len(scenes) == 1
         assert scenes[0]['duration'] > 0.0
 
         # the cut at the first frame is skipped; the cuts at the next two frames end the scenes that start at the first
-        # and second frame
+        # and second frame, and the third scene is the stretch from the last cut through the end of the video
         scenes = _scene_detect(video, 2.0, StubDetector(frame_cuts={0, 1, 2}, final_cuts=[]))
-        assert len(scenes) >= 2
+        assert len(scenes) == 3
         assert all(s['duration'] > 0.0 for s in scenes)
+        assert scenes[0]['start_time'] < scenes[1]['start_time'] < scenes[2]['start_time']
 
     @pytest.mark.db_roots('local', reason='reads Env default video encoder config')
     def test_default_video_codec(self, uses_db: None) -> None:

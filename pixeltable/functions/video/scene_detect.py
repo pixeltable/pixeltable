@@ -509,8 +509,6 @@ def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> l
 
         scenes: list[SceneInfo] = []
         frame_idx: int | None = None
-        start_time: float | None = None  # of current scene
-        start_pts: int | None = None  # of current scene
 
         # in order to determine the cut frame times, we need to record frame times (chronologically) and look them
         # up by index; trying to derive frame times from frame indices isn't possible due to variable frame rates;
@@ -518,7 +516,7 @@ def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> l
         frame_info: list[_SceneDetectFrameInfo] = []
 
         def process_cuts(cuts: list[FrameTimecode]) -> None:
-            nonlocal frame_info, start_time, start_pts
+            nonlocal frame_info
             for cut_timecode in cuts:
                 cut_frame_idx = cut_timecode.get_frames()
                 # we expect cuts to come back in chronological order
@@ -526,21 +524,20 @@ def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> l
                 info_offset = next((i for i, info in enumerate(frame_info) if info.frame_idx == cut_frame_idx), None)
                 assert info_offset is not None  # the cut is at a previously reported frame idx
                 if info_offset == 0:
-                    # a cut at the scene's first frame would end an empty scene (scenedetect >= 0.7.2 reports one for a
+                    # a cut at the scene start would end a zero-duration scene (scenedetect >= 0.7.2 reports one for a
                     # video that starts faded out)
                     continue
-                info = frame_info[info_offset]
+                start, cut = frame_info[0], frame_info[info_offset]
                 scenes.append(
-                    {'start_time': start_time, 'start_pts': start_pts, 'duration': info.frame_time - start_time}
+                    {
+                        'start_time': start.frame_time,
+                        'start_pts': start.frame_pts,
+                        'duration': cut.frame_time - start.frame_time,
+                    }
                 )
-                start_time = info.frame_time
-                start_pts = info.frame_pts
                 frame_info = frame_info[info_offset:]
 
         for item in frame_iter:
-            if start_time is None:
-                start_time = item.time
-                start_pts = item.pts
             frame_info.append(_SceneDetectFrameInfo(item.frame_idx, item.pts, item.time))
             frame_array = np.array(item.frame.convert('RGB'))
             frame_idx = item.frame_idx
@@ -555,9 +552,16 @@ def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> l
             process_cuts(final_cuts)
 
             # The scene that starts at the last cut, or at the first frame, runs through the end of the video.
-            assert start_time is not None
+            # process_cuts() leaves that frame at frame_info[0] and does not keep a start time of its own.
             end_time = frame_iter.end_time()
-            scenes.append({'start_time': start_time, 'start_pts': start_pts, 'duration': end_time - start_time})
+            start = frame_info[0]
+            scenes.append(
+                {
+                    'start_time': start.frame_time,
+                    'start_pts': start.frame_pts,
+                    'duration': end_time - start.frame_time,
+                }
+            )
 
         return scenes
 
