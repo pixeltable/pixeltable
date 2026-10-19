@@ -278,6 +278,16 @@ def _is_bedrock_throttling(exc: BaseException) -> bool:
     return 'throttlingexception' in message or 'too many requests' in message
 
 
+def _is_bedrock_request_throttle(exc: BaseException) -> bool:
+    """True for a botocore ClientError whose code is a Bedrock throttle from the request call itself."""
+    from botocore.exceptions import ClientError
+
+    if not isinstance(exc, ClientError):
+        return False
+    code = _bedrock_error_code(exc)
+    return code in _BEDROCK_THROTTLE_CODES or type(exc).__name__ in _BEDROCK_THROTTLE_CODES
+
+
 def _throttle_retry_delay(attempt: int) -> float:
     """Seconds the scheduler waits before retrying a throttled call. `attempt` is 0 on the first retry."""
     base = min(_THROTTLE_RETRY_MAX_SECS, _THROTTLE_RETRY_BASE_SECS * (2**attempt))
@@ -291,7 +301,10 @@ class BedrockRateLimitsInfo(env.RateLimitsInfo):
         return True
 
     def get_retry_delay(self, exc: Exception, attempt: int) -> float | None:
-        if not _is_bedrock_throttling(exc):
+        # None does not veto a retry: the scheduler also retries anything is_retryable_error matches.
+        # Only an explicit throttle from the request call is retried. Other retryable failures are
+        # rewritten before they leave the UDF so that fallback does not match.
+        if not _is_bedrock_request_throttle(exc):
             return None
         return _throttle_retry_delay(attempt)
 
@@ -307,34 +320,70 @@ def _scrub_retry_indicators(text: str) -> str:
     return ' '.join(scrubbed.split())
 
 
+def _error_scheduler_will_not_retry(message: str, *, fallback: str) -> pxt.ExternalServiceError:
+    """A provider error whose text does not match the scheduler's retry classifier.
+
+    The invocation id is scrubbed with the rest of the message. A Bedrock async id matches
+    `[a-z0-9]{12}` and can contain `429`. There is no assert: under `python -O` an assert
+    would not run, and the retryable message would submit the request again.
+    """
+    err = pxt.ExternalServiceError(pxt.ErrorCode.PROVIDER_ERROR, _scrub_retry_indicators(message), provider='bedrock')
+    if is_retryable_error(err)[0] or _is_bedrock_throttling(err):
+        err = pxt.ExternalServiceError(pxt.ErrorCode.PROVIDER_ERROR, fallback, provider='bedrock')
+    return err
+
+
 def _terminal_async_error(invocation_id: str, exc: Exception) -> pxt.ExternalServiceError:
     """An error after Bedrock has accepted the invocation.
 
     The scheduler retries a failed UDF from the beginning. That would submit another billed generation,
     so this error must not match the retry classifier or the Bedrock throttle delay.
     """
+    safe_id = _scrub_retry_indicators(invocation_id)
     detail = _scrub_retry_indicators(str(exc))
-    message = f'Async invocation {invocation_id} failed after it was accepted: {detail}'
-    err = pxt.ExternalServiceError(pxt.ErrorCode.PROVIDER_ERROR, message, provider='bedrock')
-    if is_retryable_error(err)[0] or _is_bedrock_throttling(err):
-        err = pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR,
-            f'Async invocation {invocation_id} failed after it was accepted',
-            provider='bedrock',
-        )
-    assert not is_retryable_error(err)[0]
-    assert not _is_bedrock_throttling(err)
-    return err
+    return _error_scheduler_will_not_retry(
+        f'Async invocation {safe_id} failed after it was accepted: {detail}',
+        fallback='Async invocation failed after it was accepted',
+    )
+
+
+def _scheduler_visible_error(exc: Exception, *, fallback: str, retry_throttle: bool) -> Exception:
+    """Return the exception the rate-limit scheduler should see.
+
+    An explicit throttle from the request call is unchanged when `retry_throttle` is set, so the
+    scheduler can retry that rejection. A read timeout or any other retryable failure is replaced,
+    because returning None from get_retry_delay does not stop the scheduler's generic retry.
+    """
+    if retry_throttle and _is_bedrock_request_throttle(exc):
+        return exc
+    if not _is_bedrock_throttling(exc) and not is_retryable_error(exc)[0]:
+        return exc
+    detail = _scrub_retry_indicators(f'{type(exc).__name__}: {exc}')
+    return _error_scheduler_will_not_retry(f'{fallback}: {detail}', fallback=fallback)
 
 
 async def _start_async_invoke(model_id: str, body: dict, output_location: str) -> dict[str, Any]:
-    """Submit StartAsyncInvoke. A throttle propagates so the rate-limit scheduler can retry it."""
-    response: dict[str, Any] = await asyncio.to_thread(
-        _bedrock_client().start_async_invoke,
-        modelId=model_id,
-        modelInput=body,
-        outputDataConfig={'s3OutputDataConfig': {'s3Uri': output_location}},
-    )
+    """Submit StartAsyncInvoke. Only an explicit throttle propagates for the scheduler to retry.
+
+    A read timeout is not retried: Bedrock may already have accepted the submission, and no
+    idempotency token is carried across scheduler attempts.
+    """
+    try:
+        response: dict[str, Any] = await asyncio.to_thread(
+            _bedrock_client().start_async_invoke,
+            modelId=model_id,
+            modelInput=body,
+            outputDataConfig={'s3OutputDataConfig': {'s3Uri': output_location}},
+        )
+    except Exception as exc:
+        visible = _scheduler_visible_error(
+            exc,
+            fallback='StartAsyncInvoke failed without a returned invocation id, so it was not retried',
+            retry_throttle=True,
+        )
+        if visible is exc:
+            raise
+        raise visible from exc
     return response
 
 
@@ -455,8 +504,10 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
     your Pixeltable configuration file).
 
     Request throttling:
-    Throttled calls are retried by the rate-limit scheduler. A failure after Bedrock has accepted an async
-    invocation is not retried, so that failure does not start another generation.
+    An explicit Bedrock throttle is retried by the rate-limit scheduler, which waits at least 30 seconds
+    and retries up to its own limit. The cell then stores the original error. Any other failure is not
+    retried. That includes a timeout while reading a response body Bedrock has already returned, and any
+    failure after an async invocation has been accepted, so a retry does not start another generation.
 
     Args:
         body: The prompt and inference parameters as a dictionary.
@@ -596,8 +647,29 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
     if service_tier is not None:
         kwargs['serviceTier'] = service_tier
 
-    response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
-    response_bytes = await asyncio.to_thread(response['body'].read)
+    try:
+        response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
+    except Exception as exc:
+        visible = _scheduler_visible_error(
+            exc,
+            fallback='invoke_model failed before a response body was returned, so it was not retried',
+            retry_throttle=True,
+        )
+        if visible is exc:
+            raise
+        raise visible from exc
+    try:
+        # The service has already accepted the call. A failure while reading the body must not submit it again.
+        response_bytes = await asyncio.to_thread(response['body'].read)
+    except Exception as exc:
+        visible = _scheduler_visible_error(
+            exc,
+            fallback='invoke_model could not read the response body after the request was accepted',
+            retry_throttle=False,
+        )
+        if visible is exc:
+            raise
+        raise visible from exc
     result = json.loads(response_bytes)
     return _decode_invoke_model_response(result, model_id)
 

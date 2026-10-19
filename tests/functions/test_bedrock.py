@@ -99,9 +99,8 @@ def _is_throttled_video_request(errortype: str | None, errormsg: str | None) -> 
     """Return True when Bedrock rejected the video request because StartAsyncInvoke was throttled.
 
     A low account quota is shared by concurrent nightly jobs. The rate-limit scheduler retries a
-    throttled call; a request that is still throttled after those retries is skipped rather than failed.
-    Error type is enough for the throttle exception classes. ExternalServiceError is skipped only when
-    its message is that throttle.
+    throttled call up to its own limit. A request that is still throttled after those retries is stored
+    as the original botocore error and skipped rather than failed.
     """
     # Share the production classifier's codes.
     from pixeltable.functions import bedrock
@@ -110,7 +109,7 @@ def _is_throttled_video_request(errortype: str | None, errormsg: str | None) -> 
     if errortype in throttle_codes:
         return True
     message = (errormsg or '').lower()
-    if 'throttlingexception' in message or 'throttled startasyncinvoke' in message:
+    if 'throttlingexception' in message:
         return True
     return 'too many requests' in message and 'startasyncinvoke' in message
 
@@ -182,8 +181,6 @@ def test_throttled_video_request() -> None:
     # Type alone comes from the production code set, so a bland message still skips.
     assert _is_throttled_video_request('TooManyRequestsException', 'please retry')
     assert _is_throttled_video_request('Throttling', None)
-    wrapped = f"Bedrock throttled StartAsyncInvoke for model 'luma.ray-v2:0': {nightly}"
-    assert _is_throttled_video_request('ExternalServiceError', wrapped)
     assert not _is_throttled_video_request('ValidationException', 'Invalid input: resolution must be one of 540p, 720p')
     assert not _is_throttled_video_request(
         'ExternalServiceError', 'Async invocation abc failed: model returned an error'
@@ -270,9 +267,30 @@ def test_bedrock_throttle_retry_delay() -> None:
     accepted = bedrock._terminal_async_error(
         'abc', _throttle_error('ThrottlingException', 'Too many requests, timed out reading the output object')
     )
+    assert isinstance(accepted, pxt.ExternalServiceError)
     assert not is_retryable_error(accepted)[0]
     assert info.get_retry_delay(accepted, 0) is None
+    # A Bedrock async id is 12 lowercase letters or digits and can contain the retry substring 429.
+    id_with_status = bedrock._terminal_async_error(
+        'abc429defghi', _throttle_error('ThrottlingException', 'Too many requests, timed out reading the output object')
+    )
+    assert isinstance(id_with_status, pxt.ExternalServiceError)
+    assert not is_retryable_error(id_with_status)[0]
+    assert info.get_retry_delay(id_with_status, 0) is None
+    assert '429' not in str(id_with_status)
     assert bedrock.invoke_model._resource_pool() == bedrock._BEDROCK_RATE_POOL
+
+
+def test_terminal_async_error_fallback_has_no_invocation_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When the classifier still matches, the fallback is the provider error and contains no invocation id."""
+    from pixeltable.functions import bedrock
+
+    monkeypatch.setattr(bedrock, 'is_retryable_error', lambda _exc: (True, None))
+    monkeypatch.setattr(bedrock, '_is_bedrock_throttling', lambda _exc: False)
+    err = bedrock._terminal_async_error('abc429defghi', Exception('model failed'))
+    assert isinstance(err, pxt.ExternalServiceError)
+    assert str(err) == 'Async invocation failed after it was accepted'
+    assert '429' not in str(err)
 
 
 def _patch_async_clocks(monkeypatch: pytest.MonkeyPatch) -> tuple[list[float], list[float]]:
@@ -370,7 +388,7 @@ def _install_async_output_mocks(monkeypatch: pytest.MonkeyPatch, *, list_error: 
     monkeypatch.setattr(bedrock.ObjectOps, 'copy_object_to_local_file', _copy)
 
 
-def _insert_luma_ray(client: _StartCounter) -> tuple[Any, str | None, str | None]:
+def _insert_luma_ray() -> tuple[Any, str | None, str | None]:
     from pixeltable.functions.bedrock import invoke_model
 
     t = pxt.create_table('bedrock_sched', {'prompt': pxt.String})
@@ -394,12 +412,30 @@ def test_scheduler_retries_throttled_bedrock_invoke(uses_db: None, monkeypatch: 
     monkeypatch.setattr(bedrock, '_bedrock_client', lambda: client)
     _install_async_output_mocks(monkeypatch, list_error=None)
 
-    status, errortype, errormsg = _insert_luma_ray(client)
+    status, errortype, errormsg = _insert_luma_ray()
     assert status.num_excs == 0, f'{errortype}: {errormsg}'
     assert client.start_calls == 2
     # The first retry has to clear a one-minute quota window, so the scheduler wait is at least 30s.
     assert any(delay >= 30.0 for delay in scheduler_sleeps)
     assert not any(delay >= 30.0 for delay in bedrock_sleeps)
+
+
+def test_scheduler_stores_throttle_after_max_retries(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Eleven throttled submissions are the initial call plus RateLimitsScheduler.MAX_RETRIES.
+
+    The cell then stores the original botocore error, which the live-test skip recognizes.
+    """
+    from pixeltable.functions import bedrock
+
+    _patch_async_clocks(monkeypatch)
+    client = _StartCounter(throttles_before_success=11, in_progress=False)
+    monkeypatch.setattr(bedrock, '_bedrock_client', lambda: client)
+    _install_async_output_mocks(monkeypatch, list_error=None)
+
+    status, errortype, errormsg = _insert_luma_ray()
+    assert status.num_excs == 1, f'expected the throttle to be stored, got {errortype}: {errormsg}'
+    assert client.start_calls == 11
+    assert _is_throttled_video_request(errortype, errormsg)
 
 
 @pytest.mark.parametrize('failure', ['deadline', 'output_read'])
@@ -424,11 +460,167 @@ def test_accepted_bedrock_invocation_is_not_retried(
         )
     _install_async_output_mocks(monkeypatch, list_error=list_error)
 
-    status, errortype, errormsg = _insert_luma_ray(client)
+    status, errortype, errormsg = _insert_luma_ray()
     assert status.num_excs == 1, f'expected a cell error, got {errortype}: {errormsg}'
     assert client.start_calls == 1
     assert errormsg is not None
     assert not is_retryable_error(Exception(errormsg))[0]
+
+
+def test_validation_exception_with_too_many_requests_is_not_retried(
+    uses_db: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A definitive ValidationException is not retried just because its text says too many requests."""
+    from pixeltable.functions import bedrock
+    from pixeltable.utils.http import is_retryable_error
+
+    _patch_async_clocks(monkeypatch)
+
+    class _ValidationClient:
+        def __init__(self) -> None:
+            self.start_calls = 0
+
+        def start_async_invoke(self, **_kwargs: Any) -> dict[str, str]:
+            self.start_calls += 1
+            raise _throttle_error('ValidationException', 'too many requests were supplied in the input list')
+
+    client = _ValidationClient()
+    monkeypatch.setattr(bedrock, '_bedrock_client', lambda: client)
+    _install_async_output_mocks(monkeypatch, list_error=None)
+
+    status, errortype, errormsg = _insert_luma_ray()
+    assert status.num_excs == 1, f'expected a cell error, got {errortype}: {errormsg}'
+    assert client.start_calls == 1
+    assert errormsg is not None
+    assert not is_retryable_error(Exception(errormsg))[0]
+
+
+def test_start_async_read_timeout_is_not_retried(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A StartAsyncInvoke read timeout is not submitted again; Bedrock may already have accepted it."""
+    from pixeltable.functions import bedrock
+    from pixeltable.utils.http import is_retryable_error
+
+    _patch_async_clocks(monkeypatch)
+
+    class _TimeoutClient:
+        def __init__(self) -> None:
+            self.start_calls = 0
+
+        def start_async_invoke(self, **_kwargs: Any) -> dict[str, str]:
+            self.start_calls += 1
+            raise TimeoutError('Read timed out')
+
+    client = _TimeoutClient()
+    monkeypatch.setattr(bedrock, '_bedrock_client', lambda: client)
+    _install_async_output_mocks(monkeypatch, list_error=None)
+
+    status, errortype, errormsg = _insert_luma_ray()
+    assert status.num_excs == 1, f'expected a cell error, got {errortype}: {errormsg}'
+    assert client.start_calls == 1
+    assert errormsg is not None
+    assert not is_retryable_error(Exception(errormsg))[0]
+
+
+def test_read_timeout_after_accepted_async_id_is_not_retried(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A read timeout after an invocation id is returned does not start another generation.
+
+    The id contains 429, which the generic retry classifier would otherwise treat as a status code.
+    """
+    from pixeltable.functions import bedrock
+    from pixeltable.utils.http import is_retryable_error
+
+    _patch_async_clocks(monkeypatch)
+
+    class _AcceptedTimeout:
+        def __init__(self) -> None:
+            self.start_calls = 0
+
+        def start_async_invoke(self, **_kwargs: Any) -> dict[str, str]:
+            self.start_calls += 1
+            return {'invocationArn': 'arn:aws:bedrock:us-west-2:0:async-invoke/abc429defghi'}
+
+        def get_async_invoke(self, **_kwargs: Any) -> dict[str, str]:
+            raise TimeoutError('Read timed out')
+
+    client = _AcceptedTimeout()
+    monkeypatch.setattr(bedrock, '_bedrock_client', lambda: client)
+    _install_async_output_mocks(monkeypatch, list_error=None)
+
+    status, errortype, errormsg = _insert_luma_ray()
+    assert status.num_excs == 1, f'expected a cell error, got {errortype}: {errormsg}'
+    assert client.start_calls == 1
+    assert errortype == 'ExternalServiceError'
+    assert errormsg is not None
+    assert '429' not in errormsg
+    assert not is_retryable_error(Exception(errormsg))[0]
+
+
+def test_sync_response_body_timeout_is_not_retried(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A synchronous body read that fails after invoke_model returns does not call Bedrock again."""
+    from pixeltable.functions import bedrock
+    from pixeltable.functions.bedrock import invoke_model
+    from pixeltable.utils.http import is_retryable_error
+
+    _patch_async_clocks(monkeypatch)
+
+    class _TimeoutBody:
+        def read(self) -> bytes:
+            raise TimeoutError('Read timed out')
+
+    class _SyncClient:
+        def __init__(self) -> None:
+            self.invoke_calls = 0
+
+        def invoke_model(self, **_kwargs: Any) -> dict[str, Any]:
+            self.invoke_calls += 1
+            return {'body': _TimeoutBody()}
+
+    client = _SyncClient()
+    monkeypatch.setattr(bedrock, '_bedrock_client', lambda: client)
+    t = pxt.create_table('bedrock_sync', {'text': pxt.String})
+    t.add_computed_column(response=invoke_model({'inputText': t.text}, model_id='amazon.titan-embed-text-v2:0'))
+    status = t.insert(text='hello', on_error='ignore')
+    row = t.select(errortype=t.response.errortype, errormsg=t.response.errormsg).collect()[0]
+    assert status.num_excs == 1, f'expected a cell error, got {row["errortype"]}: {row["errormsg"]}'
+    assert client.invoke_calls == 1
+    assert row['errormsg'] is not None
+    assert not is_retryable_error(Exception(row['errormsg']))[0]
+
+
+def test_sync_bedrock_throttle_is_retried(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An explicit throttle on a synchronous invoke_model is retried by the scheduler."""
+    from pixeltable.functions import bedrock
+    from pixeltable.functions.bedrock import invoke_model
+
+    scheduler_sleeps, _bedrock_sleeps = _patch_async_clocks(monkeypatch)
+
+    class _JsonBody:
+        def read(self) -> bytes:
+            return b'{"embedding": [0.25]}'
+
+    class _SyncClient:
+        def __init__(self) -> None:
+            self.invoke_calls = 0
+
+        def invoke_model(self, **_kwargs: Any) -> dict[str, Any]:
+            self.invoke_calls += 1
+            if self.invoke_calls == 1:
+                raise _throttle_error(
+                    'ThrottlingException',
+                    'Too many requests, please wait before trying again.',
+                    cls_name='ThrottlingException',
+                )
+            return {'body': _JsonBody()}
+
+    client = _SyncClient()
+    monkeypatch.setattr(bedrock, '_bedrock_client', lambda: client)
+    t = pxt.create_table('bedrock_sync_throttle', {'text': pxt.String})
+    t.add_computed_column(response=invoke_model({'inputText': t.text}, model_id='amazon.titan-embed-text-v2:0'))
+    status = t.insert(text='hello', on_error='ignore')
+    assert status.num_excs == 0, status
+    assert client.invoke_calls == 2
+    assert any(delay >= 30.0 for delay in scheduler_sleeps)
+    assert t.collect()[0]['response']['embedding'] == [0.25]
 
 
 def test_unavailable_video_model_error() -> None:
@@ -714,6 +906,8 @@ class TestBedrock:
             errortype = row['errortype']
             errormsg = row['errormsg']
             if _is_throttled_video_request(errortype, errormsg):
+                # The scheduler retries a continuous throttle up to MAX_RETRIES, then stores the
+                # original botocore error. This skip runs after that budget; there is no smaller one.
                 pytest.skip(
                     f'Bedrock throttled StartAsyncInvoke for {_LUMA_RAY_MODEL_ID} in {_LUMA_RAY_REGION} '
                     f'after retries: {errormsg}'
