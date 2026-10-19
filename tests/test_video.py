@@ -883,7 +883,11 @@ class TestVideo:
                 mixed.close()
 
     def test_legacy_pos_msec_reuses_resolved_formula(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Sequential legacy reload does not scan from frame 0 on every row."""
+        """Sequential legacy reload does not scan from frame 0 on every row.
+
+        An fps=1 reload takes the formula from the frame it walks to, including a GOP file whose
+        probe cannot count that index.
+        """
         path = tmp_path / 'legacy_quarter_seq.mp4'
         _ffmpeg(
             [
@@ -961,6 +965,54 @@ class TestVideo:
         assert got['pos_msec'] == pytest.approx(late['pos_msec'], abs=1e-3)
         assert scans == 0
         assert probes == 1
+
+        # fps=1 leaves the decoder on the next frame. The walked frame's PTS picks the formula.
+        gop = tmp_path / 'legacy_fps_gop.mp4'
+        _ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'testsrc=size=64x64:rate=25:duration=20',
+                '-output_ts_offset',
+                '0.4',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                '-g',
+                '12',
+                '-keyint_min',
+                '12',
+                '-bf',
+                '0',
+                '-x264-params',
+                'scenecut=0:bframes=0',
+                str(gop),
+            ]
+        )
+        sampled = legacy_frame_iterator.decorated_callable(video=str(gop), fps=1)  # type: ignore[attr-defined]
+        try:
+            sampled_rows = list(sampled)
+        finally:
+            sampled.close()
+        assert len(sampled_rows) >= 19
+        scans = 0
+        probes = 0
+        fps_reload = legacy_frame_iterator.decorated_callable(video=str(gop), fps=1)  # type: ignore[attr-defined]
+        try:
+            for row in sampled_rows:
+                fps_reload.seek(
+                    row['frame_idx'], pos_msec=row['pos_msec'], pos_frame=row['pos_frame'], frame_idx=row['frame_idx']
+                )
+                got = next(fps_reload)
+                assert got['pos_frame'] == row['pos_frame']
+                assert got['pos_msec'] == pytest.approx(row['pos_msec'], abs=1e-3)
+                assert got['frame'] == row['frame']
+        finally:
+            fps_reload.close()
+        assert scans == 0
+        assert probes == 0
 
     def test_mpegts_reload_after_empty_relative_seek(self, tmp_path: Path) -> None:
         """Reload a default-GOP MPEG-TS frame whose relative seek returns no packet."""
@@ -1046,7 +1098,11 @@ class TestVideo:
                 legacy.close()
 
     def test_late_frame_reload_decodes_one_gop(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Reloading the last frame of a multi-keyframe video decodes that GOP, not the prefix."""
+        """Reloading the last frame of a multi-keyframe video decodes that GOP, not the prefix.
+
+        Sequential fps=1 reloads of a single-keyframe file and a default-GOP MPEG-TS walk from the
+        open index, so the decoded count stays on the order of the frame count.
+        """
         path = tmp_path / 'gop.mp4'
         _ffmpeg(
             [
@@ -1104,6 +1160,76 @@ class TestVideo:
         assert got['frame_attrs']['index'] == rows[last]['frame_attrs']['index']
         assert got['frame_attrs']['time'] == pytest.approx(rows[last]['frame_attrs']['time'], abs=1e-3)
         assert got['frame'] == rows[last]['frame']
+
+        single_key = tmp_path / 'single_key.mp4'
+        _ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'testsrc=size=64x64:rate=25:duration=8',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                '-g',
+                '250',
+                '-keyint_min',
+                '250',
+                '-bf',
+                '0',
+                '-x264-params',
+                'scenecut=0:bframes=0',
+                str(single_key),
+            ]
+        )
+        with av.open(str(single_key)) as container:
+            assert sum(frame.key_frame for frame in container.decode(video=0)) == 1
+        # Same shape as the empty relative seek: default x264 GOP, no forced keyint.
+        mpegts = tmp_path / 'default_gop.ts'
+        _ffmpeg(
+            [
+                '-f',
+                'lavfi',
+                '-i',
+                'testsrc=size=64x64:rate=25:duration=8',
+                '-output_ts_offset',
+                '1.48',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                '-f',
+                'mpegts',
+                str(mpegts),
+            ]
+        )
+
+        def reload_fps_rows(path: Path) -> None:
+            frame_count = _decoded_frame_count(path)
+            sampled = frame_iterator.decorated_callable(video=str(path), fps=1)  # type: ignore[attr-defined]
+            try:
+                fps_rows = list(sampled)
+            finally:
+                sampled.close()
+            assert len(fps_rows) >= 7
+            fps_reloaded = frame_iterator.decorated_callable(video=str(path), fps=1)  # type: ignore[attr-defined]
+            try:
+                nonlocal calls
+                calls = 0
+                for pos, row in enumerate(fps_rows):
+                    fps_reloaded.seek(pos, frame_attrs=row['frame_attrs'])
+                    got_row = next(fps_reloaded)
+                    assert got_row['frame_attrs']['index'] == row['frame_attrs']['index']
+                    assert got_row['frame_attrs']['time'] == pytest.approx(row['frame_attrs']['time'], abs=1e-3)
+                    assert got_row['frame'] == row['frame']
+                # One forward pass, plus the frame prefetched after each stored row.
+                assert calls <= frame_count + len(fps_rows), (calls, frame_count, len(fps_rows))
+            finally:
+                fps_reloaded.close()
+
+        reload_fps_rows(single_key)
+        reload_fps_rows(mpegts)
 
     def test_low_fps_keeps_first_frame(self, tmp_path: Path) -> None:
         """fps=1e-5 on a one-frame 25fps clip still returns the sample at the stream start."""

@@ -19,8 +19,9 @@ from pixeltable.utils.local_store import TempStore
 
 _logger = logging.getLogger(__name__)
 
-# A fresh iterator is on frame 0. Walking farther than this decodes the prefix, so a later
-# target keyframe-seeks. Empty relative seeks still fall back to decoding from the start.
+# A fresh iterator is on frame 0. Walking farther than this decodes the prefix, so that
+# target keyframe-seeks. A later index walks a forward gap. Empty relative seeks still
+# fall back to decoding from the start.
 _MAX_FORWARD_WALK = 8
 
 
@@ -141,7 +142,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     frame_gen: Iterator[av.VideoFrame]
     # seek() sets this. The following next() returns that stored frame.
     _reload_target: _ReloadTarget | None
-    # Formula that matched the open frame. A different index resolves again; rows can mix formulas.
+    # Formula that matched the frame last landed on. An index this decoder does not walk to resolves again.
     _pos_msec_formula: Literal['current', 'historical'] | None
 
     def __init__(
@@ -391,9 +392,9 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         start + pos_msec / 1000. v0.5.6 through v0.5.18 stored frame_time * 1000 - start,
         with start in seconds, and seek at pos_msec / 1000 + start / 1000. The two times
         differ by about start * 0.999 and can both be real frames, so the stored frame index decides.
-        The open frame reuses a formula only when its index is already that frame. Any other index
-        resolves again, so a cached formula is not applied to a row stored with the other one.
-        Probes do not move this iterator's decoder.
+        The open frame, or a frame walked to from it, supplies the PTS that picks the formula.
+        An index behind the decoder, or past the fresh-iterator walk, resolves on its own.
+        A cached formula is not applied to a row this decoder does not land on. Probes use another container.
         """
         current, historical = candidates
         if abs(current - historical) < 1e-3:
@@ -402,6 +403,20 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         matched = self._candidate_on_current_frame(frame_index, current, historical)
         if matched is not None:
             return matched
+        # A sampled row leaves the decoder on the next frame, not on pos_frame. The frame
+        # walked to has the PTS; resolving that gap would scan from frame 0.
+        if self.video_idx < frame_index and self._walk_forward(frame_index):
+            assert self.cur_frame is not None and self.cur_frame.pts is not None
+            frame_time = float(self.cur_frame.pts * self.video_time_base)
+            if abs(frame_time - current) < 1e-3:
+                self._pos_msec_formula = 'current'
+                return current
+            if abs(frame_time - historical) < 1e-3:
+                self._pos_msec_formula = 'historical'
+                return historical
+            # The stored index is this frame. Keep its PTS so a later check does not seek away.
+            self._pos_msec_formula = 'current'
+            return frame_time
         return self._resolve_pos_msec_formula(frame_index, current, historical)
 
     def _candidate_on_current_frame(self, frame_index: int, current: float, historical: float) -> float | None:
@@ -494,28 +509,41 @@ class frame_iterator(pxt.PxtIterator[Frame]):
                 return None
             return float(frame.pts * self.video_time_base)
 
-    def _advance_to_stored_frame(self, pos: int, seek_time: float, video_idx: int) -> bool:
-        """Walk the open generator to video_idx when that frame is only a few frames ahead.
+    def _walk_forward(self, video_idx: int) -> bool:
+        """Decode the open generator forward to video_idx.
 
-        A farther target keyframe-seeks, so a fresh iterator does not decode the prefix.
-        A backward seek leaves the seek path to run. A timestamp that is not this frame's does too.
+        Returns False without decoding when the target is behind the open index, or when a fresh
+        iterator would walk farther than _MAX_FORWARD_WALK. On success cur_frame is that frame.
+        If the stream ends first, cur_frame is cleared and the caller seeks.
         """
-        if self.cur_frame is None or self.video_idx > video_idx or self.cur_frame.pts is None:
+        if self.cur_frame is None or self.cur_frame.pts is None or self.video_idx > video_idx:
             return False
-        if video_idx - self.video_idx > _MAX_FORWARD_WALK:
+        if self.video_idx == 0 and video_idx - self.video_idx > _MAX_FORWARD_WALK:
             return False
         frame = self.cur_frame
         index = self.video_idx
         while index < video_idx:
             nxt = self.next_frame()
             if nxt is None or nxt.pts is None:
+                self.cur_frame = None
                 return False
             frame = nxt
             index += 1
-        if abs(float(frame.pts * self.video_time_base) - seek_time) >= 1e-3:
-            return False
         self.cur_frame = frame
         self.video_idx = index
+        return True
+
+    def _advance_to_stored_frame(self, pos: int, seek_time: float, video_idx: int) -> bool:
+        """Walk the open generator to video_idx when that frame is ahead.
+
+        A fresh iterator keyframe-seeks past _MAX_FORWARD_WALK. An open index walks the gap.
+        A backward seek, or a timestamp that is not this frame's, leaves the seek path to run.
+        """
+        if not self._walk_forward(video_idx):
+            return False
+        assert self.cur_frame is not None and self.cur_frame.pts is not None
+        if abs(float(self.cur_frame.pts * self.video_time_base) - seek_time) >= 1e-3:
+            return False
         self.pos = pos
         return True
 
