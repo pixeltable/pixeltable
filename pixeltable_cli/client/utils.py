@@ -43,6 +43,9 @@ EXIT_ERROR = 1
 EXIT_CHANGES_PENDING = 2
 EXIT_REFUSED = 3
 
+# management_client.USER_ACTION_CODES; this module does not import pixeltable
+USER_ACTION_CODES = frozenset(('PAYMENT_REQUIRED', 'PLAN_LIMIT', 'STORE_FULL'))
+
 
 def session_key() -> str:
     """Stable per-terminal session id: the invoking shell's pid plus its creation time.
@@ -235,8 +238,12 @@ def _pid_cmdline(pid: int) -> str | None:
     except OSError:
         pass
     if _IS_WINDOWS:
-        # No cheap stdlib argv source; the caller falls back to refusing to kill.
-        return None
+        # Windows has neither /proc nor ps; psutil reads the command line out of the process itself
+        try:
+            args = psutil.Process(pid).cmdline()
+        except (psutil.Error, OSError):
+            return None
+        return ' '.join(args) if len(args) > 0 else None
     # macOS/BSD (and Linux without a readable /proc entry): ask ps for the full command line.
     try:
         out = subprocess.run(
@@ -256,19 +263,10 @@ def _pid_is_our_daemon(pid: int) -> bool:
 
 def _pid_alive(pid: int) -> bool:
     assert pid > 0, pid
-    try:
-        # signal 0 is the 'are you there?' probe (doesn't kill, just raises if the PID is gone)
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        # PID exists but is owned by another user; treat as alive (we can't kill it anyway).
-        return True
-    except (OSError, SystemError):
-        # SystemError surfaces on Windows when os.kill(pid, 0) hits an internal CPython
-        # result-handling edge case for an unknown PID; treat the same as OSError ("gone").
-        return False
-    return True
+    # On POSIX this is the os.kill(pid, 0) probe, counting a pid owned by another user as alive. Windows can't
+    # use that probe: signal 0 is CTRL_C_EVENT there, and when the event can't be sent, CPython 3.11 goes on to
+    # call TerminateProcess on the pid, killing the process it was only meant to probe.
+    return psutil.pid_exists(pid)
 
 
 def kill_and_wait(pid: int, timeout: float = 5.0) -> None:
@@ -360,14 +358,21 @@ class RequestFailedError(Exception):
     status: int | None
     retryable: bool | None
     server_tb: str | None
+    as_written: bool  # the message is the control plane's reason, printed without a prefix
 
     def __init__(
-        self, message: str, status: int | None = None, retryable: bool | None = None, server_tb: str | None = None
+        self,
+        message: str,
+        status: int | None = None,
+        retryable: bool | None = None,
+        server_tb: str | None = None,
+        as_written: bool = False,
     ) -> None:
         super().__init__(message)
         self.status = status
         self.retryable = retryable
         self.server_tb = server_tb
+        self.as_written = as_written
 
     @property
     def transient(self) -> bool:
@@ -381,7 +386,7 @@ class RequestFailedError(Exception):
         return self.retryable if self.retryable is not None else self.status >= 500
 
     def report(self) -> None:
-        print(f'pxt: {self}', file=sys.stderr)
+        print(str(self) if self.as_written else f'pxt: {self}', file=sys.stderr)
         if self.server_tb is not None:
             # an unexpected daemon failure carries its traceback; show it so the user can report the error
             print(f'\n--- daemon traceback ---\n{self.server_tb}', file=sys.stderr)
@@ -430,11 +435,14 @@ def _send(method: str, path: str, body: dict[str, Any] | None, params: dict[str,
             body = {}
         detail = body.get('detail') or e.reason
         retryable = body.get('retryable')
+        # a refusal only the user can lift: its reason is printed as the control plane wrote it
+        as_written = body.get('error_code') in USER_ACTION_CODES
         raise RequestFailedError(
-            f'{e.code} {detail}',
+            detail if as_written else f'{e.code} {detail}',
             e.code,
             retryable=retryable if isinstance(retryable, bool) else None,
             server_tb=body.get('traceback'),
+            as_written=as_written,
         ) from e
     except urllib.error.URLError as e:
         raise RequestFailedError(f'cannot reach daemon at {url}: {e.reason}') from e

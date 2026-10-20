@@ -1,5 +1,6 @@
 """The project's file selection and its fingerprint."""
 
+import hashlib
 import pathlib
 from typing import Any
 
@@ -12,8 +13,11 @@ from pixeltable.utils.project import (
     _archive_files,
     archive_object_name,
     create_image_context,
+    digest,
     image_object_name,
+    member_hash,
     project_fingerprint,
+    pyproject_hash,
 )
 
 from .utils import pxt_raises
@@ -250,3 +254,22 @@ class TestProject:
         configured = project_fingerprint(project, None, project_config=_bound('s3://one'))
         assert configured.archive_digest() == before.archive_digest()
         assert configured.image_digest() == before.image_digest()
+
+
+def test_project_hashes_are_stable() -> None:
+    """Stored fingerprints and digests depend on these values; a change breaks every one of them."""
+    assert digest({'b': [1, 'x'], 'a': None}) == 'c22cb7b0353770e2b38094af641143ebf008ddf2d1f2dedb9d875996fcf245fa'
+    assert (
+        member_hash(hashlib.sha256(b'x = 1\n').hexdigest(), symlink=False)
+        == 'e20f77d93b9cf670cd97a6cf7cb076e7882c6d92f6013f30ab65d6f8abcde4c6'
+    )
+    assert (
+        member_hash(digest('target.py'), symlink=True)
+        == '0d433800391ba2d5846f18f18df3461d2d947b36b37b608eb1d6fe0c60696970'
+    )
+    with_settings = b'[project]\nname = "app"\n\n[tool.pixeltable]\nx = 1\n'
+    assert (
+        pyproject_hash(with_settings)
+        == pyproject_hash(b'[project]\nname = "app"\n')
+        == '8bf4de8cd3304de12a29ba1da5b919985809af5e150aa853a4b592e23c4022ab'
+    )
