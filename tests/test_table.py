@@ -2388,6 +2388,9 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"missing required key: 'b'"):
             t.insert(json_col_1={'a': 'apples'})  # Missing required field
 
+        # Dict schemas are open: keys the schema doesn't declare are allowed
+        t.insert(json_col_1={'a': 'apples', 'b': 1, 'c': 3.0, 'd': True, 'e': 'extra'}, json_col_2={'z': None})
+
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH,
             match=r"The literal value.*is not compatible with the type.*of column 'json_col_2'",

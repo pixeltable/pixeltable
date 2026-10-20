@@ -301,18 +301,6 @@ def values(self: pxt.Json) -> pxt.Json:
     raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'values() is only defined for a JSON object')
 
 
-@values.conditional_return_type
-def _(self: exprs.Expr) -> ts.ColumnType:
-    # jsonb does not preserve key order, so the values can't be typed as an ordered tuple; use a variadic list
-    # of the common supertype of the value types instead
-    schema = self.col_type.type_schema if isinstance(self.col_type, ts.JsonType) else None
-    if schema is not None and isinstance(schema.type_spec, dict) and builtins.len(schema.type_spec) > 0:
-        supertype = ts.ColumnType.common_supertype(schema.type_spec.values())
-        if supertype is not None:
-            return ts.JsonType(ts.JsonType.TypeSchema([], variadic_type=supertype), nullable=True)
-    return ts.JsonType(nullable=True)
-
-
 @pxt.udf(is_method=True)
 def items(self: pxt.Json) -> pxt.Json:
     """
@@ -414,13 +402,20 @@ def _(self: exprs.Expr, other: exprs.Expr) -> ts.ColumnType:
     b = other.col_type.type_schema if isinstance(other.col_type, ts.JsonType) else None
     if a is None or b is None or not isinstance(a.type_spec, dict) or not isinstance(b.type_spec, dict):
         return ts.JsonType(nullable=True)
-    type_spec = {**a.type_spec, **b.type_spec}
-    # a key is optional in the result when it is optional in the operand that supplies its value (other wins)
-    optional_keys = {
-        k
-        for k in type_spec
-        if (k in b.type_spec and k in b.optional_keys) or (k not in b.type_spec and k in a.optional_keys)
-    }
+    # Dict schemas are open, so either operand may have keys its schema doesn't declare. Since other wins, the
+    # result declares only the keys whose value type is known: those that other requires, and those that other
+    # declares as optional and self declares too (when other omits one, self supplies it).
+    type_spec: dict[str, ts.ColumnType] = {}
+    optional_keys: set[str] = set()
+    for k, b_type in b.type_spec.items():
+        if k not in b.optional_keys:
+            type_spec[k] = b_type
+        elif k in a.type_spec:
+            supertype = a.type_spec[k].supertype(b_type)
+            if supertype is not None:
+                type_spec[k] = supertype
+                if k in a.optional_keys:
+                    optional_keys.add(k)
     return ts.JsonType(ts.JsonType.TypeSchema(type_spec, optional_keys=frozenset(optional_keys)), nullable=True)
 
 

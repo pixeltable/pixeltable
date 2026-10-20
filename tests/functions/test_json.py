@@ -1,6 +1,8 @@
 # mypy: disable-error-code="misc"
 
 
+from typing import TypedDict
+
 import pytest
 
 import pixeltable as pxt
@@ -316,8 +318,8 @@ class TestJson:
         assert rs.schema['o'] == 'Json | None'  # items() never carries key/value type information
         assert {r['id']: r['o'] for r in rs} == {1: [['a', 1], ['b', 2]], 2: [], 3: None}
 
-        # values() over a typed object schema: the common supertype of the value types for a homogeneous object,
-        # Json when the value types have no common supertype
+        # values() over a typed object schema: dict schemas are open, so an object may have keys its schema doesn't
+        # declare, and the value types are unknown
         tv = pxt.create_table(
             'json_values_typed',
             {
@@ -325,10 +327,10 @@ class TestJson:
                 'hetero': pxt.Json[{'a': pxt.Int, 'b': pxt.String}] | None,
             },
         )
-        tv.insert([{'homog': {'a': 1, 'b': 2}, 'hetero': {'a': 1, 'b': 'x'}}])
+        tv.insert([{'homog': {'a': 1, 'b': 2, 'c': 'z'}, 'hetero': {'a': 1, 'b': 'x'}}])
         rs = tv.select(homog=tv.homog.values(), hetero=tv.hetero.values()).collect()
-        assert rs.schema == {'homog': 'Json[(Int, ...)] | None', 'hetero': 'Json[(Json, ...)] | None'}
-        assert rs[0]['homog'] == [1, 2]
+        assert rs.schema == {'homog': 'Json | None', 'hetero': 'Json | None'}
+        assert rs[0]['homog'] == [1, 2, 'z']
         assert rs[0]['hetero'] == [1, 'x']
 
         # keys(), values() and items() are only defined for an object
@@ -473,6 +475,19 @@ class TestJson:
         res = t.select(m=t.da.merge(t.db)).collect()
         assert res.schema['m'] == "Json[{'a': String, 'b': String}] | None"
         assert res['m'] == [{'a': 'z', 'b': 'y'}]
+
+        # Either operand may have keys its schema doesn't declare, and the right operand wins, so the result declares
+        # a key that the right operand makes optional only if the left operand declares it too ('a' but not 'b'),
+        # and leaves undeclared a key that only the left operand declares ('c')
+        class Overrides(TypedDict, total=False):
+            a: int
+            b: str
+
+        to = pxt.create_table('json_merge_opt', {'da': pxt.Json[{'a': pxt.Int, 'c': pxt.Int}] | None, 'db': Overrides})
+        to.insert([{'da': {'a': 1, 'c': 3}, 'db': {'b': 'y'}}, {'da': {'a': 1, 'c': 3}, 'db': {'a': 2, 'c': 'x'}}])
+        res = to.select(m=to.da.merge(to.db)).collect()
+        assert res.schema['m'] == "Json[{'a': Int}] | None"
+        assert res['m'] == [{'a': 1, 'b': 'y', 'c': 3}, {'a': 2, 'c': 'x'}]
 
         # a null operand yields null; a non-null, non-object operand raises
         tn = pxt.create_table('json_merge_err', {'a': pxt.Json | None, 'b': pxt.Json | None})

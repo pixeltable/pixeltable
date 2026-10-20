@@ -414,7 +414,7 @@ class Function(ABC):
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Expected a constant value for parameter {k!r} in call to .using()',
                 )
-            if not param.col_type.is_supertype_of(expr.col_type):
+            if not expr.conforms_to(param.col_type):
                 raise excs.RequestError(
                     excs.ErrorCode.TYPE_MISMATCH,
                     f'Expected type `{param.col_type}` for parameter {k!r}; got `{expr.col_type}`',

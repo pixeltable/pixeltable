@@ -1214,7 +1214,7 @@ class JsonType(ColumnType):
         superschema = (
             None
             if self.type_schema is None or other.type_schema is None
-            else self.type_schema.superschema(other.type_schema)
+            else self.type_schema.superschema(other.type_schema, for_inference=for_inference)
         )
         return JsonType(type_schema=superschema, nullable=(self.nullable or other.nullable))
 
@@ -1235,7 +1235,9 @@ class JsonType(ColumnType):
             Example: `Json[(str, int, float, ...)]` would have type_spec = [StringType(), IntType()] and
                 variadic_type = FloatType(). (All nullable.)
         - A typed dictionary; in this case, type_spec is a dict mapping keys to their types, and optional_keys may
-            have elements indicating which keys are optional.
+            have elements indicating which keys are optional. Dictionary schemas are open, like Python's
+            `TypedDict`: a value must have every required key, but may also have keys that the schema doesn't
+            declare.
         """
 
         type_spec: list[ColumnType] | dict[str, ColumnType]
@@ -1275,11 +1277,11 @@ class JsonType(ColumnType):
                         expected_type.validate_literal(val[key])
                     elif key not in self.optional_keys:
                         raise TypeError(f'Missing required key: {key!r}')
-                for key in val:
-                    if key not in self.type_spec:
-                        raise TypeError(f'Unexpected key: {key}')
 
         def to_json_schema(self) -> dict[str, Any]:
+            # The JSON schema describes values to generate (it is used for LLM tool parameters), so it disallows
+            # undeclared properties even though the type accepts them: strict tool calling requires that, and a
+            # model has no use for properties the parameter doesn't declare.
             json_schema: dict[str, Any]
 
             if isinstance(self.type_spec, list):
@@ -1332,7 +1334,25 @@ class JsonType(ColumnType):
                     r += f', optional_keys={sorted(self.optional_keys)}'
                 return r
 
-        def superschema(self, other: JsonType.TypeSchema) -> JsonType.TypeSchema | None:
+        @staticmethod
+        def __supertype(a: ColumnType, b: ColumnType, for_inference: bool) -> ColumnType | None:
+            # for_inference changes only how dictionary schemas combine, so pass it only to nested JSON types;
+            # nested scalars combine as they do outside inference
+            return a.supertype(b, for_inference=True) if for_inference and isinstance(a, JsonType) else a.supertype(b)
+
+        def superschema(self, other: JsonType.TypeSchema, for_inference: bool = False) -> JsonType.TypeSchema | None:
+            """
+            Returns the most specific schema that is a superschema of both `self` and `other`, or None if there is
+            none (other than untyped JSON).
+
+            Since dictionary schemas are open, the superschema of two dictionary schemas declares only the keys
+            that both declare, and a key is required only if both require it.
+
+            If `for_inference=True`, the superschema of two dictionary schemas instead declares every key that
+            either one declares, with a key that only one of them declares becoming optional. That schema need not
+            accept every value of two open schemas, but it accepts the literals they were inferred from, and it is
+            the more useful type to infer.
+            """
             if self == other:
                 return self
 
@@ -1341,7 +1361,7 @@ class JsonType(ColumnType):
                 if self.variadic_type is not None:
                     variadic_type = self.variadic_type
                     if other.variadic_type is not None:
-                        variadic_type = variadic_type.supertype(other.variadic_type)
+                        variadic_type = self.__supertype(variadic_type, other.variadic_type, for_inference)
                         if variadic_type is None:
                             return None  # incompatible variadic types
                 else:
@@ -1367,11 +1387,11 @@ class JsonType(ColumnType):
                         if variadic_type is None:
                             variadic_type = item_b
                         else:
-                            variadic_type = variadic_type.supertype(item_b)
+                            variadic_type = self.__supertype(variadic_type, item_b, for_inference)
                             if variadic_type is None:
                                 return None  # existing variadic type is incompatible with the extra item_other
                     else:
-                        item_supertype = item_a.supertype(item_b)
+                        item_supertype = self.__supertype(item_a, item_b, for_inference)
                         if item_supertype is None:
                             return None  # incompatible types in this position
                         joined_list.append(item_supertype)
@@ -1379,6 +1399,21 @@ class JsonType(ColumnType):
                 return JsonType.TypeSchema(type_spec=joined_list, variadic_type=variadic_type)
 
             if isinstance(self.type_spec, dict) and isinstance(other.type_spec, dict):
+                # If a key is optional in either self or other, it's optional in the supertype.
+                optional_keys = self.optional_keys | other.optional_keys
+
+                if not for_inference:
+                    joined_dict: dict[str, ColumnType] = {}
+                    for key, type_ in self.type_spec.items():
+                        if key in other.type_spec:
+                            supertype = type_.supertype(other.type_spec[key])
+                            # if the two types for this key are incompatible, the superschema leaves it undeclared
+                            if supertype is not None:
+                                joined_dict[key] = supertype
+                    return JsonType.TypeSchema(
+                        type_spec=joined_dict, optional_keys=frozenset(k for k in joined_dict if k in optional_keys)
+                    )
+
                 # Start with self.type_spec.
                 joined_dict = self.type_spec.copy()
 
@@ -1386,7 +1421,7 @@ class JsonType(ColumnType):
                 for key, type_ in other.type_spec.items():
                     if key in joined_dict:
                         # key is in both type specs; form the supertype
-                        supertype = type_.supertype(joined_dict[key])
+                        supertype = self.__supertype(type_, joined_dict[key], for_inference)
                         if supertype is None:
                             return None  # incompatible types for this key
                         joined_dict[key] = supertype
@@ -1394,10 +1429,7 @@ class JsonType(ColumnType):
                         # key is only in other
                         joined_dict[key] = type_
 
-                # If a key is optional in either self or other, it's optional in the supertype.
-                optional_keys = self.optional_keys | other.optional_keys
-                # Moreover, if it appears in one type_spec but not the other,
-                # it must also be optional in the supertype.
+                # If a key appears in one type_spec but not the other, it must also be optional in the supertype.
                 optional_keys |= frozenset(self.type_spec.keys()) ^ frozenset(other.type_spec.keys())
 
                 return JsonType.TypeSchema(type_spec=joined_dict, optional_keys=frozenset(optional_keys))
