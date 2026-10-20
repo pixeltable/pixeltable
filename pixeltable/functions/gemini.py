@@ -57,7 +57,7 @@ def _(api_key: str | None = None) -> 'genai.client.Client':
 
     class _ClosableClient(genai.client.Client):
         """genai.client.Client.close() closes only the sync client and leaves client.aio open: the async client that
-        the UDFs use, with its httpx client and aiohttp session. aclose() closes both."""
+        the UDFs use, with its httpx client and, once a request opens one, its aiohttp session. aclose() closes both."""
 
         async def aclose(self) -> None:
             try:
