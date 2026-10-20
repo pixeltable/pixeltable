@@ -33,7 +33,7 @@ def _resolve_pixeltable_home() -> str:
 
 
 def _resolve_pixeltable_pgdata(home: str) -> str:
-    """Mirrors env.py: PIXELTABLE_PGDATA if set, else {home}/pgdata."""
+    """Mirrors how Env resolves pgdata_dir, except for pxt.init() overrides."""
     return str(Path(os.environ.get('PIXELTABLE_PGDATA') or f'{home}/pgdata').expanduser().resolve())
 
 
