@@ -56,13 +56,14 @@ def _(api_key: str | None = None) -> 'genai.client.Client':
     from google import genai
 
     class _ClosableClient(genai.client.Client):
-        """genai.client.Client.close() closes only the sync client; the async one that the UDFs use (its httpx client
-        and aiohttp session) closes only through aio.aclose(). Runtime.close_clients() calls aclose() in place of
-        close(), so it releases both."""
+        """genai.client.Client.close() closes only the sync client and leaves client.aio open: the async client that
+        the UDFs use, with its httpx client and aiohttp session. aclose() closes both."""
 
         async def aclose(self) -> None:
-            self.close()
-            await self.aio.aclose()
+            try:
+                self.close()
+            finally:
+                await self.aio.aclose()
 
     try:
         if api_key is not None:

@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import numpy as np
 import PIL.Image
@@ -13,9 +13,6 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.runtime import get_runtime, reset_runtime
-
-if TYPE_CHECKING:
-    from google.genai import types
 
 from ..utils import (
     ensure_s3_pytest_resources_access,
@@ -31,20 +28,32 @@ from ..utils import (
 )
 from .tool_utils import run_tool_invocations_test
 
+if TYPE_CHECKING:
+    from google.genai import types
+
 _logger = logging.getLogger('pixeltable_test')
 
 
 class TestGeminiLocal:
-    def test_client_closed_on_reset(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize('close_fails', [False, True])
+    # google-genai subclasses aiohttp.ClientSession for the session it opens
+    @pytest.mark.filterwarnings('ignore:Inheritance class AiohttpClientSession:DeprecationWarning')
+    def test_client_closed_on_reset(self, close_fails: bool, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         skip_test_if_not_installed('google.genai')
         monkeypatch.setenv('GEMINI_API_KEY', 'test-key')
-        # the SDK closes a client that is garbage-collected while a loop runs, so the test holds on to it, as the
-        # traceback of a failed call can
+        # the test keeps a reference to the client, as the traceback of a failed call does: the SDK closes a client
+        # that is garbage-collected while a loop runs, which would hide the leak
         client = get_runtime().get_client('gemini')
-        # no public accessor exposes the SDK's httpx client, so this reads the private attribute that holds it
+        if close_fails:
+            # a failure to close the sync client doesn't keep the async one open
+            monkeypatch.setattr(client, 'close', Mock(side_effect=RuntimeError('close failed')))
+        # no public accessors expose the SDK's async HTTP clients, so this reads the private attributes. The aiohttp
+        # session opens on the first request, on the runtime's loop; _get_aiohttp_session() opens it the same way.
         http_client = client._api_client._async_httpx_client
+        aiohttp_session = get_runtime().event_loop.run_until_complete(client._api_client._get_aiohttp_session())
         reset_runtime()
         assert http_client.is_closed
+        assert aiohttp_session.closed
 
     @pytest.mark.parametrize('outcome', ['blocked', 'no_content', 'no_parts', 'no_mime_type'])
     def test_response_without_content(self, outcome: str, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
