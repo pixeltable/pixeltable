@@ -42,6 +42,20 @@ class TestAlterColumn:
         t.alter_column(t.c2, type_=pxt.Float | None)
         validate_update_status(t.insert(c1=None, c2=None), 1)
 
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_alter_column_nullable_dependents(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_tbl'), {'id': pxt.Int, 'd': pxt.Json})
+        t.add_computed_column(a=t.d.a)
+        v = pxt.create_view(p('test_view'), t)
+        v.add_computed_column(b=v.d.b)
+        t.alter_column('d', type_=pxt.Json | None)
+        reload_catalog(do_reload_catalog)
+
+        validate_update_status(t.insert([{'id': 1, 'd': {'a': 1, 'b': 2}}, {'id': 2, 'd': None}]))
+        assert t.order_by(t.id).select(t.a).collect()['a'] == [1, None]
+        assert v.order_by(v.id).select(v.b).collect()['b'] == [2, None]
+
     def test_alter_column_same_type(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         t = pxt.create_table(
             db_root.make_catalog_path('test_tbl'), {'c1': pxt.Int | None}, _is_data_versioned=is_data_versioned
@@ -86,8 +100,10 @@ class TestAlterColumn:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot alter the type of primary key column'):
             t.alter_column('c5', type_=pxt.Int | None)
 
-        # column with dependent computed columns
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Cannot alter.+c3.+columns depend on it.+c4'):
+        # column with a non-nullable dependent computed column
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"'c3' cannot become nullable: non-nullable columns depend on it"
+        ):
             t.alter_column('c3', type_=pxt.Float | None)
 
         # changing the base type

@@ -424,12 +424,13 @@ class TableProxy(Table):
         self,
         rows: Iterable[dict[str, Any]],
         cascade: bool = True,
-        if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
+        if_not_exists: Literal['error', 'ignore', 'insert'] | None = None,
         return_rows: bool = False,
+        if_exists: Literal['update', 'ignore', 'error'] | None = None,
     ) -> UpdateStatus:
         bound_args = self._dispatch_args(locals())
         self._check_mutable('update')
-        bound_args['rows'] = list(rows)
+        bound_args['rows'] = self._convert_local_paths(rows)
         return self._dispatch('batch_update', bound_args)
 
     def recompute_columns(

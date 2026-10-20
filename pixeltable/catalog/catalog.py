@@ -256,6 +256,9 @@ class Catalog(CatalogBase):
     _in_write_xact: bool  # True if we're in a write transaction
     _x_locked_tbl_ids: set[UUID]  # Ids of tables exclusively locked for write in the current transaction
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
+    _tvs_to_invalidate: set[
+        TableVersionHandle
+    ]  # TableVersion instances to drop from the cache when the transaction ends
     _roll_forward_ids: set[UUID]  # ids of Tables that have pending TableOps
     _undo_actions: list[Callable[[], None]]
     _in_retry_loop: bool
@@ -278,6 +281,7 @@ class Catalog(CatalogBase):
         self._in_write_xact = False
         self._x_locked_tbl_ids = set()
         self._modified_tvs = set()
+        self._tvs_to_invalidate = set()
         self._roll_forward_ids = set()
         self._undo_actions = []
         self._in_retry_loop = False
@@ -361,6 +365,12 @@ class Catalog(CatalogBase):
         """Record that the given TableVersion instance was modified in the current transaction"""
         assert get_runtime().in_xact
         self._modified_tvs.add(handle)
+
+    def invalidate_after_xact(self, tbl_version: TableVersion) -> None:
+        """Drop tbl_version and its mutable views from the cache when the current transaction ends."""
+        assert get_runtime().in_xact
+        self._tvs_to_invalidate.add(tbl_version.handle)
+        self._tvs_to_invalidate.update(view_tv.handle for view_tv in self._mutable_view_tvs(tbl_version))
 
     @contextmanager
     def _allow_tbl_md_read(self) -> Iterator[None]:
@@ -457,6 +467,7 @@ class Catalog(CatalogBase):
                 self._in_write_xact = for_write
                 self._x_locked_tbl_ids = set()
                 self._modified_tvs = set()
+                self._tvs_to_invalidate = set()
                 self._column_dependents = None
                 has_exc = False
 
@@ -559,10 +570,13 @@ class Catalog(CatalogBase):
                     # Clear potentially corrupted cached metadata
                     for tvp in [*write_tvps, *read_tvps]:
                         tvp.clear_cached_md()
+                for handle in self._tvs_to_invalidate:
+                    self._clear_tv_cache(handle.key)
 
                 self._evict_caches()
                 self._undo_actions.clear()
                 self._modified_tvs.clear()
+                self._tvs_to_invalidate.clear()
 
     def _try_rollback(self, conn: sql.Connection) -> None:
         """Initiate rollback, ignoring the failure resulting from a possibly already-dead connection."""
@@ -1954,6 +1968,10 @@ class Catalog(CatalogBase):
                 pending_ancestor_ids = (set(tvp.tbl_ids[1:]) & updated_tbl_ids) - applied_tbl_ids
                 assert len(pending_ancestor_ids) == 0, f'{tv.name}: bases not yet applied: {pending_ancestor_ids}'
 
+                # before the new columns are resolved, since a column reference takes the type of its column
+                tv.widen_columns(
+                    [(tv.cols_by_name[name], col_type) for name, col_type in change_set['widened_columns'].items()]
+                )
                 added_cols, added_idxs, altered_exprs = prepare_model_updates(
                     tvp,
                     tv.display_str(),

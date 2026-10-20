@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 from functools import reduce
-from typing import TYPE_CHECKING, Any, Callable, Iterable, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence, overload
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 
@@ -10,6 +10,7 @@ from .function import Function
 from .signature import Signature
 
 if TYPE_CHECKING:
+    from pixeltable._query import Query, ResultSet
     from pixeltable._query_base import QueryBase
 
 
@@ -19,6 +20,7 @@ class QueryTemplateFunction(Function):
     template_query: 'QueryBase' | None
     self_name: str | None
     return_scalar: bool
+    single_value: bool
     _comment: str | None
 
     @classmethod
@@ -64,19 +66,26 @@ class QueryTemplateFunction(Function):
 
         schema = template_query.schema
         # return_scalar == True: single-column queries return a variadic list of that column's type directly, rather
-        # than wrapping each row in a single-field dict.
+        # than wrapping each row in a single-field dict; an ungrouped aggregate returns its one value instead.
         row_schema: ts.ColumnType
         assert not return_scalar or len(schema) == 1
+        single_value = return_scalar and template_query._is_ungrouped_aggregate
         if return_scalar:
             row_schema = next(iter(schema.values()))
         else:
             row_schema = ts.JsonType(ts.JsonType.TypeSchema(type_spec=dict(schema)))
-        return_type = ts.JsonType(ts.JsonType.TypeSchema(type_spec=[], variadic_type=row_schema))
+        return_type: ts.ColumnType
+        if single_value:
+            # None if the query returns no rows
+            return_type = row_schema.copy(nullable=True)
+        else:
+            return_type = ts.JsonType(ts.JsonType.TypeSchema(type_spec=[], variadic_type=row_schema))
         sig = Signature(return_type=return_type, parameters=params)
         super().__init__([sig], self_path=path)
         self.self_name = name
         self.template_query = template_query
         self.return_scalar = return_scalar
+        self.single_value = single_value
         self._comment = comment
 
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
@@ -105,10 +114,21 @@ class QueryTemplateFunction(Function):
     def is_async(self) -> bool:
         return True
 
+    def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
+        # _collect() opens its own transaction; _acollect() requires one
+        query, bound_args = self._query_and_args(args, kwargs)
+        return self._return_value(query, query._collect(args=bound_args))
+
     async def aexec(self, *args: Any, **kwargs: Any) -> Any:
-        # assert not self.is_polymorphic
+        query, bound_args = self._query_and_args(args, kwargs)
+        return self._return_value(query, await query._acollect(args=bound_args))
+
+    def _query_and_args(self, args: Sequence[Any], kwargs: dict[str, Any]) -> tuple[Query, dict[str, Any]]:
+        """Return the query over a table and the argument of each parameter, with defaults applied."""
+        from pixeltable._query import Query
+        from pixeltable.catalog.model.query import ModelQuery
+
         bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
-        # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
             {
                 param.name: param.default_value
@@ -116,19 +136,27 @@ class QueryTemplateFunction(Function):
                 if param.has_default() and param.name not in bound_args
             }
         )
-        from pixeltable._query import Query
+        query = self.template_query
+        if isinstance(query, ModelQuery):
+            # binding a model records the catalog directory of its table
+            catalog_dir = query.model_cls._catalog_dir
+            if catalog_dir is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Query UDF {self.name!r} is declared over the model `{query.model_cls.__name__}`, which is not '
+                    f'bound to a table; call `bind_all()` on its TableModel base first.',
+                )
+            query = query.bind(catalog_dir)
+        assert isinstance(query, Query)
+        return query, bound_args
 
-        # a route binds a template declared over a model to its table before serving it; nothing else does,
-        # so a template that is still declared over a model here has no table to read
-        if not isinstance(self.template_query, Query):
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Query UDF {self.name!r} is declared over a model rather than a table, so it cannot be evaluated.',
-            )
-        result = await self.template_query._acollect(args=bound_args)
+    def _return_value(self, query: Query, result: ResultSet) -> Any:
         if self.return_scalar:
-            col_name = next(iter(self.template_query.schema))
-            return [row[col_name] for row in result]
+            col_name = next(iter(query.schema))
+            values = [row[col_name] for row in result]
+            if self.single_value:
+                return values[0] if len(values) > 0 else None
+            return values
         return list(result)
 
     @property
@@ -176,6 +204,38 @@ def query(
 
 
 def query(*args: Any, **kwargs: Any) -> Any:
+    """Decorator that turns a function returning a parameterized query into a function that runs the query.
+
+    The decorated function builds the query from its parameters. A call to the resulting function in an expression,
+    such as a computed column, runs the query for each row, with that row's values as the arguments.
+
+    Args:
+        param_types: The Pixeltable types of the parameters, for parameters without type annotations.
+        return_scalar: For a query that selects one column, return a list of that column's values instead of a list
+            of rows. For an aggregation without `group_by()`, return its one value.
+
+    Returns:
+        The query function. Unless `return_scalar` is set, a call returns a list of rows, each a dictionary from the
+        selected column names to their values.
+
+    Examples:
+        The five chunks most similar to a question, given a table `chunks` with an embedding index on `text`:
+
+        >>> @pxt.query
+        ... def top_chunks(question: str) -> pxt.Query:
+        ...     sim = chunks.text.similarity(string=question)
+        ...     return chunks.order_by(sim, asc=False).select(chunks.text).limit(5)
+
+        The total of a customer's orders, as a single value in a computed column of the table `customers`:
+
+        >>> @pxt.query(return_scalar=True)
+        ... def customer_total(customer: str) -> pxt.Query:
+        ...     return orders.where(orders.customer == customer).select(
+        ...         pxtf.sum(orders.amount)
+        ...     )
+        >>> customers.add_computed_column(total=customer_total(customers.customer))
+    """
+
     def make_query_template(
         py_fn: Callable, param_types: list[ts.ColumnType] | None, return_scalar: bool
     ) -> QueryTemplateFunction:

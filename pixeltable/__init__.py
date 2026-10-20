@@ -36,6 +36,7 @@ from .exceptions import (
 from .func import (
     Aggregator,
     Function,
+    FunctionList,
     PxtIterator,
     Tool,
     ToolChoice,
@@ -55,6 +56,7 @@ from .globals import (
     TableNode,
     TreeNode,
     array,
+    call_udf,
     create_dir,
     create_snapshot,
     create_table,
@@ -92,6 +94,7 @@ from .type_system import (
     Timestamp,
     Video,
 )
+from .types import FunctionInfo, FunctionKind
 
 # This import must go last to avoid circular imports.
 from . import functions, io, iterators  # isort: skip

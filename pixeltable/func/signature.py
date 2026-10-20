@@ -232,12 +232,18 @@ class Signature:
     def __hash__(self) -> int:
         return hash((self.return_type, self.parameters))
 
-    def params_str(self) -> str:
-        """Generates a user friendly string describing this signature's input parameters"""
+    def params_str(self, with_defaults: bool = False, as_method: bool = False) -> str:
+        """Generates a user friendly string describing this signature's input parameters
+
+        Args:
+            with_defaults: include each parameter's default value
+            as_method: omit the first parameter, the receiver of a method call
+        """
         param_strs: list[str] = []
         pending_pos_only_marker = False
         needs_kw_only_marker = True
-        for p in self.parameters.values():
+        params = list(self.parameters.values())
+        for p in params[1:] if as_method else params:
             if p.kind == inspect.Parameter.POSITIONAL_ONLY:
                 pending_pos_only_marker = True
             elif pending_pos_only_marker:
@@ -253,6 +259,8 @@ class Signature:
                 param_strs.append(f'*{p.name}')
             elif p.kind == inspect.Parameter.VAR_KEYWORD:
                 param_strs.append(f'**{p.name}')
+            elif with_defaults and p.has_default():
+                param_strs.append(f'{p.name}: pxt.{p.col_type} = {p.default}')
             else:
                 param_strs.append(f'{p.name}: pxt.{p.col_type}')
         if pending_pos_only_marker:

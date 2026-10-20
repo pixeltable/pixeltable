@@ -8,7 +8,7 @@ the [Working with Anthropic](https://docs.pixeltable.com/howto/providers/working
 import datetime
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, cast
+from typing import TYPE_CHECKING, Any, Iterable, NotRequired, Required, TypedDict, cast
 
 import pixeltable as pxt
 from pixeltable import env, exprs, telemetry_schemas
@@ -143,6 +143,53 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
         return super().get_retry_delay(exc, attempt)
 
 
+# Mirrors of the Pydantic models in anthropic.types; the response JSON of the messages API has the same keys.
+
+
+class Usage(TypedDict):
+    input_tokens: int
+    output_tokens: int
+    cache_creation_input_tokens: NotRequired[int | None]
+    cache_read_input_tokens: NotRequired[int | None]
+    cache_creation: NotRequired[dict[str, Any] | None]
+    inference_geo: NotRequired[str | None]
+    output_tokens_details: NotRequired[dict[str, Any] | None]
+    server_tool_use: NotRequired[dict[str, Any] | None]
+    service_tier: NotRequired[str | None]
+
+
+class ContentBlock(TypedDict, total=False):
+    """The fields of all content block types; a block's `type` determines its fields."""
+
+    type: Required[str]
+    text: str
+    citations: list[dict[str, Any]] | None
+    thinking: str
+    signature: str
+    data: str
+    id: str
+    name: str
+    input: dict[str, Any]
+    caller: dict[str, Any] | None
+    toolset_name: str | None
+    tool_use_id: str
+    content: pxt.Json
+    file_id: str
+
+
+class Message(TypedDict):
+    id: str
+    type: str
+    role: str
+    model: str
+    content: list[ContentBlock]
+    stop_reason: str | None
+    stop_sequence: str | None
+    usage: Usage
+    container: NotRequired[dict[str, Any] | None]
+    stop_details: NotRequired[dict[str, Any] | None]
+
+
 @pxt.udf(is_deterministic=False)
 async def messages(
     messages: list[dict[str, str]],
@@ -153,7 +200,7 @@ async def messages(
     tools: list[dict[str, Any]] | None = None,
     tool_choice: dict[str, Any] | None = None,
     _runtime_ctx: env.RuntimeCtx | None = None,
-) -> dict:
+) -> Message:
     """
     Create a Message.
 
@@ -177,7 +224,8 @@ async def messages(
         tool_choice: An optional tool choice configuration.
 
     Returns:
-        A dictionary containing the response and other metadata.
+        The Anthropic `Message` object as a dictionary. Its `content` is a list of content blocks, and a text block
+        contains the generated text, as in `response.content[0].text`.
 
     Examples:
         Add a computed column that applies the model `claude-3-5-sonnet-20241022`

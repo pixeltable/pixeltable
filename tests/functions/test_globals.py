@@ -3,6 +3,8 @@ import numpy as np
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
+from ..utils import DatabaseRoot, assert_type_eq, pxt_raises
+
 
 class TestGlobals:
     def test_aggregators(self, test_tbl: pxt.Table) -> None:
@@ -48,3 +50,41 @@ class TestGlobals:
         ).collect()
         res_direct = t.select(t.c2, t.c3).collect()
         assert res[0] == {f'c{i}{op.__name__}': op(res_direct[f'c{i}']) for i in (2, 3) for op in (sum, np.mean)}
+
+    def test_coalesce(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('test_tbl'),
+            {
+                'reviewed': pxt.String | None,
+                'predicted': pxt.String | None,
+                'n': pxt.Int | None,
+                'x': pxt.Float,
+                'img': pxt.Image | None,
+            },
+        )
+        t.insert(
+            [
+                {'reviewed': None, 'predicted': 'cat', 'n': None, 'x': 1.5},
+                {'reviewed': 'dog', 'predicted': 'cat', 'n': 3, 'x': 2.5},
+                {'reviewed': None, 'predicted': None, 'n': None, 'x': 3.5},
+            ]
+        )
+        t.add_computed_column(label=pxtf.coalesce(t.reviewed, t.predicted, 'unknown'))
+        assert_type_eq(t.label.col_type, pxt.String)
+        query = t.order_by(t.x).select(
+            t.label, either=pxtf.coalesce(t.reviewed, t.predicted), num=pxtf.coalesce(t.n, t.x)
+        )
+        assert_type_eq(query.schema['either'], pxt.String | None)
+        assert_type_eq(query.schema['num'], pxt.Float)
+        res = query.collect()
+        assert res['label'] == ['cat', 'dog', 'unknown']
+        assert res['either'] == ['cat', 'dog', None]
+        assert res['num'] == [1.5, 3, 3.5]
+        assert len(t.where(pxtf.coalesce(t.reviewed, t.predicted) == 'cat').collect()) == 1
+
+        assert_type_eq(pxtf.coalesce(None, 2).col_type, pxt.Int)
+        assert pxt.call_udf(pxtf.coalesce, None, 2) == 2
+
+        with pxt_raises(pxt.ErrorCode.INVALID_TYPE, match=r'no common supertype: String \| None, Image \| None'):
+            pxtf.coalesce(t.reviewed, t.img)

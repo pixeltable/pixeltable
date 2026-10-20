@@ -10,6 +10,7 @@ from textwrap import dedent
 from typing import Any
 
 import numpy as np
+import PIL.Image
 import pytest
 
 import __main__
@@ -64,6 +65,16 @@ def udf_with_array_constants(
     a: pxt.Array[pxt.Float, (6,)], b: pxt.Array[pxt.Float, (6,)] = _ones_arr
 ) -> pxt.Array[pxt.Float, (6,)]:
     return a + b
+
+
+@pxt.udf(batch_size=4)
+def doubled(xs: Batch[int]) -> Batch[int]:
+    return [x * 2 for x in xs]
+
+
+@pxt.udf
+def failing_udf(x: int) -> int:
+    raise ValueError(f'bad value: {x}')
 
 
 T = typing.TypeVar('T')
@@ -126,8 +137,80 @@ class TestFunction:
         print(_)
 
     def test_list_functions(self, init_env: None) -> None:
-        _ = pxt.list_functions()
-        print(_)
+        def calls(functions: pxt.FunctionList) -> set[str]:
+            return {info['call'] for info in functions}
+
+        timestamp_methods = pxt.list_functions(on=pxt.Timestamp)
+        assert {'pxt.Timestamp.hour -> pxt.Int', 'pxt.Timestamp.posix_timestamp() -> pxt.Float'} <= calls(
+            timestamp_methods
+        )
+        assert all(info['kind'] == 'udf' for info in timestamp_methods)
+        # an Int expression has the Float methods too
+        assert 'pxt.Float.abs() -> pxt.Float' in calls(pxt.list_functions(on=pxt.Int))
+
+        detectors = pxt.list_functions(search='DETR')
+        assert (
+            'huggingface.detr_for_object_detection(image: pxt.Image, *, model_id: pxt.String, threshold: pxt.Float = '
+            '0.5, revision: pxt.String | None = None) -> DetrForObjectDetectionResponse'
+        ) in calls(detectors)
+
+        video_iterators = pxt.list_functions('video', kind='iterator')
+        frame_iterator = next(info for info in video_iterators if info['name'] == 'frame_iterator')
+        assert frame_iterator['path'] == 'pixeltable.functions.video.frame_iterator'
+        assert frame_iterator['outputs'] == {'frame': 'pxt.Image', 'frame_attrs': 'FrameAttrs'}
+        assert frame_iterator['summary'] is not None and frame_iterator['summary'].startswith('Iterator over frames')
+        document_iterators = pxt.list_functions('pixeltable.functions.document', kind='iterator')
+        assert [info['outputs'] for info in document_iterators] == [None]
+        assert document_iterators[0]['call'].endswith('-> (columns depend on the arguments)')
+
+        aggregates = pxt.list_functions(kind='aggregate')
+        count = next(info for info in aggregates if info['path'] == 'pixeltable.functions.count')
+        assert len(count['signatures']) > 1
+        assert f'[{len(count["signatures"])} signatures]' in repr(aggregates)
+
+        module_functions = pxt.list_functions('tests.test_function')
+        assert all(info['path'].startswith('tests.test_function.') for info in module_functions)
+        assert (
+            "tests.test_function.mock_embed(content: pxt.String, model: pxt.String = 'default') "
+            '-> pxt.Json[(Float, ...)]'
+        ) in calls(module_functions)
+
+        assert len(repr(video_iterators).splitlines()) == len(video_iterators)
+        assert '<table>' in video_iterators._repr_html_()
+        assert list(video_iterators.to_pandas()['name']) == [info['name'] for info in video_iterators]
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="No module named 'no_such_module'"):
+            pxt.list_functions('no_such_module')
+
+    def test_call_udf(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        assert pxt.call_udf(pxtf.string.upper, 'abc') == 'ABC'
+        # a None argument for a non-nullable parameter skips the call, as in a computed column
+        assert pxt.call_udf(pxtf.string.upper, None) is None
+        assert pxt.call_udf(pxtf.image.resize, PIL.Image.new('RGB', (10, 20)), (4, 6)).size == (4, 6)
+        image_path = get_image_files()[0]
+        assert pxt.call_udf(pxtf.image.width, image_path) == PIL.Image.open(image_path).width
+        assert pxt.call_udf(pxtf.video.get_duration, video=get_video_files()[0]) > 0
+        assert pxt.call_udf(doubled, 21) == 42
+        assert pxt.call_udf(pxtf.image.resize.using(size=(3, 4)), PIL.Image.new('RGB', (10, 20))).size == (3, 4)
+        with pytest.raises(ValueError, match='bad value: 1'):
+            pxt.call_udf(failing_udf, 1)
+
+        t = pxt.create_table(p('test'), {'name': pxt.String, 'n': pxt.Int})
+        t.insert([{'name': 'a', 'n': 1}, {'name': 'b', 'n': 5}])
+
+        @pxt.query
+        def names_above(n: int) -> pxt.Query:
+            return t.where(t.n > n).select(t.name)
+
+        assert pxt.call_udf(names_above, 2) == [{'name': 'b'}]
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='not columns'):
+            pxt.call_udf(pxtf.string.upper, t.name)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='aggregate function'):
+            pxt.call_udf(pxtf.sum, 1)  # type: ignore[arg-type]
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='expected a UDF'):
+            pxt.call_udf(len, 'abc')  # type: ignore[arg-type]
 
     def test_stored_udf(self, db_root: DatabaseRoot) -> None:
         # a udf without a fully-qualified path (forced here via _force_stored) can't be persisted into a
@@ -539,6 +622,42 @@ class TestFunction:
         t = pxt.get_table(name)
         validate_update_status(t.insert(rows))
 
+    def test_query_ungrouped_aggregate(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
+        t.insert([{'c1': i, 'c2': i + 0.5} for i in range(10)])
+
+        @pxt.query(return_scalar=True)
+        def total_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).select(pxtf.sum(t.c2))
+
+        @pxt.query(return_scalar=True)
+        def values_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).select(t.c2)
+
+        @pxt.query(return_scalar=True)
+        def counts_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).group_by(t.c1).select(pxtf.count(t.c1))
+
+        # an aggregate without group_by() returns its one value; sum() over no rows returns None
+        assert_type_eq(total_below.signature.return_type, pxt.Float | None)
+        assert_type_eq(values_below.signature.return_type, pxt.Json[[pxt.Float]])
+        assert_type_eq(counts_below.signature.return_type, pxt.Json[[pxt.Int]])
+
+        t.add_computed_column(total=total_below(t.c1))
+        t.add_computed_column(values=values_below(t.c1))
+        assert_type_eq(t.total.col_type, pxt.Float | None)
+        res = reload_tester.run_query(t.select(t.c1, t.total, t.values).order_by(t.c1))
+        assert res['total'] == [None, *[sum(j + 0.5 for j in range(i)) for i in range(1, 10)]]
+        assert res['values'][3] == [0.5, 1.5, 2.5]
+        assert t.select(n=counts_below(t.c1)).order_by(t.c1).collect()['n'][3] == [1, 1, 1]
+
+        reload_tester.run_reload_test()
+        t = pxt.get_table(p('test'))
+        assert_type_eq(t.total.col_type, pxt.Float | None)
+        t.insert([{'c1': 10, 'c2': 10.5}])
+        assert t.where(t.c1 == 10).select(t.total).collect()['total'] == [sum(j + 0.5 for j in range(10))]
+
     def test_query_bound_limit_offset(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int | None})
@@ -604,7 +723,7 @@ class TestFunction:
             return t.select(s=pxtf.sum(t.x + k))
 
         res = params.order_by(params.k).select(r=shifted_sum(params.k)).collect()
-        assert res['r'] == [[10], [14]]
+        assert res['r'] == [10, 14]
 
         @pxt.query
         def sum_with_param(k: int) -> pxt.Query:

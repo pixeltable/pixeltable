@@ -6,14 +6,14 @@ import os
 import pathlib
 import re
 import textwrap
-from typing import Any
+from typing import Any, TypedDict
 
 import numpy as np
 import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, func
 from pixeltable.catalog.model import BtreeIndex, Column, EmbeddingIndex
 from pixeltable.catalog.model.diff import format_diff
 from pixeltable.config import Config
@@ -24,6 +24,7 @@ from .utils import (
     DatabaseRoot,
     assert_resultset_eq,
     assert_table_metadata_eq,
+    assert_type_eq,
     btree_idxs,
     capture_console_output,
     dummy_embedding,
@@ -37,6 +38,25 @@ from .utils import (
     validate_repr,
     validate_update_status,
 )
+
+
+class ChatBlock(TypedDict):
+    type: str
+    text: str
+
+
+class ChatResponse(TypedDict):
+    content: list[ChatBlock]
+
+
+@pxt.udf
+def chat_response(prompt: str) -> dict:
+    return {'content': [{'type': 'text', 'text': prompt}]}
+
+
+@pxt.udf
+def typed_chat_response(prompt: str) -> ChatResponse:
+    return {'content': [{'type': 'text', 'text': prompt}]}
 
 
 def as_dict(diff: TableDiff) -> dict[str, Any]:
@@ -3406,6 +3426,202 @@ class TestTableModel:
         t = pxt.get_table(p('test_table'))
         assert t.select(t.derived, t.derived2).collect()[0] == {'derived': 2, 'derived2': True}
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(root).values())
+
+    def test_update_all_widened_column(self, db_root: DatabaseRoot) -> None:
+        """`update_all()` makes a data column nullable in place."""
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class Notes(TableModel, name='notes'):
+            id = Column(type=pxt.Int, primary_key=True)
+            note: pxt.String
+            label: pxt.String
+            extra: pxt.String
+            meta: pxt.Json
+            shout = pxtf.string.upper(label)
+            kind = meta.kind
+
+        TableModel.create_all(root)
+        t = pxt.get_table(p('notes'))
+        t.insert([{'id': 1, 'note': 'a', 'label': 'x', 'extra': 'e', 'meta': {'kind': 'k1'}}])
+
+        WidenedModel = pxt.model_base()
+
+        class WidenedNotes(WidenedModel, name='notes'):
+            id = Column(type=pxt.Int, primary_key=True)
+            note: pxt.String | None
+            label: pxt.String
+            extra: pxt.String
+            meta: pxt.Json | None
+            shout = pxtf.string.upper(label)
+            kind = meta.kind
+            loud = pxtf.string.upper(note)
+
+        diff = WidenedModel.get_model_diff(root)['notes']
+        assert diff.resolution == 'update_additive'
+        assert {(op.op, op.name, op.severity) for op in diff.ops} == {
+            ('alter', 'note', 'additive'),
+            ('alter', 'meta', 'additive'),
+            ('add', 'loud', 'additive'),
+        }
+        assert "'note': String -> String | None" in '\n'.join(format_diff('notes', diff))
+        WidenedModel.update_all(root)
+        assert all(d.resolution == 'up_to_date' for d in WidenedModel.get_model_diff(root).values())
+        t = pxt.get_table(p('notes'))
+        assert_type_eq(t.note.col_type, pxt.String | None)
+        assert_type_eq(t.loud.col_type, pxt.String | None)
+        t.insert(
+            [
+                {'id': 2, 'note': None, 'label': 'y', 'extra': 'f', 'meta': {'kind': 'k2'}},
+                {'id': 3, 'note': 'c', 'label': 'z', 'extra': 'g', 'meta': None},
+            ]
+        )
+        res = t.order_by(t.id).select(t.loud, t.kind).collect()
+        assert res['loud'] == ['A', None, 'C']
+        # kind existed before meta became nullable, and is still computed for new rows
+        assert res['kind'] == ['k1', 'k2', None]
+
+        # a non-nullable column of the table depends on label: unsupported, and the diff lists that column
+        BlockedModel = pxt.model_base()
+
+        class BlockedNotes(BlockedModel, name='notes'):
+            id = Column(type=pxt.Int, primary_key=True)
+            note: pxt.String | None
+            label: pxt.String | None
+            extra: pxt.String
+            meta: pxt.Json | None
+            shout = pxtf.string.upper(label)
+            kind = meta.kind
+            loud = pxtf.string.upper(note)
+
+        diff = BlockedModel.get_model_diff(root)['notes']
+        assert diff.resolution == 'unsupported'
+        (label_op,) = [op for op in diff.ops if op.name == 'label']
+        assert (
+            label_op.description == "column 'label' cannot become nullable: non-nullable columns depend on it: 'shout'"
+        )
+
+        # a non-nullable column of a view outside the models depends on extra: the update refuses and changes nothing
+        v = pxt.create_view(p('notes_view'), t)
+        v.add_computed_column(extra_len=pxtf.string.len(v.extra))
+
+        ViewBlockedModel = pxt.model_base()
+
+        class ViewBlockedNotes(ViewBlockedModel, name='notes'):
+            id = Column(type=pxt.Int, primary_key=True)
+            note: pxt.String | None
+            label: pxt.String
+            extra: pxt.String | None
+            meta: pxt.Json | None
+            shout = pxtf.string.upper(label)
+            kind = meta.kind
+            loud = pxtf.string.upper(note)
+
+        assert ViewBlockedModel.get_model_diff(root)['notes'].resolution == 'update_additive'
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=re.escape(
+                "Column 'extra' cannot become nullable: non-nullable columns depend on it: notes_view.extra_len"
+            ),
+        ):
+            ViewBlockedModel.update_all(root)
+        assert_type_eq(pxt.get_table(p('notes')).extra.col_type, pxt.String)
+
+    def test_update_all_aggregate_query_column(self, db_root: DatabaseRoot) -> None:
+        """A column of one model that aggregates over another model's rows, via an ungrouped `@pxt.query`."""
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class Orders(TableModel, name='orders'):
+            order_id = Column(type=pxt.Int, primary_key=True)
+            customer: pxt.String
+            amount: pxt.Float
+
+        @pxt.query(return_scalar=True)
+        def customer_total(customer: str) -> pxt.Query:
+            return Orders.where(Orders.customer == customer).select(pxtf.sum(Orders.amount))  # type: ignore[arg-type]
+
+        class Customers(TableModel, name='customers'):
+            customer = Column(type=pxt.String, primary_key=True)
+            total = customer_total(customer)
+
+        TableModel.create_all(root)
+        orders = pxt.get_table(p('orders'))
+        customers = pxt.get_table(p('customers'))
+        orders.insert(
+            [{'order_id': 1, 'customer': 'a', 'amount': 2.5}, {'order_id': 2, 'customer': 'a', 'amount': 1.0}]
+        )
+        customers.insert([{'customer': 'a'}, {'customer': 'b'}])
+        assert_type_eq(customers.total.col_type, pxt.Float | None)
+        assert customers.order_by(customers.customer).select(customers.total).collect()['total'] == [3.5, None]
+
+    def test_call_udf_model_query(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class Notes(TableModel, name='notes'):
+            id = Column(type=pxt.Int, primary_key=True)
+            label: pxt.String
+
+        @pxt.query(return_scalar=True)
+        def labels_after(id: int) -> pxt.Query:
+            return Notes.where(Notes.id > id).order_by(Notes.id).select(Notes.label)  # type: ignore[arg-type, operator]
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'call `bind_all\(\)`'):
+            pxt.call_udf(labels_after, 0)
+
+        TableModel.create_all(root)
+        pxt.get_table(p('notes')).insert([{'id': 1, 'label': 'a'}, {'id': 2, 'label': 'b'}, {'id': 3, 'label': 'c'}])
+        assert pxt.call_udf(labels_after, 1) == ['b', 'c']
+
+    @pytest.mark.db_roots('local', reason='monkeypatches a UDF in-process')
+    def test_update_all_narrowed_udf_return_type(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        """After a UDF's return type narrows, the columns computed with it stay up to date and keep their types."""
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class Chats(TableModel, name='chats'):
+            id = Column(type=pxt.Int, primary_key=True)
+            prompt: pxt.String
+            response = chat_response(prompt)
+            text = response.content[0].text
+            # a JSON literal can have a return_type key too
+            extra = response.get('extra', {'return_type': {'kind': 'none'}})
+
+        TableModel.create_all(root)
+        pxt.get_table(p('chats')).insert([{'id': 1, 'prompt': 'a'}])
+
+        # a new version of chat_response() declares its return type
+        monkeypatch.setattr(
+            'tests.test_table_model.chat_response',
+            func.CallableFunction(
+                typed_chat_response.signatures, typed_chat_response.py_fns, 'tests.test_table_model.chat_response'
+            ),
+        )
+        reload_catalog()
+        TypedModel = pxt.model_base()
+
+        class TypedChats(TypedModel, name='chats'):
+            id = Column(type=pxt.Int, primary_key=True)
+            prompt: pxt.String
+            response = chat_response(prompt)
+            text = response.content[0].text
+            extra = response.get('extra', {'return_type': {'kind': 'none'}})
+
+        assert TypedModel.get_model_diff(root)['chats'].resolution == 'up_to_date'
+        t = pxt.get_table(p('chats'))
+        t.insert([{'id': 2, 'prompt': 'b'}])
+        assert_type_eq(t.response.col_type, pxt.Json)
+        assert_type_eq(t.text.col_type, pxt.Json | None)
+        assert t.order_by(t.id).select(t.text).collect()['text'] == ['a', 'b']
 
     def test_update_all_altered_columns_reversed_dependency(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

@@ -242,6 +242,11 @@ class GeneratingFunction:
                 )
             self._default_output_schema[name] = col_type
 
+    @property
+    def fixed_output_schema(self) -> dict[str, ts.ColumnType] | None:
+        """The output columns of every call; None if they depend on the arguments."""
+        return self._default_output_schema if self._conditional_output_schema is None else None
+
     def call_output_schema(self, bound_args: dict[str, exprs.Expr]) -> dict[str, ts.ColumnType]:
         if self._conditional_output_schema is None:
             if self._default_output_schema is None:

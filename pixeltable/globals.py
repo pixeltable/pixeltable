@@ -9,7 +9,6 @@ from uuid import UUID
 
 import pandas as pd
 import pydantic
-from pandas.io.formats.style import Styler
 from typing_extensions import TypeForm
 
 from pixeltable import Query, catalog, exceptions as excs, exprs, func, telemetry, telemetry_schemas, type_system as ts
@@ -19,7 +18,8 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, RowDataTableDataConduit, TableDataConduit
 from pixeltable.runtime import get_runtime
-from pixeltable.types import ColumnSpec, DirContents, DirectoryNode, TableKind, TableNode, TreeNode
+from pixeltable.types import ColumnSpec, DirContents, DirectoryNode, FunctionKind, TableKind, TableNode, TreeNode
+from pixeltable.utils.http import fetch_url
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -1074,33 +1074,122 @@ def list_dirs(path: str = '', recursive: bool = True) -> list[str]:
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Dir)]
 
 
-def list_functions() -> Styler:
-    """Returns information about all registered functions.
+def list_functions(
+    module: str | None = None,
+    *,
+    on: TypeForm | None = None,
+    search: str | None = None,
+    kind: FunctionKind | None = None,
+) -> func.FunctionList:
+    """List the functions, aggregates and iterators of Pixeltable or of a module, with their signatures.
+
+    Printed, the result shows one function per line, with how to call it and the first paragraph of its
+    docstring. In a notebook, it renders as a table.
+
+    Args:
+        module: A submodule of `pixeltable.functions`, such as `'video'` or `'openai'`, or the import path of any
+            module, such as the module of an application. Defaults to all of `pixeltable.functions`.
+        on: List the methods and properties of expressions of this type, such as `pxt.Json` or `pxt.Timestamp`.
+        search: List only the functions whose path or docstring contains this text, ignoring case.
+        kind: List only the functions of this kind.
 
     Returns:
-        Pandas DataFrame with columns 'Path', 'Name', 'Parameters', 'Return Type', 'Is Agg', 'Library'
+        A list of [`FunctionInfo`][pixeltable.FunctionInfo] records, sorted by path.
+
+    Examples:
+        The methods and properties of timestamp expressions:
+
+        >>> pxt.list_functions(on=pxt.Timestamp)
+
+        The functions for object detection:
+
+        >>> pxt.list_functions(search='detect')
+
+        The iterators of `pixeltable.functions.video`, with their output columns:
+
+        >>> pxt.list_functions('video', kind='iterator')
     """
-    functions = func.FunctionRegistry.get().list_functions()
-    paths = ['.'.join(f.self_path.split('.')[:-1]) for f in functions]
-    names = [f.name for f in functions]
-    params = [
-        ', '.join(
-            [param_name + ': ' + str(param_type) for param_name, param_type in f.signatures[0].parameters.items()]
+    on_type = None if on is None else ts.ColumnType.normalize_type(on)
+    return func.FunctionList.collect(module, on_type, search, kind)
+
+
+def call_udf(fn: func.Function, /, *args: Any, **kwargs: Any) -> Any:
+    """Call a UDF on Python values and return its result, without a table.
+
+    The arguments and the result are Python values, as a UDF body sees them: an image is a `PIL.Image.Image`, and
+    a video, audio or document is a local file path. A media argument can also be a file path or URL, except for a
+    UDF with several signatures, such as `huggingface.clip()`, where an image has to be a `PIL.Image.Image`. As in a
+    computed column, the UDF's signature validates the arguments, and a `None` argument for a non-nullable parameter
+    skips the call and returns `None`.
+
+    A query function declared over a model reads the model's table once the model is bound, by `create_all()` or
+    `bind_all()`.
+
+    Args:
+        fn: The UDF or query function to call. An aggregate function needs rows and cannot be called this way.
+        args: The positional arguments.
+        kwargs: The keyword arguments.
+
+    Returns:
+        The UDF's result.
+
+    Examples:
+        Call a provider UDF to test a prompt:
+
+        >>> reply = pxt.call_udf(
+        ...     pxtf.openai.chat_completions,
+        ...     messages=[{'role': 'user', 'content': 'Say hello'}],
+        ...     model='gpt-4o-mini',
+        ... )
+
+        Rotate an image:
+
+        >>> img = PIL.Image.open('photo.jpg')
+        >>> rotated = pxt.call_udf(pxtf.image.rotate, img, 90)
+    """
+    if not isinstance(fn, func.Function):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'call_udf(): expected a UDF, got `{type(fn).__name__}`'
         )
-        for f in functions
-    ]
-    pd_df = pd.DataFrame(
-        {
-            'Path': paths,
-            'Function Name': names,
-            'Parameters': params,
-            'Return Type': [str(f.signatures[0].get_return_type()) for f in functions],
-        }
-    )
-    pd_df = pd_df.style.set_properties(None, **{'text-align': 'left'}).set_table_styles(
-        [{'selector': 'th', 'props': [('text-align', 'center')]}]
-    )  # center-align headings
-    return pd_df.hide(axis='index')
+    if isinstance(fn, func.AggregateFunction):
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'call_udf(): {fn.name}() is an aggregate function, which needs rows; use it in a query',
+        )
+    args, kwargs = _local_media_args(fn, args, kwargs)
+    call = fn(*args, **kwargs)
+    if len(list(call.subexprs(exprs.ColumnRef))) > 0:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, 'call_udf(): the arguments must be Python values, not columns'
+        )
+    row_builder = exprs.RowBuilder(output_exprs=[call], columns=[], input_exprs=[])
+    row = row_builder.make_row()
+    row_builder.eval(row, ctx=row_builder.default_eval_ctx, ignore_errors=True)
+    slot_idx = row_builder.get_output_exprs()[0].slot_idx
+    if row.has_exc(slot_idx):
+        exc = row.get_exc(slot_idx)
+        assert exc is not None
+        raise exc
+    return row[slot_idx]
+
+
+def _local_media_args(
+    fn: func.Function, args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> tuple[tuple[Any, ...], dict[str, Any]]:
+    """Replace each file path or URL for a media parameter of fn with a literal of that media type, downloading a URL
+    first."""
+    if fn.is_polymorphic:
+        return args, kwargs
+    try:
+        bound = fn.signature.py_signature.bind(*args, **kwargs)
+    except TypeError:
+        # the call itself reports the mismatch
+        return args, kwargs
+    for name, val in bound.arguments.items():
+        col_type = fn.signature.parameters[name].col_type
+        if col_type is not None and col_type.is_media_type() and isinstance(val, str):
+            bound.arguments[name] = exprs.Literal(str(fetch_url(val, allow_local_file=True)), col_type=col_type)
+    return bound.args, bound.kwargs
 
 
 def tools(*args: func.Function | func.tools.Tool) -> func.tools.Tools:

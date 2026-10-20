@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
 TableKind = Literal['table', 'view', 'snapshot']
 
+FunctionKind = Literal['udf', 'aggregate', 'iterator', 'query']
+
 
 class DirectoryNode(TypedDict):
     """A directory entry in a [`TreeNode`][pixeltable.TreeNode] tree."""
@@ -49,6 +51,25 @@ class DirContents(TypedDict):
     """List of directory paths contained in this directory."""
     tables: list[str]
     """List of table paths contained in this directory."""
+
+
+class FunctionInfo(TypedDict):
+    """A function in a [`FunctionList`][pixeltable.FunctionList]."""
+
+    path: str
+    """The import path, such as `pixeltable.functions.video.frame_iterator`."""
+    name: str
+    kind: FunctionKind
+    call: str
+    """How to call the function, such as `pxt.String.upper() -> pxt.String` for a method of string expressions, or
+    `huggingface.clip(...)` for a function, with its path relative to `pixeltable.functions`."""
+    signatures: list[str]
+    """All signatures, with default values; a polymorphic function has more than one."""
+    summary: str | None
+    """The first paragraph of the docstring."""
+    doc: str | None
+    outputs: dict[str, str] | None
+    """The output columns of an iterator; `None` for another kind, or if they depend on the arguments."""
 
 
 class ColumnSpec(TypedDict, total=False):

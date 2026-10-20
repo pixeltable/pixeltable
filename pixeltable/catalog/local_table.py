@@ -796,17 +796,6 @@ class LocalTable(Table):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter the type of primary key column {col.name!r}'
                 )
-
-            # TODO(PXT-960): follow up: allow alteration if it doesn't invalidate any dependents, and doesn't change
-            # their column types.
-            dependent_user_cols = self._get_dependent_user_cols(col)
-            if len(dependent_user_cols) > 0:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Cannot alter column {col.name!r} because the following columns depend on it: '
-                    f'{", ".join(c.qualified_name for c in dependent_user_cols)}',
-                )
-
             self._tbl_version.get().alter_column(col, new_col_type)
 
         do_alter_column()
@@ -1191,10 +1180,17 @@ class LocalTable(Table):
         self,
         rows: Iterable[dict[str, Any]],
         cascade: bool = True,
-        if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
+        if_not_exists: Literal['error', 'ignore', 'insert'] | None = None,
         return_rows: bool = False,
+        if_exists: Literal['update', 'ignore', 'error'] | None = None,
     ) -> UpdateStatus:
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        if if_not_exists is not None and if_exists is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, 'batch_update(): specify `if_not_exists` or `if_exists`, not both'
+            )
+        # rows that are only inserted may contain media, as in insert()
+        insert_only = if_exists in ('ignore', 'error')
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
@@ -1215,10 +1211,16 @@ class LocalTable(Table):
             rowids: list[tuple[int, ...]] = []
             if len(pk_col_names) == 0 and not has_rowid:
                 raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'Table must have primary key for batch update')
+            if has_rowid and if_exists is not None:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'batch_update(): `if_exists` cannot be combined with {_ROWID_COLUMN_NAME}, which addresses '
+                    'existing rows only',
+                )
 
             for row_spec in rows:
                 col_vals = self._tbl_version.get()._validate_update_spec(
-                    row_spec, allow_pk=not has_rowid, allow_exprs=False, allow_media=False
+                    row_spec, allow_pk=not has_rowid, allow_exprs=False, allow_media=insert_only
                 )
                 if has_rowid:
                     # every row must specify _rowid if any does
@@ -1239,14 +1241,17 @@ class LocalTable(Table):
                 row_updates.append(col_vals)
 
             tv = self._tbl_version.get()
-            result = tv.batch_update(
-                row_updates,
-                rowids,
-                error_if_not_exists=if_not_exists == 'error',
-                insert_if_not_exists=if_not_exists == 'insert',
-                cascade=cascade,
-                return_rows=return_rows,
-            )
+            if insert_only:
+                result = tv.insert_new_rows(row_updates, error_if_exists=if_exists == 'error', return_rows=return_rows)
+            else:
+                result = tv.batch_update(
+                    row_updates,
+                    rowids,
+                    error_if_not_exists=if_exists is None and if_not_exists in (None, 'error'),
+                    insert_if_not_exists=if_exists == 'update' or if_not_exists == 'insert',
+                    cascade=cascade,
+                    return_rows=return_rows,
+                )
             telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
             telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(result))
             FileCache.get().emit_eviction_warnings()

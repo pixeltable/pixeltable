@@ -1134,16 +1134,44 @@ class TableVersion:
                 f'Column {col.name!r} type cannot be changed from {col.col_type} to {type_}',
             )
 
-        # alter column type from required to nullable
         old_type = col.col_type
-        col.col_type = type_
-        self._schema_version_md.columns[col.id].col_type = type_.as_dict()
+        self.widen_columns([(col, type_)])
         self.bump_version(bump_schema_version=True)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(
             f'Altered column {col.name!r} type from {old_type} to {type_} in table {self.name}, new version: '
             f'{self.version}'
         )
+
+    def widen_columns(self, cols: Sequence[tuple[Column, ts.ColumnType]]) -> None:
+        """Make data columns nullable in this version's in-memory schema, without writing the metadata.
+
+        Raises if a non-nullable column depends on one of them: its type would change with the nullable input.
+        """
+        if len(cols) == 0:
+            return
+        assert self.is_mutable
+        cat = get_runtime().catalog
+        for col, col_type in cols:
+            assert not col.is_computed and not col.is_pk
+            assert col_type.nullable and not col.col_type.nullable and col_type.matches(col.col_type)
+            blockers = sorted(
+                dependent.qualified_name
+                for dependent in cat.get_column_dependents(self.id, col.id)
+                if dependent.name is not None and not dependent.col_type.nullable
+            )
+            if len(blockers) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col.name!r} cannot become nullable: non-nullable columns depend on it: '
+                    f'{", ".join(blockers)}',
+                )
+        cat.mark_modified_tv(self.handle)
+        # the expressions that reference these columns keep the old column types
+        cat.invalidate_after_xact(self)
+        for col, col_type in cols:
+            col.col_type = col_type
+            self._schema_version_md.columns[col.id].col_type = col_type.as_dict()
 
     def _alter_value_expr_in_version(self, col: Column, new_value_expr: exprs.Expr) -> None:
         """Replace a computed column's value expression within the current schema version."""
@@ -1489,6 +1517,44 @@ class TableVersion:
                 )
                 result += insert_status.to_cascade()
         return result
+
+    def insert_new_rows(
+        self, batch: list[dict[Column, exprs.Expr]], error_if_exists: bool, return_rows: bool
+    ) -> UpdateStatus:
+        """Insert the rows of batch whose primary key is not in the table, leaving the existing rows untouched.
+
+        Args:
+            batch: one dict per row, each mapping Columns, including all primary key columns, to LiteralExprs
+            error_if_exists: if True, raise without inserting anything when a row's key is already in the table
+        """
+        from pixeltable.exec import SqlNode
+
+        pk_cols = self.primary_key_columns()
+        key_vals = [tuple(row[col].val for col in pk_cols) for row in batch]
+        sa_key_cols = [col.sa_col for col in pk_cols]
+        stmt = sql.select(*sa_key_cols).where(sql.tuple_(*sa_key_cols).in_(key_vals))
+        # restricts the lookup to the rows visible at the current version
+        stmt = SqlNode.create_from_clause(self.path, stmt)
+        existing = {tuple(row) for row in get_runtime().conn.execute(stmt)}
+        if error_if_exists and len(existing) > 0:
+            existing_keys = [key for key in key_vals if key in existing]
+            key_strs = [
+                '(' + ', '.join(f'{col.name}={val!r}' for col, val in zip(pk_cols, key)) + ')'
+                for key in existing_keys[:5]
+            ]
+            more = f' and {len(existing_keys) - 5} more' if len(existing_keys) > 5 else ''
+            raise excs.RequestError(
+                excs.ErrorCode.CONSTRAINT_VIOLATION,
+                f'batch_update(): {len(existing)} row(s) already exist: {", ".join(key_strs)}{more}',
+            )
+        new_rows = [
+            {col.name: val_expr.val for col, val_expr in row.items()}
+            for key, row in zip(key_vals, batch)
+            if key not in existing
+        ]
+        if len(new_rows) == 0:
+            return UpdateStatus(rows=[] if return_rows else None)
+        return self.insert(new_rows, None, print_stats=False, fail_on_exception=False, return_rows=return_rows)
 
     def _update_rows(self, plan: 'exec.ExecNode', set_cols: list[Column], return_rows: bool) -> UpdateStatus:
         assert not self.is_data_versioned

@@ -461,11 +461,13 @@ class FunctionCall(Expr):
         parameters_by_pos = self.fn.signature.parameters_by_pos
         for idx in self.arg_idxs:
             val = data_row[self.components[idx].slot_idx]
+            # a position past the parameter list belongs to a *args parameter
+            param = parameters_by_pos[idx] if idx < len(parameters_by_pos) else None
             if (
                 val is None
-                and parameters_by_pos[idx].kind
-                in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-                and not parameters_by_pos[idx].col_type.nullable
+                and param is not None
+                and param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                and not param.col_type.nullable
             ):
                 return None
             args.append(val)

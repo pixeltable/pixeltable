@@ -5,6 +5,8 @@ import math
 import os
 import random
 import re
+import shutil
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Literal, TypedDict, cast
@@ -66,6 +68,18 @@ def add_unstored_table_base_val(vals: Batch[int]) -> Batch[int]:
 @pxt.udf
 def square(x: int) -> int:
     return x * x
+
+
+@pxt.udf
+def random_value(s: str) -> float:
+    return random.random()
+
+
+@pxt.udf
+def copy_clip(video: pxt.Video, out_dir: str) -> pxt.Video:
+    clip_path = Path(out_dir) / f'{uuid.uuid4()}.mp4'
+    shutil.copy(video, clip_path)
+    return str(clip_path)
 
 
 @pxt.udf
@@ -2449,6 +2463,20 @@ class TestTable:
         else:
             assert PIL.Image.open(res[1]['path']).size == res[1]['img'].size
 
+    def test_temp_dir_file_paths(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'video': pxt.Video})
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            t.add_computed_column(clip=copy_clip(t.video, tmp_dir))
+            video_path = Path(tmp_dir) / 'video.mp4'
+            shutil.copy(get_video_files()[0], video_path)
+            validate_update_status(t.insert(video=str(video_path)), 1)
+            assert video_path.exists()
+
+        res = t.select(video=t.video.localpath, clip=t.clip.localpath).collect()
+        assert Path(res[0]['video']).exists()
+        assert Path(res[0]['clip']).exists()
+
     @pytest.mark.skipif(
         'PIXELTABLE_INPUT_MEDIA_DEST' in os.environ or 'PIXELTABLE_OUTPUT_MEDIA_DEST' in os.environ,
         reason='Specifying a default media destination disrupts the file cache counts',
@@ -3102,6 +3130,72 @@ class TestTable:
         status = t.batch_update([{'id': 1, 'name': 'pos'}], False, 'error')
         assert status.rows is None  # default return_rows=False
         assert status.num_rows == 1
+
+    def test_batch_update_if_exists(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('test'),
+            {'id': pxt.Int, 'name': pxt.String, 'img': pxt.Image | None},
+            primary_key='id',
+            _is_data_versioned=is_data_versioned,
+        )
+        t.add_computed_column(tag=random_value(t.name))
+        t.insert([{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'}])
+        tags = {r['id']: r['tag'] for r in t.select(t.id, t.tag).collect()}
+
+        # 'ignore': new keys are inserted; existing rows and their computed columns stay unchanged
+        status = t.batch_update([{'id': 1, 'name': 'x'}, {'id': 3, 'name': 'c'}], if_exists='ignore', return_rows=True)
+        assert status.num_rows == 1
+        assert status.rows is not None and [r['id'] for r in status.rows] == [3]
+        assert t.where(t.id == 1).select(t.name, t.tag).collect()[0] == {'name': 'a', 'tag': tags[1]}
+        assert t.count() == 3
+        assert t.batch_update([{'id': 2, 'name': 'y'}], if_exists='ignore').num_rows == 0
+
+        # 'error': an existing key aborts the whole batch
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match=r'1 row\(s\) already exist: \(id=2\)'):
+            t.batch_update([{'id': 2, 'name': 'y'}, {'id': 4, 'name': 'd'}], if_exists='error')
+        assert t.where(t.id == 4).count() == 0
+        assert t.batch_update([{'id': 4, 'name': 'd'}], if_exists='error').num_rows == 1
+
+        # a deleted row no longer exists
+        t.where(t.id == 4).delete()
+        t.batch_update([{'id': 4, 'name': 'd2'}], if_exists='ignore')
+        assert t.where(t.id == 4).select(t.name).collect()['name'] == ['d2']
+
+        # 'update': an upsert, which recomputes the updated row
+        t.batch_update([{'id': 1, 'name': 'a2'}, {'id': 5, 'name': 'e'}], if_exists='update')
+        row = t.where(t.id == 1).select(t.name, t.tag).collect()[0]
+        assert row['name'] == 'a2' and row['tag'] != tags[1]
+        assert t.count() == 5
+
+        # the insert-only modes accept media; the update modes still refuse it
+        img = get_image_files()[0]
+        t.batch_update([{'id': 6, 'name': 'f', 'img': img}], if_exists='ignore')
+        assert t.where(t.id == 6).select(t.img).collect()[0]['img'] is not None
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'img' is a media column"):
+            t.batch_update([{'id': 7, 'name': 'g', 'img': img}], if_not_exists='insert')
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='not both'):
+            t.batch_update([{'id': 8, 'name': 'h'}], if_not_exists='insert', if_exists='ignore')
+        if is_data_versioned:
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='_rowid'):
+                t.batch_update([{'name': 'z', '_rowid': (1,)}], if_exists='ignore')
+
+            # a view sees the inserted rows; views of operational tables are not supported yet (PXT-1101)
+            v = pxt.create_view(p('test_view'), t)
+            t.batch_update([{'id': 1, 'name': 'x'}, {'id': 9, 'name': 'i'}], if_exists='ignore')
+            assert v.where(v.id == 9).count() == 1
+
+        # a composite key
+        pairs = pxt.create_table(
+            p('pairs'),
+            {'a': pxt.Int, 'b': pxt.String, 'v': pxt.Int},
+            primary_key=['a', 'b'],
+            _is_data_versioned=is_data_versioned,
+        )
+        pairs.insert([{'a': 1, 'b': 'x', 'v': 1}])
+        pairs.batch_update([{'a': 1, 'b': 'x', 'v': 9}, {'a': 1, 'b': 'y', 'v': 2}], if_exists='ignore')
+        assert pairs.order_by(pairs.b).select(pairs.b, pairs.v).collect()['v'] == [1, 2]
 
     def test_update_return_rows(
         self, db_root: DatabaseRoot, is_data_versioned: bool, local_embed: pxt.Function

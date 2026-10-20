@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, Mapping, NamedTuple, TypedDict
 from uuid import UUID
 
-from pixeltable import catalog, exceptions as excs, exprs, func, index
+from pixeltable import catalog, exceptions as excs, exprs, func, index, type_system as ts
 from pixeltable.types import ColumnSpec
 
 from ..globals import MediaValidation, fold_mapping_keys
@@ -211,6 +211,7 @@ class TableSchemaChangeSet(TypedDict):
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
     # name -> (spec, origin), for existing computed columns whose value expression is being replaced
     altered_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
+    widened_columns: dict[str, ts.ColumnType]  # data columns that become nullable, by name
     dropped_columns: list[str]
     new_idxs: list[IndexDefinition]
     dropped_idxs: list[str]

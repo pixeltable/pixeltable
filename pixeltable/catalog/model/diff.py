@@ -6,7 +6,7 @@ import dataclasses
 import json
 from typing import TYPE_CHECKING, Any, Literal
 
-from pixeltable import catalog, exprs, func
+from pixeltable import catalog, exprs, func, type_system as ts
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.object_stores import ObjectPath, warn_if_pxtfs_destination
 from pixeltable_cli.types import Resolution, SchemaChangeIndexRef, SchemaChangeOp, SchemaChangeOpDetails, TableDiff
@@ -239,9 +239,40 @@ def _alter_column_change(
     existing_props: _ColumnProperties,
     col_md: ColumnMetadata,
     altered: list[str],
+    tbl_path: catalog.TablePath,
+    existing_md: TableMetadata,
 ) -> SchemaChangeOp:
-    """The op for a column whose properties differ. At this point, the only supported change is a new value expression
-    for a computed column."""
+    """The op for a column whose properties differ. The supported changes are a new value expression for a computed
+    column, and a data column becoming nullable."""
+    if altered == ['type'] and not col_md['is_computed'] and not col_md['is_primary_key']:
+        existing_type = tbl_path.get_column_md_by_name(col_name).col_type
+        model_type = col_type_from_spec(spec)
+        if model_type.nullable and not existing_type.nullable and model_type.matches(existing_type):
+            blockers = _non_nullable_dependents(col_name, col_md, tbl_path, existing_md)
+            if len(blockers) == 0:
+                return SchemaChangeOp(
+                    target='column',
+                    name=col_name,
+                    op='alter',
+                    severity='additive',
+                    model={'type': model_props.type},
+                    existing={'type': existing_props.type},
+                    description=f'column {col_name!r} will become nullable',
+                    details=SchemaChangeOpDetails(type=model_props.type),
+                )
+            return SchemaChangeOp(
+                target='column',
+                name=col_name,
+                op='alter',
+                severity='unsupported',
+                model={'type': model_props.type},
+                existing={'type': existing_props.type},
+                description=(
+                    f'column {col_name!r} cannot become nullable: non-nullable columns depend on it: '
+                    f'{", ".join(repr(name) for name in blockers)}'
+                ),
+            )
+
     # a computed column becoming a data column, or vice versa, changes more than the value expression
     is_new_value_expr = altered == ['value'] and 'value' in spec and col_md['is_computed']
     if not is_new_value_expr:
@@ -277,6 +308,23 @@ def _alter_column_change(
     )
 
 
+def _non_nullable_dependents(
+    col_name: str, col_md: ColumnMetadata, tbl_path: catalog.TablePath, existing_md: TableMetadata
+) -> list[str]:
+    """Return the table's non-nullable columns that depend on col_name, directly or through other columns."""
+    found: set[str] = set()
+    frontier = {(col_md['defined_in'], col_name)}
+    while len(frontier) > 0:
+        new_names = {
+            name
+            for name, md in existing_md['columns'].items()
+            if name not in found and any(tuple(dep) in frontier for dep in md['depends_on'] or [])
+        }
+        found |= new_names
+        frontier = {(existing_md['columns'][name]['defined_in'], name) for name in new_names}
+    return sorted(name for name in found if not tbl_path.get_column_md_by_name(name).col_type.nullable)
+
+
 def _value_expr_dict(
     value: Any, tbl_path: catalog.TablePath, *, catalog_dir: str, origin: Literal['base_query', 'model_body']
 ) -> dict[str, Any]:
@@ -308,7 +356,38 @@ def _column_value_changed(
 
     # Both dicts can contain tuples independently from each other. Running them through JSON serialization and back
     # normalizes them.
-    return json.loads(json.dumps(model_value_dict)) != json.loads(json.dumps(existing_value))
+    return not _value_dicts_match(json.loads(json.dumps(model_value_dict)), json.loads(json.dumps(existing_value)))
+
+
+def _value_dicts_match(model: Any, existing: Any) -> bool:
+    """Return True if the serialized value expressions match, where a stored return_type (of a FunctionCall or a UDF
+    signature) may be a supertype of the model's, as in FunctionCall.from_dict()."""
+    if isinstance(model, dict) and isinstance(existing, dict):
+        if model.keys() != existing.keys():
+            return False
+        # a serialized FunctionCall, or a serialized Signature with the keys of Signature.as_dict()
+        has_return_type = model.get('_classname') == 'FunctionCall' or model.keys() == {
+            'return_type',
+            'parameters',
+            'is_batched',
+        }
+        for key, model_val in model.items():
+            existing_val = existing[key]
+            if (
+                key == 'return_type'
+                and has_return_type
+                and isinstance(model_val, dict)
+                and isinstance(existing_val, dict)
+            ):
+                existing_type = ts.ColumnType.from_dict(existing_val)
+                if not existing_type.is_supertype_of(ts.ColumnType.from_dict(model_val), ignore_nullable=True):
+                    return False
+            elif not _value_dicts_match(model_val, existing_val):
+                return False
+        return True
+    if isinstance(model, list) and isinstance(existing, list):
+        return len(model) == len(existing) and all(_value_dicts_match(m, e) for m, e in zip(model, existing))
+    return model == existing
 
 
 def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: str) -> dict[str, TableDiff]:
@@ -459,16 +538,29 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                 existing_props = _ColumnProperties.from_metadata(col_md)
                 origin: Literal['base_query', 'model_body'] = 'base_query' if col_name in base_cols else 'model_body'
                 value_changed = _column_value_changed(spec, col_name, tbl_path, catalog_dir=catalog_dir, origin=origin)
+                # an unchanged value expression with narrowed UDF return types keeps the stored column type
+                keeps_type = (
+                    col_md['is_computed']
+                    and not value_changed
+                    and 'type' not in spec
+                    and tbl_path.get_column_md_by_name(col_name).col_type.is_supertype_of(col_type_from_spec(spec))
+                )
                 altered: list[str] = []
                 for prop in model_props.__dataclass_fields__:
                     if prop == 'value':
                         if value_changed:
                             altered.append(prop)
+                    elif prop == 'type' and keeps_type:
+                        continue
                     elif getattr(model_props, prop) != getattr(existing_props, prop):
                         altered.append(prop)
                 if len(altered) == 0:
                     continue
-                ops.append(_alter_column_change(col_name, spec, model_props, existing_props, col_md, altered))
+                ops.append(
+                    _alter_column_change(
+                        col_name, spec, model_props, existing_props, col_md, altered, tbl_path, existing_md
+                    )
+                )
 
             # Additive/destructive column and index changes.
             for col_name in sorted(model_cols - existing_cols):
@@ -636,13 +728,19 @@ def format_diff(name: str, diff: TableDiff) -> list[str]:
                 detail.append(f'    {c.name!r} {prop}: model={model_val!r}, existing={c.existing[prop]!r}')
 
     supported_alters: list[SchemaChangeOp] = [c for c in altered_cols if c.severity != 'unsupported']
-    if len(supported_alters) > 0:
+    value_alters = [c for c in supported_alters if 'value' in c.model]
+    if len(value_alters) > 0:
         detail.append('  the following computed columns have a new value expression, and will be UPDATED:')
-        for c in supported_alters:
+        for c in value_alters:
             detail.append(f'    {c.name!r}: {c.existing["value"]} -> {c.model["value"]}')
         # If any computed column's expression changed, include the recompute notice
-        if any(c.details.stored for c in supported_alters):
+        if any(c.details.stored for c in value_alters):
             detail.append('  existing values will not be recomputed; use `pxt recompute` to do so.')
+    widened = [c for c in supported_alters if 'value' not in c.model]
+    if len(widened) > 0:
+        detail.append('  the following columns will become nullable:')
+        for c in widened:
+            detail.append(f'    {c.name!r}: {c.existing["type"]} -> {c.model["type"]}')
 
     new_cols = by('column', op='add')
     if len(new_cols) > 0:

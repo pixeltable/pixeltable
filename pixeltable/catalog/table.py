@@ -1117,10 +1117,14 @@ class Table(SchemaObject):
         self,
         rows: Iterable[dict[str, Any]],
         cascade: bool = True,
-        if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
+        if_not_exists: Literal['error', 'ignore', 'insert'] | None = None,
         return_rows: bool = False,
+        if_exists: Literal['update', 'ignore', 'error'] | None = None,
     ) -> UpdateStatus:
-        """Update rows in this table.
+        """Update or insert rows of this table, matching them by primary key.
+
+        `if_not_exists` and `if_exists` are mutually exclusive. With `if_not_exists` (or neither), the call updates the
+        rows that exist; with `if_exists`, it inserts the rows that don't.
 
         Args:
             rows: an Iterable of dictionaries containing values for the updated columns plus values for the primary key
@@ -1128,13 +1132,20 @@ class Table(SchemaObject):
             cascade: if True, also update all computed columns that transitively depend on the updated columns.
             if_not_exists: Specifies the behavior if a row to update does not exist:
 
-                - `'error'`: Raise an error.
+                - `'error'` (the default if neither `if_not_exists` nor `if_exists` is given): Raise an error.
                 - `'ignore'`: Skip the row silently.
                 - `'insert'`: Insert the row.
 
             return_rows: If `True`, populate `UpdateStatus.rows` with one dict per affected row, mapping column
-                names to their new stored values. Rows newly inserted via `if_not_exists='insert'` are included.
+                names to their new stored values. Newly inserted rows are included.
                 If `False` (default), `UpdateStatus.rows` is `None`.
+            if_exists: Specifies the behavior if a row to insert already exists:
+
+                - `'update'`: Update the row; this is the same as `if_not_exists='insert'`.
+                - `'ignore'`: Leave the row untouched; none of its computed columns are recomputed.
+                - `'error'`: Raise an error and insert nothing.
+
+                With `'ignore'` or `'error'`, the rows may contain media values, as in `insert()`.
 
         Examples:
             Update the `name` and `age` columns for the rows with ids 1 and 2 (assuming `id` is the primary key).
@@ -1156,6 +1167,17 @@ class Table(SchemaObject):
             ...         {'id': 3, 'name': 'Bob', 'age': 40},
             ...     ],
             ...     if_not_exists='insert',
+            ... )
+
+            Load a batch that may repeat rows loaded before: insert the new ids, and leave the existing rows and their
+            computed columns untouched:
+
+            >>> tbl.batch_update(
+            ...     [
+            ...         {'id': 1, 'name': 'Alice', 'age': 30},
+            ...         {'id': 4, 'name': 'Carol', 'age': 50},
+            ...     ],
+            ...     if_exists='ignore',
             ... )
         """
 

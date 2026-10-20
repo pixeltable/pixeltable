@@ -35,6 +35,7 @@
           <outline text="func|pixeltable.udf" />
           <outline text="func|pixeltable.uda" />
           <outline text="func|pixeltable.query" />
+          <outline text="func|pixeltable.call_udf" />
           <outline text="func|pixeltable.iterator" />
           <outline text="func|pixeltable.tools" />
           <outline text="func|pixeltable.tool" />
@@ -138,6 +139,10 @@
           </outline>
           <outline text="class|pixeltable.DirContents" />
           <outline text="class|pixeltable.DirectoryNode" />
+          <outline text="class|pixeltable.FunctionInfo" />
+          <outline text="class|pixeltable.FunctionList">
+            <outline text="method|pixeltable.FunctionList.to_pandas" />
+          </outline>
           <outline text="class|pixeltable.IndexMetadata" />
           <outline text="class|pixeltable.Secret" />
           <outline text="class|pixeltable.TableMetadata" />
@@ -153,6 +158,7 @@
       <!-- Built-in Functions and Operators group -->
       <outline text="group|Built-in Functions and Operators">
         <outline text="module|pixeltable.functions">
+          <outline text="udf|pixeltable.functions.coalesce" />
           <outline text="func|pixeltable.functions.filter" />
           <outline text="func|pixeltable.functions.map" />
           <outline text="func|pixeltable.functions.sort" />

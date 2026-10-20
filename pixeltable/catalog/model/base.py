@@ -210,6 +210,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 base_query_cols = base_query_columns(model)
                 new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]] = {}
                 altered_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]] = {}
+                widened_columns: dict[str, ts.ColumnType] = {}
                 for col_name, col_spec in user_cols.items():
                     if col_name not in added_cols[name] and col_name not in altered_col_names:
                         continue
@@ -225,9 +226,15 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     )
                     if col_name in added_cols[name]:
                         new_columns[col_name] = (spec, origin)
-                    else:
+                    elif 'value' in spec:
                         assert col_name in altered_col_names
                         altered_columns[col_name] = (spec, origin)
+                    else:
+                        # a column without a value expression is altered only to become nullable
+                        assert col_name in altered_col_names
+                        widened_columns[col_name] = ts.ColumnType.normalize_type(
+                            col_spec['type'], allow_builtin_types=False
+                        )
 
                 # resolve idx_refs to IndexDefinitions. (We can't simply go by index name, since there may be unnamed
                 # indexes.) Instead we compare the (index_type, name, columns) tuple; if there are two unnamed indexes
@@ -252,6 +259,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                         path=catalog.Path.parse(f'{catalog_dir}{name}'),
                         new_columns=new_columns,
                         altered_columns=altered_columns,
+                        widened_columns=widened_columns,
                         dropped_columns=dropped_col_names,
                         new_idxs=new_idxs,
                         dropped_idxs=dropped_idx_names,
