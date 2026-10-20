@@ -675,7 +675,7 @@ The command is the one you ran, with `-f` (or `--allow-destructive`) added; ever
 
 The plan commands (`schema`, `service`, `db update`) keep printing their plan instead; `schema update`, `schema prune` and `service prune` mark the refused operations `refused`. An unknown command exits `2` and suggests the commands it may have meant, such as `pxt db logs` and `pxt service logs` for `pxt logs`.
 
-A request that fails ends its line with the error code, as in `pxt: 404 Directory 'nope' does not exist. [DIRECTORY_NOT_FOUND]`, except a refusal only the user can lift, which prints Cloud's reason alone (see [Plan limits](#plan-limits)); with `--json`, stdout gets `{"error_code": ..., "message": ..., "retryable": ...}`. A daemon that does not start or cannot be reached gives `DAEMON_UNREACHABLE`; an answer without a code gives `HTTP_<status>` for a 4xx and `INTERNAL_ERROR` otherwise.
+A request that fails ends its line with the error code, as in `pxt: 404 Directory 'nope' does not exist. [DIRECTORY_NOT_FOUND]`, except a refusal only the user can lift, which prints Cloud's reason alone (see [Plan limits](#plan-limits)); with `--json`, stdout gets `{"error_code": ..., "message": ..., "retryable": ...}`. A daemon that does not start or cannot be reached gives `DAEMON_UNREACHABLE`; an answer without a code gives `HTTP_<status>` for a 4xx and `INTERNAL_ERROR` otherwise. When Pixeltable Cloud says how long to wait, as it does when busy, the `--json` document adds `retry_after` in seconds.
 
 | Exit | Meaning |
 |---|---|

@@ -842,6 +842,28 @@ class TestRefusalsTheUserLifts:
         assert client_utils.USER_ACTION_CODES == management_client.USER_ACTION_CODES
 
 
+class TestRetryAfter:
+    """An outage's Retry-After reaches the --json document in seconds; a date, which is not seconds, does not."""
+
+    @pytest.mark.parametrize(('retry_after', 'expected'), [('5', 5.0), ('Wed, 21 Oct 2026 07:28:00 GMT', None)])
+    def test_retry_after(
+        self, cloud_cli: PxtRunner, control_plane: ControlPlane, retry_after: str, expected: float | None
+    ) -> None:
+        # a 502, so the stub adds no Retry-After of its own; creating a key is not retried
+        control_plane.answers['create_key'] = b'Bad Gateway'
+        control_plane.status = 502
+        control_plane.headers = {'X-Pixeltable-Error-Code': 'BUSY', 'Retry-After': retry_after}
+        try:
+            r = cloud_cli('key', 'create', 'app', '--json', check=False)
+        finally:
+            control_plane.status = 200
+            control_plane.headers = {}
+
+        assert r.returncode == 1
+        assert r.json['retryable'] is True
+        assert r.json.get('retry_after') == expected
+
+
 # a get_usage answer, as the control plane's contract gives it
 _USAGE: dict[str, Any] = {
     'plan': 'community',
