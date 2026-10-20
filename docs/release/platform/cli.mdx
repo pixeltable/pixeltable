@@ -127,6 +127,7 @@ pxt logout                       # forget this device's cached session, or its `
 # cloud -- databases
 pxt db update pxt://myorg:mydb   # create the database, or bring it up to what the project declares
 pxt db diff   pxt://myorg:mydb   # what 'update' would change
+pxt db diff   pxt://myorg:mydb --add-config-entry   # the same, after appending the database's entry to the project
 pxt db diff   --json-schema      # JSON Schema for the --json output
 pxt db list                      # the databases in your org
 pxt db logs   pxt://myorg:mydb   # what the database's pod logged
@@ -781,8 +782,9 @@ pxt new
 
 `pxt new` needs no account. It creates a trial organization with one database, `main`, and caches
 the trial's API key on this machine, so later commands use it without `pxt login` or an exported
-key. It prints the database's URI, the `[[pixeltable.database]]` entry for `pixeltable.toml`, the
-next commands, and a claim link. It never prints the key, and neither does `pxt new --json`.
+key. It prints the database's URI, the next commands, starting with
+`pxt db diff <uri> --add-config-entry`, and a claim link. It never prints the key, and neither does
+`pxt new --json`.
 
 Until it is claimed, the organization has 1 database and at most 2 services, each on 1 worker with up
 to 1 cpu, 2048 MB and 10 GB of disk, and 50 GB of media storage: past that, uploads stop. The server sets
@@ -1006,7 +1008,7 @@ Every cloud command except `pxt logout` accepts `--json` for machine-readable ou
 
 ### Cloud configuration reference
 
-`pxt db diff` and `pxt db update` read the entry of the target database from the project configuration (`pixeltable.toml`, or `pyproject.toml` under `[tool.pixeltable]`), searched for upward from the working directory.
+`pxt db diff` and `pxt db update` read the entry of the target database from the project configuration (`pixeltable.toml`, or `pyproject.toml` under `[tool.pixeltable]`), searched for upward from the working directory. With `--add-config-entry`, either command first appends an entry with only `name` set to the target URI, unless the project configuration already has an entry for it.
 
 #### `[[pixeltable.database]]` -- what a project declares about one database
 
@@ -1078,16 +1080,18 @@ The URI argument is optional: when it is omitted, these commands use `db_uri` fr
 pxt db update pxt://myorg:mydb
 pxt db update pxt://myorg:mydb -n      # print the plan and stop
 pxt db update pxt://myorg:mydb --allow-destructive
+pxt db update pxt://myorg:mydb --add-config-entry   # append the database's entry first
 ```
 
 | Flag | Description |
 |---|---|
+| `--add-config-entry` | Append a `[[pixeltable.database]]` entry for the URI to the project configuration, unless it is already there; also with `--dry-run` |
 | `-n`, `--dry-run` | Print the plan; do not run `update` |
 | `-f`, `--force` | Skip the confirmation |
 | `--allow-destructive` | Permit taking capacity away |
 | `--no-wait` | Return once Pixeltable Cloud accepts the update, without waiting for it to finish |
 
-`update` creates a hosted database and keeps it current afterwards. Put the database in a `[[pixeltable.database]]` entry, then run `update` against the URI in its `name`:
+`update` creates a hosted database and keeps it current afterwards. Put the database in a `[[pixeltable.database]]` entry, by hand or with `pxt db diff pxt://myorg:mydb --add-config-entry`, then run `update` against the URI in its `name`:
 
 ```toml
 # pixeltable.toml
@@ -1099,7 +1103,7 @@ name = 'pxt://myorg:mydb'
 pxt db update pxt://myorg:mydb
 ```
 
-The URI on the command line selects the entry by its `name`: an entry for another database configures that one, and a target with no entry is an error. The first run creates the database, builds the image for its environment and uploads the project files that the pods run; every later run applies whatever has changed since. The [cloud configuration reference](#cloud-configuration-reference) lists everything an entry can declare.
+The URI on the command line selects the entry by its `name`: an entry for another database configures that one, and a target without an entry is an error, unless `--add-config-entry` appends one. The first run creates the database, builds the image for its environment and uploads the project files that the pods run; every later run applies whatever has changed since. The [cloud configuration reference](#cloud-configuration-reference) lists everything an entry can declare.
 
 `update` applies a new image if dependencies changed, then uploaded project files if sources changed, then one resize
 for any changed CPU, memory, disk, or worker counts so the pods restart only once. The settings in the project
@@ -1165,6 +1169,7 @@ also retries it.
 ```bash
 pxt db diff pxt://myorg:mydb
 pxt db diff pxt://myorg:mydb --json
+pxt db diff pxt://myorg:mydb --add-config-entry   # append the database's entry first
 ```
 
 `pxt db diff` compares the hosted database to that config entry (see the [cloud configuration
@@ -1176,7 +1181,7 @@ reference](#cloud-configuration-reference)): capacity, the Python image, the pro
 | the project archive | every selected project file | any selected file changes |
 | the settings | `vars`, `db_*` settings, and sections such as `[openai]` | any setting changes; no upload |
 
-so an edit to a source file is uploaded in seconds, and only a dependency change costs an image build. Exit status is 0 in agreement and 2 with changes pending; nothing is built, resized or set.
+so an edit to a source file is uploaded in seconds, and only a dependency change costs an image build. Exit status is 0 in agreement and 2 with changes pending; nothing is built, resized or set. With `--add-config-entry`, `diff` first appends the database's entry to the project configuration, unless it is already there, and so previews a first deployment; it changes nothing else.
 
 `pxt db diff --json-schema` prints the JSON Schema of that output.
 

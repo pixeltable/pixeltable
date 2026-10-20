@@ -863,6 +863,11 @@ class DbPlan(pydantic.BaseModel):
         description='for an update, the receipts of the submitted change; for a diff, the receipt of the current '
         'generation if it is in progress or failed',
     )
+    entry_added_to: str | None = pydantic.Field(
+        default=None,
+        description='the config file where --add-config-entry appended the database entry; null without the flag, '
+        'or if the entry was already there',
+    )
 
     @classmethod
     def from_ops(cls, db_uri: str, state: DbState | None, ops: list[DbChangeOp]) -> DbPlan:
