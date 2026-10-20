@@ -411,6 +411,41 @@ class TestMigration:
         assert no_comment.get_metadata()['comment'] in (None, '')
         assert no_comment.get_metadata()['custom_metadata'] in (None, '')
 
+        # frame_iterator_1 is a legacy fps=1 view. v045 and v046 store pos_msec as
+        # frame_time * 1000 - start (499.5 for frame 0 of v_shooting_01_01.mpg). The v047 dump,
+        # written on the #1111 branch, already stores (frame_time - start) * 1000, as do v048
+        # and later (0 for that frame). The clip starts at 0.5s, so the formulas name different
+        # times. Reading the view backward returns the stored picture either way.
+        import av
+        import PIL.Image
+
+        frames = pxt.get_table('frame_iterator_1')
+        reloaded = (
+            frames.order_by(frames.c2, frames.pos, asc=False)
+            .select(frames.c10, frames.pos_frame, frames.frame)
+            .collect()
+        )
+        assert len(reloaded) > 0
+        decoded: dict[str, list[PIL.Image.Image]] = {}
+        starts: list[float] = []
+        for row in reloaded:
+            video = str(row['c10'])
+            if video not in decoded:
+                with av.open(video) as container:
+                    stream = container.streams.video[0]
+                    assert stream.time_base is not None
+                    starts.append(float((stream.start_time or 0) * stream.time_base))
+                    images: list[PIL.Image.Image] = []
+                    for frame in container.decode(video=0):
+                        image = frame.to_image()
+                        assert isinstance(image, PIL.Image.Image)
+                        images.append(image)
+                decoded[video] = images
+            image = row['frame']
+            assert isinstance(image, PIL.Image.Image)
+            assert image == decoded[video][int(row['pos_frame'])]
+        assert any(start > 0.1 for start in starts)
+
     @classmethod
     def _verify_v48(cls) -> None:
         def has_column_ref_in_similarity(value: Any) -> bool:

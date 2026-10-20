@@ -158,7 +158,7 @@ Iterators are powerful tools for processing large media files. They work seamles
 
     ### Parameters
     - `fps`: Frames per second to extract (can be fractional)
-    - `num_frames`: Number of evenly spaced frames to extract. If `num_frames` is greater than the number of frames in the video, all frames are extracted. The result is shorter than `num_frames` only when samples run past the last frame.
+    - `num_frames`: Number of evenly spaced frames to extract. If `num_frames` is greater than the number of frames in the video, all frames are extracted. When several sample times fall on one frame, that frame is one row and the later samples move to the following frames. The result is shorter than `num_frames` when those later samples fall on the last frame or run past it.
     - `keyframes_only`: Extract only keyframes (I-frames) - efficient for quick video scanning
     - Only one of `fps`, `num_frames`, or `keyframes_only` can be specified
   </Tab>

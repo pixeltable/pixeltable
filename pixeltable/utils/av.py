@@ -95,11 +95,13 @@ def _sole_video_stream(container: av.container.input.InputContainer) -> bool:
     )
 
 
-def video_time_range(container: av.container.input.InputContainer) -> tuple[float, float] | None:
+def video_time_range(container: av.container.input.InputContainer) -> tuple[float, float | None] | None:
     """Return the first video stream's stored start and end, in seconds.
 
-    The stored end is the end recorded for that stream. For NUT that is the last
-    presentation timestamp, which can be earlier than when the last frame stops being shown.
+    The end is None when the container records a start but no video end. The stored
+    end, when present, is the end recorded for that stream. For NUT that is the last
+    presentation timestamp, which can be earlier than when the last frame stops being
+    shown. None means there is no video stream or no time base.
     """
     if len(container.streams.video) == 0:
         return None
@@ -138,7 +140,7 @@ def video_time_range(container: av.container.input.InputContainer) -> tuple[floa
         end = _stored_end(container.duration / 1_000_000, start, absolute=absolute)
         if end is not None:
             return start, end
-    return None
+    return start, None
 
 
 def get_video_duration(path: str) -> float | None:
@@ -146,16 +148,16 @@ def get_video_duration(path: str) -> float | None:
     with av.open(path) as container:
         assert isinstance(container, av.container.input.InputContainer)
         time_range = video_time_range(container)
-        if time_range is not None:
-            start, end = time_range
+        if time_range is None:
+            return None
+        start, end = time_range
+        if end is not None:
             return end - start if end >= start else None
 
-        if len(container.streams.video) == 0:
-            return None
+        # start came from video_time_range. The packet scan uses it and does not recompute it.
         video_stream = container.streams.video[0]
         if video_stream.time_base is None:
             return None
-        start = float((video_stream.start_time or 0) * video_stream.time_base)
 
         # Fall back to scanning packets. They are demuxed in decode order, so with B-frames
         # the last packet can present before an earlier one. The end is that latest PTS plus
@@ -546,9 +548,7 @@ class VideoFrames:
         self.video_framerate = stream.average_rate
         time_range = video_time_range(self.container)
         if time_range is None:
-            self._video_start = (
-                float((stream.start_time or 0) * stream.time_base) if stream.time_base is not None else 0.0
-            )
+            self._video_start = 0.0
             self._video_end = None
         else:
             self._video_start, self._video_end = time_range
@@ -570,16 +570,15 @@ class VideoFrames:
         assert self.container is not None
         self.last_frame_time = None
         self.last_frame_duration = None
-        latest_pts: int | None = None
         num_returned = 0
         frame_idx = -1
         try:
             for frame in self.container.decode(video=0):
                 frame_idx += 1
                 # The latest frame time wins, including a frame fps sampling does not yield.
-                # A missing duration must not keep an earlier frame's end.
-                if frame.pts is not None and frame.time is not None and (latest_pts is None or frame.pts >= latest_pts):
-                    latest_pts = frame.pts
+                # A missing duration must not keep an earlier frame's end. decode() yields
+                # frames in presentation order, so a later frame's time is the latest.
+                if frame.time is not None:
                     self.last_frame_time = float(frame.time)
                     self.last_frame_duration = frame_duration_seconds(frame)
                 # frame.time is absolute. An offset stream has to be counted from its start,
