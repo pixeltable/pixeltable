@@ -345,8 +345,8 @@ class TestVideo:
         # get_metadata() returns correct type information
         expr = base_t.video.get_metadata().streams[0].frames
         assert expr.col_type.is_int_type()
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="cannot resolve 'not_an_attr'"):
-            _ = base_t.video.get_metadata().streams[0].not_an_attr
+        # metadata dicts are open, so a key that the schema doesn't declare resolves to untyped Json
+        assert repr(base_t.video.get_metadata().streams[0].not_an_attr.col_type) == 'Json | None'
 
     # window function that simply passes through the frame
     @pxt.uda(requires_order_by=True, allows_std_agg=False, allows_window=True)
