@@ -666,14 +666,14 @@ pxt: refusing to proceed without --force/-f (no TTY for confirmation): drop tabl
 next: pxt drop my_dir/my_table -f  # drop table my_dir/my_table
 ```
 
-The command is the one you ran, with `-n` dropped and `-f` (or `--allow-destructive`) added; every refusal for want of consent exits `3`. With `--json`, a command whose output is not a plan prints the refusal on stdout instead:
+The command is the one you ran, with `-f` (or `--allow-destructive`) added; every refusal for want of consent exits `3`, including a destructive `schema`, `service` or `db update` without `--allow-destructive`. With `--json`, a command whose output is not a plan prints the refusal on stdout instead:
 
 ```json
 {"error_code": "CONFIRMATION_REQUIRED", "message": "...", "retryable": false,
- "next": [{"command": "pxt drop my_dir/my_table --json -f", "when": "drop table my_dir/my_table"}]}
+ "next": [{"command": "pxt drop my_dir/my_table --json -f", "effect": "drop table my_dir/my_table"}]}
 ```
 
-The plan commands (`schema`, `service`, `db update`) keep printing their plan, with the refused operations marked `refused`. An unknown command exits `2` and suggests the commands it may have meant, such as `pxt db logs` and `pxt service logs` for `pxt logs`.
+The plan commands (`schema`, `service`, `db update`) keep printing their plan instead; `schema update`, `schema prune` and `service prune` mark the refused operations `refused`. An unknown command exits `2` and suggests the commands it may have meant, such as `pxt db logs` and `pxt service logs` for `pxt logs`.
 
 ## Serving
 

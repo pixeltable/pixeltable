@@ -12,14 +12,11 @@ from ..utils import (
     EXIT_CHANGES_PENDING,
     EXIT_ERROR,
     EXIT_IN_AGREEMENT,
-    EXIT_REFUSED,
     check_file,
     confirm_or_exit,
     post_request,
     print_json_schema,
-    print_next,
-    rerun_command,
-    stdin_is_a_tty,
+    refuse_destructive,
 )
 
 # a working schema file: written verbatim by 'pxt schema example', and shown indented in every verb's epilog,
@@ -502,17 +499,7 @@ def _decide_update(app_file: str, catalog_dir: PxtPath, *, as_json: bool, force:
         _diff_output(plan, as_json=as_json)
 
     if not allow_destructive:
-        report_refusal()
-        print(
-            f'pxt schema update: refusing to apply {destructive} destructive operation(s) without --allow-destructive',
-            file=sys.stderr,
-        )
-        # add -f too when the confirmation that follows would refuse in turn
-        flags = ('--allow-destructive',) if force or stdin_is_a_tty() else ('--allow-destructive', '-f')
-        command = rerun_command(*flags)
-        if command is not None:
-            print_next(command, f'applies {destructive} destructive operation(s), deleting the data they drop')
-        sys.exit(EXIT_REFUSED)
+        refuse_destructive('pxt schema update', destructive, force=force, on_refusal=report_refusal)
     confirm_or_exit(f'apply {destructive} destructive operation(s)?', force, on_refusal=report_refusal)
 
 

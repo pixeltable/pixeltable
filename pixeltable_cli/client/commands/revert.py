@@ -32,9 +32,7 @@ def run(argv: list[str]) -> None:
         print(f'would revert {args.path} by {args.steps} version(s)')
         return
 
-    confirm_or_exit(
-        f'revert {args.path} by {args.steps} version(s)? this is irreversible.', args.force, as_json=args.as_json
-    )
+    confirm_or_exit(f'revert {args.path} by {args.steps} version(s)? this is irreversible.', args.force)
 
     resp = models.RevertResponse.model_validate(
         post_request('/api/tables/revert', {'path': validate_path_arg(args.path), 'steps': args.steps})

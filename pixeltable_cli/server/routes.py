@@ -324,17 +324,24 @@ def table_errors(req: Request) -> models.ErrorsResponse:
         select_args += [t[c_name].errortype, t[c_name].errormsg]
     rows = t.where(where).select(*select_args).collect()
 
-    defined_in = {c_name: _defining_base(md, c_name) for c_name in computed}
+    # only a failed column needs its defining base, which a pxt:// view reads over the network
+    failed = {c_name for r in rows for c_name in computed if r[f'{c_name}_errortype'] is not None}
+    bases = {c_name: _defining_base(md, c_name) for c_name in failed}
     entries: list[models.ErrorEntry] = []
     for r in rows:
         pk = {name: r[name] for name in pk_names}
         for c_name in computed:
             etype = r[f'{c_name}_errortype']
-            emsg = r[f'{c_name}_errormsg']
             if etype is not None:
+                base, recomputable = bases[c_name]
                 entries.append(
                     models.ErrorEntry(
-                        pk=pk, column=c_name, errortype=etype, errormsg=emsg, defined_in=defined_in[c_name]
+                        pk=pk,
+                        column=c_name,
+                        errortype=etype,
+                        errormsg=r[f'{c_name}_errormsg'],
+                        defining_base=base,
+                        recomputable=recomputable,
                     )
                 )
     return models.ErrorsResponse(entries=entries)
@@ -355,8 +362,9 @@ def _stored_computed_columns(md: TableMetadata, col: str | None) -> list[str]:
     return [col]
 
 
-def _defining_base(md: TableMetadata, column: str) -> str | None:
-    """For a column a view inherits, the path of the base that defines it; None for the table's own column.
+def _defining_base(md: TableMetadata, column: str) -> tuple[str | None, bool]:
+    """(the path of the base that defines a column a view inherits, or None for the table's own column; whether the
+    column's cells can be recomputed there, which a snapshot's cannot).
 
     The defining base is the furthest one up that still has the column, since a view cannot redefine a base column.
     """
@@ -366,7 +374,11 @@ def _defining_base(md: TableMetadata, column: str) -> str | None:
         if column not in base_md['columns']:
             break
         path, md = md['base'], base_md
-    return path
+    # a snapshot's base is a versioned path, such as 'dir/t:5'
+    in_snapshot = md['is_snapshot'] or (
+        path is not None and Path.parse(path, allow_versioned_path=True).version is not None
+    )
+    return path, not in_snapshot
 
 
 @router.get('/api/tables/history', checks_env=False)

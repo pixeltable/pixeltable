@@ -560,13 +560,33 @@ def rerun_command(*flags: str) -> str | None:
     return shlex.join(['pxt', *invocation[:end], *flags, *invocation[end:]])
 
 
-def print_next(command: str, when: str) -> None:
-    print(f'next: {command}  # {when}', file=sys.stderr)
+def print_next(command: str, effect: str) -> None:
+    print(f'next: {command}  # {effect}', file=sys.stderr)
 
 
-def confirm_or_exit(
-    prompt: str, force: bool, *, on_refusal: Callable[[], None] | None = None, as_json: bool = False
+def json_requested() -> bool:
+    """Whether the command being run asked for --json output."""
+    return invocation is not None and '--json' in invocation
+
+
+def print_error_document(
+    error_code: str,
+    message: str,
+    *,
+    retryable: bool,
+    next_steps: list[dict[str, str]] | None = None,
+    retry_after: float | None = None,
 ) -> None:
+    """Prints a failure as the one --json document on stdout: error_code, message, retryable, retry_after, next."""
+    doc: dict[str, Any] = {'error_code': error_code, 'message': message, 'retryable': retryable}
+    if retry_after is not None:
+        doc['retry_after'] = retry_after
+    if next_steps is not None:
+        doc['next'] = next_steps
+    print(json.dumps(doc, indent=2))
+
+
+def confirm_or_exit(prompt: str, force: bool, *, on_refusal: Callable[[], None] | None = None) -> None:
     """Prompt for yes/no on stdin unless --force; exit with EXIT_REFUSED on anything but yes, or without a TTY.
 
     See _refuse_unanswered() for the refusal without a TTY.
@@ -574,7 +594,7 @@ def confirm_or_exit(
     if force:
         return
     if not stdin_is_a_tty():
-        _refuse_unanswered(prompt, on_refusal=on_refusal, as_json=as_json)
+        _refuse_unanswered(prompt, on_refusal=on_refusal)
     sys.stderr.write(f'{prompt} [y/N] ')
     sys.stderr.flush()
     ans = sys.stdin.readline().strip().lower()
@@ -583,31 +603,52 @@ def confirm_or_exit(
         sys.exit(EXIT_REFUSED)
 
 
-def _refuse_unanswered(prompt: str, *, on_refusal: Callable[[], None] | None, as_json: bool) -> NoReturn:
+def _refuse_unanswered(prompt: str, *, on_refusal: Callable[[], None] | None) -> NoReturn:
     """Refuse a prompt no one can answer, with no TTY, naming the command to rerun with -f.
 
-    on_refusal runs first, for a caller that reports the refusal itself; otherwise, with as_json, the refusal is an
+    on_refusal runs first, for a caller that reports the refusal itself; otherwise, with --json, the refusal is an
     error document on stdout.
     """
     message = f'refusing to proceed without --force/-f (no TTY for confirmation): {prompt}'
     command = rerun_command('-f')
     # the question says what the command does; what follows it, such as 'This is irreversible.', does not
-    when = prompt.partition('?')[0]
+    effect = prompt.partition('?')[0]
     if on_refusal is not None:
         on_refusal()
-    elif as_json:
-        steps = [] if command is None else [{'command': command, 'when': when}]
-        doc = {'error_code': 'CONFIRMATION_REQUIRED', 'message': message, 'retryable': False, 'next': steps}
-        print(json.dumps(doc, indent=2))
+    elif json_requested():
+        steps = [] if command is None else [{'command': command, 'effect': effect}]
+        print_error_document('CONFIRMATION_REQUIRED', message, retryable=False, next_steps=steps)
+    _flush_stdout()
+    print(f'pxt: {message}', file=sys.stderr)
+    if command is not None:
+        print_next(command, effect)
+    sys.exit(EXIT_REFUSED)
+
+
+def refuse_destructive(prog: str, destructive: int, *, force: bool, on_refusal: Callable[[], None]) -> NoReturn:
+    """Refuse a plan whose destructive operations --allow-destructive did not permit, naming the command that does.
+
+    on_refusal reports the refused plan first.
+    """
+    on_refusal()
+    _flush_stdout()
+    print(
+        f'{prog}: refusing to apply {destructive} destructive operation(s) without --allow-destructive', file=sys.stderr
+    )
+    # add -f too when the confirmation that follows would refuse in turn
+    flags = ('--allow-destructive',) if force or stdin_is_a_tty() else ('--allow-destructive', '-f')
+    command = rerun_command(*flags)
+    if command is not None:
+        print_next(command, f'applies {destructive} destructive operation(s)')
+    sys.exit(EXIT_REFUSED)
+
+
+def _flush_stdout() -> None:
     # stdout is block-buffered on a pipe; flush it before stderr emits the refusal line
     try:
         sys.stdout.flush()
     except OSError:
         pass
-    print(f'pxt: {message}', file=sys.stderr)
-    if command is not None:
-        print_next(command, when)
-    sys.exit(EXIT_REFUSED)
 
 
 def print_json_schema(adapter: pydantic.TypeAdapter) -> None:
