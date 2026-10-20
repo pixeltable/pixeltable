@@ -102,8 +102,7 @@
                       "sdk/latest/timestamp",
                       "sdk/latest/uuid",
                       "sdk/latest/video",
-                      "sdk/latest/vision",
-                      "sdk/latest/web"
+                      "sdk/latest/vision"
                     ]
                   },
                   {
@@ -126,6 +125,7 @@
                       "sdk/latest/ollama",
                       "sdk/latest/openai",
                       "sdk/latest/openrouter",
+                      "sdk/latest/parallel",
                       "sdk/latest/replicate",
                       "sdk/latest/runwayml",
                       "sdk/latest/together",

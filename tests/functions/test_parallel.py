@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 import pixeltable as pxt
-from pixeltable.functions import openai, web
+from pixeltable.functions import openai, parallel
 
 from ..utils import pxt_raises, reload_catalog
 
@@ -17,6 +17,34 @@ else:
 pytest.importorskip('mcp')
 
 pytestmark = pytest.mark.db_roots('local', reason='Mock HTTP transport runs in the local UDF process')
+
+_SOURCE_URL = 'https://example.org/source'
+
+# Responses in the shape the service documents, so that the tests exercise the declared TypedDicts.
+_SEARCH_RESPONSE = {
+    'search_id': 'search_fixture',
+    'results': [
+        {'url': _SOURCE_URL, 'title': 'A source', 'publish_date': '2026-01-15', 'excerpts': ['A source excerpt.']}
+    ],
+    'warnings': None,
+    'session_id': 'session_fixture',
+}
+
+_FETCH_RESPONSE = {
+    'extract_id': 'extract_fixture',
+    'results': [
+        {
+            'url': _SOURCE_URL,
+            'title': 'A source',
+            'publish_date': '2026-01-15',
+            'excerpts': ['A source excerpt.'],
+            'full_content': None,
+        }
+    ],
+    'errors': [],
+    'warnings': None,
+    'session_id': 'session_fixture',
+}
 
 
 class _McpServer:
@@ -58,7 +86,7 @@ class _McpServer:
                     await asyncio.Event().wait()
                 finally:
                     self.closed += 1
-            payload = {'results': [{'url': 'https://example.org/source', 'excerpts': ['A source excerpt.']}]}
+            payload = _SEARCH_RESPONSE if message['params']['name'] == 'web_search' else _FETCH_RESPONSE
             result = self.result or {'content': [{'type': 'text', 'text': json.dumps(payload)}]}
         return httpx2.Response(200, json={'jsonrpc': '2.0', 'id': message['id'], 'result': result})
 
@@ -77,28 +105,33 @@ def mcp_server(monkeypatch: pytest.MonkeyPatch, private_home: Any) -> _McpServer
 
 
 def test_search_and_fetch_columns(uses_db: None, mcp_server: _McpServer) -> None:
-    t = pxt.create_table('web_test', {'query': pxt.String, 'conversation': pxt.String})
-    t.add_computed_column(sources=web.search(t.query, session_id=t.conversation))
-    t.add_computed_column(page=web.fetch(t.sources.results[0].url, session_id=t.conversation))
+    t = pxt.create_table('parallel_test', {'query': pxt.String, 'conversation': pxt.String})
+    t.add_computed_column(sources=parallel.search(t.query, session_id=t.conversation))
+    t.add_computed_column(page=parallel.fetch(t.sources.results[0].url, session_id=t.conversation))
+    # The declared TypedDicts give each response field a type, and confine JSON paths to the documented fields.
+    assert t.sources.results[0].title.col_type.is_string_type()
+    assert t.page.results[0].excerpts[0].col_type.is_string_type()
+    with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='does not match the expected type schema'):
+        _ = t.sources.result
     conversation = str(uuid.uuid4())
     t.insert(query='Pixeltable computed columns', conversation=conversation)
     row = t.collect()[0]
-    assert row['sources']['results'][0]['url'] == 'https://example.org/source'
-    assert row['page']['results'][0]['excerpts'] == ['A source excerpt.']
+    assert row['sources'] == _SEARCH_RESPONSE
+    assert row['page'] == _FETCH_RESPONSE
     assert [c['name'] for c in mcp_server.calls] == ['web_search', 'web_fetch']
     assert mcp_server.calls[0]['arguments'] == {
         'objective': 'Pixeltable computed columns',
         'search_queries': ['Pixeltable computed columns'],
         'session_id': conversation,
     }
-    assert mcp_server.calls[1]['arguments'] == {'urls': ['https://example.org/source'], 'session_id': conversation}
+    assert mcp_server.calls[1]['arguments'] == {'urls': [_SOURCE_URL], 'session_id': conversation}
     for request in mcp_server.requests:
         assert str(request.url) == 'https://search.parallel.ai/mcp'
         assert request.headers['user-agent'].startswith(f'Pixeltable/{pxt.__version__}')
         assert 'authorization' not in request.headers
 
     reload_catalog()
-    t = pxt.get_table('web_test')
+    t = pxt.get_table('parallel_test')
     t.insert(query='follow-up query', conversation=conversation)
     assert mcp_server.calls[-1]['arguments']['session_id'] == conversation
     assert t.count() == 2
@@ -117,11 +150,11 @@ def test_search_and_fetch_columns(uses_db: None, mcp_server: _McpServer) -> None
 
 def test_tool_dispatch_and_choices(uses_db: None, mcp_server: _McpServer) -> None:
     # Scripted model responses exercise the production dispatcher without an inference API call.
-    tools = pxt.tools(web.search, web.fetch)
+    tools = pxt.tools(parallel.search, parallel.fetch)
     assert tools.choice(tool='fetch').tool == 'fetch'
-    t = pxt.create_table('web_test', {'response': pxt.Json})
+    t = pxt.create_table('parallel_test', {'response': pxt.Json})
     t.add_computed_column(output=openai.invoke_tools(tools, t.response))
-    restricted = pxt.tools(web.fetch)
+    restricted = pxt.tools(parallel.fetch)
     t.add_computed_column(restricted=openai.invoke_tools(restricted, t.response))
     t.insert(
         response={
@@ -141,10 +174,7 @@ def test_tool_dispatch_and_choices(uses_db: None, mcp_server: _McpServer) -> Non
             ]
         }
     )
-    assert t.collect()[0]['output'] == {
-        'search': [{'results': [{'url': 'https://example.org/source', 'excerpts': ['A source excerpt.']}]}],
-        'fetch': None,
-    }
+    assert t.collect()[0]['output'] == {'search': [_SEARCH_RESPONSE], 'fetch': None}
     assert len(mcp_server.calls) == 1
     assert 'session_id' not in mcp_server.calls[0]['arguments']
 
@@ -156,11 +186,11 @@ def test_tool_dispatch_and_choices(uses_db: None, mcp_server: _McpServer) -> Non
 
 def test_bound_conversation_tools(uses_db: None, mcp_server: _McpServer) -> None:
     first, second = str(uuid.uuid4()), str(uuid.uuid4())
-    t = pxt.create_table('web_test', {'response': pxt.Json})
+    t = pxt.create_table('parallel_test', {'response': pxt.Json})
     for name, conversation in [('first', first), ('second', second)]:
         tools = pxt.tools(
-            pxt.tool(web.search.using(session_id=conversation), name='search'),
-            pxt.tool(web.fetch.using(session_id=conversation), name='fetch'),
+            pxt.tool(parallel.search.using(session_id=conversation), name='search'),
+            pxt.tool(parallel.fetch.using(session_id=conversation), name='fetch'),
         )
         t.add_computed_column(**{name: openai.invoke_tools(tools, t.response)})
     for tool_name, args in [
@@ -186,8 +216,8 @@ def test_bound_conversation_tools(uses_db: None, mcp_server: _McpServer) -> None
 
 def test_configured_key(uses_db: None, mcp_server: _McpServer, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv('PARALLEL_API_KEY', 'test-parallel-key')
-    t = pxt.create_table('web_test', {'query': pxt.String})
-    t.add_computed_column(sources=web.search(t.query))
+    t = pxt.create_table('parallel_test', {'query': pxt.String})
+    t.add_computed_column(sources=parallel.search(t.query))
     t.insert(query='test query')
     assert all(r.headers['authorization'] == 'Bearer test-parallel-key' for r in mcp_server.requests)
 
@@ -198,8 +228,8 @@ def test_rejected_key_does_not_fall_back(
 ) -> None:
     monkeypatch.setenv('PARALLEL_API_KEY', 'test-rejected-key')
     mcp_server.status = status
-    t = pxt.create_table('web_test', {'query': pxt.String})
-    t.add_computed_column(sources=web.search(t.query))
+    t = pxt.create_table('parallel_test', {'query': pxt.String})
+    t.add_computed_column(sources=parallel.search(t.query))
     assert t.insert(query='test query', on_error='ignore').num_excs == 1
     assert 'Server returned an error response' in t.select(message=t.sources.errormsg).collect()[0]['message']
     assert all(r.headers['authorization'] == 'Bearer test-rejected-key' for r in mcp_server.requests)
@@ -215,30 +245,41 @@ def test_rejected_key_does_not_fall_back(
 )
 def test_tool_errors(uses_db: None, mcp_server: _McpServer, result: dict, message: str) -> None:
     mcp_server.result = result
-    t = pxt.create_table('web_test', {'query': pxt.String})
-    t.add_computed_column(sources=web.search(t.query))
+    t = pxt.create_table('parallel_test', {'query': pxt.String})
+    t.add_computed_column(sources=parallel.search(t.query))
     assert t.insert(query='test query', on_error='ignore').num_excs == 1
     assert message in t.select(message=t.sources.errormsg).collect()[0]['message']
 
 
 def test_fetch_partial_error(uses_db: None, mcp_server: _McpServer) -> None:
-    payload = {'results': [], 'errors': [{'url': 'https://example.org/missing', 'error_type': 'not_found'}]}
+    payload = {
+        'extract_id': 'extract_fixture',
+        'results': [],
+        'errors': [
+            {'url': 'https://example.org/missing', 'error_type': 'http_error', 'http_status_code': 404, 'content': None}
+        ],
+        'warnings': None,
+        'session_id': 'session_fixture',
+    }
     mcp_server.result = {'content': [], 'structuredContent': payload}
-    t = pxt.create_table('web_test', {'url': pxt.String})
-    t.add_computed_column(page=web.fetch(t.url, objective='Find the title'))
+    t = pxt.create_table('parallel_test', {'url': pxt.String})
+    t.add_computed_column(page=parallel.fetch(t.url, objective='Find the title'))
     t.insert(url='https://example.org/missing')
     assert t.collect()[0]['page'] == payload
+    # The declared TypedDicts type the fields of a per-page error, which is reported in the response rather than raised.
+    error = t.select(error_type=t.page.errors[0].error_type, status=t.page.errors[0].http_status_code).collect()[0]
+    assert error == {'error_type': 'http_error', 'status': 404}
     assert mcp_server.calls[0]['arguments']['objective'] == 'Find the title'
 
 
 def test_invalid_arguments(uses_db: None, mcp_server: _McpServer) -> None:
-    t = pxt.create_table('web_test', {'value': pxt.String})
+    t = pxt.create_table('parallel_test', {'value': pxt.String})
     for i, (expr, message) in enumerate(
         [
-            (web.search(' '), 'query must not be empty'),
-            (web.fetch('file:///etc/passwd'), 'HTTP or HTTPS URL'),
-            (web.fetch('https://example.org', objective='x' * 201), 'at most 200'),
-            (web.search('query', session_id=''), '1 to 100'),
+            (parallel.search(' '), 'query must not be empty'),
+            (parallel.fetch('file:///etc/passwd'), 'HTTP or HTTPS URL'),
+            (parallel.fetch('https://example.org', objective='x' * 201), 'at most 200'),
+            (parallel.search('query', session_id=''), '1 to 100'),
         ]
     ):
         t.add_computed_column(**{f'result_{i}': expr})
@@ -252,11 +293,11 @@ def test_timeout_and_cancellation(uses_db: None, mcp_server: _McpServer, monkeyp
     # Coroutine cancellation has no synchronous table API; use the UDF's normal async execution entrypoint.
     async def run() -> None:
         mcp_server.block = True
-        monkeypatch.setattr(web, '_REQUEST_TIMEOUT', 0.05)
+        monkeypatch.setattr(parallel, '_REQUEST_TIMEOUT', 0.05)
         with pytest.raises(TimeoutError):
-            await web.search.aexec('test timeout')
-        monkeypatch.setattr(web, '_REQUEST_TIMEOUT', 60.0)
-        task = asyncio.create_task(web.search.aexec('test cancellation'))
+            await parallel.search.aexec('test timeout')
+        monkeypatch.setattr(parallel, '_REQUEST_TIMEOUT', 60.0)
+        task = asyncio.create_task(parallel.search.aexec('test cancellation'))
         while len(mcp_server.calls) < 2:
             await asyncio.sleep(0)
         task.cancel()

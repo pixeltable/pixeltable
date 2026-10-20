@@ -252,10 +252,6 @@
         <outline text="module|pixeltable.functions.net">
           <outline text="udf|pixeltable.functions.net.presigned_url" />
         </outline>
-        <outline text="module|pixeltable.functions.web">
-          <outline text="udf|pixeltable.functions.web.search" />
-          <outline text="udf|pixeltable.functions.web.fetch" />
-        </outline>
         <outline text="module|pixeltable.functions.string">
           <outline text="iter|pixeltable.functions.string.string_splitter" />
           <outline text="udf|pixeltable.functions.string.capitalize" />
@@ -476,6 +472,10 @@
         </outline>
         <outline text="module|pixeltable.functions.openrouter">
           <outline text="udf|pixeltable.functions.openrouter.chat_completions" />
+        </outline>
+        <outline text="module|pixeltable.functions.parallel">
+          <outline text="udf|pixeltable.functions.parallel.search" />
+          <outline text="udf|pixeltable.functions.parallel.fetch" />
         </outline>
         <outline text="module|pixeltable.functions.replicate">
           <outline text="udf|pixeltable.functions.replicate.run" />
