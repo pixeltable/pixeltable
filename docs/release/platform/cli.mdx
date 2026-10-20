@@ -682,7 +682,7 @@ A request that fails ends its line with the error code, as in `pxt: 404 Director
 | `0` | Success, or nothing to do |
 | `1` | Error, including a usage error in `schema`, `service`, `db` and `init` |
 | `2` | A usage error elsewhere; for `diff`, `update -n` and `prune -n`, changes pending; for `db` and `service update`, a change still under way when the three-hour wait ends (`service restart`, `retry` and `stop` wait in the daemon, whose timeout exits `1`) |
-| `3` | Refused for want of consent: no `-f` without a terminal, an answer other than `y`, or a destructive `schema update` without `--allow-destructive`. A destructive `db update` or `service update` without it exits `1` with `DESTRUCTIVE_SCHEMA_CHANGE` |
+| `3` | Refused for want of consent: no `-f` without a terminal, an answer other than `y`, or a destructive `schema update`, `db update` or `service update` without `--allow-destructive` |
 | `130` | A wait stopped with Ctrl-C; the change continues in Pixeltable Cloud |
 
 ## Serving
