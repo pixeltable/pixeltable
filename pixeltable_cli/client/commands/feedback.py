@@ -14,9 +14,12 @@ import urllib.parse
 from typing import NoReturn
 
 from ..parser import Parser
-from ..utils import EXIT_ERROR, EXIT_REFUSED
+from ..utils import EXIT_ERROR, EXIT_REFUSED, print_error_document
 
-DEFAULT_URL = 'https://www.pixeltable.com/api/v1/feedback'
+DEFAULT_SITE_URL = 'https://www.pixeltable.com'
+_FEEDBACK_PATH = '/api/v1/feedback'
+# the hosts a report may go to over http, as `pxt new` allows
+_LOOPBACK_HOSTS = ('localhost', '127.0.0.1', '::1')
 
 KINDS = ('bug', 'gap', 'docs')
 
@@ -43,20 +46,23 @@ _AGENT_MARKERS = {
 
 EPILOG = f"""\
 Examples:
-  pxt feedback --kind gap "What the task needed, what was tried, what happened"   # prints it, sends nothing
-  pxt feedback --kind bug "..." --json                                             # the same, as JSON
+  pxt feedback --kind gap 'What the task needed, what was tried, what happened'   # prints it, sends nothing
+  pxt feedback --kind bug '...' --json                                             # the same, as JSON
+
+  Single quotes keep the shell from running a `command` or expanding a $VARIABLE in the text.
 
 What it sends, and only with --send:
   The kind and the text, plus the Pixeltable version, Python version, OS and coding agent this runs
-  under. No paths, hostnames, organization or file contents. With DO_NOT_TRACK set to 1, true or yes,
-  --send sends nothing.
+  under. Besides the text, which goes as written, it sends no paths, hostnames, organization or file
+  contents. With DO_NOT_TRACK set to 1, true or yes, --send sends nothing. PIXELTABLE_SITE_URL sends
+  it to another site, over https or to localhost.
 
   The text comes from a project, so a coding agent should show the preview to the person it works for
   and add --send only after they agree.
 
 Exit codes:
   0  previewed, or sent
-  1  error: the report could not be sent
+  1  error: the report was not sent, or not confirmed as sent
   2  usage: no --kind, or a text that is empty or longer than {MAX_MESSAGE_CHARS} characters
   3  refused: DO_NOT_TRACK is set"""
 
@@ -85,10 +91,7 @@ def run(argv: list[str]) -> None:
     if any(unicodedata.category(ch) == 'Cc' and ch not in '\n\t' for ch in message):
         parser.error('TEXT contains a control character other than a newline or a tab')
 
-    url = os.environ.get('PIXELTABLE_FEEDBACK_URL') or DEFAULT_URL
-    if '\\' in url:
-        # urllib3 ends a URL's host at a backslash and urlsplit does not, so the preview could name another host
-        _fail('PIXELTABLE_FEEDBACK_URL contains a backslash')
+    url = _feedback_url(args.as_json)
     fields: dict[str, str | None] = {
         'kind': args.kind,
         'message': message,
@@ -103,14 +106,11 @@ def run(argv: list[str]) -> None:
             print('Nothing was sent. Sending needs --send, once the person you work for has read this.')
         return
     if os.environ.get('DO_NOT_TRACK', '').strip().lower() in ('1', 'true', 'yes'):
-        refusal = 'DO_NOT_TRACK is set, so nothing was sent.'
-        if args.as_json:
-            print(json.dumps({'error_code': 'DO_NOT_TRACK', 'message': refusal, 'retryable': False}))
-        else:
+        if not args.as_json:
             _print_preview(url, fields, as_json=False)
-        _fail(refusal, EXIT_REFUSED)
+        _fail('DO_NOT_TRACK is set, so nothing was sent.', 'DO_NOT_TRACK', args.as_json, exit_code=EXIT_REFUSED)
 
-    report_id = _send(url, fields)
+    report_id = _send(url, fields, args.as_json)
     if args.as_json:
         print(json.dumps({'sent': True} if report_id is None else {'sent': True, 'id': report_id}))
     elif report_id is None:
@@ -119,13 +119,26 @@ def run(argv: list[str]) -> None:
         print(f'Sent to the Pixeltable team (reference {report_id}).')
 
 
+def _feedback_url(as_json: bool) -> str:
+    site = (os.environ.get('PIXELTABLE_SITE_URL') or DEFAULT_SITE_URL).rstrip('/')
+    if '\\' in site:
+        # urllib3 ends a URL's host at a backslash and urlsplit does not, so the preview could name another host
+        _fail('PIXELTABLE_SITE_URL contains a backslash', 'INVALID_CONFIGURATION', as_json)
+    parts = urllib.parse.urlsplit(site)
+    if not (parts.scheme == 'https' or (parts.scheme == 'http' and parts.hostname in _LOOPBACK_HOSTS)):
+        # the URL itself is not printed: it may hold credentials
+        _fail('PIXELTABLE_SITE_URL must use https, except on localhost', 'INVALID_CONFIGURATION', as_json)
+    return site + _FEEDBACK_PATH
+
+
 def _agent() -> str | None:
     """The coding agent this runs under, on one line and cut to the length the site accepts; None for none.
 
     AI_AGENT, which any agent can set to its own name, comes first. It only names the agent in the report.
     """
-    # on one line: a newline in AI_AGENT would print a line of its choosing into the preview
-    declared = ' '.join(os.environ.get('AI_AGENT', '').split())
+    # on one line, with no control character: either would let AI_AGENT print a line of its choosing into the preview
+    raw = os.environ.get('AI_AGENT', '')
+    declared = ' '.join(''.join(' ' if unicodedata.category(ch) == 'Cc' else ch for ch in raw).split())
     if declared != '':
         return declared[:_MAX_AGENT_CHARS]
     if os.environ.get('CURSOR_EXTENSION_HOST_ROLE') == 'agent-exec':
@@ -161,34 +174,37 @@ def _print_preview(url: str, fields: dict[str, str | None], as_json: bool) -> No
         ('os', 'os'),
         ('agent', 'agent'),
     ):
-        print(f'  {label + ":":<13}{fields[key] or "-"}')
+        print(f'  {label + ":":<13}{_visible(fields[key] or "-")}')
     print('  message:')
-    print(textwrap.indent(fields['message'], '    '))
+    print(textwrap.indent(_visible(fields['message']), '    '))
 
 
-def _send(url: str, fields: dict[str, str | None]) -> str | None:
+def _visible(text: str) -> str:
+    # a format character such as U+202E reorders the line a terminal shows, and a zero-width one hides; spell them out
+    return ''.join(ch if ch.isprintable() or ch in '\n\t' else ascii(ch)[1:-1] for ch in text)
+
+
+def _send(url: str, fields: dict[str, str | None], as_json: bool) -> str | None:
     """POST fields to url; the reference the server gave the report, or None if it gave none."""
     import requests
 
-    # UTF-8 without \uXXXX escapes, so a 4000-character non-ASCII message fits the site's body cap
-    body = json.dumps(fields, ensure_ascii=False).encode('utf-8')
     try:
         # a redirect would take the report to a host not named in the preview
-        resp = requests.post(
-            url,
-            data=body,
-            headers={'Content-Type': 'application/json'},
-            timeout=_SEND_TIMEOUT_SECS,
-            allow_redirects=False,
-        )
+        resp = requests.post(url, json=fields, timeout=_SEND_TIMEOUT_SECS, allow_redirects=False)
+    except requests.ReadTimeout:
+        _unconfirmed('ReadTimeout', as_json)
     except requests.RequestException as e:
-        _fail(f'could not send ({type(e).__name__})')
+        _fail(f'could not send ({type(e).__name__})', 'FEEDBACK_NOT_SENT', as_json, retryable=True)
     if resp.status_code == 429:
         # seconds only: Retry-After may also be an HTTP date
         wait = resp.headers.get('Retry-After', '').strip()
-        _fail(f'not sent (rate limited); try again in {wait} s.' if wait.isdigit() else 'not sent (rate limited).')
+        retry_after = int(wait) if wait.isdigit() else None
+        message = 'not sent (rate limited)' + ('' if retry_after is None else f'; try again in {retry_after} s')
+        _fail(f'{message}.', 'RATE_LIMITED', as_json, retryable=True, retry_after=retry_after)
+    if resp.status_code >= 500:
+        _unconfirmed(f'HTTP {resp.status_code}', as_json)
     if resp.status_code != 202:
-        _fail(f'could not send (HTTP {resp.status_code})')
+        _fail(f'could not send (HTTP {resp.status_code})', 'FEEDBACK_NOT_SENT', as_json)
     try:
         report_id = resp.json()['id']
     except (ValueError, TypeError, KeyError):
@@ -196,7 +212,22 @@ def _send(url: str, fields: dict[str, str | None]) -> str | None:
     return report_id if isinstance(report_id, str) else None
 
 
-def _fail(message: str, exit_code: int = EXIT_ERROR) -> NoReturn:
+def _unconfirmed(cause: str, as_json: bool) -> NoReturn:
+    # the site answers 5xx when Slack does not confirm the post, and a timeout can follow a post that arrived
+    _fail(f'not confirmed as sent ({cause}); it may have arrived', 'FEEDBACK_UNCONFIRMED', as_json, retryable=True)
+
+
+def _fail(
+    message: str,
+    error_code: str,
+    as_json: bool,
+    *,
+    retryable: bool = False,
+    retry_after: int | None = None,
+    exit_code: int = EXIT_ERROR,
+) -> NoReturn:
+    if as_json:
+        print_error_document(error_code, message, retryable=retryable, retry_after=retry_after)
     # stdout is block-buffered on a pipe; flush the preview before stderr emits the refusal line
     try:
         sys.stdout.flush()
