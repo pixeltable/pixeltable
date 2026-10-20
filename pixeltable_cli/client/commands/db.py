@@ -31,6 +31,7 @@ from ..utils import (
     get_request,
     post_request,
     print_json_schema,
+    refuse_destructive,
 )
 
 EPILOG = """\
@@ -235,6 +236,14 @@ def _update(args: argparse.Namespace) -> None:
     if not args.json_output:
         # the pending plan, for the confirmation that follows; --json emits the applied plan alone
         _print_plan(plan, as_json=False)
+    if plan.summary.destructive > 0 and not args.allow_destructive:
+        # the daemon would refuse the apply; refusing here names the command that permits it
+        refuse_destructive(
+            'pxt db update',
+            plan.summary.destructive,
+            force=args.force,
+            on_refusal=lambda: _print_plan(plan, as_json=True) if args.json_output else None,
+        )
     what = f'{plan.summary.ops} change(s)' if plan.exists else f'create {plan.db_uri} and apply it'
     minutes = ', which rebuilds the image and takes several minutes' if plan.summary.rebuild else ''
     confirm_or_exit(
@@ -322,7 +331,7 @@ def _print_plan(plan: DbPlan, *, as_json: bool, applied: bool = False) -> None:
 def _delete(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db delete')
     db_uri = f'pxt://{org}:{db}'
-    confirm_or_exit(f'delete {db_uri}? This is irreversible.', args.force, as_json=args.json_output)
+    confirm_or_exit(f'delete {db_uri}? This is irreversible.', args.force)
     with spinner(None if args.json_output else f'Submitting the deletion of {db_uri} ...'):
         accepted = DbLifecycleResponse.model_validate(post_request('/api/db/delete', {'db_uri': db_uri, 'wait': False}))
     settled = _await(db_uri, [accepted.receipt], args)

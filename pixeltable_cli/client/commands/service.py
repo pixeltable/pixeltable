@@ -21,6 +21,7 @@ from ..utils import (
     get_request,
     post_request,
     print_json_schema,
+    refuse_destructive,
 )
 
 _EXAMPLE_APP = '''\
@@ -465,6 +466,11 @@ def _update(
             sys.exit(EXIT_ERROR)
 
     s = plan.summary
+    if s.destructive > 0 and not allow_destructive:
+        # the daemon would refuse the apply; refusing here names the command that permits it
+        refuse_destructive(
+            'pxt service update', s.destructive, force=force, on_refusal=lambda: _print_plan(plan, as_json=as_json)
+        )
     restarts = f', interrupting {s.restarts} running service(s)' if s.restarts > 0 else ''
     confirm_or_exit(
         f'start or restart {s.create + s.update_additive + s.update_destructive} service(s){restarts}?',

@@ -283,10 +283,9 @@ class StoreBase:
         while True:
             with get_runtime().begin_xact(for_write=True) as conn:
                 try:
-                    if wait_for_table and not Env.get().is_using_cockroachdb:
+                    if wait_for_table:
                         # Try to lock the table to make sure that it exists. This needs to run in the same transaction
                         # as 'stmt' to avoid a race condition.
-                        # TODO: adapt this for CockroachDB
                         lock_stmt = f'LOCK TABLE {self._storage_name()} IN ACCESS EXCLUSIVE MODE'
                         conn.execute(sql.text(lock_stmt))
                     conn.execute(sql.text(stmt))
@@ -593,11 +592,6 @@ class StoreBase:
                             rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
                             pk = (*rowid, v_min)
                         else:
-                            # UUID7 appears to be a more performant choice for Postgresql, however for CockroachDB
-                            # UUID4 is recommended.
-                            assert not Env.get().is_using_cockroachdb, (
-                                'TODO: implement for operational tables [PXT-1101]'
-                            )
                             pk = (uuid7(),)
                         assert len(pk) == len(self._pk_cols)
                         table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, pk)

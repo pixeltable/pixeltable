@@ -29,7 +29,7 @@ def run(argv: list[str]) -> None:
         print(f'would remove {args.path} (if it is a directory){suffix}')
         return
 
-    confirm_or_exit(f'remove directory {args.path}?', args.force, as_json=args.as_json)
+    confirm_or_exit(f'remove directory {args.path}?', args.force)
 
     resp = models.DropResponse.model_validate(
         post_request('/api/dirs/drop', {'path': validate_path_arg(args.path), 'cascade': args.recursive})

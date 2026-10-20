@@ -30,7 +30,7 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
 
 if __name__ == '__main__':
     # Initialize the MCP server for handling queries
-    mcp_server = mcp._mcp_server
+    mcp_server = mcp._lowlevel_server
 
     # Set up command-line arguments for server configuration
     parser = argparse.ArgumentParser(description='Run MCP SSE-based server')
