@@ -14,7 +14,7 @@ import logging
 import math
 import pathlib
 import re
-from typing import TYPE_CHECKING, Any, Type, TypedDict, TypeVar, cast
+from typing import TYPE_CHECKING, Any, NotRequired, Type, TypedDict, TypeVar, cast
 
 import numpy as np
 import PIL
@@ -983,9 +983,12 @@ def _decode_image_response(result: dict) -> dict:
 # because openai is an optional dependency and can't be imported at module load time, and because our
 # data field holds decoded PIL images rather than the SDK's Image pydantic model.
 #
-# Every output dict has all keys present and nullability per field matches the SDK Pydantic model.
-# Exception: data is non-null here even though the SDK declares it Optional[List[Image]] = None,
-# because _decode_image_response() raises on a missing payload, so callers can rely on a populated list.
+# Nullability per field matches the SDK Pydantic model. Exception: data is non-null here even though the SDK
+# declares it Optional[List[Image]] = None, because _decode_image_response() raises on a missing payload, so
+# callers can rely on a populated list.
+#
+# Every output dict has all keys present, except the NotRequired ones: those are fields that newer SDK versions
+# added, which an older SDK's response lacks.
 
 
 class UsageInputTokensDetails(TypedDict):
@@ -1014,6 +1017,7 @@ class ImagesResponse(TypedDict):
     output_format: str | None
     quality: str | None
     size: str | None
+    safety_identifier: NotRequired[str | None]  # openai>=3.33
 
 
 @pxt.udf(is_deterministic=False)

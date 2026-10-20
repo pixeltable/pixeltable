@@ -391,6 +391,28 @@ def _() -> _ContextManagerClient:
     return _ContextManagerClient()
 
 
+class _AcloseClient:
+    """Stands in for an SDK client whose close() releases only its sync resources and aclose() releases all."""
+
+    closes: int
+    acloses: int
+
+    def __init__(self) -> None:
+        self.closes = 0
+        self.acloses = 0
+
+    def close(self) -> None:
+        self.closes += 1
+
+    async def aclose(self) -> None:
+        self.acloses += 1
+
+
+@env.register_client('test_aclose_sdk', credential_param=None)
+def _() -> _AcloseClient:
+    return _AcloseClient()
+
+
 @pxt.udf
 async def uses_client(n: int) -> int:
     """Fetches the registered client, the way the udfs of an API integration do."""
@@ -449,6 +471,11 @@ class TestApiClients:
         reset_runtime()
         # a failing __aexit__() doesn't keep __exit__() from running
         assert (client.aexits, client.exits) == (1, 1)
+
+    def test_aclose_preferred(self, init_env: None) -> None:
+        client = get_runtime().get_client('test_aclose_sdk')
+        reset_runtime()
+        assert (client.acloses, client.closes) == (1, 0)
 
 
 class TestRequirePackage:
