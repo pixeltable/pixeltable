@@ -52,6 +52,23 @@ _service_locks: dict[Path, threading.Lock] = {}
 _service_locks_guard = threading.Lock()
 
 
+def bind_service_port(service_name: str, port: int) -> socket.socket:
+    """Bind port on loopback for a service to listen on. Raise RequestError if the port is taken."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # SO_REUSEADDR lets POSIX rebind a port left in TIME_WAIT by a stopped service. On Windows it lets a socket bind
+    # a port that another is still listening on, so the service would share a busy port instead of refusing it.
+    if sys.platform != 'win32':
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind(('127.0.0.1', port))
+    except OSError as e:
+        sock.close()
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot serve {service_name!r} on port {port}: {e.strerror}'
+        ) from e
+    return sock
+
+
 class ServiceManagerBase(abc.ABC):
     """The container of the service instances of one catalog."""
 
@@ -355,16 +372,7 @@ class ServiceManager(ServiceManagerBase):
         if port is not None:
             # bind here, so that a port already in use is reported by this call rather than read out of the
             # log of a child that exited; the child binds it for real a moment later
-            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
-                probe.bind(('127.0.0.1', port))
-            except OSError as e:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot serve {name!r} on port {port}: {e.strerror}'
-                ) from e
-            finally:
-                probe.close()
+            bind_service_port(name, port).close()
 
         # the service outlives this call, so it must not inherit our stdio: attached to a pipe it would block
         # the reader on EOF, and attached to a terminal it would write into that session. Its own session keeps

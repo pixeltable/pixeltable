@@ -32,7 +32,15 @@ TWELVELABS_INLINE_LIMIT_BYTES = 2 * 2**20
 def _(api_key: str) -> 'twelvelabs.AsyncTwelveLabs':
     import twelvelabs
 
-    return twelvelabs.AsyncTwelveLabs(api_key=api_key)
+    class _ClosableClient(twelvelabs.AsyncTwelveLabs):
+        """twelvelabs.AsyncTwelveLabs has no close() (its __aexit__() does nothing); Runtime.close_clients() needs
+        one."""
+
+        async def close(self) -> None:
+            # the client creates its httpx client in its constructor
+            await self._client_wrapper.httpx_client.httpx_client.aclose()
+
+    return _ClosableClient(api_key=api_key)
 
 
 def _twelvelabs_client() -> 'twelvelabs.AsyncTwelveLabs':

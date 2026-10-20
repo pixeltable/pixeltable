@@ -20,7 +20,16 @@ if TYPE_CHECKING:
 def _(api_key: str) -> 'fal_client.AsyncClient':
     import fal_client
 
-    return fal_client.AsyncClient(key=api_key)
+    class _ClosableClient(fal_client.AsyncClient):
+        """fal_client.AsyncClient has no close(); Runtime.close_clients() needs one."""
+
+        async def close(self) -> None:
+            # _client is a cached_property, so it is in the instance dict only once it has been opened
+            http_client = vars(self).get('_client')
+            if http_client is not None:
+                await http_client.aclose()
+
+    return _ClosableClient(key=api_key)
 
 
 def _fal_client() -> 'fal_client.AsyncClient':
