@@ -184,12 +184,16 @@ class TestRequestFailures:
 
 @pytest.mark.db_roots('local', reason='prints only; no request is sent')
 class TestNoWait:
-    def test_names_the_status_command_in_any_mode(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_names_the_status_command_in_any_mode(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """--no-wait names `pxt db status` on stderr, with --json too, where stdout holds only the document."""
         receipt = GenerationReceipt(kind='database', resource_id='db-uuid', generation=4, db='main')
-        db_cmd._print_receipts('pxt://acme:main', [receipt], waited=False, show=False)
+        accepted = {'receipt': receipt.model_dump(mode='json'), 'report': {'db': 'main'}, 'worker_status': []}
+        monkeypatch.setattr(db_cmd, 'post_request', lambda path, body, **kwargs: accepted)
+        db_cmd.run(['restart', 'pxt://acme:main', '--no-wait', '--json'])
         out, err = capsys.readouterr()
-        assert out == ''
+        assert json.loads(out) == {'db': 'main'}
         assert err == 'next: pxt db status pxt://acme:main  # shows its progress\n'
 
 
