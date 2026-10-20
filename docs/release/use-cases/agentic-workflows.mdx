@@ -53,6 +53,26 @@ assistant.select(assistant.message, assistant.tool_output).collect()
 
 `pxt service list` prints the URL. POST `/ask` with `{"message": "..."}`. Chat history is another table with an embedding index: [Agent memory](/howto/cookbooks/agents/pattern-agent-memory). MCP tools load with `pxt.mcp_udfs(...)` and go into the same `pxt.tools()` list.
 
+For web search and page excerpts, install `pip install 'pixeltable[web]'` and replace the tool list above with:
+
+```python
+tools = pxt.tools(pxtf.web.search, pxtf.web.fetch)
+```
+
+The built-in [web UDFs](/sdk/latest/web) use [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp).
+Search uses Fast mode without an account or API key. Set `PARALLEL_API_KEY` to use an existing account's limits.
+Only tools in the application's list are available to the model. For related calls, bind the application's
+conversation ID and name the bound tools:
+
+```python
+tools = pxt.tools(
+    pxt.tool(pxtf.web.search.using(session_id=conversation_id), name='search'),
+    pxt.tool(pxtf.web.fetch.using(session_id=conversation_id), name='fetch'),
+)
+```
+
+Use a new opaque ID for each new conversation. Calls without an ID are standalone requests.
+
 A full chat app: [`uvx pixeltable-new`](https://github.com/pixeltable/pixeltable-new) copies the [starter kit](/resources/starter-kit) agent. Pass `agent` as the last argument to `pxt schema update`. `/ask` needs `ANTHROPIC_API_KEY`.
 
 On Cloud, sign in with `pxt login`, or set `PIXELTABLE_API_KEY`. `pxt org create` provisions `main`. Then run `pxt db update`, `pxt schema update`, and `pxt service update` against `pxt://org:main`. [Pixeltable Cloud](/cloud).

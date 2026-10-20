@@ -5963,6 +5963,9 @@ otel = [
 serve = [
     { name = "fastapi", extra = ["standard"] },
 ]
+web = [
+    { name = "mcp" },
+]
 
 [package.dev-dependencies]
 cloud-dev = [
@@ -6087,6 +6090,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1.5" },
     { name = "jsonschema", specifier = ">=4.1.0" },
     { name = "lxml", specifier = ">=5.1" },
+    { name = "mcp", marker = "extra == 'web'", specifier = ">=2" },
     { name = "more-itertools", specifier = ">=10.2" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", marker = "extra == 'otel'", specifier = ">=1.39.0" },
@@ -6116,7 +6120,7 @@ requires-dist = [
     { name = "typing-extensions", specifier = ">=4.15" },
     { name = "tzlocal", specifier = ">=5.0" },
 ]
-provides-extras = ["otel", "serve"]
+provides-extras = ["otel", "serve", "web"]
 
 [package.metadata.requires-dev]
 cloud-dev = [

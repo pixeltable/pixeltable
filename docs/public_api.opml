@@ -252,6 +252,10 @@
         <outline text="module|pixeltable.functions.net">
           <outline text="udf|pixeltable.functions.net.presigned_url" />
         </outline>
+        <outline text="module|pixeltable.functions.web">
+          <outline text="udf|pixeltable.functions.web.search" />
+          <outline text="udf|pixeltable.functions.web.fetch" />
+        </outline>
         <outline text="module|pixeltable.functions.string">
           <outline text="iter|pixeltable.functions.string.string_splitter" />
           <outline text="udf|pixeltable.functions.string.capitalize" />

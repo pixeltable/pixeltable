@@ -1,0 +1,267 @@
+import asyncio
+import json
+import uuid
+from typing import TYPE_CHECKING, Any
+
+import pytest
+
+import pixeltable as pxt
+from pixeltable.functions import openai, web
+
+from ..utils import pxt_raises, reload_catalog
+
+if TYPE_CHECKING:
+    import httpx2
+else:
+    httpx2 = pytest.importorskip('httpx2')
+pytest.importorskip('mcp')
+
+pytestmark = pytest.mark.db_roots('local', reason='Mock HTTP transport runs in the local UDF process')
+
+
+class _McpServer:
+    def __init__(self) -> None:
+        self.requests: list[httpx2.Request] = []
+        self.calls: list[dict[str, Any]] = []
+        self.result: dict[str, Any] | None = None
+        self.status = 200
+        self.block = False
+        self.closed = 0
+
+    async def handle(self, request: httpx2.Request) -> httpx2.Response:
+        self.requests.append(request)
+        if self.status != 200:
+            return httpx2.Response(self.status, json={'error': 'rejected'})
+        if request.method != 'POST':
+            return httpx2.Response(405)
+        message = json.loads(request.content)
+        if 'id' not in message:
+            return httpx2.Response(202)
+        if message['method'] == 'initialize':
+            result = {
+                'protocolVersion': message['params']['protocolVersion'],
+                'capabilities': {'tools': {}},
+                'serverInfo': {'name': 'search-fixture', 'version': '1'},
+            }
+        elif message['method'] == 'tools/list':
+            result = {
+                'tools': [
+                    {'name': name, 'inputSchema': {'type': 'object', 'properties': {}}}
+                    for name in ('web_search', 'web_fetch')
+                ]
+            }
+        else:
+            assert message['method'] == 'tools/call'
+            self.calls.append(message['params'])
+            if self.block:
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    self.closed += 1
+            payload = {'results': [{'url': 'https://example.org/source', 'excerpts': ['A source excerpt.']}]}
+            result = self.result or {'content': [{'type': 'text', 'text': json.dumps(payload)}]}
+        return httpx2.Response(200, json={'jsonrpc': '2.0', 'id': message['id'], 'result': result})
+
+
+@pytest.fixture
+def mcp_server(monkeypatch: pytest.MonkeyPatch, private_home: Any) -> _McpServer:
+    monkeypatch.delenv('PARALLEL_API_KEY', raising=False)
+    server = _McpServer()
+    original = httpx2.AsyncClient
+
+    def client(**kwargs: Any) -> httpx2.AsyncClient:
+        return original(**kwargs, transport=httpx2.MockTransport(server.handle))
+
+    monkeypatch.setattr(httpx2, 'AsyncClient', client)
+    return server
+
+
+def test_search_and_fetch_columns(uses_db: None, mcp_server: _McpServer) -> None:
+    t = pxt.create_table('web_test', {'query': pxt.String, 'conversation': pxt.String})
+    t.add_computed_column(sources=web.search(t.query, session_id=t.conversation))
+    t.add_computed_column(page=web.fetch(t.sources.results[0].url, session_id=t.conversation))
+    conversation = str(uuid.uuid4())
+    t.insert(query='Pixeltable computed columns', conversation=conversation)
+    row = t.collect()[0]
+    assert row['sources']['results'][0]['url'] == 'https://example.org/source'
+    assert row['page']['results'][0]['excerpts'] == ['A source excerpt.']
+    assert [c['name'] for c in mcp_server.calls] == ['web_search', 'web_fetch']
+    assert mcp_server.calls[0]['arguments'] == {
+        'objective': 'Pixeltable computed columns',
+        'search_queries': ['Pixeltable computed columns'],
+        'session_id': conversation,
+    }
+    assert mcp_server.calls[1]['arguments'] == {'urls': ['https://example.org/source'], 'session_id': conversation}
+    for request in mcp_server.requests:
+        assert str(request.url) == 'https://search.parallel.ai/mcp'
+        assert request.headers['user-agent'].startswith(f'Pixeltable/{pxt.__version__}')
+        assert 'authorization' not in request.headers
+
+    reload_catalog()
+    t = pxt.get_table('web_test')
+    t.insert(query='follow-up query', conversation=conversation)
+    assert mcp_server.calls[-1]['arguments']['session_id'] == conversation
+    assert t.count() == 2
+
+    another = str(uuid.uuid4())
+    t.insert(
+        [
+            {'query': 'independent conversation', 'conversation': another},
+            {'query': 'original conversation follow-up', 'conversation': conversation},
+        ]
+    )
+    search_calls = {c['arguments']['objective']: c['arguments'] for c in mcp_server.calls if c['name'] == 'web_search'}
+    assert search_calls['independent conversation']['session_id'] == another
+    assert search_calls['original conversation follow-up']['session_id'] == conversation
+
+
+def test_tool_dispatch_and_choices(uses_db: None, mcp_server: _McpServer) -> None:
+    # Scripted model responses exercise the production dispatcher without an inference API call.
+    tools = pxt.tools(web.search, web.fetch)
+    assert tools.choice(tool='fetch').tool == 'fetch'
+    t = pxt.create_table('web_test', {'response': pxt.Json})
+    t.add_computed_column(output=openai.invoke_tools(tools, t.response))
+    restricted = pxt.tools(web.fetch)
+    t.add_computed_column(restricted=openai.invoke_tools(restricted, t.response))
+    t.insert(
+        response={
+            'choices': [
+                {
+                    'message': {
+                        'tool_calls': [
+                            {
+                                'function': {
+                                    'name': 'search',
+                                    'arguments': json.dumps({'query': 'current Pixeltable release'}),
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    )
+    assert t.collect()[0]['output'] == {
+        'search': [{'results': [{'url': 'https://example.org/source', 'excerpts': ['A source excerpt.']}]}],
+        'fetch': None,
+    }
+    assert len(mcp_server.calls) == 1
+    assert 'session_id' not in mcp_server.calls[0]['arguments']
+
+    t.insert(response={'choices': [{'message': {'content': 'No tool requested.'}}]})
+    assert len(mcp_server.calls) == 1
+    assert len(mcp_server.calls) == 1
+    assert t.collect()[0]['restricted'] == {'fetch': None}
+
+
+def test_bound_conversation_tools(uses_db: None, mcp_server: _McpServer) -> None:
+    first, second = str(uuid.uuid4()), str(uuid.uuid4())
+    t = pxt.create_table('web_test', {'response': pxt.Json})
+    for name, conversation in [('first', first), ('second', second)]:
+        tools = pxt.tools(
+            pxt.tool(web.search.using(session_id=conversation), name='search'),
+            pxt.tool(web.fetch.using(session_id=conversation), name='fetch'),
+        )
+        t.add_computed_column(**{name: openai.invoke_tools(tools, t.response)})
+    for tool_name, args in [
+        ('search', {'query': 'question'}),
+        ('fetch', {'url': 'https://example.org/source'}),
+        ('search', {'query': 'follow-up'}),
+    ]:
+        t.insert(
+            response={
+                'choices': [
+                    {'message': {'tool_calls': [{'function': {'name': tool_name, 'arguments': json.dumps(args)}}]}}
+                ]
+            }
+        )
+    for conversation in (first, second):
+        assert [c['name'] for c in mcp_server.calls if c['arguments'].get('session_id') == conversation] == [
+            'web_search',
+            'web_fetch',
+            'web_search',
+        ]
+    assert all(row['first'] is not None and row['second'] is not None for row in t.collect())
+
+
+def test_configured_key(uses_db: None, mcp_server: _McpServer, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('PARALLEL_API_KEY', 'test-parallel-key')
+    t = pxt.create_table('web_test', {'query': pxt.String})
+    t.add_computed_column(sources=web.search(t.query))
+    t.insert(query='test query')
+    assert all(r.headers['authorization'] == 'Bearer test-parallel-key' for r in mcp_server.requests)
+
+
+@pytest.mark.parametrize('status', [401, 403])
+def test_rejected_key_does_not_fall_back(
+    uses_db: None, mcp_server: _McpServer, monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    monkeypatch.setenv('PARALLEL_API_KEY', 'test-rejected-key')
+    mcp_server.status = status
+    t = pxt.create_table('web_test', {'query': pxt.String})
+    t.add_computed_column(sources=web.search(t.query))
+    assert t.insert(query='test query', on_error='ignore').num_excs == 1
+    assert 'Server returned an error response' in t.select(message=t.sources.errormsg).collect()[0]['message']
+    assert all(r.headers['authorization'] == 'Bearer test-rejected-key' for r in mcp_server.requests)
+    assert not mcp_server.calls
+
+
+@pytest.mark.parametrize(
+    'result,message',
+    [
+        ({'content': [{'type': 'text', 'text': 'search unavailable'}], 'isError': True}, 'search unavailable'),
+        ({'content': [{'type': 'text', 'text': 'not JSON'}]}, 'invalid JSON result'),
+    ],
+)
+def test_tool_errors(uses_db: None, mcp_server: _McpServer, result: dict, message: str) -> None:
+    mcp_server.result = result
+    t = pxt.create_table('web_test', {'query': pxt.String})
+    t.add_computed_column(sources=web.search(t.query))
+    assert t.insert(query='test query', on_error='ignore').num_excs == 1
+    assert message in t.select(message=t.sources.errormsg).collect()[0]['message']
+
+
+def test_fetch_partial_error(uses_db: None, mcp_server: _McpServer) -> None:
+    payload = {'results': [], 'errors': [{'url': 'https://example.org/missing', 'error_type': 'not_found'}]}
+    mcp_server.result = {'content': [], 'structuredContent': payload}
+    t = pxt.create_table('web_test', {'url': pxt.String})
+    t.add_computed_column(page=web.fetch(t.url, objective='Find the title'))
+    t.insert(url='https://example.org/missing')
+    assert t.collect()[0]['page'] == payload
+    assert mcp_server.calls[0]['arguments']['objective'] == 'Find the title'
+
+
+def test_invalid_arguments(uses_db: None, mcp_server: _McpServer) -> None:
+    t = pxt.create_table('web_test', {'value': pxt.String})
+    for i, (expr, message) in enumerate(
+        [
+            (web.search(' '), 'query must not be empty'),
+            (web.fetch('file:///etc/passwd'), 'HTTP or HTTPS URL'),
+            (web.fetch('https://example.org', objective='x' * 201), 'at most 200'),
+            (web.search('query', session_id=''), '1 to 100'),
+        ]
+    ):
+        t.add_computed_column(**{f'result_{i}': expr})
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=message):
+            t.insert(value='trigger')
+        t.drop_column(f'result_{i}')
+    assert not mcp_server.requests
+
+
+def test_timeout_and_cancellation(uses_db: None, mcp_server: _McpServer, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Coroutine cancellation has no synchronous table API; use the UDF's normal async execution entrypoint.
+    async def run() -> None:
+        mcp_server.block = True
+        monkeypatch.setattr(web, '_REQUEST_TIMEOUT', 0.05)
+        with pytest.raises(TimeoutError):
+            await web.search.aexec('test timeout')
+        monkeypatch.setattr(web, '_REQUEST_TIMEOUT', 60.0)
+        task = asyncio.create_task(web.search.aexec('test cancellation'))
+        while len(mcp_server.calls) < 2:
+            await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert mcp_server.closed == 2
+
+    asyncio.run(run())

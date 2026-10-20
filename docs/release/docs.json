@@ -102,7 +102,8 @@
                       "sdk/latest/timestamp",
                       "sdk/latest/uuid",
                       "sdk/latest/video",
-                      "sdk/latest/vision"
+                      "sdk/latest/vision",
+                      "sdk/latest/web"
                     ]
                   },
                   {

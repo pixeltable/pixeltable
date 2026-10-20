@@ -46,6 +46,7 @@ from . import (
     vision,
     vllm,
     voyageai,
+    web,
     whisper,
     whisperx,
     yolox,
