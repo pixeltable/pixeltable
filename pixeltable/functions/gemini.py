@@ -56,8 +56,9 @@ def _(api_key: str | None = None) -> 'genai.client.Client':
     from google import genai
 
     class _ClosableClient(genai.client.Client):
-        """genai.client.Client.close() closes only the sync client; Runtime.close_clients() needs aclose() to also
-        close the async one (its httpx client and aiohttp session), which the UDFs use."""
+        """genai.client.Client.close() closes only the sync client; the async one that the UDFs use (its httpx client
+        and aiohttp session) closes only through aio.aclose(). Runtime.close_clients() calls aclose() in place of
+        close(), so it releases both."""
 
         async def aclose(self) -> None:
             self.close()
@@ -190,7 +191,7 @@ async def generate_content(
                 continue
             for part in content.get('parts') or []:
                 blob = part.get('inline_data')
-                if blob is not None and blob.get('mime_type', '').startswith('image/') and blob.get('data'):
+                if blob is not None and (blob.get('mime_type') or '').startswith('image/') and blob.get('data'):
                     img = PIL.Image.open(io.BytesIO(blob['data']))
                     img.load()
                     blob['data'] = img
@@ -255,7 +256,9 @@ def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDic
 def _gemini_response_to_pxt_tool_calls(response: dict) -> dict | None:
     pxt_tool_calls: dict[str, list[dict]] = {}
     # a response without candidates, content or parts (e.g., a blocked prompt) has no tool calls
-    candidates = response.get('candidates') or [{}]
+    candidates = response.get('candidates')
+    if not candidates:
+        return None
     content = candidates[0].get('content') or {}
     for part in content.get('parts') or []:
         tool_call = part.get('function_call')
@@ -569,7 +572,7 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
     response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
     try:
         data = response.candidates[0].content.parts[0].inline_data.data
-    except (IndexError, AttributeError) as exc:
+    except (IndexError, AttributeError, TypeError) as exc:
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
             f'Gemini TTS returned unexpected response structure for model {model}.',
@@ -640,7 +643,7 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
     response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
     try:
         data = response.candidates[0].content.parts[0].inline_data.data
-    except (IndexError, AttributeError) as exc:
+    except (IndexError, AttributeError, TypeError) as exc:
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
             f'Gemini multi-speaker TTS returned unexpected response structure for model {model}.',

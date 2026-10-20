@@ -3,6 +3,7 @@ import random
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import numpy as np
@@ -12,6 +13,9 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.runtime import get_runtime, reset_runtime
+
+if TYPE_CHECKING:
+    from google.genai import types
 
 from ..utils import (
     ensure_s3_pytest_resources_access,
@@ -42,37 +46,61 @@ class TestGeminiLocal:
         reset_runtime()
         assert http_client.is_closed
 
-    @pytest.mark.parametrize('outcome', ['blocked', 'no_parts'])
+    @pytest.mark.parametrize('outcome', ['blocked', 'no_content', 'no_parts', 'no_mime_type'])
     def test_response_without_content(self, outcome: str, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A blocked prompt has no candidates, and a candidate cut off before any output has no parts. Both are
-        returned as is, without tool calls."""
+        """A blocked prompt has no candidates, a candidate may have no content or content without parts, and a blob
+        may have no MIME type. Each is returned as is, without tool calls."""
         skip_test_if_not_installed('google.genai')
         from google.genai import types
 
         from pixeltable.functions import gemini
 
+        response = self._mock_response(outcome, monkeypatch)
+        result = gemini.generate_content.exec(['Say something.'], {'model': 'gemini-test'})
+        assert result == response.model_dump()
+        assert gemini._gemini_response_to_pxt_tool_calls.exec([result], {}) is None
         if outcome == 'blocked':
-            response = types.GenerateContentResponse(
-                prompt_feedback=types.GenerateContentResponsePromptFeedback(block_reason=types.BlockedReason.SAFETY)
-            )
-        else:
-            response = types.GenerateContentResponse(
-                candidates=[
-                    types.Candidate(content=types.Content(role='model'), finish_reason=types.FinishReason.MAX_TOKENS)
-                ]
-            )
+            assert result['prompt_feedback']['block_reason'] == types.BlockedReason.SAFETY
+
+    def test_speech_blocked(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('google.genai')
+        from pixeltable.functions import gemini
+
+        self._mock_response('blocked', monkeypatch)
+        # generate_speech() is polymorphic, so this calls the single-voice overload's function directly
+        single_voice = gemini.generate_speech.py_fns[0]
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='unexpected response structure'):
+            get_runtime().run_coro(single_voice('Say something.', model='gemini-test', voice='Kore'))
+
+    def _mock_response(self, outcome: str, monkeypatch: pytest.MonkeyPatch) -> 'types.GenerateContentResponse':
+        """Makes the gemini client return a response of the given shape, and returns that response."""
+        from google.genai import types
+
+        from pixeltable.functions import gemini
+
+        candidates = {
+            'blocked': None,
+            'no_content': [types.Candidate(finish_reason=types.FinishReason.SAFETY)],
+            'no_parts': [
+                types.Candidate(content=types.Content(role='model'), finish_reason=types.FinishReason.MAX_TOKENS)
+            ],
+            'no_mime_type': [
+                types.Candidate(
+                    content=types.Content(role='model', parts=[types.Part(inline_data=types.Blob(data=b'x'))])
+                )
+            ],
+        }[outcome]
+        prompt_feedback = (
+            types.GenerateContentResponsePromptFeedback(block_reason=types.BlockedReason.SAFETY)
+            if outcome == 'blocked'
+            else None
+        )
+        response = types.GenerateContentResponse(candidates=candidates, prompt_feedback=prompt_feedback)
         client = SimpleNamespace(
             aio=SimpleNamespace(models=SimpleNamespace(generate_content=AsyncMock(return_value=response)))
         )
         monkeypatch.setattr(gemini, '_genai_client', lambda: client)
-
-        result = gemini.generate_content.exec(['Say something.'], {'model': 'gemini-test'})
-        if outcome == 'blocked':
-            assert result['candidates'] is None
-            assert result['prompt_feedback']['block_reason'] == types.BlockedReason.SAFETY
-        else:
-            assert result['candidates'][0]['content']['parts'] is None
-        assert gemini._gemini_response_to_pxt_tool_calls.exec([result], {}) is None
+        return response
 
 
 @pytest.mark.remote_api

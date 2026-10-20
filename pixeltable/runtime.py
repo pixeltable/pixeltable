@@ -222,7 +222,7 @@ class Runtime:
                 _logger.debug(f'Error closing client: {e}')
 
         for client in self._clients.values():
-            # a client with both (the gemini client) closes only its sync resources in close()
+            # aclose(), when present, releases everything close() does plus the async resources
             close = getattr(client, 'aclose', None) or getattr(client, 'close', None)
             if close is not None:
                 await try_close(close)
