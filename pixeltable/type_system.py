@@ -1170,6 +1170,36 @@ class JsonType(ColumnType):
 
         return JsonType(type_schema, nullable)
 
+    def closed_for(self, val: Any) -> JsonType:
+        """
+        Returns this type with each dict schema closed whose corresponding dict in `val` has no keys that the schema
+        doesn't declare. If `val` is a valid literal of this type, it is also a valid literal of the result, which
+        describes it more precisely.
+        """
+        result = self.__closed_for(self, val)
+        assert isinstance(result, JsonType)
+        return result
+
+    @classmethod
+    def __closed_for(cls, col_type: ColumnType, val: Any) -> ColumnType:
+        if not isinstance(col_type, JsonType) or col_type.type_schema is None:
+            return col_type
+        schema = col_type.type_schema
+        if isinstance(schema.type_spec, dict):
+            if not isinstance(val, dict):
+                return col_type
+            type_spec = {k: cls.__closed_for(t, val[k]) if k in val else t for k, t in schema.type_spec.items()}
+            closed_schema = JsonType.TypeSchema(
+                type_spec, optional_keys=schema.optional_keys, closed=val.keys() <= schema.type_spec.keys()
+            )
+        else:
+            if not isinstance(val, (list, tuple)) or len(val) < len(schema.type_spec):
+                return col_type
+            # the variadic type covers several elements, so it stays as it is
+            items = [cls.__closed_for(t, item) for t, item in zip(schema.type_spec, val)]
+            closed_schema = JsonType.TypeSchema(items, variadic_type=schema.variadic_type)
+        return JsonType(closed_schema, nullable=col_type.nullable)
+
     def _validate_literal(self, val: Any) -> None:
         if isinstance(val, tuple):
             val = list(val)
@@ -1238,11 +1268,17 @@ class JsonType(ColumnType):
             have elements indicating which keys are optional. Dictionary schemas are open, like Python's
             `TypedDict`: a value must have every required key, but may also have keys that the schema doesn't
             declare.
+
+        A dictionary schema can instead be closed, allowing no keys that it doesn't declare. Closed schemas originate
+        only in the types of literals (see `closed_for()`), though types built from those can contain them.
+        Closedness is not stored: `as_dict()` and `__repr__()` leave it out, so that a stored type and the one
+        recomputed from the code compare equal, and a literal derives it again from its value when it is loaded.
         """
 
         type_spec: list[ColumnType] | dict[str, ColumnType]
         variadic_type: ColumnType | None = None
         optional_keys: frozenset[str] = frozenset()
+        closed: bool = False
 
         def __post_init__(self) -> None:
             if isinstance(self.type_spec, list):
@@ -1251,6 +1287,7 @@ class JsonType(ColumnType):
                 assert all(col_type is not None for col_type in self.type_spec.values()), self.type_spec
             assert self.variadic_type is None or isinstance(self.variadic_type, ColumnType), self.variadic_type
             assert self.optional_keys is None or isinstance(self.optional_keys, frozenset), self.optional_keys
+            assert not self.closed or isinstance(self.type_spec, dict), self.type_spec
 
         def validate_literal(self, val: Any) -> None:
             if isinstance(self.type_spec, list):
@@ -1277,6 +1314,10 @@ class JsonType(ColumnType):
                         expected_type.validate_literal(val[key])
                     elif key not in self.optional_keys:
                         raise TypeError(f'Missing required key: {key!r}')
+                if self.closed:
+                    for key in val:
+                        if key not in self.type_spec:
+                            raise TypeError(f'Unexpected key: {key!r}')
 
         def to_json_schema(self) -> dict[str, Any]:
             # The JSON schema describes values to generate (it is used for LLM tool parameters), so it disallows
@@ -1308,6 +1349,7 @@ class JsonType(ColumnType):
                 and self.type_spec == other.type_spec
                 and self.variadic_type == other.variadic_type
                 and self.optional_keys == other.optional_keys
+                and self.closed == other.closed
             )
 
         def __hash__(self) -> int:
@@ -1316,7 +1358,7 @@ class JsonType(ColumnType):
                 if isinstance(self.type_spec, list)
                 else hash(frozenset(self.type_spec.items()))
             )
-            return hash((type_spec_hash, self.variadic_type, self.optional_keys))
+            return hash((type_spec_hash, self.variadic_type, self.optional_keys, self.closed))
 
         def __repr__(self) -> str:
             if isinstance(self.type_spec, list):
@@ -1329,6 +1371,7 @@ class JsonType(ColumnType):
                     type_spec_str += ','  # add trailing comma for single-item tuples
                 return f'({type_spec_str})'
             else:
+                # closed is left out (see the class docstring): `TableModel` compares column types by their repr
                 r = repr(self.type_spec)
                 if len(self.optional_keys) > 0:
                     r += f', optional_keys={sorted(self.optional_keys)}'
@@ -1345,13 +1388,14 @@ class JsonType(ColumnType):
             Returns the most specific schema that is a superschema of both `self` and `other`, or None if there is
             none (other than untyped JSON).
 
-            Since dictionary schemas are open, the superschema of two dictionary schemas declares only the keys
-            that both declare, and a key is required only if both require it.
+            The superschema of two dictionary schemas declares the keys that both declare, each required only if
+            both require it. A key that only one of them declares is also declared, as optional, if the other one
+            is closed; if it is open, its values may have that key with any type, so the superschema leaves it
+            undeclared. The superschema is closed only if both are.
 
-            If `for_inference=True`, the superschema of two dictionary schemas instead declares every key that
-            either one declares, with a key that only one of them declares becoming optional. That schema need not
-            accept every value of two open schemas, but it accepts the literals they were inferred from, and it is
-            the more useful type to infer.
+            If `for_inference=True`, the superschema always declares a key that only one of them declares, as
+            optional. That schema need not accept every value of two open schemas, but it accepts the literals they
+            were inferred from, and it is the more useful type to infer.
             """
             if self == other:
                 return self
@@ -1400,39 +1444,33 @@ class JsonType(ColumnType):
 
             if isinstance(self.type_spec, dict) and isinstance(other.type_spec, dict):
                 # If a key is optional in either self or other, it's optional in the supertype.
-                optional_keys = self.optional_keys | other.optional_keys
-
-                if not for_inference:
-                    joined_dict: dict[str, ColumnType] = {}
-                    for key, type_ in self.type_spec.items():
-                        if key in other.type_spec:
-                            supertype = type_.supertype(other.type_spec[key])
-                            # if the two types for this key are incompatible, the superschema leaves it undeclared
-                            if supertype is not None:
-                                joined_dict[key] = supertype
-                    return JsonType.TypeSchema(
-                        type_spec=joined_dict, optional_keys=frozenset(k for k in joined_dict if k in optional_keys)
-                    )
-
-                # Start with self.type_spec.
-                joined_dict = self.type_spec.copy()
-
-                # Merge in the keys from other.type_spec.
-                for key, type_ in other.type_spec.items():
-                    if key in joined_dict:
-                        # key is in both type specs; form the supertype
-                        supertype = self.__supertype(type_, joined_dict[key], for_inference)
+                optional_keys = set(self.optional_keys | other.optional_keys)
+                closed = self.closed and other.closed
+                joined_dict: dict[str, ColumnType] = {}
+                for key in [*self.type_spec, *(k for k in other.type_spec if k not in self.type_spec)]:
+                    if key in self.type_spec and key in other.type_spec:
+                        supertype = self.__supertype(self.type_spec[key], other.type_spec[key], for_inference)
                         if supertype is None:
-                            return None  # incompatible types for this key
+                            if for_inference:
+                                return None  # incompatible types for this key
+                            # leave the key undeclared, which only an open superschema allows
+                            closed = False
+                            continue
                         joined_dict[key] = supertype
                     else:
-                        # key is only in other
-                        joined_dict[key] = type_
+                        # The key is declared on one side only. The values of the other side may still have it,
+                        # with any type, unless that side is closed; when inferring, assume they don't.
+                        type_ = self.type_spec[key] if key in self.type_spec else other.type_spec[key]
+                        other_closed = other.closed if key in self.type_spec else self.closed
+                        if for_inference or other_closed:
+                            joined_dict[key] = type_
+                            optional_keys.add(key)
 
-                # If a key appears in one type_spec but not the other, it must also be optional in the supertype.
-                optional_keys |= frozenset(self.type_spec.keys()) ^ frozenset(other.type_spec.keys())
-
-                return JsonType.TypeSchema(type_spec=joined_dict, optional_keys=frozenset(optional_keys))
+                return JsonType.TypeSchema(
+                    type_spec=joined_dict,
+                    optional_keys=frozenset(k for k in joined_dict if k in optional_keys),
+                    closed=closed,
+                )
 
             return None
 
@@ -1453,6 +1491,7 @@ class JsonType(ColumnType):
                 # there is no functional need for optional_keys to be sorted in the dict; it's purely to ensure a
                 # canonical dict representation (i.e., list(self.optional_keys) would be functionally equivalent here)
                 'optional_keys': sorted(self.optional_keys),
+                # closed is deliberately left out (see the class docstring)
             }
 
         @classmethod

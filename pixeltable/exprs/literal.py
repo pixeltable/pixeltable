@@ -28,6 +28,9 @@ class Literal(Expr):
             col_type = ts.ColumnType.infer_literal_type(val)
             if col_type is None:
                 raise TypeError(f'Not a valid literal: {val}')
+        if isinstance(col_type, ts.JsonType):
+            # the value is known, so where its dicts have only declared keys, their schemas can be closed
+            col_type = col_type.closed_for(val)
         super().__init__(col_type)
         if isinstance(val, datetime.datetime):
             # Normalize the datetime to UTC: all timestamps are stored as UTC (both in the database and in literals)
@@ -113,21 +116,6 @@ class Literal(Expr):
 
     def as_literal(self) -> Literal | None:
         return self
-
-    def conforms_to(self, col_type: ts.ColumnType) -> bool:
-        """Returns True if this literal can be used where a value of `col_type` is expected."""
-        if col_type.is_supertype_of(self.col_type):
-            return True
-        if col_type.is_json_type() and self.col_type.is_json_type():
-            # The inferred type of a JSON literal declares exactly the keys its dicts have. Since dict schemas are
-            # open, that type is not a subtype of a schema with optional keys the literal omits (an open value
-            # could have those keys with any type), so check the value itself.
-            try:
-                col_type.validate_literal(self.val)
-            except TypeError:
-                return False
-            return True
-        return False
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> Literal:

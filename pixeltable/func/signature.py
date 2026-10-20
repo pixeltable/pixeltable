@@ -35,7 +35,7 @@ class Parameter:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Default value for parameter {self.name!r} is not a constant'
                 )
-            if not self.default.conforms_to(self.col_type):
+            if not self.col_type.is_supertype_of(self.default.col_type):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Default value for parameter {self.name!r} has type `{self.default.col_type}`, '
