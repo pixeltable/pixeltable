@@ -304,6 +304,28 @@ class TestDbConnectStr:
         _reset_env(reinit=False, db_name=None)
 
 
+class TestPgdataDir:
+    def test_pgdata_dir(self, uses_db: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """The embedded server runs in PIXELTABLE_PGDATA unless a config override names another directory."""
+        skip_test_if_not_local()
+        pgdata = Path(os.environ['PIXELTABLE_PGDATA'])
+        assert Env.get().pgdata_dir == pgdata
+
+        # a config override wins over the environment
+        monkeypatch.setenv('PIXELTABLE_PGDATA', str(tmp_path / 'unused'))
+        reset_runtime()
+        Config.init({'pixeltable.pgdata': str(pgdata)}, reinit=True)
+        Env._init_env(reinit_db=False)
+        assert Env.get().pgdata_dir == pgdata
+
+        # an external database has no data directory
+        monkeypatch.setenv('PIXELTABLE_DB_CONNECT_STR', Env.get().db_url)
+        _reset_env(reinit=False, db_name=None)
+        assert Env.get().pgdata_dir is None
+        monkeypatch.undo()
+        _reset_env(reinit=False, db_name=None)
+
+
 class TestProxyEndpoint:
     @pytest.mark.parametrize(
         ('cloud_host', 'expected'),
