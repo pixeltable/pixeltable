@@ -312,7 +312,7 @@ def exit_unless_observed(receipts: list[GenerationReceipt], *, retry_command: st
                 f'pxt: {receipt.resource} generation {receipt.generation} failed: {receipt.failure_reason}',
                 file=sys.stderr,
             )
-            print_next(retry_command, 'tries it again as it is; to change it instead, edit it and update again')
+            print_next(retry_command, 'tries it again as it is')
             sys.exit(EXIT_ERROR)
         if receipt.superseded:
             print(

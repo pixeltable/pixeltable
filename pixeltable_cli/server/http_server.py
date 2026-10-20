@@ -27,6 +27,7 @@ import pydantic
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config, env_var_name
+from pixeltable.service import management_client
 
 from .daemon_state import compare_env_values, config_fingerprint, state as daemon_state
 from .router import Method, RawResponse, Request
@@ -60,19 +61,6 @@ def _changed_settings(names: list[str]) -> str:
             f'  {config.describe_setting(ck.section, ck.key)}' if ck is not None else f'  {name}, no longer set'
         )
     return '\n'.join(lines)
-
-
-def _error_body(e: excs.Error) -> dict[str, Any]:
-    """The body of a daemon error response; error_code is a provider's own name for the error when it gives one."""
-    provider_code = e.provider_error_code if isinstance(e, excs.ExternalServiceError) else None
-    body: dict[str, Any] = {
-        'detail': str(e),
-        'error_code': provider_code or e.error_code.name,
-        'retryable': e.is_retryable,
-    }
-    if e.retry_after is not None:
-        body['retry_after'] = e.retry_after
-    return body
 
 
 class _DaemonHandler(BaseHTTPRequestHandler):
@@ -120,7 +108,9 @@ class _DaemonHandler(BaseHTTPRequestHandler):
                 if Config.reload_if_changed():
                     _logger.info('Reloaded %s', Config.get().config_file)
             except excs.Error as e:
-                self._send_json(_error_body(e), e.http_status)
+                self._send_json(
+                    {'detail': str(e), 'error_code': e.error_code.name, 'retryable': e.is_retryable}, e.http_status
+                )
                 return
             except Exception as e:
                 self._send_json(
@@ -157,7 +147,9 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         try:
             result = handler(req)
         except excs.Error as e:
-            self._send_json(_error_body(e), e.http_status)
+            self._send_json(
+                {'detail': str(e), 'error_code': _error_code(e), 'retryable': e.is_retryable}, e.http_status
+            )
             return
         except Exception as e:
             # log the full request target (self.path includes the query string) plus the resolved catalog
@@ -338,6 +330,12 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             pass
 
 
+def _error_code(e: excs.Error) -> str:
+    """The code of an error response: a refusal only the user can lift keeps Pixeltable Cloud's own code."""
+    code = e.provider_error_code if isinstance(e, excs.ExternalServiceError) else None
+    return code if code is not None and code in management_client.USER_ACTION_CODES else e.error_code.name
+
+
 def _to_jsonable(result: Any) -> Any:
     if isinstance(result, pydantic.BaseModel):
         return result.model_dump(mode='json')
@@ -350,6 +348,10 @@ class _QuietServer(ThreadingHTTPServer):
     """ThreadingHTTPServer that silences BrokenPipeError tracebacks at the connection level."""
 
     daemon_threads = True
+
+    # SO_REUSEADDR lets a POSIX daemon rebind a port left in TIME_WAIT by its predecessor. On Windows it lets a
+    # second daemon take over a live daemon's port and its clients instead of failing to bind and deferring.
+    allow_reuse_address = sys.platform != 'win32'
 
     # the accepted values of a request's Host header, in lowercase; None accepts any, for a daemon bound
     # beyond loopback, which only a proxy that authenticates its callers may front

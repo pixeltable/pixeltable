@@ -33,7 +33,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
-from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
+from pixeltable.utils.dbms import Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
 from pixeltable.utils.object_stores import (
     ObjectPath,
@@ -313,11 +313,6 @@ class Env:
         return self._dbms
 
     @property
-    def is_using_cockroachdb(self) -> bool:
-        assert self._dbms is not None
-        return isinstance(self._dbms, CockroachDbms)
-
-    @property
     def is_local(self) -> bool:
         assert self._db_url is not None  # is_local should be called only after db initialization
         return self._db_server is not None
@@ -551,15 +546,9 @@ class Env:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error) from e
             self._db_url = db_url.render_as_string(hide_password=False)
             self._db_name = db_url.database  # use the dbname given in connect string
-            dialect = db_url.get_dialect().name
-            if dialect == 'cockroachdb':
-                self._dbms = CockroachDbms(db_url)
-                # Check if database exists (CockroachDB exposes pg_database via the system DB)
-                if not self._store_db_exists(self._db_name):
-                    error = f'Database {self._db_name!r} does not exist'
-                    _logger.error(error)
-                    raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error)
-            elif dialect == 'postgresql':
+            # Does not load a dialect plugin, so an unknown DBMS raises Unsupported DBMS below.
+            dialect = db_url.get_backend_name()
+            if dialect == 'postgresql':
                 # Ensure psycopg v3 driver is used; the default postgresql:// scheme may resolve to psycopg2.
                 if db_url.drivername == 'postgresql':
                     db_url = db_url.set(drivername='postgresql+psycopg')
@@ -648,12 +637,6 @@ class Env:
             assert isinstance(tz_name, str)
             _logger.info(f'Database time zone is now: {tz_name}')
             self._default_time_zone = ZoneInfo(tz_name)
-            if self.is_using_cockroachdb:
-                # This could be set when the database is created, but we set it now
-                conn.execute(sql.text('SET null_ordered_last = true;'))
-                null_ordered_last = conn.execute(sql.text('SHOW null_ordered_last')).scalar()
-                assert isinstance(null_ordered_last, str)
-                _logger.info(f'Database null_ordered_last is now: {null_ordered_last}')
 
     def _set_local_db(self, db_name: str) -> None:
         """Point this Env at `db_name` on the embedded server."""
@@ -985,7 +968,7 @@ class Env:
                 version_str: str | None = getattr(module, '__version__', None)
                 if version_str is None:
                     version_str = importlib.metadata.version(package_info.library_name)
-                package_info.version = [int(x) for x in version_str.split('.')]
+                package_info.version = _version_components(version_str)
 
             if min_version > package_info.version:
                 raise excs.RequestError(
@@ -1167,6 +1150,21 @@ class ApiClientFactory:
     init_fn: Callable
     params: dict[str, inspect.Parameter]
     credential_param: str | None
+
+
+def _version_components(version_str: str) -> list[int]:
+    """Leading digits of each dot component, so '2.0.0rc1' is [2, 0, 0]."""
+    components: list[int] = []
+    for part in version_str.split('.'):
+        digits = ''
+        for char in part:
+            if not char.isdigit():
+                break
+            digits += char
+        if digits == '':
+            break
+        components.append(int(digits))
+    return components
 
 
 @dataclass

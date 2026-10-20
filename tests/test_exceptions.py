@@ -39,14 +39,18 @@ class TestExceptions:
         ):
             assert type(excs.Error.from_dict(cls(code, 'a message').to_dict())) is cls
 
-
-def test_provider_error_code_round_trips() -> None:
-    """The control plane's name for an error survives to_dict() and from_dict()."""
-    err = excs.ExternalServiceError(
-        excs.ErrorCode.PROVIDER_BAD_REQUEST, 'store full', provider='pixeltable_cloud', provider_error_code='STORE_FULL'
-    )
-    d = err.to_dict()
-    assert d['provider_error_code'] == 'STORE_FULL'
-    back = excs.Error.from_dict(d)
-    assert isinstance(back, excs.ExternalServiceError)
-    assert back.provider_error_code == 'STORE_FULL'
+    def test_external_service_error_round_trips_its_provider_fields(self) -> None:
+        err = excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_BAD_REQUEST,
+            'a reason',
+            provider='pixeltable_cloud',
+            status_code=403,
+            provider_error_code='PLAN_LIMIT',
+        )
+        copy = excs.Error.from_dict(err.to_dict())
+        assert isinstance(copy, excs.ExternalServiceError)
+        assert (copy.provider, copy.provider_http_status_code, copy.provider_error_code) == (
+            'pixeltable_cloud',
+            403,
+            'PLAN_LIMIT',
+        )

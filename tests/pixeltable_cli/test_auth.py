@@ -11,6 +11,7 @@ What a stub cannot check is whether the control plane stores what it reports, so
 exercised against a real one in test_key.py, and only what the client refuses or prints remains here.
 """
 
+import datetime
 import json
 import os
 import pathlib
@@ -34,10 +35,10 @@ import pytest
 from pixeltable import exceptions as excs
 from pixeltable.catalog import globals as catalog_globals
 from pixeltable.service import auth, management_client, session_cache, trial
-from pixeltable.service.management_protocol import CreateKeyRequest, ListOrgsRequest
+from pixeltable.service.management_protocol import CreateKeyRequest, ListOrgsRequest, StartDbRequest
 from pixeltable.utils import cloud_utils
 from pixeltable_cli import utils as cli_utils
-from pixeltable_cli.client.commands import login
+from pixeltable_cli.client.commands import login, usage
 from pixeltable_cli.models import LoginPollResponse
 from pixeltable_cli.server import routes
 from pixeltable_cli.server.router import Request
@@ -70,6 +71,33 @@ _REGISTER = '/agent/identity'
 _TOKEN = '/oauth2/token'
 _TRIAL = '/api/v1/trial-orgs'
 
+# refusals only the user can lift: the status, Pixeltable Cloud's code, and its reason, which the body follows a
+# message with, as the control plane sends them
+_PLAN_LIMIT = (
+    403,
+    'PLAN_LIMIT',
+    'Community runs 1 database at a time, and pxt://acme:main is running. '
+    'Upgrade to Pro under Billing at https://www.pixeltable.com/dashboard to run past it.',
+)
+_PAYMENT_REQUIRED = (
+    402,
+    'PAYMENT_REQUIRED',
+    "acme's last invoice is unpaid, so nothing new starts. "
+    'Pay it under Billing at https://www.pixeltable.com/dashboard.',
+)
+_STORE_FULL = (
+    507,
+    'STORE_FULL',
+    'pxt://acme has used 50.2 GB of its 50 GB media store, so no upload URL was made. '
+    'Drop a table or revert a version to free space, or upgrade to Pro for more.',
+)
+_MESSAGES = {402: 'Payment Required', 403: 'Forbidden', 507: 'Storage Quota Exceeded'}
+
+
+def _refusal_body(status: int, reason: str) -> bytes:
+    return f'{_MESSAGES[status]} : {reason}'.encode()
+
+
 _PENDING = (400, {'error': 'authorization_pending', 'error_description': 'not yet'})
 _SLOW_DOWN = (400, {'error': 'slow_down', 'error_description': 'too fast'})
 _DENIED = (400, {'error': 'access_denied', 'error_description': 'refused'})
@@ -99,8 +127,7 @@ class ControlPlane:
     seen: list[dict[str, Any]] = field(default_factory=list)
     credentials_seen: list[dict[str, str]] = field(default_factory=list)
     status: int = 200
-    error_code: str | None = None  # sent as X-Pixeltable-Error-Code with an error status, as Cloud names its errors
-    retry_after: str = '1'  # sent as Retry-After with a 429 or a 503
+    headers: dict[str, str] = field(default_factory=dict)  # sent with each management answer
     client_id: str = 'client_01TEST'
     # the status and body of the discovery document; None answers with client_id and this stub's address,
     # and a bytes body is sent as it is
@@ -179,7 +206,7 @@ class ControlPlane:
 
 def _serve(plane: ControlPlane) -> HTTPServer:
     class Handler(BaseHTTPRequestHandler):
-        def _reply(self, status: int, answer: Any) -> None:
+        def _reply(self, status: int, answer: Any, headers: dict[str, str] | None = None) -> None:
             redirect = 300 <= status < 400
             payload = b'' if redirect else answer if isinstance(answer, bytes) else json.dumps(answer).encode()
             self.send_response(status)
@@ -188,9 +215,9 @@ def _serve(plane: ControlPlane) -> HTTPServer:
             if redirect:
                 self.send_header('Location', answer)
             if status in (429, 503):
-                self.send_header('Retry-After', plane.retry_after)  # as throttled and unavailable services send it
-            if status >= 400 and plane.error_code is not None:
-                self.send_header('X-Pixeltable-Error-Code', plane.error_code)
+                self.send_header('Retry-After', '1')  # as throttled and unavailable services send it
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(payload)
 
@@ -237,7 +264,7 @@ def _serve(plane: ControlPlane) -> HTTPServer:
                 plane.drop -= 1
                 self.close_connection = True
                 return
-            self._reply(plane.status, plane.answers.get(request.get('operation_type'), {}))
+            self._reply(plane.status, plane.answers.get(request.get('operation_type'), {}), plane.headers)
 
         def log_message(self, *_args: Any) -> None:
             pass
@@ -710,65 +737,6 @@ class TestKey:
         assert 'pxt: 400 Pixeltable Cloud refused this request: Keys with grants are not available yet.' in r.stderr
         assert 'Bad Request' not in r.stderr
 
-    @pytest.mark.parametrize(
-        ('status', 'error_code', 'expected'),
-        [
-            # a refusal Cloud names reaches the caller by that name
-            (
-                403,
-                'PLAN_LIMIT',
-                {
-                    'error_code': 'PLAN_LIMIT',
-                    'message': 'Pixeltable Cloud refused this request: Community allows 2 keys.',
-                    'retryable': False,
-                },
-            ),
-            # a name that is only the status's says nothing more, so core's code stands
-            (403, 'FORBIDDEN', {'error_code': 'INSUFFICIENT_PRIVILEGES', 'retryable': False}),
-            # an outage keeps its wait
-            (503, 'BUSY', {'error_code': 'BUSY', 'retryable': True, 'retry_after': 1.0}),
-            # refusals only the user can lift, whatever their status: no retry helps
-            (402, 'PAYMENT_REQUIRED', {'error_code': 'PAYMENT_REQUIRED', 'retryable': False}),
-            (507, 'STORE_FULL', {'error_code': 'STORE_FULL', 'retryable': False}),
-            # a credential refused with a name keeps it; with the bare status name, core's code stands
-            (401, 'TOKEN_EXPIRED', {'error_code': 'TOKEN_EXPIRED', 'retryable': False}),
-            (401, 'UNAUTHORIZED', {'error_code': 'PROVIDER_AUTH_ERROR', 'retryable': False}),
-            (409, 'CONFLICT', {'error_code': 'CONCURRENT_MODIFICATION', 'retryable': True}),
-        ],
-    )
-    def test_cloud_error_code(
-        self, cloud_cli: PxtRunner, control_plane: ControlPlane, status: int, error_code: str, expected: dict[str, Any]
-    ) -> None:
-        """Cloud's X-Pixeltable-Error-Code reaches the caller: at the end of the text line, and in --json."""
-        control_plane.answers['create_key'] = b'Community allows 2 keys'
-        control_plane.status = status
-        control_plane.error_code = error_code
-        try:
-            r = cloud_cli('key', 'create', 'app', check=False)
-            r_json = cloud_cli('key', 'create', 'app', '--json', check=False)
-        finally:
-            control_plane.status = 200
-            control_plane.error_code = None
-
-        assert r.returncode == 1
-        assert r.stderr.rstrip().endswith(f'[{expected["error_code"]}]'), r.stderr
-        assert r_json.returncode == 1
-        assert {k: r_json.json[k] for k in expected} == expected
-        assert ('retry_after' in r_json.json) == ('retry_after' in expected)
-
-    def test_retry_after_as_a_date_is_left_out(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
-        """Retry-After may be an HTTP date, which is not seconds; the error then carries no wait."""
-        control_plane.answers['create_key'] = b'busy'
-        control_plane.status, control_plane.error_code = 503, 'BUSY'
-        control_plane.retry_after = 'Wed, 21 Oct 2026 07:28:00 GMT'
-        try:
-            r = cloud_cli('key', 'create', 'app', '--json', check=False)
-        finally:
-            control_plane.status, control_plane.error_code, control_plane.retry_after = 200, None, '1'
-        assert r.returncode == 1
-        assert r.json['error_code'] == 'BUSY'
-        assert 'retry_after' not in r.json
-
     def test_key_update_no_args(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
         before = len(control_plane.seen)
 
@@ -846,6 +814,119 @@ def test_client_identifier_rule_matches_pixeltable(allow_hyphens: bool) -> None:
     for name in names:
         expected = catalog_globals.is_valid_identifier(name, allow_hyphens=allow_hyphens)
         assert cli_utils.is_valid_identifier(name, allow_hyphens=allow_hyphens) == expected, name
+
+
+class TestRefusalsTheUserLifts:
+    """A refusal only the user can lift prints Pixeltable Cloud's reason as it wrote it, and nothing else."""
+
+    @pytest.mark.parametrize(('status', 'error_code', 'reason'), [_PLAN_LIMIT, _PAYMENT_REQUIRED, _STORE_FULL])
+    def test_reason_alone(
+        self, cloud_cli: PxtRunner, control_plane: ControlPlane, status: int, error_code: str, reason: str
+    ) -> None:
+        control_plane.answers['start_db'] = _refusal_body(status, reason)
+        control_plane.status = status
+        control_plane.headers = {'X-Pixeltable-Error-Code': error_code}
+        try:
+            r = cloud_cli('db', 'start', 'pxt://acme:main', check=False)
+        finally:
+            control_plane.status = 200
+            control_plane.headers = {}
+
+        assert r.returncode == 1
+        assert r.stderr == f'{reason}\n'
+
+    def test_client_copy_of_the_codes(self) -> None:
+        """The client keeps a copy of the codes, since it cannot import pixeltable."""
+        from pixeltable_cli.client import utils as client_utils
+
+        assert client_utils.USER_ACTION_CODES == management_client.USER_ACTION_CODES
+
+
+# a get_usage answer, as the control plane's contract gives it
+_USAGE: dict[str, Any] = {
+    'plan': 'community',
+    'period_start': '2026-11-01T00:00:00Z',
+    'period_end': '2026-12-01T00:00:00Z',
+    'counts_from': '2026-11-01T00:00:00Z',
+    'included_usd': 25,
+    'used_usd': 18.42,
+    'past_included_usd': 0.0,
+    'stops_at_limit': True,
+    'limit_reached_at': '2026-11-22T06:30:00Z',
+    'meters': [
+        {'meter': 'pxt_vcpu_hours', 'label': 'Compute, vCPU-hours', 'unit': 'vCPU-hour', 'quantity': 120.5, 'usd': 4.22}
+    ],
+    'resources': [
+        {'name': 'databases', 'label': 'Databases', 'used': 1, 'limit': 1, 'unit': 'count'},
+        {'name': 'media', 'label': 'Media Store', 'used': 12_300_000_000, 'limit': 50_000_000_000, 'unit': 'bytes'},
+    ],
+}
+
+_METERS_AND_RESOURCES = """
+METER                QUANTITY          COST
+Compute, vCPU-hours  120.5 vCPU-hour  $4.22
+
+RESOURCE     USED / LIMIT
+Databases    1 / 1
+Media Store  12.3 GB / 50 GB
+"""
+
+
+class TestUsage:
+    def test_usage(self, cloud_cli: PxtRunner, control_plane: ControlPlane) -> None:
+        """`pxt usage` sends get_usage with no other argument: the credential names the organization."""
+        now = datetime.datetime.now(datetime.timezone.utc)
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = (start + datetime.timedelta(days=32)).replace(day=1)
+        answer = {**_USAGE, 'period_start': start.isoformat(), 'period_end': end.isoformat()}
+        answer['counts_from'] = answer['period_start']
+        control_plane.answers['get_usage'] = answer
+
+        r = cloud_cli('usage')
+
+        assert control_plane.last('get_usage') == {'operation_type': 'get_usage'}
+        assert r.stdout.startswith(f'Community plan, {start:%Y-%m-%d} to ')
+        assert cloud_cli('usage', '--json').json == answer
+
+    def test_community(self, capsys: pytest.CaptureFixture[str]) -> None:
+        usage.print_usage(_USAGE, datetime.datetime(2026, 11, 18, 13, tzinfo=datetime.timezone.utc))
+
+        assert capsys.readouterr().out == (
+            'Community plan, 2026-11-01 to 2026-11-30 (UTC), 13 days left\n'
+            '$18.42 of $25 used; past $25 your databases and services stop until the 1st (UTC), '
+            'around November 22 at this rate\n' + _METERS_AND_RESOURCES
+        )
+
+    def test_pro(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Pro bills past included, so its line ends with the estimate."""
+        pro = {
+            **_USAGE,
+            'plan': 'pro',
+            'counts_from': '2026-11-15T00:00:00Z',
+            'included_usd': 100,
+            'used_usd': 132.1,
+            'past_included_usd': 32.1,
+            'stops_at_limit': False,
+        }
+
+        usage.print_usage(pro, datetime.datetime(2026, 11, 30, 23, tzinfo=datetime.timezone.utc))
+
+        assert capsys.readouterr().out == (
+            'Pro plan, 2026-11-01 to 2026-11-30 (UTC), 1 day left\n'
+            'Usage counts from 2026-11-15 (UTC).\n'
+            '$132.10 of $100 used; past included (estimate): $32.10\n' + _METERS_AND_RESOURCES
+        )
+
+    def test_enterprise(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Enterprise's money and included amounts are its contract's, so the answer has none."""
+        enterprise = {**_USAGE, 'plan': 'enterprise', 'included_usd': None, 'used_usd': None, 'stops_at_limit': False}
+        enterprise['resources'] = [{**r, 'limit': None} for r in _USAGE['resources']]
+
+        usage.print_usage(enterprise, datetime.datetime(2026, 11, 18, tzinfo=datetime.timezone.utc))
+
+        lines = capsys.readouterr().out.splitlines()
+        assert lines[1] == 'Usage is billed under your contract.'
+        assert lines[-1] == 'Media Store  12.3 GB / -'
 
 
 _CREATED_ORG = {'org_id': 'org_01NEW', 'org': _ORG, 'default_db': 'main'}
@@ -1526,6 +1607,47 @@ class TestControlPlaneErrors:
         assert isinstance(info.value, excs.ExternalServiceError)
         assert info.value.provider_http_status_code == status
         assert info.value.is_retryable == (status in (429, 503))
+
+    @pytest.mark.parametrize(('status', 'error_code', 'reason'), [_PLAN_LIMIT, _PAYMENT_REQUIRED, _STORE_FULL])
+    def test_refusal_the_user_lifts(
+        self,
+        fresh_plane: ControlPlane,
+        private_home: pathlib.Path,
+        monkeypatch: pytest.MonkeyPatch,
+        status: int,
+        error_code: str,
+        reason: str,
+    ) -> None:
+        """The error is the reason as written, keeps the control plane's code, and is not worth a retry."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
+        fresh_plane.status = status
+        fresh_plane.headers = {'X-Pixeltable-Error-Code': error_code}
+        fresh_plane.answers['start_db'] = _refusal_body(status, reason)
+
+        with pxt_raises(excs.ErrorCode.PROVIDER_BAD_REQUEST, match=f'^{re.escape(reason)}$') as info:
+            management_client.api_call(StartDbRequest(org='acme', db='main'))
+
+        assert isinstance(info.value, excs.ExternalServiceError)
+        assert info.value.provider_error_code == error_code
+        assert info.value.provider_http_status_code == status
+        assert not info.value.is_retryable
+
+    def test_other_code(
+        self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Any other code leaves a 403 what it was: a credential not permitted to do something."""
+        monkeypatch.setenv('PIXELTABLE_API_URL', fresh_plane.url)
+        monkeypatch.setenv('PIXELTABLE_API_KEY', _A_KEY)
+        fresh_plane.status = 403
+        fresh_plane.headers = {'X-Pixeltable-Error-Code': 'FORBIDDEN'}
+        fresh_plane.answers['start_db'] = b'Forbidden : Not a member of acme'
+
+        with pxt_raises(
+            excs.ErrorCode.INSUFFICIENT_PRIVILEGES,
+            match=r'is valid but is not permitted to start a database: Not a member of acme\.$',
+        ):
+            management_client.api_call(StartDbRequest(org='acme', db='main'))
 
     def test_rejected_api_key(
         self, fresh_plane: ControlPlane, private_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch

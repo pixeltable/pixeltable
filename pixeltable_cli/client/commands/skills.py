@@ -94,7 +94,7 @@ def _install(args: argparse.Namespace) -> None:
         _fail(f'could not read the copy already there: {e}')
     if len(differing) > 0:
         names = ' and '.join(t.relative_to(root).as_posix() for t in differing)
-        confirm_or_exit(f'replace the copy of the skill in {names}?', args.force, as_json=args.as_json)
+        confirm_or_exit(f'replace the copy of the skill in {names}?', args.force)
 
     states: list[str] = []
     for target in targets:

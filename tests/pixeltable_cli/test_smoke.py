@@ -184,12 +184,16 @@ class TestRequestFailures:
 
 @pytest.mark.db_roots('local', reason='prints only; no request is sent')
 class TestNoWait:
-    def test_names_the_status_command_in_any_mode(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_names_the_status_command_in_any_mode(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """--no-wait names `pxt db status` on stderr, with --json too, where stdout holds only the document."""
         receipt = GenerationReceipt(kind='database', resource_id='db-uuid', generation=4, db='main')
-        db_cmd._print_receipts('pxt://acme:main', [receipt], waited=False, show=False)
+        accepted = {'receipt': receipt.model_dump(mode='json'), 'report': {'db': 'main'}, 'worker_status': []}
+        monkeypatch.setattr(db_cmd, 'post_request', lambda path, body, **kwargs: accepted)
+        db_cmd.run(['restart', 'pxt://acme:main', '--no-wait', '--json'])
         out, err = capsys.readouterr()
-        assert out == ''
+        assert json.loads(out) == {'db': 'main'}
         assert err == 'next: pxt db status pxt://acme:main  # shows its progress\n'
 
 
@@ -304,6 +308,34 @@ class TestDbDelete:
         doc = json.loads(capsys.readouterr().out)
         assert doc['resolution'] == 'update_additive'
         assert doc['in_agreement'] is False
+
+    def test_update_destructive_names_allow_destructive(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A destructive plan without --allow-destructive is refused before the prompt, naming the flag it needs."""
+        plan = types.DbPlan.from_ops(
+            'pxt://acme:main',
+            types.DbState.AVAILABLE,
+            [
+                types.DbChangeOp(
+                    target='capacity',
+                    name='workers',
+                    op='alter',
+                    severity='destructive',
+                    description='workers will go from 2 to 1',
+                )
+            ],
+        )
+        monkeypatch.setattr(db_cmd, 'post_request', lambda _path, _body: plan.model_dump(mode='json'))
+        monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: False)
+        monkeypatch.setattr(utils, 'invocation', ['db', 'update', 'pxt://acme:main'])
+
+        with pytest.raises(SystemExit, match=f'^{utils.EXIT_REFUSED}$'):
+            db_cmd.run(['update', 'pxt://acme:main'])
+
+        err = capsys.readouterr().err
+        assert 'without --allow-destructive' in err
+        assert 'next: pxt db update pxt://acme:main --allow-destructive -f  # applies 1 destructive operation(s)' in err
 
 
 class TestLs:
@@ -609,16 +641,19 @@ class TestDescribe:
     def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_desc'), if_exists='ignore')
-        pxt.create_table(p('cli_desc/t'), {'a': pxt.Int | None, 'b': pxt.String | None}, if_exists='replace')
+        t = pxt.create_table(p('cli_desc/t'), {'a': pxt.Int | None, 'b': pxt.String | None}, if_exists='replace')
+        t.add_btree_index('a', idx_name='a_idx')
 
         # --json returns the full get_metadata() dict
         meta = cli('describe', p('cli_desc/t'), '--json').json
         assert 'a' in meta['columns']
 
-        # text is repr(table) which lists the columns
+        # text is repr(table) which lists the columns and indexes
         text = cli('describe', p('cli_desc/t')).stdout
         assert 'a' in text
         assert 'b' in text
+        assert 'a_idx' in text
+        assert 'btree' in text
 
     def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
@@ -1178,6 +1213,11 @@ class TestErrorsNext:
         pxt.create_dir(p('cli_errs_next/views'), if_exists='ignore')
         pxt.create_view(p('cli_errs_next/views/t'), t, if_exists='replace')
         assert cli('errors', p('cli_errs_next/views/t')).next_commands == inherited
+        # a snapshot never changes, so its failed cells get no recompute
+        pxt.create_snapshot(p('cli_errs_next/snap'), t, if_exists='replace')
+        r = cli('errors', p('cli_errs_next/snap'))
+        assert 'k: 1' in r.stdout
+        assert r.next_commands == []
         cli('cd', p('cli_errs_next'))
         try:
             assert cli('errors', 'v').next_commands == inherited
@@ -1193,18 +1233,6 @@ class TestErrorsNext:
         assert cli('errors', p('cli_errs_next/t'), '--json').json == []
         assert cli('errors', p('cli_errs_next/v'), '--json').json == []
         assert t.order_by(t.k).select(t.out).collect()['out'] == [1, 2]
-
-
-@pytest.mark.db_roots('local', reason='builds a command line; no catalog is reached')
-class TestRerunCommand:
-    def test_rerun_command(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # outside dispatch() there is no command to name
-        monkeypatch.setattr(utils, 'invocation', None)
-        assert utils.rerun_command('-f') is None
-
-        # --json is kept, and an argument with a space quoted
-        monkeypatch.setattr(utils, 'invocation', ['drop', 'my dir/t', '--json'])
-        assert utils.rerun_command('-f') == "pxt drop 'my dir/t' --json -f"
 
 
 class TestDrop:
@@ -1290,7 +1318,7 @@ class TestDrop:
         assert r.json['next'] == [
             {
                 'command': shlex.join(['pxt', 'drop', p('cli_drop_err/protected'), '--json', '-f']),
-                'when': f'drop table {p("cli_drop_err/protected")}',
+                'effect': f'drop table {p("cli_drop_err/protected")}',
             }
         ]
 

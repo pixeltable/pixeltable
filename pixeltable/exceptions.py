@@ -208,8 +208,7 @@ class ExternalServiceError(Error):
 
     provider: str | None = None
     provider_http_status_code: int | None = None
-    # the provider's own name for the error, when it gives a more specific one than its status (eg, PLAN_LIMIT)
-    provider_error_code: str | None = None
+    provider_error_code: str | None = None  # e.g. Pixeltable Cloud's X-Pixeltable-Error-Code
 
     def __init__(
         self,
