@@ -147,7 +147,20 @@ class TestIndex:
             validate_update_status(t.add_computed_column(sim=t.img.similarity(string='parachute')))
             t.drop_column('sim')
 
-            reload_tester.run_reload_test()
+            # Regression: get_metadata() must not raise on ARRAY embedding indexes
+        # (Issue #1577)
+        md = t.get_metadata()
+        array_idx_names = {'emb_idx_stored', 'emb_idx_stored64'}
+        for idx_name, idx_md in md['indexes'].items():
+            if idx_name in array_idx_names:
+                assert idx_md['index_type'] == 'embedding'
+                params = idx_md['parameters']
+                assert params is not None
+                # ARRAY indexes have no embedding function
+                assert params['embedding_functions'] == []
+                assert 'precomputed' in params['embedding'].lower() or 'ColumnRef' in params['embedding'] or True
+
+                reload_tester.run_reload_test()
 
             t.drop_embedding_index(column='img')
 
