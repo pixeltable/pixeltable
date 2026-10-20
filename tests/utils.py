@@ -16,6 +16,7 @@ import socket
 import subprocess
 import sys
 import sysconfig
+import threading
 import time
 import urllib.parse
 import uuid
@@ -781,7 +782,7 @@ def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata
     """
     now = datetime.datetime.now(tz=datetime.timezone.utc)
     actual_created_at: datetime.datetime = actual['version_created']
-    assert (now - actual_created_at).total_seconds() <= (120 if Env.get().is_using_cockroachdb else 60)
+    assert (now - actual_created_at).total_seconds() <= 60
     assert isinstance(actual['id'], uuid.UUID)
 
     trimmed_actual = {k: v for k, v in actual.items() if k not in {'version_created', 'id'}}
@@ -871,6 +872,26 @@ def validate_update_status(status: pxt.UpdateStatus, expected_rows: int | None =
     assert status.num_excs == 0
     if expected_rows is not None:
         assert status.num_rows == expected_rows, status
+
+
+def run_workers(target: Callable[[int], None], n_threads: int) -> list[tuple[int, BaseException]]:
+    """Run target(tid) on n_threads workers; return any exceptions raised."""
+    errors: list[tuple[int, BaseException]] = []
+    lock = threading.Lock()
+
+    def runner(tid: int) -> None:
+        try:
+            target(tid)
+        except BaseException as e:
+            with lock:
+                errors.append((tid, e))
+
+    threads = [threading.Thread(target=runner, args=(i,)) for i in range(n_threads)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    return errors
 
 
 def iceberg_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> 'SqlCatalog':
@@ -1283,6 +1304,14 @@ def fetch_presigned(url: str, expires_s: int, host_suffix: str) -> bytes:
     return resp.content
 
 
+def _proxy_temp_store_count(db: str) -> int:
+    """Count the objects in the proxy daemon's temp store, which is a per-process directory under its tmp dir."""
+    tmp_dir = proxy_daemon.proxy_home(db) / 'tmp'
+    if not tmp_dir.is_dir():
+        return 0
+    return sum(LocalStore(path).count(None) for path in tmp_dir.iterdir() if path.is_dir())
+
+
 def get_temp_store_count(tbl: pxt.Table, db_root: DatabaseRoot) -> int:
     """Count the objects in the temp store of the catalog tbl lives in."""
     if db_root.is_cloud:
@@ -1292,7 +1321,7 @@ def get_temp_store_count(tbl: pxt.Table, db_root: DatabaseRoot) -> int:
     if catalog_uri.db is None:
         return TempStore.count()
     else:
-        return LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
+        return _proxy_temp_store_count(catalog_uri.db)
 
 
 def check_temp_store_count(tbl: pxt.Table, expected_count: int, db_root: DatabaseRoot) -> None:
@@ -1306,7 +1335,7 @@ def check_temp_store_count(tbl: pxt.Table, expected_count: int, db_root: Databas
     if catalog_uri.db is None:
         actual = TempStore.count()
     else:
-        actual = LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
+        actual = _proxy_temp_store_count(catalog_uri.db)
 
     assert actual == expected_count, f'expected {expected_count} temp objects, found {actual}'
 

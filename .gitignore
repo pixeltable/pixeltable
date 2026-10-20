@@ -3,8 +3,6 @@
 .claude/*
 !.claude/commands/
 !.claude/skills/
-.claude/skills/*
-!.claude/skills/review-the-change/
 .coverage
 .idea
 .ipynb_checkpoints

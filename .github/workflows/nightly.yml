@@ -52,12 +52,14 @@ jobs:
         python-version: ["3.11", "3.13"]
         package-configs:
           - ""
-          # TODO(PXT-1452): drop the mcp<2 cap once pixeltable/func/mcp.py targets the MCP 2.x client API
-          - "lancedb pylance 'mcp>=1.27.2,<2' opencv-python scenedetect"
+          # Scheduled nightly checks out release and installs the latest tag. That client still
+          # imports streamablehttp_client, so it needs mcp 1.x. from_main installs this checkout.
+          # Drop the mcp 1.x leg once a release includes the mcp 2 client.
+          - "lancedb pylance '${{ inputs.from_main && 'mcp>=2' || 'mcp>=1.27.2,<2' }}' opencv-python scenedetect"
           - "anthropic fireworks-ai 'google-genai<1.72.0' groq jina mistralai openai replicate together"
           - "fal-client runwayml twelvelabs voyageai"
           - "huggingface-hub llama-cpp-python openai-whisper"
-          - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
+          - "datasets openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
           - "pixeltable-yolox"
         os: [ubuntu-24.04]
         include:
@@ -143,8 +145,7 @@ jobs:
       - name: Run the unit tests
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
-        # boto3 is a core dependency, so Bedrock's live tests would run in every job; run them only where boto3 is named
-        run: pytest -v -m '' ${{ !contains(matrix.package-configs, 'boto3') && '--ignore=tests/functions/test_bedrock.py' || '' }} --junitxml=junit-report.xml tests
+        run: pytest -v -m 'not very_expensive' --junitxml=junit-report.xml tests
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4

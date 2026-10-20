@@ -301,6 +301,9 @@ jobs:
         run: |
           ruff format --check
           ruff check --select I
+      - name: CI script tests
+        if: ${{ matrix.test-category == 'lint' }}
+        run: python -m unittest discover -s .github/scripts -p 'test_*.py'
       - name: Notebook checks
         if: ${{ matrix.test-category == 'lint' }}
         run: ./scripts/check-notebooks.sh
