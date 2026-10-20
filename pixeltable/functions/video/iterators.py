@@ -21,7 +21,7 @@ _logger = logging.getLogger(__name__)
 
 # Floor for the forward walk when the frame rate is unknown or zero, and the minimum
 # walk at any rate. A known rate walks about one second of frames in _forward_walk_limit().
-_MAX_FORWARD_WALK = 8
+_MIN_FORWARD_WALK = 8
 
 
 class FrameAttrs(TypedDict):
@@ -414,15 +414,13 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     def _pos_msec_seek_time(self, candidates: tuple[float, float], frame_index: int) -> float:
         """Absolute time for a stored pos_msec.
 
-        Rows since the decorator store (frame_time - start) * 1000 and seek at
-        start + pos_msec / 1000. v0.5.6 through v0.5.18 stored frame_time * 1000 - start,
-        with start in seconds, and seek at pos_msec / 1000 + start / 1000. The two times
-        differ by about start * 0.999 and can both be real frames, so the stored frame index decides.
-        The open frame, or a frame walked to from it, supplies the PTS that picks the formula.
-        A resolved formula is not applied to a different index: that row can be the other
-        formula, and past the first keyframe the counted index does not catch it. A walked
-        frame whose PTS matches neither candidate keeps that PTS, so the reload does not
-        seek away from the stored index. Probes use another container.
+        The candidates are the two formulas in _pos_msec_candidates(). Both can be real
+        frames, so the stored frame index decides. The open frame, or a frame walked to
+        from it, supplies the PTS that picks the formula. A resolved formula is not
+        applied to a different index: that row can be the other formula, and past the
+        first keyframe the counted index does not catch it. A walked frame whose PTS
+        matches neither candidate keeps that PTS, so the reload does not seek away from
+        the stored index. Probes use another container.
         """
         current, historical = candidates
         if abs(current - historical) < 1e-3:
@@ -542,18 +540,17 @@ class frame_iterator(pxt.PxtIterator[Frame]):
 
         About one second at a known frame rate: the gap between consecutive fps=1
         samples, plus the frame the previous sample already decoded. An unknown or
-        zero rate uses _MAX_FORWARD_WALK, which is that floor, not one second of frames.
+        zero rate uses _MIN_FORWARD_WALK, which is that floor, not one second of frames.
         """
         rate = self.container.streams.video[0].average_rate
         if rate is None or rate == 0:
-            return _MAX_FORWARD_WALK
-        return max(_MAX_FORWARD_WALK, math.ceil(float(rate)) + 1)
+            return _MIN_FORWARD_WALK
+        return max(_MIN_FORWARD_WALK, math.ceil(float(rate)) + 1)
 
     def _seek_offset(self, seek_time: float) -> int:
         """Absolute PTS of seek_time, in the stream time base.
 
-        container.seek() takes that PTS. Subtracting video_start_time seeks before a later
-        keyframe, and the read then starts at frame 0.
+        The PTS is absolute because seek_time already is. container.seek() takes that PTS.
         """
         return max(math.floor(seek_time / self.video_time_base), 0)
 

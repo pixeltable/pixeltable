@@ -156,8 +156,6 @@ def get_video_duration(path: str) -> float | None:
 
         # start came from video_time_range. The packet scan uses it and does not recompute it.
         video_stream = container.streams.video[0]
-        if video_stream.time_base is None:
-            return None
 
         # Fall back to scanning packets. They are demuxed in decode order, so with B-frames
         # the last packet can present before an earlier one. The end is that latest PTS plus
