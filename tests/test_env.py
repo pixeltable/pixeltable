@@ -365,6 +365,32 @@ def _() -> _TestClient:
     return client
 
 
+class _ContextManagerClient:
+    """Stands in for an SDK client that has no close() and releases its HTTP clients on context manager exit."""
+
+    aexits: int
+    exits: int
+    aexit_error: Exception | None  # raised by __aexit__(), if set
+
+    def __init__(self) -> None:
+        self.aexits = 0
+        self.exits = 0
+        self.aexit_error = None
+
+    async def __aexit__(self, *args: object) -> None:
+        self.aexits += 1
+        if self.aexit_error is not None:
+            raise self.aexit_error
+
+    def __exit__(self, *args: object) -> None:
+        self.exits += 1
+
+
+@env.register_client('test_cm_sdk', credential_param=None)
+def _() -> _ContextManagerClient:
+    return _ContextManagerClient()
+
+
 @pxt.udf
 async def uses_client(n: int) -> int:
     """Fetches the registered client, the way the udfs of an API integration do."""
@@ -414,6 +440,15 @@ class TestApiClients:
         clients = _test_clients[n_clients:]
         assert len(clients) == 1
         assert (clients[0].closes, clients[0].loop_was_open) == (1, True)
+
+    @pytest.mark.parametrize('aexit_fails', [False, True])
+    def test_exited_without_close(self, init_env: None, aexit_fails: bool) -> None:
+        client = get_runtime().get_client('test_cm_sdk')
+        if aexit_fails:
+            client.aexit_error = RuntimeError('aexit failed')
+        reset_runtime()
+        # a failing __aexit__() doesn't keep __exit__() from running
+        assert (client.aexits, client.exits) == (1, 1)
 
 
 class TestRequirePackage:
