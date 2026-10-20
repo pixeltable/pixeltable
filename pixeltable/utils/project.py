@@ -178,8 +178,14 @@ class PackagedContext:
     files: dict[str, str]
 
 
-def _member_hash(content_hash: str, *, symlink: bool) -> str:
-    return _digest({'content': content_hash, 'symlink': symlink})
+def member_hash(content_hash: str, *, symlink: bool) -> str:
+    """Return the hash a fingerprint records for one project file.
+
+    content_hash is used as given, with no further hashing: the SHA-256 hex digest of the file's bytes,
+    pyproject_hash() of its bytes for pyproject.toml, or digest() of its target path for a symlink. The output must
+    not change for the same input.
+    """
+    return digest({'content': content_hash, 'symlink': symlink})
 
 
 def _path_hashes(root: Path, paths: Iterable[Path]) -> dict[str, str]:
@@ -194,10 +200,10 @@ def _path_hash(path: Path, relpath: str) -> str:
     """Read the file at path and hash it the way _add_hashed() hashes an archive member."""
     if path.is_symlink():
         # a symlink stores a path, so that path identifies it; reading through it would hash the target
-        return _member_hash(_digest(os.readlink(path)), symlink=True)
+        return member_hash(digest(os.readlink(path)), symlink=True)
     if relpath == PYPROJECT_FILE:
-        return _member_hash(_pyproject_hash(path.read_bytes()), symlink=False)
-    return _member_hash(_content_hash(path), symlink=False)
+        return member_hash(pyproject_hash(path.read_bytes()), symlink=False)
+    return member_hash(_content_hash(path), symlink=False)
 
 
 def _reproducible(info: tarfile.TarInfo) -> tarfile.TarInfo:
@@ -212,10 +218,10 @@ def _reproducible(info: tarfile.TarInfo) -> tarfile.TarInfo:
     return info
 
 
-def _pyproject_hash(data: bytes) -> str:
+def pyproject_hash(data: bytes) -> str:
     """Hash data, the contents of pyproject.toml, without the [tool.pixeltable] table.
 
-    The settings in that table are in the fingerprint's config.
+    The settings in that table are in the fingerprint's config. The output must not change for the same input.
     """
     try:
         parsed = tomllib.loads(data.decode())
@@ -241,7 +247,7 @@ def _add_hashed(tf: tarfile.TarFile, path: Path, relpath: str) -> str:
     info = _reproducible(tf.gettarinfo(path, arcname=f'project/{relpath}'))
     if info.issym():
         tf.addfile(info)
-        return _member_hash(_digest(info.linkname), symlink=True)
+        return member_hash(digest(info.linkname), symlink=True)
     if info.islnk():
         # gettarinfo() writes a second path to one inode as a hard link, which extracts as a regular
         # file with the same bytes; the member itself carries no content
@@ -251,11 +257,11 @@ def _add_hashed(tf: tarfile.TarFile, path: Path, relpath: str) -> str:
         data = path.read_bytes()
         info.size = len(data)
         tf.addfile(info, io.BytesIO(data))
-        return _member_hash(_pyproject_hash(data), symlink=False)
+        return member_hash(pyproject_hash(data), symlink=False)
     with path.open('rb') as raw:
         reader = _HashingReader(raw)
         tf.addfile(info, reader)
-    return _member_hash(reader.hexdigest(), symlink=False)
+    return member_hash(reader.hexdigest(), symlink=False)
 
 
 def create_project_archive(
@@ -717,11 +723,11 @@ class ProjectFingerprint(pydantic.BaseModel):
 
     def image_digest(self) -> str:
         """The image identity."""
-        return _digest(self._image_inputs())
+        return digest(self._image_inputs())
 
     def archive_digest(self) -> str:
         """The archive identity."""
-        return _digest(self.files)
+        return digest(self.files)
 
     def changes(self, other: ProjectFingerprint, parts: set[ProjectPart] | None = None) -> list[str]:
         """What differs from other in the given parts, one printable line each; defaults to every part."""
@@ -773,7 +779,11 @@ class ProjectFingerprint(pydantic.BaseModel):
         return {**manifests, **self.installed_from_project}
 
 
-def _digest(value: Any) -> str:
+def digest(value: Any) -> str:
+    """Return the SHA-256 of value's canonical JSON (sorted keys, no whitespace).
+
+    The output must not change for the same input.
+    """
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
@@ -812,7 +822,7 @@ def unpacked_digest(project_dir: Path) -> str:
         # would make a correctly unpacked project look like a different one
         (p for p in project_dir.rglob('*') if p.is_symlink() or p.is_file()),
     )
-    return _digest(files)
+    return digest(files)
 
 
 def project_fingerprint(
@@ -838,12 +848,12 @@ def in_environment(path: Path) -> bool:
 
 
 def _content_hash(path: Path) -> str:
-    digest = hashlib.sha256()
+    hasher = hashlib.sha256()
     with path.open('rb') as f:
         # chunked reads: limit buffering
         for chunk in iter(lambda: f.read(1024 * 1024), b''):
-            digest.update(chunk)
-    return digest.hexdigest()
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 
 def _fingerprint(

@@ -48,7 +48,8 @@ def _print_entries(entries: list[models.ErrorEntry], where: str) -> None:
 
 def _print_recomputes(entries: list[models.ErrorEntry], path: str) -> None:
     """Names, per failed column, the recompute that reruns its failed cells, on the table that defines the column."""
-    for (base, column), n in collections.Counter((e.defined_in, e.column) for e in entries).most_common():
+    failed = collections.Counter((e.defining_base, e.column) for e in entries if e.recomputable)
+    for (base, column), n in failed.most_common():
         if base is None:
             command = shlex.join(['pxt', 'recompute', path, column, '--errors-only', '-f'])
             print_next(command, f'reruns {plural(n, "failed cell")} of {column} and the columns that depend on it')

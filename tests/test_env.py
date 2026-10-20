@@ -8,6 +8,7 @@ from typing import Iterator
 
 import numpy as np
 import PIL.Image
+import pydantic
 import pytest
 
 import pixeltable as pxt
@@ -289,6 +290,20 @@ class TestHostedMediaDefault:
                 Env._init_env(reinit_db=False)
 
 
+class TestDbConnectStr:
+    def test_cockroachdb_rejected(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A CockroachDB connect string is rejected as an unsupported DBMS."""
+        monkeypatch.setenv(
+            'PIXELTABLE_DB_CONNECT_STR', 'cockroachdb+psycopg://root@localhost:26257/pixeltable?sslmode=disable'
+        )
+        reset_runtime()
+        Config.init(reinit=True)
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='Unsupported DBMS cockroachdb'):
+            Env._init_env(reinit_db=False)
+        monkeypatch.undo()
+        _reset_env(reinit=False, db_name=None)
+
+
 class TestProxyEndpoint:
     @pytest.mark.parametrize(
         ('cloud_host', 'expected'),
@@ -350,6 +365,32 @@ def _() -> _TestClient:
     return client
 
 
+class _ContextManagerClient:
+    """Stands in for an SDK client that has no close() and releases its HTTP clients on context manager exit."""
+
+    aexits: int
+    exits: int
+    aexit_error: Exception | None  # raised by __aexit__(), if set
+
+    def __init__(self) -> None:
+        self.aexits = 0
+        self.exits = 0
+        self.aexit_error = None
+
+    async def __aexit__(self, *args: object) -> None:
+        self.aexits += 1
+        if self.aexit_error is not None:
+            raise self.aexit_error
+
+    def __exit__(self, *args: object) -> None:
+        self.exits += 1
+
+
+@env.register_client('test_cm_sdk', credential_param=None)
+def _() -> _ContextManagerClient:
+    return _ContextManagerClient()
+
+
 @pxt.udf
 async def uses_client(n: int) -> int:
     """Fetches the registered client, the way the udfs of an API integration do."""
@@ -399,3 +440,31 @@ class TestApiClients:
         clients = _test_clients[n_clients:]
         assert len(clients) == 1
         assert (clients[0].closes, clients[0].loop_was_open) == (1, True)
+
+    @pytest.mark.parametrize('aexit_fails', [False, True])
+    def test_exited_without_close(self, init_env: None, aexit_fails: bool) -> None:
+        client = get_runtime().get_client('test_cm_sdk')
+        if aexit_fails:
+            client.aexit_error = RuntimeError('aexit failed')
+        reset_runtime()
+        # a failing __aexit__() doesn't keep __exit__() from running
+        assert (client.aexits, client.exits) == (1, 1)
+
+
+class TestRequirePackage:
+    def test_version_floor(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A release older than the floor is rejected; a pre-release of that floor is accepted.
+
+        pydantic is always installed, so this is Env's version check rather than one integration. The recorded
+        version is read once; a fresh Env reads it again.
+        """
+        _reset_env(reinit=False, db_name=None)
+        monkeypatch.setattr(pydantic, '__version__', '1.2.3')
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'is 1\.2\.3, but version >=2 is required'):
+            Env.get().require_package('pydantic', [2])
+
+        _reset_env(reinit=False, db_name=None)
+        monkeypatch.setattr(pydantic, '__version__', '2.0.0rc1')
+        Env.get().require_package('pydantic', [2])
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'is 2\.0\.0, but version >=3 is required'):
+            Env.get().require_package('pydantic', [3])
