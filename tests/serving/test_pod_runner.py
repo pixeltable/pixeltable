@@ -40,14 +40,12 @@ class TestPodRunner:
         # without the pod variables, job polls are not forwarded
         router._configure_job_forwarding.assert_not_called()
 
-        # a hosted pod: its IP, and the db credential, the secret for its job ids
+        # a hosted pod: its IP, and the database's API key, the secret for its job ids
         monkeypatch.setenv('PIXELTABLE_SERVE_INSTANCE_HOST', '10.0.0.7')
-        monkeypatch.setenv('PIXELTABLE_DB_CONNECT_STR', 'postgresql://u:p@db/pxt')
+        monkeypatch.setenv('PIXELTABLE_API_KEY', 'pxt-worker-key')
         pod_runner._serve('pxt://org:db', 'app.py', 'svc', 'nested', tmp_path, fingerprint_file, '0.0.0.0', 8000, False)
         # the other pods forward polls to <pod IP>:<port>, under the service's root path
-        router._configure_job_forwarding.assert_called_once_with(
-            '10.0.0.7:8000', 'postgresql://u:p@db/pxt', '/nested/svc'
-        )
+        router._configure_job_forwarding.assert_called_once_with('10.0.0.7:8000', 'pxt-worker-key', '/nested/svc')
 
         # an IPv6 pod address gets brackets in <host>:<port>
         router.reset_mock()
@@ -55,9 +53,9 @@ class TestPodRunner:
         pod_runner._serve('pxt://org:db', 'app.py', 'svc', 'nested', tmp_path, fingerprint_file, '0.0.0.0', 8000, False)
         assert router._configure_job_forwarding.call_args.args[0] == '[fd00::7]:8000'
 
-        # a hosted pod without the db credential has no secret for its job ids
-        monkeypatch.delenv('PIXELTABLE_DB_CONNECT_STR')
-        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match='a pod needs PIXELTABLE_DB_CONNECT_STR'):
+        # a hosted pod without the API key has no secret for its job ids
+        monkeypatch.delenv('PIXELTABLE_API_KEY')
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match='a pod needs PIXELTABLE_API_KEY'):
             pod_runner._serve(
                 'pxt://org:db', 'app.py', 'svc', 'nested', tmp_path, fingerprint_file, '0.0.0.0', 8000, False
             )

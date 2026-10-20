@@ -129,12 +129,12 @@ def _serve(
     instance_host = os.environ.get('PIXELTABLE_SERVE_INSTANCE_HOST')
     if instance_host is not None:
         instance_addr = f'[{instance_host}]:{port}' if ':' in instance_host else f'{instance_host}:{port}'
-        # the pods of a service share the database credential, the secret for their job ids
-        db_connect_str = Config.get().get_string_value('DB_CONNECT_STR')
-        if db_connect_str is None:
-            raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, 'a pod needs PIXELTABLE_DB_CONNECT_STR')
+        # the pods of a service share the database's API key, the secret for their job ids
+        api_key = Config.get().get_string_value('api_key')
+        if api_key is None:
+            raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, 'a pod needs PIXELTABLE_API_KEY')
         for router in routers:
-            router._configure_job_forwarding(instance_addr, db_connect_str, root_path)
+            router._configure_job_forwarding(instance_addr, api_key, root_path)
     config = uvicorn.Config(
         app, host=host, port=port, log_level=log_level, log_config=None, root_path=root_path, proxy_headers=False
     )
