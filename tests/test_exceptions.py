@@ -38,3 +38,19 @@ class TestExceptions:
             (excs.ErrorCode.COLUMN_NOT_FOUND, excs.NotFoundError),
         ):
             assert type(excs.Error.from_dict(cls(code, 'a message').to_dict())) is cls
+
+    def test_external_service_error_round_trips_its_provider_fields(self) -> None:
+        err = excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_BAD_REQUEST,
+            'a reason',
+            provider='pixeltable_cloud',
+            status_code=403,
+            provider_error_code='PLAN_LIMIT',
+        )
+        copy = excs.Error.from_dict(err.to_dict())
+        assert isinstance(copy, excs.ExternalServiceError)
+        assert (copy.provider, copy.provider_http_status_code, copy.provider_error_code) == (
+            'pixeltable_cloud',
+            403,
+            'PLAN_LIMIT',
+        )

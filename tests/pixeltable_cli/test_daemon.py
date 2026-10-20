@@ -5,10 +5,10 @@ import errno
 import json
 import os
 import pathlib
-import signal
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -80,7 +80,6 @@ class TestDaemon:
         assert psutil.pid_exists(health2['pid'])
         assert not psutil.pid_exists(health1['pid'])
 
-    @pytest.mark.skipif(sys.platform == 'win32', reason='Windows has no SIGSTOP')
     def test_replace_hung_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         project = tmp_path / 'project'
         _create_pxt_project(project)
@@ -88,8 +87,9 @@ class TestDaemon:
         pid1 = _pxt_health(daemon_port, cwd=project)['pid']
         pidfile = pathlib.Path(pidfile_path(daemon_port))
         assert pidfile.read_text(encoding='utf-8').strip() == str(pid1)
-        # SIGSTOP holds the current daemon. The daemon continues to hold the port but doesn't respond on it.
-        os.kill(pid1, signal.SIGSTOP)
+        # Suspending the current daemon holds it: it continues to hold the port but doesn't respond on it.
+        daemon = psutil.Process(pid1)
+        daemon.suspend()
         try:
             health2 = _pxt_health(daemon_port, cwd=project)
             assert health2['project_root'] == str(project)
@@ -97,8 +97,57 @@ class TestDaemon:
             assert psutil.pid_exists(health2['pid'])
             assert not psutil.pid_exists(pid1)
         finally:
-            with contextlib.suppress(ProcessLookupError):
-                os.kill(pid1, signal.SIGCONT)
+            with contextlib.suppress(psutil.NoSuchProcess):
+                daemon.resume()
+
+    def test_keep_briefly_unresponsive_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """A daemon that misses a health probe but answers within the client's grace period keeps serving, and
+        keeps what it holds for its clients, such as their working directories."""
+        project = tmp_path / 'project'
+        _create_pxt_project(project)
+
+        pid1 = _pxt_health(daemon_port, cwd=project)['pid']
+        daemon = psutil.Process(pid1)
+        daemon.suspend()
+        try:
+            client = subprocess.Popen(
+                ['pxt', 'health'],
+                env={**os.environ, 'PXT_PORT': str(daemon_port)},
+                cwd=project,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            # long enough for the client to start up and miss its first probe, well inside its grace period
+            time.sleep(5.0)
+        finally:
+            with contextlib.suppress(psutil.NoSuchProcess):
+                daemon.resume()
+        out, err = client.communicate(timeout=_HEALTH_TIMEOUT_SECS)
+
+        assert client.returncode == 0, err
+        assert json.loads(out)['pid'] == pid1
+
+    def test_second_daemon_defers(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """A daemon started on a port that another daemon serves leaves the port to that daemon."""
+        project = tmp_path / 'project'
+        _create_pxt_project(project)
+
+        pid1 = _pxt_health(daemon_port, cwd=project)['pid']
+        # launched the way a client launches a daemon, which then finds the port taken and exits rather than serve
+        subprocess.run(
+            [sys.executable, '-m', 'pixeltable_cli.server.daemon', '--project-root', str(project)],
+            env={**os.environ, 'PXT_PORT': str(daemon_port)},
+            cwd=project,
+            capture_output=True,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            timeout=_HEALTH_TIMEOUT_SECS,
+        )
+
+        assert pathlib.Path(pidfile_path(daemon_port)).read_text(encoding='utf-8').strip() == str(pid1)
+        assert _pxt_health(daemon_port, cwd=project)['pid'] == pid1
 
     @pytest.mark.parametrize('pidfile_content', ['not-an-int', '0', '-1'])
     def test_unusable_pidfile_does_not_block_startup(

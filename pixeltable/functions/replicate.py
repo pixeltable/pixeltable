@@ -21,14 +21,15 @@ def _(api_token: str) -> 'replicate.Client':
     import replicate
 
     class _ClosableClient(replicate.Client):
-        """A `replicate.Client` with the `close()` that the runtime calls on its clients and replicate lacks."""
+        """replicate.Client has no close(); Runtime.close_clients() needs one."""
 
         async def close(self) -> None:
-            # replicate.Client opens its HTTP clients lazily and keeps them in name-mangled attributes
-            sync_client = getattr(self, '_Client__client', None)
+            # replicate.Client opens its HTTP clients lazily and keeps them in name-mangled attributes, which mypy
+            # doesn't resolve
+            sync_client = self._Client__client  # type: ignore[attr-defined]
             if sync_client is not None:
                 sync_client.close()
-            async_client = getattr(self, '_Client__async_client', None)
+            async_client = self._Client__async_client  # type: ignore[attr-defined]
             if async_client is not None:
                 await async_client.aclose()
 
