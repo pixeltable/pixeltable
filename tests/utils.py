@@ -16,6 +16,7 @@ import socket
 import subprocess
 import sys
 import sysconfig
+import threading
 import time
 import urllib.parse
 import uuid
@@ -876,6 +877,26 @@ def validate_update_status(status: pxt.UpdateStatus, expected_rows: int | None =
     assert status.num_excs == 0
     if expected_rows is not None:
         assert status.num_rows == expected_rows, status
+
+
+def run_workers(target: Callable[[int], None], n_threads: int) -> list[tuple[int, BaseException]]:
+    """Run target(tid) on n_threads workers; return any exceptions raised."""
+    errors: list[tuple[int, BaseException]] = []
+    lock = threading.Lock()
+
+    def runner(tid: int) -> None:
+        try:
+            target(tid)
+        except BaseException as e:
+            with lock:
+                errors.append((tid, e))
+
+    threads = [threading.Thread(target=runner, args=(i,)) for i in range(n_threads)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    return errors
 
 
 def iceberg_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> 'SqlCatalog':

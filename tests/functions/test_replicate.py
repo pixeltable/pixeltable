@@ -9,7 +9,7 @@ from ..utils import rerun_on_network_error, skip_test_if_no_client, skip_test_if
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
-class TestReplicateLocal:
+class TestReplicateClient:
     def test_client_closed_on_reset(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         skip_test_if_not_installed('replicate')
         monkeypatch.setenv('REPLICATE_API_TOKEN', 'test-token')

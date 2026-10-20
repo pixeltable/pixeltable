@@ -2,6 +2,7 @@ import json
 import os
 import pathlib
 import shutil
+import socket
 import time
 from textwrap import dedent
 from types import SimpleNamespace
@@ -365,6 +366,24 @@ class TestService:
         assert [(op['name'], op['status']) for op in r.json] == [('nosuch', 'skipped')]
 
         cli('service', 'stop', uri)
+
+    @pytest.mark.db_roots('local', reason='a hosted service answers on its own hostname and takes no port')
+    def test_busy_port(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        """A service refuses a port that something else listens on, rather than share it."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app, target = apps('basic.py'), db_root.make_catalog_path('busy')
+        cli('schema', 'update', app, target)
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
+            holder.bind(('127.0.0.1', 0))
+            holder.listen()
+            port = holder.getsockname()[1]
+            r = cli('service', 'update', app, target, '-f', '--port', str(port), check=False)
+
+        assert r.returncode == 1
+        assert f"Cannot serve 'ingest' on port {port}" in r.stderr, r.stderr
+        assert get_services(cli, target) == {}, 'a refused update started nothing'
 
     def test_iteration(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """Make edits to a source file."""

@@ -1,94 +1,31 @@
-"""Decide which pull requests Claude reviews, and at which tier.
+"""Decide whether a PR comment asks Claude for a review, and extract the focus it names.
 
-Handles an "issue_comment" event (someone asked for a review), a "workflow_run" event (a PR's tests started), and a
-"schedule" event (a sweep for PRs marked ready for review, which start no tests run). Reads GITHUB_EVENT_NAME,
-GITHUB_EVENT_PATH, GITHUB_OUTPUT, REPO, and ACTOR from the environment; `gh` authenticates with GH_TOKEN. Writes
-reviews, a JSON list of {"pr", "tier", "requested"}, to GITHUB_OUTPUT.
+Handles the "issue_comment" event. A comment asks for a review when it is "claude review", "agent review", or "agents
+review", in any case, alone or followed by a focus. The focus follows a colon, a comma, a dash between spaces, or a line
+break, or starts with the word "focus": "claude review focus on function signatures" or "claude review: error paths".
+Only a commenter with write access can ask, only on an open PR, and only while no review of that PR is queued or
+running. Reads GITHUB_EVENT_PATH, GITHUB_OUTPUT, GITHUB_RUN_ID, GITHUB_WORKFLOW_REF, REPO, and ACTOR from the
+environment; `gh` authenticates with GH_TOKEN. Writes pr and focus to GITHUB_OUTPUT, or nothing when no review runs.
 """
 
-import datetime
 import json
 import os
 import re
 import subprocess
 import sys
-from typing import Any
 
-# Keep in sync with the files that step 2 of .claude/commands/pxt-review.md skips.
-SKIPPED = re.compile(
-    r'(^|/)(uv\.lock|poetry\.lock|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|go\.sum)$'
-    r'|\.min\.(js|css)$|(^|/)__snapshots__/|\.snap$'
+# Without a separator or the word "focus", a comment such as "Claude review missed the null case" is a remark, not a
+# request. The separator is dropped; punctuation that starts the focus, as in ": .github/workflows", stays.
+REQUEST = re.compile(
+    r'(?:claude|agents?)\s+review(?:[\s.!]*$|\s*[:,]\s*|\s+-+\s+|[ \t]*\r?\n\s*|\s+(?=focus\b))(.*)',
+    re.IGNORECASE | re.DOTALL,
 )
-SENSITIVE = re.compile(r'auth|billing|payment|stripe|secret|permission|migration|/metadata/', re.IGNORECASE)
-SMALL_PR_LINES = 200
-# The sweep runs hourly and looks back three hours: a late or skipped run does not lose a PR, and a PR whose review
-# fails or stops before posting is tried at most three times.
-READY_WINDOW = datetime.timedelta(hours=3)
-# Errors that make the sweep skip a PR, or the whole run, instead of failing; the next hourly run tries again.
-SWEEP_ERRORS = (subprocess.CalledProcessError, KeyError, TypeError, ValueError)
-
-OPEN_PRS_QUERY = """
-query($owner: String!, $name: String!, $cursor: String) {
-  repository(owner: $owner, name: $name) {
-    defaultBranchRef { name }
-    pullRequests(states: OPEN, first: 100, after: $cursor) {
-      pageInfo { hasNextPage endCursor }
-      nodes {
-        number
-        isDraft
-        baseRefName
-        headRefOid
-        timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT], last: 1) {
-          nodes { ... on ReadyForReviewEvent { createdAt } }
-        }
-      }
-    }
-  }
-}
-"""
+# The focus becomes the last argument of the review command, on one line.
+MAX_FOCUS_CHARS = 500
 
 
 def gh(*args: str) -> str:
     return subprocess.run(['gh', *args], check=True, capture_output=True, text=True).stdout
-
-
-def open_prs(repo: str) -> tuple[str, list[dict[str, Any]]]:
-    """Returns (default branch name, every open PR)."""
-    owner, name = repo.split('/')
-    prs: list[dict[str, Any]] = []
-    cursor: str | None = None
-    while True:
-        args = ['api', 'graphql', '-f', f'query={OPEN_PRS_QUERY}', '-F', f'owner={owner}', '-F', f'name={name}']
-        if cursor is not None:
-            args += ['-f', f'cursor={cursor}']
-        repository = json.loads(gh(*args))['data']['repository']
-        page = repository['pullRequests']
-        prs += page['nodes']
-        if not page['pageInfo']['hasNextPage']:
-            return repository['defaultBranchRef']['name'], prs
-        cursor = page['pageInfo']['endCursor']
-
-
-def pr_from_tests_run(event: dict[str, Any], repo: str) -> str | None:
-    run = event['workflow_run']
-    if run['pull_requests']:
-        return str(run['pull_requests'][0]['number'])
-    # GitHub leaves pull_requests empty for a PR from a fork, so find the open PR by its head commit.
-    _, prs = open_prs(repo)
-    return next((str(p['number']) for p in prs if p['headRefOid'] == run['head_sha']), None)
-
-
-def prs_marked_ready(repo: str, now: datetime.datetime) -> list[str]:
-    default_branch, prs = open_prs(repo)
-    result = []
-    for pr in prs:
-        events = pr['timelineItems']['nodes']
-        # `tests` runs only for PRs into the default branch, so the sweep skips PRs into other branches.
-        if pr['isDraft'] or pr['baseRefName'] != default_branch or not events:
-            continue
-        if now - datetime.datetime.fromisoformat(events[0]['createdAt']) <= READY_WINDOW:
-            result.append(str(pr['number']))
-    return result
 
 
 def has_write_access(repo: str, login: str) -> bool:
@@ -99,62 +36,53 @@ def has_write_access(repo: str, login: str) -> bool:
     return permission in ('admin', 'write')
 
 
-def decide(repo: str, pr: str, requested: bool, actor: str) -> dict[str, Any] | None:
-    info = json.loads(gh('pr', 'view', pr, '--repo', repo, '--json', 'author,isDraft,files,reviews,comments'))
-
-    # A request needs a commenter with write access; an automatic review needs an author with write access, a PR that
-    # is ready, and no earlier Claude review.
-    run = has_write_access(repo, actor if requested else info['author']['login'])
-    if not requested:
-        bodies = [r['body'] for r in info['reviews']] + [c['body'] for c in info['comments']]
-        run = run and not info['isDraft'] and not any(b.startswith('## Claude review') for b in bodies)
-
-    reviewed = [f for f in info['files'] if not SKIPPED.search(f['path'])]
-    lines = sum(f['additions'] + f['deletions'] for f in reviewed)
-    sensitive = any(SENSITIVE.search(f['path']) for f in reviewed)
-    tier = 'small' if lines < SMALL_PR_LINES and not sensitive else 'large'
-    print(f'PR #{pr}: run={run}, {lines} changed lines, sensitive={sensitive}, tier={tier}')
-    return {'pr': pr, 'tier': tier, 'requested': requested} if run else None
+def review_running(repo: str, pr: int) -> bool:
+    """Returns True when another run of this workflow has a review job for pr that has not completed."""
+    workflow = os.environ['GITHUB_WORKFLOW_REF'].split('@')[0].rsplit('/', 1)[1]
+    run_ids = gh(
+        'api',
+        f'repos/{repo}/actions/workflows/{workflow}/runs?per_page=50',
+        '--jq',
+        f'.workflow_runs[] | select(.status != "completed" and .id != {os.environ["GITHUB_RUN_ID"]}) | .id',
+    ).split()
+    # The workflow names each review job after its PR.
+    job = f'.jobs[] | select(.name == "review #{pr}" and .status != "completed") | .id'
+    return any(gh('api', f'repos/{repo}/actions/runs/{run_id}/jobs', '--jq', job).strip() for run_id in run_ids)
 
 
-def error_detail(e: Exception) -> str:
-    return e.stderr.strip() if isinstance(e, subprocess.CalledProcessError) else repr(e)
-
-
-def sweep(repo: str, actor: str, now: datetime.datetime) -> list[dict[str, Any] | None]:
-    try:
-        candidates = prs_marked_ready(repo, now)
-    except SWEEP_ERRORS as e:
-        print(f'::warning::The sweep could not list open PRs: {error_detail(e)}')
-        return []
-    decisions = []
-    for pr in candidates:
-        try:
-            decisions.append(decide(repo, pr, False, actor))
-        except SWEEP_ERRORS as e:
-            print(f'::warning::Skipped PR #{pr}: {error_detail(e)}')
-    return decisions
-
-
-def plan(event_name: str, event: dict[str, Any], repo: str, actor: str, now: datetime.datetime) -> list[dict[str, Any]]:
-    # Errors outside the sweep fail the run, so a failed request or tests-run review shows as a failed run.
-    if event_name == 'issue_comment':
-        decisions = [decide(repo, str(event['issue']['number']), True, actor)]
-    elif event_name == 'workflow_run':
-        pr = pr_from_tests_run(event, repo)
-        decisions = [decide(repo, pr, False, actor)] if pr is not None else []
-    else:
-        decisions = sweep(repo, actor, now)
-    return [d for d in decisions if d is not None]
+def focus_of(body: str) -> str | None:
+    """Returns the focus that a review request names, '' when it names none, or None when body is no request."""
+    match = REQUEST.match(body.strip())
+    if match is None:
+        return None
+    focus = ' '.join(match.group(1).split())[:MAX_FOCUS_CHARS]
+    # A focus without a letter or digit, as in "claude review.", names nothing.
+    return focus if re.search(r'\w', focus) else ''
 
 
 def main() -> int:
+    repo, actor = os.environ['REPO'], os.environ['ACTOR']
     with open(os.environ['GITHUB_EVENT_PATH'], encoding='utf-8') as f:
         event = json.load(f)
-    now = datetime.datetime.now(datetime.timezone.utc)
-    reviews = plan(os.environ['GITHUB_EVENT_NAME'], event, os.environ['REPO'], os.environ['ACTOR'], now)
+    focus = focus_of(event['comment']['body'])
+    if focus is None:
+        print('The comment asks for no review.')
+        return 0
+    pr = event['issue']['number']
+    if event['issue']['state'] != 'open':
+        print(f'PR #{pr} is closed, so no review runs.')
+        return 0
+    # claude-code-action fails the job when the actor lacks write access, so skip the review here instead.
+    if not has_write_access(repo, actor):
+        print(f'{actor} lacks write access to {repo}, so no review runs.')
+        return 0
+    # "agent review" also asks Grok and Muse; a request while a review runs repeats nothing and cancels nothing.
+    if review_running(repo, pr):
+        print(f'A review of PR #{pr} is already queued or running, so this request starts none.')
+        return 0
+    print(f'Reviewing PR #{pr} with focus: {focus or "(none)"}')
     with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
-        f.write(f'reviews={json.dumps(reviews)}\n')
+        f.write(f'pr={pr}\nfocus={focus}\n')
     return 0
 
 
