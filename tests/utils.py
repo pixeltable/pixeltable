@@ -834,7 +834,7 @@ def skip_test_if_not_local(reason: str = 'Requires a local (file-backed) Pixelta
         pytest.skip(reason)
 
 
-def extra_db_name(suffix: str) -> str:
+def aux_db_name(suffix: str) -> str:
     """Return a db name unique to this test worker."""
     return f'{os.environ["PIXELTABLE_DB"]}_{suffix}'
 

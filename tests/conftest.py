@@ -1,6 +1,7 @@
 import ctypes
 import functools
 import gc
+import hashlib
 import http.server
 import json
 import logging
@@ -26,7 +27,6 @@ import pixeltable as pxt
 import pixeltable.utils.fault_injection as prod_fault_injection
 import tests.fault_injection as test_fault_injection
 from pixeltable import exprs, functions as pxtf
-from pixeltable.catalog import fold_identifier
 from pixeltable.config import Config
 from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
@@ -168,15 +168,13 @@ def _set_up_external_db_schema(worker_id: int | str) -> str:
     return schema_name
 
 
-_CHECKOUT_DB = fold_identifier(os.environ.get('PIXELTABLE_DB', ''))  # before init_env() replaces it
+# separates the test dbs of checkouts that share one PIXELTABLE_PGDATA
+_CHECKOUT_HASH = hashlib.sha256(str(pathlib.Path(__file__).resolve().parents[1]).encode()).hexdigest()[:8]
 
 
 def _worker_db_name(worker_id: int | str) -> str:
-    """The db name used by both the pytest process and its proxy daemon.
-
-    With a PIXELTABLE_DB prefix, several checkouts can run tests against one PIXELTABLE_PGDATA.
-    """
-    return f'test_{worker_id}' if _CHECKOUT_DB == '' else f'{_CHECKOUT_DB}_test_{worker_id}'
+    """The db name used by both the pytest process and its proxy daemon."""
+    return f'test_{_CHECKOUT_HASH}_{worker_id}'
 
 
 @pytest.fixture
