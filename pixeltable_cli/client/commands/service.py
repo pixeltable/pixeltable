@@ -600,7 +600,7 @@ def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_ru
         sys.exit(EXIT_IN_AGREEMENT)
 
     if dry_run:
-        _print_ops(planned.ops, as_json=as_json, verb='would stop')
+        _print_ops(planned.ops, as_json=as_json, verb='would stop', count=len(planned.ops))
         sys.exit(EXIT_CHANGES_PENDING)
 
     refused = [op.model_copy(update={'status': 'refused'}) for op in planned.ops]
@@ -608,7 +608,7 @@ def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_ru
         f'stop {len(planned.ops)} service(s)?',
         force,
         refused_exit_code=EXIT_REFUSED,
-        on_refusal=lambda: _print_ops(refused, as_json=as_json, verb='would stop'),
+        on_refusal=lambda: _print_ops(refused, as_json=as_json, verb='would stop', count=len(refused)),
     )
     pruned = ServicePlan.model_validate(post_request('/api/service/prune', body))
     _print_ops(pruned.ops, as_json=as_json, verb='stopped')
@@ -696,7 +696,9 @@ def _print_plan(plan: ServicePlan, *, as_json: bool, applied: bool = False) -> N
     print(f'Plan: {counts}')
 
 
-def _print_ops(ops: list[ServiceChangeOp], *, as_json: bool, verb: str) -> None:
+def _print_ops(ops: list[ServiceChangeOp], *, as_json: bool, verb: str, count: int | None = None) -> None:
+    """Print each op and the count of services `verb` names: by default the ones applied, or `count` for a plan
+    that applies none, such as a dry run's."""
     if as_json:
         print(json.dumps([op.model_dump(mode='json') for op in ops], indent=2))
         return
@@ -708,4 +710,5 @@ def _print_ops(ops: list[ServiceChangeOp], *, as_json: bool, verb: str) -> None:
             suffix += f'  {reason}'
         print(f'{op.name:<24s} {op.status or verb}{suffix}')
     print()
-    print(f'{verb}: {sum(1 for op in ops if op.status == "applied")} service(s)')
+    applied = sum(1 for op in ops if op.status == 'applied') if count is None else count
+    print(f'{verb}: {applied} service(s)')

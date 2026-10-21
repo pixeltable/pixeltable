@@ -126,6 +126,21 @@ def service_update(
         )
 
     running = {i.service_name: i for i in manager.list(_base_path(target))}
+    to_apply = [d for d in plan.services if d.resolution not in ('blocked', 'up_to_date')]
+    hosted: dict[str, service_instance.ServiceInstance] = {}
+    if isinstance(manager, ServiceManagerProxy) and len(to_apply) > 0:
+        # one submission for the set, which the control plane accepts whole or refuses whole, so a refusal of one
+        # service (a plan limit) leaves the others as they were. A hosted instance is replaced in place rather than
+        # stopped, so that the control plane can keep its old pods serving until the new ones are ready.
+        hosted = manager.start_set(
+            app_file,
+            {d.name: (expected_generations or {}).get(d.name, d.generation) for d in to_apply},
+            _base_path(target),
+            otel=otel,
+            port=port,
+            keep_release=keep_release,
+            wait=wait,
+        )
     for diff in plan.services:
         if diff.resolution == 'blocked':
             diff.status = 'refused'
@@ -136,18 +151,7 @@ def service_update(
             diff.status = 'skipped'
             continue
         if isinstance(manager, ServiceManagerProxy):
-            # a hosted instance is replaced in place rather than stopped, so that the control plane can keep its
-            # old pods serving until the new ones are ready
-            started = manager.start(
-                app_file,
-                diff.name,
-                _base_path(target),
-                otel=otel,
-                port=port,
-                keep_release=keep_release,
-                expected_generation=(expected_generations or {}).get(diff.name, diff.generation),
-                wait=wait,
-            )
+            started = hosted[diff.name]
             diff.receipt = started.record.receipt
         else:
             instance = running.get(diff.name)
@@ -176,7 +180,7 @@ def service_prune(app_file: str, target: PxtPath, *, dry_run: bool = False) -> S
         i.service_name for i in get_manager(target).list(_base_path(target)) if i.service_name not in defined
     )
     ops = (
-        [ServiceChangeOp.delete_service(name, None, 'skipped') for name in extras]
+        [ServiceChangeOp.delete_service(name, None, None) for name in extras]
         if dry_run
         else _forget_services(extras, target, delete=True)
     )
