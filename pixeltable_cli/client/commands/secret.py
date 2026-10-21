@@ -41,8 +41,10 @@ A process reads its secrets once, at startup, so a running one keeps the values 
 
 _OVERRIDES_ORG_NOTE = 'overrides an organization secret'
 
-# the states in which a database or service has pods that have read their secrets
+# the states in which a database or service has pods that have read their secrets; a service's failed roll keeps its
+# previous pods serving when it can
 _RUNNING = ('AVAILABLE', 'UPDATING')
+_SERVICE_RUNNING = (*_RUNNING, 'FAILED')
 
 
 def run(argv: list[str]) -> None:
@@ -179,9 +181,11 @@ def _print_restarts(org: str, db: str | None) -> None:
             # a database that does not exist yet has no pods to restart
             resp = get_request('/api/db', {'org': org, 'db': db, 'missing_ok': True}, raise_on_error=True)
             reports = [resp.get('report') or {}]
-        running = [r['db'] for r in reports if (r.get('current') or {}).get('state') in _RUNNING]
+        dbs = [r['db'] for r in reports if 'db' in r]
+        running = {r['db'] for r in reports if (r.get('current') or {}).get('state') in _RUNNING}
+        # a service runs in pods of its own, which stopping its database leaves running
         services = {
-            d: get_request('/api/service/list', {'target': f'pxt://{org}:{d}'}, raise_on_error=True) for d in running
+            d: get_request('/api/service/list', {'target': f'pxt://{org}:{d}'}, raise_on_error=True) for d in dbs
         }
     except RequestFailedError as e:
         print(
@@ -189,9 +193,10 @@ def _print_restarts(org: str, db: str | None) -> None:
             file=sys.stderr,
         )
         return
-    for d in running:
-        print_next(f'pxt db restart pxt://{org}:{d}', 'restarts its tables, so they read the new values')
+    for d in dbs:
+        if d in running:
+            print_next(f'pxt db restart pxt://{org}:{d}', 'restarts its tables, so they read the new values')
         for service in services[d]:
-            if service['state'] in _RUNNING:
+            if service['state'] in _SERVICE_RUNNING:
                 where = f'{service["catalog_path"]}/{service["name"]}'
                 print_next(f'pxt service restart {where}', 'restarts it, so it reads the new values')

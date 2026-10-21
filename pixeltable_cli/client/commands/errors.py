@@ -48,6 +48,11 @@ def _print_entries(entries: list[models.ErrorEntry], where: str) -> None:
 
 def _print_recomputes(entries: list[models.ErrorEntry], path: str) -> None:
     """Names, per failed column, the recompute that reruns its failed cells, on the table that defines the column."""
+    if any(not e.recomputable for e in entries):
+        print(
+            'pxt: failed cells in a snapshot never change; recompute the live table and take a new snapshot',
+            file=sys.stderr,
+        )
     failed = collections.Counter((e.defining_base, e.column) for e in entries if e.recomputable)
     for (base, column), n in failed.most_common():
         if base is None:

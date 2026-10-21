@@ -673,7 +673,7 @@ The command is the one you ran, with `-f` (or `--allow-destructive`) added; ever
  "next": [{"command": "pxt drop my_dir/my_table --json -f", "effect": "drop table my_dir/my_table"}]}
 ```
 
-The plan commands (`schema`, `service`, `db update`) keep printing their plan instead; `schema update`, `schema prune` and `service prune` mark the refused operations `refused`. An unknown command exits `2` and suggests the commands it may have meant, such as `pxt db logs` and `pxt service logs` for `pxt logs`.
+A person who answers anything but `y` at the prompt also gets exit `3`, and with `--json` a document with `error_code` `CONFIRMATION_DECLINED` and no `next`. The plan commands (`schema`, `service`, `db update`) keep printing their plan instead; `schema update`, `schema prune` and `service prune` mark the refused operations `refused`. An unknown command exits `2` and suggests the commands it may have meant, such as `pxt db logs` and `pxt service logs` for `pxt logs`.
 
 A request that fails ends its line with the error code, as in `pxt: 404 Directory 'nope' does not exist. [DIRECTORY_NOT_FOUND]`, except a refusal only the user can lift, which prints Cloud's reason alone (see [Plan limits](#plan-limits)); with `--json`, stdout gets `{"error_code": ..., "message": ..., "retryable": ...}`. A daemon that does not start or cannot be reached gives `DAEMON_UNREACHABLE`; an answer without a code gives `HTTP_<status>` for a 4xx and `INTERNAL_ERROR` otherwise. When Pixeltable Cloud says how long to wait, as it does when busy, the `--json` document adds `retry_after` in seconds.
 
@@ -1341,7 +1341,7 @@ With `--json`, each row is an object with `key` and `scope`, plus `"overrides_or
 
 `set` and `delete` print the keys they changed as the same `KEY` and `SCOPE` rows, without `NOTE`; with `--json`, as `key` and `scope` objects. Earlier releases printed bare key names, and `--json` printed an array of strings.
 
-A running database or service uses the values from its startup. Run `pxt db restart` for the database's tables process and `pxt service restart` for each service. A database or service started afterwards reads the current value at startup. `set` and `delete` name each of these on a `next:` line, for every running database the secret reaches (one for a database secret, all of the organization's for an org secret) and every running service in it; a stopped one needs no restart.
+A running database or service uses the values from its startup. Run `pxt db restart` for the database's tables process and `pxt service restart` for each service. A database or service started afterwards reads the current value at startup. `set` and `delete` name each of these on a `next:` line, for every running database the secret reaches (one for a database secret, all of the organization's for an org secret) and every running service of those databases, including one whose database is stopped and one whose last roll failed, since it may still serve on its previous pods; a stopped one needs no restart.
 
 <Warning>
 A `[[pixeltable.database]]` entry no longer accepts `secrets`. A project config that still has
