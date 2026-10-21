@@ -77,22 +77,10 @@ class ServiceManagerProxy(ServiceManagerBase):
         return [ServiceInstance(r, self) for r in response.instances if self._serves(r, base_path, recursive)]
 
     def start(
-        self,
-        app_file: str,
-        name: str,
-        base_path: str = '',
-        *,
-        otel: bool = False,
-        port: int | None = None,
-        keep_release: bool = False,
-        expected_generation: int | None = None,
-        wait: bool = True,
+        self, app_file: str, name: str, base_path: str = '', *, otel: bool = False, port: int | None = None
     ) -> ServiceInstance:
-        """Submit the named service in app_file as the desired spec of its instance at base_path; start_set() for
-        one service."""
-        return self.start_set(
-            app_file, {name: expected_generation}, base_path, otel=otel, port=port, keep_release=keep_release, wait=wait
-        )[name]
+        """start_set() for the named service alone, against the generation read here."""
+        return self.start_set(app_file, {name: None}, base_path, otel=otel, port=port)[name]
 
     def start_set(
         self,
@@ -106,7 +94,7 @@ class ServiceManagerProxy(ServiceManagerBase):
         wait: bool = True,
     ) -> dict[str, ServiceInstance]:
         """Submit the named services in app_file as the desired specs of their instances at base_path, in one
-        submission: the control plane accepts all of them or, refusing one, none.
+        submission, which the control plane accepts or refuses as a whole.
 
         A new instance runs the release of the database's current desired generation, and so does an existing one
         unless keep_release is set, which keeps its current release. An available instance is not stopped: the
@@ -246,7 +234,7 @@ class ServiceManagerProxy(ServiceManagerBase):
             )
         )
         receipt = self._required(instance.service_name, restarting.receipt)
-        self._settle(instance.service_name, instance.base_path, [receipt])
+        self._after(instance.service_name, instance.base_path, self._await([receipt]))
 
     def retry(self, instance: ServiceInstance) -> ServiceInstance | None:
         """Start a new attempt of instance's current generation, which must have failed.
@@ -305,10 +293,6 @@ class ServiceManagerProxy(ServiceManagerBase):
 
     def _await(self, accepted: Sequence[GenerationReceipt]) -> Sequence[GenerationReceipt]:
         return receipts.await_receipts(self.catalog_uri, accepted)
-
-    def _settle(self, name: str, base_path: str, accepted: Sequence[GenerationReceipt]) -> ServiceInstance:
-        """Wait on the receipts of a change to the named instance, and return the instance afterwards."""
-        return self._after(name, base_path, self._await(accepted))
 
     def _after(self, name: str, base_path: str, settled: Sequence[GenerationReceipt]) -> ServiceInstance:
         """The named instance after its settled change, which it must still hold."""

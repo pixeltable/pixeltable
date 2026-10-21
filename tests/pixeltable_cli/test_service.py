@@ -44,6 +44,7 @@ from pixeltable_cli.types import (
     GenerationReceipt,
     ReceiptError,
     ReceiptOutcome,
+    Resolution,
     ResourcePhase,
     ServiceChangeOp,
     ServiceDiff,
@@ -782,6 +783,10 @@ class TestService:
         r = cli('service', 'prune', str(app_file), target, '-n', check=False)
         assert r.returncode == 2
         # the dry run reports the plan that -f applies
+        assert 'would stop: 1 service(s)' in r.stdout
+        # so does a prune that no terminal confirms
+        r = cli('service', 'prune', str(app_file), target, check=False)
+        assert r.returncode == 3
         assert 'would stop: 1 service(s)' in r.stdout
         assert 'ingest' in get_services(cli, target)
 
@@ -1924,14 +1929,15 @@ class TestServiceUpdateRunning:
 class _SetControlPlane:
     """The management API of a hosted database holding 'ingest', taking an app file's services in one submission.
 
-    The submission is refused whole when refuse is set; otherwise every service in it is accepted as its next
-    generation, and each receipt settles, observed, on its first read.
+    A submission that would hold more than max_services is refused whole, as Pixeltable Cloud refuses one past its
+    plan's service count; otherwise every service in it is accepted as its next generation, and each receipt settles
+    to OBSERVED on its first read.
     """
 
-    def __init__(self, app_module: str, refuse: Exception | None = None) -> None:
+    def __init__(self, app_module: str, max_services: int | None = None) -> None:
         self.app_module = app_module
-        self.refuse = refuse
-        self.sent: list[Any] = []
+        self.max_services = max_services
+        self.sent: list[Any] = []  # every request but the listings
         self.held = {'ingest': 3}
         self.issued: list[GenerationReceipt] = []
 
@@ -1961,8 +1967,15 @@ class _SetControlPlane:
                 generations=generations, report=DatabaseReport(db='main'), services=desired
             ).model_dump(mode='json')
         if isinstance(request, SubmitUpdateRequest):
-            if self.refuse is not None:
-                raise self.refuse
+            after = self.held.keys() | {m.service_name for m in request.service_mutations}
+            if self.max_services is not None and len(after) > self.max_services:
+                raise pxt.exceptions.ExternalServiceError(
+                    pxt.ErrorCode.PROVIDER_BAD_REQUEST,
+                    f'pxt://acme:main holds {len(self.held)}, and this change takes it past {self.max_services}',
+                    provider='pixeltable_cloud',
+                    status_code=403,
+                    provider_error_code='PLAN_LIMIT',
+                )
             for mutation in request.service_mutations:
                 self.held[mutation.service_name] = self.held.get(mutation.service_name, 0) + 1
             self.issued = [
@@ -1986,8 +1999,8 @@ class _SetControlPlane:
 
 @pytest.mark.db_roots('local', reason='the service managers are faked, so no catalog serves anything')
 class TestServiceUpdateHostedSet:
-    """`pxt service update` sends an app file's hosted services in one submission, so that a refusal of one (a plan
-    limit) leaves the others as they were rather than applying some of them first."""
+    """`pxt service update` sends an app file's hosted services in one submission, so that a refusal (a plan limit)
+    leaves every service as it was rather than applying some of them first."""
 
     @pytest.fixture
     def app_file(self, project_dir: pathlib.Path) -> str:
@@ -2002,9 +2015,19 @@ class TestServiceUpdateHostedSet:
         )
         return str(path)
 
-    def _set(self, monkeypatch: pytest.MonkeyPatch, app_file: str, refuse: Exception | None = None) -> _SetControlPlane:
-        """Fake a hosted database holding 'ingest', with a plan that updates it and creates 'extra' and 'reports'."""
-        control_plane = _SetControlPlane(module_name(app_file, subject='application file'), refuse)
+    def _set(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        app_file: str,
+        *,
+        max_services: int | None = None,
+        resolutions: dict[str, Resolution] | None = None,
+    ) -> _SetControlPlane:
+        """Fake a hosted database holding 'ingest', with a plan that resolves each service as resolutions says; by
+        default it updates 'ingest' and creates 'extra' and 'reports'."""
+        if resolutions is None:
+            resolutions = {'extra': 'create', 'ingest': 'update_additive', 'reports': 'create'}
+        control_plane = _SetControlPlane(module_name(app_file, subject='application file'), max_services)
         monkeypatch.setattr(management_client, 'api_call', control_plane.api_call)
         monkeypatch.setattr(receipts, 'POLL_INTERVAL', 0.0)
         monkeypatch.setattr(ServiceManagerProxy, '_wait_for_endpoint', lambda self, instance: None)
@@ -2018,12 +2041,12 @@ class TestServiceUpdateHostedSet:
                 endpoint=None,
                 catalog_path=target,
                 kind='declarative',
-                resolution='update_additive' if name == 'ingest' else 'create',
+                resolution=resolution,
                 route_comparison='declarative',
                 route_detail=None,
                 ops=[],
             )
-            for name in ('extra', 'ingest', 'reports')
+            for name, resolution in resolutions.items()
         ]
         plan = ServicePlan(app_file=app_file, target=target, services=diffs)
         monkeypatch.setattr(serving_service, 'service_diff', lambda *args, **kwargs: plan)
@@ -2031,16 +2054,14 @@ class TestServiceUpdateHostedSet:
         return control_plane
 
     def test_a_refused_set_changes_no_service(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
-        refusal = pxt.exceptions.AuthorizationError(
-            pxt.ErrorCode.INSUFFICIENT_PRIVILEGES, 'pxt://acme:main holds 1 service (ingest)'
-        )
-        control_plane = self._set(monkeypatch, app_file, refuse=refusal)
-        with pxt_raises(pxt.ErrorCode.INSUFFICIENT_PRIVILEGES, match='holds 1 service'):
+        # 'extra' alone fits in 2 services, so a submission per service would create it before 'reports' is refused
+        control_plane = self._set(monkeypatch, app_file, max_services=2)
+        with pxt_raises(pxt.ErrorCode.PROVIDER_BAD_REQUEST, match='past 2'):
             serving_service.service_update(app_file, PxtPath('pxt://acme:main'))
         assert [type(r).__name__ for r in control_plane.sent] == ['PrepareUpdateRequest', 'SubmitUpdateRequest']
         (submitted,) = [r for r in control_plane.sent if isinstance(r, SubmitUpdateRequest)]
         assert [m.service_name for m in submitted.service_mutations] == ['extra', 'ingest', 'reports']
-        assert control_plane.held == {'ingest': 3}, 'none of the set was applied'
+        assert control_plane.held == {'ingest': 3}
 
     def test_an_accepted_set_gives_each_service_its_receipt(
         self, monkeypatch: pytest.MonkeyPatch, app_file: str
@@ -2066,6 +2087,19 @@ class TestServiceUpdateHostedSet:
             ('ingest', 3),
             ('reports', 0),
         ]
+
+    def test_a_set_submits_only_the_services_it_applies(self, monkeypatch: pytest.MonkeyPatch, app_file: str) -> None:
+        control_plane = self._set(
+            monkeypatch, app_file, resolutions={'extra': 'create', 'ingest': 'up_to_date', 'reports': 'blocked'}
+        )
+        plan = serving_service.service_update(app_file, PxtPath('pxt://acme:main'))
+        assert {d.name: d.status for d in plan.services} == {
+            'extra': 'applied',
+            'ingest': 'skipped',
+            'reports': 'refused',
+        }
+        (submitted,) = [r for r in control_plane.sent if isinstance(r, SubmitUpdateRequest)]
+        assert [m.service_name for m in submitted.service_mutations] == ['extra']
 
 
 class TestServiceOtel:

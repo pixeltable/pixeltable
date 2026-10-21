@@ -126,12 +126,20 @@ def service_update(
         )
 
     running = {i.service_name: i for i in manager.list(_base_path(target))}
-    to_apply = [d for d in plan.services if d.resolution not in ('blocked', 'up_to_date')]
+    to_apply: list[ServiceDiff] = []
+    for diff in plan.services:
+        if diff.resolution == 'blocked':
+            diff.status = 'refused'
+            for op in diff.ops:
+                op.status = 'skipped'
+        elif diff.resolution == 'up_to_date':
+            diff.status = 'skipped'
+        else:
+            to_apply.append(diff)
     hosted: dict[str, service_instance.ServiceInstance] = {}
     if isinstance(manager, ServiceManagerProxy) and len(to_apply) > 0:
-        # one submission for the set, which the control plane accepts whole or refuses whole, so a refusal of one
-        # service (a plan limit) leaves the others as they were. A hosted instance is replaced in place rather than
-        # stopped, so that the control plane can keep its old pods serving until the new ones are ready.
+        # one submission for the set, which the control plane accepts or refuses as a whole: a refusal (a plan
+        # limit) leaves every service as it was
         hosted = manager.start_set(
             app_file,
             {d.name: (expected_generations or {}).get(d.name, d.generation) for d in to_apply},
@@ -141,15 +149,7 @@ def service_update(
             keep_release=keep_release,
             wait=wait,
         )
-    for diff in plan.services:
-        if diff.resolution == 'blocked':
-            diff.status = 'refused'
-            for op in diff.ops:
-                op.status = 'skipped'
-            continue
-        if diff.resolution == 'up_to_date':
-            diff.status = 'skipped'
-            continue
+    for diff in to_apply:
         if isinstance(manager, ServiceManagerProxy):
             started = hosted[diff.name]
             diff.receipt = started.record.receipt

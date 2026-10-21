@@ -697,8 +697,8 @@ def _print_plan(plan: ServicePlan, *, as_json: bool, applied: bool = False) -> N
 
 
 def _print_ops(ops: list[ServiceChangeOp], *, as_json: bool, verb: str, count: int | None = None) -> None:
-    """Print each op and the count of services `verb` names: by default the ones applied, or `count` for a plan
-    that applies none, such as a dry run's."""
+    """Print each op, then the count of the services the verb names: by default the applied ones, or `count` for a
+    plan that applies none."""
     if as_json:
         print(json.dumps([op.model_dump(mode='json') for op in ops], indent=2))
         return
