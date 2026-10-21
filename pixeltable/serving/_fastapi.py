@@ -1024,17 +1024,11 @@ class FastAPIRouter(fastapi.APIRouter):
 
             >>> router.add_compute_route(t, path='/slow', background=True)
 
-            ```bash
-            # submit
-            curl -X POST http://localhost:8000/slow -d '{"prompt": "hello"}'
-            # {"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
-            ```
-
-            ```bash
-            # poll
-            curl http://localhost:8000/jobs/abc123
-            # {"status": "done", "result": {...}}
-            ```
+            >>> import time
+            >>> import httpx
+            >>> job = httpx.post('http://localhost:8000/slow', json={'prompt': 'hello'}).json()
+            >>> while (status := httpx.get(job['job_url']).json())['status'] == 'pending':
+            ...     time.sleep(2)
         """
         target = t
         inputs, uploadfile_inputs, outputs = _col_names(inputs), _col_names(uploadfile_inputs), _col_names(outputs)
@@ -1155,17 +1149,11 @@ class FastAPIRouter(fastapi.APIRouter):
 
             >>> router.add_insert_route(t, path='/slow', background=True)
 
-            ```bash
-            # submit
-            curl -X POST http://localhost:8000/slow -d '{"prompt": "hello"}'
-            # {"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
-            ```
-
-            ```bash
-            # poll
-            curl http://localhost:8000/jobs/abc123
-            # {"status": "done", "result": {...}}
-            ```
+            >>> import time
+            >>> import httpx
+            >>> job = httpx.post('http://localhost:8000/slow', json={'prompt': 'hello'}).json()
+            >>> while (status := httpx.get(job['job_url']).json())['status'] == 'pending':
+            ...     time.sleep(2)
         """
         target = t
         inputs, uploadfile_inputs, outputs = _col_names(inputs), _col_names(uploadfile_inputs), _col_names(outputs)
@@ -1680,17 +1668,11 @@ class FastAPIRouter(fastapi.APIRouter):
 
             >>> router.add_update_route(t, path='/slow-update', background=True)
 
-            ```bash
-            # submit
-            curl -X POST http://localhost:8000/slow-update \\
-              -H 'Content-Type: application/json' \\
-              -d '{"id": 1, "prompt": "hello"}'
-            # {"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
-
-            # poll
-            curl http://localhost:8000/jobs/abc123
-            # {"status": "done", "result": {...}}
-            ```
+            >>> import time
+            >>> import httpx
+            >>> job = httpx.post('http://localhost:8000/slow-update', json={'id': 1, 'prompt': 'hello'}).json()
+            >>> while (status := httpx.get(job['job_url']).json())['status'] == 'pending':
+            ...     time.sleep(2)
         """
         target = t
         inputs, outputs = _col_names(inputs), _col_names(outputs)
@@ -1846,17 +1828,11 @@ class FastAPIRouter(fastapi.APIRouter):
             ... def format_response(*, id: int, result: str) -> MyResponse:
             ...     return MyResponse(id=id, result=result.strip())
 
-            ```bash
-            # submit
-            curl -X POST http://localhost:8000/slow-update \\
-              -H 'Content-Type: application/json' \\
-              -d '{"id": 1, "text": "hello"}'
-            # {"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
-
-            # poll
-            curl http://localhost:8000/jobs/abc123
-            # {"status": "done", "result": {"id": 1, "result": "hello"}}
-            ```
+            >>> import time
+            >>> import httpx
+            >>> job = httpx.post('http://localhost:8000/slow-update', json={'id': 1, 'text': 'hello'}).json()
+            >>> while (status := httpx.get(job['job_url']).json())['status'] == 'pending':
+            ...     time.sleep(2)
         """
         target = t
         inputs, outputs = _col_names(inputs), _col_names(outputs)

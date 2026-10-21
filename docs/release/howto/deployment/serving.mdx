@@ -331,6 +331,11 @@ Poll through your application server with the same Cloud key when hosted. Cloud 
 
 Treat the job id and `job_url` as opaque: their form can change between releases.
 
+Each router with background routes has its own polling route. An application can include at most one unnamed
+router with background routes; give the others distinct names with `FastAPIRouter(name=...)`. Use the
+returned `job_url` to poll, including any prefixes added by your app or the hosted service. Regenerate client
+types when an upgrade or a router name change alters the polling routes in your OpenAPI schema.
+
 A background job runs in the memory of the service instance that accepted it. Like a synchronous request, it
 does not survive the loss of that instance. A local `pxt service` answers polls the same way a hosted service
 does:
