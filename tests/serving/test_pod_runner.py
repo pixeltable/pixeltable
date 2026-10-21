@@ -42,7 +42,7 @@ class TestPodRunner:
         router._configure_job_forwarding.assert_not_called()
 
         # a hosted pod: its IP, and the database's API key, the secret for its job ids
-        monkeypatch.setenv('PIXELTABLE_SERVE_INSTANCE_HOST', '10.0.0.7')
+        monkeypatch.setenv('PXTCLOUD_POD_IP', '10.0.0.7')
         monkeypatch.setenv('PIXELTABLE_API_KEY', 'pxt-worker-key')
         pod_runner._serve('pxt://org:db', 'app.py', 'svc', 'nested', tmp_path, fingerprint_file, '0.0.0.0', 8000, False)
         # the other pods forward polls to <pod IP>:<port>, under the service's root path
@@ -50,7 +50,7 @@ class TestPodRunner:
 
         # an IPv6 pod address gets brackets in <host>:<port>
         router.reset_mock()
-        monkeypatch.setenv('PIXELTABLE_SERVE_INSTANCE_HOST', 'fd00::7')
+        monkeypatch.setenv('PXTCLOUD_POD_IP', 'fd00::7')
         pod_runner._serve('pxt://org:db', 'app.py', 'svc', 'nested', tmp_path, fingerprint_file, '0.0.0.0', 8000, False)
         assert router._configure_job_forwarding.call_args.args[0] == '[fd00::7]:8000'
 

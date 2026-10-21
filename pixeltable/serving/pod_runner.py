@@ -126,9 +126,9 @@ def _serve(
     # poll, so both need the whole prefix the gateway stripped, base_path included
     root_path = f'/{service_name}' if base_path == '' else f'/{base_path}/{service_name}'
     # the address of this pod for the other pods of the service
-    instance_host = os.environ.get('PIXELTABLE_SERVE_INSTANCE_HOST')
-    if instance_host is not None:
-        instance_addr = f'[{instance_host}]:{port}' if ':' in instance_host else f'{instance_host}:{port}'
+    pod_ip = os.environ.get('PXTCLOUD_POD_IP')
+    if pod_ip is not None:
+        instance_addr = f'[{pod_ip}]:{port}' if ':' in pod_ip else f'{pod_ip}:{port}'
         # the pods of a service share the database's API key, the secret for their job ids
         api_key = Config.get().get_string_value('api_key')
         if api_key is None:
