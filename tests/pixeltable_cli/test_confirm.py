@@ -1,6 +1,7 @@
 """A confirmation is asked at a terminal and refused without one, naming the command that confirms it."""
 
 import io
+import json
 import sys
 
 import pytest
@@ -49,6 +50,34 @@ class TestConfirmation:
         with pytest.raises(SystemExit) as exc:
             utils.confirm_or_exit('drop table t?', force=False)
         assert exc.value.code == utils.EXIT_REFUSED
+
+    def test_a_declined_json_command_prints_a_document(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A person's no names no command to get past it, unlike a refusal without a terminal."""
+        monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: True)
+        monkeypatch.setattr(sys, 'stdin', io.StringIO('n\n'))
+        monkeypatch.setattr(utils, 'invocation', ['drop', 't', '--json'])
+        with pytest.raises(SystemExit) as exc:
+            utils.confirm_or_exit('drop table t?', force=False)
+        assert exc.value.code == utils.EXIT_REFUSED
+        captured = capsys.readouterr()
+        assert json.loads(captured.out) == {
+            'error_code': 'CONFIRMATION_DECLINED',
+            'message': 'declined: drop table t?',
+            'retryable': False,
+        }
+        assert 'next:' not in captured.err
+
+    def test_a_declined_plan_is_printed_by_its_command(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: True)
+        monkeypatch.setattr(sys, 'stdin', io.StringIO('n\n'))
+        monkeypatch.setattr(utils, 'invocation', ['schema', 'update', 'app.py', '--json'])
+        with pytest.raises(SystemExit):
+            utils.confirm_or_exit('apply 2 changes?', force=False, on_refusal=lambda: print('{"plan": "refused"}'))
+        assert capsys.readouterr().out == '{"plan": "refused"}\n'
 
 
 class TestRefusal:

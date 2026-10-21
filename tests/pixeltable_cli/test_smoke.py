@@ -1195,6 +1195,10 @@ class TestErrorsNext:
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_errs_next'), if_exists='ignore')
         t = pxt.create_table(p('cli_errs_next/t'), {'k': pxt.Int}, primary_key='k', if_exists='replace')
+        # a view's own out, which the base's out added after it shadows
+        shadow = pxt.create_view(
+            p('cli_errs_next/shadow'), t, additional_columns={'out': flaky(t.k + 10)}, if_exists='replace'
+        )
         t.add_computed_column(out=flaky(t.k), on_error='ignore')
         flag.touch()
         try:
@@ -1218,6 +1222,7 @@ class TestErrorsNext:
         r = cli('errors', p('cli_errs_next/snap'))
         assert 'k: 1' in r.stdout
         assert r.next_commands == []
+        assert 'take a new snapshot' in r.stderr
         cli('cd', p('cli_errs_next'))
         try:
             assert cli('errors', 'v').next_commands == inherited
@@ -1233,6 +1238,13 @@ class TestErrorsNext:
         assert cli('errors', p('cli_errs_next/t'), '--json').json == []
         assert cli('errors', p('cli_errs_next/v'), '--json').json == []
         assert t.order_by(t.k).select(t.out).collect()['out'] == [1, 2]
+
+        # the shadowing column is the view's, so it is recomputed there
+        r = cli('errors', p('cli_errs_next/shadow'))
+        assert r.next_commands == [['pxt', 'recompute', p('cli_errs_next/shadow'), 'out', '--errors-only', '-f']]
+        cli(*r.next_commands[0][1:])
+        assert cli('errors', p('cli_errs_next/shadow'), '--json').json == []
+        assert shadow.order_by(shadow.k).select(shadow.out).collect()['out'] == [11, 12]
 
 
 class TestDrop:
