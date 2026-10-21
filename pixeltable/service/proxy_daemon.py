@@ -141,17 +141,17 @@ def start(db: str, test_mode: bool = False) -> str:
             # serves the caller's project
             stop(db)
 
-    parent_home = Config.get().home
-    pgdata = os.environ.get('PIXELTABLE_PGDATA') or str(parent_home / 'pgdata')
     env = {
         **os.environ,
         'PIXELTABLE_HOME': str(proxy_home(db)),  # own media/tmp + port.lock
-        'PIXELTABLE_PGDATA': pgdata,  # shared postmaster
         # intentionally using the raw db name (without case-folding): Env has a fallback for legacy (case-sensitive)
         # database names.
         'PIXELTABLE_DB': db,  # own database
         'PIXELTABLE_PROXY_DAEMON': '1',  # mark this process as a proxy daemon instance
     }
+    pgdata_dir = Env.get().pgdata_dir
+    if pgdata_dir is not None:
+        env['PIXELTABLE_PGDATA'] = str(pgdata_dir)  # shared postmaster
     # The daemon outlives this call, so it must not inherit our stdio: leaving the child's stdout/stderr
     # attached to a pipe blocks the reader on EOF forever, and attached to a terminal it would spew daemon
     # output into that session. Redirect to a log file and detach into its own session so signals sent to

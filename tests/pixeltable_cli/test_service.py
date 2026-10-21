@@ -57,6 +57,7 @@ from ..conftest import SampleFileServer
 from ..utils import (
     DatabaseRoot,
     assert_image_bytes,
+    aux_db_name,
     fetch_presigned,
     free_port,
     get_audio_files,
@@ -1207,7 +1208,7 @@ class TestService:
 
         from pixeltable.service import proxy_daemon
 
-        db = 'test_handoff'
+        db = aux_db_name('handoff')
         original = Config.get().project_root
         assert original is not None
         try:
