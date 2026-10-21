@@ -1,6 +1,7 @@
 # mypy: disable-error-code="misc"
 
 
+import warnings
 from typing import TypedDict
 
 import pytest
@@ -9,7 +10,13 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 
 from ..conftest import SampleFileServer
-from ..utils import pxt_raises, rerun_on_network_error, skip_test_if_no_config, skip_test_if_not_installed
+from ..utils import (
+    pxt_raises,
+    reload_catalog,
+    rerun_on_network_error,
+    skip_test_if_no_config,
+    skip_test_if_not_installed,
+)
 
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
@@ -503,6 +510,14 @@ class TestJson:
         res = to.select(m=pxtf.json.merge({'a': 1, 'c': 2}, {'a': 'x'})).collect()
         assert res.schema['m'] == "Json[{'a': String, 'c': Int}, closed=True] | None"
         assert res['m'] == [{'a': 'x', 'c': 2}] * 2
+
+        # a closed return type is stored, so a computed column that depends on one stays valid after a reload
+        to.add_computed_column(nested=to.da.merge(pxtf.json.merge({'a': 1}, {'b': 2})))
+        reload_catalog()
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', pxt.PixeltableWarning)
+            to = pxt.get_table('json_merge_opt')
+        assert to.select(to.nested).collect()['nested'] == [{'a': 1, 'b': 2, 'c': 3}] * 2
 
         # a null operand yields null; a non-null, non-object operand raises
         tn = pxt.create_table('json_merge_err', {'a': pxt.Json | None, 'b': pxt.Json | None})

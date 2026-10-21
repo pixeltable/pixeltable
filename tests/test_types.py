@@ -2,6 +2,7 @@
 # ruff: noqa: RUF031
 
 import datetime
+import itertools
 import json
 import typing
 import uuid
@@ -385,10 +386,10 @@ class TestTypes:
                 JsonType(JsonType.TypeSchema({'c': ArrayType((None,), dtype=FLOAT32)})),
             ),
             (
-                # a key with no common supertype is left undeclared
+                # a key whose types have no other common supertype becomes untyped Json
                 JsonType(JsonType.TypeSchema({'a': StringType(), 'b': IntType()})),
                 JsonType(JsonType.TypeSchema({'a': AudioType(), 'b': IntType()})),
-                JsonType(JsonType.TypeSchema({'b': IntType()})),
+                JsonType(JsonType.TypeSchema({'a': JsonType(), 'b': IntType()})),
             ),
             (
                 # a key is required in the supertype only if both require it
@@ -426,10 +427,10 @@ class TestTypes:
                 JsonType(JsonType.TypeSchema({'a': IntType(), 'b': StringType()}, optional_keys=frozenset(('b',)))),
             ),
             (
-                # a key with no common supertype can be left undeclared only by an open supertype
+                # ... which keeps the supertype of two closed schemas closed
                 JsonType(JsonType.TypeSchema({'a': StringType(), 'b': IntType()}, closed=True)),
                 JsonType(JsonType.TypeSchema({'a': AudioType(), 'b': IntType()}, closed=True)),
-                JsonType(JsonType.TypeSchema({'b': IntType()})),
+                JsonType(JsonType.TypeSchema({'a': JsonType(), 'b': IntType()}, closed=True)),
             ),
             (
                 # a dict schema and a list schema -> default JsonType()
@@ -514,6 +515,11 @@ class TestTypes:
         for vals, expected in test_cases:
             assert ColumnType.infer_common_literal_type(vals) == expected, vals
 
+        # the order of the literals doesn't matter, even when a key's types have no common supertype
+        rows = [{'a': PIL.Image.new('RGB', (4, 4))}, {'a': 1}, {'b': 'x'}]
+        for perm in itertools.permutations(rows):
+            assert ColumnType.infer_common_literal_type(perm) == d({'a': JsonType(), 'b': StringType()}, ('a', 'b'))
+
     def test_json_is_supertype_of(self, init_env: None) -> None:
         def d(type_spec: dict[str, ColumnType], optional_keys: tuple[str, ...] = (), closed: bool = False) -> JsonType:
             return JsonType(JsonType.TypeSchema(type_spec, optional_keys=frozenset(optional_keys), closed=closed))
@@ -562,10 +568,12 @@ class TestTypes:
         assert repr(lit.col_type) == closed_repr
         assert repr(lit.col_type.opened()) == "Json[{'a': Int, 'b': Json[(Json[{'c': String}], Int)]}]"
 
-        # closedness is not stored; a loaded literal infers it again
+        # a literal stores its type opened, and infers it again when loaded
         d = lit.as_dict()
         assert 'closed' not in json.dumps(d)
         assert repr(exprs.Expr.from_dict(d).col_type) == closed_repr
+        # any other type stores closedness
+        assert ColumnType.from_dict(lit.col_type.as_dict()) == lit.col_type
 
         # a literal given an explicit type keeps it
         open_type = JsonType(JsonType.TypeSchema({'a': IntType()}))

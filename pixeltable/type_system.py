@@ -111,6 +111,10 @@ class ColumnType:
         else:
             return self.__class__(nullable=nullable)  # type: ignore[call-arg]
 
+    def opened(self) -> ColumnType:
+        """Returns this type with every dict schema in it open."""
+        return self
+
     @classmethod
     def serialize_list(cls, type_list: list[ColumnType]) -> str:
         return json.dumps([t.as_dict() for t in type_list])
@@ -1171,23 +1175,22 @@ class JsonType(ColumnType):
         return JsonType(type_schema, nullable)
 
     def opened(self) -> JsonType:
-        """Returns this type with every dict schema in it open."""
-        result = self.__opened(self)
-        assert isinstance(result, JsonType)
-        return result
-
-    @classmethod
-    def __opened(cls, col_type: ColumnType) -> ColumnType:
-        if not isinstance(col_type, JsonType) or col_type.type_schema is None:
-            return col_type
-        schema = col_type.type_schema
+        if self.type_schema is None:
+            return self
+        schema = self.type_schema
         if isinstance(schema.type_spec, dict):
-            type_spec = {k: cls.__opened(t) for k, t in schema.type_spec.items()}
+            type_spec = {k: t.opened() for k, t in schema.type_spec.items()}
             schema = JsonType.TypeSchema(type_spec, optional_keys=schema.optional_keys)
         else:
-            variadic_type = None if schema.variadic_type is None else cls.__opened(schema.variadic_type)
-            schema = JsonType.TypeSchema([cls.__opened(t) for t in schema.type_spec], variadic_type=variadic_type)
-        return JsonType(schema, nullable=col_type.nullable, pretty_print_name=col_type.pretty_print_name)
+            variadic_type = None if schema.variadic_type is None else schema.variadic_type.opened()
+            schema = JsonType.TypeSchema([t.opened() for t in schema.type_spec], variadic_type=variadic_type)
+        return JsonType(schema, nullable=self.nullable, pretty_print_name=self.pretty_print_name)
+
+    @staticmethod
+    def value_supertype(a: ColumnType, b: ColumnType) -> ColumnType:
+        """The supertype of two types of a value in a JSON schema; untyped Json if they have no other supertype."""
+        supertype = a.supertype(b)
+        return supertype if supertype is not None else JsonType(nullable=a.nullable or b.nullable)
 
     def _validate_literal(self, val: Any) -> None:
         if isinstance(val, tuple):
@@ -1361,6 +1364,13 @@ class JsonType(ColumnType):
                 return r
 
         def superschema(self, other: JsonType.TypeSchema) -> JsonType.TypeSchema | None:
+            """
+            Returns the most specific schema that is a superschema of both, or None if there is none.
+
+            For two dict schemas, a key that both declare gets the supertype of its two types (untyped Json if there
+            is none) and is required only if both require it. A key that only one declares is kept, as optional, if
+            the other is closed, and dropped if it is open. The result is closed only if both are.
+            """
             if self == other:
                 return self
 
@@ -1409,16 +1419,10 @@ class JsonType(ColumnType):
             if isinstance(self.type_spec, dict) and isinstance(other.type_spec, dict):
                 # If a key is optional in either self or other, it's optional in the supertype.
                 optional_keys = set(self.optional_keys | other.optional_keys)
-                closed = self.closed and other.closed
                 joined_dict: dict[str, ColumnType] = {}
                 for key in [*self.type_spec, *(k for k in other.type_spec if k not in self.type_spec)]:
                     if key in self.type_spec and key in other.type_spec:
-                        supertype = self.type_spec[key].supertype(other.type_spec[key])
-                        if supertype is None:
-                            # incompatible types for this key; only an open superschema can leave it undeclared
-                            closed = False
-                            continue
-                        joined_dict[key] = supertype
+                        joined_dict[key] = JsonType.value_supertype(self.type_spec[key], other.type_spec[key])
                     else:
                         # The key is declared on one side only. If the other side is open, its values may have the
                         # key with any type, so it's left undeclared; if closed, they don't have it, so it's optional.
@@ -1431,7 +1435,7 @@ class JsonType(ColumnType):
                 return JsonType.TypeSchema(
                     type_spec=joined_dict,
                     optional_keys=frozenset(k for k in joined_dict if k in optional_keys),
-                    closed=closed,
+                    closed=self.closed and other.closed,
                 )
 
             return None
@@ -1446,15 +1450,18 @@ class JsonType(ColumnType):
                 # Postgres JSONB does not necessarily preserve the dictionary key ordering. We need to separately
                 # preserve it in order to get consistent output from t.describe() and related operations.
                 type_spec_key_order = list(self.type_spec.keys())
-            return {
+            d: dict[str, Any] = {
                 'type_spec': type_spec_d,
                 'type_spec_key_order': type_spec_key_order,
                 'variadic_type': self.variadic_type.as_dict() if self.variadic_type is not None else None,
                 # there is no functional need for optional_keys to be sorted in the dict; it's purely to ensure a
                 # canonical dict representation (i.e., list(self.optional_keys) would be functionally equivalent here)
                 'optional_keys': sorted(self.optional_keys),
-                # closed is not stored: only literals have closed schemas, and they derive them again when loaded
             }
+            if self.closed:
+                # only when true, so that the stored form of an open schema is unchanged
+                d['closed'] = True
+            return d
 
         @classmethod
         def from_dict(cls, d: dict[str, Any]) -> JsonType.TypeSchema:
@@ -1475,6 +1482,7 @@ class JsonType(ColumnType):
                 type_spec=type_spec,
                 variadic_type=ColumnType.from_dict(variadic_type_d) if variadic_type_d is not None else None,
                 optional_keys=frozenset(d['optional_keys']),
+                closed=d.get('closed', False),
             )
 
 

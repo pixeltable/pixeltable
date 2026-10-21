@@ -126,9 +126,8 @@ class Column:
         if col_type is not None:
             self.col_type = col_type
         assert self.col_type is not None
-        if isinstance(self.col_type, ts.JsonType):
-            # closed schemas come from literals and aren't stored, so a column's type is open
-            self.col_type = self.col_type.opened()
+        # a column's type is open, though the type of its value expression may contain closed schemas from literals
+        self.col_type = self.col_type.opened()
 
         self.stored = stored
         self.id = col_id

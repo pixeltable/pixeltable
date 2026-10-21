@@ -406,7 +406,6 @@ def _(self: exprs.Expr, other: exprs.Expr) -> ts.ColumnType:
     # result declares only the keys whose value type is known; it is closed only if both operands are.
     type_spec: dict[str, ts.ColumnType] = {}
     optional_keys: set[str] = set()
-    closed = a.closed and b.closed
     for k in [*a.type_spec, *(k for k in b.type_spec if k not in a.type_spec)]:
         type_: ts.ColumnType | None
         if k in b.type_spec and k not in b.optional_keys:
@@ -414,7 +413,7 @@ def _(self: exprs.Expr, other: exprs.Expr) -> ts.ColumnType:
         elif k in b.type_spec:
             # other may omit the key, and then self supplies it, unless self is closed and doesn't declare it
             if k in a.type_spec:
-                type_ = a.type_spec[k].supertype(b.type_spec[k])
+                type_ = ts.JsonType.value_supertype(a.type_spec[k], b.type_spec[k])
             else:
                 type_ = b.type_spec[k] if a.closed else None
             optional = k not in a.type_spec or k in a.optional_keys
@@ -422,13 +421,13 @@ def _(self: exprs.Expr, other: exprs.Expr) -> ts.ColumnType:
             # only self declares the key, so other can override it only if other is open
             type_, optional = (a.type_spec[k] if b.closed else None), k in a.optional_keys
         if type_ is None:
-            closed = False
             continue
         type_spec[k] = type_
         if optional:
             optional_keys.add(k)
     return ts.JsonType(
-        ts.JsonType.TypeSchema(type_spec, optional_keys=frozenset(optional_keys), closed=closed), nullable=True
+        ts.JsonType.TypeSchema(type_spec, optional_keys=frozenset(optional_keys), closed=a.closed and b.closed),
+        nullable=True,
     )
 
 

@@ -1158,7 +1158,7 @@ class TableVersion:
     def _validate_altered_value_expr(self, col: Column, new_value_expr: exprs.Expr) -> None:
         """Verify that new_value_expr can replace col's current value expression."""
         assert col.is_computed
-        if new_value_expr.col_type != col.col_type:
+        if new_value_expr.col_type.opened() != col.col_type:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Column {col.name!r}: the new value expression has type `{new_value_expr.col_type}`, but the '
