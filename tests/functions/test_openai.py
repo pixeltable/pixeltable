@@ -954,7 +954,10 @@ class TestOpenaiTypedDictAdherence:
         dropped_by_sdk = {'size'} - set(sdk_fields)
         # declared by newer SDKs only, so a response from an older one lacks them
         added_by_sdk = {'safety_identifier'}  # openai>=3.33
-        assert set(ours_fields) - dropped_by_sdk - (added_by_sdk - set(sdk_fields)) == set(sdk_fields), (
+        # whether this SDK declares them comes from its raw fields, since _pydantic_fields() drops a field whose
+        # annotation it can't convert, and that must fail the comparison below
+        absent_from_sdk = added_by_sdk - set(SdkImagesResponse.model_fields)
+        assert set(ours_fields) - dropped_by_sdk - absent_from_sdk == set(sdk_fields), (
             f'ImagesResponse field set drifted: ours={set(ours_fields)} sdk={set(sdk_fields)}'
         )
         for name, sdk_type in sdk_fields.items():
