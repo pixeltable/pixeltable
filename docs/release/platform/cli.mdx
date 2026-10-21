@@ -875,6 +875,11 @@ calling process, so it is local by definition. Two verbs differ in meaning again
 a stopped service keeps its registration: `stop` stops it and leaves it there to be started again, while
 `prune` forgets it.
 
+Against a hosted database, `update` sends the services it applies in one submission, which Pixeltable Cloud accepts or
+refuses as a whole: a refusal, such as one for the plan's service count, leaves every service as it was. Once accepted,
+each service rolls out on its own, so a failed rollout of one neither stops nor undoes the others; `pxt service list`
+shows where each one is.
+
 `pxt service stop` accepts a service address in several forms. A bare name matches the services of the
 current project, or every local service when the working directory is outside a project. `my_dir/NAME`
 stops the service under `my_dir`, including one in another project, and `/NAME` stops the service at the
@@ -938,6 +943,9 @@ Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreeme
 `3` refused, `1` error. So a CI gate needs no output parsing.
 
 `pxt service diff --json-schema` prints the JSON Schema of that output.
+
+A dry run (`-n`) of `update` or `prune` leaves each operation's `status` null in `--json`, as `diff` does, where the
+`schema` verbs mark it `skipped`.
 
 ### Flags
 

@@ -77,31 +77,38 @@ class ServiceManagerProxy(ServiceManagerBase):
         return [ServiceInstance(r, self) for r in response.instances if self._serves(r, base_path, recursive)]
 
     def start(
+        self, app_file: str, name: str, base_path: str = '', *, otel: bool = False, port: int | None = None
+    ) -> ServiceInstance:
+        """start_set() for the named service alone, against the generation read here."""
+        return self.start_set(app_file, {name: None}, base_path, otel=otel, port=port)[name]
+
+    def start_set(
         self,
         app_file: str,
-        name: str,
+        expected_generations: dict[str, int | None],
         base_path: str = '',
         *,
         otel: bool = False,
         port: int | None = None,
         keep_release: bool = False,
-        expected_generation: int | None = None,
         wait: bool = True,
-    ) -> ServiceInstance:
-        """Submit the named service in app_file as the desired spec of its instance at base_path.
+    ) -> dict[str, ServiceInstance]:
+        """Submit the named services in app_file as the desired specs of their instances at base_path, in one
+        submission, which the control plane accepts or refuses as a whole.
 
         A new instance runs the release of the database's current desired generation, and so does an existing one
         unless keep_release is set, which keeps its current release. An available instance is not stopped: the
         control plane replaces its pods in place, and keeps the old ones serving until the new ones are ready.
 
         The file sets the routes, the module and tracing, and the project config the resources it declares. The other
-        resources and the description are kept from the instance's desired spec, as read with the generation the
+        resources and the description are kept from each instance's desired spec, as read with the generation the
         submission is made against.
 
-        expected_generation: the generation of the instance the caller's plan was computed against, 0 for an absent
-            one; a submission against an older one is refused. None submits against the generation read here.
-        wait: wait until the generation finishes, and raise if it fails or is superseded.
-            Otherwise the returned instance carries the generation's receipt.
+        expected_generations: by service name, the generation of the instance the caller's plan was computed against,
+            0 for an absent one; a submission against an older one is refused. None submits against the generation
+            read here.
+        wait: wait until every generation finishes, and raise for the first that fails or is superseded.
+            Otherwise each returned instance carries its generation's receipt.
         """
         if port is not None:
             raise excs.RequestError(
@@ -110,67 +117,97 @@ class ServiceManagerProxy(ServiceManagerBase):
             )
         module = load_app_module(app_file, subject='application file')
         services = services_by_name(module, app_file)
-        if name not in services:
-            defined = ', '.join(sorted(services))
-            raise excs.NotFoundError(
-                excs.ErrorCode.SERVICE_NOT_FOUND, f'{app_file} defines no service named {name!r}; it defines: {defined}'
-            )
-        exists = self.get(name, base_path) is not None if expected_generation is None else expected_generation > 0
-        declared = self._declared_resources(name, base_path)
-        mutation = ServiceMutation(
-            service_name=name,
-            base_path=base_path,
-            spec=service_spec(name, services[name], module_routers(module)),
-            app_module=module_name(app_file, subject='application file'),
-            otel=otel,
-            resources=declared,
-            pin=('keep' if keep_release else 'latest') if exists else None,
+        for name in expected_generations:
+            if name not in services:
+                defined = ', '.join(sorted(services))
+                raise excs.NotFoundError(
+                    excs.ErrorCode.SERVICE_NOT_FOUND,
+                    f'{app_file} defines no service named {name!r}; it defines: {defined}',
+                )
+        listed = (
+            {i.service_name for i in self.list(base_path)}
+            if any(expected is None for expected in expected_generations.values())
+            else set()
         )
+        exists = {
+            name: name in listed if expected is None else expected > 0
+            for name, expected in expected_generations.items()
+        }
+        declared = {name: self._declared_resources(name, base_path) for name in expected_generations}
+        routers = module_routers(module)
+        app_module = module_name(app_file, subject='application file')
+        mutations = {
+            name: ServiceMutation(
+                service_name=name,
+                base_path=base_path,
+                spec=service_spec(name, services[name], routers),
+                app_module=app_module,
+                otel=otel,
+                resources=declared[name],
+                pin=('keep' if keep_release else 'latest') if exists[name] else None,
+            )
+            for name in expected_generations
+        }
         prepared = PrepareUpdateResponse.model_validate(
-            management_client.api_call(PrepareUpdateRequest(org=self._org, db=self._db, service_mutations=[mutation]))
+            management_client.api_call(
+                PrepareUpdateRequest(org=self._org, db=self._db, service_mutations=list(mutations.values()))
+            )
         )
-        generation = prepared.generations.service(name, base_path)
-        if (generation > 0) != exists:
-            raise excs.ConcurrencyError(
-                excs.ErrorCode.CONCURRENT_MODIFICATION,
-                f'Service {name!r} was {"created" if generation > 0 else "deleted"} in '
-                f'{self.catalog_uri.uri_str} since this command read it; run the command again',
+        expected: list[ServiceGeneration] = []
+        for name, mutation in mutations.items():
+            generation = prepared.generations.service(name, base_path)
+            if (generation > 0) != exists[name]:
+                raise excs.ConcurrencyError(
+                    excs.ErrorCode.CONCURRENT_MODIFICATION,
+                    f'Service {name!r} was {"created" if generation > 0 else "deleted"} in '
+                    f'{self.catalog_uri.uri_str} since this command read it; run the command again',
+                )
+            desired = next((m for m in prepared.services if (m.service_name, m.base_path) == (name, base_path)), None)
+            if generation > 0 and desired is None:
+                raise excs.InternalError(
+                    excs.ErrorCode.INTERNAL_ERROR,
+                    f'Pixeltable Cloud reported service {name!r} at generation {generation} without its desired spec',
+                )
+            if desired is not None:
+                resources = ServiceResources(
+                    **(desired.resources.model_dump(exclude_none=True) | declared[name].model_dump(exclude_none=True))
+                )
+                mutations[name] = mutation.model_copy(
+                    update={'resources': resources, 'description': desired.description}
+                )
+            given = expected_generations[name]
+            expected.append(
+                ServiceGeneration(
+                    service_name=name, base_path=base_path, generation=generation if given is None else given
+                )
             )
-        desired = next((m for m in prepared.services if (m.service_name, m.base_path) == (name, base_path)), None)
-        if generation > 0 and desired is None:
-            raise excs.InternalError(
-                excs.ErrorCode.INTERNAL_ERROR,
-                f'Pixeltable Cloud reported service {name!r} at generation {generation} without its desired spec',
-            )
-        if desired is not None:
-            resources = ServiceResources(
-                **(desired.resources.model_dump(exclude_none=True) | declared.model_dump(exclude_none=True))
-            )
-            mutation = mutation.model_copy(update={'resources': resources, 'description': desired.description})
-        expected = ServiceGeneration(
-            service_name=name,
-            base_path=base_path,
-            generation=generation if expected_generation is None else expected_generation,
-        )
         request = SubmitUpdateRequest(
             org=self._org,
             db=self._db,
-            service_mutations=[mutation],
-            expected_generations=ExpectedGenerations(services=[expected]),
+            service_mutations=list(mutations.values()),
+            expected_generations=ExpectedGenerations(services=expected),
         )
         accepted = receipts.submit(self.catalog_uri, request)
+        by_name = {name: self._receipt_of(name, base_path, accepted) for name in mutations}
         if wait:
-            return self._settle(name, base_path, accepted)
-        submitted = self.get(name, base_path)
-        if submitted is None:
-            raise excs.InternalError(
-                excs.ErrorCode.INTERNAL_ERROR,
-                f'Service {name!r} is not in {self.catalog_uri.uri_str} after its submission',
-            )
-        submitted.record = submitted.record.model_copy(
-            update={'receipt': self._required(name, next(iter(accepted), None))}
-        )
-        return submitted
+            settled = self._await(list(by_name.values()))
+            return {
+                name: self._after(name, base_path, [self._receipt_of(name, base_path, settled)]) for name in mutations
+            }
+        submitted = {i.service_name: i for i in self.list(base_path)}
+        for name, receipt in by_name.items():
+            if name not in submitted:
+                raise excs.InternalError(
+                    excs.ErrorCode.INTERNAL_ERROR,
+                    f'Service {name!r} is not in {self.catalog_uri.uri_str} after its submission',
+                )
+            submitted[name].record = submitted[name].record.model_copy(update={'receipt': receipt})
+        return {name: submitted[name] for name in mutations}
+
+    def _receipt_of(self, name: str, base_path: str, accepted: Sequence[GenerationReceipt]) -> GenerationReceipt:
+        """The receipt of the named service's change among a submission's receipts."""
+        receipt = next((r for r in accepted if (r.service_name, r.base_path) == (name, base_path)), None)
+        return self._required(name, receipt)
 
     def _declared_resources(self, name: str, base_path: str) -> ServiceResources:
         db_config = Config.get().get_database_config(self.catalog_uri)
@@ -197,7 +234,7 @@ class ServiceManagerProxy(ServiceManagerBase):
             )
         )
         receipt = self._required(instance.service_name, restarting.receipt)
-        self._settle(instance.service_name, instance.base_path, [receipt])
+        self._after(instance.service_name, instance.base_path, self._await([receipt]))
 
     def retry(self, instance: ServiceInstance) -> ServiceInstance | None:
         """Start a new attempt of instance's current generation, which must have failed.
@@ -257,9 +294,9 @@ class ServiceManagerProxy(ServiceManagerBase):
     def _await(self, accepted: Sequence[GenerationReceipt]) -> Sequence[GenerationReceipt]:
         return receipts.await_receipts(self.catalog_uri, accepted)
 
-    def _settle(self, name: str, base_path: str, accepted: Sequence[GenerationReceipt]) -> ServiceInstance:
-        """Wait on the receipts of a change to the named instance, and return the instance afterwards."""
-        instance = self._instance_after(name, base_path, self._await(accepted))
+    def _after(self, name: str, base_path: str, settled: Sequence[GenerationReceipt]) -> ServiceInstance:
+        """The named instance after its settled change, which it must still hold."""
+        instance = self._instance_after(name, base_path, settled)
         if instance is None:
             raise excs.InternalError(
                 excs.ErrorCode.INTERNAL_ERROR, f'Service {name!r} is no longer in {self.catalog_uri.uri_str}'
