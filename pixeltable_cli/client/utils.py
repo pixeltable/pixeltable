@@ -603,6 +603,12 @@ def confirm_or_exit(prompt: str, force: bool, *, on_refusal: Callable[[], None] 
     sys.stderr.flush()
     ans = sys.stdin.readline().strip().lower()
     if ans not in ('y', 'yes'):
+        # a person said no, so no command is named to get past it
+        if on_refusal is not None:
+            on_refusal()
+        elif json_requested():
+            print_error_document('CONFIRMATION_DECLINED', f'declined: {prompt}', retryable=False)
+        _flush_stdout()
         print('aborted', file=sys.stderr)
         sys.exit(EXIT_REFUSED)
 

@@ -691,7 +691,7 @@ The command is the one you ran, with `-f` (or `--allow-destructive`) added; ever
  "next": [{"command": "pxt drop my_dir/my_table --json -f", "effect": "drop table my_dir/my_table"}]}
 ```
 
-The plan commands (`schema`, `service`, `db update`) keep printing their plan instead; `schema update`, `schema prune` and `service prune` mark the refused operations `refused`. An unknown command exits `2` and suggests the commands it may have meant, such as `pxt db logs` and `pxt service logs` for `pxt logs`.
+A person who answers anything but `y` at the prompt also gets exit `3`, and with `--json` a document with `error_code` `CONFIRMATION_DECLINED` and no `next`. The plan commands (`schema`, `service`, `db update`) keep printing their plan instead; `schema update`, `schema prune` and `service prune` mark the refused operations `refused`. An unknown command exits `2` and suggests the commands it may have meant, such as `pxt db logs` and `pxt service logs` for `pxt logs`.
 
 ## Serving
 
