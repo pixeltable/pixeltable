@@ -31,10 +31,10 @@ This page matches Pixeltable 0.7.19, Langfuse SDK 5.0.4, and `openinference-inst
 ## Install
 
 ```bash
-pip install 'pixeltable[otel]' langfuse openinference-instrumentation-openai
+pip install 'pixeltable[otel]' openai langfuse openinference-instrumentation-openai
 ```
 
-`pixeltable[otel]` installs the Pixeltable bridge, the OpenTelemetry SDK, and the OTLP exporters. Approach A uses the bridge and the OpenAI instrumentor. Approach B adds the `langfuse` package. Approach C needs `langfuse` and, optionally, the OpenAI instrumentor.
+`pixeltable[otel]` installs the Pixeltable bridge, the OpenTelemetry SDK, and the OTLP exporters. `openai` is the client that `chat_completions()` calls; neither Pixeltable nor the instrumentor installs it. Approach A uses the bridge and the OpenAI instrumentor. Approach B adds the `langfuse` package. Approach C needs `langfuse` and, optionally, the OpenAI instrumentor.
 
 ## Set the environment
 
@@ -162,6 +162,8 @@ export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic $(printf '%s' "$LANGFUSE_
 export OTEL_METRICS=false
 export OTEL_SPAN_LEVEL=debug
 ```
+
+If the database entry in `pixeltable.toml` sets `db_exporter_otlp_endpoint`, it wins over `OTEL_EXPORTER_OTLP_ENDPOINT`, so set the Langfuse endpoint on that entry instead.
 
 The app file must not call `pxt_otel.init()`: with `--otel`, that second call raises `INVALID_STATE`, and without `--otel` it records Pixeltable spans but not the FastAPI request spans.
 
