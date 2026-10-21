@@ -1,0 +1,43 @@
+name: Publish opentelemetry-instrumentation-pixeltable
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build from (branch, tag, or SHA)
+        required: true
+        default: main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: astral-sh/setup-uv@v10.3.1
+      - name: Build
+        working-directory: packages/opentelemetry-instrumentation-pixeltable
+        run: uv build --no-sources --out-dir ${{ github.workspace }}/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # a tag that leaves the package version unchanged publishes nothing
+          skip-existing: true
