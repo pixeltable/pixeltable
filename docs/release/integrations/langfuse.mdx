@@ -290,10 +290,6 @@ Each insert then produces one trace per LLM call. To group a batch under one tra
 
 Open the project in Langfuse and go to **Tracing**. Filter by trace name (`ingest-docs`), tags, or metadata (`table`). A trace shows the span tree, the prompt and completion of each generation, and token and cost totals.
 
-<Frame>
-  <img src="/images/langfuse-trace.png" alt="Pixeltable insert traced in Langfuse: operation, row, UDF and ChatCompletion spans" />
-</Frame>
-
 The public API uses Basic auth, `public_key:secret_key`:
 
 ```bash
