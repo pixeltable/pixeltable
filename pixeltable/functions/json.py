@@ -402,21 +402,34 @@ def _(self: exprs.Expr, other: exprs.Expr) -> ts.ColumnType:
     b = other.col_type.type_schema if isinstance(other.col_type, ts.JsonType) else None
     if a is None or b is None or not isinstance(a.type_spec, dict) or not isinstance(b.type_spec, dict):
         return ts.JsonType(nullable=True)
-    # Dict schemas are open, so either operand may have keys its schema doesn't declare. Since other wins, the
-    # result declares only the keys whose value type is known: those that other requires, and those that other
-    # declares as optional and self declares too (when other omits one, self supplies it).
+    # Other wins on a shared key. An open operand may have keys its schema doesn't declare, with any type, so the
+    # result declares only the keys whose value type is known; it is closed only if both operands are.
     type_spec: dict[str, ts.ColumnType] = {}
     optional_keys: set[str] = set()
-    for k, b_type in b.type_spec.items():
-        if k not in b.optional_keys:
-            type_spec[k] = b_type
-        elif k in a.type_spec:
-            supertype = a.type_spec[k].supertype(b_type)
-            if supertype is not None:
-                type_spec[k] = supertype
-                if k in a.optional_keys:
-                    optional_keys.add(k)
-    return ts.JsonType(ts.JsonType.TypeSchema(type_spec, optional_keys=frozenset(optional_keys)), nullable=True)
+    closed = a.closed and b.closed
+    for k in [*a.type_spec, *(k for k in b.type_spec if k not in a.type_spec)]:
+        type_: ts.ColumnType | None
+        if k in b.type_spec and k not in b.optional_keys:
+            type_, optional = b.type_spec[k], False
+        elif k in b.type_spec:
+            # other may omit the key, and then self supplies it, unless self is closed and doesn't declare it
+            if k in a.type_spec:
+                type_ = a.type_spec[k].supertype(b.type_spec[k])
+            else:
+                type_ = b.type_spec[k] if a.closed else None
+            optional = k not in a.type_spec or k in a.optional_keys
+        else:
+            # only self declares the key, so other can override it only if other is open
+            type_, optional = (a.type_spec[k] if b.closed else None), k in a.optional_keys
+        if type_ is None:
+            closed = False
+            continue
+        type_spec[k] = type_
+        if optional:
+            optional_keys.add(k)
+    return ts.JsonType(
+        ts.JsonType.TypeSchema(type_spec, optional_keys=frozenset(optional_keys), closed=closed), nullable=True
+    )
 
 
 # TODO: add a to_sql for merge() via jsonb ||; a jsonb literal operand binds untyped (see contains()).

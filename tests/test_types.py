@@ -99,7 +99,7 @@ class TestTypes:
             (b'ab\x03\xfe', BinaryType()),
             (PIL.Image.new('RGB', (100, 100)), ImageType(height=100, width=100, mode='RGB')),
             (np.ndarray((1, 2, 3), dtype=np.int64), ArrayType((1, 2, 3), dtype=np.dtype('int64'))),
-            ({'a': 1, 'b': '2'}, JsonType(JsonType.TypeSchema({'a': IntType(), 'b': StringType()}))),
+            ({'a': 1, 'b': '2'}, JsonType(JsonType.TypeSchema({'a': IntType(), 'b': StringType()}, closed=True))),
             (['3', 4], JsonType(JsonType.TypeSchema([StringType(), IntType()]))),
         ]
         for val, expected_type in test_cases:
@@ -490,54 +490,29 @@ class TestTypes:
                         print(t1n.supertype(t2n))
                         raise type(e)(f'Failed test case {i} with n1={n1}, n2={n2}') from e
 
-    def test_json_supertype_for_inference(self, init_env: None) -> None:
+    def test_json_literal_inference(self, init_env: None) -> None:
         def d(type_spec: dict[str, ColumnType], optional_keys: tuple[str, ...] = ()) -> JsonType:
-            return JsonType(JsonType.TypeSchema(type_spec, optional_keys=frozenset(optional_keys)))
+            return JsonType(JsonType.TypeSchema(type_spec, optional_keys=frozenset(optional_keys), closed=True))
 
-        test_cases = [
+        # literal types have closed schemas, so their common supertype keeps every key, optional where only some
+        # literals have it
+        test_cases: list[tuple[list[Any], ColumnType]] = [
+            ([{'a': 1}, {'b': 'x'}], d({'a': IntType(), 'b': StringType()}, ('a', 'b'))),
             (
-                # keys in one but not the other become optional keys in the supertype;
-                # keys in both become their supertype
-                d({'a': StringType(), 'c': ArrayType((3,), dtype=FLOAT32)}),
-                d({'b': IntType(), 'c': ArrayType((5,), dtype=FLOAT32)}),
-                d({'a': StringType(), 'b': IntType(), 'c': ArrayType((None,), dtype=FLOAT32)}, ('a', 'b')),
+                [{'a': 1, 'c': [1.0]}, {'a': 2}],
+                d({'a': IntType(), 'c': JsonType(JsonType.TypeSchema([FloatType()]))}, ('c',)),
             ),
+            # nested dicts, in a dict or in a list
+            ([{'x': {'a': 1}}, {'x': {'b': 1}}], d({'x': d({'a': IntType(), 'b': IntType()}, ('a', 'b'))})),
             (
-                # conflicting keys -> default JsonType()
-                d({'a': StringType()}),
-                d({'a': AudioType()}),
-                JsonType(),
+                [[{'a': 1}], [{'b': 1}]],
+                JsonType(JsonType.TypeSchema([d({'a': IntType(), 'b': IntType()}, ('a', 'b'))])),
             ),
-            (
-                # nested dict schemas, in a dict and in a list, also combine all their keys
-                d({'x': d({'a': IntType()})}),
-                d({'x': d({'b': IntType()})}),
-                d({'x': d({'a': IntType(), 'b': IntType()}, ('a', 'b'))}),
-            ),
-            (
-                JsonType(JsonType.TypeSchema([d({'a': IntType()})], variadic_type=d({'a': IntType()}))),
-                JsonType(JsonType.TypeSchema([d({'b': IntType()})])),
-                JsonType(
-                    JsonType.TypeSchema(
-                        [d({'a': IntType(), 'b': IntType()}, ('a', 'b'))], variadic_type=d({'a': IntType()})
-                    )
-                ),
-            ),
-            (
-                # nested scalars combine as they do outside inference
-                d({'a': IntType()}),
-                d({'a': StringType()}),
-                d({'a': JsonType()}),
-            ),
+            # values of different scalar types combine to Json
+            ([{'a': 1}, {'a': 'x'}], d({'a': JsonType()})),
         ]
-        for i, (t1, t2, expected) in enumerate(test_cases):
-            assert t1.supertype(t2, for_inference=True) == expected, i
-            assert t2.supertype(t1, for_inference=True) == expected, i
-
-        # literal inference keeps every key it sees
-        assert ColumnType.infer_common_literal_type([{'a': 1}, {'b': 'x'}]) == d(
-            {'a': IntType(), 'b': StringType()}, ('a', 'b')
-        )
+        for vals, expected in test_cases:
+            assert ColumnType.infer_common_literal_type(vals) == expected, vals
 
     def test_json_is_supertype_of(self, init_env: None) -> None:
         def d(type_spec: dict[str, ColumnType], optional_keys: tuple[str, ...] = (), closed: bool = False) -> JsonType:
@@ -580,36 +555,21 @@ class TestTypes:
             assert t1.is_supertype_of(t2, ignore_nullable=True) == expected, (i, t1, t2)
 
     def test_json_closed_literals(self, init_env: None) -> None:
-        # a literal's dict schemas are closed wherever its value has only declared keys
+        # the type of a dict literal has closed schemas, nested ones included
         lit = exprs.Expr.from_object({'a': 1, 'b': [{'c': 'x'}, 2]})
         assert isinstance(lit, exprs.Literal) and isinstance(lit.col_type, JsonType)
-        schema = lit.col_type.type_schema
-        assert schema is not None and isinstance(schema.type_spec, dict) and schema.closed
-        nested = schema.type_spec['b']
-        assert isinstance(nested, JsonType) and nested.type_schema is not None
-        assert isinstance(nested.type_schema.type_spec, list)
-        nested_dict = nested.type_schema.type_spec[0]
-        assert isinstance(nested_dict, JsonType) and nested_dict.type_schema is not None
-        assert nested_dict.type_schema.closed
+        closed_repr = "Json[{'a': Int, 'b': Json[(Json[{'c': String}, closed=True], Int)]}, closed=True]"
+        assert repr(lit.col_type) == closed_repr
+        assert repr(lit.col_type.opened()) == "Json[{'a': Int, 'b': Json[(Json[{'c': String}], Int)]}]"
 
-        # closedness is neither stored nor shown, and a literal derives it again when it is loaded
-        assert repr(lit.col_type) == "Json[{'a': Int, 'b': Json[(Json[{'c': String}], Int)]}]"
+        # closedness is not stored; a loaded literal infers it again
         d = lit.as_dict()
         assert 'closed' not in json.dumps(d)
-        loaded = exprs.Expr.from_dict(d)
-        assert loaded.col_type == lit.col_type
+        assert repr(exprs.Expr.from_dict(d).col_type) == closed_repr
 
-        # a literal given an open type stays open where its value has keys that the type doesn't declare
-        open_type = JsonType(
-            JsonType.TypeSchema({'a': IntType(), 'x': JsonType(JsonType.TypeSchema({'c': IntType()}))})
-        )
-        lit = exprs.Literal({'a': 1, 'z': 2, 'x': {'c': 3}}, col_type=open_type)
-        assert isinstance(lit.col_type, JsonType) and lit.col_type.type_schema is not None
-        schema = lit.col_type.type_schema
-        assert isinstance(schema.type_spec, dict) and not schema.closed
-        nested_dict = schema.type_spec['x']
-        assert isinstance(nested_dict, JsonType) and nested_dict.type_schema is not None
-        assert nested_dict.type_schema.closed
+        # a literal given an explicit type keeps it
+        open_type = JsonType(JsonType.TypeSchema({'a': IntType()}))
+        assert exprs.Literal({'a': 1, 'z': 2}, col_type=open_type).col_type == open_type
 
     def test_json_validate_literal(self, init_env: None) -> None:
         t = JsonType(

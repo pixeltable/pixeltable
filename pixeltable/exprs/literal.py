@@ -28,9 +28,6 @@ class Literal(Expr):
             col_type = ts.ColumnType.infer_literal_type(val)
             if col_type is None:
                 raise TypeError(f'Not a valid literal: {val}')
-        if isinstance(col_type, ts.JsonType):
-            # the value is known, so where its dicts have only declared keys, their schemas can be closed
-            col_type = col_type.closed_for(val)
         super().__init__(col_type)
         if isinstance(val, datetime.datetime):
             # Normalize the datetime to UTC: all timestamps are stored as UTC (both in the database and in literals)
@@ -148,6 +145,9 @@ class Literal(Expr):
             key_orders = iter(d['key_orders'])
             val = _apply_key_orders(val, key_orders)
             assert next(key_orders, None) is None
+        if col_type.is_json_type() and isinstance(val, (dict, list)):
+            # the stored type has no closed schemas; inferring the type from the value restores them
+            return cls(val)
         # For all other types, val should already be in the right format
         return cls(val, col_type)
 

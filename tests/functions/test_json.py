@@ -318,20 +318,26 @@ class TestJson:
         assert rs.schema['o'] == 'Json | None'  # items() never carries key/value type information
         assert {r['id']: r['o'] for r in rs} == {1: [['a', 1], ['b', 2]], 2: [], 3: None}
 
-        # values() over a typed object schema: dict schemas are open, so an object may have keys its schema doesn't
-        # declare, and the value types are unknown
+        # values() over a typed object schema: the result isn't typed by the declared value types, since an object
+        # may also have keys that its schema doesn't declare (the second row)
         tv = pxt.create_table(
             'json_values_typed',
             {
+                'id': pxt.Int,
                 'homog': pxt.Json[{'a': pxt.Int, 'b': pxt.Int}] | None,
                 'hetero': pxt.Json[{'a': pxt.Int, 'b': pxt.String}] | None,
             },
         )
-        tv.insert([{'homog': {'a': 1, 'b': 2, 'c': 'z'}, 'hetero': {'a': 1, 'b': 'x'}}])
-        rs = tv.select(homog=tv.homog.values(), hetero=tv.hetero.values()).collect()
+        tv.insert(
+            [
+                {'id': 1, 'homog': {'a': 1, 'b': 2}, 'hetero': {'a': 1, 'b': 'x'}},
+                {'id': 2, 'homog': {'a': 1, 'b': 2, 'c': 'z'}, 'hetero': None},
+            ]
+        )
+        rs = tv.select(homog=tv.homog.values(), hetero=tv.hetero.values()).order_by(tv.id).collect()
         assert rs.schema == {'homog': 'Json | None', 'hetero': 'Json | None'}
-        assert rs[0]['homog'] == [1, 2, 'z']
-        assert rs[0]['hetero'] == [1, 'x']
+        assert rs['homog'] == [[1, 2], [1, 2, 'z']]
+        assert rs['hetero'] == [[1, 'x'], None]
 
         # keys(), values() and items() are only defined for an object
         te = pxt.create_table('json_obj_err', {'j': pxt.Json | None})
@@ -488,6 +494,15 @@ class TestJson:
         res = to.select(m=to.da.merge(to.db)).collect()
         assert res.schema['m'] == "Json[{'a': Int}] | None"
         assert res['m'] == [{'a': 1, 'b': 'y', 'c': 3}, {'a': 2, 'c': 'x'}]
+
+        # A literal has a closed schema, so as the right operand it can't override the keys that only the left operand
+        # declares. The result is closed only if both operands are.
+        res = to.select(m=to.da.merge({'b': 'w'})).collect()
+        assert res.schema['m'] == "Json[{'a': Int, 'c': Int, 'b': String}] | None"
+        assert res['m'] == [{'a': 1, 'c': 3, 'b': 'w'}] * 2
+        res = to.select(m=pxtf.json.merge({'a': 1, 'c': 2}, {'a': 'x'})).collect()
+        assert res.schema['m'] == "Json[{'a': String, 'c': Int}, closed=True] | None"
+        assert res['m'] == [{'a': 'x', 'c': 2}] * 2
 
         # a null operand yields null; a non-null, non-object operand raises
         tn = pxt.create_table('json_merge_err', {'a': pxt.Json | None, 'b': pxt.Json | None})
