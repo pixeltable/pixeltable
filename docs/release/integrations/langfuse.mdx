@@ -34,7 +34,7 @@ This page matches Pixeltable 0.7.19, Langfuse SDK 5.0.4, and `openinference-inst
 pip install 'pixeltable[otel]' langfuse openinference-instrumentation-openai
 ```
 
-`pixeltable[otel]` installs the Pixeltable bridge, the OpenTelemetry SDK, and the OTLP exporters. Approach A uses the bridge and the OpenAI instrumentor. Approaches B and C use the `langfuse` package.
+`pixeltable[otel]` installs the Pixeltable bridge, the OpenTelemetry SDK, and the OTLP exporters. Approach A uses the bridge and the OpenAI instrumentor. Approach B adds the `langfuse` package. Approach C needs `langfuse` and, optionally, the OpenAI instrumentor.
 
 ## Set the environment
 
@@ -77,7 +77,7 @@ OpenAIInstrumentor().instrument()  # generation spans with model, tokens, and co
 ```
 
 <Note>
-An `init()` argument overrides the config. With the argument left unset, `endpoint` and `protocol` resolve from the database entry (`db_exporter_otlp_endpoint`, `db_exporter_otlp_protocol` in `pixeltable.toml`), then `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`, then the `[otel]` section of `~/.pixeltable/config.toml`. `headers` resolves from `OTEL_EXPORTER_OTLP_HEADERS`, then `[otel]`. Keep the Authorization value in the environment. On a hosted database, set it with `pxt secret set`. [Configuration](/platform/configuration).
+An `init()` argument overrides the config. With the argument left unset, `endpoint` and `protocol` resolve from the database entry (`db_exporter_otlp_endpoint`, `db_exporter_otlp_protocol` in `pixeltable.toml`), then `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`, then the `[otel]` section of `~/.pixeltable/config.toml`. `headers` resolves from `OTEL_EXPORTER_OTLP_HEADERS`, then `[otel]`. Build the Authorization value from environment variables, as the example does, and never write the keys into code. On a hosted database, set it with `pxt secret set`. [Configuration](/platform/configuration).
 </Note>
 
 Pixeltable spans record which operation, row, column, and UDF ran: `pxt.table`, `pxt.path`, `pxt.column`, `pxt.udf_path`, and, for a resource-pool call, `pxt.resource_pool` and `pxt.retries`. Token usage and cost are on the generation, which the OpenAI instrumentor adds. While an operation span is active, Pixeltable sets the OpenTelemetry context for that UDF call, including across its thread pools and async scheduler, so the generation nests under the UDF span. The span name is `pixeltable.udf.` plus the UDF's display name, so this column is `pixeltable.udf.chat_completions`. `pxt.udf_path` is the full path, `pixeltable.functions.openai.chat_completions`.
@@ -139,7 +139,7 @@ A script can create the same column with `create_table` and `add_computed_column
     import pixeltable.functions as pxtf
     from opentelemetry import trace
 
-    t = pxt.create_table('articles', {'id': pxt.Int, 'body': pxt.String})
+    t = pxt.create_table('articles', {'id': pxt.Int, 'body': pxt.String}, if_exists='replace')
     t.add_computed_column(
         summary=pxtf.openai.chat_completions(
             messages=[{'role': 'user', 'content': 'Summarize in one sentence: ' + t.body}],
@@ -154,7 +154,16 @@ A script can create the same column with `create_table` and `add_computed_column
   </Tab>
 </Tabs>
 
-A served app can read the same `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` values. [Tracing](/platform/cli#tracing) on `pxt service run` calls `init()` with no arguments, which also exports metrics when an endpoint is set. For Langfuse, call `init(metrics=False)` yourself.
+To trace a served app, keep `--otel` on `pxt service run` or `pxt service update` ([Tracing](/platform/cli#tracing)). It calls `pxt_otel.init()` with no arguments before it loads the app file, so configure the export in the environment, or in the matching `[otel]` keys:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT="$LANGFUSE_BASE_URL/api/public/otel"
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic $(printf '%s' "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" | base64 | tr -d '\n')"
+export OTEL_METRICS=false
+export OTEL_SPAN_LEVEL=debug
+```
+
+The app file must not call `pxt_otel.init()`: with `--otel`, that second call raises `INVALID_STATE`, and without `--otel` it records Pixeltable spans but not the FastAPI request spans.
 
 ## Use the Langfuse SDK
 
@@ -236,7 +245,7 @@ class Docs(TableModel, name='docs'):
         model='gpt-4o-mini',
     ).choices[0].message.content
     words = word_count(body)
-    title = headline(body, id)  # a column argument puts the row id on the span
+    title = headline(body, id)  # headline() adds row_id to its span metadata
 ```
 
 `pxt schema update app.py my_app` creates `my_app.docs`. In a notebook, the same assignments are `t.add_computed_column(words=word_count(t.body))` and `t.add_computed_column(title=headline(t.body, t.id))`.
@@ -266,7 +275,7 @@ langfuse.flush()
 
 `pixeltable.insert`, its row and UDF spans, the `@observe` spans, and every generation land in that trace. Each carries `table` in its metadata. The same `with` wraps `add_computed_column` when that call backfills rows already in the table.
 
-Pixeltable's own spans do not include row ids or cell values. Pass a column into a UDF, as `headline` does, to attach an id.
+Pixeltable's own spans do not include row ids or cell values. To attach an id, pass the column into a UDF and call `propagate_attributes()` inside it, as `headline()` does.
 
 ## Trace LLM calls only
 
@@ -275,7 +284,7 @@ Skip the Pixeltable bridge when the generations are enough.
 - `import langfuse.openai` before the first Pixeltable operation. The import patches `openai`, including the `AsyncOpenAI` client that `pixeltable.functions.openai` uses. Each computed-column call becomes an `OpenAI-generation` with tokens and cost.
 - Or create a Langfuse client and call `OpenAIInstrumentor().instrument()`.
 
-Each insert then produces one trace per LLM call. Wrap the insert in `start_as_current_observation`, as above, to nest those generations in one trace. That wrap also works with `langfuse.openai`.
+Each insert then produces one trace per LLM call. To group a batch under one trace, use the Langfuse SDK approach above. Without the Pixeltable bridge, a notebook or any caller with a running event loop runs the query on a worker thread that does not carry the Langfuse context.
 
 ## View the traces
 
