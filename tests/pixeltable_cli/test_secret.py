@@ -29,21 +29,22 @@ class FakeControlPlane:
 
     url: str
     received_requests: list[dict[str, Any]]
-    # the body of the answer to each operation_type; any other operation is answered with {}
-    responses: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # the answer to each operation_type, a body or a function of the request; any other operation is answered with {}
+    responses: dict[str, Any] = field(default_factory=dict)
 
 
 @pytest.fixture
 def fake_control_plane() -> Iterator[FakeControlPlane]:
     """A control plane on localhost: it remembers every request it was sent, and answers from its responses."""
     received_requests: list[dict[str, Any]] = []
-    responses: dict[str, dict[str, Any]] = {}
+    responses: dict[str, Any] = {}
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             received_requests.append(request)
-            body = json.dumps(responses.get(request['operation_type'], {})).encode()
+            answer = responses.get(request['operation_type'], {})
+            body = json.dumps(answer(request) if callable(answer) else answer).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(body)))
@@ -100,8 +101,17 @@ class TestSecret:
             fake_control_plane.received_requests.clear()
             return requests
 
-        # main runs ingest and a stopped service; dev is stopped
+        # main runs ingest, a stopped service and one whose roll failed, which may still serve; dev's tables are
+        # stopped, but its worker service runs
         instance = {'base_path': '', 'app_module': 'app', 'spec': {'name': 'ingest'}}
+        instances = {
+            'main': [
+                {**instance, 'service_name': 'ingest', 'state': 'AVAILABLE'},
+                {**instance, 'service_name': 'old', 'state': 'STOPPED'},
+                {**instance, 'service_name': 'rolled', 'state': 'FAILED'},
+            ],
+            'dev': [{**instance, 'service_name': 'worker', 'state': 'AVAILABLE'}],
+        }
         fake_control_plane.responses.update(
             {
                 'get_db': {'report': {'db': 'main', 'current': {'state': 'AVAILABLE'}}},
@@ -111,19 +121,16 @@ class TestSecret:
                         {'db': 'dev', 'current': {'state': 'STOPPED'}},
                     ]
                 },
-                'list_services': {
-                    'instances': [
-                        {**instance, 'service_name': 'ingest', 'state': 'AVAILABLE'},
-                        {**instance, 'service_name': 'old', 'state': 'STOPPED'},
-                    ]
-                },
+                'list_services': lambda request: {'instances': instances[request['db']]},
             }
         )
         # running pods read secrets only at startup, so set and delete name a restart for each
         restarts = [
             ['pxt', 'db', 'restart', 'pxt://acme:main'],
             ['pxt', 'service', 'restart', 'pxt://acme:main/ingest'],
+            ['pxt', 'service', 'restart', 'pxt://acme:main/rolled'],
         ]
+        org_restarts = [*restarts, ['pxt', 'service', 'restart', 'pxt://acme:dev/worker']]
 
         # set
         r = pxt_secret('set', 'pxt://acme:main', 'OPENAI_API_KEY=test=value', 'CUSTOM_TOKEN=custom-value', '--json')
@@ -152,8 +159,8 @@ class TestSecret:
         r = pxt_secret('set', 'pxt://acme', 'ORG_KEY=org-value')
         assert r.returncode == 0, r.stderr
         assert r.stdout.splitlines() == ['KEY      SCOPE', 'ORG_KEY  pxt://acme']
-        # an org secret reaches every database; the stopped one reads it when it starts
-        assert r.next_commands == restarts
+        # an org secret reaches every database; dev's stopped tables read it when they start
+        assert r.next_commands == org_restarts
         assert sent() == [
             {'operation_type': 'set_secret', 'org': 'acme', 'db': None, 'key': 'ORG_KEY', 'value': 'org-value'}
         ]
@@ -161,7 +168,7 @@ class TestSecret:
         # delete
         r = pxt_secret('delete', 'pxt://acme', 'OLD_KEY', 'OLD_TOKEN')
         assert r.returncode == 0, r.stderr
-        assert r.next_commands == restarts
+        assert r.next_commands == org_restarts
         assert r.stdout.splitlines() == ['KEY        SCOPE', 'OLD_KEY    pxt://acme', 'OLD_TOKEN  pxt://acme']
         assert sent() == [
             {'operation_type': 'delete_secret', 'org': 'acme', 'db': None, 'key': 'OLD_KEY'},

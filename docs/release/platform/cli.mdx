@@ -1341,7 +1341,7 @@ With `--json`, each row is an object with `key` and `scope`, plus `"overrides_or
 
 `set` and `delete` print the keys they changed as the same `KEY` and `SCOPE` rows, without `NOTE`; with `--json`, as `key` and `scope` objects. Earlier releases printed bare key names, and `--json` printed an array of strings.
 
-A running database or service uses the values from its startup. Run `pxt db restart` for the database's tables process and `pxt service restart` for each service. A database or service started afterwards reads the current value at startup. `set` and `delete` name each of these on a `next:` line, for every running database the secret reaches (one for a database secret, all of the organization's for an org secret) and every running service in it; a stopped one needs no restart.
+A running database or service uses the values from its startup. Run `pxt db restart` for the database's tables process and `pxt service restart` for each service. A database or service started afterwards reads the current value at startup. `set` and `delete` name each of these on a `next:` line, for every running database the secret reaches (one for a database secret, all of the organization's for an org secret) and every running service of those databases, including one whose database is stopped and one whose last roll failed, since it may still serve on its previous pods; a stopped one needs no restart.
 
 <Warning>
 A `[[pixeltable.database]]` entry no longer accepts `secrets`. A project config that still has
