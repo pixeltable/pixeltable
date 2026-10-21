@@ -1,9 +1,11 @@
 import json
 import os
 import pathlib
+import re
 import shutil
 import socket
 import time
+from concurrent.futures import ThreadPoolExecutor
 from textwrap import dedent
 from types import SimpleNamespace
 from typing import Any, Callable, Iterator
@@ -166,12 +168,13 @@ def get_services(cli: PxtRunner, target: str | None = None) -> dict[str, dict[st
     return {s['name']: s for s in cli(*args).json}
 
 
-def deploy(cli: PxtRunner, app: str, target: str, port: int | None = None) -> None:
+def deploy(cli: PxtRunner, app: str, target: str, port: int | None = None, schema_file: str | None = None) -> None:
     """Create the tables the models declare, then serve the file's services against them.
 
     port: the port for the file's one service; None lets the OS choose.
+    schema_file: the file with the model base, if it is not app.
     """
-    cli('schema', 'update', app, target)
+    cli('schema', 'update', app if schema_file is None else schema_file, target)
     cli('service', 'update', app, target, '-f', *([] if port is None else ['--port', str(port)]))
 
 
@@ -210,9 +213,11 @@ def assert_serving(cli: PxtRunner, app: str, target: str, *names: str) -> dict[s
         served_paths = set(served.json()['paths'])
         # the listed paths are being served, as per the docs endpoint
         assert listed_paths <= served_paths, (listed_paths, sorted(served_paths))
-        # of the internal paths, only the one that polls background jobs is exposed
+        # of the internal paths, only the routes that poll background jobs are exposed, one per router that has some
         internal_paths = [path for path in served_paths if '/_pxt/' in path]
-        assert all(path.endswith('/_pxt/jobs/{job_id}') for path in internal_paths), sorted(served_paths)
+        assert all(re.search(r'/_pxt/jobs(/[\w-]+)?/\{job_id\}$', path) for path in internal_paths), sorted(
+            served_paths
+        )
     return running
 
 
@@ -644,6 +649,112 @@ class TestService:
             config_file.write_text(config, encoding='utf-8')
             cli('service', 'stop', f'{target}/ingest', check=False)
 
+    @pytest.mark.db_roots('cloud-serving', reason='a local service runs one instance')
+    @pytest.mark.parametrize(
+        ('app_file', 'service', 'insert_paths', 'headers'),
+        [
+            ('background.py', 'jobs', ('/naps',), {}),
+            # the custom app has two routers under one prefix, and checks its header on every request to them,
+            # forwarded polls included
+            ('background_app.py', 'background_app', ('/api/naps', '/api/more-naps'), {'X-Tenant': 'acme'}),
+        ],
+        ids=['router', 'custom-app'],
+    )
+    def test_background_jobs(
+        self,
+        cli: PxtRunner,
+        apps: Callable[[str], str],
+        db_root: DatabaseRoot,
+        session_project: pathlib.Path,
+        app_file: str,
+        service: str,
+        insert_paths: tuple[str, ...],
+        headers: dict[str, str],
+    ) -> None:
+        """Every background job of a service with 2 workers finishes, also when the service restarts meanwhile."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app, target = apps(app_file), db_root.make_catalog_path('background')
+        base_path = target.removeprefix(f'{db_root.base_uri}/')
+        config_file = session_project / 'pixeltable.toml'
+        config = config_file.read_text(encoding='utf-8')
+        # 2 instances, so a poll can reach the instance that did not run the job
+        config_file.write_text(
+            f"{config}\n[pixeltable.database.services.'{base_path}/{service}']\nworkers = 2\n", encoding='utf-8'
+        )
+        # keyed by nap_id: the accepted jobs, and the results of the finished ones
+        jobs: dict[int, dict[str, Any]] = {}
+        results: dict[int, Any] = {}
+
+        def insert_path(nap_id: int) -> str:
+            # the jobs alternate between the routers
+            return insert_paths[nap_id % len(insert_paths)]
+
+        def submit(nap_id: int) -> None:
+            resp = httpx.post(
+                f'{endpoint}{insert_path(nap_id)}',
+                json={'nap_id': nap_id, 'secs': 1.0},
+                headers=headers,
+                timeout=_REQUEST_TIMEOUT,
+            )
+            # 503: the instance is at its job limit or shutting down
+            if resp.status_code != 503:
+                assert resp.status_code == 200, resp.text
+                jobs[nap_id] = resp.json()
+
+        def poll() -> None:
+            for nap_id, job in jobs.items():
+                if nap_id in results:
+                    continue
+                resp = httpx.get(job['job_url'], headers=headers, timeout=_REQUEST_TIMEOUT)
+                # 503: the instance that ran the job did not answer in time
+                if resp.status_code == 503:
+                    continue
+                assert resp.status_code == 200, resp.text
+                status = resp.json()
+                if status['status'] != 'pending':
+                    assert status['status'] == 'done', status
+                    results[nap_id] = status['result']
+
+        def await_jobs(timeout: float) -> None:
+            deadline = time.monotonic() + timeout
+            while len(results) < len(jobs):
+                assert time.monotonic() < deadline, f'{len(jobs) - len(results)} jobs unfinished after {timeout:.0f}s'
+                poll()
+                time.sleep(0.5)
+
+        try:
+            # background_app.py imports its router from background.py, which has the model base
+            deploy(cli, app, target, schema_file=apps('background.py'))
+            endpoint = assert_serving(cli, app, target, service)[service]['endpoint']
+            # a submit or a poll can reach either instance
+            for nap_id in range(40):
+                submit(nap_id)
+            await_jobs(120.0)
+            # the id is opaque to users; its first part shows that both instances ran each router's jobs, so polls
+            # were forwarded
+            for path in insert_paths:
+                instances = {job['id'].split('.')[0] for nap_id, job in jobs.items() if insert_path(nap_id) == path}
+                assert len(instances) == 2, (path, list(jobs.values()))
+
+            # submit and poll during a restart: each stopping instance refuses new jobs and drains its own
+            submitted = len(jobs)
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                restart = pool.submit(cli, 'service', 'restart', f'{target}/{service}')
+                while not restart.done():
+                    submit(len(jobs))
+                    poll()
+                    time.sleep(1.0)
+                restart.result()
+            assert len(jobs) > submitted
+            # every accepted job finished, including the ones whose instance stopped before they were polled
+            await_jobs(120.0)
+            assert results == {nap_id: {'nap_id': nap_id, 'slept': 1.0} for nap_id in jobs}
+        finally:
+            # the other tests share the session project: restore its config without the workers setting
+            config_file.write_text(config, encoding='utf-8')
+            cli('service', 'stop', f'{target}/{service}', check=False)
+
     def test_prune(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """The same prune, driven by editing the served file rather than by serving another one."""
         skip_test_if_not_installed('fastapi')
@@ -921,6 +1032,32 @@ class TestService:
         assert httpx.get(f'{endpoint}/hand-written', timeout=_REQUEST_TIMEOUT).json() == {'written': 'by hand'}
         assert _post(endpoint, '/notes', note_id=1, text='hello').status_code == 200
         assert pxt.get_table(f'{target}/notes').select().collect()['text_upper'] == ['HELLO']
+
+        # an app cannot include two unnamed routers with background routes, which would share their job route
+        unnamed_file = pathlib.Path(app).parent / 'unnamed_routers_app.py'
+        unnamed_file.write_text(
+            dedent("""
+                import fastapi
+
+                from apps.background import Naps
+                from pixeltable.serving import FastAPIRouter
+
+                first, second = FastAPIRouter(), FastAPIRouter()
+                first.add_insert_route(Naps, path='/naps', inputs=[Naps.nap_id, Naps.secs], background=True)
+                second.add_insert_route(Naps, path='/more-naps', inputs=[Naps.nap_id, Naps.secs], background=True)
+                app = fastapi.FastAPI()
+                app.include_router(first)
+                app.include_router(second)
+                """),
+            encoding='utf-8',
+        )
+        try:
+            r = cli('service', 'diff', str(unnamed_file), target, check=False)
+            assert r.returncode == 1, r.stdout
+            assert "the routers 'first', 'second' have background routes but no name" in r.stderr, r.stderr
+        finally:
+            # the other tests share the session project
+            unnamed_file.unlink()
 
     def test_custom_app_prefixed_router(
         self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
@@ -1793,7 +1930,7 @@ class TestServiceOtel:
         app = SimpleNamespace(routes=[])  # stands in for the FastAPI app, which run() counts the routes of
 
         with (
-            patch('pixeltable.serving._app.create_app', return_value=(app, {})),
+            patch('pixeltable.serving._app.create_app', return_value=(app, {}, [])),
             patch('uvicorn.run') as mock_run,
             patch('opentelemetry.instrumentation.pixeltable.init') as mock_otel_init,
             patch('opentelemetry.instrumentation.pixeltable.instrument_fastapi') as mock_instrument_fastapi,
