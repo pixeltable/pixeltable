@@ -71,7 +71,7 @@ Read failures with `table.column.errortype` and `table.column.errormsg`.
 
 ## Schema after the first `pxt schema update`
 
-Adding a column or index computes values only for that new object. Replacing a computed column recomputes it. Dropping a column deletes its data.
+Adding a column or index computes values only for that new object. Changing a computed column's expression applies to new rows; `pxt recompute` redoes the existing ones. Dropping a column deletes its data.
 
 Change the class in `app.py` and run `pxt schema update` again. Notebooks: [Iterative workflow cookbook](/howto/cookbooks/core/dev-iterative-workflow).
 
