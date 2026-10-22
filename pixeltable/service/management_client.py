@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 import http.client
+import math
 from pathlib import Path
 from typing import Any, Final, Literal
 
@@ -272,8 +273,10 @@ def api_call(request: Any, credential: Credential | None = None) -> dict[str, An
 
 
 def _retry_after(resp: requests.Response) -> float | None:
-    """Retry-After in seconds; None when absent, or given as a date, which the control plane never sends."""
+    """Retry-After in seconds; None when absent, given as a date, which the control plane never sends, or not a
+    finite wait, which JSON cannot hold."""
     try:
-        return float(resp.headers['Retry-After'])
+        seconds = float(resp.headers['Retry-After'])
     except (KeyError, ValueError):
         return None
+    return seconds if 0 <= seconds < math.inf else None

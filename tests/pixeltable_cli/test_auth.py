@@ -843,16 +843,19 @@ class TestRefusalsTheUserLifts:
 
 
 class TestRetryAfter:
-    """An outage's Retry-After reaches the --json document in seconds; a date, which is not seconds, does not."""
+    """An outage's Retry-After reaches the --json document in seconds; a date or a value that is no wait does not."""
 
-    @pytest.mark.parametrize(('retry_after', 'expected'), [('5', 5.0), ('Wed, 21 Oct 2026 07:28:00 GMT', None)])
+    @pytest.mark.parametrize(
+        ('retry_after', 'expected'),
+        [('5', 5.0), ('Wed, 21 Oct 2026 07:28:00 GMT', None), ('nan', None), ('inf', None), ('-5', None)],
+    )
     def test_retry_after(
         self, cloud_cli: PxtRunner, control_plane: ControlPlane, retry_after: str, expected: float | None
     ) -> None:
         # a 502, so the stub adds no Retry-After of its own; creating a key is not retried
         control_plane.answers['create_key'] = b'Bad Gateway'
         control_plane.status = 502
-        control_plane.headers = {'X-Pixeltable-Error-Code': 'BUSY', 'Retry-After': retry_after}
+        control_plane.headers = {'Retry-After': retry_after}
         try:
             r = cloud_cli('key', 'create', 'app', '--json', check=False)
         finally:
