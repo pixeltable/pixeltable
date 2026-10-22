@@ -112,7 +112,9 @@ class DataRow:
     # expr evaluation state; indexed by slot idx
     vals: np.ndarray  # of object
     has_val: np.ndarray  # of bool
-    excs: np.ndarray  # of object
+    # A list, not an object ndarray: a recorded exception's traceback usually references this row (through the frame
+    # that caught it), and the cyclic GC can't traverse ndarrays, so that cycle would never be collected.
+    excs: list[Exception | None]
     missing_slots: np.ndarray  # of bool; number of missing dependencies
     missing_dependents: np.ndarray  # of int16; number of missing dependents
     is_scheduled: np.ndarray  # of bool; True if this slot is scheduled for evaluation
@@ -181,7 +183,7 @@ class DataRow:
     def init(self, size: int) -> None:
         self.vals = np.full(size, None, dtype=object)
         self.has_val = np.zeros(size, dtype=bool)
-        self.excs = np.full(size, None, dtype=object)
+        self.excs = [None] * size
         self.missing_slots = np.zeros(size, dtype=bool)
         self.missing_dependents = np.zeros(size, dtype=np.int16)
         self.is_scheduled = np.zeros(size, dtype=bool)
@@ -200,7 +202,8 @@ class DataRow:
         if slot_idxs is not None:
             self.has_val[slot_idxs] = False
             self.vals[slot_idxs] = None
-            self.excs[slot_idxs] = None
+            for idx in np.arange(len(self.excs))[slot_idxs].tolist():
+                self.excs[idx] = None
             self.file_urls[slot_idxs] = None
             self.file_paths[slot_idxs] = None
         else:
@@ -238,7 +241,7 @@ class DataRow:
 
         if slot_idx is not None:
             return self.excs[slot_idx] is not None
-        return (self.excs != None).any()
+        return any(exc is not None for exc in self.excs)
 
     def get_exc(self, slot_idx: int) -> Exception | None:
         exc = self.excs[slot_idx]
@@ -246,10 +249,7 @@ class DataRow:
         return exc
 
     def get_first_exc(self) -> Exception | None:
-        mask = self.excs != None
-        if not mask.any():
-            return None
-        return self.excs[mask][0]
+        return next((exc for exc in self.excs if exc is not None), None)
 
     def set_exc(self, slot_idx: int, exc: Exception) -> None:
         if self.excs[slot_idx] is not None:
