@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import datetime
 import hashlib
 import json
 import sys
@@ -67,19 +68,22 @@ def parse_org_uri(uri: str, prog: str = 'pxt') -> str:
     return parts.org
 
 
-def add_logs_args(parser: argparse.ArgumentParser) -> None:
-    """Add the options shared by `pxt db logs` and `pxt service logs`."""
+def add_logs_args(parser: argparse.ArgumentParser, *, spans: bool = False) -> None:
+    """Add the options of `pxt db logs` and `pxt service logs`, or of the `spans` verbs when spans is set."""
     parser.add_argument('--since', default='1h', help='how far back to read: 30s, 10m, 1h, 2d (default: 1h)')
     parser.add_argument(
         '--tail',
         type=int,
         default=200,
         dest='limit',
-        help='the newest N lines in the window, at most 10000 (default: 200)',
+        help=f'the newest N {"spans" if spans else "lines"} in the window, at most 10000 (default: 200)',
     )
-    parser.add_argument(
-        '--include-health', action='store_true', dest='include_health', help='keep the GET /health probe lines'
-    )
+    if spans:
+        parser.add_argument('--trace', dest='trace_id', help='only the spans of this trace (32 lowercase hex digits)')
+    else:
+        parser.add_argument(
+            '--include-health', action='store_true', dest='include_health', help='keep the GET /health probe lines'
+        )
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
 
@@ -88,14 +92,60 @@ def print_logs(target: dict[str, str], args: argparse.Namespace) -> None:
     params = {**target, 'since': args.since, 'limit': args.limit, 'include_health': args.include_health}
     resp = get_request('/api/logs', params)
     records = resp.get('records', []) if isinstance(resp, dict) else []
+    _print_read(records, args, 'log records', lambda log_records: print('\n'.join(r['line'] for r in log_records)))
+
+
+def print_spans(target: dict[str, str], args: argparse.Namespace) -> None:
+    """Print the sampled spans of target: {'org', 'db'} names a database's pod, {'service'} names a service."""
+    params = {**target, 'since': args.since, 'limit': args.limit, 'trace_id': args.trace_id}
+    resp = get_request('/api/spans', params)
+    spans = resp.get('spans', []) if isinstance(resp, dict) else []
+    _print_read(spans, args, 'spans', _print_span_trees)
+
+
+def _print_read(
+    records: list[dict[str, Any]],
+    args: argparse.Namespace,
+    noun: str,
+    print_text: Callable[[list[dict[str, Any]]], None],
+) -> None:
+    """Print records as JSON with --json, otherwise as text, or a note that the window holds none."""
     if args.json_output:
         print(json.dumps(records))
-        return
-    if len(records) == 0:
-        print(f'No log records in the last {args.since}.')
-        return
-    for r in records:
-        print(r['line'])
+    elif len(records) == 0:
+        print(f'No {noun} in the last {args.since}.')
+    else:
+        print_text(records)
+
+
+def _print_span_trees(spans: list[dict[str, Any]]) -> None:
+    """Print spans grouped by trace, each span indented under its parent.
+
+    spans is oldest first, so the traces and the children of each span come out in the order they started.
+    """
+    traces: dict[str, list[dict[str, Any]]] = {}
+    for span in spans:
+        traces.setdefault(span['trace_id'], []).append(span)
+    for trace_id, trace_spans in traces.items():
+        print(f'trace {trace_id}')
+        span_ids = {span['span_id'] for span in trace_spans}
+        children: dict[str | None, list[dict[str, Any]]] = {}
+        for span in trace_spans:
+            # Sampling or the --since window can leave out a span's parent. Such a span is printed at depth 0.
+            parent_id = span['parent_span_id'] if span['parent_span_id'] in span_ids else None
+            children.setdefault(parent_id, []).append(span)
+        _print_span_subtree(children, None, 0)
+
+
+def _print_span_subtree(children: dict[str | None, list[dict[str, Any]]], parent_id: str | None, depth: int) -> None:
+    for span in children.get(parent_id, []):
+        start = datetime.datetime.fromtimestamp(span['start_ms'] / 1000, datetime.timezone.utc)
+        error = '  ERROR' if span['status'] == 'ERROR' else ''
+        print(
+            f'{"  " * depth}{start.isoformat(timespec="milliseconds")}  {span["duration_ms"]:.1f} ms  '
+            f'{span["name"]}{error}'
+        )
+        _print_span_subtree(children, span['span_id'], depth + 1)
 
 
 def _fmt_age(age_s: int) -> str:

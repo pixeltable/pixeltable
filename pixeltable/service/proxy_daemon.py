@@ -43,6 +43,8 @@ from .proxy_protocol import decode_body, iter_body_chunks
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
+_logger = logging.getLogger(__name__)
+
 _LOCK_NAME = 'port.lock'
 _STARTUP_TIMEOUT = 60.0  # generous: the daemon creates/migrates its db on first init
 _STOP_TIMEOUT = 10.0
@@ -351,6 +353,10 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     handled outside.
 
     test_mode: exposes the test-only endpoints and returns diagnostic detail with errors.
+
+    With an OTLP endpoint in the database's entry (db_exporter_otlp_endpoint), in OTEL_EXPORTER_OTLP_ENDPOINT, or in
+    the [otel] config section, the daemon exports telemetry there. A cloud pod skips the entry and exports to the
+    collector in the pod, at the address in OTEL_EXPORTER_OTLP_ENDPOINT.
     """
     # mark this process as a hosted-catalog server (no client-accessible local store) before the catalog inits
     os.environ['PIXELTABLE_PROXY_DAEMON'] = '1'
@@ -362,11 +368,28 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
             'The proxy daemon requires the serve dependencies (fastapi, uvicorn). '
             'Install them with: pip install pixeltable[serve]',
         ) from e
+    # inline: pixeltable.serving loads fastapi, which a client importing this module for read_port_lock() lacks
+    from pixeltable.serving._app import init_instrumentation, instrument_app
 
+    # configuration, not a flag, turns this on: a cloud pod running an older pixeltable ignores an unknown
+    # environment variable but fails on an unknown flag
+    otel_endpoint = Config.get().get_string_value('exporter_otlp_endpoint', section='otel')
+    env = Env.get()
+    otel_installed = env.is_installed_package('opentelemetry.instrumentation.pixeltable') and env.is_installed_package(
+        'opentelemetry.instrumentation.fastapi'
+    )
+    if otel_endpoint is not None and not otel_installed:
+        # the endpoint can come from an OTEL_* variable that another program set, and a missing package must not
+        # stop the daemon
+        _logger.warning('An OTLP endpoint is configured, but the daemon exports no telemetry without pixeltable[otel]')
+    otel = otel_endpoint is not None and otel_installed
+    if otel:
+        init_instrumentation()
     app = _build_app(test_mode)
 
     # eagerly create/migrate this daemon's database before announcing readiness
     _ = get_runtime().catalog
+    asgi_app = instrument_app(app) if otel else app
 
     # pixeltable log level also drives uvicorn
     log_level = logging.getLogger('pixeltable').getEffectiveLevel()
@@ -374,7 +397,7 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     # log_config=None suppresses uvicorn's own logging setup which results in closing every handler registered so far.
     # Note: at this point, uvicorn logging has already been configured by Env.
     if host is not None or port is not None:
-        uvicorn.run(app, host=host or '127.0.0.1', port=port or 8000, log_level=log_level, log_config=None)
+        uvicorn.run(asgi_app, host=host or '127.0.0.1', port=port or 8000, log_level=log_level, log_config=None)
         return
 
     config = Config.get()
@@ -394,7 +417,7 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     atexit.register(lambda: lock.unlink(missing_ok=True))
     signal.signal(signal.SIGTERM, _cleanup)
 
-    uvicorn.Server(uvicorn.Config(app, log_level=log_level, log_config=None)).run(sockets=[sock])
+    uvicorn.Server(uvicorn.Config(asgi_app, log_level=log_level, log_config=None)).run(sockets=[sock])
 
 
 def main(argv: list[str] | None = None) -> None:
