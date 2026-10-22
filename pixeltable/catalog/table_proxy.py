@@ -427,8 +427,8 @@ class TableProxy(Table):
         rows: Iterable[dict[str, Any]],
         cascade: bool = True,
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
-        return_rows: bool = False,
         if_exists: Literal['update', 'ignore'] = 'update',
+        return_rows: bool = False,
     ) -> UpdateStatus:
         bound_args = self._dispatch_args(locals())
         self._check_mutable('update')

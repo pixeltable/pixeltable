@@ -1195,8 +1195,8 @@ class LocalTable(Table):
         rows: Iterable[dict[str, Any]],
         cascade: bool = True,
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
-        return_rows: bool = False,
         if_exists: Literal['update', 'ignore'] = 'update',
+        return_rows: bool = False,
     ) -> UpdateStatus:
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
         if if_exists == 'ignore' and if_not_exists != 'insert':
