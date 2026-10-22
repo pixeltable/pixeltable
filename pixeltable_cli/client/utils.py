@@ -364,6 +364,7 @@ class RequestFailedError(Exception):
     error_code: str
     detail: str  # the reason, without the status
     as_written: bool  # the message is the control plane's reason, printed without a prefix
+    retry_after: float | None  # seconds after which resending may succeed, when the daemon knows
 
     def __init__(
         self,
@@ -375,6 +376,7 @@ class RequestFailedError(Exception):
         error_code: str = 'INTERNAL_ERROR',
         detail: str | None = None,
         as_written: bool = False,
+        retry_after: float | None = None,
     ) -> None:
         super().__init__(message)
         self.status = status
@@ -383,6 +385,7 @@ class RequestFailedError(Exception):
         self.error_code = error_code
         self.detail = detail or message
         self.as_written = as_written
+        self.retry_after = retry_after
 
     @classmethod
     def from_response(cls, e: urllib.error.HTTPError) -> 'RequestFailedError':
@@ -395,6 +398,7 @@ class RequestFailedError(Exception):
         detail = str(body.get('detail') or e.reason)
         retryable = body.get('retryable')
         error_code = body.get('error_code')
+        retry_after = body.get('retry_after')
         if not isinstance(error_code, str):
             # the daemon's HTTP layer answers an unknown route, a refused host or an oversized body with no code
             error_code = 'INTERNAL_ERROR' if e.code >= 500 else f'HTTP_{e.code}'
@@ -408,6 +412,7 @@ class RequestFailedError(Exception):
             error_code=error_code,
             detail=detail,
             as_written=as_written,
+            retry_after=retry_after if isinstance(retry_after, (int, float)) else None,
         )
 
     @property
@@ -422,7 +427,7 @@ class RequestFailedError(Exception):
 
     def report(self) -> None:
         if json_requested():
-            print_error_document(self.error_code, self.detail, retryable=self.transient)
+            print_error_document(self.error_code, self.detail, retryable=self.transient, retry_after=self.retry_after)
             sys.stdout.flush()
         print(str(self) if self.as_written else f'pxt: {self} [{self.error_code}]', file=sys.stderr)
         if self.server_tb is not None:
