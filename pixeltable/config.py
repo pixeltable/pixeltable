@@ -1038,6 +1038,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'metrics': 'Export metrics via OTLP (default: only when an OTLP endpoint is configured)',
         'logs': 'Export pixeltable logs via OTLP (default: false)',
     },
+    'parallel': {'api_key': 'Parallel API key', 'rate_limit': 'Rate limit for Parallel API requests'},
     'replicate': {'api_token': 'Replicate API token'},
     'runwayml': {'api_secret': 'RunwayML API secret'},
     'together': {
