@@ -275,6 +275,7 @@ exclude = [
 ]
 artifacts = [
     "pixeltable_cli/server/static/**",
+    "pixeltable_cli/server/embedded/**",
 ]
 
 [tool.isort]

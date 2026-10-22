@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { search } from '@/api/client'
+import { useDashboardRuntime } from '@/lib/dashboard-runtime'
 import { useDebounce } from '@/hooks/useDebounce'
 import { cn, loadExtraCatalogs } from '@/lib/utils'
 import type { SearchResults } from '@/types'
@@ -242,6 +242,8 @@ function SectionHeader({ label, count }: { label: string; count: number }) {
 // ── Main component ───────────────────────────────────────────────────────────
 
 export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
+  const runtime = useDashboardRuntime()
+  const { client: { search }, preferences } = runtime
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResults | null>(null)
   const [loading, setLoading] = useState(false)
@@ -263,7 +265,7 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
     if (!debouncedQuery.trim()) { setResults(null); return }
     setLoading(true)
     setUnavailableExpanded(false)
-    search(debouncedQuery, loadExtraCatalogs())
+    search(debouncedQuery, runtime.kind === 'embedded' ? [] : loadExtraCatalogs(preferences))
       .then(setResults)
       .catch(console.error)
       .finally(() => setLoading(false))

@@ -7,7 +7,9 @@ import {
   PanelResizeHandle,
   type ImperativePanelGroupHandle,
 } from 'react-resizable-panels'
-import { getTableMetadata, getTableData, getPipeline } from '@/api/client'
+import { useDashboardRuntime } from '@/lib/dashboard-runtime'
+import { useMediaSource } from '@/lib/use-media-source'
+import type { DashboardPreferences } from '@/lib/preferences'
 import { useDebounce } from '@/hooks/useDebounce'
 import type {
   PipelineColumn, CellError, DataRow,
@@ -77,7 +79,11 @@ const getMediaType = (colType: string): MediaType => {
 // ── Media Thumbnail (inline cell) ─────────────────────────────────────────
 
 function MediaPreview({ url, type, onExpand }: { url: string; type: MediaType; onExpand?: () => void }) {
+  const runtime = useDashboardRuntime()
   const [error, setError] = useState(false)
+  if (runtime.kind === 'embedded') return (
+    <button type="button" onClick={onExpand} className="rounded border px-2 py-1 text-xs hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring">Preview {type}</button>
+  )
 
   if (error || !url) {
     const Icon = { image: ImageIcon, video: Film, audio: Music, document: FileText }[type]
@@ -126,7 +132,7 @@ function MediaPreview({ url, type, onExpand }: { url: string; type: MediaType; o
 
 // ── Media Lightbox (table-level, with row navigation) ─────────────────────
 
-function MediaLightbox({ url, type, index, total, onClose, onPrev, onNext }: {
+function MediaLightbox({ url: source, type, index, total, onClose, onPrev, onNext }: {
   url: string; type: MediaType; index: number; total: number
   onClose: () => void; onPrev: () => void; onNext: () => void
 }) {
@@ -140,6 +146,8 @@ function MediaLightbox({ url, type, index, total, onClose, onPrev, onNext }: {
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose, onPrev, onNext])
 
+  const runtime = useDashboardRuntime()
+  const { url, error: previewError } = useMediaSource(source)
   const isPdf = /\.pdf(\?|$)/i.test(url)
 
   return (
@@ -174,9 +182,11 @@ function MediaLightbox({ url, type, index, total, onClose, onPrev, onNext }: {
 
       {/* Content */}
       <div onClick={e => e.stopPropagation()}>
-        {type === 'image' && <img src={url} alt="" className="max-h-[90vh] max-w-[90vw] rounded-lg" />}
-        {type === 'video' && <video src={url} controls autoPlay className="max-h-[85vh] max-w-[90vw] rounded-lg" />}
-        {type === 'document' && (/^https?:\/\//i.test(url) ? (
+        {runtime.kind === 'embedded' && !url && <p className="max-w-lg p-6 text-sm text-white" role={previewError ? 'alert' : 'status'}>{previewError || 'Loading media preview…'}</p>}
+        {type === 'image' && url && <img src={url} alt="" className="max-h-[90vh] max-w-[90vw] rounded-lg" />}
+        {type === 'video' && url && <video src={url} controls autoPlay className="max-h-[85vh] max-w-[90vw] rounded-lg" />}
+        {type === 'audio' && url && <audio src={url} controls />}
+        {runtime.kind === 'local' && type === 'document' && (/^https?:\/\//i.test(url) ? (
           <div className="flex flex-col items-center gap-4 bg-card rounded-lg p-10 border border-border/60">
             <FileText className="h-12 w-12 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">External documents cannot be previewed inline</p>
@@ -508,6 +518,16 @@ function Cell({ value, column, error, onMediaExpand }: { value: unknown; column:
   )
 }
 
+function GalleryMedia({ source, type, expanded = false }: { source: string; type: MediaType; expanded?: boolean }) {
+  const { url, error } = useMediaSource(source)
+  const className = `w-full h-full ${expanded ? 'object-contain' : 'object-cover'}`
+  if (!url) return <div className="h-full flex items-center justify-center p-4 text-xs text-muted-foreground" role={error ? 'alert' : 'status'}>{error || 'Loading preview…'}</div>
+  if (type === 'image') return <img src={url} alt="" className={className} />
+  if (type === 'video') return <video src={url} className={className} controls={expanded} muted={!expanded} preload="metadata" />
+  if (type === 'audio' && expanded) return <audio src={url} controls />
+  return <div className="h-full flex items-center justify-center text-muted-foreground"><FileText className="h-12 w-12" /></div>
+}
+
 // ── Gallery Card ───────────────────────────────────────────────────────────
 
 function GalleryCard({ row, columns, mediaCol, onClick }: {
@@ -526,9 +546,7 @@ function GalleryCard({ row, columns, mediaCol, onClick }: {
     )}>
       <div className="aspect-square bg-background cursor-pointer" onClick={onClick}>
         {url ? (
-          type === 'image' ? <img src={url} alt="" className="w-full h-full object-cover" /> :
-          type === 'video' ? <video src={url} className="w-full h-full object-cover" muted preload="metadata" /> :
-          <div className="w-full h-full flex items-center justify-center text-muted-foreground"><FileText className="h-12 w-12" /></div>
+          <GalleryMedia source={url} type={type} />
         ) : <div className="w-full h-full flex items-center justify-center text-muted-foreground"><ImageIcon className="h-12 w-12" /></div>}
         {hasErrors && (
           <div className="absolute top-1.5 right-1.5 flex items-center gap-1 bg-destructive/90 text-white text-[10px] font-medium rounded px-1.5 py-0.5">
@@ -800,9 +818,9 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n))
 }
 
-function loadSchemaColWidths(): SchemaColWidths {
+function loadSchemaColWidths(preferences: DashboardPreferences): SchemaColWidths {
   try {
-    const raw = localStorage.getItem(SCHEMA_COLS_STORAGE_KEY)
+    const raw = preferences.getItem(SCHEMA_COLS_STORAGE_KEY)
     if (!raw) return SCHEMA_COL_DEFAULTS
     const parsed = JSON.parse(raw) as Partial<SchemaColWidths>
     if (!parsed || typeof parsed !== 'object') return SCHEMA_COL_DEFAULTS
@@ -877,11 +895,12 @@ function ColResizeHandle({ atMin, getStartWidth, onResize, onReset }: {
 function ColumnChips({ columns, indices, tableMediaValidation, expanded, onToggle }: {
   columns: ColumnInfo[]; indices: IndexInfo[]; tableMediaValidation: 'on_read' | 'on_write'; expanded: boolean; onToggle: () => void
 }) {
+  const { preferences } = useDashboardRuntime()
   const [filter, setFilter] = useState('')
   const [expandedExpr, setExpandedExpr] = useState<string | null>(null)
-  const [colWidths, setColWidths] = useState<SchemaColWidths>(() => loadSchemaColWidths())
+  const [colWidths, setColWidths] = useState<SchemaColWidths>(() => loadSchemaColWidths(preferences))
   useEffect(() => {
-    localStorage.setItem(SCHEMA_COLS_STORAGE_KEY, JSON.stringify(colWidths))
+    preferences.setItem(SCHEMA_COLS_STORAGE_KEY, JSON.stringify(colWidths))
   }, [colWidths])
 
   const handleResize = useCallback(
@@ -1467,9 +1486,9 @@ const SCHEMA_PANEL_PAD_PX = 8
 /** Persists COLUMNS expanded (table) vs collapsed (chips) across table switches. */
 const SCHEMA_EXPANDED_KEY = 'pxt-schema-expanded'
 
-function loadSchemaExpanded(): boolean {
+function loadSchemaExpanded(preferences: DashboardPreferences): boolean {
   try {
-    return localStorage.getItem(SCHEMA_EXPANDED_KEY) !== '0'
+    return preferences.getItem(SCHEMA_EXPANDED_KEY) !== '0'
   } catch {
     return true
   }
@@ -1509,6 +1528,8 @@ function schemaHeightToPct(naturalHeight: number, groupHeight: number, padPx = 0
 }
 
 export function TableDetailView({ tablePath }: { tablePath: string }) {
+  const runtime = useDashboardRuntime()
+  const { client: { getTableMetadata, getTableData, getPipeline }, preferences } = runtime
   const navigate = useNavigate()
   // Metadata
   const [metadata, setMetadata] = useState<TableMetadata | null>(null)
@@ -1540,7 +1561,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [errorsOnly, setErrorsOnly] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
-  const [schemaExpanded, setSchemaExpanded] = useState(loadSchemaExpanded)
+  const [schemaExpanded, setSchemaExpanded] = useState(() => loadSchemaExpanded(preferences))
   const [schemaMinSize, setSchemaMinSize] = useState(SCHEMA_PANEL_MIN)
   const [schemaMaxSize, setSchemaMaxSize] = useState(SCHEMA_PANEL_ABS_MAX)
   const groupRef = useRef<ImperativePanelGroupHandle>(null)
@@ -1605,7 +1626,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
     setSchemaExpanded(prev => {
       const next = !prev
       try {
-        localStorage.setItem(SCHEMA_EXPANDED_KEY, next ? '1' : '0')
+        preferences.setItem(SCHEMA_EXPANDED_KEY, next ? '1' : '0')
       } catch { /* ignore */ }
       return next
     })
@@ -1616,7 +1637,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
   const [searchQuery, setSearchQuery] = useState('')
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const PAGE_SIZE_OPTIONS = viewMode === 'gallery' ? [12, 24, 48, 96] : [10, 25, 50, 100]
+  const PAGE_SIZE_OPTIONS = runtime.kind === 'embedded' ? (viewMode === 'gallery' ? [12, 24] : [10, 25]) : viewMode === 'gallery' ? [12, 24, 48, 96] : [10, 25, 50, 100]
   const [pageSize, setPageSize] = useState(viewMode === 'gallery' ? 24 : 25)
 
   // Fetch metadata
@@ -1834,14 +1855,14 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
         key={metadata.id}
         ref={groupRef}
         direction="vertical"
-        autoSaveId={`pxt-table-layout-${metadata.id}`}
+        autoSaveId={runtime.kind === 'local' ? `pxt-table-layout-${metadata.id}` : undefined}
         onLayout={() => {
           if (!mountedRef.current) {
             mountedRef.current = true
             return
           }
           if (fittingRef.current) return
-          localStorage.setItem(`pxt-table-layout-customized-${metadata.id}`, '1')
+          preferences.setItem(`pxt-table-layout-customized-${metadata.id}`, '1')
         }}
         className="flex-1 min-h-0"
       >
@@ -1994,10 +2015,10 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
           {/* View mode toggle (gallery/table) */}
           {mediaColumn && (
             <div className="flex bg-accent rounded-md p-0.5">
-              <button onClick={() => setViewMode('table')} className={cn('p-1 rounded', viewMode === 'table' && 'bg-card shadow-sm')} title="Table view">
+              <button onClick={() => { setViewMode('table'); if (runtime.kind === 'embedded') { setPageSize(25); setPage(0) } }} className={cn('p-1 rounded', viewMode === 'table' && 'bg-card shadow-sm')} title="Table view">
                 <Table2 className="h-3.5 w-3.5" />
               </button>
-              <button onClick={() => setViewMode('gallery')} className={cn('p-1 rounded', viewMode === 'gallery' && 'bg-card shadow-sm')} title="Gallery view">
+              <button onClick={() => { setViewMode('gallery'); if (runtime.kind === 'embedded') { setPageSize(12); setPage(0) } }} className={cn('p-1 rounded', viewMode === 'gallery' && 'bg-card shadow-sm')} title="Gallery view">
                 <Rows3 className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -2033,14 +2054,14 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
           </button>
 
           {/* CSV export */}
-          <a
+          {runtime.kind === 'local' && <a
             href={`/api/dashboard/tables/export?path=${encodeURIComponent(tablePath)}&limit=100000`}
             download
             className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
             title="Export CSV (up to 100k rows)"
           >
             <Download className="h-3.5 w-3.5" />
-          </a>
+          </a>}
 
           <div className="w-px h-4 bg-border/30" />
 
@@ -2210,11 +2231,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
             <div className="grid md:grid-cols-2 gap-4 p-4">
               {mediaColumn && filteredRows[expandedRow][mediaColumn.name] != null && (
                 <div className="aspect-square bg-background rounded overflow-hidden">
-                  {getMediaType(mediaColumn.type) === 'image' ? (
-                    <img src={filteredRows[expandedRow][mediaColumn.name] as string} alt="" className="w-full h-full object-contain" />
-                  ) : getMediaType(mediaColumn.type) === 'video' ? (
-                    <video src={filteredRows[expandedRow][mediaColumn.name] as string} controls className="w-full h-full object-contain" />
-                  ) : null}
+                  <GalleryMedia source={String(filteredRows[expandedRow][mediaColumn.name])} type={getMediaType(mediaColumn.type)} expanded />
                 </div>
               )}
               <div className="space-y-2">
